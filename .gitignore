@@ -1,0 +1,7 @@
+input_files
+output_files
+secrets
+.venv
+.snakemake
+.idea
+.pytest_cache
