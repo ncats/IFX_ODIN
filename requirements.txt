@@ -1,6 +1,6 @@
 pytest
 pytest-mock
-
+requests
 biolink-model
 jsonasobj2
 linkml_runtime

@@ -5,3 +5,4 @@ secrets
 .snakemake
 .idea
 .pytest_cache
+orphans

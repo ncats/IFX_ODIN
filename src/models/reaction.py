@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from src.use_cases.load_csvs_into_neo4j import SimpleEnum
+from src.interfaces.simple_enum import SimpleEnum
 
 
 class ReactionDirection(SimpleEnum):

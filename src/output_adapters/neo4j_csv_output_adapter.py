@@ -7,8 +7,9 @@ import csv
 from src.interfaces.merge_object import MergeObject
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.analyte import Analyte
-from src.models.gene import ProteinReactionRelationship
-from src.models.metabolite import MetaboliteGeneRelationship, MetaboliteReactionRelationship
+from src.models.protein import ProteinReactionRelationship
+from src.models.metabolite import MetaboliteProteinRelationship, MetaboliteReactionRelationship, \
+    MetaboliteChemPropsRelationship
 from src.models.metabolite_class import MetaboliteClass, MetaboliteClassRelationship
 from src.models.ontology import AnalyteOntologyRelationship
 from src.models.pathway import AnalytePathwayRelationship
@@ -64,7 +65,7 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
             if isinstance(obj, MergeObject):
                 nested_obj = obj.obj
                 field = obj.field
-                file_path = f"{self.destination_directory}/{obj.__class__.__name__}.{field}.csv"
+                file_path = f"{self.destination_directory}/{nested_obj.__class__.__name__}.{field}.csv"
 
                 if isinstance(nested_obj, Analyte):
                     if field == 'synonyms':
@@ -75,13 +76,13 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
                             list(set([syn.source for syn in nested_obj.synonyms]))
                         ]
                     if field == 'equivalent_ids':
-                        headers = ['id', 'id_equivalents', 'id_types', 'id_statuses', 'id_sources']
+                        headers = ['id', 'equivalent_ids', 'equivalent_id_types', 'equivalent_id_statuses', 'equivalent_id_sources']
                         data = [
                             nested_obj.id,
-                            [equiv.id for equiv in nested_obj.equivalent_ids],
-                            [equiv.type for equiv in nested_obj.equivalent_ids],
-                            [equiv.status for equiv in nested_obj.equivalent_ids],
-                            [equiv.source for equiv in nested_obj.equivalent_ids],
+                            list(set([equiv.id for equiv in nested_obj.equivalent_ids])),
+                            list(set([equiv.type for equiv in nested_obj.equivalent_ids])),
+                            list(set([equiv.status for equiv in nested_obj.equivalent_ids])),
+                            list(set([equiv.source for equiv in nested_obj.equivalent_ids])),
                         ]
 
             if isinstance(obj, MetaboliteClass):
@@ -100,9 +101,9 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
                 headers = ['start_id', 'end_id']
                 data = [obj.analyte.id, obj.pathway.id]
 
-            if isinstance(obj, MetaboliteGeneRelationship):
+            if isinstance(obj, MetaboliteProteinRelationship):
                 headers = ['start_id', 'end_id']
-                data = [obj.metabolite.id, obj.gene.id]
+                data = [obj.metabolite.id, obj.protein.id]
 
             if isinstance(obj, AnalyteOntologyRelationship):
                 headers = ['start_id', 'end_id']
@@ -122,11 +123,16 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
 
             if isinstance(obj, ProteinReactionRelationship):
                 headers = ['start_id', 'end_id', 'is_reviewed']
-                data = [obj.gene.id, obj.reaction.id, obj.is_reviewed]
+                data = [obj.protein.id, obj.reaction.id, obj.is_reviewed]
 
             if isinstance(obj, DatabaseDataVersionRelationship):
                 headers = ['start_id', 'end_id']
                 data = [obj.database.id, obj.data.id]
+
+            if isinstance(obj, MetaboliteChemPropsRelationship):
+                headers = ['start_id', 'end_id']
+                data = [obj.metabolite.id, obj.chem_prop.id]
+
 
             file_exists = os.path.isfile(file_path)
             with open(file_path, 'a', newline='') as csvfile:

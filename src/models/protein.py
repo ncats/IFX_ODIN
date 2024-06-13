@@ -4,12 +4,12 @@ from src.models.reaction import Reaction
 
 
 @dataclass
-class Gene(Analyte):
-    protein_type: str = ''
+class Protein(Analyte):
+    protein_type: str = None
 
 
 @dataclass
 class ProteinReactionRelationship:
-    gene: Gene
+    protein: Protein
     reaction: Reaction
     is_reviewed: bool

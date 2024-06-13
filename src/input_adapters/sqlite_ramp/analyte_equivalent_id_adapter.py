@@ -1,18 +1,24 @@
+from abc import abstractmethod, ABC
+
 from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.util.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import InputAdapter
+from src.input_adapters.sqlite_adapter import SqliteAdapter
+from src.interfaces.input_adapter import NodeInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Source as SqliteSource
 from src.interfaces.merge_object import MergeObject
 from src.models.analyte import Analyte, EquivalentId
 
 
-class AnalyteEquivalentIDAdapter(InputAdapter, SqliteAdapter):
+class AnalyteEquivalentIDAdapter(NodeInputAdapter, SqliteAdapter, ABC):
     name = "RaMP Analyte Equivalent ID Adapter"
     id_normalizer = PassthroughNormalizer()
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
+        NodeInputAdapter.__init__(self)
         SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+
+    @abstractmethod
+    def get_id_prefix(self) -> str:
+        pass
 
     def get_all(self):
         results = self.get_session().query(
@@ -21,7 +27,7 @@ class AnalyteEquivalentIDAdapter(InputAdapter, SqliteAdapter):
             SqliteSource.IDtype,
             SqliteSource.priorityHMDBStatus,
             SqliteSource.dataSource
-        ).distinct()
+        ).filter(SqliteSource.rampId.startswith(self.get_id_prefix())).distinct()
 
         analyte_dict = {}
         for row in results:
@@ -45,7 +51,18 @@ class AnalyteEquivalentIDAdapter(InputAdapter, SqliteAdapter):
         ]
         return objs
 
-    def next(self):
-        nodes = self.get_all()
-        for node in nodes:
-            yield node
+
+class MetaboliteEquivalentIDAdapter(AnalyteEquivalentIDAdapter):
+    name = "RaMP Metabolite Equivalent ID Adapter"
+    start_id_normalizer = PassthroughNormalizer()
+
+    def get_id_prefix(self) -> str:
+        return "RAMP_C"
+
+
+class ProteinEquivalentIDAdapter(AnalyteEquivalentIDAdapter):
+    name = "RaMP Protein Equivalent ID Adapter"
+    start_id_normalizer = PassthroughNormalizer()  # this should be node-norm
+
+    def get_id_prefix(self) -> str:
+        return "RAMP_G"

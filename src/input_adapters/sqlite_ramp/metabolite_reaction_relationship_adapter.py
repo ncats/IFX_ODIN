@@ -1,17 +1,18 @@
 from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.util.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import InputAdapter
+from src.input_adapters.sqlite_adapter import SqliteAdapter
+from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionToMetabolite as SqliteReactionToMetabolite
 from src.models.metabolite import Metabolite, MetaboliteReactionRelationship
 from src.models.reaction import Reaction
 
 
-class MetaboliteReactionRelationshipAdapter(InputAdapter, SqliteAdapter):
+class MetaboliteReactionRelationshipAdapter(RelationshipInputAdapter, SqliteAdapter):
     name = "RaMP Metabolite Reaction Relationship Adapter"
-    id_normalizer = PassthroughNormalizer()
+    start_id_normalizer = PassthroughNormalizer()
+    end_id_normalizer = PassthroughNormalizer()
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
+        RelationshipInputAdapter.__init__(self)
         SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
@@ -32,7 +33,3 @@ class MetaboliteReactionRelationshipAdapter(InputAdapter, SqliteAdapter):
         ]
         return relationships
 
-    def next(self):
-        relationships = self.get_all()
-        for rel in relationships:
-            yield rel

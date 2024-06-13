@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List
 
 
 @dataclass
-class AnalyteSynonym:
+class Synonym:
     term: str
     source: str
 
@@ -18,5 +18,5 @@ class EquivalentId:
 @dataclass
 class Analyte:
     id: str
-    synonyms: List[AnalyteSynonym] = field(default_factory=list)
-    equivalent_ids: [EquivalentId] = field(default_factory=list)
+    synonyms: List[Synonym] = None
+    equivalent_ids: [EquivalentId] = None

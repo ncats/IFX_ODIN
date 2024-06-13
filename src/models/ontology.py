@@ -5,8 +5,8 @@ from src.models.analyte import Analyte
 @dataclass
 class Ontology:
     id: str
-    commonName: str = ''
-    HMDBOntologyType: str = ''
+    commonName: str = None
+    HMDBOntologyType: str = None
 
 
 @dataclass

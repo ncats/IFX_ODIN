@@ -2,17 +2,17 @@ from sqlalchemy import desc
 
 from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
-from src.input_adapters.util.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import InputAdapter
+from src.input_adapters.sqlite_adapter import SqliteAdapter
+from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
 
 
-class VersionMetaAdapter(InputAdapter, SqliteAdapter):
+class VersionMetaAdapter(NodeInputAdapter, SqliteAdapter):
     name = "RaMP Metadata Adapter"
     id_normalizer = PassthroughNormalizer()
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
+        NodeInputAdapter.__init__(self)
         SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
@@ -52,7 +52,3 @@ class VersionMetaAdapter(InputAdapter, SqliteAdapter):
         ]
         return [db_version, *data_versions, *relationships]
 
-    def next(self):
-        nodes = self.get_all()
-        for node in nodes:
-            yield node
