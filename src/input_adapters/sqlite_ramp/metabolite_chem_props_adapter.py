@@ -1,17 +1,26 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from typing import List, Union
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
+from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
 from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsRelationship
 from src.input_adapters.sqlite_ramp.tables import ChemProps as SqliteChemProps
+from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
-class MetaboliteChemPropsAdapter(NodeInputAdapter, SqliteAdapter):
+class MetaboliteChemPropsAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
+    def get_audit_trail_entries(self, obj: Union[MetaboliteChemProps, MetaboliteChemPropsRelationship]) -> List[str]:
+        if isinstance(obj, MetaboliteChemProps):
+            data_version = self.get_data_version(obj.chem_data_source)
+        else:
+            data_version = self.get_data_version(obj.end_node.chem_data_source)
+        return [f"Chemical Properties from {data_version.name} ({data_version.version})"]
+
     name = "RaMP Metabolite ChemProps Adapter"
-    id_normalizer = PassthroughNormalizer()
 
     def __init__(self, sqlite_file):
         NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RelationshipInputAdapter.__init__(self)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
@@ -40,13 +49,15 @@ class MetaboliteChemPropsAdapter(NodeInputAdapter, SqliteAdapter):
                 mw=row[7],
                 monoisotop_mass=row[8],
                 common_name=row[9],
-                mol_formula=row[10]
+                mol_formula=row[10],
+                id="temp",
+                labels=[NodeLabel.MetaboliteChemProps]
             )
             chem_prop_obj.set_id()
             nodes_and_relationships.append(chem_prop_obj)
             nodes_and_relationships.append(MetaboliteChemPropsRelationship(
-                metabolite=Metabolite(id=row[0]),
-                chem_prop=chem_prop_obj
+                start_node=Metabolite(id=row[0], labels=[NodeLabel.Metabolite]),
+                end_node=chem_prop_obj,
+                labels=[RelationshipLabel.Metabolite_Has_Chem_Prop]
             ))
         return nodes_and_relationships
-

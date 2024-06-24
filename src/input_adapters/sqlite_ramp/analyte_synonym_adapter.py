@@ -1,20 +1,21 @@
 from abc import ABC, abstractmethod
+from typing import List
 
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteSynonym as SqliteAnalyteSynonym
-from src.interfaces.merge_object import MergeObject
-from src.models.analyte import Analyte, Synonym
+from src.models.analyte import Synonym
+from src.models.protein import Protein
+from src.output_adapters.generic_labels import NodeLabel
 
 
-class AnalyteSynonymAdapter(NodeInputAdapter, SqliteAdapter, ABC):
-    name = "RaMP Analyte Synonym Adapter"
-    id_normalizer = PassthroughNormalizer()
+class AnalyteSynonymAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        return [f'synonyms updated by {self.name}']
 
     def __init__(self, sqlite_file):
         NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     @abstractmethod
     def get_id_prefix(self) -> str:
@@ -35,21 +36,20 @@ class AnalyteSynonymAdapter(NodeInputAdapter, SqliteAdapter, ABC):
             else:
                 analyte_dict[ramp_id] = [row]
 
-        objs: [MergeObject] = [
-            MergeObject(
-                obj=Analyte(id=key,
-                            synonyms=[Synonym(
-                                term=row[1], source=row[2]
-                            ) for row in synonym_list]), field="synonyms"
-            )
-            for key, synonym_list in analyte_dict.items()
+        objs: [Protein] = [
+            Protein(
+                id=key,
+                synonyms=[
+                    Synonym(
+                         term=row[1], source=row[2]) for row in synonym_list],
+                labels=[NodeLabel.Analyte]
+            ) for key, synonym_list in analyte_dict.items()
         ]
         return objs
 
 
 class MetaboliteSynonymAdapter(AnalyteSynonymAdapter):
     name = "RaMP Metabolite Synonym Adapter"
-    id_normalizer = PassthroughNormalizer()
 
     def get_id_prefix(self) -> str:
         return "RAMP_C"
@@ -57,7 +57,6 @@ class MetaboliteSynonymAdapter(AnalyteSynonymAdapter):
 
 class ProteinSynonymAdapter(AnalyteSynonymAdapter):
     name = "RaMP Protein Synonym Adapter"
-    id_normalizer = PassthroughNormalizer()
 
     def get_id_prefix(self) -> str:
         return "RAMP_G"

@@ -1,19 +1,25 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from typing import List
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Catalyzed as SqliteCatalyzed
 from src.models.protein import Protein
 from src.models.metabolite import MetaboliteProteinRelationship, Metabolite
+from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
-class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, SqliteAdapter):
+class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
+    cached_audit_trail_info = None
     name = "RaMP Metabolite Protein Relationship Adapter"
-    start_id_normalizer = PassthroughNormalizer()
-    end_id_normalizer = PassthroughNormalizer()
+
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        return [
+            f"catalyzed relationship based on HMDB version: {self.get_data_version('hmdb').version}"
+        ]
 
     def __init__(self, sqlite_file):
         RelationshipInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
@@ -23,9 +29,9 @@ class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, SqliteAdapt
 
         relationships: [MetaboliteProteinRelationship] = [
             MetaboliteProteinRelationship(
-                metabolite=Metabolite(id=row[0]),
-                protein=Protein(id=row[1])
+                start_node=Metabolite(id=row[0], labels=[NodeLabel.Metabolite]),
+                end_node=Protein(id=row[1], labels=[NodeLabel.Protein]),
+                labels=[RelationshipLabel.Catalyzes]
             ) for row in results
         ]
         return relationships
-

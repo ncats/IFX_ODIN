@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from src.models.analyte import Analyte
 from src.models.metabolite_chem_props import MetaboliteChemProps
+from src.models.node import Relationship
 from src.models.protein import Protein
 from src.models.reaction import Reaction
 
@@ -11,20 +12,20 @@ class Metabolite(Analyte):
 
 
 @dataclass
-class MetaboliteProteinRelationship:
-    metabolite: Metabolite
-    protein: Protein
+class MetaboliteProteinRelationship(Relationship):
+    start_node: Metabolite
+    end_node: Protein
 
 
 @dataclass
-class MetaboliteReactionRelationship:
-    metabolite: Metabolite
-    reaction: Reaction
-    substrate_product: int
-    is_cofactor: bool
+class MetaboliteReactionRelationship(Relationship):
+    start_node: Metabolite
+    end_node: Reaction
+    substrate_product: int = None
+    is_cofactor: bool = None
 
 
 @dataclass
-class MetaboliteChemPropsRelationship:
-    metabolite: Metabolite
-    chem_prop: MetaboliteChemProps
+class MetaboliteChemPropsRelationship(Relationship):
+    start_node: Metabolite
+    end_node: MetaboliteChemProps

@@ -1,19 +1,24 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from typing import List
+
+from src.input_adapters.sqlite_ramp.analyte_adapter import AnalyteAdapter
 from src.input_adapters.sqlite_ramp.tables import (
     Analyte as SqliteAnalyte,
     Catalyzed as SqliteCatalyzed)
 from src.models.protein import Protein
+from src.output_adapters.generic_labels import NodeLabel
 
 
-class ProteinAdapter(NodeInputAdapter, SqliteAdapter):
+class ProteinAdapter(AnalyteAdapter):
     name = "RaMP Protein Adapter"
-    id_normalizer = PassthroughNormalizer()
+    cached_child_audit_trail_info = None
 
-    def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        version_info = AnalyteAdapter.get_audit_trail_entries(self, obj)
+        version_info.append(f"protein_type field based on HMDB version: {self.get_data_version('hmdb').version}")
+        return version_info
+
+    def get_source_prefix(self):
+        return 'RAMP_G'
 
     def get_all(self):
         results = (self.get_session().query(
@@ -23,6 +28,9 @@ class ProteinAdapter(NodeInputAdapter, SqliteAdapter):
                    .filter(SqliteAnalyte.type == "gene").distinct())
 
         nodes: [Protein] = [
-            Protein(id=row[0], protein_type=row[1]) for row in results
+            Protein(id=row[0], protein_type=row[1], labels=[NodeLabel.Protein, NodeLabel.Analyte]) for row in results
         ]
+
+        self.add_equivalent_ids(nodes)
+
         return nodes

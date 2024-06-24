@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from src.interfaces.simple_enum import SimpleEnum
+from src.models.node import Node, Relationship
 
 
 class ReactionDirection(SimpleEnum):
@@ -22,15 +23,13 @@ class ReactionDirection(SimpleEnum):
 
 
 @dataclass
-class ReactionClass:
-    id: str
+class ReactionClass(Node):
     level: int = None
     name: str = None
 
 
 @dataclass
-class Reaction:
-    id: str
+class Reaction(Node):
     source_id: str = None
     is_transport: bool = None
     direction: ReactionDirection = None
@@ -40,16 +39,16 @@ class Reaction:
 
 
 @dataclass
-class ReactionClassRelationship:
-    reaction: Reaction
-    ec_class: ReactionClass
+class ReactionClassRelationship(Relationship):
+    start_node: Reaction
+    end_node: ReactionClass
 
 @dataclass
-class ReactionClassParentRelationship:
-    reaction_class: ReactionClass
-    parent_class: ReactionClass
+class ReactionClassParentRelationship(Relationship):
+    start_node: ReactionClass
+    end_node: ReactionClass
 
 @dataclass
-class ReactionReactionClassRelationship:
-    reaction: Reaction
-    reaction_class: ReactionClass
+class ReactionReactionClassRelationship(Relationship):
+    start_node: Reaction
+    end_node: ReactionClass

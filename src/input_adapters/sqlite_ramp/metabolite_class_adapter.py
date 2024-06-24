@@ -1,26 +1,37 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from typing import List
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.metabolite_class import MetaboliteClass
 from src.input_adapters.sqlite_ramp.tables import MetaboliteClass as SqliteMetaboliteClass
+from src.output_adapters.generic_labels import NodeLabel
 
 
-class MetaboliteClassAdapter(NodeInputAdapter, SqliteAdapter):
+class MetaboliteClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
+    def get_audit_trail_entries(self, obj: MetaboliteClass) -> List[str]:
+        data_version = self.get_data_version(obj.source)
+        return [f"Metabolite Class from {data_version.name} ({data_version.version})"]
+
     name = "RaMP Metabolite Class Adapter"
-    id_normalizer = PassthroughNormalizer()
 
     def __init__(self, sqlite_file):
         NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
             SqliteMetaboliteClass.class_level_name,
-            SqliteMetaboliteClass.class_name
+            SqliteMetaboliteClass.class_name,
+            SqliteMetaboliteClass.source
         ).distinct().all()
 
         metabolite_classes: [MetaboliteClass] = [
-            MetaboliteClass(level=row[0], name=row[1]) for row in results
+            MetaboliteClass(
+                id=MetaboliteClass.compiled_name(row[0], row[1]),
+                level=row[0],
+                name=row[1],
+                source=row[2],
+                labels=[NodeLabel.MetaboliteClass]) for row in
+            results
         ]
         return metabolite_classes
-

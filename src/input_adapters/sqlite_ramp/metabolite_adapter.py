@@ -1,17 +1,14 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.input_adapters.sqlite_ramp.analyte_adapter import AnalyteAdapter
 from src.models.metabolite import Metabolite
 from src.input_adapters.sqlite_ramp.tables import Analyte as SqliteAnalyte
+from src.output_adapters.generic_labels import NodeLabel
 
 
-class MetaboliteAdapter(NodeInputAdapter, SqliteAdapter):
+class MetaboliteAdapter(AnalyteAdapter):
     name = "RaMP Metabolite Adapter"
-    id_normalizer = PassthroughNormalizer()
 
-    def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+    def get_source_prefix(self):
+        return 'RAMP_C'
 
     def get_all(self):
         results = self.get_session().query(
@@ -21,7 +18,9 @@ class MetaboliteAdapter(NodeInputAdapter, SqliteAdapter):
         metabolites: [Metabolite] = [
             Metabolite(
                 id=row[0],
-            ) for row in results
+                labels=[NodeLabel.Metabolite, NodeLabel.Analyte]) for row in results
         ]
-        return metabolites
 
+        self.add_equivalent_ids(metabolites)
+
+        return metabolites

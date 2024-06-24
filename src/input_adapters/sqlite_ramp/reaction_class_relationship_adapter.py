@@ -1,8 +1,11 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from typing import List
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
 from src.models.reaction import ReactionClass, ReactionClassParentRelationship
+from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
+
 
 def get_parent_ec(ec: str):
     root, grand, parent, leaf = ec.split('.')
@@ -15,14 +18,16 @@ def get_parent_ec(ec: str):
     return f'{root}.{grand}.{parent}.-'
 
 
-class ReactionClassRelationshipAdapter(RelationshipInputAdapter, SqliteAdapter):
+class ReactionClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Reaction Class Relationship Adapter"
-    start_id_normalizer = PassthroughNormalizer()
-    end_id_normalizer = PassthroughNormalizer()
+
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        data_version = self.get_data_version('rhea')
+        return [f"Reaction Class Relationship from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
         RelationshipInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
@@ -41,8 +46,9 @@ class ReactionClassRelationshipAdapter(RelationshipInputAdapter, SqliteAdapter):
 
         relationships: [ReactionClassParentRelationship] = [
             ReactionClassParentRelationship(
-                reaction_class=ReactionClass(id=pair.split('|')[0]),
-                parent_class=ReactionClass(id=pair.split('|')[1])
+                start_node=ReactionClass(id=pair.split('|')[0], labels=[NodeLabel.ReactionClass]),
+                end_node=ReactionClass(id=pair.split('|')[1], labels=[NodeLabel.ReactionClass]),
+                labels=[RelationshipLabel.ReactionClass_Has_Parent]
             ) for pair in relationship_set
         ]
         return relationships

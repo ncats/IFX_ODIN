@@ -8,9 +8,7 @@ services:
       - "7474:7474" # HTTP
       - "7687:7687" # Bolt
     volumes:
-      - neo4j_data:/data
       - ./apoc:/plugins
-      - ../output_files:/var/lib/neo4j/import
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_dbms_security_procedures_unrestricted: apoc.*

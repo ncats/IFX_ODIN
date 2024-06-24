@@ -1,17 +1,21 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
+from typing import List
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
-from src.input_adapters.sqlite_adapter import SqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.reaction import ReactionClass
+from src.output_adapters.generic_labels import NodeLabel
 
 
-class ReactionClassAdapter(NodeInputAdapter, SqliteAdapter):
+class ReactionClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Reaction Class Adapter"
-    id_normalizer = PassthroughNormalizer()
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        data_version = self.get_data_version('rhea')
+        return [f"Reaction Class from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
         NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
@@ -24,7 +28,8 @@ class ReactionClassAdapter(NodeInputAdapter, SqliteAdapter):
             ReactionClass(
                 id=row[0],
                 level=row[1],
-                name=row[2]
+                name=row[2],
+                labels=[NodeLabel.ReactionClass]
             ) for row in results
         ]
         return reaction_classes

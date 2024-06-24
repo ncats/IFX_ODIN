@@ -1,19 +1,25 @@
+from typing import List
+
 from sqlalchemy import desc
-
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
-from src.input_adapters.sqlite_adapter import SqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
 from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
+from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
-class VersionMetaAdapter(NodeInputAdapter, SqliteAdapter):
+class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Metadata Adapter"
-    id_normalizer = PassthroughNormalizer()
+
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        return [
+            f"RaMP data version: {self.get_database_version().id}"
+        ]
 
     def __init__(self, sqlite_file):
         NodeInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RelationshipInputAdapter.__init__(self)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         result = self.get_session().query(
@@ -25,7 +31,8 @@ class VersionMetaAdapter(NodeInputAdapter, SqliteAdapter):
         db_version = DatabaseVersion(
             id = result[0],
             timestamp = result[1],
-            notes= result[2]
+            notes= result[2],
+            labels=[NodeLabel.DatabaseVersion]
         )
 
         results = self.get_session().query(
@@ -40,14 +47,16 @@ class VersionMetaAdapter(NodeInputAdapter, SqliteAdapter):
                 id=row[0],
                 name=row[1],
                 url=row[2],
-                version=row[3]
+                version=row[3],
+                labels=[NodeLabel.DataVersion]
             ) for row in results
         ]
 
         relationships: [DatabaseDataVersionRelationship] = [
             DatabaseDataVersionRelationship(
-                database=db_version,
-                data=data_version
+                start_node=db_version,
+                end_node=data_version,
+                labels=[RelationshipLabel.Database_Has_Data]
             ) for data_version in data_versions
         ]
         return [db_version, *data_versions, *relationships]

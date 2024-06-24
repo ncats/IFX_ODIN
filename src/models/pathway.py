@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
 from src.models.analyte import Analyte
+from src.models.node import Node, Relationship
 
 
 @dataclass
-class Pathway:
-    id: str
+class Pathway(Node):
     source_id: str = None
     type: str = None
     category: str = None
@@ -13,6 +13,7 @@ class Pathway:
 
 
 @dataclass
-class AnalytePathwayRelationship:
-    analyte: Analyte
-    pathway: Pathway
+class AnalytePathwayRelationship(Relationship):
+    start_node: Analyte
+    end_node: Pathway
+    source: str = None

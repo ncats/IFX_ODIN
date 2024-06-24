@@ -4,20 +4,12 @@ import os
 import shutil
 import csv
 
-from src.interfaces.merge_object import MergeObject
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.analyte import Analyte
-from src.models.protein import ProteinReactionRelationship
-from src.models.metabolite import MetaboliteProteinRelationship, MetaboliteReactionRelationship, \
-    MetaboliteChemPropsRelationship
-from src.models.metabolite_class import MetaboliteClass, MetaboliteClassRelationship
-from src.models.ontology import AnalyteOntologyRelationship
-from src.models.pathway import AnalytePathwayRelationship
-from src.models.reaction import ReactionClassParentRelationship, ReactionReactionClassRelationship
-from src.models.version import DatabaseDataVersionRelationship
+from src.models.node import Relationship
 
 
-class Neo4jCsvOutputAdapter(OutputAdapter):
+class CsvOutputAdapter(OutputAdapter):
     destination_directory: str
 
     def __init__(self, destination_directory: str):
@@ -52,6 +44,13 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
     def default_headers_and_data(obj):
         headers = [field.name for field in fields(obj)]
         data = [getattr(obj, field) for field in headers]
+        if isinstance(obj, Relationship):
+            start_node = headers.index('start_node')
+            end_node = headers.index('end_node')
+            headers[start_node] = 'start_id'
+            headers[end_node] = 'end_id'
+            data[start_node] = obj.start_node.id
+            data[end_node] = obj.end_node.id
         return headers, data
 
     def store(self, objects) -> bool:
@@ -84,55 +83,6 @@ class Neo4jCsvOutputAdapter(OutputAdapter):
                             list(set([equiv.status for equiv in nested_obj.equivalent_ids])),
                             list(set([equiv.source for equiv in nested_obj.equivalent_ids])),
                         ]
-
-            if isinstance(obj, MetaboliteClass):
-                headers = ['id', 'level', 'name']
-                data = [f'{obj.level}-{obj.name}', obj.level, obj.name]
-
-            if isinstance(obj, MetaboliteClassRelationship):
-                headers = ['start_id', 'end_id', 'source']
-                data = [
-                    obj.metabolite.id,
-                    f'{obj.met_class.level}-{obj.met_class.name}',
-                    obj.source
-                ]
-
-            if isinstance(obj, AnalytePathwayRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.analyte.id, obj.pathway.id]
-
-            if isinstance(obj, MetaboliteProteinRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.metabolite.id, obj.protein.id]
-
-            if isinstance(obj, AnalyteOntologyRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.analyte.id, obj.ontology.id]
-
-            if isinstance(obj, ReactionClassParentRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.reaction_class.id, obj.parent_class.id]
-
-            if isinstance(obj, MetaboliteReactionRelationship):
-                headers = ['start_id', 'end_id', 'substrate_product', 'is_cofactor']
-                data = [obj.metabolite.id, obj.reaction.id, obj.substrate_product, obj.is_cofactor]
-
-            if isinstance(obj, ReactionReactionClassRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.reaction.id, obj.reaction_class.id]
-
-            if isinstance(obj, ProteinReactionRelationship):
-                headers = ['start_id', 'end_id', 'is_reviewed']
-                data = [obj.protein.id, obj.reaction.id, obj.is_reviewed]
-
-            if isinstance(obj, DatabaseDataVersionRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.database.id, obj.data.id]
-
-            if isinstance(obj, MetaboliteChemPropsRelationship):
-                headers = ['start_id', 'end_id']
-                data = [obj.metabolite.id, obj.chem_prop.id]
-
 
             file_exists = os.path.isfile(file_path)
             with open(file_path, 'a', newline='') as csvfile:

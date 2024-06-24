@@ -1,18 +1,22 @@
-from src.id_normalizers.passthrough_normalizer import PassthroughNormalizer
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from typing import List
+
+from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Reaction as SqliteReaction
 from src.models.reaction import Reaction, ReactionClass, ReactionReactionClassRelationship
+from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
-class ReactionReactionClassRelationshipAdapter(RelationshipInputAdapter, SqliteAdapter):
+class ReactionReactionClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Reaction Reaction Class Relationship Adapter"
-    start_id_normalizer = PassthroughNormalizer()
-    end_id_normalizer = PassthroughNormalizer()
+
+    def get_audit_trail_entries(self, obj) -> List[str]:
+        data_version = self.get_data_version('rhea')
+        return [f"Reaction to Reaction Class Association from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
         RelationshipInputAdapter.__init__(self)
-        SqliteAdapter.__init__(self, sqlite_file=sqlite_file)
+        RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):
         results = self.get_session().query(
@@ -22,8 +26,9 @@ class ReactionReactionClassRelationshipAdapter(RelationshipInputAdapter, SqliteA
 
         relationships: [ReactionReactionClassRelationship] = [
             ReactionReactionClassRelationship(
-                reaction=Reaction(id=row[0]),
-                reaction_class=ReactionClass(id=row[1])
+                start_node=Reaction(id=row[0], labels=[NodeLabel.Reaction]),
+                end_node=ReactionClass(id=row[1], labels=[NodeLabel.ReactionClass]),
+                labels=[RelationshipLabel.Reaction_Has_Class]
             ) for row in results
         ]
         return relationships

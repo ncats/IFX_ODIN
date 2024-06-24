@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
+from src.models.node import Node
 
 
 @dataclass
@@ -9,14 +10,5 @@ class Synonym:
 
 
 @dataclass
-class EquivalentId:
-    id: str
-    type: str
-    status: str
-    source: str
-
-@dataclass
-class Analyte:
-    id: str
-    synonyms: List[Synonym] = None
-    equivalent_ids: [EquivalentId] = None
+class Analyte(Node):
+    synonyms: List[Synonym] = field(default_factory=list)

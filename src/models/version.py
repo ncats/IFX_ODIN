@@ -1,22 +1,23 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-
-@dataclass
-class DatabaseVersion:
-    id: str
-    timestamp: datetime
-    notes: str
+from src.models.node import Node, Relationship
 
 
 @dataclass
-class DataVersion:
-    id: str
-    name: str
-    url: str
-    version: str
+class DatabaseVersion(Node):
+    timestamp: datetime = None
+    notes: str = None
+
 
 @dataclass
-class DatabaseDataVersionRelationship:
-    database: DatabaseVersion
-    data: DataVersion
+class DataVersion(Node):
+    name: str = None
+    url: str = None
+    version: str = None
+
+
+@dataclass
+class DatabaseDataVersionRelationship(Relationship):
+    start_node: DatabaseVersion
+    end_node: DataVersion
