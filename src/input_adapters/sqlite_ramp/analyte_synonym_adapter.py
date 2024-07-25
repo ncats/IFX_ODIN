@@ -4,12 +4,13 @@ from typing import List
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteSynonym as SqliteAnalyteSynonym
-from src.models.analyte import Synonym
+from src.models.analyte import Synonym, Analyte
+from src.models.metabolite import Metabolite
 from src.models.protein import Protein
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class AnalyteSynonymAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
+    cls = Analyte
     def get_audit_trail_entries(self, obj) -> List[str]:
         return [f'synonyms updated by {self.name}']
 
@@ -36,13 +37,12 @@ class AnalyteSynonymAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
             else:
                 analyte_dict[ramp_id] = [row]
 
-        objs: [Protein] = [
-            Protein(
+        objs: [Analyte] = [
+            self.cls(
                 id=key,
                 synonyms=[
                     Synonym(
-                         term=row[1], source=row[2]) for row in synonym_list],
-                labels=[NodeLabel.Analyte]
+                         term=row[1], source=row[2]) for row in synonym_list]
             ) for key, synonym_list in analyte_dict.items()
         ]
         return objs
@@ -50,6 +50,7 @@ class AnalyteSynonymAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
 
 class MetaboliteSynonymAdapter(AnalyteSynonymAdapter):
     name = "RaMP Metabolite Synonym Adapter"
+    cls = Metabolite
 
     def get_id_prefix(self) -> str:
         return "RAMP_C"
@@ -57,6 +58,7 @@ class MetaboliteSynonymAdapter(AnalyteSynonymAdapter):
 
 class ProteinSynonymAdapter(AnalyteSynonymAdapter):
     name = "RaMP Protein Synonym Adapter"
+    cls = Protein
 
     def get_id_prefix(self) -> str:
         return "RAMP_G"

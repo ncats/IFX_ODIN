@@ -15,7 +15,7 @@ class EquivalentId:
 @dataclass
 class Node:
     id: str
-    labels: List[Union[str, NodeLabel]]
+    labels: List[Union[str, NodeLabel]] = field(default_factory=list)
     equivalent_ids: List[EquivalentId] = field(default_factory=list)
     provenance: List[str] = field(default_factory=list)
 
@@ -28,5 +28,5 @@ class Node:
 class Relationship:
     start_node: Node
     end_node: Node
-    labels: List[RelationshipLabel]
+    labels: List[RelationshipLabel] = field(default_factory=list)
     provenance: List[str] = field(default_factory=list)

@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import Reaction as SqliteReaction
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.reaction import Reaction, ReactionDirection
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class ReactionAdapter(NodeInputAdapter, RaMPSqliteAdapter):
@@ -37,8 +36,7 @@ class ReactionAdapter(NodeInputAdapter, RaMPSqliteAdapter):
                 direction=ReactionDirection.parse(row[3]),
                 label=row[4],
                 equation=row[5],
-                html_equation=row[6],
-                labels=[NodeLabel.Reaction]
+                html_equation=row[6]
             ) for row in results
         ]
         return reactions

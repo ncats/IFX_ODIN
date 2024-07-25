@@ -36,6 +36,7 @@ class Neo4jOutputAdapter(OutputAdapter):
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
         if isinstance(obj, Node):
             if hasattr(obj, 'equivalent_ids'):
+                ret_dict['equivalent_id_count'] = len(obj.equivalent_ids) if len(obj.equivalent_ids) > 0 else None
                 ret_dict['equivalent_ids'] = self.loader.remove_none_values_from_list(
                     list(set([equiv.id for equiv in obj.equivalent_ids])))
                 ret_dict['equivalent_id_types'] = self.loader.remove_none_values_from_list(
@@ -91,8 +92,8 @@ class Neo4jOutputAdapter(OutputAdapter):
                     one_obj['start_id'] = obj.start_node.id
                     one_obj['end_id'] = obj.end_node.id
                     object_lists[obj_key] = ([one_obj], obj.labels, True,
-                                             NodeLabel.to_list(obj.start_node.labels),
-                                             NodeLabel.to_list(obj.end_node.labels))
+                                             obj.start_node.labels,
+                                             obj.end_node.labels)
                 else:
                     object_lists[obj_key] = [one_obj], obj.labels, False, None, None
 
@@ -104,9 +105,9 @@ class Neo4jOutputAdapter(OutputAdapter):
 
         with self.loader.driver.session() as session:
             object_groups = self.sort_and_convert_objects(objects)
-            for obj_list, labels, is_relationship, start_label, end_label in object_groups.values():
+            for obj_list, labels, is_relationship, start_labels, end_labels in object_groups.values():
                 if is_relationship:
-                    self.loader.load_relationship_records(session, obj_list, start_label, labels, end_label)
+                    self.loader.load_relationship_records(session, obj_list, start_labels, labels, end_labels)
                 else:
                     self.loader.load_node_records(session, obj_list, labels)
         return True

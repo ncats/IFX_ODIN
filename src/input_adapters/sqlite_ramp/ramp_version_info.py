@@ -7,7 +7,6 @@ from src.input_adapters.sqlite_ramp.tables import (
     VersionInfo as SqliteVersionInfo,
     DBVersion as SqliteDBVersion)
 from src.models.version import DatabaseVersion, DataVersion
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class RaMPVersionInfo:
@@ -24,8 +23,7 @@ class RaMPVersionInfo:
         self.db_version = DatabaseVersion(
             id = result[0],
             timestamp = result[1],
-            notes= result[2],
-            labels=[NodeLabel.DatabaseVersion]
+            notes= result[2]
         )
 
         results = session.query(
@@ -39,6 +37,5 @@ class RaMPVersionInfo:
             id=row[0],
             name=row[1],
             url=row[2],
-            version=row[3],
-            labels=[NodeLabel.DataVersion]
+            version=row[3]
         ) for row in results]

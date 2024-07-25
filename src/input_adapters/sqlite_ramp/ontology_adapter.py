@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import Ontology as SqliteOntology
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.ontology import Ontology
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class OntologyAdapter(NodeInputAdapter, RaMPSqliteAdapter):
@@ -29,8 +28,7 @@ class OntologyAdapter(NodeInputAdapter, RaMPSqliteAdapter):
             Ontology(
                 id=row[0],
                 commonName=row[1],
-                HMDBOntologyType=row[2],
-                labels=[NodeLabel.Ontology]
+                HMDBOntologyType=row[2]
             ) for row in results
         ]
         return ontologies

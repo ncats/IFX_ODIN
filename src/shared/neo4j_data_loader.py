@@ -26,12 +26,22 @@ class Neo4jDataLoader:
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
 
     def delete_all_data_and_indexes(self) -> bool:
+        batch_size = 100000
         with self.driver.session() as session:
             print("deleting nodes")
-            session.run("MATCH (n) DETACH DELETE n")
+            result = session.run("MATCH (n) RETURN count(n) as total")
+            total = result.single()["total"]
+
+            while total > 0:
+                session.run(f"MATCH (n) WITH n LIMIT {batch_size} DETACH DELETE n")
+                result = session.run("MATCH (n) RETURN count(n) as total")
+                total = result.single()["total"]
+                print(f"{total} nodes remaining")
+
             print("deleting constraints and stuff")
             session.run("CALL apoc.schema.assert({}, {})")
-            return True
+        return True
+
 
     def get_list_type(self, list):
         for item in list:
@@ -124,13 +134,23 @@ class Neo4jDataLoader:
 
     def generate_relationship_insert_query(self,
                                            example_record: dict,
-                                           start_label: NodeLabel,
-                                           rel_labels: [RelationshipLabel],
-                                           end_label: NodeLabel
+                                           start_labels: List[NodeLabel],
+                                           rel_labels: List[RelationshipLabel],
+                                           end_labels: List[NodeLabel]
                                            ):
+        start_labels = self.ensure_list(start_labels)
         rel_labels = self.ensure_list(rel_labels)
+        end_labels = self.ensure_list(end_labels)
+
+        start_labels_str = [l.value if hasattr(l, 'value') else l for l in start_labels]
+        conjugate_start_label_str = "`&`".join(start_labels_str)
+
         rel_labels_str = [l.value if hasattr(l, 'value') else l for l in rel_labels]
         conjugate_label_str = "`&`".join(rel_labels_str)
+
+        end_labels_str = [l.value if hasattr(l, 'value') else l for l in end_labels]
+        conjugate_end_label_str = "`&`".join(end_labels_str)
+
 
         forbidden_keys = ['start_id', 'end_id', 'labels']
         rel_props = [prop for prop in example_record.keys() if prop not in forbidden_keys]
@@ -140,8 +160,8 @@ class Neo4jDataLoader:
 
         query = f"""
             UNWIND $records AS relRecord
-                MATCH (source: `{start_label}` {{ id: relRecord.start_id }})
-                MATCH (target: `{end_label}` {{ id: relRecord.end_id }})
+                MATCH (source: `{conjugate_start_label_str}` {{ id: relRecord.start_id }})
+                MATCH (target: `{conjugate_end_label_str}` {{ id: relRecord.end_id }})
                 MERGE (source)-[rel: `{conjugate_label_str}`]->(target)
                 {property_str}
             """
@@ -158,18 +178,18 @@ class Neo4jDataLoader:
         session.run(query, records=records)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"\tElapsed time: {elapsed_time:.4f} seconds inserting {len(records)} nodes")
+        print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
 
     def load_node_csv(self, session: Session, csv_file: str, labels: Union[NodeLabel, List[NodeLabel]]):
         records = self.read_csv_to_list(csv_file)
         self.load_node_records(session, records, labels)
 
-    def load_relationship_records(self, session: Session, records: List[dict], start_label: NodeLabel,
+    def load_relationship_records(self, session: Session, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
-                                  end_label: NodeLabel):
+                                  end_labels: List[NodeLabel]):
         start_time = time.time()
         rel_labels = self.ensure_list(rel_labels)
-        query = self.generate_relationship_insert_query(records[0], start_label, rel_labels, end_label)
+        query = self.generate_relationship_insert_query(records[0], start_labels, rel_labels, end_labels)
         print(query)
         session.run(query, records=records)
         end_time = time.time()

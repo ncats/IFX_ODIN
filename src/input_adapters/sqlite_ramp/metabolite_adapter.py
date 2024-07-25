@@ -1,7 +1,6 @@
 from src.input_adapters.sqlite_ramp.analyte_adapter import AnalyteAdapter
 from src.models.metabolite import Metabolite
 from src.input_adapters.sqlite_ramp.tables import Analyte as SqliteAnalyte
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class MetaboliteAdapter(AnalyteAdapter):
@@ -17,8 +16,8 @@ class MetaboliteAdapter(AnalyteAdapter):
 
         metabolites: [Metabolite] = [
             Metabolite(
-                id=row[0],
-                labels=[NodeLabel.Metabolite, NodeLabel.Analyte]) for row in results
+                id=row[0]
+            ) for row in results
         ]
 
         self.add_equivalent_ids(metabolites)

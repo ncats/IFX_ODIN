@@ -5,7 +5,6 @@ from src.input_adapters.sqlite_ramp.tables import (
     Analyte as SqliteAnalyte,
     Catalyzed as SqliteCatalyzed)
 from src.models.protein import Protein
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class ProteinAdapter(AnalyteAdapter):
@@ -28,7 +27,7 @@ class ProteinAdapter(AnalyteAdapter):
                    .filter(SqliteAnalyte.type == "gene").distinct())
 
         nodes: [Protein] = [
-            Protein(id=row[0], protein_type=row[1], labels=[NodeLabel.Protein, NodeLabel.Analyte]) for row in results
+            Protein(id=row[0], protein_type=row[1]) for row in results
         ]
 
         self.add_equivalent_ids(nodes)

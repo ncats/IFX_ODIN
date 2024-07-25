@@ -103,5 +103,5 @@ class RelationshipInputAdapter(InputAdapter, ABC):
                     rel_copy.start_node.id = start_node.id
                     rel_copy.end_node.id = end_node.id
                     return_entries.append(rel_copy)
-        print(f"prepared {len(return_entries)} relationship records to insert")
+        print(f"prepared {len(return_entries)} relationship records to merge")
         return return_entries

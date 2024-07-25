@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
 from src.models.reaction import ReactionClass, ReactionClassParentRelationship
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 def get_parent_ec(ec: str):
@@ -46,9 +45,8 @@ class ReactionClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapt
 
         relationships: [ReactionClassParentRelationship] = [
             ReactionClassParentRelationship(
-                start_node=ReactionClass(id=pair.split('|')[0], labels=[NodeLabel.ReactionClass]),
-                end_node=ReactionClass(id=pair.split('|')[1], labels=[NodeLabel.ReactionClass]),
-                labels=[RelationshipLabel.ReactionClass_Has_Parent]
+                start_node=ReactionClass(id=pair.split('|')[0]),
+                end_node=ReactionClass(id=pair.split('|')[1])
             ) for pair in relationship_set
         ]
         return relationships

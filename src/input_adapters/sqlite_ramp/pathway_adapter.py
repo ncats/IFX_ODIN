@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Pathway as SqlitePathway
 from src.models.pathway import Pathway
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class PathwayAdapter(NodeInputAdapter, RaMPSqliteAdapter):
@@ -33,8 +32,7 @@ class PathwayAdapter(NodeInputAdapter, RaMPSqliteAdapter):
                 source_id=row[1],
                 type=row[2],
                 category=row[3],
-                name=row[4],
-                labels=[NodeLabel.Pathway]
+                name=row[4]
             ) for row in results
         ]
         return pathways
