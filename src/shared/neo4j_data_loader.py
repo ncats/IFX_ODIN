@@ -26,7 +26,7 @@ class Neo4jDataLoader:
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
 
     def delete_all_data_and_indexes(self) -> bool:
-        batch_size = 100000
+        batch_size = 50000
         with self.driver.session() as session:
             print("deleting nodes")
             result = session.run("MATCH (n) RETURN count(n) as total")
@@ -77,7 +77,7 @@ class Neo4jDataLoader:
         print(f"loading {csv_file}")
         records = []
         with open(f"{self.base_path}{csv_file}") as csvfile:
-            reader: dict = csv.DictReader(csvfile)
+            reader: csv.DictReader = csv.DictReader(csvfile)
             for row in reader:
                 for key, value in row.items():
                     row[key] = self.parse_and_clean_string_value(value)
@@ -93,7 +93,11 @@ class Neo4jDataLoader:
         return False
 
     def add_index(self, session: Session, label: NodeLabel, field: str):
-        index_name = f"{label}_{field}_index".lower().replace(':', '_')
+        index_name = (f"{label}_{field}_index".lower()
+                      .replace(':', '_')
+                      .replace(' ', '_')
+                      .replace('-', '_')
+                      )
         if not self.index_exists(session, index_name):
             session.run(f"CREATE INDEX {index_name} FOR (n:`{label}`) ON (n.{field})")
 
@@ -102,9 +106,13 @@ class Neo4jDataLoader:
             return [possible_list]
         return possible_list
 
-    def generate_node_insert_query(self, example_record: dict, labels: [NodeLabel]):
+    def generate_node_insert_query(self,
+                                   example_record: dict,
+                                   labels: [NodeLabel]):
+        labels = self.ensure_list(labels)
         lables_str = [l.value if hasattr(l, 'value') else l for l in labels]
         conjugate_label_str = "`&`".join(lables_str)
+
         forbidden_keys = ['id', 'labels']
         list_keys = []
         field_keys = []
@@ -153,17 +161,31 @@ class Neo4jDataLoader:
 
 
         forbidden_keys = ['start_id', 'end_id', 'labels']
-        rel_props = [prop for prop in example_record.keys() if prop not in forbidden_keys]
-        property_str = ""
-        if len(rel_props) > 0:
-            property_str = "SET " + ", ".join([f"rel.`{prop}` = relRecord.`{prop}`" for prop in rel_props])
+        list_keys = []
+        field_keys = []
+        for prop in example_record.keys():
+            if prop in forbidden_keys:
+                continue
+            if isinstance(example_record[prop], list):
+                list_keys.append(prop)
+            else:
+                field_keys.append(prop)
+
+        if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
+            field_set_stmts = [f"rel.{prop} = CASE WHEN relRecord.{prop} IS NULL THEN rel.{prop} ELSE relRecord.{prop} END" for prop in field_keys]
+        else:
+            field_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} END" for prop in field_keys]
+
+        list_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END" for prop in list_keys]
+
+        prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
 
         query = f"""
             UNWIND $records AS relRecord
                 MATCH (source: `{conjugate_start_label_str}` {{ id: relRecord.start_id }})
                 MATCH (target: `{conjugate_end_label_str}` {{ id: relRecord.end_id }})
                 MERGE (source)-[rel: `{conjugate_label_str}`]->(target)
-                {property_str}
+                SET {prop_str}
             """
         return query
 

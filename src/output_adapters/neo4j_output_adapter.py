@@ -4,6 +4,9 @@ from typing import Union, List
 
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.analyte import Analyte
+from src.models.generif import GeneRif
+from src.models.go_term import ProteinGoTermRelationship
+from src.models.ligand import ProteinLigandRelationship
 from src.models.node import Relationship, Node
 
 from src.output_adapters.generic_labels import NodeLabel
@@ -51,6 +54,17 @@ class Neo4jOutputAdapter(OutputAdapter):
                     list(set([syn.term for syn in obj.synonyms])))
                 ret_dict['synonym_sources'] = self.loader.remove_none_values_from_list(
                     list(set([syn.source for syn in obj.synonyms])))
+        if isinstance(obj, ProteinGoTermRelationship):
+            ret_dict['evidence'] = [obj.evidence.code]
+            ret_dict['assigned_by'] = obj.assigned_by
+            ret_dict['abbreviation'] = [obj.evidence.abbreviation()]
+            ret_dict['category'] = [obj.evidence.category()]
+            ret_dict['text'] = obj.evidence.text()
+        if isinstance(obj, GeneRif):
+            ret_dict['pmids'] = list(obj.pmids)
+        if isinstance(obj, ProteinLigandRelationship):
+            for field in ['act_values', 'act_types', 'action_types', 'references', 'sources', 'pmids']:
+                ret_dict[field] = self.loader.remove_none_values_from_list(getattr(obj, field))
 
     def clean_dict(self, obj):
         def _clean_dict(obj):

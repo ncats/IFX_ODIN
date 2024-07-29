@@ -8,14 +8,25 @@ from src.output_adapters.generic_labels import NodeLabel
 
 
 class Labeler:
-
     def assign_all_labels(self, obj_list: List[Union[Node, Relationship]]):
         for obj in obj_list:
             obj.labels = self.get_labels(obj)
             if isinstance(obj, Relationship):
                 obj.start_node.labels = self.get_labels(obj.start_node)
-                obj.end_node.labels = self.get_labels(obj.end_node)
+                obj.end_node.labels = list(set(self.get_labels(obj.end_node)))
 
+    def get_labels(self, obj):
+        return [obj.__class__.__name__]
+
+
+class PharosLabeler(Labeler):
+    def get_labels(self, obj):
+        # if isinstance(obj, Protein): # maybe we don't need labels for all this stuff
+        #     return [NodeLabel.Protein, obj.tdl.value, obj.idg_family.value]
+        return [obj.__class__.__name__, *obj.labels]
+
+
+class RaMPLabeler(Labeler):
     def get_labels(self, obj):
         if isinstance(obj, Metabolite):
             return [NodeLabel.Metabolite, NodeLabel.Analyte]
@@ -23,7 +34,8 @@ class Labeler:
             return [NodeLabel.Protein, NodeLabel.Analyte]
         return [obj.__class__.__name__]
 
-class AuxLabeler(Labeler):
+
+class AuxLabeler(RaMPLabeler):
     aux_val: str
 
     def __init__(self, aux_val: str):
@@ -37,7 +49,7 @@ class AuxLabeler(Labeler):
         return [obj.__class__.__name__]
 
 
-class ComparingLabeler(Labeler):
+class ComparingLabeler(RaMPLabeler):
     left_labeler: AuxLabeler
     right_labeler: AuxLabeler
 
@@ -55,4 +67,3 @@ class ComparingLabeler(Labeler):
             if isinstance(obj, Relationship):
                 obj.start_node.labels = self.left_labeler.get_labels(obj.start_node)
                 obj.end_node.labels = self.right_labeler.get_labels(obj.end_node)
-

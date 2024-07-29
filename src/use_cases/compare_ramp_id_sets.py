@@ -11,7 +11,7 @@ from src.input_adapters.sqlite_ramp.metabolite_class_relationship_adapter import
 from src.input_adapters.sqlite_ramp.pathway_adapter import PathwayAdapter
 from src.interfaces.input_adapter import InputAdapter
 
-from src.interfaces.labeler import AuxLabeler, ComparingLabeler, Labeler
+from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
 from src.use_cases.secrets.local_neo4j import alt_neo4j_credentials
 
@@ -122,7 +122,7 @@ class build_db_for_comparing_ramp_ids:
             )
 
 
-    def do_etl_step(self, input_list: List[InputAdapter], labeler: Labeler = Labeler()):
+    def do_etl_step(self, input_list: List[InputAdapter], labeler: RaMPLabeler = RaMPLabeler()):
         self.etl.set_labeler(labeler)
         self.etl.input_adapters = input_list
         self.etl.do_etl()
