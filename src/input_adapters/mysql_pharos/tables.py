@@ -136,3 +136,16 @@ class DrugActivity(Base):
     cmpd_pubchem_cid = Column(Integer)
     dcid = Column(Integer)
     lychi_h4 = Column(String(15))
+
+class PPI(Base):
+    __tablename__ = "ncats_ppi"
+    id = Column(Integer, primary_key=True)
+    ppitypes = Column(String(255), nullable=False)
+    protein_id = Column(Integer, ForeignKey('protein.id'), nullable=False)
+    other_id = Column(Integer, ForeignKey('protein.id'), nullable=False)
+    p_int = Column(Float)
+    p_ni = Column(Float)
+    p_wrong = Column(Float)
+    evidence = Column(String(255))
+    interaction_type = Column(String(100))
+    score = Column(Integer)

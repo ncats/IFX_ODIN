@@ -71,7 +71,7 @@ proteins_and_their_old_tdls = """
 
 proteins_with_good_ligand_activities = """
     MATCH (n:Protein)-[r:ProteinLigandRelationship]->(l:Ligand)
-    WHERE (n.idg_family = 'GPCR' AND ANY(value IN r.act_values WHERE value >= 7))
+    WHERE (n.idg_family IN ['GPCR', 'oGPCR', 'Nuclear Receptor'] AND ANY(value IN r.act_values WHERE value >= 7))
         OR (n.idg_family = 'Kinase' AND ANY(value IN r.act_values WHERE value >= 7.52288))
         OR (n.idg_family = 'Ion Channel' AND ANY(value IN r.act_values WHERE value >= 5))
         OR (NOT n.idg_family IN ['Ion Channel', 'Kinase', 'GPCR'] AND ANY(value IN r.act_values WHERE value >= 6))
@@ -110,8 +110,3 @@ proteins_with_three_or_fewer_generifs = """
     WHERE relCount <= 3
     RETURN DISTINCT n.id
 """
-
-
-
-
-

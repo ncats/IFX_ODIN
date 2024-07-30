@@ -13,7 +13,7 @@ from src.interfaces.input_adapter import InputAdapter
 
 from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
-from src.use_cases.secrets.local_neo4j import alt_neo4j_credentials
+from src.use_cases.secrets.local_neo4j import stuff2_neo4j_credentials as neo4j_credentials
 
 class build_db_for_comparing_ramp_ids:
     left_db: str
@@ -34,7 +34,7 @@ class build_db_for_comparing_ramp_ids:
         self.third_db = third_db
         self.third_label = third_label
 
-        self.output_adapter = Neo4jOutputAdapter(credentials=alt_neo4j_credentials)
+        self.output_adapter = Neo4jOutputAdapter(credentials=neo4j_credentials)
         self.etl = ETL(input_adapters=[], output_adapters=[self.output_adapter])
 
 

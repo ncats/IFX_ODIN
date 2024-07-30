@@ -10,9 +10,11 @@ from neo4j import Driver, GraphDatabase, Session
 from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 from src.shared.db_credentials import DBCredentials
 
+
 class FieldConflictBehavior(Enum):
     KeepFirst = "KeepFirst"
     KeepLast = "KeepLast"
+
 
 class Neo4jDataLoader:
     base_path: str
@@ -20,13 +22,13 @@ class Neo4jDataLoader:
     field_conflict_behavior: FieldConflictBehavior
 
     def __init__(self, credentials: DBCredentials, base_path: str = None, field_conflict_behavior:
-            FieldConflictBehavior = FieldConflictBehavior.KeepLast):
+    FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = field_conflict_behavior
         self.base_path = base_path
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
 
     def delete_all_data_and_indexes(self) -> bool:
-        batch_size = 50000
+        batch_size = 10000
         with self.driver.session() as session:
             print("deleting nodes")
             result = session.run("MATCH (n) RETURN count(n) as total")
@@ -41,7 +43,6 @@ class Neo4jDataLoader:
             print("deleting constraints and stuff")
             session.run("CALL apoc.schema.assert({}, {})")
         return True
-
 
     def get_list_type(self, list):
         for item in list:
@@ -125,11 +126,14 @@ class Neo4jDataLoader:
                 field_keys.append(prop)
 
         if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
-            field_set_stmts = [f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END" for prop in field_keys]
+            field_set_stmts = [f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END" for prop in
+                               field_keys]
         else:
-            field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in field_keys]
+            field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in
+                               field_keys]
 
-        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END" for prop in list_keys]
+        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END" for
+                          prop in list_keys]
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
 
@@ -159,7 +163,6 @@ class Neo4jDataLoader:
         end_labels_str = [l.value if hasattr(l, 'value') else l for l in end_labels]
         conjugate_end_label_str = "`&`".join(end_labels_str)
 
-
         forbidden_keys = ['start_id', 'end_id', 'labels']
         list_keys = []
         field_keys = []
@@ -172,11 +175,16 @@ class Neo4jDataLoader:
                 field_keys.append(prop)
 
         if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
-            field_set_stmts = [f"rel.{prop} = CASE WHEN relRecord.{prop} IS NULL THEN rel.{prop} ELSE relRecord.{prop} END" for prop in field_keys]
+            field_set_stmts = [
+                f"rel.{prop} = CASE WHEN relRecord.{prop} IS NULL THEN rel.{prop} ELSE relRecord.{prop} END" for prop in
+                field_keys]
         else:
-            field_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} END" for prop in field_keys]
+            field_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} END"
+                               for prop in field_keys]
 
-        list_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END" for prop in list_keys]
+        list_set_stmts = [
+            f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END"
+            for prop in list_keys]
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
 
@@ -197,7 +205,7 @@ class Neo4jDataLoader:
         query = self.generate_node_insert_query(records[0], labels)
         print(records[0])
         print(query)
-        session.run(query, records=records)
+        load_to_neo4j(session, query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
@@ -213,7 +221,7 @@ class Neo4jDataLoader:
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records[0], start_labels, rel_labels, end_labels)
         print(query)
-        session.run(query, records=records)
+        load_to_neo4j(session, query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
@@ -224,3 +232,17 @@ class Neo4jDataLoader:
         records = self.read_csv_to_list(csv_file)
         self.load_relationship_records(session, records, start_label, rel_labels, end_label)
 
+
+def batch(iterable, batch_size=50000):
+    l = len(iterable)
+    if l > batch_size:
+        print(f"batching records into size: {batch_size}")
+    for ndx in range(0, l, batch_size):
+        if l > batch_size:
+            print(f"running: {ndx + 1}-{min(ndx + batch_size, l)} of {l}")
+        yield iterable[ndx:min(ndx + batch_size, l)]
+
+
+def load_to_neo4j(session, query, records, batch_size=50000):
+    for record_batch in batch(records, batch_size):
+        session.run(query, records=record_batch)

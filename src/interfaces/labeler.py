@@ -21,8 +21,10 @@ class Labeler:
 
 class PharosLabeler(Labeler):
     def get_labels(self, obj):
-        # if isinstance(obj, Protein): # maybe we don't need labels for all this stuff
-        #     return [NodeLabel.Protein, obj.tdl.value, obj.idg_family.value]
+        if isinstance(obj, Protein): # maybe we don't need labels for all this stuff
+            if hasattr(obj, 'tdl') and hasattr(obj.tdl, 'value'):
+                return [NodeLabel.Protein, obj.tdl.value]
+            return [NodeLabel.Protein]
         return [obj.__class__.__name__, *obj.labels]
 
 
