@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
 from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsRelationship
 from src.input_adapters.sqlite_ramp.tables import ChemProps as SqliteChemProps
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class MetaboliteChemPropsAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -50,14 +49,12 @@ class MetaboliteChemPropsAdapter(NodeInputAdapter, RelationshipInputAdapter, RaM
                 monoisotop_mass=row[8],
                 common_name=row[9],
                 mol_formula=row[10],
-                id="temp",
-                labels=[NodeLabel.MetaboliteChemProps]
+                id="temp"
             )
             chem_prop_obj.set_id()
             nodes_and_relationships.append(chem_prop_obj)
             nodes_and_relationships.append(MetaboliteChemPropsRelationship(
-                start_node=Metabolite(id=row[0], labels=[NodeLabel.Metabolite]),
-                end_node=chem_prop_obj,
-                labels=[RelationshipLabel.Metabolite_Has_Chem_Prop]
+                start_node=Metabolite(id=row[0]),
+                end_node=chem_prop_obj
             ))
         return nodes_and_relationships

@@ -5,7 +5,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
 from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
 from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -31,8 +30,7 @@ class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteA
         db_version = DatabaseVersion(
             id = result[0],
             timestamp = result[1],
-            notes= result[2],
-            labels=[NodeLabel.DatabaseVersion]
+            notes= result[2]
         )
 
         results = self.get_session().query(
@@ -47,16 +45,14 @@ class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteA
                 id=row[0],
                 name=row[1],
                 url=row[2],
-                version=row[3],
-                labels=[NodeLabel.DataVersion]
+                version=row[3]
             ) for row in results
         ]
 
         relationships: [DatabaseDataVersionRelationship] = [
             DatabaseDataVersionRelationship(
                 start_node=db_version,
-                end_node=data_version,
-                labels=[RelationshipLabel.Database_Has_Data]
+                end_node=data_version
             ) for data_version in data_versions
         ]
         return [db_version, *data_versions, *relationships]

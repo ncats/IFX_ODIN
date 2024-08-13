@@ -23,7 +23,7 @@ from src.input_adapters.sqlite_ramp.reaction_reaction_class_relationship_adapter
     ReactionReactionClassRelationshipAdapter
 from src.input_adapters.sqlite_ramp.version_metadata_adapter import VersionMetaAdapter
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
-from src.use_cases.secrets.local_neo4j import neo4j_credentials
+from src.use_cases.secrets.local_neo4j import stuff2_neo4j_credentials as neo4j_credentials
 
 sqlite_file="/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v2.5.4.sqlite"
 # uniprot_file="/Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprot_subset.json.gz"

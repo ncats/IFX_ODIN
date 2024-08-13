@@ -21,7 +21,7 @@ from src.input_adapters.sqlite_ramp.reaction_class_adapter import ReactionClassA
 from src.output_adapters.csv_output_adapter import CsvOutputAdapter
 
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
-from src.use_cases.secrets.local_neo4j import neo4j_credentials
+from src.use_cases.secrets.local_neo4j import stuff2_neo4j_credentials as neo4j_credentials
 
 sqlite_file="/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v2.5.4.sqlite"
 
@@ -76,7 +76,6 @@ etl_input_list = [
 ]
 
 etl_output_list = [
-    # csv_output_adapter,
     neo4j_output_adapter
 ]
 

@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.reaction import ReactionClass
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class ReactionClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
@@ -28,8 +27,7 @@ class ReactionClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
             ReactionClass(
                 id=row[0],
                 level=row[1],
-                name=row[2],
-                labels=[NodeLabel.ReactionClass]
+                name=row[2]
             ) for row in results
         ]
         return reaction_classes

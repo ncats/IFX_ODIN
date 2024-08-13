@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
 from src.models.metabolite_class import MetaboliteClass
 from src.input_adapters.sqlite_ramp.tables import MetaboliteClass as SqliteMetaboliteClass
-from src.output_adapters.generic_labels import NodeLabel
 
 
 class MetaboliteClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
@@ -30,8 +29,7 @@ class MetaboliteClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
                 id=MetaboliteClass.compiled_name(row[0], row[1]),
                 level=row[0],
                 name=row[1],
-                source=row[2],
-                labels=[NodeLabel.MetaboliteClass]) for row in
+                source=row[2]) for row in
             results
         ]
         return metabolite_classes

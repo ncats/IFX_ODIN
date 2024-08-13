@@ -5,7 +5,6 @@ from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Catalyzed as SqliteCatalyzed
 from src.models.protein import Protein
 from src.models.metabolite import MetaboliteProteinRelationship, Metabolite
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -29,9 +28,8 @@ class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteA
 
         relationships: [MetaboliteProteinRelationship] = [
             MetaboliteProteinRelationship(
-                start_node=Metabolite(id=row[0], labels=[NodeLabel.Metabolite]),
-                end_node=Protein(id=row[1], labels=[NodeLabel.Protein]),
-                labels=[RelationshipLabel.Catalyzes]
+                start_node=Metabolite(id=row[0]),
+                end_node=Protein(id=row[1])
             ) for row in results
         ]
         return relationships

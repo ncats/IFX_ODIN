@@ -5,7 +5,6 @@ from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.models.metabolite import Metabolite
 from src.models.metabolite_class import MetaboliteClassRelationship, MetaboliteClass
 from src.input_adapters.sqlite_ramp.tables import MetaboliteClass as SqliteMetaboliteClass
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class MetaboliteClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -29,13 +28,12 @@ class MetaboliteClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAda
 
         metabolite_class_relationships: [MetaboliteClassRelationship] = [
             MetaboliteClassRelationship(
-                start_node=Metabolite(id=row[0], labels=[NodeLabel.Metabolite]),
+                start_node=Metabolite(id=row[0]),
                 end_node=MetaboliteClass(
                     id=MetaboliteClass.compiled_name(row[1], row[2]),
                     level=row[1],
-                    name=row[2], labels=[NodeLabel.MetaboliteClass]),
-                source=row[3],
-                labels=[RelationshipLabel.Analyte_Has_Class]
+                    name=row[2]),
+                source=row[3]
             ) for row in results
         ]
         return metabolite_class_relationships

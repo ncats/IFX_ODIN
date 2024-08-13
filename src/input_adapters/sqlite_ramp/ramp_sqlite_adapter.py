@@ -1,4 +1,4 @@
-from src.input_adapters.sqlite_adapter import SqliteAdapter
+from src.input_adapters.sql_adapter import SqliteAdapter
 from src.input_adapters.sqlite_ramp.ramp_version_info import RaMPVersionInfo
 from src.models.version import DataVersion, DatabaseVersion
 

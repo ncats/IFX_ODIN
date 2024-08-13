@@ -5,7 +5,6 @@ from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionToProtein as SqliteReactionToProtein
 from src.models.protein import Protein, ProteinReactionRelationship
 from src.models.reaction import Reaction
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class ProteinReactionRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -28,10 +27,9 @@ class ProteinReactionRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAda
 
         relationships: [ProteinReactionRelationship] = [
             ProteinReactionRelationship(
-                start_node=Protein(id=row[0], labels=[NodeLabel.Protein]),
-                end_node=Reaction(id=row[1], labels=[NodeLabel.Reaction]),
-                is_reviewed=row[2] == 1,
-                labels=[RelationshipLabel.Protein_Has_Reaction]
+                start_node=Protein(id=row[0]),
+                end_node=Reaction(id=row[1]),
+                is_reviewed=row[2] == 1
             ) for row in results
         ]
         return relationships

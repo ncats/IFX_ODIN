@@ -6,3 +6,5 @@ class DBCredentials:
     url: str
     user: str
     password: str
+    port: int = None
+    schema: str = None

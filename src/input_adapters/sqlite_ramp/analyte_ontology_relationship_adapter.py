@@ -5,7 +5,6 @@ from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteHasOntology as SqliteAnalyteHasOntology
 from src.models.analyte import Analyte
 from src.models.ontology import AnalyteOntologyRelationship, Ontology
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class MetaboliteOntologyRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -27,9 +26,8 @@ class MetaboliteOntologyRelationshipAdapter(RelationshipInputAdapter, RaMPSqlite
 
         analyte_ontology_relationships: [AnalyteOntologyRelationship] = [
             AnalyteOntologyRelationship(
-                start_node=Analyte(id=row[0], labels=[NodeLabel.Analyte]),
-                end_node=Ontology(id=row[1], labels=[NodeLabel.Ontology]),
-                labels=[RelationshipLabel.Analyte_Has_Ontology]
+                start_node=Analyte(id=row[0]),
+                end_node=Ontology(id=row[1])
             ) for row in results
         ]
         return analyte_ontology_relationships

@@ -4,6 +4,11 @@ requests
 biolink-model
 jsonasobj2
 linkml_runtime
+humanize
+sqlalchemy
+pymysql
+neo4j
+
 
 
 graphene
@@ -12,3 +17,4 @@ Flask
 
 
 sqlalchemy
+pymysql

@@ -10,9 +10,11 @@ from neo4j import Driver, GraphDatabase, Session
 from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 from src.shared.db_credentials import DBCredentials
 
+
 class FieldConflictBehavior(Enum):
     KeepFirst = "KeepFirst"
     KeepLast = "KeepLast"
+
 
 class Neo4jDataLoader:
     base_path: str
@@ -20,18 +22,30 @@ class Neo4jDataLoader:
     field_conflict_behavior: FieldConflictBehavior
 
     def __init__(self, credentials: DBCredentials, base_path: str = None, field_conflict_behavior:
-            FieldConflictBehavior = FieldConflictBehavior.KeepLast):
+    FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = field_conflict_behavior
         self.base_path = base_path
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
 
     def delete_all_data_and_indexes(self) -> bool:
+        batch_size = 100000
         with self.driver.session() as session:
+            print("deleting relationships")
+            session.run(f"MATCH ()-[r]-() DELETE r")
+
             print("deleting nodes")
-            session.run("MATCH (n) DETACH DELETE n")
+            result = session.run("MATCH (n) RETURN count(n) as total")
+            total = result.single()["total"]
+
+            while total > 0:
+                session.run(f"MATCH (n) WITH n LIMIT {batch_size} DETACH DELETE n")
+                result = session.run("MATCH (n) RETURN count(n) as total")
+                total = result.single()["total"]
+                print(f"{total} nodes remaining")
+
             print("deleting constraints and stuff")
             session.run("CALL apoc.schema.assert({}, {})")
-            return True
+        return True
 
     def get_list_type(self, list):
         for item in list:
@@ -67,7 +81,7 @@ class Neo4jDataLoader:
         print(f"loading {csv_file}")
         records = []
         with open(f"{self.base_path}{csv_file}") as csvfile:
-            reader: dict = csv.DictReader(csvfile)
+            reader: csv.DictReader = csv.DictReader(csvfile)
             for row in reader:
                 for key, value in row.items():
                     row[key] = self.parse_and_clean_string_value(value)
@@ -83,7 +97,11 @@ class Neo4jDataLoader:
         return False
 
     def add_index(self, session: Session, label: NodeLabel, field: str):
-        index_name = f"{label}_{field}_index".lower().replace(':', '_')
+        index_name = (f"{label}_{field}_index".lower()
+                      .replace(':', '_')
+                      .replace(' ', '_')
+                      .replace('-', '_')
+                      )
         if not self.index_exists(session, index_name):
             session.run(f"CREATE INDEX {index_name} FOR (n:`{label}`) ON (n.{field})")
 
@@ -92,9 +110,20 @@ class Neo4jDataLoader:
             return [possible_list]
         return possible_list
 
-    def generate_node_insert_query(self, example_record: dict, labels: [NodeLabel]):
+    def generate_node_insert_query(self,
+                                   records: List[dict],
+                                   labels: [NodeLabel]):
+
+        example_record = {}
+        for rec in records:
+            for k, v in rec.items():
+                if k not in example_record:
+                    example_record[k] = v
+
+        labels = self.ensure_list(labels)
         lables_str = [l.value if hasattr(l, 'value') else l for l in labels]
         conjugate_label_str = "`&`".join(lables_str)
+
         forbidden_keys = ['id', 'labels']
         list_keys = []
         field_keys = []
@@ -107,11 +136,14 @@ class Neo4jDataLoader:
                 field_keys.append(prop)
 
         if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
-            field_set_stmts = [f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END" for prop in field_keys]
+            field_set_stmts = [f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END" for prop in
+                               field_keys]
         else:
-            field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in field_keys]
+            field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in
+                               field_keys]
 
-        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END" for prop in list_keys]
+        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END" for
+                          prop in list_keys]
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
 
@@ -123,27 +155,61 @@ class Neo4jDataLoader:
         return query
 
     def generate_relationship_insert_query(self,
-                                           example_record: dict,
-                                           start_label: NodeLabel,
-                                           rel_labels: [RelationshipLabel],
-                                           end_label: NodeLabel
+                                           records: List[dict],
+                                           start_labels: List[NodeLabel],
+                                           rel_labels: List[RelationshipLabel],
+                                           end_labels: List[NodeLabel]
                                            ):
+        example_record = {}
+        for rec in records:
+            for k, v in rec.items():
+                if k not in example_record:
+                    example_record[k] = v
+
+        start_labels = self.ensure_list(start_labels)
         rel_labels = self.ensure_list(rel_labels)
+        end_labels = self.ensure_list(end_labels)
+
+        start_labels_str = [l.value if hasattr(l, 'value') else l for l in start_labels]
+        conjugate_start_label_str = "`&`".join(start_labels_str)
+
         rel_labels_str = [l.value if hasattr(l, 'value') else l for l in rel_labels]
         conjugate_label_str = "`&`".join(rel_labels_str)
 
+        end_labels_str = [l.value if hasattr(l, 'value') else l for l in end_labels]
+        conjugate_end_label_str = "`&`".join(end_labels_str)
+
         forbidden_keys = ['start_id', 'end_id', 'labels']
-        rel_props = [prop for prop in example_record.keys() if prop not in forbidden_keys]
-        property_str = ""
-        if len(rel_props) > 0:
-            property_str = "SET " + ", ".join([f"rel.`{prop}` = relRecord.`{prop}`" for prop in rel_props])
+        list_keys = []
+        field_keys = []
+        for prop in example_record.keys():
+            if prop in forbidden_keys:
+                continue
+            if isinstance(example_record[prop], list):
+                list_keys.append(prop)
+            else:
+                field_keys.append(prop)
+
+        if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
+            field_set_stmts = [
+                f"rel.{prop} = CASE WHEN relRecord.{prop} IS NULL THEN rel.{prop} ELSE relRecord.{prop} END" for prop in
+                field_keys]
+        else:
+            field_set_stmts = [f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} END"
+                               for prop in field_keys]
+
+        list_set_stmts = [
+            f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END"
+            for prop in list_keys]
+
+        prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
 
         query = f"""
             UNWIND $records AS relRecord
-                MATCH (source: `{start_label}` {{ id: relRecord.start_id }})
-                MATCH (target: `{end_label}` {{ id: relRecord.end_id }})
+                MATCH (source: `{conjugate_start_label_str}` {{ id: relRecord.start_id }})
+                MATCH (target: `{conjugate_end_label_str}` {{ id: relRecord.end_id }})
                 MERGE (source)-[rel: `{conjugate_label_str}`]->(target)
-                {property_str}
+                SET {prop_str}
             """
         return query
 
@@ -152,26 +218,26 @@ class Neo4jDataLoader:
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(session, label, 'id')
-        query = self.generate_node_insert_query(records[0], labels)
+        query = self.generate_node_insert_query(records, labels)
         print(records[0])
         print(query)
-        session.run(query, records=records)
+        load_to_neo4j(session, query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"\tElapsed time: {elapsed_time:.4f} seconds inserting {len(records)} nodes")
+        print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
 
     def load_node_csv(self, session: Session, csv_file: str, labels: Union[NodeLabel, List[NodeLabel]]):
         records = self.read_csv_to_list(csv_file)
         self.load_node_records(session, records, labels)
 
-    def load_relationship_records(self, session: Session, records: List[dict], start_label: NodeLabel,
+    def load_relationship_records(self, session: Session, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
-                                  end_label: NodeLabel):
+                                  end_labels: List[NodeLabel]):
         start_time = time.time()
         rel_labels = self.ensure_list(rel_labels)
-        query = self.generate_relationship_insert_query(records[0], start_label, rel_labels, end_label)
+        query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(query)
-        session.run(query, records=records)
+        load_to_neo4j(session, query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
@@ -182,3 +248,17 @@ class Neo4jDataLoader:
         records = self.read_csv_to_list(csv_file)
         self.load_relationship_records(session, records, start_label, rel_labels, end_label)
 
+
+def batch(iterable, batch_size=50000):
+    l = len(iterable)
+    if l > batch_size:
+        print(f"batching records into size: {batch_size}")
+    for ndx in range(0, l, batch_size):
+        if l > batch_size:
+            print(f"running: {ndx + 1}-{min(ndx + batch_size, l)} of {l}")
+        yield iterable[ndx:min(ndx + batch_size, l)]
+
+
+def load_to_neo4j(session, query, records, batch_size=50000):
+    for record_batch in batch(records, batch_size):
+        session.run(query, records=record_batch)

@@ -6,7 +6,6 @@ from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalytePathwayRelationship as SqliteAnalytePathwayRelationship
 from src.models.analyte import Analyte
 from src.models.pathway import AnalytePathwayRelationship, Pathway
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter, ABC):
@@ -33,9 +32,8 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
 
         analyte_pathway_relationships: [AnalytePathwayRelationship] = [
             AnalytePathwayRelationship(
-                start_node=Analyte(id=row[0], labels=[NodeLabel.Analyte]),
-                end_node=Pathway(id=row[1], labels=[NodeLabel.Pathway]),
-                labels=[RelationshipLabel.Analyte_Has_Pathway],
+                start_node=Analyte(id=row[0]),
+                end_node=Pathway(id=row[1]),
                 source=row[2]
             ) for row in results
         ]

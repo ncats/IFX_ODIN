@@ -4,7 +4,6 @@ from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.input_adapters.sqlite_ramp.tables import Reaction as SqliteReaction
 from src.models.reaction import Reaction, ReactionClass, ReactionReactionClassRelationship
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
 
 
 class ReactionReactionClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
@@ -26,9 +25,8 @@ class ReactionReactionClassRelationshipAdapter(RelationshipInputAdapter, RaMPSql
 
         relationships: [ReactionReactionClassRelationship] = [
             ReactionReactionClassRelationship(
-                start_node=Reaction(id=row[0], labels=[NodeLabel.Reaction]),
-                end_node=ReactionClass(id=row[1], labels=[NodeLabel.ReactionClass]),
-                labels=[RelationshipLabel.Reaction_Has_Class]
+                start_node=Reaction(id=row[0]),
+                end_node=ReactionClass(id=row[1])
             ) for row in results
         ]
         return relationships

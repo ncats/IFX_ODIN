@@ -1,0 +1,26 @@
+﻿abbreviation,eco,category,text
+NAS,ECO:0000303,Author statement evidence code,Non-traceable Author Statement
+TAS,ECO:0000304,Author statement evidence code,Traceable Author Statement
+RCA,ECO:0000245,Computational analysis evidence code,Inferred from Reviewed Computational Analysis
+ISA,ECO:0000247,Computational analysis evidence code,Inferred from Sequence Alignment
+ISS,ECO:0000250,Computational analysis evidence code,Inferred from Sequence or structural Similarity
+ISM,ECO:0000255,Computational analysis evidence code,Inferred from Sequence Model
+ISO,ECO:0000266,Computational analysis evidence code,Inferred from Sequence Orthology
+IGC,ECO:0000317,Computational analysis evidence code,Inferred from Genomic Context
+IC,ECO:0000305,Curator statement evidence code,Inferred by Curator
+IEA,ECO:0000501,Electronic annotation evidence code,Inferred from Electronic Annotation
+EXP,ECO:0000269,Experimental evidence code,Inferred from Experiment
+IEP,ECO:0000270,Experimental evidence code,Inferred from Expression Pattern
+IDA,ECO:0000314,Experimental evidence code,Inferred from Direct Assay
+IMP,ECO:0000315,Experimental evidence code,Inferred from Mutant Phenotype
+IGI,ECO:0000316,Experimental evidence code,Inferred from Genetic Interaction
+IPI,ECO:0000353,Experimental evidence code,Inferred from Physical Interaction
+HTP,ECO:0006056,High throughput experimental evidence code,Inferred from High Throughput Experiment
+HMP,ECO:0007001,High throughput experimental evidence code,Inferred from High Throughput Mutant Phenotype
+HGI,ECO:0007003,High throughput experimental evidence code,Inferred from High Throughput Genetic Interaction
+HDA,ECO:0007005,High throughput experimental evidence code,Inferred from High Throughput Direct Assay
+HEP,ECO:0007007,High throughput experimental evidence code,Inferred from High Throughput Expression Pattern
+IBA,ECO:0000318,Phylogenetically-inferred annotation,Inferred from Biological aspect of Ancestor
+IBD,ECO:0000319,Phylogenetically-inferred annotation,Inferred from Biological aspect of Descendant
+IKR,ECO:0000320,Phylogenetically-inferred annotation,Inferred from Key Residues
+IRD,ECO:0000321,Phylogenetically-inferred annotation,Inferred from Rapid Divergence
