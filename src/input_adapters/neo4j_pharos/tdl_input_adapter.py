@@ -7,7 +7,7 @@ from src.models.protein import TDL, Protein
 
 
 class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
-    name = "Neo4j Pharos TDL Adapter"
+    name = "Neo4j Pharos TDL Calculator"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
         return [f'tdl updated by {self.name} using {self.credentials.url}']

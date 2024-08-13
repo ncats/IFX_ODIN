@@ -18,6 +18,7 @@ class InputAdapter(ABC):
 
 
 class NodeInputAdapter(InputAdapter, ABC):
+    name = "Unnamed Node Adapter"
     id_normalizer: IdNormalizer = None
 
     def set_id_normalizer(self, id_normalizer: IdNormalizer):

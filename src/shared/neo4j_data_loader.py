@@ -28,8 +28,11 @@ class Neo4jDataLoader:
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
 
     def delete_all_data_and_indexes(self) -> bool:
-        batch_size = 10000
+        batch_size = 100000
         with self.driver.session() as session:
+            print("deleting relationships")
+            session.run(f"MATCH ()-[r]-() DELETE r")
+
             print("deleting nodes")
             result = session.run("MATCH (n) RETURN count(n) as total")
             total = result.single()["total"]
@@ -108,8 +111,15 @@ class Neo4jDataLoader:
         return possible_list
 
     def generate_node_insert_query(self,
-                                   example_record: dict,
+                                   records: List[dict],
                                    labels: [NodeLabel]):
+
+        example_record = {}
+        for rec in records:
+            for k, v in rec.items():
+                if k not in example_record:
+                    example_record[k] = v
+
         labels = self.ensure_list(labels)
         lables_str = [l.value if hasattr(l, 'value') else l for l in labels]
         conjugate_label_str = "`&`".join(lables_str)
@@ -145,11 +155,17 @@ class Neo4jDataLoader:
         return query
 
     def generate_relationship_insert_query(self,
-                                           example_record: dict,
+                                           records: List[dict],
                                            start_labels: List[NodeLabel],
                                            rel_labels: List[RelationshipLabel],
                                            end_labels: List[NodeLabel]
                                            ):
+        example_record = {}
+        for rec in records:
+            for k, v in rec.items():
+                if k not in example_record:
+                    example_record[k] = v
+
         start_labels = self.ensure_list(start_labels)
         rel_labels = self.ensure_list(rel_labels)
         end_labels = self.ensure_list(end_labels)
@@ -202,7 +218,7 @@ class Neo4jDataLoader:
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(session, label, 'id')
-        query = self.generate_node_insert_query(records[0], labels)
+        query = self.generate_node_insert_query(records, labels)
         print(records[0])
         print(query)
         load_to_neo4j(session, query, records)
@@ -219,7 +235,7 @@ class Neo4jDataLoader:
                                   end_labels: List[NodeLabel]):
         start_time = time.time()
         rel_labels = self.ensure_list(rel_labels)
-        query = self.generate_relationship_insert_query(records[0], start_labels, rel_labels, end_labels)
+        query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(query)
         load_to_neo4j(session, query, records)
         end_time = time.time()

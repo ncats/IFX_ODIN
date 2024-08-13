@@ -92,6 +92,8 @@ class Neo4jOutputAdapter(OutputAdapter):
             obj_type = type(obj).__name__
             obj_labels = NodeLabel.to_list(obj.labels)
             obj_key = f"{obj_type}:{obj_labels}"
+            if isinstance(obj, Relationship):
+                obj_key = f"{obj.start_node.labels}:{obj_labels}:{obj.end_node.labels}"
 
             if obj_key in object_lists:
                 obj_list, _, _, _, _ = object_lists[obj_key]
