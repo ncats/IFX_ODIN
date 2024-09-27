@@ -28,11 +28,11 @@ class ETL:
         for input_adapter in self.input_adapters:
             print(f"Running: {input_adapter.name}")
 
-            normalized_list = input_adapter.get_normalized_and_provenanced_list()
-            self.labeler.assign_all_labels(normalized_list)
+            resolved_list = input_adapter.get_resolved_and_provenanced_list()
+            self.labeler.assign_all_labels(resolved_list)
 
             for output_adapter in self.output_adapters:
-                output_adapter.store(normalized_list)
+                output_adapter.store(resolved_list)
 
         total_elapsed_time = time.time() - total_start_time
         elapsed_timedelta = datetime.timedelta(seconds=total_elapsed_time)

@@ -1,5 +1,5 @@
 from src.core.etl import ETL
-from src.id_normalizers.uniprot_normalizer import UniProtNormalizer
+from src.id_resolvers.uniprot_resolver import UniProtResolver
 from src.input_adapters.sqlite_ramp.analyte_ontology_relationship_adapter import MetaboliteOntologyRelationshipAdapter
 from src.input_adapters.sqlite_ramp.analyte_pathway_relationship_adapter import MetabolitePathwayRelationshipAdapter, \
     ProteinPathwayRelationshipAdapter
@@ -29,21 +29,21 @@ sqlite_file="/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v2.5.4.
 # uniprot_file="/Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprot_subset.json.gz"
 uniprot_file="/Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprot_human_reviewed.json.gz"
 
-upn = UniProtNormalizer(uniprot_json_path=uniprot_file)
+upn = UniProtResolver(uniprot_json_path=uniprot_file)
 
 # Input Adapters
-protein_adapter = ProteinAdapter(sqlite_file=sqlite_file).set_id_normalizer(upn)
-aux_protein_adapter = UniProtProteinAdapter(file_path=uniprot_file) #.set_id_normalizer(upn)
-protein_synonym_list_adapter = ProteinSynonymAdapter(sqlite_file=sqlite_file).set_id_normalizer(upn)
+protein_adapter = ProteinAdapter(sqlite_file=sqlite_file).set_id_resolver(upn)
+aux_protein_adapter = UniProtProteinAdapter(file_path=uniprot_file) #.set_id_resolver(upn)
+protein_synonym_list_adapter = ProteinSynonymAdapter(sqlite_file=sqlite_file).set_id_resolver(upn)
 met_adapter = MetaboliteAdapter(sqlite_file=sqlite_file)
-protein_met_relationship_adapter = MetaboliteProteinRelationshipAdapter(sqlite_file=sqlite_file).set_end_normalizer(upn)
+protein_met_relationship_adapter = MetaboliteProteinRelationshipAdapter(sqlite_file=sqlite_file).set_end_resolver(upn)
 met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=sqlite_file)
 met_class_adapter = MetaboliteClassAdapter(sqlite_file=sqlite_file)
 met_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=sqlite_file)
 metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=sqlite_file)
 pathway_adapter = PathwayAdapter(sqlite_file=sqlite_file)
 metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=sqlite_file)
-protein_pathway_relationship_adapter = ProteinPathwayRelationshipAdapter(sqlite_file=sqlite_file).set_start_normalizer(upn)
+protein_pathway_relationship_adapter = ProteinPathwayRelationshipAdapter(sqlite_file=sqlite_file).set_start_resolver(upn)
 ontology_adapter = OntologyAdapter(sqlite_file=sqlite_file)
 analyte_ontology_relationship_adapter = MetaboliteOntologyRelationshipAdapter(sqlite_file=sqlite_file)
 reaction_adapter = ReactionAdapter(sqlite_file=sqlite_file)
@@ -51,7 +51,7 @@ reaction_class_adapter = ReactionClassAdapter(sqlite_file=sqlite_file)
 reaction_class_relationship_adapter = ReactionClassRelationshipAdapter(sqlite_file=sqlite_file)
 metabolite_reaction_relationship_adapter = MetaboliteReactionRelationshipAdapter(sqlite_file=sqlite_file)
 reaction_reaction_class_relationship_adapter = ReactionReactionClassRelationshipAdapter(sqlite_file=sqlite_file)
-protein_reaction_relationship_adapter = ProteinReactionRelationshipAdapter(sqlite_file=sqlite_file).set_start_normalizer(upn)
+protein_reaction_relationship_adapter = ProteinReactionRelationshipAdapter(sqlite_file=sqlite_file).set_start_resolver(upn)
 version_meta_adapter = VersionMetaAdapter(sqlite_file=sqlite_file)
 
 etl_input_list = [

@@ -3,7 +3,7 @@ from typing import List, Dict
 from src.constants import Prefix
 from src.models.node import Node
 from src.shared.uniprot_parser import UniProtParser
-from src.interfaces.id_normalizer import IdNormalizer, NormalizationMatch, IdNormalizerResult
+from src.interfaces.id_resolver import IdResolver, IdMatch, IdResolverResult
 from src.shared.uniprot_file_reader import UniProtFileReader
 
 scores = {
@@ -22,8 +22,8 @@ scores = {
 }
 
 
-class UniProtNormalizer(IdNormalizer, UniProtFileReader):
-    name = "UniProt Normalizer"
+class UniProtResolver(IdResolver, UniProtFileReader):
+    name = "UniProt Resolver"
     alias_map: dict
 
     @staticmethod
@@ -32,7 +32,7 @@ class UniProtNormalizer(IdNormalizer, UniProtFileReader):
         return context_list
 
     @staticmethod
-    def sort_matches(match_list: List[NormalizationMatch]):
+    def sort_matches(match_list: List[IdMatch]):
         match_list.sort(key=lambda x: scores.get(x.context[0], float('inf')))
         return match_list
 
@@ -45,7 +45,7 @@ class UniProtNormalizer(IdNormalizer, UniProtFileReader):
             for alias in aliases:
                 if alias.term not in self.alias_map:
                     self.alias_map[alias.term] = [
-                        NormalizationMatch(input=alias.term, match=primary_accession, context=[alias.type])
+                        IdMatch(input=alias.term, match=primary_accession, context=[alias.type])
                     ]
                 else:
                     list = self.alias_map[alias.term]
@@ -55,12 +55,12 @@ class UniProtNormalizer(IdNormalizer, UniProtFileReader):
                         same_id_match[0].context.append(alias.type)
                     else:
                         list.append(
-                            NormalizationMatch(input=alias.term, match=primary_accession, context=[alias.type])
+                            IdMatch(input=alias.term, match=primary_accession, context=[alias.type])
                         )
             for go_term_json in UniProtParser.find_cross_refs(entry, 'GO'):
                 go_id, go_type, go_term, eco_term, eco_assigned_by = UniProtParser.parse_go_term(go_term_json)
                 self.alias_map[go_id] = [
-                    NormalizationMatch(input=go_id, match=go_id, context=['exact'])
+                    IdMatch(input=go_id, match=go_id, context=['exact'])
                 ]
 
     def get_matches_for_merged_list(self, input_ids: List[str]):
@@ -73,7 +73,7 @@ class UniProtNormalizer(IdNormalizer, UniProtFileReader):
         return self.return_matches(unsorted_matches)
 
     def return_matches(self, unsorted_matches):
-        sorted_matches = UniProtNormalizer.sort_matches(unsorted_matches)
+        sorted_matches = UniProtResolver.sort_matches(unsorted_matches)
         if len(sorted_matches) == 0:
             return None, None
         best_context = sorted_matches[0].context[0]
@@ -86,17 +86,17 @@ class UniProtNormalizer(IdNormalizer, UniProtFileReader):
             return None, None
         unsorted_matches = self.alias_map.get(input_id)
         for match in unsorted_matches:
-            match.context = UniProtNormalizer.sort_list(match.context)
+            match.context = UniProtResolver.sort_list(match.context)
         return self.return_matches(unsorted_matches)
 
-    def normalize_internal(self, input_nodes: List[Node]) -> Dict[str, IdNormalizerResult]:
+    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, IdResolverResult]:
         result_list = {}
         for node in input_nodes:
             input_list = [node.id]
             if self.use_equivalent_ids:
                 input_list.extend([self.clean_id(equiv_id.id, equiv_id.type) for equiv_id in node.equivalent_ids])
             best_matches, other_matches = self.get_matches_for_merged_list(input_list)
-            result_list[node.id] = IdNormalizerResult(best_matches=best_matches, other_matches=other_matches)
+            result_list[node.id] = IdResolverResult(best_matches=best_matches, other_matches=other_matches)
         return result_list
 
     def clean_id(self, input_id: str, id_type: str):

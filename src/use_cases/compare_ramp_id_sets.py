@@ -13,7 +13,7 @@ from src.interfaces.input_adapter import InputAdapter
 
 from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
-from src.use_cases.secrets.local_neo4j import stuff2_neo4j_credentials as neo4j_credentials
+from src.use_cases.secrets.local_neo4j import alt_neo4j_credentials as neo4j_credentials
 
 class build_db_for_comparing_ramp_ids:
     left_db: str
@@ -127,17 +127,12 @@ class build_db_for_comparing_ramp_ids:
         self.etl.input_adapters = input_list
         self.etl.do_etl()
 
-released_ramp =               "/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v2.5.4.sqlite"
-new_ramp =                    "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0.sqlite"
-new_ramp_no_generics =        "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_no_generics.sqlite"
-new_ramp_with_collapse =      "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_with_inchi_collapse.sqlite"
-new_ramp_with_two_collapses = "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_with_two_inchi_collapses.sqlite"
-forward =                     "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_recur_forward.sqlite"
-reverse =                     "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_recur_reverse.sqlite"
-merge_all =                   "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_merge_all.sqlite"
-merge_all_no_generics =       "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_merge_all_no_generics.sqlite"
-merge_all_no_kegg =           "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0_merge_all_no_kegg.sqlite"
+released_ramp =                "/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v2.5.4.sqlite"
+new_ramp =                     "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.0.sqlite"
+new_ramp_fixed_curation =      "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.1.sqlite"
+new_ramp_fixed_curation_more = "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.1-pre.sqlite"
+ramp_rc1 =                     "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v2.6.2.sqlite"
 
-build_engine = build_db_for_comparing_ramp_ids(merge_all, "merge_all", merge_all_no_generics, "merge_all_no_generics")
+build_engine = build_db_for_comparing_ramp_ids(released_ramp, "released_ramp", ramp_rc1, "ramp_rc1")
 build_engine.truncate_old_db()
 build_engine.do_etl()
