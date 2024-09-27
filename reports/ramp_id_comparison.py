@@ -1,3 +1,5 @@
+from typing import List
+
 from neo4j import GraphDatabase
 
 from src.use_cases.secrets.local_neo4j import alt_neo4j_credentials
@@ -6,252 +8,346 @@ print(alt_neo4j_credentials)
 
 driver = GraphDatabase.driver(alt_neo4j_credentials.url, auth=(alt_neo4j_credentials.user, alt_neo4j_credentials.password))
 
+class Recombination:
+    left_nodes: List[dict]
+    right_nodes: List[dict]
+    def __init__(self, left_nodes, right_nodes):
+        self.left_nodes = left_nodes
+        self.right_nodes = right_nodes
+
+    def __repr__(self):
+        return_string = ""
+        return_string += ",".join([node['id'] for node in self.left_nodes])
+        return_string += " -> "
+        return_string += ",".join([node['id'] for node in self.right_nodes])
+        return return_string
+
+
+class RecombinationList:
+    recombinations: List[Recombination]
+
+    def get_all_ids(self, field):
+        ids = []
+        for recomb in self.recombinations:
+            for node in getattr(recomb, field):
+                ids.append(node['id'])
+        return ids
+
+    def get_all_left_ids(self):
+        return self.get_all_ids('left_nodes')
+
+    def get_all_right_ids(self):
+        return self.get_all_ids('right_nodes')
+
+    def __init__(self):
+        self.recombinations = []
+
+    def add(self, left_nodes, right_nodes):
+        self.recombinations.append(Recombination(left_nodes, right_nodes))
+
+    def get_mergers(self):
+        mergers = [recomb for recomb in self.recombinations if len(recomb.left_nodes) > 1 and len(recomb.right_nodes) == 1]
+        sorted_mergers = sorted(mergers, key=lambda recomb: len(recomb.left_nodes), reverse=True)
+        return sorted_mergers
+
+    def get_unmergers(self):
+        mergers = [recomb for recomb in self.recombinations if len(recomb.left_nodes) == 1 and len(recomb.right_nodes) > 1]
+        sorted_mergers = sorted(mergers, key=lambda recomb: len(recomb.right_nodes), reverse=True)
+        return sorted_mergers
+
+    def get_recombinations(self):
+        mergers = [recomb for recomb in self.recombinations if len(recomb.left_nodes) > 1 and len(recomb.right_nodes) > 1]
+        sorted_mergers = sorted(mergers, key=lambda recomb: len(recomb.right_nodes) + len(recomb.left_nodes), reverse=True)
+        return sorted_mergers
+
+    def merge_all(self):
+        recombinations = []
+        left_dict = {}
+        right_dict = {}
+        for recomb in self.recombinations:
+            existing_recombination = None
+            for left in recomb.left_nodes:
+                if left['id'] in left_dict:
+                    existing_recombination = left_dict[left['id']]
+            for right in recomb.right_nodes:
+                if right['id'] in right_dict:
+                    existing_recombination = right_dict[right['id']]
+            if existing_recombination is None:
+                recombinations.append(recomb)
+                for left in recomb.left_nodes:
+                    left_dict[left['id']] = recomb
+                for right in recomb.right_nodes:
+                    right_dict[right['id']] = recomb
+            else:
+                existing_left_nodes = [node['id'] for node in existing_recombination.left_nodes]
+                existing_right_nodes = [node['id'] for node in existing_recombination.right_nodes]
+                for left in recomb.left_nodes:
+                    if left['id'] not in existing_left_nodes:
+                        existing_recombination.left_nodes.append(left)
+                for right in recomb.right_nodes:
+                    if right['id'] not in existing_right_nodes:
+                        existing_recombination.right_nodes.append(right)
+        self.recombinations = recombinations
+
+
+    def __repr__(self):
+        return_string = f"{len(self.recombinations)}\n"
+
+        for recomb in self.recombinations:
+            return_string += f"{recomb}\n"
+
+        return return_string
+
+    def generate_html_view(self, left_prop_dict, right_prop_dict,
+                           left_path_dict, right_path_dict,
+                           left_class_dict, right_class_dict,
+                           left_provenance, right_provenance):
+
+        def get_node_table(nodes, prop_dict, path_dict, class_dict):
+            node_text = f"""
+            <table class="styled-table"><tbody>
+                    <tr>
+                        <th>RampID</th><th>IDs</th><th>Synonyms</th>
+                        <th>Pathways</th>
+                        <th>Subclasses</th>
+                        <th>MWs</th><th>inchi Keys</th>
+                    </tr>
+                    """
+            for node in nodes:
+                if node['id'] in class_dict:
+                    classes = class_dict[node['id']]
+                else:
+                    classes = []
+                if node['id'] in path_dict:
+                    pathways = path_dict[node['id']]
+                else:
+                    pathways = []
+                if node['id'] in prop_dict:
+                    props = prop_dict[node['id']]
+                    MWs = [str(p['mw']) for p in props if p['mw'] is not None]
+                    InchiKeys = [str(p['inchi_key']) for p in props if p['inchi_key'] is not None]
+                else:
+                    MWs = []
+                    InchiKeys = []
+                node_text += f"""
+                        <tr>
+                            <td>{node['id']}</td>
+                            <td>{'<br />'.join(sorted(node['equivalent_ids']))}</td>
+                            <td>{'<br />'.join(sorted(node['synonyms']))}</td>
+                            <td>-- {'<br />-- '.join(sorted(pathways))}</td>
+                            <td>-- {'<br />-- '.join(sorted(classes))}</td>
+                            <td>{'<br />'.join(MWs)}</td>
+                            <td>{'<br />'.join(InchiKeys)}</td>
+                        </tr>"""
+            node_text += """</tbody></table>"""
+            return node_text
+        def create_table(recombs, table_name):
+            rows = ""
+            for i, recomb in enumerate(recombs):
+                left_nodes = f"""<h3>{len(recomb.left_nodes)} nodes</h3>"""
+                right_nodes = f"""<h3>{len(recomb.right_nodes)} nodes</h3>"""
+                if len(recomb.left_nodes) == 1:
+                    left_nodes += ', '.join(node['id'] for node in recomb.left_nodes)
+                else:
+                    left_nodes += get_node_table(recomb.left_nodes, left_prop_dict, left_path_dict, left_class_dict)
+                if len(recomb.right_nodes) == 1:
+                    right_nodes += ', '.join(node['id'] for node in recomb.right_nodes)
+                else:
+                    right_nodes += get_node_table(recomb.right_nodes, right_prop_dict, right_path_dict, right_class_dict)
+                row_class = "odd-row" if i % 2 == 0 else "even-row"
+                rows += f"<tr class='{row_class}'><td>{left_nodes}</td><td>{right_nodes}</td></tr>"
+
+            return f"""
+                <h2 id="{table_name}">{table_name} ({len(recombs)})</h2>
+                <a href="">Return to top</a>
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th style="max-width: 50%;">Left Nodes</th>
+                            <th style="max-width: 50%;">Right Nodes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows}
+                    </tbody>
+                </table>
+                """
+
+        mergers_html = create_table(self.get_mergers(), "Mergers")
+        unmergers_html = create_table(self.get_unmergers(), "Unmergers")
+        recombinations_html = create_table(self.get_recombinations(), "Recombinations")
+
+        html_content = f"""
+        <html>
+        <head>
+            <title>RaMP Recombination Report</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                }}
+                h2 {{
+                    color: #333;
+                }}
+                .styled-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 25px 0;
+                    font-size: 0.9em;
+                    box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+                }}
+                .styled-table thead tr {{
+                    background-color: #009879;
+                    color: #ffffff;
+                    text-align: left;
+                }}
+                .styled-table th, .styled-table td {{
+                    vertical-align: top;
+                    padding: 12px 15px;
+                    border-bottom: 1px solid #dddddd;
+                }}
+                .styled-table tbody tr:nth-of-type(even) {{
+                    background-color: #f3f3f3;
+                }}
+                .styled-table tbody tr:nth-of-type(odd) {{
+                    background-color: #d9e7e7;
+                }}
+                .styled-table tbody tr:last-of-type {{
+                    border-bottom: 2px solid #009879;
+                }}
+                .styled-table tbody tr:hover {{
+                    border: 3px solid;
+                }}
+            </style>
+        </head>
+        <body>
+        
+            
+            <table class="styled-table"><tbody>
+            <tr>
+            <th>Left Nodes</th><th>Right Nodes</th>            
+            </tr>
+            <tr>
+            <td>{"<br />".join(left_provenance)}</td>
+            <td>{"<br />".join(right_provenance)}</td>
+            </tr>
+            </tbody></table>
+            
+            <div class="nav-links">
+                <a href="#Unmergers">Unmergers ({len(self.get_unmergers())})</a>
+                <a href="#Mergers">Mergers ({len(self.get_mergers())})</a>
+                <a href="#Recombinations">Recombinations ({len(self.get_recombinations())})</a>
+            </div>
+            
+            {unmergers_html}
+            {mergers_html}
+            {recombinations_html}
+        </body>
+        </html>
+        """
+
+        with open("recombination_report.html", "w") as file:
+            file.write(html_content)
+        print("HTML file generated: recombination_report.html")
+
+
 with driver.session() as session:
 
     mergings = session.run(
-        """MATCH (n)<-[r:SharesMetaboliteIDrelationship]-()
-            WITH n, COUNT(r) AS relCount
-            WHERE relCount > 1
-            MATCH (n)<-[r:SharesMetaboliteIDrelationship]-(connectedNode)
-            RETURN n, relCount, COLLECT(connectedNode) AS connectedNodes
-            ORDER BY relCount DESC""")
-    mergings_left_nodes = 0
-    mergings_right_nodes = 0
+        """match (n)-[r:SharesMetaboliteIDrelationship]->(other)
+            with collect(n) as old_nodes, other as new_node
+            where size(old_nodes) > 1
+            return old_nodes, new_node""")
 
-    merged_data = []
+    recombinations = RecombinationList()
+
     for record in mergings:
-        mergings_right_nodes += 1
-        node = record['n']
-        rel_count = record['relCount']
-        connected_nodes = record['connectedNodes']
-
-        demerge_obj = {
-            'id': node['id'],
-            'nodes': []
-        }
-        right_label = next(iter(node.labels))
-        right_prov = node['provenance']
-        for connected in connected_nodes:
-            mergings_left_nodes += 1
-            left_label = next(iter(connected.labels))
-            left_prov = connected['provenance']
-            syn_list = []
-            for syn in sorted(connected['synonyms']):
-                syn_list.append(syn)
-            id_list = []
-            for id in sorted(connected['equivalent_ids']):
-                id_list.append(id)
-            demerge_obj['nodes'].append({
-                "synonyms": syn_list,
-                "ids": id_list
-            })
-        merged_data.append(demerge_obj)
+        recombinations.add(record['old_nodes'], [record['new_node']])
 
     unmergings = session.run(
-        """
-            MATCH (n)-[r:SharesMetaboliteIDrelationship]->()
-            WITH n, COUNT(r) AS relCount
-            WHERE relCount > 1
-            MATCH (n)-[r:SharesMetaboliteIDrelationship]->(connectedNode)
-            RETURN n, relCount, COLLECT(connectedNode) AS connectedNodes
-            ORDER BY relCount DESC
-        """)
-    unmergings_left_nodes = 0
-    unmergings_right_nodes = 0
+        """match (n)-[r:SharesMetaboliteIDrelationship]->(other)
+            with n as old_node, collect(other) as new_nodes
+            where size(new_nodes) > 1
+            return old_node, new_nodes""")
 
-    demerged_data = []
     for record in unmergings:
-        unmergings_left_nodes += 1
-        node = record['n']
-        rel_count = record['relCount']
-        connected_nodes = record['connectedNodes']
+        recombinations.add([record['old_node']], record['new_nodes'])
 
-        demerge_obj = {
-            'id': node['id'],
-            'nodes': []
-        }
-        left_label = next(iter(node.labels))
-        left_prov = node['provenance']
-        for connected in connected_nodes:
-            unmergings_right_nodes += 1
-            right_label = next(iter(connected.labels))
-            right_prov = connected['provenance']
-            syn_list = []
-            for syn in sorted(connected['synonyms']):
-                syn_list.append(syn)
-            id_list = []
-            for id in sorted(connected['equivalent_ids']):
-                id_list.append(id)
-            demerge_obj['nodes'].append({
-                "synonyms": syn_list,
-                "ids": id_list
-            })
-        demerged_data.append(demerge_obj)
+    old_count = 0
+    count = len(recombinations.recombinations)
+    while old_count != count:
+        old_count = count
+        print(f'merging {old_count} recombinations')
+        recombinations.merge_all()
+        count = len(recombinations.recombinations)
+    print(f'converged on {len(recombinations.recombinations)} recombinations')
 
-def get_merged_table(data_list):
-    html_content = """
-    <h3 id="merged">Merged nodes: """ + f"{mergings_left_nodes} -> {mergings_right_nodes}" + """</h3>
-    <table>
-        <tr>
-            <th>
-                <p>Unmerged Node</p>
-            </th>
-            <th>
-                <p>Merged Nodes</p>
-            </th>
-        </tr>
-    """
-    for data in data_list:
-        id = data['id']
-        nodes = data['nodes']
-        html_content += f"""
-        <tr>
-                <td>
-                    <table class="inner-table">
-                    <tr>
-                        <th>IDs</th>
-                        <th>Synonyms</th>
-                    </tr>
-                </td>
-        """
-        for node in nodes:
-            ids = "<br />".join(node['ids'])
-            synonyms = "<br />".join(node['synonyms'])
-            html_content += f"""
-                    <tr>
-                        <td>{ids}</td>
-                        <td>{synonyms}</td>
-                    </tr>
-                """
-        html_content += f"""
-                </table>
-            </td>
-            <td>
-                {len(nodes)} nodes merged into 1
-            </td>
-        </tr>
-        """
-    html_content += f"""
-        </td>
-    </tr>
-    </table>
-    """
-    return html_content
+    print(f"found {len(recombinations.get_mergers())} pure mergings")
 
-def get_demerged_table(data_list):
-    html_content = """
-    <h3 id="unmerged">Unmerged nodes: """ + f"{unmergings_left_nodes} -> {unmergings_right_nodes}" + """</h3>
-    <table>
-        <tr>
-            <th>
-                <p>Merged Node</p>
-            </th>
-            <th>
-                <p>Unmerged Nodes</p>
-            </th>
-        </tr>
-    """
-    for data in data_list:
-        id = data['id']
-        nodes = data['nodes']
+    count = 0
+    for merge in recombinations.get_unmergers():
+        count += len(merge.right_nodes)
+    print('total unmerged nodes: ', count)
+    print(f"found {len(recombinations.get_unmergers())} pure unmergings")
+    print(f"found {len(recombinations.get_recombinations())} recombinations")
 
-        html_content += f"""
-                <tr>
-                    <td>
-                    demerged into {len(nodes)} nodes
-                    </td>
-                    <td>
-                        <table class="inner-table">
-                            <tr>
-                                <th>IDs</th>
-                                <th>Synonyms</th>
-                            </tr>
-            """
-        for node in nodes:
-            ids = "<br />".join(node['ids'])
-            synonyms = "<br />".join(node['synonyms'])
-            html_content += f"""
-                            <tr>
-                                <td>{ids}</td>
-                                <td>{synonyms}</td>
-                            </tr>
-                """
-        html_content += """
-                        </table>
-                    </td>
-                </tr>
-            """
-    html_content += """
-            </table>
-        """
-    return html_content
+    left_chem_props = session.run(
+        f"""match (node:released_ramp_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
+        where node.id in {recombinations.get_all_left_ids()}
+            return node.id as id, collect(prop) as props
+            """)
+    left_prop_dict = {rec['id']: rec['props'] for rec in left_chem_props}
 
-def generate_html_report(demerged_data, merged_data):
-    html_content = """
-    <html>
-    <head>
-        <title>Merged Nodes Report</title>
-        <style>
-            body {
-                font-family: 'verdana', sans-serif;
-            }
-            table {
-                border-collapse: collapse;
-                width: 100%;
-            }
-            tr {
-                vertical-align: top;
-            }
-            th, td {
-                border: 1px solid black;
-                padding: 8px;
-                text-align: left;
-            }
-            th {
-                background-color: #feffdf;
-            }
-            tr:nth-child(even) {
-                background-color: #dde0ab;
-            }
-            tr:nth-child(odd) {
-                background-color: #ffffff;
-            }
-            .inner-table tr:nth-child(even) {
-                background-color: #b7dbb9;
-            }
-            .inner-table tr:nth-child(odd) {
-                background-color: #ffffff;
-            }        </style>
-    </head>
-    <body>
-        <h1>Merged Nodes Report</h1>
-        <table>
-        <tr><th>Database</th><th>Provenance</th></tr>
-        <tr><td>Left: """ + f"{left_label}" + """</td><td>""" + "<br />".join(left_prov) + """</td></tr>
-        <tr><td>Right: """ + f"{right_label}" + """</td><td>""" + "<br />".join(right_prov) + """</td></tr>
-        </table>
-        """
-    html_content += f"""
-        <a href="#merged"><h3>Total merged nodes: """ + f"{mergings_left_nodes} -> {mergings_right_nodes}" + """</h3></a>   
-    """
-    html_content += f"""
-        <a href="#unmerged"><h3>Total unmerged nodes: """ + f"{unmergings_left_nodes} -> {unmergings_right_nodes}" + """</h3></a>   
-    """
-    html_content += get_merged_table(merged_data)
+    right_chem_props = session.run(
+        f"""match (node:ramp_rc1_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
+        where node.id in {recombinations.get_all_right_ids()}
+            return node.id as id, collect(prop) as props
+            """)
+    right_prop_dict = {rec['id']: rec['props'] for rec in right_chem_props}
 
+    left_pathways = session.run(
+        f"""match (node)-[r:AnalytePathwayRelationship]->(path)
+        where node.id in {recombinations.get_all_left_ids()}
+            return node.id as id, collect(path.name) as pathways"""
+    )
+    left_path_dict = {rec['id']: list(set(rec['pathways'])) for rec in left_pathways}
+    right_pathways = session.run(
+        f"""match (node)-[r:AnalytePathwayRelationship]->(path)
+        where node.id in {recombinations.get_all_right_ids()}
+            return node.id as id, collect(path.name) as pathways"""
+    )
+    right_path_dict = {rec['id']: list(set(rec['pathways'])) for rec in right_pathways}
 
-    html_content += get_demerged_table(demerged_data)
+    left_classes = session.run(
+        f"""match (node)-[r:MetaboliteClassRelationship]->(class)
+        where node.id in {recombinations.get_all_left_ids()}
+        and ( class.level = "ClassyFire_sub_class" or class.level = "LipidMaps_sub_class" )
+            return node.id as id, collect(class.name) as classes"""
+    )
+    left_class_dict = {rec['id']: list(set(rec['classes'])) for rec in left_classes}
 
-    html_content += """
-    </body>
-    </html>
-    """
+    right_classes = session.run(
+        f"""match (node)-[r:MetaboliteClassRelationship]->(class)
+        where node.id in {recombinations.get_all_right_ids()}
+        and ( class.level = "ClassyFire_sub_class" or class.level = "LipidMaps_sub_class" )
+            return node.id as id, collect(class.name) as classes"""
+    )
+    right_class_dict = {rec['id']: list(set(rec['classes'])) for rec in right_classes}
 
-    with open(f"merged_nodes_report_{left_label}-{right_label}.html", "w") as file:
-        file.write(html_content)
+    prov_nodes = session.run(
+        f"""match (n)-[:SharesMetaboliteIDrelationship]-(o)
+            return n,o
+            limit 1"""
+    )
 
+    for rec in prov_nodes:
+        left_prov =  rec['n']['provenance']
+        right_prov = rec['o']['provenance']
 
-# Generate the HTML report
-generate_html_report(demerged_data, merged_data)
+    recombinations.generate_html_view(
+        left_prop_dict, right_prop_dict,
+        left_path_dict, right_path_dict,
+        left_class_dict, right_class_dict,
+        left_prov, right_prov)
 
 

@@ -10,11 +10,10 @@ pymysql
 neo4j
 
 
+pandas
+openpyxl
+
+GEOparse
 
 graphene
-neo4j
 Flask
-
-
-sqlalchemy
-pymysql

@@ -25,20 +25,27 @@ class Neo4jDataLoader:
     FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = field_conflict_behavior
         self.base_path = base_path
-        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password))
+        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password), encrypted=False)
 
     def delete_all_data_and_indexes(self) -> bool:
-        batch_size = 100000
+        node_batch_size = 25000
+        relationship_batch_size = 4 * node_batch_size
         with self.driver.session() as session:
             print("deleting relationships")
-            session.run(f"MATCH ()-[r]-() DELETE r")
+            result = session.run("Match ()-[r]-() RETURN count(r) as total")
+            total = result.single()['total']
+            while total > 0:
+                session.run(f"MATCH ()-[r]-() WITH r limit {relationship_batch_size} DELETE r")
+                result = session.run("Match ()-[r]-() RETURN count(r) as total")
+                total = result.single()['total']
+                print(f"{total} relationships remaining")
 
             print("deleting nodes")
             result = session.run("MATCH (n) RETURN count(n) as total")
             total = result.single()["total"]
 
             while total > 0:
-                session.run(f"MATCH (n) WITH n LIMIT {batch_size} DETACH DELETE n")
+                session.run(f"MATCH (n) WITH n LIMIT {node_batch_size} DETACH DELETE n")
                 result = session.run("MATCH (n) RETURN count(n) as total")
                 total = result.single()["total"]
                 print(f"{total} nodes remaining")
@@ -242,11 +249,6 @@ class Neo4jDataLoader:
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
 
-    def load_relationship_csv(self, session: Session, csv_file: str, start_label: NodeLabel,
-                              rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
-                              end_label: NodeLabel):
-        records = self.read_csv_to_list(csv_file)
-        self.load_relationship_records(session, records, start_label, rel_labels, end_label)
 
 
 def batch(iterable, batch_size=50000):

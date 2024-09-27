@@ -1,7 +1,7 @@
 import copy
 from abc import ABC, abstractmethod
 from typing import List
-from src.interfaces.id_normalizer import IdNormalizer
+from src.interfaces.id_resolver import IdResolver
 from src.models.node import Node, Relationship
 
 
@@ -10,72 +10,72 @@ class InputAdapter(ABC):
 
     @abstractmethod
     def get_audit_trail_entries(self, obj) -> List[str]:
-        raise NotImplementedError("derived classes must implement get_version_info")
+        raise NotImplementedError("derived classes must implement get_audit_trail_entries")
 
     @abstractmethod
-    def get_normalized_and_provenanced_list(self) -> List:
-        raise NotImplementedError("derived classes must implement get_normalized_list")
+    def get_resolved_and_provenanced_list(self) -> List:
+        raise NotImplementedError("derived classes must implement get_resolved_and_provenanced_list")
 
 
 class NodeInputAdapter(InputAdapter, ABC):
     name = "Unnamed Node Adapter"
-    id_normalizer: IdNormalizer = None
+    id_resolver: IdResolver = None
 
-    def set_id_normalizer(self, id_normalizer: IdNormalizer):
-        self.id_normalizer = id_normalizer
+    def set_id_resolver(self, id_resolver: IdResolver):
+        self.id_resolver = id_resolver
         return self
 
     @abstractmethod
     def get_all(self) -> List[Node]:
         raise NotImplementedError("derived classes must implement get_all")
 
-    def get_normalized_and_provenanced_list(self) -> List:
+    def get_resolved_and_provenanced_list(self) -> List:
         entries = self.get_all()
         for entry in entries:
             version_info = self.get_audit_trail_entries(entry)
             entry.provenance.extend(version_info)
-        if self.id_normalizer is not None:
-            normalization_map = self.id_normalizer.normalize_nodes(entries)
-            entries = self.id_normalizer.parse_flat_node_list_from_map(normalization_map)
+        if self.id_resolver is not None:
+            entity_map = self.id_resolver.resolve_nodes(entries)
+            entries = self.id_resolver.parse_flat_node_list_from_map(entity_map)
         return entries
 
 
 class RelationshipInputAdapter(InputAdapter, ABC):
-    start_id_normalizer: IdNormalizer = None
-    end_id_normalizer: IdNormalizer = None
+    start_id_resolver: IdResolver = None
+    end_id_resolver: IdResolver = None
 
     @abstractmethod
     def get_all(self) -> List[Relationship]:
         raise NotImplementedError("derived classes must implement get_all")
 
-    def set_start_normalizer(self, id_normalizer: IdNormalizer):
-        self.start_id_normalizer = id_normalizer
+    def set_start_resolver(self, id_resolver: IdResolver):
+        self.start_id_resolver = id_resolver
         return self
 
-    def set_end_normalizer(self, id_normalizer: IdNormalizer):
-        self.end_id_normalizer = id_normalizer
+    def set_end_resolver(self, id_resolver: IdResolver):
+        self.end_id_resolver = id_resolver
         return self
 
-    def get_normalized_and_provenanced_list(self):
+    def get_resolved_and_provenanced_list(self):
         entries = self.get_all()
         for entry in entries:
             version_info = self.get_audit_trail_entries(entry)
             entry.provenance.extend(version_info)
 
-        if self.start_id_normalizer is None and self.end_id_normalizer is None:
+        if self.start_id_resolver is None and self.end_id_resolver is None:
             return entries
 
         start_node_map, end_node_map = {}, {}
 
-        if self.start_id_normalizer is not None:
+        if self.start_id_resolver is not None:
             start_nodes = [entry.start_node for entry in entries]
-            start_node_map = self.start_id_normalizer.normalize_nodes(start_nodes)
-            start_node_map = self.start_id_normalizer.parse_node_map(start_node_map)
+            start_node_map = self.start_id_resolver.resolve_nodes(start_nodes)
+            start_node_map = self.start_id_resolver.parse_entity_map(start_node_map)
 
-        if self.end_id_normalizer is not None:
+        if self.end_id_resolver is not None:
             end_nodes = [entry.end_node for entry in entries]
-            end_node_map = self.end_id_normalizer.normalize_nodes(end_nodes)
-            end_node_map = self.end_id_normalizer.parse_node_map(end_node_map)
+            end_node_map = self.end_id_resolver.resolve_nodes(end_nodes)
+            end_node_map = self.end_id_resolver.parse_entity_map(end_node_map)
 
         return_entries = []
         for entry in entries:
@@ -85,11 +85,11 @@ class RelationshipInputAdapter(InputAdapter, ABC):
             end_id = entry.end_node.id
             end_nodes = [entry.end_node]
 
-            if self.start_id_normalizer is not None:
+            if self.start_id_resolver is not None:
                 if start_id in start_node_map:
                     start_nodes = start_node_map[start_id]
 
-            if self.end_id_normalizer is not None:
+            if self.end_id_resolver is not None:
                 if end_id in end_node_map:
                     end_nodes = end_node_map[end_id]
 
