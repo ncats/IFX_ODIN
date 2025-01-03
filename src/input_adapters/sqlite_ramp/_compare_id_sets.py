@@ -34,7 +34,7 @@ class MetaboliteSetRelationshipAdapter(RelationshipInputAdapter):
 
         for metabolite in left_mets:
             ramp_id = metabolite.id
-            equiv_ids = [equiv_id.id for equiv_id in metabolite.equivalent_ids]
+            equiv_ids = [equiv_id.id for equiv_id in metabolite.xref]
             for id in equiv_ids:
                 if id in reverse_lookup:
                     existing_id = reverse_lookup[id]
@@ -46,7 +46,7 @@ class MetaboliteSetRelationshipAdapter(RelationshipInputAdapter):
         relationship_map = {}
         for metabolite in right_mets:
             ramp_id = metabolite.id
-            equiv_ids = [equiv_id.id for equiv_id in metabolite.equivalent_ids]
+            equiv_ids = [equiv_id.id for equiv_id in metabolite.xref]
             for id in equiv_ids:
                 if id not in reverse_lookup:
                     print(f"{id} exists in the 'right' list and not the 'left'. Skipping it...")

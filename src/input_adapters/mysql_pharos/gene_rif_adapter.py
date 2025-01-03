@@ -13,8 +13,8 @@ class GeneRifAdapter(NodeInputAdapter, MySqlAdapter):
 
     def get_audit_trail_entries(self, obj: Union[GeneRif, ProteinGeneRifRelationship]) -> List[str]:
         if isinstance(obj, GeneRif):
-            return [f"Gene RIF from {self.db_credentials.schema}"]
-        return [f"Gene RIF Association from {self.db_credentials.schema}"]
+            return [f"Gene RIF from {self.credentials.schema}"]
+        return [f"Gene RIF Association from {self.credentials.schema}"]
 
     def get_all(self):
         rif_results = self.get_session().query(

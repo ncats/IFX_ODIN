@@ -8,7 +8,7 @@ humanize
 sqlalchemy
 pymysql
 neo4j
-
+psycopg2
 
 pandas
 openpyxl
@@ -17,3 +17,4 @@ GEOparse
 
 graphene
 Flask
+pyyaml

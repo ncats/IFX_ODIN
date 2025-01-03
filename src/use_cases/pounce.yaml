@@ -1,0 +1,53 @@
+#testing: true
+
+
+input_adapters:
+  nodes:
+#    - import: ./src/input_adapters/geo/geo_adapter.py
+#      class: GeoAdapter
+#      kwargs:
+#        accession: GDS3676
+#    - import: ./src/input_adapters/geo/geo_adapter.py
+#      class: GeoAdapter
+#      kwargs:
+#        accession: GDS2987
+    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
+      class: MetabolightsAdapter
+      kwargs:
+        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/i_Investigation.txt
+        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/s_MTBLS859.txt
+        assay_files:
+          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/a_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy.txt
+          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/a_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy-1.txt
+        matrix_files:
+          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/m_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy-1_v2_maf.tsv
+          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/m_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv
+#
+#    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
+#      class: MetabolightsAdapter
+#      kwargs:
+#        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/i_Investigation.txt
+#        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/s_MTBLS1707.txt
+#        assay_files:
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_hilic_negative_mass_spectrometry.txt
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_hilic_positive_mass_spectrometry.txt
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_rp_lipids_negative_mass_spectrometry.txt
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_rp_lipids_positive_mass_spectrometry.txt
+#        matrix_files:
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_hilic_negative_mass_spectrometry_v2_maf.tsv
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_hilic_positive_mass_spectrometry_v2_maf.tsv
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_rp_lipids_negative_mass_spectrometry_v2_maf.tsv
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_rp_lipids_positive_mass_spectrometry_v2_maf.tsv
+
+#    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
+#      class: MetabolightsAdapter
+#      kwargs:
+#        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/i_Investigation.txt
+#        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/s_MTBLS7429.txt
+#        assay_files:
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/a_MTBLS7429_LC-MS_positive_reverse-phase_metabolite_profiling.txt
+#        matrix_files:
+#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/m_MTBLS7429_LC-MS_positive_reverse-phase_metabolite_profiling_v2_maf.tsv
+
+output_adapters:
+  - ./src/use_cases/ifxdev_neo4j_output_2.yaml

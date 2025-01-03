@@ -3,13 +3,13 @@ from enum import Enum
 from typing import Union, List
 
 from src.interfaces.output_adapter import OutputAdapter
+from src.interfaces.simple_enum import NodeLabel, SimpleEnum
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
 from src.models.go_term import ProteinGoTermRelationship
-from src.models.ligand import ProteinLigandRelationship
 from src.models.node import Relationship, Node
+from src.models.pounce.investigator import InvestigatorRelationship
 
-from src.output_adapters.generic_labels import NodeLabel
 from src.shared.db_credentials import DBCredentials
 from src.shared.neo4j_data_loader import Neo4jDataLoader
 
@@ -37,17 +37,22 @@ class Neo4jOutputAdapter(OutputAdapter):
         return headers, data
 
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
+        for key, value in vars(obj).items():
+            if isinstance(value, NodeLabel):
+                ret_dict[key] = value.value
+            if isinstance(value, list):
+                ret_dict[key] = self.loader.remove_none_values_from_list(value)
+                if ret_dict[key] is not None:
+                    ret_dict[key] = [l.value if isinstance(l, SimpleEnum) else l for l in ret_dict[key]]
+            if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
+                del ret_dict[key]
+                flat_dict = value.to_dict()
+                ret_dict.update(flat_dict)
         if isinstance(obj, Node):
-            if hasattr(obj, 'equivalent_ids'):
-                ret_dict['equivalent_id_count'] = len(obj.equivalent_ids) if len(obj.equivalent_ids) > 0 else None
-                ret_dict['equivalent_ids'] = self.loader.remove_none_values_from_list(
-                    list(set([equiv.id for equiv in obj.equivalent_ids])))
-                ret_dict['equivalent_id_types'] = self.loader.remove_none_values_from_list(
-                    list(set([equiv.type for equiv in obj.equivalent_ids])))
-                ret_dict['equivalent_id_statuses'] = self.loader.remove_none_values_from_list(
-                    list(set([equiv.status for equiv in obj.equivalent_ids])))
-                ret_dict['equivalent_id_sources'] = self.loader.remove_none_values_from_list(
-                    list(set([equiv.source for equiv in obj.equivalent_ids])))
+            if hasattr(obj, 'xref'):
+                ret_dict['xref'] = self.loader.remove_none_values_from_list(
+                    list(set([x.id_str() for x in obj.xref]))
+                )
         if isinstance(obj, Analyte):
             if hasattr(obj, 'synonyms'):
                 ret_dict['synonyms'] = self.loader.remove_none_values_from_list(
@@ -62,18 +67,19 @@ class Neo4jOutputAdapter(OutputAdapter):
             ret_dict['text'] = obj.evidence.text()
         if isinstance(obj, GeneRif):
             ret_dict['pmids'] = list(obj.pmids)
-        if isinstance(obj, ProteinLigandRelationship):
-            for field in ['act_values', 'act_types', 'action_types', 'references', 'sources', 'pmids']:
-                ret_dict[field] = self.loader.remove_none_values_from_list(getattr(obj, field))
+        if isinstance(obj, InvestigatorRelationship):
+            ret_dict['roles'] = [role.value for role in obj.roles]
 
     def clean_dict(self, obj):
         def _clean_dict(obj):
-            forbidden_keys = ['labels']
+            forbidden_keys = ['labels', 'field_provenance']
             if isinstance(obj, Relationship):
                 forbidden_keys.extend(['start_node', 'end_node'])
             temp_dict = {}
             for key, val in obj.__dict__.items():
                 if key in forbidden_keys:
+                    continue
+                if isinstance(val, list) and len(val) == 0:
                     continue
                 if isinstance(val, Enum):
                     temp_dict[key] = val.value

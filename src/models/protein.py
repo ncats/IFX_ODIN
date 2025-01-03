@@ -56,6 +56,11 @@ class Protein(Analyte):
     idg_family: IDGFamily = None
     antibody_count: int = None
     pm_score: float = None
+    mapping_ratio: float = None
+    refseq_method: str = None
+    uniprot_annotationScore: int = None
+    uniprot_entryType: str = None
+    uniprot_function: str = None
 
 
 @dataclass

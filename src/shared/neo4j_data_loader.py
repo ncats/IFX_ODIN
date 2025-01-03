@@ -7,7 +7,7 @@ from typing import List, Union
 
 from neo4j import Driver, GraphDatabase, Session
 
-from src.output_adapters.generic_labels import NodeLabel, RelationshipLabel
+from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.shared.db_credentials import DBCredentials
 
 
@@ -22,10 +22,11 @@ class Neo4jDataLoader:
     field_conflict_behavior: FieldConflictBehavior
 
     def __init__(self, credentials: DBCredentials, base_path: str = None, field_conflict_behavior:
-    FieldConflictBehavior = FieldConflictBehavior.KeepLast):
+                 FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = field_conflict_behavior
         self.base_path = base_path
-        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password), encrypted=False)
+        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
+                                           encrypted=False)
 
     def delete_all_data_and_indexes(self) -> bool:
         node_batch_size = 25000
@@ -69,6 +70,8 @@ class Neo4jDataLoader:
         return ''
 
     def remove_none_values_from_list(self, list):
+        if len(list) == 0:
+            return None
         type = self.get_list_type(list)
         return [self.get_none_val_for_type(type) if val is None else val for val in list]
 
@@ -104,13 +107,14 @@ class Neo4jDataLoader:
         return False
 
     def add_index(self, session: Session, label: NodeLabel, field: str):
-        index_name = (f"{label}_{field}_index".lower()
+        label_str = label.value if hasattr(label, 'value') else label
+        index_name = (f"{label_str}_{field}_index".lower()
                       .replace(':', '_')
                       .replace(' ', '_')
                       .replace('-', '_')
                       )
         if not self.index_exists(session, index_name):
-            session.run(f"CREATE INDEX {index_name} FOR (n:`{label}`) ON (n.{field})")
+            session.run(f"CREATE INDEX {index_name} FOR (n:`{label_str}`) ON (n.{field})")
 
     def ensure_list(self, possible_list):
         if not isinstance(possible_list, list):
@@ -149,7 +153,7 @@ class Neo4jDataLoader:
             field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in
                                field_keys]
 
-        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END" for
+        list_set_stmts = [f"n.{prop} = apoc.coll.toSet(CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END)" for
                           prop in list_keys]
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
@@ -206,7 +210,7 @@ class Neo4jDataLoader:
                                for prop in field_keys]
 
         list_set_stmts = [
-            f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END"
+            f"rel.{prop} = apoc.coll.toSet(CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END)"
             for prop in list_keys]
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
@@ -233,10 +237,6 @@ class Neo4jDataLoader:
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
 
-    def load_node_csv(self, session: Session, csv_file: str, labels: Union[NodeLabel, List[NodeLabel]]):
-        records = self.read_csv_to_list(csv_file)
-        self.load_node_records(session, records, labels)
-
     def load_relationship_records(self, session: Session, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
                                   end_labels: List[NodeLabel]):
@@ -248,7 +248,6 @@ class Neo4jDataLoader:
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
-
 
 
 def batch(iterable, batch_size=50000):

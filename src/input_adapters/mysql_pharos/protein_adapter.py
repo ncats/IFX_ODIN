@@ -11,7 +11,7 @@ class ProteinAdapter(NodeInputAdapter, MySqlAdapter):
     name = "Pharos Protein Adapter"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        version_info = [f"Node created based on Pharos version: {self.db_credentials.schema}"]
+        version_info = [f"Node created based on Pharos version: {self.credentials.schema}"]
         return version_info
 
     def get_all(self):

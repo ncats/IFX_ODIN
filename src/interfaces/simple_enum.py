@@ -11,11 +11,18 @@ class SimpleEnum(Enum):
 
     @staticmethod
     def to_list(val_list: List[Enum], delimiter: str = "-"):
+        val_list = list(set(val_list))
         return delimiter.join([val.value if hasattr(val, 'value') else val for val in val_list])
 
 
     @classmethod
     def parse(cls, input_value: str):
         for member in cls:
-            if member.value.lower() == input_value.lower():
+            if member.value.lower() == input_value.lower().replace('_', '.'):
                 return member
+
+class NodeLabel(SimpleEnum):
+    pass
+
+class RelationshipLabel(SimpleEnum):
+    pass

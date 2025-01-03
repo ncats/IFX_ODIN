@@ -17,9 +17,6 @@ from src.input_adapters.sqlite_ramp.reaction_class_relationship_adapter import R
 from src.input_adapters.sqlite_ramp.reaction_reaction_class_relationship_adapter import ReactionReactionClassRelationshipAdapter
 from src.input_adapters.sqlite_ramp.version_metadata_adapter import VersionMetaAdapter
 from src.input_adapters.sqlite_ramp.reaction_class_adapter import ReactionClassAdapter
-
-from src.output_adapters.csv_output_adapter import CsvOutputAdapter
-
 from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
 from src.use_cases.secrets.local_neo4j import stuff2_neo4j_credentials as neo4j_credentials
 
@@ -48,7 +45,6 @@ protein_synonym_list_adapter = ProteinSynonymAdapter(sqlite_file=sqlite_file)
 version_meta_adapter = VersionMetaAdapter(sqlite_file=sqlite_file)
 
 # Output Adapters
-csv_output_adapter = CsvOutputAdapter(destination_directory="./output_files/ramp_neo4j_output")
 neo4j_output_adapter = Neo4jOutputAdapter(credentials=neo4j_credentials)
 
 

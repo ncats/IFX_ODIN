@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from src.shared.db_credentials import DBCredentials
 
 
-class SqlAdapter():
+class SqlAdapter:
     engine: Engine
 
     def __init__(self, connection_string):
@@ -15,15 +15,31 @@ class SqlAdapter():
         return Session()
 
 
-class MySqlAdapter(SqlAdapter):
-    db_credentials: DBCredentials
-    def __init__(self, db_credentials: DBCredentials):
-        self.db_credentials = db_credentials
-        port = db_credentials.port or 3306
-        super().__init__(f"mysql+pymysql://{db_credentials.user}:{db_credentials.password}@{db_credentials.url}:{port}/{db_credentials.schema}")
+class HostedSqlAdapter(SqlAdapter):
+    credentials: DBCredentials
+    dialect: str
+
+    def __init__(self, credentials: DBCredentials, dialect: str):
+        self.credentials = credentials
+        self.dialect = dialect
+        port = credentials.port or 3306
+        connection_string = f"{dialect}://{credentials.user}:{credentials.password}@{credentials.url}:{port}/{credentials.schema}"
+        if self.credentials.password is None:
+            connection_string = f"{dialect}://{credentials.user}@{credentials.url}:{port}/{credentials.schema}"
+        super().__init__(connection_string)
+
+
+class MySqlAdapter(HostedSqlAdapter):
+    def __init__(self, credentials: DBCredentials):
+        super().__init__(credentials, dialect="mysql+pymysql")
+
+
+class PostgreSqlAdapter(HostedSqlAdapter):
+    def __init__(self, credentials: DBCredentials):
+        super().__init__(credentials, dialect="postgresql+psycopg2")
 
 
 class SqliteAdapter(SqlAdapter):
-    
+
     def __init__(self, sqlite_file):
         super().__init__(f"sqlite:///{sqlite_file}")
