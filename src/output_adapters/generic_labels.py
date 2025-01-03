@@ -1,7 +1,7 @@
-from src.interfaces.simple_enum import SimpleEnum
+from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 
 
-class NodeLabel(SimpleEnum):
+class GenericNodeLabel(NodeLabel):
     Analyte = "Analyte"
     Metabolite = "Metabolite"
     MetaboliteClass = "MetaboliteClass"
@@ -15,7 +15,7 @@ class NodeLabel(SimpleEnum):
     DataVersion = "DataVersion"
 
 
-class RelationshipLabel(SimpleEnum):
+class GenericRelationshipLabel(RelationshipLabel):
     Analyte_Has_Class = "Analyte_Has_Class"
     Analyte_Has_Pathway = "Analyte_Has_Pathway"
     Catalyzes = "Catalyzes"

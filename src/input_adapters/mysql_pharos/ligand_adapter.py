@@ -9,7 +9,7 @@ from src.input_adapters.mysql_pharos.tables import Ligand as mysql_ligand
 class LigandAdapter(NodeInputAdapter, MySqlAdapter):
     name = "Pharos Ligand Adapter"
     def get_audit_trail_entries(self, obj) -> List[str]:
-        version_info = [f"Node created based on Pharos version: {self.db_credentials.schema}"]
+        version_info = [f"Node created based on Pharos version: {self.credentials.schema}"]
         return version_info
 
     def get_all(self) -> List[Node]:

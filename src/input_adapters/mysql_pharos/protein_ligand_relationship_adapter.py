@@ -14,7 +14,7 @@ class ProteinLigandRelationshipAdapter(RelationshipInputAdapter, MySqlAdapter):
     name = "Pharos Protein Ligand Relationship Adapter"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f"Protein Ligand Relationship from {self.db_credentials.schema})"]
+        return [f"Protein Ligand Relationship from {self.credentials.schema})"]
 
     def get_all(self) -> List[Relationship]:
         results = (self.get_session().query(

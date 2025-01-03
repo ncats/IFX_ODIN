@@ -43,7 +43,7 @@ class AnalyteAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
                     status=row[3],
                     source=row[4]
                 ) for row in analyte_dict[analyte.id]]
-                analyte.equivalent_ids = equiv_ids
+                analyte.xref = equiv_ids
     def get_audit_trail_entries(self, obj) -> List[str]:
         return [
             f"Node created based on RaMP version: {self.get_database_version().id}"

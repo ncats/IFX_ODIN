@@ -14,7 +14,7 @@ class ProteinLigandMOAAdapter(RelationshipInputAdapter, MySqlAdapter):
     name = "Pharos Protein Ligand Has MOA Adapter"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'has_moa updated by {self.name} using {self.db_credentials.schema}']
+        return [f'has_moa updated by {self.name} using {self.credentials.schema}']
 
     def get_all(self) -> List[Relationship]:
         results = (self.get_session().query(

@@ -13,8 +13,8 @@ class GoTermAdapter(NodeInputAdapter, RelationshipInputAdapter, MySqlAdapter):
 
     def get_audit_trail_entries(self, obj: Union[GoTerm, ProteinGoTermRelationship]) -> List[str]:
         if isinstance(obj, GoTerm):
-            return [f"GO Term from {self.db_credentials.schema}"]
-        return [f"GO Term Association from {self.db_credentials.schema}"]
+            return [f"GO Term from {self.credentials.schema}"]
+        return [f"GO Term Association from {self.credentials.schema}"]
 
     def get_all(self):
         results = self.get_session().query(
@@ -52,7 +52,7 @@ class GoLeafTermAdapter(NodeInputAdapter, MySqlAdapter):
     name = "Pharos GO Term is_leaf Adapter"
 
     def get_audit_trail_entries(self, obj: Union[GoTerm, ProteinGoTermRelationship]) -> List[str]:
-        return [f"is_leaf updated from {self.db_credentials.schema}"]
+        return [f"is_leaf updated from {self.credentials.schema}"]
 
 
     def get_all(self):

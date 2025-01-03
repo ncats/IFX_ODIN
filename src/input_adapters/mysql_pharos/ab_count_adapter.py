@@ -19,7 +19,7 @@ class TdlTableAdapter(NodeInputAdapter, MySqlAdapter, ABC):
         raise Exception("base classes must implement this method")
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'{self.field} updated by {self.name} using {self.db_credentials.schema}']
+        return [f'{self.field} updated by {self.name} using {self.credentials.schema}']
 
     def get_all(self):
         results = (self.get_session().query(

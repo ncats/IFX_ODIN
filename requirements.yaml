@@ -1,0 +1,23 @@
+name: tg_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pytest
+  - pytest-mock
+  - requests
+  - biolink-model
+  - jsonasobj2
+  - linkml_runtime
+  - humanize
+  - sqlalchemy
+  - pymysql
+  - neo4j
+  - psycopg2
+  - pandas
+  - openpyxl
+  - GEOparse
+  - graphene
+  - Flask
+  - pyyaml

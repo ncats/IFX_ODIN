@@ -132,7 +132,7 @@ class RecombinationList:
                 node_text += f"""
                         <tr>
                             <td>{node['id']}</td>
-                            <td>{'<br />'.join(sorted(node['equivalent_ids']))}</td>
+                            <td>{'<br />'.join(sorted(node['xref']))}</td>
                             <td>{'<br />'.join(sorted(node['synonyms']))}</td>
                             <td>-- {'<br />-- '.join(sorted(pathways))}</td>
                             <td>-- {'<br />-- '.join(sorted(classes))}</td>
@@ -341,8 +341,8 @@ with driver.session() as session:
     )
 
     for rec in prov_nodes:
-        left_prov =  rec['n']['provenance']
-        right_prov = rec['o']['provenance']
+        left_prov =  rec['n']['provided_by']
+        right_prov = rec['o']['provided_by']
 
     recombinations.generate_html_view(
         left_prop_dict, right_prop_dict,

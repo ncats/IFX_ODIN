@@ -78,8 +78,7 @@ class UniProtResolver(IdResolver, UniProtFileReader):
             return None, None
         best_context = sorted_matches[0].context[0]
         best_matches = [match for match in sorted_matches if match.context[0] == best_context]
-        other_matches = [match for match in sorted_matches if match.context[0] != best_context]
-        return best_matches, other_matches if len(other_matches) > 0 else None
+        return best_matches
 
     def _resolve(self, input_id):
         if input_id not in self.alias_map:
@@ -93,10 +92,8 @@ class UniProtResolver(IdResolver, UniProtFileReader):
         result_list = {}
         for node in input_nodes:
             input_list = [node.id]
-            if self.use_equivalent_ids:
-                input_list.extend([self.clean_id(equiv_id.id, equiv_id.type) for equiv_id in node.equivalent_ids])
-            best_matches, other_matches = self.get_matches_for_merged_list(input_list)
-            result_list[node.id] = IdResolverResult(best_matches=best_matches, other_matches=other_matches)
+            best_matches = self.get_matches_for_merged_list(input_list)
+            result_list[node.id] = IdResolverResult(matches=best_matches)
         return result_list
 
     def clean_id(self, input_id: str, id_type: str):

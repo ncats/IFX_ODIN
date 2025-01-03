@@ -17,7 +17,7 @@ class ProteinProteinInteractionAdapter(RelationshipInputAdapter, MySqlAdapter):
     name = "Pharos Protein-Protein Interaction Relationship Adapter"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f"Protein-Protein Interaction from {self.db_credentials.schema})"]
+        return [f"Protein-Protein Interaction from {self.credentials.schema})"]
 
     def get_all(self) -> List[Relationship]:
         protein_alias1 = aliased(mysql_protein)

@@ -1,0 +1,133 @@
+#testing: true
+
+labeler:
+  import: ./src/interfaces/labeler.py
+  class: BiolinkLabeler
+
+resolvers:
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
+    kwargs:
+      add_labels_for_resolver_events: true
+
+#  - label: tg_genes
+#    import: ./src/id_resolvers/target_graph_resolver.py
+#    class: TargetGraphGeneResolver
+#    kwargs:
+#      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/gene_ids.csv
+#
+#  - label: tg_transcripts
+#    import: ./src/id_resolvers/target_graph_resolver.py
+#    class: TargetGraphTranscriptResolver
+#    kwargs:
+#      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/transcript_ids.csv
+#
+  - label: tg_proteins
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphProteinResolver
+    kwargs:
+      add_labels_for_resolver_events: true
+      file_paths:
+        - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
+        - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
+      additional_ids: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
+
+
+input_adapters:
+  nodes:
+#    - import: ./src/input_adapters/target_graph/gene_node.py
+#      class: GeneNodeAdapter
+#      kwargs:
+#        file_path: ./input_files/target_graph/gene_ids.csv
+#      id_resolver: tg_genes
+#
+#    - import: ./src/input_adapters/target_graph/transcript_node.py
+#      class: TranscriptNodeAdapter
+#      kwargs:
+#        file_path: ./input_files/target_graph/transcript_ids.csv
+#      id_resolver: tg_transcripts
+#
+#    - import: ./src/input_adapters/target_graph/generif_node.py
+#      class: GeneRifNodeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/generif_9606.csv
+#
+    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+      class: ProteinNodeAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
+        additional_id_file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
+      id_resolver: tg_proteins
+
+    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+      class: ProteinNodeAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
+        additional_id_file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
+      id_resolver: tg_proteins
+
+#    - import: ./src/input_adapters/drug_central/drug_node.py
+#      class: DrugNodeAdapter
+#      credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+#      id_resolver: translator_nn
+
+#
+  edges:
+
+#    - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
+#      class: GeneTranscriptEdgeAdapter
+#      kwargs:
+#        file_path: ./input_files/target_graph/transcript_ids.csv
+#      start_id_resolver: tg_genes
+#      end_id_resolver: tg_transcripts
+#
+#    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#      class: TranscriptProteinEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
+#      start_id_resolver: tg_transcripts
+#      end_id_resolver: tg_proteins
+#
+#    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#      class: TranscriptProteinEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
+#      start_id_resolver: tg_transcripts
+#      end_id_resolver: tg_proteins
+#
+#    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#      class: GeneProteinEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
+#      start_id_resolver: tg_genes
+#      end_id_resolver: tg_proteins
+#
+#    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#      class: GeneProteinEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
+#      start_id_resolver: tg_genes
+#      end_id_resolver: tg_proteins
+#
+#    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#      class: IsoformProteinEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
+#      start_id_resolver: tg_proteins
+#      end_id_resolver: tg_proteins
+#
+#    - import: ./src/input_adapters/target_graph/gene_generif_edge.py
+#      class: GeneGeneRifEdgeAdapter
+#      kwargs:
+#        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/generif_9606.csv
+#      start_id_resolver: tg_genes
+#
+#    - import: ./src/input_adapters/drug_central/protein_drug_edge.py
+#      class: ProteinDrugEdgeAdapter
+#      credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+#      start_id_resolver: tg_proteins
+#      end_id_resolver: translator_nn
+
+output_adapters:
+  - ./src/use_cases/ifxdev_neo4j_output_2.yaml

@@ -1,0 +1,4 @@
+type: neo4j
+import: ./src/output_adapters/neo4j_output_adapter.py
+class: Neo4jOutputAdapter
+credentials: ./src/use_cases/secrets/ifxdev_neo4j_2.yaml
