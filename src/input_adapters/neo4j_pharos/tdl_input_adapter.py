@@ -13,8 +13,7 @@ class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
         return [f'tdl updated by {self.name} using {self.credentials.url}']
 
     def get_all(self) -> List[Node]:
-        all_proteins_and_old_tdls = self.runQuery(proteins_and_their_old_tdls)
-
+        all_protein_list = self.runQuery(all_proteins)
         good_ligand_list = self.runQuery(proteins_with_good_ligand_activities)
         moa_drug_list = self.runQuery(proteins_with_moa_drugs)
         good_go_terms_list = self.runQuery(proteins_with_experimental_f_or_p_go_terms)
@@ -22,6 +21,7 @@ class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
         low_pm_score_list = self.runQuery(proteins_with_low_pm_score)
         low_ab_count_list = self.runQuery(proteins_with_low_ab_count)
 
+        all_protein_set = make_set(all_protein_list)
         good_ligand_set = make_set(good_ligand_list)
         moa_drug_set = make_set(moa_drug_list)
         good_go_terms_set = make_set(good_go_terms_list)
@@ -30,14 +30,17 @@ class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
         low_ab_count_set = make_set(low_ab_count_list)
 
         nodes: List[Protein] = []
-        for row in all_proteins_and_old_tdls:
-            uniprot, old_tdl = row
-            new_tdl = calculate_tdl(uniprot in good_ligand_set, uniprot in moa_drug_set, uniprot in good_go_terms_set,
-                                    uniprot in few_generifs_set, uniprot in low_pm_score_set, uniprot in low_ab_count_set)
-            if new_tdl.value != old_tdl:
-                print(f"updating: {uniprot} from {old_tdl} to {new_tdl}")
-                nodes.append(Protein(id=uniprot, tdl=new_tdl))
-        print(f"found {len(nodes)} with changed TDLs")
+        for protein_id in all_protein_set:
+            new_tdl = calculate_tdl(
+                protein_id in good_ligand_set,
+                protein_id in moa_drug_set,
+                protein_id in good_go_terms_set,
+                protein_id in few_generifs_set,
+                protein_id in low_pm_score_set,
+                protein_id in low_ab_count_set
+            )
+            nodes.append(Protein(id=protein_id, tdl=new_tdl))
+
         return nodes
 
 def calculate_tdl(has_ligand: bool, has_moa_drug: bool, has_good_go_term: bool, has_few_generifs: bool, has_low_pm_score: bool, has_low_ab_score: bool):
@@ -64,49 +67,49 @@ def make_set(list_query_result: list):
         ret_set.add(row[0])
     return ret_set
 
-proteins_and_their_old_tdls = """
-    MATCH (n:Protein)
-    RETURN n.id, n.tdl
-"""
+all_proteins = """MATCH (n:`biolink:Protein`) RETURN n.id"""
 
 proteins_with_good_ligand_activities = """
-    MATCH (n:Protein)-[r:ProteinLigandRelationship]->(l:Ligand)
-    WHERE (n.idg_family IN ['GPCR', 'oGPCR', 'Nuclear Receptor'] AND ANY(value IN r.act_values WHERE value >= 7))
-        OR (n.idg_family = 'Kinase' AND ANY(value IN r.act_values WHERE value >= 7.52288))
-        OR (n.idg_family = 'Ion Channel' AND ANY(value IN r.act_values WHERE value >= 5))
-        OR (NOT n.idg_family IN ['Ion Channel', 'Kinase', 'GPCR'] AND ANY(value IN r.act_values WHERE value >= 6))
-    RETURN DISTINCT n.id
+    MATCH (n:`biolink:Protein`)-[r:`biolink:interacts_with`]->(l:`biolink:ChemicalEntity`)
+        WHERE r.meets_idg_cutoff = true 
+    RETURN distinct n.id
 """
 
 proteins_with_moa_drugs = """
-    MATCH (n:Protein)-[r:ProteinLigandRelationship]->(l:Ligand)
-    WHERE r.has_moa and l.isDrug = 1
-    RETURN DISTINCT n.id
+    MATCH (n:`biolink:Protein`)-[r:`biolink:interacts_with`]->(l:`biolink:ChemicalEntity`)
+        WHERE r.has_moa and l.isDrug
+    RETURN distinct n.id
 """
 
 proteins_with_experimental_f_or_p_go_terms = """
-    MATCH (p:Protein)-[r:ProteinGoTermRelationship]->(g:GoTerm) 
-    WHERE (g.is_leaf AND  g.type <> 'Component')
-        AND ANY(code IN r.abbreviation WHERE code IN ['EXP', 'IDA', 'IPI', 'IMP', 'IGI', 'IEP'])
-    RETURN DISTINCT p.id
+    MATCH (p:`biolink:Protein`)-[r:ProteinGoTermRelationship]->(g:GoTerm) 
+    WHERE 
+        g.is_leaf 
+        AND g.type <> 'C'
+        AND 'Experimental evidence code' in r.category
+    RETURN distinct p.id
 """
 
 proteins_with_low_pm_score = """
-    MATCH (n:Protein)
-    WHERE n.pm_score < 5
+    MATCH (n:`biolink:Protein`)
+        WHERE n.pm_score < 5
     RETURN DISTINCT n.id
 """
 
 proteins_with_low_ab_count = """
-    MATCH (n:Protein)
-    WHERE n.antibody_count <= 50
+    MATCH (n:`biolink:Protein`)
+        WHERE n.antibody_count <= 50
     RETURN DISTINCT n.id
 """
 
 proteins_with_three_or_fewer_generifs = """
-    MATCH (n:Protein)
-    OPTIONAL MATCH (n)-[r:ProteinGeneRifRelationship]-()
-    WITH n, COUNT(r) as relCount
-    WHERE relCount <= 3
+    MATCH (n:`biolink:Protein`)
+        OPTIONAL MATCH (n)<-[:`biolink:translates_to`]-(g1:`biolink:Gene`) 
+        OPTIONAL MATCH (n)<-[:`biolink:translates_to`]-(:`biolink:Transcript`)<-[:`biolink:transcribed_to`]-(g2:`biolink:Gene`)
+    WITH n, apoc.coll.toSet(collect(g1) + collect(g2)) AS genes
+    UNWIND genes AS g
+        OPTIONAL MATCH (g)-[r:GeneGeneRifRelationship]-()
+    WITH n, collect(DISTINCT r) AS allRelationships
+        WHERE size(allRelationships) <= 3
     RETURN DISTINCT n.id
 """

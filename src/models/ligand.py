@@ -38,4 +38,5 @@ class ActivityDetails:
 class ProteinLigandRelationship(Relationship):
     start_node: Protein
     end_node: Ligand
+    meets_idg_cutoff: bool = None
     details: ActivityDetails = None

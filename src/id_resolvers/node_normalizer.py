@@ -1,6 +1,6 @@
 from typing import List, Dict
 import requests
-from src.interfaces.id_resolver import IdResolver, IdResolverResult, IdMatch
+from src.interfaces.id_resolver import IdResolver, IdMatch
 from src.models.node import Node
 from src.shared.util import yield_per
 
@@ -13,7 +13,7 @@ class TranslatorNodeNormResolver(IdResolver):
     def node_norm_url(self):
         return f"{self.base_url}/get_normalized_nodes"
 
-    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, IdResolverResult]:
+    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
 
         input_ids = list(set([node.id for node in input_nodes]))
 
@@ -37,9 +37,9 @@ class TranslatorNodeNormResolver(IdResolver):
             response_data = response.json()
 
             for input_id, results in response_data.items():
-                res_obj = IdResolverResult()
+                res_obj: List[IdMatch] = []
                 if results is not None:
-                    res_obj.matches = [
+                    res_obj = [
                         IdMatch(
                             input=input_id,
                             match=results['id']['identifier'],

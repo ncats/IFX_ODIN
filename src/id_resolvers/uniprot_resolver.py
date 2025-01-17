@@ -3,7 +3,7 @@ from typing import List, Dict
 from src.constants import Prefix
 from src.models.node import Node
 from src.shared.uniprot_parser import UniProtParser
-from src.interfaces.id_resolver import IdResolver, IdMatch, IdResolverResult
+from src.interfaces.id_resolver import IdResolver, IdMatch
 from src.shared.uniprot_file_reader import UniProtFileReader
 
 scores = {
@@ -88,12 +88,12 @@ class UniProtResolver(IdResolver, UniProtFileReader):
             match.context = UniProtResolver.sort_list(match.context)
         return self.return_matches(unsorted_matches)
 
-    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, IdResolverResult]:
+    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         result_list = {}
         for node in input_nodes:
             input_list = [node.id]
             best_matches = self.get_matches_for_merged_list(input_list)
-            result_list[node.id] = IdResolverResult(matches=best_matches)
+            result_list[node.id] = best_matches
         return result_list
 
     def clean_id(self, input_id: str, id_type: str):

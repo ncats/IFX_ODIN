@@ -59,12 +59,6 @@ class Neo4jOutputAdapter(OutputAdapter):
                     list(set([syn.term for syn in obj.synonyms])))
                 ret_dict['synonym_sources'] = self.loader.remove_none_values_from_list(
                     list(set([syn.source for syn in obj.synonyms])))
-        if isinstance(obj, ProteinGoTermRelationship):
-            ret_dict['evidence'] = [obj.evidence.code]
-            ret_dict['assigned_by'] = obj.assigned_by
-            ret_dict['abbreviation'] = [obj.evidence.abbreviation()]
-            ret_dict['category'] = [obj.evidence.category()]
-            ret_dict['text'] = obj.evidence.text()
         if isinstance(obj, GeneRif):
             ret_dict['pmids'] = list(obj.pmids)
         if isinstance(obj, InvestigatorRelationship):

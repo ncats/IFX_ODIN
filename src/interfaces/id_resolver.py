@@ -4,16 +4,17 @@ from enum import Enum
 from typing import List, Dict
 from dataclasses import dataclass, asdict, field
 
+from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, EquivalentId
 
 
-class NoMatchBehavior(Enum):
+class NoMatchBehavior(SimpleEnum):
     Skip = "Skip"
     Allow = "Allow"
     Error = "Error"
 
 
-class MultiMatchBehavior(Enum):
+class MultiMatchBehavior(SimpleEnum):
     First = "First"
     All = "All"
     Error = "Error"
@@ -29,14 +30,6 @@ class IdMatch:
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
 
-
-@dataclass
-class IdResolverResult:
-    matches: List[IdMatch] = None
-
-    def to_dict(self) -> Dict[str, str]:
-        return asdict(self)
-
 class IdResolver(ABC):
     class MatchKeys(Enum):
         matched = "matched"
@@ -47,19 +40,19 @@ class IdResolver(ABC):
     no_match_behavior: NoMatchBehavior
     multi_match_behavior: MultiMatchBehavior
     add_labels_for_resolver_events: bool
-    resolve_cache: Dict[str, IdResolverResult]
+    resolve_cache: Dict[str, List[IdMatch]]
 
     def __init__(self,
                  add_labels_for_resolver_events = False,
                  no_match_behavior = NoMatchBehavior.Allow,
                  multi_match_behavior = MultiMatchBehavior.All):
         self.add_labels_for_resolver_events = add_labels_for_resolver_events
-        self.no_match_behavior = no_match_behavior
-        self.multi_match_behavior = multi_match_behavior
+        self.no_match_behavior = NoMatchBehavior.parse(no_match_behavior)
+        self.multi_match_behavior = MultiMatchBehavior.parse(multi_match_behavior)
         self.resolve_cache = {}
 
 
-    def _resolve_internal(self, input_nodes: List[Node]) -> (Dict[str, IdResolverResult], set):
+    def _resolve_internal(self, input_nodes: List[Node]) -> (Dict[str, List[IdMatch]], set):
         output_dict = {}
         un_resolved_nodes = []
         unique_nodes_dict = {node.id: node for node in input_nodes}
@@ -94,14 +87,14 @@ class IdResolver(ABC):
                 matches = id_map[entry.id]
 
                 old_id = entry.id
-                if matches.matches:
-                    if len(matches.matches) > 0:
-                        first_match = matches.matches[0]
+                if matches:
+                    if len(matches) > 0:
+                        first_match = matches[0]
                         new_id = first_match.match
 
                         if old_id not in entity_map[IdResolver.MatchKeys.matched]:
                             full_xref_list = list(set([
-                                EquivalentId.parse(equiv_id) for m in matches.matches for equiv_id in m.equivalent_ids
+                                EquivalentId.parse(equiv_id) for m in matches for equiv_id in m.equivalent_ids
                             ]))
 
                             first_entry = copy.deepcopy(entry)
@@ -120,13 +113,14 @@ class IdResolver(ABC):
 
                             entity_map[IdResolver.MatchKeys.matched][old_id] = first_entry
 
-                    if len(matches.matches) > 1:
+                    if len(matches) > 1:
                         if old_id not in entity_map[IdResolver.MatchKeys.newborns]:
                             entity_map[IdResolver.MatchKeys.newborns][old_id] = []
-                            for subsequent_match in matches.matches[1:]:
+                            for subsequent_match in matches[1:]:
                                 new_id = subsequent_match.match
                                 new_entry = copy.deepcopy(entry)
                                 new_entry.id = new_id
+                                new_entry.xref = full_xref_list
                                 new_entry.provided_by.append(f"ID unmerged from {old_id} by {self.name}")
                                 if self.add_labels_for_resolver_events:
                                     new_entry.add_label("Unmerged_ID")
@@ -186,6 +180,6 @@ class IdResolver(ABC):
         return matched_entries
 
     @abstractmethod
-    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, IdResolverResult]:
+    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         raise NotImplementedError("derived classes must implement resolve_internal")
 

@@ -1,7 +1,7 @@
 from typing import List, Dict
 
-from src.interfaces.id_resolver import IdResolver, IdResolverResult, IdMatch
-from src.models.node import Node
+from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
+from src.interfaces.id_resolver import IdMatch
 from src.shared.targetgraph_parser import TargetGraphGeneParser, TargetGraphTranscriptParser, TargetGraphProteinParser, \
     TargetGraphParser
 
@@ -20,10 +20,10 @@ scores = {
     "synonym": 10
 }
 
-class TargetGraphResolver(IdResolver):
+
+
+class TargetGraphResolver(SqliteCacheResolver):
     name = "TargetGraph Resolver"
-    reverse_lookup: dict
-    alias_lookup: dict
 
     parsers: List[TargetGraphParser]
 
@@ -32,77 +32,43 @@ class TargetGraphResolver(IdResolver):
         match_list.sort(key=lambda x: scores.get(x.context[0], float('inf')))
         return match_list
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.reverse_lookup: Dict[str, List[IdMatch]] = {}
-        self.alias_lookup: Dict[str, set] = {}
-        for pp in self.parsers:
-            self.parse_file(pp)
+    def matching_ids(self) -> List[MatchingPair]:
+        for parser in self.parsers:
+            yield from self.get_one_match(parser)
 
-    def parse_file(self, parser):
+    def get_one_match(self, parser):
         for line in parser.all_rows():
             id = parser.get_id(line)
             equiv_ids = parser.get_equivalent_ids(line)
-            self.reverse_lookup[id] = [
-                IdMatch(input=id, match=id, context=['exact'])
-            ]
-            self.alias_lookup[id] = set()
-            for equiv_id in equiv_ids:
-                id_str = equiv_id.id_str()
-                self.alias_lookup.get(id).add(id_str)
-                if id_str not in self.reverse_lookup:
-                    self.reverse_lookup[id_str] = [
-                        IdMatch(input=id_str, match=id, context=[equiv_id.type.value])
-                    ]
-                else:
-                    list = self.reverse_lookup[id_str]
-                    same_id_match = [matching_entry for matching_entry in list if
-                                     matching_entry.match == id]
-                    if len(same_id_match) > 0:
-                        same_id_match[0].context.append(equiv_id.type.value)
-                    else:
-                        list.append(
-                            IdMatch(input=id_str, match=id, context=[equiv_id.type.value])
-                        )
+            yield MatchingPair(id=id, match=id, type='exact')
+            for equiv_ids in equiv_ids:
+                yield MatchingPair(id=id, match=equiv_ids.id_str(), type=equiv_ids.type.value)
 
-    def get_matches_for_id(self, id: str):
-        matches = self.reverse_lookup.get(id)
-        if matches is not None:
-            for match in matches:
-                match.equivalent_ids = self.alias_lookup.get(match.match)
-        return matches
-
-    def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, IdResolverResult]:
-        result_list = {}
-        for node in input_nodes:
-            result_list[node.id] = IdResolverResult(matches=self.get_matches_for_id(node.id))
-        return result_list
 
 class TargetGraphProteinResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphProteinParser]
 
-    def __init__(self, file_paths: List[str], additional_ids: str, **kwargs):
+    def __init__(self, file_paths: List[str], additional_ids: str = None, **kwargs):
         self.parsers = [
             TargetGraphProteinParser(file_path=path, additional_id_file_path=additional_ids)
             for path in file_paths]
         TargetGraphResolver.__init__(self, **kwargs)
-        super().__init__()
 
 
 class TargetGraphGeneResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphGeneParser]
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, **kwargs):
         self.parsers = [TargetGraphGeneParser(file_path=file_path)]
-        super().__init__()
+        TargetGraphResolver.__init__(self, **kwargs)
+
 
 class TargetGraphTranscriptResolver(TargetGraphResolver):
     name = "TargetGraph Transcript Resolver"
     parsers: List[TargetGraphTranscriptParser]
-    def __init__(self, file_path: str):
+
+    def __init__(self, file_path: str, **kwargs):
         self.parsers = [TargetGraphTranscriptParser(file_path=file_path)]
-        super().__init__()
-
-
+        TargetGraphResolver.__init__(self, **kwargs)
