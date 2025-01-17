@@ -1,5 +1,7 @@
 #testing: true
 
+pchembl_cutoff: &pchembl_cutoff 5
+
 labeler:
   import: ./src/interfaces/labeler.py
   class: BiolinkLabeler
@@ -33,6 +35,11 @@ resolvers:
 
 input_adapters:
   nodes:
+    - import: ./src/input_adapters/go/go_term.py
+      class: GOTermAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/go-basic.json
+
     - import: ./src/input_adapters/target_graph/gene_node.py
       class: GeneNodeAdapter
       kwargs:
@@ -71,10 +78,34 @@ input_adapters:
 
     - import: ./src/input_adapters/chembl/drug_node.py
       class: DrugNodeAdapter
+      kwargs:
+        pchembl_cutoff: *pchembl_cutoff
       credentials: ./src/use_cases/secrets/chembl_credentials.yaml
       id_resolver: translator_nn
 
+    - import: ./src/input_adapters/jensenlab/total_pmscore.py
+      class: TotalPMScoreAdapter
+      id_resolver: tg_proteins
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/jensenlab/protein_counts.tsv
+
+    - import: ./src/input_adapters/antibodypedia/antibody_count.py
+      class: AntibodyCountAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/antibodypedia/antibodypedia_data.csv
+      id_resolver: tg_proteins
+
+    - import: ./src/input_adapters/mysql_pharos/idg_family_adapter.py
+      class: IDGFamilyAdapter
+      credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+      id_resolver: tg_proteins
+
   edges:
+    - import: ./src/input_adapters/go/go_term.py
+      class: GOParentRelationship
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/go-basic.json
+
     - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
       class: GeneTranscriptEdgeAdapter
       kwargs:
@@ -131,9 +162,25 @@ input_adapters:
 
     - import: ./src/input_adapters/chembl/drug_node.py
       class: ProteinDrugEdgeAdapter
+      kwargs:
+        pchembl_cutoff: *pchembl_cutoff
       credentials: ./src/use_cases/secrets/chembl_credentials.yaml
       start_id_resolver: tg_proteins
       end_id_resolver: translator_nn
+
+    - import: ./src/input_adapters/go/go_gaf.py
+      class: ProteinGoTermEdgeAdapter
+      kwargs:
+        gaf_file_name: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/goa_human (uniprot).gaf.gz
+        source: UniProt
+      start_id_resolver: tg_proteins
+
+    - import: ./src/input_adapters/go/go_gaf.py
+      class: ProteinGoTermEdgeAdapter
+      kwargs:
+        gaf_file_name: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/goa_human (go).gaf.gz
+        source: GO
+      start_id_resolver: tg_proteins
 
 output_adapters:
   - ./src/use_cases/ifxdev_neo4j_output.yaml

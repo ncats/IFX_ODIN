@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List
+from typing import List, Union
 
 
 class SimpleEnum(Enum):
@@ -16,7 +16,9 @@ class SimpleEnum(Enum):
 
 
     @classmethod
-    def parse(cls, input_value: str):
+    def parse(cls, input_value: Union[str, Enum]):
+        if isinstance(input_value, Enum):
+            return input_value
         for member in cls:
             if member.value.lower() == input_value.lower().replace('_', '.'):
                 return member

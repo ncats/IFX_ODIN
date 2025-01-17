@@ -14,7 +14,7 @@ class CSVParser(ABC):
 
     def __init__(self, file_path):
         self.file_path = file_path
-        self.validate_csv()
+        # self.validate_csv()
 
     def validate_csv(self):
         required_columns = self.get_required_columns()

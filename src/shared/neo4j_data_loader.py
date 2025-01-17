@@ -262,4 +262,14 @@ def batch(iterable, batch_size=50000):
 
 def load_to_neo4j(session, query, records, batch_size=50000):
     for record_batch in batch(records, batch_size):
-        session.run(query, records=record_batch)
+        retries = 3
+        while retries > 0:
+            try:
+                session.run(query, records=record_batch)
+                break
+            except Exception as e:
+                print(f"Error: {e}, retrying...")
+                retries -= 1
+                if retries == 0:
+                    raise
+                time.sleep(1)  # Add a delay before retrying

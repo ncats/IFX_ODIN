@@ -36,7 +36,8 @@ class TGProteinFileBase(TargetGraphProteinParser):
             transcript_relationships.append(
                 TranscriptProteinRelationship(
                     start_node=Transcript(id=transcript_id.id_str()),
-                    end_node=protein_obj
+                    end_node=protein_obj,
+                    updated=protein_obj.updated
                 )
             )
 
@@ -46,7 +47,8 @@ class TGProteinFileBase(TargetGraphProteinParser):
             gene_relationships.append(
                 GeneProteinRelationship(
                     start_node=Gene(id=gene_id.id_str()),
-                    end_node=protein_obj
+                    end_node=protein_obj,
+                    updated=protein_obj.updated
                 )
             )
             protein_list.append(protein_obj)
@@ -57,7 +59,8 @@ class TGProteinFileBase(TargetGraphProteinParser):
                 isoform_relationships.append(
                     IsoformProteinRelationship(
                         start_node=protein_obj,
-                        end_node=canonical_protein
+                        end_node=canonical_protein,
+                        updated=protein_obj.updated
                     )
                 )
 
@@ -69,7 +72,6 @@ class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
 
     def __init__(self, file_path: str, additional_id_file_path: str):
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
-
 
     def get_audit_trail_entries(self, obj: Protein) -> List[str]:
         prov_list = []
@@ -92,6 +94,7 @@ class ProteinRelationshipAdapter(RelationshipInputAdapter, TGProteinFileBase):
 
 class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
     name = "TargetGraph Transcript to Protein Edge Adapter"
+
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, transcript_relationships, _, _ = self.get_all_combined()
         return transcript_relationships
@@ -99,6 +102,7 @@ class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
 
 class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
     name = "TargetGraph Gene to Protein Edge Adapter"
+
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, _, gene_relationships, _ = self.get_all_combined()
         return gene_relationships
@@ -106,6 +110,7 @@ class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
 
 class IsoformProteinEdgeAdapter(ProteinRelationshipAdapter):
     name = "TargetGraph Protein to Protein Isoform Edge Adapter"
+
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, _, _, isoform_relationships = self.get_all_combined()
         return isoform_relationships

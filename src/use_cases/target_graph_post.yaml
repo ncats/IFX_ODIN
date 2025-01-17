@@ -1,0 +1,28 @@
+#testing: true
+
+pchembl_cutoff: &pchembl_cutoff 5
+
+labeler:
+  import: ./src/interfaces/labeler.py
+  class: BiolinkLabeler
+
+input_adapters:
+  nodes:
+    - import: ./src/input_adapters/neo4j_pharos/expand_IDG_families.py
+      class: ExpandIDGFamilies
+      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+
+    - import: ./src/input_adapters/neo4j_pharos/set_ligand_activity_flag.py
+      class: SetLigandActivityFlagAdapter
+      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+
+    - import: ./src/input_adapters/neo4j_pharos/set_go_term_leaf_flag.py
+      class: SetGoTermLeafFlagAdapter
+      credentials: ./src/use_cases/secres/ifxdev_neo4j_1.yaml
+
+    - import: ./src/input_adapters/neo4j_pharos/tdl_input_adapter.py
+      class: TDLInputAdapter
+      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+
+output_adapters:
+  - ./src/use_cases/ifxdev_neo4j_output.yaml
