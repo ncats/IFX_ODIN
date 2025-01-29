@@ -23,12 +23,28 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.created = TargetGraphProteinParser.get_creation_date(line)
             protein_obj.updated = TargetGraphProteinParser.get_updated_time(line)
             protein_obj.name = TargetGraphProteinParser.get_name(line)
-            protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)
-            protein_obj.refseq_method = TargetGraphProteinParser.get_refseq_method(line)
-            protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
-            protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
+            protein_obj.symbol = TargetGraphProteinParser.get_symbol(line)
+            protein_obj.ensembl_id = TargetGraphProteinParser.get_ensembl_id(line)
+            protein_obj.refseq_id = TargetGraphProteinParser.get_refseq_id(line)
             protein_obj.sequence = TargetGraphProteinParser.get_sequence(line)
+
+            protein_obj.uniprot_id = TargetGraphProteinParser.get_uniprot_id(line)
+            protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
             protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
+
+            protein_obj.extra_properties = {
+                "protein_name_match_score": line.get('match_score', None),
+                "name_match_method": line.get('match_method', None),
+                "Ensembl_ID_Provenance": line.get('Ensembl_ID_Provenance', None),
+                "RefSeq_ID_Provenance": line.get('RefSeq_ID_Provenance', None),
+                "Uniprot_ID_Provenance": line.get('UniProt_ID_Provenance', None),
+                "uniprot_isoform": line.get('SPARQL_uniprot_isoform', None),
+                "ensembl_canonical": TargetGraphProteinParser.get_boolean_or_none(line, 'ensembl_canonical'),
+                "uniprot_canonical": TargetGraphProteinParser.get_boolean_or_none(line, 'uniprot_canonical'),
+                "uniprot_entryType": TargetGraphProteinParser.get_uniprot_entryType(line),
+                "mapping_ratio": TargetGraphProteinParser.get_mapping_ratio(line)
+            }
+
             transcript_ensembl_id = TargetGraphProteinParser.get_transcript_id(line)
 
             transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
@@ -54,7 +70,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_list.append(protein_obj)
 
             canonical_id = TargetGraphProteinParser.get_isoform_id(line)
-            if canonical_id.startswith('IFXProtein:'):
+            if canonical_id is not None and canonical_id.startswith('IFXProtein:'):
                 canonical_protein = Protein(id=canonical_id)
                 isoform_relationships.append(
                     IsoformProteinRelationship(
@@ -76,7 +92,6 @@ class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
     def get_audit_trail_entries(self, obj: Protein) -> List[str]:
         prov_list = []
         prov_list.append(f"Node Created based on TargetGraph csv file, last updated: {obj.updated}")
-        prov_list.append(f"ID concordance index: {round(obj.mapping_ratio, 2)}")
         return prov_list
 
     def get_all(self) -> List[Protein]:

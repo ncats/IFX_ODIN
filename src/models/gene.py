@@ -2,8 +2,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List
 
-from biolink_model.datamodel import Gene as biolinkGene
-
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node
 
@@ -46,11 +44,10 @@ class Audited():
 
 
 @dataclass
-class Gene(Node, Audited, biolinkGene):
+class Gene(Audited, Node):
     location: GeneticLocation = None
     pubmed_ids: List[int] = None
     mapping_ratio: float = None
 
     def __init__(self, **kwargs):
         Node.__init__(self, **kwargs)
-        biolinkGene.__init__(self, category="biolink:Gene", in_taxon="NCBITaxon:9606", id=self.id)

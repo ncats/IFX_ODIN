@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Dict
 
-from biolink_model.datamodel import Transcript as biolinkTranscript
 from src.models.gene import Gene, Audited
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
@@ -23,7 +21,7 @@ class TranscriptLocation:
         return ret_dict
 
 @dataclass
-class Transcript(Node, Audited, biolinkTranscript):
+class Transcript(Audited, Node):
     location: TranscriptLocation = None
     ensembl_version: int = None
     support_level: str = None
@@ -33,7 +31,6 @@ class Transcript(Node, Audited, biolinkTranscript):
 
     def __init__(self, **kwargs):
         Node.__init__(self, **kwargs)
-        biolinkTranscript.__init__(self, category="biolink:Transcript", in_taxon="NCBITaxon:9606", id=self.id)
 
 @dataclass
 class GeneTranscriptRelationship(Relationship, Audited):

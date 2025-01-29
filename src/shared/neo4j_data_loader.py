@@ -139,6 +139,8 @@ class Neo4jDataLoader:
         list_keys = []
         field_keys = []
         for prop in example_record.keys():
+            if prop == 'xref':
+                continue
             if prop in forbidden_keys:
                 continue
             if isinstance(example_record[prop], list):
@@ -156,7 +158,9 @@ class Neo4jDataLoader:
         list_set_stmts = [f"n.{prop} = apoc.coll.toSet(CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END)" for
                           prop in list_keys]
 
-        prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
+        xref_set_stmt = f"n.xref = CASE WHEN n.xref IS NULL THEN rec.xref ELSE n.xref END" # xref should only be set once, and always keep the creator's xrefs
+
+        prop_str = ", ".join([*field_set_stmts, *list_set_stmts, xref_set_stmt])
 
         query = f"""
             UNWIND $records as rec

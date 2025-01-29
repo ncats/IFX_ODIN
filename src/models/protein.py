@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
+from src.models.gene import Audited
 from src.models.node import Relationship
 from src.models.reaction import Reaction
 
@@ -45,21 +46,22 @@ class IDGFamily(SimpleEnum):
         raise Exception(f"Unknown IDG Family: {tcrd_value}")
 
 @dataclass
-class Protein(Analyte):
+class Protein(Audited, Analyte):
     protein_type: str = None
     description: str = None
-    sequence: str = None
     symbol: str = None
+    ensembl_id: str = None
+    refseq_id: str = None
+    uniprot_id: str = None
+    sequence: str = None
     gene_name: str = None
     tdl: TDL = None
     name: str = None
     idg_family: IDGFamily = None
     antibody_count: int = None
     pm_score: float = None
-    mapping_ratio: float = None
-    refseq_method: str = None
     uniprot_annotationScore: int = None
-    uniprot_entryType: str = None
+    uniprot_reviewed: bool = None
     uniprot_function: str = None
 
 

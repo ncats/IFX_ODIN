@@ -48,6 +48,11 @@ class Neo4jOutputAdapter(OutputAdapter):
                 del ret_dict[key]
                 flat_dict = value.to_dict()
                 ret_dict.update(flat_dict)
+            if key == "extra_properties":
+                del ret_dict[key]
+                for k in value:
+                    if not k.startswith('_'):
+                        ret_dict[k] = value[k]
         if isinstance(obj, Node):
             if hasattr(obj, 'xref'):
                 ret_dict['xref'] = self.loader.remove_none_values_from_list(
@@ -66,7 +71,7 @@ class Neo4jOutputAdapter(OutputAdapter):
 
     def clean_dict(self, obj):
         def _clean_dict(obj):
-            forbidden_keys = ['labels', 'field_provenance']
+            forbidden_keys = ['labels']
             if isinstance(obj, Relationship):
                 forbidden_keys.extend(['start_node', 'end_node'])
             temp_dict = {}

@@ -1,6 +1,5 @@
 from typing import List, Union
-
-from src.input_adapters.test_pounce_data_adapter import TestRel
+from src.interfaces.simple_enum import NodeLabel, SimpleEnum
 from src.models.analyte import Analyte
 from src.models.disease import Disease, GeneDiseaseRelationship
 from src.models.gene import Gene
@@ -21,40 +20,41 @@ class Labeler:
             if isinstance(obj, Relationship):
                 obj.start_node.labels = self.get_labels(obj.start_node)
                 obj.end_node.labels = list(set(self.get_labels(obj.end_node)))
-                if isinstance(obj, TestRel):
-                    obj.labels = ['_']
 
     def get_labels(self, obj):
         return list({obj.__class__.__name__, *obj.labels})
 
 class BiolinkLabeler(Labeler):
-    def get_class_label(self, obj):
+    def get_class_labels(self, obj) -> List[SimpleEnum]:
         if isinstance(obj, Gene):
-            return BiolinkNodeLabel.Gene
+            return [BiolinkNodeLabel.Gene]
         if isinstance(obj, Disease):
-            return BiolinkNodeLabel.Disease
+            return [BiolinkNodeLabel.Disease]
         if isinstance(obj, Protein):
-            return BiolinkNodeLabel.Protein
+            labels = [BiolinkNodeLabel.Protein]
+            if hasattr(obj, 'tdl') and hasattr(obj.tdl, 'value'):
+                labels.append(obj.tdl.value)
+            return labels
         if isinstance(obj, Ligand):
-            return BiolinkNodeLabel.Ligand
+            return [BiolinkNodeLabel.Ligand]
 
         if isinstance(obj, GeneDiseaseRelationship):
-            return BiolinkRelationshipLabel.Associated_With
+            return [BiolinkRelationshipLabel.Associated_With]
         if isinstance(obj, Transcript):
-            return BiolinkNodeLabel.Transcript
+            return [BiolinkNodeLabel.Transcript]
         if isinstance(obj, GeneTranscriptRelationship):
-            return BiolinkRelationshipLabel.Transcribed_To
+            return [BiolinkRelationshipLabel.Transcribed_To]
         if isinstance(obj, TranscriptProteinRelationship) or isinstance(obj, GeneProteinRelationship):
-            return BiolinkRelationshipLabel.Translates_To
+            return [BiolinkRelationshipLabel.Translates_To]
         if isinstance(obj, IsoformProteinRelationship):
-            return BiolinkRelationshipLabel.Has_Canonical_Isoform
+            return [BiolinkRelationshipLabel.Has_Canonical_Isoform]
         if isinstance(obj, ProteinLigandRelationship):
-            return BiolinkRelationshipLabel.Interacts_With
+            return [BiolinkRelationshipLabel.Interacts_With]
 
-        return obj.__class__.__name__
+        return [obj.__class__.__name__]
     def get_labels(self, obj):
-        class_label = self.get_class_label(obj)
-        return list({class_label, *obj.labels})
+        class_labels = self.get_class_labels(obj)
+        return list({*class_labels, *obj.labels})
 
 
 class PharosLabeler(Labeler):

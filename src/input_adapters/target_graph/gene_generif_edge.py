@@ -1,5 +1,4 @@
 from typing import List, Union
-
 from src.constants import Prefix
 from src.interfaces.input_adapter import RelationshipInputAdapter
 from src.models.gene import Gene

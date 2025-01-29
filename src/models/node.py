@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Any
 
 from src.constants import Prefix
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
@@ -46,7 +46,7 @@ class Node:
     labels: List[Union[str, NodeLabel]] = field(default_factory=list)
     xref: List[EquivalentId] = field(default_factory=list)
     provided_by: List[str] = field(default_factory=list)
-    field_provenance: Dict[str, Union[str, List[str]]] = field(default_factory=dict)
+    extra_properties: Dict[str, Any] = field(default_factory=dict)
 
     def add_label(self, new_label: Union[str, NodeLabel]):
         if new_label not in self.labels:

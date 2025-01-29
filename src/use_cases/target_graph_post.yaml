@@ -18,7 +18,7 @@ input_adapters:
 
     - import: ./src/input_adapters/neo4j_pharos/set_go_term_leaf_flag.py
       class: SetGoTermLeafFlagAdapter
-      credentials: ./src/use_cases/secres/ifxdev_neo4j_1.yaml
+      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
 
     - import: ./src/input_adapters/neo4j_pharos/tdl_input_adapter.py
       class: TDLInputAdapter
