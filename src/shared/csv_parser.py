@@ -60,4 +60,4 @@ class CSVParser(ABC):
         with open(path, 'r') as gene_file:
             reader: csv.DictReader = csv.DictReader(gene_file)
             for line in reader:
-                yield (line)
+                yield {k: v for k, v in line.items() if v != ''}

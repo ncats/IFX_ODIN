@@ -10,7 +10,7 @@ class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
     name = "Neo4j Pharos TDL Calculator"
 
     def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'tdl updated by {self.name} using {self.credentials.url}']
+        return [f'TDL updated by {self.name} using {self.credentials.url}']
 
     def get_all(self) -> List[Node]:
         all_protein_list = self.runQuery(all_proteins)

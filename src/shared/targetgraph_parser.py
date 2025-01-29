@@ -11,22 +11,32 @@ from src.shared.csv_parser import CSVParser
 
 
 def split_and_trim_str(str, delimiter=","):
+    if str is None:
+        return None
     return [p.strip() for p in str.split(delimiter)]
 
-def remove_suffix(id_to_use: str, delimiter = '-'):
+
+def remove_suffix(id_to_use: str, delimiter='-'):
+    if id_to_use is None:
+        return None
     parts = id_to_use.split(delimiter)
     if len(parts) > 2:
         raise Exception(f'possible invalid ID - trying to remove the suffix from this: {id_to_use}')
     return parts[0]
 
+
 def remove_decimal(id_to_use: str):
     return remove_suffix(id_to_use, '.')
 
+
 def try_append_id(id_list, prop_dict, id_field, prov_field, source, prefix, removePrefix=False, removeDecimal=False,
                   splitIDs=False, removeVersion=False):
-    cell_ids = [prop_dict[id_field]]
+    val = prop_dict.get(id_field, None)
+    if val == None:
+        return
+    cell_ids = [val]
     if splitIDs:
-        cell_ids = split_and_trim_str(prop_dict[id_field], '|')
+        cell_ids = split_and_trim_str(prop_dict.get(id_field, ''), '|')
     for id in cell_ids:
         if id is not None and len(id) > 0:
             id_to_use = id
@@ -38,13 +48,12 @@ def try_append_id(id_list, prop_dict, id_field, prov_field, source, prefix, remo
             if removeVersion:
                 id_to_use = remove_suffix(id_to_use)
             if prov_field is not None and len(prov_field) > 0:
-                sources = split_and_trim_str(prop_dict[prov_field])
+                sources = split_and_trim_str(prov_field)
             elif source is not None and len(source) > 0:
                 sources = split_and_trim_str(source)
             else:
                 sources = None
             id_list.append(EquivalentId(id=id_to_use, type=prefix, source=sources))
-
 
 
 class TargetGraphParser(CSVParser, ABC):
@@ -66,47 +75,60 @@ class TargetGraphParser(CSVParser, ABC):
         return TargetGraphParser.parse_excel_date(prop_dict['updatedAt'])
 
     @staticmethod
-    def get_location_provenance(prop_dict: Dict) -> List[str]:
-        return split_and_trim_str(prop_dict['Location_Provenance'])
+    def get_symbol(prop_dict: Dict) -> str:
+        return prop_dict.get('consolidated_symbol', None)
 
     @staticmethod
     def get_mapping_ratio(prop_dict: Dict) -> Optional[float]:
-        mapping_ratio = prop_dict['Total_Mapping_Ratio']
+        mapping_ratio = prop_dict.get('Total_Mapping_Ratio', None)
         if mapping_ratio is not None and len(mapping_ratio) > 0:
-            return float(prop_dict['Total_Mapping_Ratio'])
+            return float(mapping_ratio)
         return None
 
     @staticmethod
-    def get_refseq_method(prop_dict: Dict) -> str:
-        return prop_dict['refseq_method']
-    @staticmethod
     def get_uniprot_annotationScore(prop_dict: Dict) -> Optional[int]:
-        annotationScore = prop_dict['uniprot_annotationScore']
+        annotationScore = prop_dict.get('uniprot_annotationScore', None)
         if annotationScore is not None and len(annotationScore) > 0:
             return int(float(annotationScore))
         return None
+
     @staticmethod
     def get_uniprot_entryType(prop_dict: Dict) -> str:
-        return prop_dict['uniprot_entryType']
+        return prop_dict.get('uniprot_entryType', None)
+
+    @staticmethod
+    def get_boolean_or_none(prop_dict: Dict, key: str) -> Optional[bool]:
+        val = prop_dict.get(key, None)
+        if val is not None and len(val) > 0:
+            return True if float(val) == 1 else False
+        return None
+
+    @staticmethod
+    def get_uniprot_reviewed(prop_dict: Dict) -> bool:
+        return TargetGraphParser.get_uniprot_entryType(prop_dict) == "UniProtKB reviewed (Swiss-Prot)"
 
     @staticmethod
     def get_sequence(prop_dict: Dict) -> str:
-        return prop_dict['uniprot_sequence']
+        return prop_dict.get('uniprot_sequence', None)
 
     @staticmethod
     def get_function(prop_dict: Dict) -> str:
-        return prop_dict['uniprot_FUNCTION']
-
+        return prop_dict.get('uniprot_FUNCTION', None)
 
 
 class TargetGraphGeneParser(TargetGraphParser):
 
     def get_required_columns(self) -> List[str]:
-        return ['ncats_gene_id', 'consolidated_gene_id', 'consolidated_hgnc_id', 'consolidated_NCBI_id', 'consolidated_symbol',
-                'ncbi_mim_id', 'hgnc_omim_id', 'hgnc_vega_id', 'ncbi_miR_id', 'ncbi_imgt_id', 'hgnc_prev_symbol', 'hgnc_ccds_id',
-                'consolidated_synonyms', 'hgnc_orphanet_id', 'consolidated_description', 'Description_Provenance', 'consolidated_location',
-                'ensembl_strand', 'ensembl_start', 'ensembl_end', 'Location_Provenance', 'createdAt', 'updatedAt', 'consolidated_gene_type',
-                'hgnc_pubmed_id', 'Total_Mapping_Ratio', 'Ensembl_ID_Provenance', 'HGNC_ID_Provenance', 'NCBI_ID_Provenance',
+        return ['ncats_gene_id', 'consolidated_gene_id', 'consolidated_hgnc_id', 'consolidated_NCBI_id',
+                'consolidated_symbol',
+                'ncbi_mim_id', 'hgnc_omim_id', 'hgnc_vega_id', 'ncbi_miR_id', 'ncbi_imgt_id', 'hgnc_prev_symbol',
+                'hgnc_ccds_id',
+                'consolidated_synonyms', 'hgnc_orphanet_id', 'consolidated_description', 'Description_Provenance',
+                'consolidated_location',
+                'ensembl_strand', 'ensembl_start', 'ensembl_end', 'Location_Provenance', 'createdAt', 'updatedAt',
+                'consolidated_gene_type',
+                'hgnc_pubmed_id', 'Total_Mapping_Ratio', 'Ensembl_ID_Provenance', 'HGNC_ID_Provenance',
+                'NCBI_ID_Provenance',
                 'Symbol_Provenance']
 
     @staticmethod
@@ -131,10 +153,9 @@ class TargetGraphGeneParser(TargetGraphParser):
         try_append_id(ids, prop_dict, 'hgnc_orphanet_id', None, 'hgnc', Prefix.orphanet)
         return ids
 
-
     @staticmethod
     def get_pubmed_ids(prop_dict: Dict) -> Optional[List[int]]:
-        pubmed_id = prop_dict['hgnc_pubmed_id']
+        pubmed_id = prop_dict.get('hgnc_pubmed_id', None)
         if pubmed_id is not None and len(pubmed_id) > 0:
             ids = split_and_trim_str(pubmed_id, '|')
             return [int(id) for id in ids]
@@ -142,11 +163,7 @@ class TargetGraphGeneParser(TargetGraphParser):
 
     @staticmethod
     def get_gene_name(prop_dict: Dict) -> str:
-        return prop_dict['consolidated_description']
-
-    @staticmethod
-    def get_description_provenance(prop_dict: Dict) -> List[str]:
-        return split_and_trim_str(prop_dict['Description_Provenance'])
+        return prop_dict.get('consolidated_description', None)
 
     @staticmethod
     def get_gene_location(prop_dict: Dict) -> Optional[GeneticLocation]:
@@ -154,10 +171,10 @@ class TargetGraphGeneParser(TargetGraphParser):
             match = re.match(r'(\d+)', location)
             return int(match.group(1)) if match else None
 
-        location = prop_dict['consolidated_location']
-        strand = prop_dict['ensembl_strand']
-        start = prop_dict['ensembl_start']
-        end = prop_dict['ensembl_end']
+        location = prop_dict.get('consolidated_location', None)
+        strand = prop_dict.get('ensembl_strand', None)
+        start = prop_dict.get('ensembl_start', None)
+        end = prop_dict.get('ensembl_end', None)
         loc = GeneticLocation()
         has_data = False
         if location is not None and len(location) > 0:
@@ -175,14 +192,18 @@ class TargetGraphGeneParser(TargetGraphParser):
 
     @staticmethod
     def get_gene_type(prop_dict: Dict) -> str:
-        return prop_dict['consolidated_gene_type']
+        return prop_dict.get('consolidated_gene_type', None)
+
 
 class TargetGraphTranscriptParser(TargetGraphParser):
     def get_required_columns(self) -> List[str]:
         return ['ncats_transcript_id', 'createdAt', 'updatedAt', 'ensembl_transcript_name', 'ensembl_transcript_id',
-                'Ensembl_Transcript_ID_Provenance', 'ensembl_refseq_NM', 'RefSeq_Provenance', 'ensembl_refseq_MANEselect',
-                'refseq_rna_id', 'RefSeq_Provenance', 'ensembl_trans_bp_start', 'ensembl_trans_bp_end', 'ensembl_trans_length',
-                'ensembl_transcript_type', 'ensembl_transcript_tsl', 'ensembl_canonical', 'refseq_status', 'ensembl_transcript_id_version',
+                'Ensembl_Transcript_ID_Provenance', 'ensembl_refseq_NM', 'RefSeq_Provenance',
+                'ensembl_refseq_MANEselect',
+                'refseq_rna_id', 'RefSeq_Provenance', 'ensembl_trans_bp_start', 'ensembl_trans_bp_end',
+                'ensembl_trans_length',
+                'ensembl_transcript_type', 'ensembl_transcript_tsl', 'ensembl_canonical', 'refseq_status',
+                'ensembl_transcript_id_version',
                 'ensembl_gene_id', 'refseq_ncbi_id']
 
     @staticmethod
@@ -200,40 +221,38 @@ class TargetGraphTranscriptParser(TargetGraphParser):
 
     @staticmethod
     def get_transcript_location(prop_dict: Dict) -> Optional[TranscriptLocation]:
-        start = prop_dict['ensembl_trans_bp_start']
-        end = prop_dict['ensembl_trans_bp_end']
-        length = prop_dict['ensembl_trans_length']
+        start = prop_dict.get('ensembl_trans_bp_start', None)
+        end = prop_dict.get('ensembl_trans_bp_end', None)
+        length = prop_dict.get('ensembl_trans_length', None)
         if start is not None and len(start) > 0:
             loc = TranscriptLocation(start=int(float(start)), end=int(float(end)), length=int(float(length)))
             return loc
         return None
 
-
-
     @staticmethod
     def get_transcript_type(prop_dict: Dict) -> str:
-        return prop_dict['ensembl_transcript_type']
+        return prop_dict.get('ensembl_transcript_type', None)
 
     @staticmethod
     def get_transcript_support_level(prop_dict: Dict) -> str:
-        return prop_dict['ensembl_transcript_tsl']
+        return prop_dict.get('ensembl_transcript_tsl', None)
 
     @staticmethod
     def get_transcript_is_canonical(prop_dict: Dict) -> Optional[str]:
-        val = prop_dict['ensembl_canonical']
+        val = prop_dict.get('ensembl_canonical', None)
         return True if val == 1 else None
 
     @staticmethod
     def get_mane_select(prop_dict: Dict) -> Optional[str]:
-        return prop_dict['ensembl_refseq_MANEselect']
+        return prop_dict.get('ensembl_refseq_MANEselect', None)
 
     @staticmethod
     def get_transcript_status(prop_dict: Dict) -> Optional[str]:
-        return prop_dict['refseq_status']
+        return prop_dict.get('refseq_status', None)
 
     @staticmethod
     def get_transcript_version(prop_dict: Dict) -> Optional[str]:
-        val = prop_dict['ensembl_transcript_id_version']
+        val = prop_dict.get('ensembl_transcript_id_version', None)
         if val is not None and len(val) > 0:
             pieces = val.split('.')
             if len(pieces) == 2:
@@ -242,25 +261,26 @@ class TargetGraphTranscriptParser(TargetGraphParser):
 
     @staticmethod
     def get_associated_ensg_id(prop_dict: Dict) -> Optional[str]:
-        return prop_dict['ensembl_gene_id']
+        return prop_dict.get('ensembl_gene_id', None)
 
     @staticmethod
     def get_associated_ncbi_id(prop_dict: Dict) -> Optional[str]:
-        return prop_dict['refseq_ncbi_id']
+        return prop_dict.get('refseq_ncbi_id', None)
+
 
 class TargetGraphAddtlProteinIDParser(CSVParser):
-
     column_prefix_map = {
-        'uniprot_xref_ChEMBL':              {"prefix": Prefix.CHEMBL_PROTEIN},
-        'uniprot_ccds_id':                  {"prefix": Prefix.CCDS, "removeDecimal": True},
-        'uniprot_xref_ProteomicsDB':        {"prefix": Prefix.ProteomicsDB},
-        'uniprot_xref_PIR':                 {"prefix": Prefix.PIR},
-        'uniprot_xref_DIP':                 {"prefix": Prefix.DIP},
-        'uniprot_xref_SwissLipids':         {"prefix": Prefix.SLP, "removePrefix": True},
-        'uniprot_xref_DisProt':             {"prefix": Prefix.DisProt},
-        'uniprot_xref_IDEAL':               {"prefix": Prefix.IDEAL},
+        'uniprot_xref_ChEMBL': {"prefix": Prefix.CHEMBL_PROTEIN},
+        'uniprot_ccds_id': {"prefix": Prefix.CCDS, "removeDecimal": True},
+        'uniprot_xref_ProteomicsDB': {"prefix": Prefix.ProteomicsDB},
+        'uniprot_xref_PIR': {"prefix": Prefix.PIR},
+        'uniprot_xref_DIP': {"prefix": Prefix.DIP},
+        'uniprot_xref_SwissLipids': {"prefix": Prefix.SLP, "removePrefix": True},
+        'uniprot_xref_DisProt': {"prefix": Prefix.DisProt},
+        'uniprot_xref_IDEAL': {"prefix": Prefix.IDEAL},
         'uniprot_xref_GuidetoPHARMACOLOGY': {"prefix": Prefix.GTOPDB}
     }
+
     def get_id_list(self, prop_dict: dict):
         ids = []
         for key, id_details in self.column_prefix_map.items():
@@ -276,7 +296,7 @@ class TargetGraphAddtlProteinIDParser(CSVParser):
         return ids
 
     def get_main_id(self, prop_dict: dict):
-        return prop_dict['uniprot_id']
+        return prop_dict.get('uniprot_id', None)
 
     def get_required_columns(self) -> List[str]:
         return ['uniprot_id', *list(self.column_prefix_map.keys())]
@@ -298,6 +318,18 @@ class TargetGraphProteinParser(TargetGraphParser):
         return prop_dict['ncats_protein_id']
 
     @staticmethod
+    def get_ensembl_id(prop_dict: Dict) -> str:
+        return prop_dict.get('consolidated_ensembl_protein_id', None)
+
+    @staticmethod
+    def get_refseq_id(prop_dict: Dict) -> str:
+        return prop_dict.get('consolidated_refseq_protein', None)
+
+    @staticmethod
+    def get_uniprot_id(prop_dict: Dict) -> str:
+        return prop_dict.get('consolidated_uniprot_id', None)
+
+    @staticmethod
     def get_name(prop_dict: Dict) -> str:
         return prop_dict.get('combined_protein_name', None)
 
@@ -305,38 +337,41 @@ class TargetGraphProteinParser(TargetGraphParser):
         ids = []
         try_append_id(ids, prop_dict, 'SPARQL_uniprot_isoform', None, 'uniprot', Prefix.UniProtKB, removeVersion=True)
         try_append_id(ids, prop_dict, 'consolidated_uniprot_id', 'UniProt_ID_Provenance', None, Prefix.UniProtKB)
-        try_append_id(ids, prop_dict, 'consolidated_ensembl_protein_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL, removeDecimal=True)
-        try_append_id(ids, prop_dict, 'consolidated_refseq_protein', 'RefSeq_ID_Provenance', None, Prefix.RefSeq, removeDecimal=True, splitIDs=True)
+        try_append_id(ids, prop_dict, 'consolidated_ensembl_protein_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL,
+                      removeDecimal=True)
+        try_append_id(ids, prop_dict, 'consolidated_refseq_protein', 'RefSeq_ID_Provenance', None, Prefix.RefSeq,
+                      removeDecimal=True, splitIDs=True)
         try_append_id(ids, prop_dict, 'consolidated_symbol', None, None, Prefix.Symbol)
         try_append_id(ids, prop_dict, 'uniprot_secondaryAccessions', None, 'uniprot', Prefix.UniProtKB, splitIDs=True)
         try_append_id(ids, prop_dict, 'uniprot_uniProtkbId', None, 'uniprot', Prefix.UniProtKB)
         try_append_id(ids, prop_dict, 'combined_protein_name', None, 'uniprot', Prefix.Name)
-        uniprot_id = prop_dict['consolidated_uniprot_id']
+        uniprot_id = prop_dict.get('consolidated_uniprot_id', None)
         extra_ids = self.additional_id_map.get(uniprot_id, None)
         if extra_ids is not None:
             return [*ids, *extra_ids]
         return ids
 
-
     def get_required_columns(self) -> List[str]:
-        return ['ncats_protein_id', 'createdAt', 'updatedAt','SPARQL_uniprot_isoform','consolidated_uniprot_id','consolidated_ensembl_protein_id',
-                'consolidated_refseq_protein', 'consolidated_symbol', 'uniprot_secondaryAccessions', 'uniprot_uniProtkbId',
+        return ['ncats_protein_id', 'createdAt', 'updatedAt', 'SPARQL_uniprot_isoform', 'consolidated_uniprot_id',
+                'consolidated_ensembl_protein_id',
+                'consolidated_refseq_protein', 'consolidated_symbol', 'uniprot_secondaryAccessions',
+                'uniprot_uniProtkbId',
                 'combined_protein_name', 'UniProt_ID_Provenance', 'Ensembl_ID_Provenance', 'RefSeq_ID_Provenance',
-                'consolidated_ensembl_transcript_id','uniprot_NCBI_id','canonical_isoform']
+                'consolidated_ensembl_transcript_id', 'uniprot_NCBI_id', 'canonical_isoform']
 
     @staticmethod
     def get_transcript_id(prop_dict: Dict) -> str:
-        transcript_id = prop_dict['consolidated_ensembl_transcript_id']
+        transcript_id = prop_dict.get('consolidated_ensembl_transcript_id', None)
         return remove_decimal(transcript_id)
 
     @staticmethod
     def get_gene_id(prop_dict: Dict) -> str:
-        ncbi_id = prop_dict['uniprot_NCBI_id']
+        ncbi_id = prop_dict.get('uniprot_NCBI_id', None)
         return remove_decimal(ncbi_id)
 
     @staticmethod
     def get_isoform_id(prop_dict: Dict) -> str:
-        return prop_dict['canonical_isoform']
+        return prop_dict.get('canonical_isoform', None)
 
 
 class TargetGraphGeneRIFParser(TargetGraphParser):
@@ -361,9 +396,9 @@ class TargetGraphGeneRIFParser(TargetGraphParser):
 
     @staticmethod
     def get_generif_text(prop_dict: Dict) -> str:
-        return prop_dict['GeneRIF text']
+        return prop_dict.get('GeneRIF text', None)
 
     @staticmethod
     def get_generif_pmids(prop_dict: Dict) -> List[str]:
-        val = prop_dict['PubMed ID (PMID) list']
+        val = prop_dict.get('PubMed ID (PMID) list', '')
         return split_and_trim_str(val, '|')

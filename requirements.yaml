@@ -6,6 +6,7 @@ dependencies:
   - python=3.9
   - pytest
   - pytest-mock
+  - pytest-cov
   - requests
   - biolink-model
   - jsonasobj2
