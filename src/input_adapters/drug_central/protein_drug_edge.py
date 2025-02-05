@@ -1,19 +1,23 @@
 from typing import List
-
-from sqlalchemy import alias
 from sqlalchemy.orm import aliased
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.input_adapters.drug_central.drug_node import DrugCentralAdapter
 from src.input_adapters.drug_central.tables import Structures, ActTableFull, Reference
 from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
 from src.models.node import EquivalentId, Relationship
 from src.models.protein import Protein
 
 
 class ProteinDrugEdgeAdapter(RelationshipInputAdapter, DrugCentralAdapter):
-    name = "DrugCentral Protein Drug Relationship Adapter"
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.DrugCentral
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
 
     def get_all(self) -> List[Relationship]:
         actReference = aliased(Reference)
@@ -62,8 +66,3 @@ class ProteinDrugEdgeAdapter(RelationshipInputAdapter, DrugCentralAdapter):
                 )
 
         return protein_ligand_rels
-
-    def get_audit_trail_entries(self, obj: Relationship) -> List[str]:
-        version_info = [
-            f"Relationship created by {self.name} based on DrugCentral version: {self.version_info.version} ({self.version_info.timestamp})"]
-        return version_info

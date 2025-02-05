@@ -5,10 +5,10 @@ from typing import List, Dict
 from sqlalchemy import or_
 
 from src.constants import Prefix, CHEMBL_PATENT_SOURCE_ID, CHEMBL_FUNCTIONAL_ASSAY_CODE, CHEMBL_BINDING_ASSAY_CODE, \
-    CHEMBL_SMALL_MOLECULE_CODE, CHEMBL_SINGLE_PROTEIN_CODE, HUMAN_TAX_ID
+    CHEMBL_SMALL_MOLECULE_CODE, CHEMBL_SINGLE_PROTEIN_CODE, HUMAN_TAX_ID, DataSourceName
 from src.input_adapters.chembl.tables import Activities, CompoundRecords, CompoundStructures, MoleculeDictionary, \
     Assays, TargetDictionary, ComponentSequence, TargetComponents, Docs, Version
-from src.input_adapters.drug_central.drug_node import DatabaseVersionInfo
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
@@ -19,7 +19,7 @@ from src.shared.db_credentials import DBCredentials
 
 class ChemblAdapter(MySqlAdapter):
     pchembl_cutoff: float
-    version_info: DatabaseVersionInfo
+    version_info: DatasourceVersionInfo
 
     def __init__(self, credentials: DBCredentials, pchembl_cutoff: float = 5):
         MySqlAdapter.__init__(self, credentials)
@@ -31,7 +31,7 @@ class ChemblAdapter(MySqlAdapter):
             Version.name,
             Version.creation_date
         ).filter(Version.name.op('REGEXP')('^ChEMBL_[0-9]+$')).first()
-        self.version_info = DatabaseVersionInfo(version=results.name, timestamp=results.creation_date)
+        self.version_info = DatasourceVersionInfo(version=results.name, version_date=results.creation_date)
 
     def fetch_activity_data(self, pchembl_cutoff: float):
         cache_file = f"input_files/chembl/activities_{pchembl_cutoff}.pkl"
@@ -101,7 +101,12 @@ class ChemblAdapter(MySqlAdapter):
 
 
 class DrugNodeAdapter(NodeInputAdapter, ChemblAdapter):
-    name = "ChEMBL Drug Adapter"
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.ChEMBL
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
 
     def get_all(self) -> List[Node]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
@@ -121,14 +126,14 @@ class DrugNodeAdapter(NodeInputAdapter, ChemblAdapter):
 
         return list(drug_dict.values())
 
-    def get_audit_trail_entries(self, obj: Node) -> List[str]:
-        version_info = [
-            f"Node created by {self.name} based on ChEMBL version: {self.version_info.version} ({self.version_info.timestamp})"]
-        return version_info
-
 
 class ProteinDrugEdgeAdapter(RelationshipInputAdapter, ChemblAdapter):
-    name = "ChEMBL Protein Drug Edge Adapter"
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.ChEMBL
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
+
     def get_all(self) -> List[Relationship]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
 
@@ -164,8 +169,3 @@ class ProteinDrugEdgeAdapter(RelationshipInputAdapter, ChemblAdapter):
             relationships.append(pro_lig_edge)
 
         return relationships
-
-    def get_audit_trail_entries(self, obj: Node) -> List[str]:
-        version_info = [
-            f"Relationship created by {self.name} based on ChEMBL version: {self.version_info.version} ({self.version_info.timestamp})"]
-        return version_info

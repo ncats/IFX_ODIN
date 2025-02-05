@@ -1,7 +1,7 @@
-from typing import List, Union
-
-from src.constants import Prefix
+from typing import List
+from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import EquivalentId
 from src.models.transcript import GeneTranscriptRelationship, Transcript
@@ -9,7 +9,14 @@ from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
 class GeneTranscriptEdgeAdapter(RelationshipInputAdapter, TargetGraphTranscriptParser):
-    name = "TargetGraph Gene Transcript Relationship Adapter"
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.TargetGraph
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=TARGET_GRAPH_VERSION,
+            download_date=self.download_date
+        )
 
     def get_all(self) -> List[GeneTranscriptRelationship]:
         relationships = []
@@ -41,8 +48,3 @@ class GeneTranscriptEdgeAdapter(RelationshipInputAdapter, TargetGraphTranscriptP
             )
 
         return relationships
-
-    def get_audit_trail_entries(self, obj: Union[Transcript, GeneTranscriptRelationship]) -> List[str]:
-        prov_list = []
-        prov_list.append(f"Edge Created based on TargetGraph csv file, last updated: {obj.updated}")
-        return prov_list

@@ -1,27 +1,45 @@
 import copy
 from abc import ABC, abstractmethod
 from typing import List, Union
+
+from src.constants import DataSourceName
 from src.interfaces.id_resolver import IdResolver
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node, Relationship
 
 
 class InputAdapter(ABC):
-    name: str
+
+    def get_name(self) -> str:
+        return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
 
     @abstractmethod
     def get_all(self) -> List[Union[Node, Relationship]]:
         raise NotImplementedError("derived classes must implement get_all")
 
     @abstractmethod
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        raise NotImplementedError("derived classes must implement get_audit_trail_entries")
+    def get_datasource_name(self) -> DataSourceName:
+        raise NotImplementedError("derived classes must implement get_datasource_name")
+
+    @abstractmethod
+    def get_version(self) -> DatasourceVersionInfo:
+        raise NotImplementedError("derived classes must implement get_version")
 
     def get_resolved_and_provenanced_list(self) -> List:
+        def get_and_delete_old_id(node):
+            source_id = node.id
+            if hasattr(node, 'old_id'):
+                source_id = node.old_id
+                delattr(node, 'old_id')
+            return source_id
+
         entries = self.get_all()
 
         for entry in entries:
-            version_info = self.get_audit_trail_entries(entry)
-            entry.provided_by.extend(version_info)
+            version_info = self.get_version()
+            version_data = [self.get_datasource_name(), version_info.version, version_info.version_date, version_info.download_date]
+            version_string = '\t'.join([str(e) for e in version_data])
+            entry.provenance = version_string
 
         nodes = [e for e in entries if isinstance(e, Node)]
         relationships = [e for e in entries if isinstance(e, Relationship)]
@@ -30,6 +48,15 @@ class InputAdapter(ABC):
             if self.id_resolver is not None:
                 entity_map = self.id_resolver.resolve_nodes(nodes)
                 nodes = self.id_resolver.parse_flat_node_list_from_map(entity_map)
+
+        for node in nodes:
+            source_id = get_and_delete_old_id(node)
+            node.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ source_id }"
+
+        for rel in relationships:
+            start_source_id = get_and_delete_old_id(rel.start_node)
+            end_source_id = get_and_delete_old_id(rel.end_node)
+            rel.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ start_source_id }\t{ end_source_id }"
 
         if isinstance(self, RelationshipInputAdapter):
             if self.start_id_resolver is None and self.end_id_resolver is None:
@@ -49,6 +76,7 @@ class InputAdapter(ABC):
 
             return_relationships = []
             for entry in relationships:
+
                 start_id = entry.start_node.id
                 start_nodes = [entry.start_node]
 
@@ -79,7 +107,7 @@ class InputAdapter(ABC):
         return [*nodes, *relationships]
 
 class NodeInputAdapter(InputAdapter, ABC):
-    name = "Unnamed Node Adapter"
+
     id_resolver: IdResolver = None
 
     def set_id_resolver(self, id_resolver: IdResolver):

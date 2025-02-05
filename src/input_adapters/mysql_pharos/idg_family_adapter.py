@@ -1,19 +1,23 @@
-from typing import List
+from datetime import datetime
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.input_adapters.mysql_pharos.tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein, IDGFamily
 
 
 class IDGFamilyAdapter(NodeInputAdapter, MySqlAdapter):
-    name = "IDG Family Adapter"
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.OldPharos
 
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        version_info = [f"IDG Family updated based on Pharos version: {self.credentials.schema}"]
-        return version_info
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version="3.19",
+            version_date=datetime.fromisoformat("2024-02-15"),
+        )
 
     def get_all(self):
         results = (self.get_session().query(

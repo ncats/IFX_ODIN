@@ -1,16 +1,21 @@
 from typing import List, Union
 
+from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
 
 class ExpandIDGFamilies(NodeInputAdapter, Neo4jAdapter):
-    name = "Expand IDG Families Adapter"
 
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return ['IDG families set based on an isoform']
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.PostProcessing
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo()
 
     def get_all(self) -> List[Union[Node, Relationship]]:
         unmatched_fams = self.runQuery(unmatched_fam_query)

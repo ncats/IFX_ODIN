@@ -1,12 +1,22 @@
 from typing import List
+
+from src.constants import DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node
 from src.shared.targetgraph_parser import TargetGraphGeneParser
 
 
 class GeneNodeAdapter(NodeInputAdapter, TargetGraphGeneParser):
-    name = "TargetGraph Gene Adapter"
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=TARGET_GRAPH_VERSION,
+            download_date=self.download_date
+        )
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.TargetGraph
 
     def get_all(self) -> List[Node]:
         gene_list = []
@@ -33,7 +43,3 @@ class GeneNodeAdapter(NodeInputAdapter, TargetGraphGeneParser):
             gene_list.append(gene_obj)
         return gene_list
 
-    def get_audit_trail_entries(self, obj: Gene) -> List[str]:
-        prov_list = [f"Node Created based on TargetGraph csv file, last updated: {obj.updated}",
-                     f"ID concordance index: {round(obj.mapping_ratio, 2)}"]
-        return prov_list

@@ -2,36 +2,36 @@ version: '3.8'
 
 services:
   current_odin:
-    image: neo4j:latest
+    image: neo4j:5.20
     container_name: current_odin
     ports:
-      - "7474:7474" # HTTP
-      - "7687:7687" # Bolt
+      - "8045:7474" # HTTP
+      - "8046:7687" # Bolt
     volumes:
       - ./apoc:/plugins
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
-      NEO4J_dbms_memory_heap_initial__size: 8g
-      NEO4J_dbms_memory_heap_max__size: 8g
-      NEO4J_dbms_memory_pagecache_size: 6g
+      NEO4J_dbms_memory_heap_initial__size: 4g
+      NEO4J_dbms_memory_heap_max__size: 4g
+      NEO4J_dbms_memory_pagecache_size: 3g
     networks:
       - neo4j-network
 
-  ramp_id_comparison:
-    image: neo4j:latest
-    container_name: ramp_id_comparison
+  current_pounce:
+    image: neo4j:5.20
+    container_name: current_pounce
     ports:
-      - "17474:7474" # HTTP
-      - "17687:7687" # Bolt
+      - "8047:7474" # HTTP
+      - "8048:7687" # Bolt
     volumes:
       - ./apoc:/plugins
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
-      NEO4J_dbms_memory_heap_initial__size: 8g
-      NEO4J_dbms_memory_heap_max__size: 8g
-      NEO4J_dbms_memory_pagecache_size: 6g
+      NEO4J_dbms_memory_heap_initial__size: 4g
+      NEO4J_dbms_memory_heap_max__size: 4g
+      NEO4J_dbms_memory_pagecache_size: 3g
     networks:
       - neo4j-network
 

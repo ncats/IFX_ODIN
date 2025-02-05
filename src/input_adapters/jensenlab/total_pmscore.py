@@ -2,20 +2,24 @@ import os
 from datetime import datetime, date
 from typing import List
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
 class TotalPMScoreAdapter(NodeInputAdapter):
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.JensenLab
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            download_date=self.download_date
+        )
+
     file_path: str
     download_date: date
-
-    def get_audit_trail_entries(self, obj: Protein) -> List[str]:
-        return [f"PubMed Score from JensenLab: (downloaded {self.download_date})"]
-
-    name = "JensenLab PubMed Score Adapter"
 
     def __init__(self, file_path: str):
         self.file_path = file_path

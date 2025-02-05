@@ -7,6 +7,23 @@ CHEMBL_SMALL_MOLECULE_CODE = 'MOL'
 CHEMBL_SINGLE_PROTEIN_CODE = 'SINGLE PROTEIN'
 HUMAN_TAX_ID = 9606
 
+TARGET_GRAPH_VERSION = "1.0"
+
+class DataSourceName(SimpleEnum):
+    TargetGraph = "Pharos 2.0 CSV"
+    TargetGraphNCBI = "Pharos 2.0 CSV (NCBI)"
+    ChEMBL = "ChEMBL"
+    CCLE = "Cancer Cell Line Encyclopedia (CCLE)"
+    GO = "Gene Ontology (GO)"
+    DrugCentral = "DrugCentral"
+    JensenLab = "JensenLab"
+    Antibodypedia = "Antibodypedia.com"
+    NCBI = "NCBI"
+    OldPharos = "Pharos 3.19"
+    UniProt = "UniProt"
+    Dummy = "Dummy DataSource"
+    PostProcessing = "ETL Post Processing"
+
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
     CHEBI = 'CHEBI'                     	# from TNN

@@ -12,7 +12,7 @@ class TranscriptLocation:
     end: int = None
     length: int = None
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, int]:
         ret_dict = {}
         if self.start is not None:
             ret_dict['bp_start'] = self.start
@@ -23,10 +23,10 @@ class TranscriptLocation:
 @dataclass
 class Transcript(Audited, Node):
     location: TranscriptLocation = None
-    ensembl_version: int = None
+    ensembl_version: str = None
     support_level: str = None
     is_canonical: bool = None
-    MANE_select: bool = None
+    MANE_select: str = None
     status: str = None
 
     def __init__(self, **kwargs):

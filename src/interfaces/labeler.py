@@ -1,5 +1,5 @@
 from typing import List, Union
-from src.interfaces.simple_enum import NodeLabel, SimpleEnum
+from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
 from src.models.disease import Disease, GeneDiseaseRelationship
 from src.models.gene import Gene
@@ -31,10 +31,7 @@ class BiolinkLabeler(Labeler):
         if isinstance(obj, Disease):
             return [BiolinkNodeLabel.Disease]
         if isinstance(obj, Protein):
-            labels = [BiolinkNodeLabel.Protein]
-            if hasattr(obj, 'tdl') and hasattr(obj.tdl, 'value'):
-                labels.append(obj.tdl.value)
-            return labels
+            return [BiolinkNodeLabel.Protein]
         if isinstance(obj, Ligand):
             return [BiolinkNodeLabel.Ligand]
 
@@ -55,15 +52,6 @@ class BiolinkLabeler(Labeler):
     def get_labels(self, obj):
         class_labels = self.get_class_labels(obj)
         return list({*class_labels, *obj.labels})
-
-
-class PharosLabeler(Labeler):
-    def get_labels(self, obj):
-        if isinstance(obj, Protein): # maybe we don't need labels for all this stuff
-            if hasattr(obj, 'tdl') and hasattr(obj.tdl, 'value'):
-                return [GenericNodeLabel.Protein, obj.tdl.value]
-            return [GenericNodeLabel.Protein]
-        return list({obj.__class__.__name__, *obj.labels})
 
 
 class RaMPLabeler(Labeler):

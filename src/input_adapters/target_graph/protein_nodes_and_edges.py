@@ -1,6 +1,7 @@
 from typing import List, Union
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node, Relationship, EquivalentId
 from src.models.protein import Protein
@@ -31,6 +32,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.uniprot_id = TargetGraphProteinParser.get_uniprot_id(line)
             protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
             protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
+            protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
 
             protein_obj.extra_properties = {
                 "protein_name_match_score": line.get('match_score', None),
@@ -53,6 +55,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
                 TranscriptProteinRelationship(
                     start_node=Transcript(id=transcript_id.id_str()),
                     end_node=protein_obj,
+                    created=protein_obj.created,
                     updated=protein_obj.updated
                 )
             )
@@ -64,6 +67,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
                 GeneProteinRelationship(
                     start_node=Gene(id=gene_id.id_str()),
                     end_node=protein_obj,
+                    created=protein_obj.created,
                     updated=protein_obj.updated
                 )
             )
@@ -76,6 +80,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
                     IsoformProteinRelationship(
                         start_node=protein_obj,
                         end_node=canonical_protein,
+                        created=protein_obj.created,
                         updated=protein_obj.updated
                     )
                 )
@@ -84,15 +89,18 @@ class TGProteinFileBase(TargetGraphProteinParser):
 
 
 class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
-    name = "TargetGraph Protein Adapter"
 
-    def __init__(self, file_path: str, additional_id_file_path: str):
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.TargetGraph
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=TARGET_GRAPH_VERSION,
+            download_date=self.download_date
+        )
+
+    def __init__(self, file_path: str, additional_id_file_path: str = None):
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
-
-    def get_audit_trail_entries(self, obj: Protein) -> List[str]:
-        prov_list = []
-        prov_list.append(f"Node Created based on TargetGraph csv file, last updated: {obj.updated}")
-        return prov_list
 
     def get_all(self) -> List[Protein]:
         protein_list, _, _, _ = self.get_all_combined()
@@ -100,15 +108,19 @@ class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
 
 
 class ProteinRelationshipAdapter(RelationshipInputAdapter, TGProteinFileBase):
-    def get_audit_trail_entries(self, obj: Union[
-        TranscriptProteinRelationship, GeneProteinRelationship, IsoformProteinRelationship]) -> List[str]:
-        prov_list = []
-        prov_list.append(f"Edge Created based on TargetGraph csv file, last updated: {obj.updated}")
-        return prov_list
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.TargetGraph
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=TARGET_GRAPH_VERSION,
+            download_date=self.download_date
+        )
+
 
 
 class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
-    name = "TargetGraph Transcript to Protein Edge Adapter"
 
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, transcript_relationships, _, _ = self.get_all_combined()
@@ -116,7 +128,6 @@ class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
 
 
 class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
-    name = "TargetGraph Gene to Protein Edge Adapter"
 
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, _, gene_relationships, _ = self.get_all_combined()
@@ -124,7 +135,6 @@ class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
 
 
 class IsoformProteinEdgeAdapter(ProteinRelationshipAdapter):
-    name = "TargetGraph Protein to Protein Isoform Edge Adapter"
 
     def get_all(self) -> List[Union[Node, Relationship]]:
         _, _, _, isoform_relationships = self.get_all_combined()

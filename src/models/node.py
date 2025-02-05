@@ -45,7 +45,7 @@ class Node:
     id: str
     labels: List[Union[str, NodeLabel]] = field(default_factory=list)
     xref: List[EquivalentId] = field(default_factory=list)
-    provided_by: List[str] = field(default_factory=list)
+    provenance: str = None
     extra_properties: Dict[str, Any] = field(default_factory=dict)
 
     def add_label(self, new_label: Union[str, NodeLabel]):
@@ -57,5 +57,5 @@ class Node:
 class Relationship:
     start_node: Node
     end_node: Node
+    provenance: str = None
     labels: List[RelationshipLabel] = field(default_factory=list)
-    provided_by: List[str] = field(default_factory=list)

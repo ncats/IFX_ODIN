@@ -1,7 +1,5 @@
 #testing: true
 
-pchembl_cutoff: &pchembl_cutoff 5
-
 labeler:
   import: ./src/interfaces/labeler.py
   class: BiolinkLabeler
