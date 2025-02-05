@@ -1,12 +1,22 @@
 from typing import List
 
+from src.constants import DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.transcript import Transcript
 from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
 class TranscriptNodeAdapter(NodeInputAdapter, TargetGraphTranscriptParser):
-    name = "TargetGraph Transcript Adapter"
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.TargetGraph
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=TARGET_GRAPH_VERSION,
+            download_date=self.download_date
+        )
 
     def get_all(self) -> List[Transcript]:
         transcript_list = []
@@ -33,9 +43,3 @@ class TranscriptNodeAdapter(NodeInputAdapter, TargetGraphTranscriptParser):
             transcript_list.append(transcript_obj)
 
         return transcript_list
-
-    def get_audit_trail_entries(self, obj: Transcript) -> List[str]:
-        prov_list = []
-        prov_list.append(f"Node Created based on TargetGraph csv file, last updated: {obj.updated}")
-        return prov_list
-

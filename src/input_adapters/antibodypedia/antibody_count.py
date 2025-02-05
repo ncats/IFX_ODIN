@@ -3,16 +3,21 @@ import os
 from datetime import date, datetime
 from typing import List
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
 class AntibodyCountAdapter(NodeInputAdapter):
-    name = "Antibody Count Adapter"
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'Antibody Count adapter from antibodypedia: (downloaded {self.download_date})']
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.Antibodypedia
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            download_date=self.download_date
+        )
 
     file_path: str
     download_date: date

@@ -1,23 +1,16 @@
-from dataclasses import dataclass
-from datetime import datetime
 from typing import List
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.input_adapters.drug_central.tables import Structures, DBVersion
 from src.input_adapters.sql_adapter import PostgreSqlAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand
 from src.models.node import Node, EquivalentId
 from src.shared.db_credentials import DBCredentials
 
 
-@dataclass
-class DatabaseVersionInfo:
-    version: int
-    timestamp: datetime
-
-
 class DrugCentralAdapter(PostgreSqlAdapter):
-    version_info: DatabaseVersionInfo
+    version_info: DatasourceVersionInfo
 
     def __init__(self, credentials: DBCredentials):
         PostgreSqlAdapter.__init__(self, credentials)
@@ -28,11 +21,16 @@ class DrugCentralAdapter(PostgreSqlAdapter):
             DBVersion.version,
             DBVersion.dtime
         ).first()
-        self.version_info = DatabaseVersionInfo(version=results.version, timestamp=results.dtime)
+        self.version_info = DatasourceVersionInfo(version=results.version, version_date=results.dtime)
 
 
 class DrugNodeAdapter(NodeInputAdapter, DrugCentralAdapter):
-    name = "DrugCentral Drug Adapter"
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.DrugCentral
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
 
     def get_all(self) -> List[Node]:
         query_results = self.get_session().query(
@@ -51,8 +49,3 @@ class DrugNodeAdapter(NodeInputAdapter, DrugCentralAdapter):
             for row in query_results
         ]
         return drug_list
-
-    def get_audit_trail_entries(self, obj: Node) -> List[str]:
-        version_info = [
-            f"Node created by {self.name} based on DrugCentral version: {self.version_info.version} ({self.version_info.timestamp})"]
-        return version_info

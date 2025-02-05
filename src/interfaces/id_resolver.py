@@ -46,6 +46,7 @@ class IdResolver(ABC):
                  add_labels_for_resolver_events = False,
                  no_match_behavior = NoMatchBehavior.Allow,
                  multi_match_behavior = MultiMatchBehavior.All):
+        print(f'creating ID resolver: {self.__class__.__name__}')
         self.add_labels_for_resolver_events = add_labels_for_resolver_events
         self.no_match_behavior = NoMatchBehavior.parse(no_match_behavior)
         self.multi_match_behavior = MultiMatchBehavior.parse(multi_match_behavior)
@@ -102,7 +103,7 @@ class IdResolver(ABC):
                             first_entry.xref = full_xref_list
 
                             if new_id != old_id:
-                                first_entry.provided_by.append(f"ID updated from {old_id} by {self.name}")
+                                first_entry.old_id = old_id
                                 updated_count += 1
                                 if self.add_labels_for_resolver_events:
                                     first_entry.add_label("Updated_ID")
@@ -121,7 +122,7 @@ class IdResolver(ABC):
                                 new_entry = copy.deepcopy(entry)
                                 new_entry.id = new_id
                                 new_entry.xref = full_xref_list
-                                new_entry.provided_by.append(f"ID unmerged from {old_id} by {self.name}")
+                                new_entry.old_id = old_id
                                 if self.add_labels_for_resolver_events:
                                     new_entry.add_label("Unmerged_ID")
                                 if new_entry.id not in [node.id for node in entity_map[IdResolver.MatchKeys.newborns][old_id]]:
@@ -129,7 +130,7 @@ class IdResolver(ABC):
                 else:
                     if old_id not in entity_map[IdResolver.MatchKeys.unmatched]:
                         new_entry = copy.deepcopy(entry)
-                        new_entry.provided_by.append(f"ID not found by {self.name}")
+                        new_entry.old_id = old_id
                         if self.add_labels_for_resolver_events:
                             new_entry.add_label("Unmatched_ID")
 

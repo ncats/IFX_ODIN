@@ -3,8 +3,9 @@ import os
 from datetime import datetime, date
 from typing import List
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.go_term import GoTerm, GoType, GoTermHasParent
 from src.models.node import EquivalentId
 
@@ -22,10 +23,13 @@ class GOTermBaseAdapter:
 
 class GOTermAdapter(GOTermBaseAdapter, NodeInputAdapter):
 
-    def get_audit_trail_entries(self, obj: GoTerm) -> List[str]:
-        return [f"GO Term from {self.file_name}: (downloaded {self.download_date})"]
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.GO
 
-    name = "GO Term Adapter"
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            download_date=self.download_date
+        )
 
     def __init__(self, **kwargs):
         GOTermBaseAdapter.__init__(self, **kwargs)
@@ -70,6 +74,14 @@ class GOTermAdapter(GOTermBaseAdapter, NodeInputAdapter):
 
 class GOParentRelationship(GOTermBaseAdapter, RelationshipInputAdapter):
 
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.GO
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            download_date=self.download_date
+        )
+
     def get_all(self) -> List[GoTermHasParent]:
         go_term_edges: List[GoTermHasParent] = []
         with open(self.file_path, 'r') as file:
@@ -90,11 +102,6 @@ class GOParentRelationship(GOTermBaseAdapter, RelationshipInputAdapter):
                     end_node=GoTerm(id=obj_id_obj.id_str())
                 ))
         return go_term_edges
-
-    def get_audit_trail_entries(self, obj: GoTerm) -> List[str]:
-        return [f"GO Parent Edge from {self.file_name}: (downloaded {self.download_date})"]
-
-    name = "GO Parent Edge Adapter"
 
     def __init__(self, **kwargs):
         GOTermBaseAdapter.__init__(self, **kwargs)

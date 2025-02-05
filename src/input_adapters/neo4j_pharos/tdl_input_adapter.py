@@ -1,16 +1,20 @@
 from typing import List
 
+from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node
 from src.models.protein import TDL, Protein
 
 
 class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
-    name = "Neo4j Pharos TDL Calculator"
 
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'TDL updated by {self.name} using {self.credentials.url}']
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.PostProcessing
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo()
 
     def get_all(self) -> List[Node]:
         all_protein_list = self.runQuery(all_proteins)
@@ -92,13 +96,13 @@ proteins_with_experimental_f_or_p_go_terms = """
 
 proteins_with_low_pm_score = """
     MATCH (n:`biolink:Protein`)
-        WHERE n.pm_score < 5
+        WHERE n.pm_score < 5 OR n.pm_score IS NULL
     RETURN DISTINCT n.id
 """
 
 proteins_with_low_ab_count = """
     MATCH (n:`biolink:Protein`)
-        WHERE n.antibody_count <= 50
+        WHERE n.antibody_count <= 50 OR n.antibody_count IS NULL
     RETURN DISTINCT n.id
 """
 

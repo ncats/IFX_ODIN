@@ -1,17 +1,21 @@
 from typing import List, Union
 
+from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
 from src.interfaces.input_adapter import NodeInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Node
 from src.models.protein import Protein
 
 
 class SetLigandActivityFlagAdapter(NodeInputAdapter, Neo4jAdapter):
-    name = "Set Ligand Activity Flag Adapter"
 
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return ['Ligand Activity surpasses IDG defined family specific cutoffs']
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.PostProcessing
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo()
 
     def get_all(self) -> List[Union[Node, ProteinLigandRelationship]]:
         passing_activities = self.runQuery(passing_activities_query)

@@ -44,7 +44,6 @@ input_adapters:
       class: ProteinNodeAdapter
       kwargs:
         file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
-        additional_id_file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
       id_resolver: tg_proteins
 
     - import: ./src/input_adapters/target_graph/gene_node.py
@@ -68,7 +67,6 @@ input_adapters:
       class: ProteinNodeAdapter
       kwargs:
         file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-        additional_id_file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
       id_resolver: tg_proteins
 
     - import: ./src/input_adapters/drug_central/drug_node.py

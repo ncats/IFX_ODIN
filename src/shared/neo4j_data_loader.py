@@ -2,16 +2,15 @@ import ast
 import csv
 import numbers
 import time
-from enum import Enum
 from typing import List, Union
 
 from neo4j import Driver, GraphDatabase, Session
 
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
+from src.interfaces.simple_enum import NodeLabel, RelationshipLabel, SimpleEnum
 from src.shared.db_credentials import DBCredentials
 
 
-class FieldConflictBehavior(Enum):
+class FieldConflictBehavior(SimpleEnum):
     KeepFirst = "KeepFirst"
     KeepLast = "KeepLast"
 
@@ -23,7 +22,7 @@ class Neo4jDataLoader:
 
     def __init__(self, credentials: DBCredentials, base_path: str = None, field_conflict_behavior:
                  FieldConflictBehavior = FieldConflictBehavior.KeepLast):
-        self.field_conflict_behavior = field_conflict_behavior
+        self.field_conflict_behavior = FieldConflictBehavior.parse(field_conflict_behavior)
         self.base_path = base_path
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
                                            encrypted=False)
@@ -138,8 +137,10 @@ class Neo4jDataLoader:
         forbidden_keys = ['id', 'labels']
         list_keys = []
         field_keys = []
+        special_handling_fields = ['xref', 'provenance', 'entity_resolution']
+
         for prop in example_record.keys():
-            if prop == 'xref':
+            if prop in special_handling_fields:
                 continue
             if prop in forbidden_keys:
                 continue
@@ -148,9 +149,19 @@ class Neo4jDataLoader:
             else:
                 field_keys.append(prop)
 
+        provenance_updates = ['COALESCE(n.node_updates, [])']
+
+        provenance_updates.extend([
+            f"CASE WHEN rec.{prop} IS NOT NULL AND (n.{prop} IS NULL OR rec.{prop} <> n.{prop}) "
+            f"THEN ['{prop}\t' + COALESCE(n.{prop}, 'NULL') + '\t' + rec.{prop} + '\t' + rec.provenance + '\t{self.field_conflict_behavior.value}'] ELSE [] END"
+            for prop in field_keys
+        ])
+
         if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
-            field_set_stmts = [f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END" for prop in
-                               field_keys]
+            field_set_stmts = [
+                f"n.{prop} = CASE WHEN rec.{prop} IS NULL THEN n.{prop} ELSE rec.{prop} END"
+                    for prop in field_keys]
+
         else:
             field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in
                                field_keys]
@@ -158,9 +169,16 @@ class Neo4jDataLoader:
         list_set_stmts = [f"n.{prop} = apoc.coll.toSet(CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END)" for
                           prop in list_keys]
 
-        xref_set_stmt = f"n.xref = CASE WHEN n.xref IS NULL THEN rec.xref ELSE n.xref END" # xref should only be set once, and always keep the creator's xrefs
+        # set once fields
+        xref_set_stmt = f"n.xref = CASE WHEN n.xref IS NULL THEN rec.xref ELSE n.xref END"
+        provenance_set_stmt = f"n.node_creation = CASE WHEN n.node_creation IS NULL THEN rec.provenance ELSE n.node_creation END"
 
-        prop_str = ", ".join([*field_set_stmts, *list_set_stmts, xref_set_stmt])
+        # update provenance
+        provenance_update_stmt = f"n.node_updates = CASE WHEN n.node_creation IS NULL THEN [] ELSE {' + '.join(provenance_updates)} END"
+
+        resolved_id_statment = f"n.resolved_ids = apoc.coll.toSet(CASE WHEN n.resolved_ids IS NULL THEN [rec.entity_resolution] ELSE n.resolved_ids + [rec.entity_resolution] END)"
+
+        prop_str = ", ".join([*field_set_stmts, *list_set_stmts, xref_set_stmt, provenance_set_stmt, provenance_update_stmt, resolved_id_statment])
 
         query = f"""
             UNWIND $records as rec
@@ -197,13 +215,26 @@ class Neo4jDataLoader:
         forbidden_keys = ['start_id', 'end_id', 'labels']
         list_keys = []
         field_keys = []
+
+        special_handling_fields = ['provenance', 'entity_resolution']
+
         for prop in example_record.keys():
+            if prop in special_handling_fields:
+                continue
             if prop in forbidden_keys:
                 continue
             if isinstance(example_record[prop], list):
                 list_keys.append(prop)
             else:
                 field_keys.append(prop)
+
+        provenance_updates = ['COALESCE(rel.edge_updates, [])']
+
+        provenance_updates.extend([
+            f"CASE WHEN relRecord.{prop} IS NOT NULL AND (rel.{prop} IS NULL OR relRecord.{prop} <> rel.{prop}) "
+            f"THEN ['{prop}\t' + COALESCE(rel.{prop}, 'NULL') + '\t' + relRecord.{prop} + '\t' + relRecord.provenance + '\t{self.field_conflict_behavior.value}'] ELSE [] END"
+            for prop in field_keys
+        ])
 
         if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
             field_set_stmts = [
@@ -217,7 +248,13 @@ class Neo4jDataLoader:
             f"rel.{prop} = apoc.coll.toSet(CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END)"
             for prop in list_keys]
 
-        prop_str = ", ".join([*field_set_stmts, *list_set_stmts])
+        provenance_set_stmt = f"rel.edge_creation = CASE WHEN rel.edge_creation IS NULL THEN relRecord.provenance ELSE rel.edge_creation END"
+
+        provenance_update_stmt = f"rel.edge_updates = CASE WHEN rel.edge_updates IS NULL THEN [] ELSE {' + '.join(provenance_updates)} END"
+
+        resolved_id_statment = f"rel.resolved_ids = apoc.coll.toSet(CASE WHEN rel.resolved_ids IS NULL THEN [relRecord.entity_resolution] ELSE rel.resolved_ids + [relRecord.entity_resolution] END)"
+
+        prop_str = ", ".join([*field_set_stmts, *list_set_stmts, provenance_set_stmt, provenance_update_stmt, resolved_id_statment])
 
         query = f"""
             UNWIND $records AS relRecord
@@ -247,6 +284,7 @@ class Neo4jDataLoader:
         start_time = time.time()
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
+        print(records[0])
         print(query)
         load_to_neo4j(session, query, records)
         end_time = time.time()

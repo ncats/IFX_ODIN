@@ -6,7 +6,6 @@ from src.interfaces.output_adapter import OutputAdapter
 from src.interfaces.simple_enum import NodeLabel, SimpleEnum
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
-from src.models.go_term import ProteinGoTermRelationship
 from src.models.node import Relationship, Node
 from src.models.pounce.investigator import InvestigatorRelationship
 
@@ -16,9 +15,11 @@ from src.shared.neo4j_data_loader import Neo4jDataLoader
 
 class Neo4jOutputAdapter(OutputAdapter):
     loader: Neo4jDataLoader
+    post_processing: List[str]
 
-    def __init__(self, credentials: DBCredentials):
-        self.loader = Neo4jDataLoader(credentials)
+    def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
+        self.loader = Neo4jDataLoader(credentials, **kwargs)
+        self.post_processing = post_processing
 
     def create_or_truncate_datastore(self) -> bool:
         return self.loader.delete_all_data_and_indexes()
@@ -132,3 +133,10 @@ class Neo4jOutputAdapter(OutputAdapter):
                 else:
                     self.loader.load_node_records(session, obj_list, labels)
         return True
+
+    def do_post_processing(self) -> None:
+        for post_process in self.post_processing:
+            print('Running post processing step:')
+            print(post_process)
+            with self.loader.driver.session() as session:
+                session.run(post_process)

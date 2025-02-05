@@ -3,21 +3,31 @@ import os
 from datetime import datetime, date
 from typing import List
 
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.go_term import GoType, ProteinGoTermRelationship, GoTerm, GoEvidence
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
 class ProteinGoTermEdgeAdapter(RelationshipInputAdapter):
-    name = "Protein GoTerm Edge Adapter"
+
+    def get_datasource_name(self) -> DataSourceName:
+        if self.source == "UniProt":
+            return DataSourceName.UniProt
+        if self.source == "GO":
+            return DataSourceName.GO
+        return DataSourceName.Unknown
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            download_date=self.download_date
+        )
+
     gaf_file_name: str
     source: str
     download_date: date
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f"GO Term Association from {self.source}: (downloaded {self.download_date})"]
 
     def __init__(self, gaf_file_name: str, source: str):
         self.gaf_file_name = gaf_file_name
