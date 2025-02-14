@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
+
+from src.models.disease import Disease
 from src.models.node import Node, Relationship
 from src.models.pounce.experiment import Experiment
 
@@ -9,7 +12,8 @@ class Sample(Node):
 
 @dataclass
 class Measurement(Node):
-    value: float = None
+    count: int = None
+    tpm: float = None
 
 @dataclass
 class Compound(Node):
@@ -26,7 +30,7 @@ class SampleMeasurementRelationship(Relationship):
 @dataclass
 class MeasurementAnalyteRelationship(Relationship):
     start_node: Measurement
-    end_node: Compound
+    end_node: Node
 
 
 @dataclass
@@ -47,11 +51,18 @@ class Protocol(Factor):
 
 @dataclass
 class Biospecimen(Factor):
-    organism: str = None
+    organism: List[str] = field(default_factory=list)
     part: str = None
     cell_line: str = None
     sex: str = None
+    comment: str = None
+    category: str = None
+    age: str = None
 
+@dataclass
+class BiospecimenDiseaseRelationship(Relationship):
+    start_node = Biospecimen
+    end_node = Disease
 
 @dataclass
 class SampleFactorRelationship(Relationship):

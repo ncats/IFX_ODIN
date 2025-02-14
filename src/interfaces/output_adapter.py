@@ -14,3 +14,6 @@ class OutputAdapter(ABC):
     @abstractmethod
     def create_or_truncate_datastore(self) -> bool:
         pass
+
+    def preprocess_objects(self, objects):
+        return objects

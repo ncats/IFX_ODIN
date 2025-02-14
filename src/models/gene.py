@@ -38,7 +38,7 @@ class GeneticLocation:
         return ret_dict
 
 @dataclass
-class Audited():
+class Audited:
     created: datetime = None
     updated: datetime = None
 

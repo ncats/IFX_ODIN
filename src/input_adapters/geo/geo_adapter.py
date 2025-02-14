@@ -73,7 +73,7 @@ class ParseGeo:
                 id=id,
                 name=name,
                 type=type,
-                organism=species
+                organism=[species]
             )
         return biospecimen_map[name]
 

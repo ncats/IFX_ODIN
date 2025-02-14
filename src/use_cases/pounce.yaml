@@ -1,53 +1,104 @@
 #testing: true
 
+resolvers:
+  - label: cell_line_resolver
+    import: ./src/id_resolvers/cell_line_resolver.py
+    class: CellosaurusCellLineResolver
+    kwargs:
+      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/cellosaurus/cellosaurus.xml
+
+  - label: tg_genes
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphGeneResolver
+    kwargs:
+      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/gene_ids.csv
+
 
 input_adapters:
   nodes:
-#    - import: ./src/input_adapters/geo/geo_adapter.py
-#      class: GeoAdapter
-#      kwargs:
-#        accession: GDS3676
-#    - import: ./src/input_adapters/geo/geo_adapter.py
-#      class: GeoAdapter
-#      kwargs:
-#        accession: GDS2987
-    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
-      class: MetabolightsAdapter
+    - import: ./src/input_adapters/ccle/cell_line.py
+      class: CellLine
       kwargs:
-        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/i_Investigation.txt
-        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/s_MTBLS859.txt
-        assay_files:
-          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/a_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy.txt
-          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/a_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy-1.txt
-        matrix_files:
-          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/m_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy-1_v2_maf.tsv
-          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS859/m_MTBLS859_lec_metabolomics_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv
-#
-#    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
-#      class: MetabolightsAdapter
-#      kwargs:
-#        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/i_Investigation.txt
-#        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/s_MTBLS1707.txt
-#        assay_files:
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_hilic_negative_mass_spectrometry.txt
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_hilic_positive_mass_spectrometry.txt
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_rp_lipids_negative_mass_spectrometry.txt
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/a_MTBLS1707_metabolite_profiling_rp_lipids_positive_mass_spectrometry.txt
-#        matrix_files:
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_hilic_negative_mass_spectrometry_v2_maf.tsv
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_hilic_positive_mass_spectrometry_v2_maf.tsv
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_rp_lipids_negative_mass_spectrometry_v2_maf.tsv
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS1707/m_MTBLS1707_metabolite_profiling_rp_lipids_positive_mass_spectrometry_v2_maf.tsv
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/Cell_lines_annotations_20181226.txt
+      id_resolver: cell_line_resolver
 
-#    - import: ./src/input_adapters/metabolights/metabolights_adapter.py
-#      class: MetabolightsAdapter
-#      kwargs:
-#        investigation_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/i_Investigation.txt
-#        sample_file: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/s_MTBLS7429.txt
-#        assay_files:
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/a_MTBLS7429_LC-MS_positive_reverse-phase_metabolite_profiling.txt
-#        matrix_files:
-#          - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/MTBLS7429/m_MTBLS7429_LC-MS_positive_reverse-phase_metabolite_profiling_v2_maf.tsv
+    - import: ./src/input_adapters/cellosaurus/cellosaurus.py
+      class: CellosaurusCellLineAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/cellosaurus/cellosaurus.xml
+      id_resolver: cell_line_resolver
 
+    - import: ./src/input_adapters/cellosaurus/disease.py
+      class: DiseaseAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/cellosaurus/cellosaurus.xml
+
+
+    - import: ./src/input_adapters/target_graph/gene_node.py
+      class: GeneNodeAdapter
+      kwargs:
+        file_path: ./input_files/target_graph/gene_ids.csv
+      id_resolver: tg_genes
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: SampleAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+
+    - import: ./src/input_adapters/ccle/experiment_and_project.py
+      class: ExperimentAdapter
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: MeasurementAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+        field_name: count
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: MeasurementAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
+        field_name: tpm
+
+  edges:
+
+    - import: ./src/input_adapters/cellosaurus/disease.py
+      class: DiseaseCellLineRelationshipAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/cellosaurus/cellosaurus.xml
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: SampleExperimentAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: SampleMeasurementAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: MeasurementGeneAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+      end_id_resolver: tg_genes
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: SampleMeasurementAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: MeasurementGeneAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
+      end_id_resolver: tg_genes
+
+    - import: ./src/input_adapters/ccle/samples_and_edges.py
+      class: SampleBiospecimenAdapter
+      kwargs:
+        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+        context_file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/ccle/Cell_lines_annotations_20181226.txt
+      end_id_resolver: cell_line_resolver
 output_adapters:
   - ./src/use_cases/ifxdev_neo4j_output_2.yaml

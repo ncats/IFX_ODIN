@@ -100,7 +100,7 @@ class ParseMetabolights:
             biospecimen_obj = Biospecimen(
                 id=key,
                 name=biospecimen,
-                organism=species
+                organism=[species]
             )
             for k, v in other_characteristics.items():
                 if v is not None and v != "":
@@ -228,8 +228,6 @@ class ParseMetabolights:
 
 
 class MetabolightsAdapter(NodeInputAdapter, ParseMetabolights):
-    name = "Pounce Metabolights Adapter"
-
     def get_audit_trail_entries(self, obj) -> List[str]:
         return []
 
