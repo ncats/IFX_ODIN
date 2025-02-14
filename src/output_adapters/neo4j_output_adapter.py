@@ -24,19 +24,6 @@ class Neo4jOutputAdapter(OutputAdapter):
     def create_or_truncate_datastore(self) -> bool:
         return self.loader.delete_all_data_and_indexes()
 
-    @staticmethod
-    def default_headers_and_data(obj):
-        headers = [field.name for field in fields(obj)]
-        data = [getattr(obj, field) for field in headers]
-        if isinstance(obj, Relationship):
-            start_node = headers.index('start_node')
-            end_node = headers.index('end_node')
-            headers[start_node] = 'start_id'
-            headers[end_node] = 'end_id'
-            data[start_node] = obj.start_node.id
-            data[end_node] = obj.end_node.id
-        return headers, data
-
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
         for key, value in vars(obj).items():
             if isinstance(value, NodeLabel):

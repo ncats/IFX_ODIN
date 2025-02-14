@@ -32,9 +32,10 @@ class ETL:
             if testing:
                 resolved_list = resolved_list[0:20000]
 
-            self.labeler.assign_all_labels(resolved_list)
 
             for output_adapter in self.output_adapters:
+                resolved_list = output_adapter.preprocess_objects(resolved_list)
+                self.labeler.assign_all_labels(resolved_list)
                 output_adapter.store(resolved_list)
 
         for output_adapter in self.output_adapters:

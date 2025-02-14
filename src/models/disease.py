@@ -8,9 +8,7 @@ from src.models.node import Node, Relationship
 
 @dataclass
 class Disease(Node):
-
-    def __init__(self, **kwargs):
-        Node.__init__(self, **kwargs)
+    name: str = None
 
 @dataclass
 class GeneDiseaseRelationship(Relationship):

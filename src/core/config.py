@@ -108,9 +108,9 @@ class Config:
         return output_adapters
 
     def create_node_adapters(self) -> List[NodeInputAdapter]:
-        if 'input_adapters' not in self.config_dict:
-            raise Exception('Configuration yaml files must contain at least one input adapter')
         node_adapters = []
+        if 'input_adapters' not in self.config_dict:
+            return node_adapters
         if 'nodes' not in self.config_dict['input_adapters']:
             return node_adapters
         config = self.config_dict['input_adapters']['nodes']
@@ -124,6 +124,8 @@ class Config:
 
     def create_edge_adapters(self) -> List[RelationshipInputAdapter]:
         edge_adapters = []
+        if 'input_adapters' not in self.config_dict:
+            return edge_adapters
         if 'edges' not in self.config_dict['input_adapters']:
             return edge_adapters
         config = self.config_dict['input_adapters']['edges']

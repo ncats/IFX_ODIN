@@ -19,3 +19,5 @@ GEOparse
 graphene
 Flask
 pyyaml
+
+networkx

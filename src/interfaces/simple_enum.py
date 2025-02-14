@@ -22,6 +22,10 @@ class SimpleEnum(Enum):
         for member in cls:
             if member.value.lower() == input_value.lower().replace('_', '.'):
                 return member
+            if member.value.lower() == input_value.lower():
+                return member
+        print (input_value)
+
 
 class NodeLabel(SimpleEnum):
     pass
