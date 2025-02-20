@@ -42,121 +42,132 @@ class SampleAdapter(CCLEFileInputAdapter):
         sample_dict = get_sample_map(self.file_path)
         return list(sample_dict.values())
 
+class SampleExperimentAdapter(CCLEFileInputAdapter):
+    def get_all(self) -> List[Union[Node, Relationship]]:
+        sample_dict = get_sample_map(self.file_path)
+        exp_obj = Experiment(id=self.get_experiment_name())
+        exp_samp_edges = []
+        for sample_obj in sample_dict.values():
+            exp_samp_edge = ExperimentSampleRelationship(
+                start_node=exp_obj,
+                end_node=sample_obj
+            )
+            exp_samp_edges.append(exp_samp_edge)
+        return exp_samp_edges
+
 class MeasurementBaseAdapter(CCLEFileInputAdapter, ABC):
-    def get_cached_lists(self, field_name, limit):
-        folder = os.path.dirname(self.file_path)
+    file_path: List[str]
+    field_names: List[str]
+
+    def __init__(self, file_paths: List[str], field_names: List[str], **kwargs):
+        CCLEFileInputAdapter.__init__(self, file_path=file_paths[0])
+        self.file_paths = file_paths
+        self.field_names = field_names
+
+    def get_cached_lists(self, limit):
+        folder = os.path.dirname(self.file_paths[0])
         try:
-            with open(os.path.join(folder, f'measurement_objects_{field_name}_{limit}.pkl'), 'rb') as f:
+            with open(os.path.join(folder, f'measurement_objects_{limit}.pkl'), 'rb') as f:
                 measurement_objects = pickle.load(f)
-            with open(os.path.join(folder, f'samp_meas_edges_{field_name}_{limit}.pkl'), 'rb') as f:
+            with open(os.path.join(folder, f'samp_meas_edges_{limit}.pkl'), 'rb') as f:
                 samp_meas_edges = pickle.load(f)
-            with open(os.path.join(folder, f'meas_gene_edges_{field_name}_{limit}.pkl'), 'rb') as f:
+            with open(os.path.join(folder, f'meas_gene_edges_{limit}.pkl'), 'rb') as f:
                 meas_gene_edges = pickle.load(f)
-            with open(os.path.join(folder, f'exp_samp_edges_{field_name}_{limit}.pkl'), 'rb') as f:
-                exp_samp_edges = pickle.load(f)
         except FileNotFoundError:
             measurement_objects = []
             samp_meas_edges = []
             meas_gene_edges = []
-            exp_samp_edges = []
-        return measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges
+        return measurement_objects, samp_meas_edges, meas_gene_edges
 
-    def save_cached_lists(self, measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges, field_name, limit):
-        folder = os.path.dirname(self.file_path)
-        with open(os.path.join(folder, f'measurement_objects_{field_name}_{limit}.pkl'), 'wb') as f:
+    def save_cached_lists(self, measurement_objects, samp_meas_edges, meas_gene_edges, limit):
+        folder = os.path.dirname(self.file_paths[0])
+        with open(os.path.join(folder, f'measurement_objects_{limit}.pkl'), 'wb') as f:
             pickle.dump(measurement_objects, f)
-        with open(os.path.join(folder, f'samp_meas_edges_{field_name}_{limit}.pkl'), 'wb') as f:
+        with open(os.path.join(folder, f'samp_meas_edges_{limit}.pkl'), 'wb') as f:
             pickle.dump(samp_meas_edges, f)
-        with open(os.path.join(folder, f'meas_gene_edges_{field_name}_{limit}.pkl'), 'wb') as f:
+        with open(os.path.join(folder, f'meas_gene_edges_{limit}.pkl'), 'wb') as f:
             pickle.dump(meas_gene_edges, f)
-        with open(os.path.join(folder, f'exp_samp_edges_{field_name}_{limit}.pkl'), 'wb') as f:
-            pickle.dump(exp_samp_edges, f)
 
-
-    def get_all_components(self, field_name = 'count') -> tuple[list[Any], list[Any], list[Any], list[Any]]:
-        limit = 1000
-        measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges = self.get_cached_lists(field_name, limit)
+    def get_all_components(self) -> tuple[list[Any], list[Any], list[Any]]:
+        limit = None
+        measurement_objects, samp_meas_edges, meas_gene_edges = self.get_cached_lists(limit)
         if len(measurement_objects) > 0:
-            return measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges
+            return measurement_objects, samp_meas_edges, meas_gene_edges
 
-        sample_dict = get_sample_map(self.file_path)
+        measurement_dict = {}
 
-        index = 0
-        exp_obj = Experiment(id=self.get_experiment_name())
-        with get_reader(self.file_path) as reader:
-            for row in reader:
-                index += 1
-                if limit is not None and index > limit:
-                    continue
+        sample_dict = get_sample_map(self.file_paths[0])
 
-                if 'Name' in row:
-                    gene_id = row['Name'].split('.')[0]
-                else:
-                    gene_id = row['gene_id'].split('.')[0]
-
-                for sample, sample_obj in sample_dict.items():
-                    measurement_value = float(row[sample])
-                    if measurement_value == 0:
+        for index, file_path in enumerate(self.file_paths):
+            field_name = self.field_names[index]
+            index = 0
+            with get_reader(file_path) as reader:
+                for row in reader:
+                    index += 1
+                    if limit is not None and index > limit:
                         continue
 
-                    measurement_obj = Measurement(
-                        id=f"{sample_obj.id}-{gene_id}"
-                    )
-                    measurement_obj.__setattr__(field_name, measurement_value)
-                    measurement_objects.append(measurement_obj)
+                    if 'Name' in row:
+                        gene_id = row['Name'].split('.')[0]
+                    else:
+                        gene_id = row['gene_id'].split('.')[0]
 
-                    samp_meas_edge = SampleMeasurementRelationship(
-                        start_node=sample_obj,
-                        end_node=measurement_obj
-                    )
-                    samp_meas_edges.append(samp_meas_edge)
+                    for sample, sample_obj in sample_dict.items():
+                        measurement_value = float(row[sample])
+                        if measurement_value == 0:
+                            continue
 
-                    exp_samp_edge = ExperimentSampleRelationship(
-                        start_node=exp_obj,
-                        end_node=sample_obj
-                    )
-                    exp_samp_edges.append(exp_samp_edge)
+                        measurement_id = f"{sample_obj.id}-{gene_id}"
+                        if measurement_id in measurement_dict:
+                            measurement_obj = measurement_dict[measurement_id]
 
-                    gene_meas_edge = MeasurementAnalyteRelationship(
-                        start_node=measurement_obj,
-                        end_node=Gene(
-                            id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
-                        )
-                    )
-                    meas_gene_edges.append(gene_meas_edge)
+                        else:
+                            measurement_obj = Measurement(
+                                id=f"{sample_obj.id}-{gene_id}"
+                            )
+                            measurement_dict[measurement_id] = measurement_obj
 
-        self.save_cached_lists(measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges, field_name, limit)
+                            samp_meas_edge = SampleMeasurementRelationship(
+                                start_node=sample_obj,
+                                end_node=measurement_obj
+                            )
+                            samp_meas_edges.append(samp_meas_edge)
 
-        return measurement_objects, samp_meas_edges, meas_gene_edges, exp_samp_edges
+                            gene_meas_edge = MeasurementAnalyteRelationship(
+                                start_node=measurement_obj,
+                                end_node=Gene(
+                                    id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
+                                )
+                            )
+                            meas_gene_edges.append(gene_meas_edge)
+
+                        measurement_obj.__setattr__(field_name, measurement_value)
+
+        measurement_objects = list(measurement_dict.values())
+        self.save_cached_lists(measurement_objects, samp_meas_edges, meas_gene_edges, limit)
+
+        return measurement_objects, samp_meas_edges, meas_gene_edges
 
 class MeasurementAdapter(MeasurementBaseAdapter):
-    field_name: str
-
 
     def __init__(self, field_name: str = 'count', **kwargs):
         MeasurementBaseAdapter.__init__(self, **kwargs)
-        self.field_name = field_name
 
     def get_all(self) -> List[Union[Node, Relationship]]:
-        measurements, _, _, _ = self.get_all_components(self.field_name)
+        measurements, _, _ = self.get_all_components()
         return measurements
 
 class SampleMeasurementAdapter(MeasurementBaseAdapter):
     def get_all(self) -> List[Union[Node, Relationship]]:
-        _, samp_meas_edges, _, _ = self.get_all_components()
+        _, samp_meas_edges, _ = self.get_all_components()
         return samp_meas_edges
-
-class SampleExperimentAdapter(MeasurementBaseAdapter):
-    def get_all(self) -> List[Union[Node, Relationship]]:
-        _, _, _, exp_samp_edges = self.get_all_components()
-        return exp_samp_edges
 
 class MeasurementGeneAdapter(MeasurementBaseAdapter):
     def get_all(self) -> List[Union[Node, Relationship]]:
-        _, _, meas_gene_edges, _ = self.get_all_components()
+        _, _, meas_gene_edges = self.get_all_components()
         return meas_gene_edges
 
-class SampleBiospecimenAdapter(MeasurementBaseAdapter):
+class SampleBiospecimenAdapter(CCLEFileInputAdapter):
     context_file_path: str
     depmap_map: Dict[str, str]
 
