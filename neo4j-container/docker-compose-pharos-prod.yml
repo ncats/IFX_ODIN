@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  current_odin:
+  pharos_prod:
     image: neo4j:5.20
     container_name: pharos_prod
     ports:
       - "8043:7474" # HTTP
       - "8044:7687" # Bolt
     volumes:
-      - ./apoc:/plugins:ro
+      - ./apoc:/plugins
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_dbms_security_procedures_unrestricted: apoc.*

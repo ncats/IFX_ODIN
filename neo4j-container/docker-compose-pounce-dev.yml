@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  current_odin:
+  pounce_dev:
     image: neo4j:5.20
     container_name: pounce_dev
     ports:
       - "8045:7474" # HTTP
       - "8046:7687" # Bolt
     volumes:
-      - ./apoc:/plugins:ro
+      - ./apoc:/plugins
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
