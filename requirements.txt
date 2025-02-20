@@ -10,6 +10,7 @@ sqlalchemy
 pymysql
 neo4j
 psycopg2
+cwltool
 
 pandas
 openpyxl
