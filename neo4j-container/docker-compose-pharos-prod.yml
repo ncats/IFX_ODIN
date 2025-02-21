@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   pharos_prod:
     image: neo4j:5.20
