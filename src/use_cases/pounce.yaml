@@ -98,4 +98,4 @@ input_adapters:
       end_id_resolver: cell_line_resolver
 
 output_adapters:
-  - ./src/use_cases/ifxdev_neo4j_output_2.yaml
+  - ./src/use_cases/ifxdev_pounce_prod.yaml
