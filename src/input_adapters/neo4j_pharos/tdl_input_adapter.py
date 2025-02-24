@@ -2,13 +2,13 @@ from typing import List
 
 from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node
 from src.models.protein import TDL, Protein
 
 
-class TDLInputAdapter(NodeInputAdapter, Neo4jAdapter):
+class TDLInputAdapter(InputAdapter, Neo4jAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PostProcessing

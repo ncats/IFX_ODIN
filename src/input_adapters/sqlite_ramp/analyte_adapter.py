@@ -3,19 +3,19 @@ from typing import List
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import (
     Source as SqliteSource)
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.analyte import Analyte
 from src.models.node import EquivalentId
 
 
-class AnalyteAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
+class AnalyteAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
 
     @abstractmethod
     def get_source_prefix(self):
         raise NotImplementedError("derived classes must implement get_source_prefix")
 
     def __init__(self, sqlite_file: str):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def add_equivalent_ids(self, analytes: List[Analyte]):

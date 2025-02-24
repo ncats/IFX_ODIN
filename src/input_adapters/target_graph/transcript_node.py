@@ -1,13 +1,13 @@
 from typing import List
 
 from src.constants import DataSourceName, TARGET_GRAPH_VERSION
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.transcript import Transcript
 from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
-class TranscriptNodeAdapter(NodeInputAdapter, TargetGraphTranscriptParser):
+class TranscriptNodeAdapter(InputAdapter, TargetGraphTranscriptParser):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph

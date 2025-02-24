@@ -3,7 +3,7 @@ from typing import List, Union
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.input_adapters.mysql_pharos.tables import Protein as mysql_Protein, GoA as mysql_Goa, TDL_info as mysql_tdlInfo
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.go_term import GoTerm, ProteinGoTermRelationship, GoEvidence
 from src.models.protein import Protein
 

@@ -4,7 +4,7 @@ from datetime import datetime
 import xml.etree.ElementTree as ET
 from typing import List, Union
 from src.constants import DataSourceName, Prefix
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.pounce.data import Biospecimen
@@ -34,7 +34,7 @@ class XMLAdapter:
     def __init__(self, file_path: str):
         self.file_path = file_path
 
-class CellosaurusBaseAdapter(NodeInputAdapter, RelationshipInputAdapter, XMLAdapter, ABC):
+class CellosaurusBaseAdapter(InputAdapter, XMLAdapter, ABC):
     dataSourceVersionInfo: DatasourceVersionInfo
     include_only_human: bool
 
@@ -45,8 +45,7 @@ class CellosaurusBaseAdapter(NodeInputAdapter, RelationshipInputAdapter, XMLAdap
         return self.dataSourceVersionInfo
 
     def __init__(self, include_only_human = True, **kwargs):
-        NodeInputAdapter.__init__(self)
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         XMLAdapter.__init__(self, **kwargs)
         self.dataSourceVersionInfo = self.extract_data_version()
         self.include_only_human = include_only_human

@@ -1,12 +1,12 @@
 from typing import List
 
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein
 from src.shared.uniprot_file_reader import UniProtFileReader
 from src.shared.uniprot_parser import UniProtParser
 
 
-class ProteinAdapter(NodeInputAdapter, UniProtFileReader):
+class ProteinAdapter(InputAdapter, UniProtFileReader):
     def get_audit_trail_entries(self, obj) -> List[str]:
         return [f"description and sequence updated by {self.name}"]
 

@@ -2,7 +2,7 @@ from typing import List
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.drug_central.tables import Structures, DBVersion
 from src.input_adapters.sql_adapter import PostgreSqlAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand
 from src.models.node import Node, EquivalentId
@@ -24,7 +24,7 @@ class DrugCentralAdapter(PostgreSqlAdapter):
         self.version_info = DatasourceVersionInfo(version=results.version, version_date=results.dtime)
 
 
-class DrugNodeAdapter(NodeInputAdapter, DrugCentralAdapter):
+class DrugNodeAdapter(InputAdapter, DrugCentralAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.DrugCentral

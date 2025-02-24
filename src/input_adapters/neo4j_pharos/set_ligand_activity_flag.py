@@ -2,14 +2,14 @@ from typing import List, Union
 
 from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Node
 from src.models.protein import Protein
 
 
-class SetLigandActivityFlagAdapter(NodeInputAdapter, Neo4jAdapter):
+class SetLigandActivityFlagAdapter(InputAdapter, Neo4jAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PostProcessing

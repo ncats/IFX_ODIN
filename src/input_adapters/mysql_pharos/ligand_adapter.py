@@ -1,7 +1,7 @@
 from typing import List
 
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import Ligand
 from src.models.node import Node
 from src.input_adapters.mysql_pharos.tables import Ligand as mysql_ligand

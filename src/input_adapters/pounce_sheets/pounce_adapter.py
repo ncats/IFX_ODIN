@@ -6,7 +6,7 @@ from src.input_adapters.pounce_sheets.constants import KEY_PROJECT_KEYWORDS, KEY
     KEY_PROJECT_DATE, KEY_PROJECT_NAME, KEY_DESCRIPTION, KEY_PROJECT_PRIVACY, KEY_PROJECT_SHEET, KEY_EXPERIMENT_SHEET, \
     KEY_EXPERIMENT_NAME, KEY_EXPERIMENT_DESIGN, KEY_EXPERIMENT_DATE, KEY_EXPERIMENT_CATEGORY, KEY_CONTACT_NAME, \
     KEY_CONTACT_EMAIL, KEY_DATAGEN_EMAIL, KEY_DATAGEN_NAME, KEY_INFORMATICIAN_NAME, KEY_INFORMATICIAN_EMAIL
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 from src.models.pounce.experiment import Experiment
 from src.models.pounce.investigator import ProjectInvestigatorRelationship, Role

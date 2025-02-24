@@ -1,12 +1,12 @@
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.metabolite_class import MetaboliteClass
 from src.input_adapters.sqlite_ramp.tables import MetaboliteClass as SqliteMetaboliteClass
 
 
-class MetaboliteClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
+class MetaboliteClassAdapter(InputAdapter, RaMPSqliteAdapter):
     def get_audit_trail_entries(self, obj: MetaboliteClass) -> List[str]:
         data_version = self.get_data_version(obj.source)
         return [f"Metabolite Class from {data_version.name} ({data_version.version})"]
@@ -14,7 +14,7 @@ class MetaboliteClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Metabolite Class Adapter"
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

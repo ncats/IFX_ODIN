@@ -4,14 +4,14 @@ from datetime import datetime, date
 from typing import List
 
 from src.constants import Prefix, DataSourceName
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.go_term import GoType, ProteinGoTermRelationship, GoTerm, GoEvidence
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
-class ProteinGoTermEdgeAdapter(RelationshipInputAdapter):
+class ProteinGoTermEdgeAdapter(InputAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         if self.source == "UniProt":

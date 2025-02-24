@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import List
 import GEOparse
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 from src.models.pounce.data import Biospecimen, \
     Sample, SampleFactorRelationship, ExperimentSampleRelationship, Factor, Treatment

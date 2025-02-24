@@ -1,7 +1,7 @@
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionToMetabolite as SqliteReactionToMetabolite
 from src.models.metabolite import Metabolite, MetaboliteReactionRelationship
 from src.models.reaction import Reaction
@@ -14,7 +14,7 @@ class MetaboliteReactionRelationshipAdapter(RelationshipInputAdapter, RaMPSqlite
         data_version = self.get_data_version('rhea')
         return [f"Metabolite to Reaction Association from {data_version.name} ({data_version.version})"]
     def __init__(self, sqlite_file):
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

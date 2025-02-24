@@ -2,7 +2,7 @@ from typing import List
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Relationship
 from src.input_adapters.mysql_pharos.tables import (Ligand as mysql_ligand, LigandActivity as mysql_ligand_activity,

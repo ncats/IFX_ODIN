@@ -1,12 +1,12 @@
 from typing import List
 from src.constants import DataSourceName, TARGET_GRAPH_VERSION
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.generif import GeneRif
 from src.shared.targetgraph_parser import TargetGraphGeneRIFParser
 
 
-class GeneRifNodeAdapter(NodeInputAdapter, TargetGraphGeneRIFParser):
+class GeneRifNodeAdapter(InputAdapter, TargetGraphGeneRIFParser):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraphNCBI

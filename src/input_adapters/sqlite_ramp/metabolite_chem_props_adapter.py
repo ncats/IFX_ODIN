@@ -1,12 +1,12 @@
 from typing import List, Union
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsRelationship
 from src.input_adapters.sqlite_ramp.tables import ChemProps as SqliteChemProps
 
 
-class MetaboliteChemPropsAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
+class MetaboliteChemPropsAdapter(InputAdapter, RaMPSqliteAdapter):
     def get_audit_trail_entries(self, obj: Union[MetaboliteChemProps, MetaboliteChemPropsRelationship]) -> List[str]:
         if isinstance(obj, MetaboliteChemProps):
             data_version = self.get_data_version(obj.chem_data_source)
@@ -17,8 +17,7 @@ class MetaboliteChemPropsAdapter(NodeInputAdapter, RelationshipInputAdapter, RaM
     name = "RaMP Metabolite ChemProps Adapter"
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

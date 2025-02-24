@@ -1,12 +1,12 @@
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import Pathway as SqlitePathway
 from src.models.pathway import Pathway
 
 
-class PathwayAdapter(NodeInputAdapter, RaMPSqliteAdapter):
+class PathwayAdapter(InputAdapter, RaMPSqliteAdapter):
     def get_audit_trail_entries(self, obj: Pathway) -> List[str]:
         data_version = self.get_data_version(obj.type)
         return [f"Pathway from {data_version.name} ({data_version.version})"]
@@ -14,7 +14,7 @@ class PathwayAdapter(NodeInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Pathway Adapter"
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

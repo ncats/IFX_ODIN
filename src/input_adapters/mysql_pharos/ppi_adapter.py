@@ -5,7 +5,7 @@ from sqlalchemy.orm import aliased
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Relationship
 
 from src.input_adapters.mysql_pharos.tables import (Protein as mysql_protein, PPI as mysql_ppi)

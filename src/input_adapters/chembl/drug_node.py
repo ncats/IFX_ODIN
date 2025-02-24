@@ -10,7 +10,7 @@ from src.input_adapters.chembl.tables import Activities, CompoundRecords, Compou
     Assays, TargetDictionary, ComponentSequence, TargetComponents, Docs, Version
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
 from src.models.node import Node, EquivalentId, Relationship
 from src.models.protein import Protein
@@ -100,7 +100,7 @@ class ChemblAdapter(MySqlAdapter):
                 )
 
 
-class DrugNodeAdapter(NodeInputAdapter, ChemblAdapter):
+class DrugNodeAdapter(InputAdapter, ChemblAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.ChEMBL
@@ -127,7 +127,7 @@ class DrugNodeAdapter(NodeInputAdapter, ChemblAdapter):
         return list(drug_dict.values())
 
 
-class ProteinDrugEdgeAdapter(RelationshipInputAdapter, ChemblAdapter):
+class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.ChEMBL
 

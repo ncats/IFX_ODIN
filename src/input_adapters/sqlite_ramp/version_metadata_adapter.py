@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import desc
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
 
 
@@ -16,8 +16,7 @@ class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteA
         ]
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

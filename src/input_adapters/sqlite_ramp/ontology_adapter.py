@@ -2,11 +2,11 @@ from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import Ontology as SqliteOntology
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.ontology import Ontology
 
 
-class OntologyAdapter(NodeInputAdapter, RaMPSqliteAdapter):
+class OntologyAdapter(InputAdapter, RaMPSqliteAdapter):
     def get_audit_trail_entries(self, obj) -> List[str]:
         data_version = self.get_data_version('hmdb')
         return [f"Ontology from {data_version.name} ({data_version.version})"]
@@ -14,7 +14,7 @@ class OntologyAdapter(NodeInputAdapter, RaMPSqliteAdapter):
     name = "RaMP Ontology Adapter"
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

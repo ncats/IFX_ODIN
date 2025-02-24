@@ -23,8 +23,9 @@ class SqliteCacheResolver(IdResolver, ABC):
     def lookup_db_exists(self):
         if not os.path.exists(self.cache_location()):
             return False
+
         cur = self.connection.cursor()
-        cur.execute('SELECT name FROM sqlite_master WHERE type="table" AND name="matches"')
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='matches'")
         if cur.fetchone():
             print('using existing sqlite cache')
             return True

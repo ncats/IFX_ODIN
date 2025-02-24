@@ -6,96 +6,49 @@ resolvers:
     class: CellosaurusCellLineResolver
     kwargs:
       file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
+      types:
+        - Biospecimen
 
   - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
       file_path: ./input_files/manual/target_graph/gene_ids.csv
+      types:
+        - Gene
 
 
 input_adapters:
-  nodes:
-    - import: ./src/input_adapters/ccle/cell_line.py
-      class: CellLine
-      kwargs:
-        file_path: ./input_files/manual/ccle/Cell_lines_annotations_20181226.txt
-      id_resolver: cell_line_resolver
+  - import: ./src/input_adapters/cellosaurus/cellosaurus.py
+    class: CellosaurusCellLineAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 
-    - import: ./src/input_adapters/cellosaurus/cellosaurus.py
-      class: CellosaurusCellLineAdapter
-      kwargs:
-        file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-      id_resolver: cell_line_resolver
+  - import: ./src/input_adapters/cellosaurus/disease.py
+    class: DiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 
-    - import: ./src/input_adapters/cellosaurus/disease.py
-      class: DiseaseAdapter
-      kwargs:
-        file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
+  - import: ./src/input_adapters/cellosaurus/disease.py
+    class: DiseaseCellLineRelationshipAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 
-    - import: ./src/input_adapters/target_graph/gene_node.py
-      class: GeneNodeAdapter
-      kwargs:
-        file_path: ./input_files/manual/target_graph/gene_ids.csv
-      id_resolver: tg_genes
+  - import: ./src/input_adapters/target_graph/gene_node.py
+    class: GeneNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/gene_ids.csv
 
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: SampleAdapter
-      kwargs:
-        file_path: ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-
-    - import: ./src/input_adapters/ccle/experiment_and_project.py
-      class: ExperimentAdapter
-
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: MeasurementAdapter
-      kwargs:
-        file_paths:
-          - ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-          - ./input_files/manual/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
-        field_names:
-          - count
-          - tpm
-
-  edges:
-
-    - import: ./src/input_adapters/cellosaurus/disease.py
-      class: DiseaseCellLineRelationshipAdapter
-      kwargs:
-        file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: SampleExperimentAdapter
-      kwargs:
-        file_path: ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: SampleMeasurementAdapter
-      kwargs:
-        file_paths:
-          - ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-          - ./input_files/manual/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
-        field_names:
-          - count
-          - tpm
-
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: MeasurementGeneAdapter
-      kwargs:
-        file_paths:
-          - ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-          - ./input_files/manual/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
-        field_names:
-          - count
-          - tpm
-      end_id_resolver: tg_genes
-
-    - import: ./src/input_adapters/ccle/samples_and_edges.py
-      class: SampleBiospecimenAdapter
-      kwargs:
-        file_path: ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
-        context_file_path: ./input_files/manual/ccle/Cell_lines_annotations_20181226.txt
-      end_id_resolver: cell_line_resolver
+  - import: ./src/input_adapters/ccle/experiment_and_project.py
+    class: CCLEInputAdapter
+    kwargs:
+      cell_line_annotation_file: ./input_files/manual/ccle/Cell_lines_annotations_20181226.txt
+      data_files:
+        - ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
+        - ./input_files/manual/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
+      field_names:
+        - count
+        - tpm
 
 output_adapters:
-  - ./src/use_cases/ifxdev_pounce_prod.yaml
+  - ./src/use_cases/secrets/ifxdev_pounce_dev.yaml

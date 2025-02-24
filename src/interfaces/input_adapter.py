@@ -1,6 +1,6 @@
 import copy
 from abc import ABC, abstractmethod
-from typing import List, Union
+from typing import List, Union, Dict
 
 from src.constants import DataSourceName
 from src.interfaces.id_resolver import IdResolver
@@ -25,7 +25,7 @@ class InputAdapter(ABC):
     def get_version(self) -> DatasourceVersionInfo:
         raise NotImplementedError("derived classes must implement get_version")
 
-    def get_resolved_and_provenanced_list(self) -> List:
+    def get_resolved_and_provenanced_list(self, resolver_map: Dict[str, IdResolver]) -> List:
         def get_and_delete_old_id(node):
             source_id = node.id
             if hasattr(node, 'old_id'):
@@ -44,10 +44,23 @@ class InputAdapter(ABC):
         nodes = [e for e in entries if isinstance(e, Node)]
         relationships = [e for e in entries if isinstance(e, Relationship)]
 
-        if isinstance(self, NodeInputAdapter):
-            if self.id_resolver is not None:
-                entity_map = self.id_resolver.resolve_nodes(nodes)
-                nodes = self.id_resolver.parse_flat_node_list_from_map(entity_map)
+        if len(nodes) > 0:
+            type_map = {}
+            for node in nodes:
+                type = node.__class__.__name__
+                if type not in type_map:
+                    type_map[type] = []
+                type_map[type].append(node)
+
+            resolved_nodes = []
+            for type, node_list in type_map.items():
+                if type in resolver_map:
+                    resolver = resolver_map[type]
+                    entity_map = resolver.resolve_nodes(node_list)
+                    resolved_nodes.extend(resolver.parse_flat_node_list_from_map(entity_map))
+                else:
+                    resolved_nodes.extend(node_list)
+            nodes = resolved_nodes
 
         for node in nodes:
             source_id = get_and_delete_old_id(node)
@@ -58,21 +71,22 @@ class InputAdapter(ABC):
             end_source_id = get_and_delete_old_id(rel.end_node)
             rel.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ start_source_id }\t{ end_source_id }"
 
-        if isinstance(self, RelationshipInputAdapter):
-            if self.start_id_resolver is None and self.end_id_resolver is None:
-                return [*nodes, *relationships]
+        if len(relationships) > 0:
+            temp_nodes = [entry.start_node for entry in relationships] + [entry.end_node for entry in relationships]
+            type_map = {}
+            node_map = {}
 
-            start_node_map, end_node_map = {}, {}
+            for node in temp_nodes:
+                type = node.__class__.__name__
+                if type not in type_map:
+                    type_map[type] = []
+                type_map[type].append(node)
 
-            if self.start_id_resolver is not None:
-                start_nodes = [entry.start_node for entry in relationships]
-                start_node_map = self.start_id_resolver.resolve_nodes(start_nodes)
-                start_node_map = self.start_id_resolver.parse_entity_map(start_node_map)
-
-            if self.end_id_resolver is not None:
-                end_nodes = [entry.end_node for entry in relationships]
-                end_node_map = self.end_id_resolver.resolve_nodes(end_nodes)
-                end_node_map = self.end_id_resolver.parse_entity_map(end_node_map)
+            for type in type_map:
+                if type in resolver_map:
+                    resolver = resolver_map[type]
+                    temp_node_map = resolver.resolve_nodes(type_map[type])
+                    node_map.update(resolver.parse_entity_map(temp_node_map))
 
             return_relationships = []
             for entry in relationships:
@@ -83,13 +97,10 @@ class InputAdapter(ABC):
                 end_id = entry.end_node.id
                 end_nodes = [entry.end_node]
 
-                if self.start_id_resolver is not None:
-                    if start_id in start_node_map:
-                        start_nodes = start_node_map[start_id]
-
-                if self.end_id_resolver is not None:
-                    if end_id in end_node_map:
-                        end_nodes = end_node_map[end_id]
+                if start_id in node_map:
+                    start_nodes = node_map[start_id]
+                if end_id in node_map:
+                    end_nodes = node_map[end_id]
 
                 for start_node in start_nodes:
                     count = 0
@@ -106,23 +117,3 @@ class InputAdapter(ABC):
             print(f"prepared {len(relationships)} relationship records to merge")
         return [*nodes, *relationships]
 
-class NodeInputAdapter(InputAdapter, ABC):
-
-    id_resolver: IdResolver = None
-
-    def set_id_resolver(self, id_resolver: IdResolver):
-        self.id_resolver = id_resolver
-        return self
-
-
-class RelationshipInputAdapter(InputAdapter, ABC):
-    start_id_resolver: IdResolver = None
-    end_id_resolver: IdResolver = None
-
-    def set_start_resolver(self, id_resolver: IdResolver):
-        self.start_id_resolver = id_resolver
-        return self
-
-    def set_end_resolver(self, id_resolver: IdResolver):
-        self.end_id_resolver = id_resolver
-        return self

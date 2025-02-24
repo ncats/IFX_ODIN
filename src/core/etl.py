@@ -1,8 +1,10 @@
 import datetime
 import time
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Dict
 import humanize
+
+from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.labeler import Labeler
 from src.interfaces.output_adapter import OutputAdapter
@@ -12,6 +14,7 @@ from src.interfaces.output_adapter import OutputAdapter
 class ETL:
     input_adapters: List[InputAdapter]
     output_adapters: List[OutputAdapter]
+    resolver_map: Dict[str, IdResolver] = field(default_factory=dict)
     labeler: Labeler = Labeler()
 
     def set_labeler(self, labeler: Labeler):
@@ -28,7 +31,7 @@ class ETL:
         for input_adapter in self.input_adapters:
             print(f"Running: {input_adapter.get_name()}")
 
-            resolved_list = input_adapter.get_resolved_and_provenanced_list()
+            resolved_list = input_adapter.get_resolved_and_provenanced_list(resolver_map = self.resolver_map)
             if testing:
                 resolved_list = resolved_list[0:20000]
 

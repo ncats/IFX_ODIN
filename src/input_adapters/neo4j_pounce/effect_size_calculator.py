@@ -1,7 +1,7 @@
 from typing import List
 
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 
 
