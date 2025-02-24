@@ -1,6 +1,6 @@
 from typing import List, Union
 from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node, Relationship, EquivalentId
@@ -88,7 +88,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
         return protein_list, transcript_relationships, gene_relationships, isoform_relationships
 
 
-class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
+class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
@@ -107,7 +107,7 @@ class ProteinNodeAdapter(NodeInputAdapter, TGProteinFileBase):
         return protein_list
 
 
-class ProteinRelationshipAdapter(RelationshipInputAdapter, TGProteinFileBase):
+class ProteinRelationshipAdapter(InputAdapter, TGProteinFileBase):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph

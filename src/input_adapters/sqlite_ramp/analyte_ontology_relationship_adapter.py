@@ -1,7 +1,7 @@
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteHasOntology as SqliteAnalyteHasOntology
 from src.models.analyte import Analyte
 from src.models.ontology import AnalyteOntologyRelationship, Ontology
@@ -15,7 +15,7 @@ class MetaboliteOntologyRelationshipAdapter(RelationshipInputAdapter, RaMPSqlite
         return [f"Ontological Association from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

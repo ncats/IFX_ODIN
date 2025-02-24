@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalytePathwayRelationship as SqliteAnalytePathwayRelationship
 from src.models.analyte import Analyte
 from src.models.pathway import AnalytePathwayRelationship, Pathway
@@ -16,7 +16,7 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
         return [f"Analyte Pathway Relationship from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     @abstractmethod

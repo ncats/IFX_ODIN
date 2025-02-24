@@ -2,20 +2,20 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteSynonym as SqliteAnalyteSynonym
 from src.models.analyte import Synonym, Analyte
 from src.models.metabolite import Metabolite
 from src.models.protein import Protein
 
 
-class AnalyteSynonymAdapter(NodeInputAdapter, RaMPSqliteAdapter, ABC):
+class AnalyteSynonymAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
     cls = Analyte
     def get_audit_trail_entries(self, obj) -> List[str]:
         return [f'synonyms updated by {self.name}']
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     @abstractmethod

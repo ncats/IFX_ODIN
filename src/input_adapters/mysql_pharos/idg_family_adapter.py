@@ -3,13 +3,13 @@ from datetime import datetime
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.input_adapters.mysql_pharos.tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein, IDGFamily
 
 
-class IDGFamilyAdapter(NodeInputAdapter, MySqlAdapter):
+class IDGFamilyAdapter(InputAdapter, MySqlAdapter):
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.OldPharos
 

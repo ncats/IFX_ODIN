@@ -1,7 +1,7 @@
 from typing import List
 
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 from src.models.pounce.data import Protocol, Biospecimen, Factor, Sample, ExperimentSampleRelationship
 from src.models.pounce.experiment import Experiment, ExperimentInvestigatorRelationship
@@ -17,7 +17,7 @@ def compile_sample_name(pattern, row, replicate: int) -> str:
         out_name = out_name.replace("{" + column + "}", str(value))
     return out_name
 
-class PounceAdapter(NodeInputAdapter, RelationshipInputAdapter):
+class PounceAdapter(InputAdapter):
     excel_parser: ExcelsheetParser
 
     def get_audit_trail_entries(self, obj) -> List[str]:

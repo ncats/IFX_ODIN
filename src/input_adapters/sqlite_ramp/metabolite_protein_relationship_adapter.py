@@ -1,13 +1,13 @@
 from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import Catalyzed as SqliteCatalyzed
 from src.models.protein import Protein
 from src.models.metabolite import MetaboliteProteinRelationship, Metabolite
 
 
-class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
+class MetaboliteProteinRelationshipAdapter(InputAdapter, RaMPSqliteAdapter):
     cached_audit_trail_info = None
     name = "RaMP Metabolite Protein Relationship Adapter"
 
@@ -17,7 +17,7 @@ class MetaboliteProteinRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteA
         ]
 
     def __init__(self, sqlite_file):
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

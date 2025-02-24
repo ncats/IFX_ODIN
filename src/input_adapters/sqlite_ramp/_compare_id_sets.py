@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import List
 
 from src.input_adapters.sqlite_ramp.metabolite_adapter import MetaboliteAdapter
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.metabolite import Metabolite
 from src.models.node import Relationship
 from src.models.version import DatabaseVersion
@@ -15,7 +15,7 @@ class SharesMetaboliteIDrelationship(Relationship):
     count: int = 0
 
 
-class MetaboliteSetRelationshipAdapter(RelationshipInputAdapter):
+class MetaboliteSetRelationshipAdapter(InputAdapter):
     name: str = "Metabolite Set Relationship Adapter"
 
     def get_audit_trail_entries(self, obj: SharesMetaboliteIDrelationship) -> List[str]:

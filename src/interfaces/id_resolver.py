@@ -41,12 +41,15 @@ class IdResolver(ABC):
     multi_match_behavior: MultiMatchBehavior
     add_labels_for_resolver_events: bool
     resolve_cache: Dict[str, List[IdMatch]]
+    types: List[str]
 
     def __init__(self,
+                 types: List[str],
                  add_labels_for_resolver_events = False,
                  no_match_behavior = NoMatchBehavior.Allow,
                  multi_match_behavior = MultiMatchBehavior.All):
         print(f'creating ID resolver: {self.__class__.__name__}')
+        self.types = types
         self.add_labels_for_resolver_events = add_labels_for_resolver_events
         self.no_match_behavior = NoMatchBehavior.parse(no_match_behavior)
         self.multi_match_behavior = MultiMatchBehavior.parse(multi_match_behavior)

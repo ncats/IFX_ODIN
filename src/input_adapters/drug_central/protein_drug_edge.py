@@ -4,14 +4,14 @@ from sqlalchemy.orm import aliased
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.drug_central.drug_node import DrugCentralAdapter
 from src.input_adapters.drug_central.tables import Structures, ActTableFull, Reference
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
 from src.models.node import EquivalentId, Relationship
 from src.models.protein import Protein
 
 
-class ProteinDrugEdgeAdapter(RelationshipInputAdapter, DrugCentralAdapter):
+class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.DrugCentral

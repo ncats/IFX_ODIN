@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Union
 import re
 
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 from src.models.pounce.data import ExperimentSampleRelationship, Sample, Biospecimen, Factor, SampleFactorRelationship, \
     Compound, Treatment, SampleMeasurementRelationship, MeasurementAnalyteRelationship, Measurement
@@ -227,7 +227,7 @@ class ParseMetabolights:
         return pieces[1].strip()
 
 
-class MetabolightsAdapter(NodeInputAdapter, ParseMetabolights):
+class MetabolightsAdapter(InputAdapter, ParseMetabolights):
     def get_audit_trail_entries(self, obj) -> List[str]:
         return []
 

@@ -5,7 +5,7 @@ from typing import List
 import yaml
 
 from src.interfaces.id_resolver import IdResolver
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -107,38 +107,15 @@ class Config:
             output_adapters.append(obj)
         return output_adapters
 
-    def create_node_adapters(self) -> List[NodeInputAdapter]:
-        node_adapters = []
+    def create_adapters(self) -> List[InputAdapter]:
+        input_adapters = []
         if 'input_adapters' not in self.config_dict:
-            return node_adapters
-        if 'nodes' not in self.config_dict['input_adapters']:
-            return node_adapters
-        config = self.config_dict['input_adapters']['nodes']
+            return input_adapters
+        config = self.config_dict['input_adapters']
         for c in config:
-            obj: NodeInputAdapter = create_object_from_config(c)
-            if 'id_resolver' in c:
-                resolver = self.resolvers[c['id_resolver']]
-                obj.set_id_resolver(resolver)
-            node_adapters.append(obj)
-        return node_adapters
-
-    def create_edge_adapters(self) -> List[RelationshipInputAdapter]:
-        edge_adapters = []
-        if 'input_adapters' not in self.config_dict:
-            return edge_adapters
-        if 'edges' not in self.config_dict['input_adapters']:
-            return edge_adapters
-        config = self.config_dict['input_adapters']['edges']
-        for c in config:
-            obj: RelationshipInputAdapter = create_object_from_config(c)
-            if 'start_id_resolver' in c:
-                resolver = self.resolvers[c['start_id_resolver']]
-                obj.set_start_resolver(resolver)
-            if 'end_id_resolver' in c:
-                resolver = self.resolvers[c['end_id_resolver']]
-                obj.set_end_resolver(resolver)
-            edge_adapters.append(obj)
-        return edge_adapters
+            obj = create_object_from_config(c)
+            input_adapters.append(obj)
+        return input_adapters
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.config_dict})"

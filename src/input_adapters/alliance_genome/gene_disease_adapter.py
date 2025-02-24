@@ -3,13 +3,13 @@ import json
 from datetime import datetime
 from typing import List
 
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.disease import Disease, GeneDiseaseRelationship
 from src.models.gene import Gene
 from src.models.node import Node
 
 
-class GeneDiseaseAssociationAdapter(NodeInputAdapter, RelationshipInputAdapter):
+class GeneDiseaseAssociationAdapter(InputAdapter):
     file_path: str
     database_version: str = ""
     name = "Alliance Genome Gene-Disease Relationship Adapter"

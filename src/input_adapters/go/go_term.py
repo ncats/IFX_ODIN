@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import List
 
 from src.constants import Prefix, DataSourceName
-from src.interfaces.input_adapter import NodeInputAdapter, RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.go_term import GoTerm, GoType, GoTermHasParent
 from src.models.node import EquivalentId
@@ -21,7 +21,7 @@ class GOTermBaseAdapter:
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
 
-class GOTermAdapter(GOTermBaseAdapter, NodeInputAdapter):
+class GOTermAdapter(GOTermBaseAdapter, InputAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GO
@@ -33,7 +33,7 @@ class GOTermAdapter(GOTermBaseAdapter, NodeInputAdapter):
 
     def __init__(self, **kwargs):
         GOTermBaseAdapter.__init__(self, **kwargs)
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
 
     def get_all(self):
         go_terms: List[GoTerm] = []
@@ -72,7 +72,7 @@ class GOTermAdapter(GOTermBaseAdapter, NodeInputAdapter):
         return go_terms
 
 
-class GOParentRelationship(GOTermBaseAdapter, RelationshipInputAdapter):
+class GOParentRelationship(GOTermBaseAdapter, InputAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GO
@@ -105,4 +105,4 @@ class GOParentRelationship(GOTermBaseAdapter, RelationshipInputAdapter):
 
     def __init__(self, **kwargs):
         GOTermBaseAdapter.__init__(self, **kwargs)
-        RelationshipInputAdapter.__init__(self)
+        InputAdapter.__init__(self)

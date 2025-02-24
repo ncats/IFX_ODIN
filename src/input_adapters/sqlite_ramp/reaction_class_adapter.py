@@ -2,7 +2,7 @@ from typing import List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
-from src.interfaces.input_adapter import NodeInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.reaction import ReactionClass
 
 
@@ -13,7 +13,7 @@ class ReactionClassAdapter(NodeInputAdapter, RaMPSqliteAdapter):
         return [f"Reaction Class from {data_version.name} ({data_version.version})"]
 
     def __init__(self, sqlite_file):
-        NodeInputAdapter.__init__(self)
+        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self):

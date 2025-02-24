@@ -1,6 +1,6 @@
 from typing import List
 from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
-from src.interfaces.input_adapter import RelationshipInputAdapter
+from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.generif import GeneGeneRifRelationship, GeneRif
@@ -8,7 +8,7 @@ from src.models.node import EquivalentId
 from src.shared.targetgraph_parser import TargetGraphGeneRIFParser
 
 
-class GeneGeneRifEdgeAdapter(RelationshipInputAdapter, TargetGraphGeneRIFParser):
+class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
 
