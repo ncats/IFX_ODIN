@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 from sqlalchemy.orm import aliased
 
 from src.constants import Prefix, DataSourceName
@@ -7,7 +7,7 @@ from src.input_adapters.drug_central.tables import Structures, ActTableFull, Ref
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
-from src.models.node import EquivalentId, Relationship
+from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
@@ -19,7 +19,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> List[Relationship]:
+    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
         actReference = aliased(Reference)
         moaReference = aliased(Reference)
         query = (
@@ -65,4 +65,4 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
                     )
                 )
 
-        return protein_ligand_rels
+        yield protein_ligand_rels

@@ -1,10 +1,9 @@
-from typing import List
+from typing import List, Generator
 
 from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.node import Node
 from src.models.protein import TDL, Protein
 
 
@@ -16,7 +15,7 @@ class TDLInputAdapter(InputAdapter, Neo4jAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo()
 
-    def get_all(self) -> List[Node]:
+    def get_all(self) -> Generator[List[Protein], None, None]:
         all_protein_list = self.runQuery(all_proteins)
         good_ligand_list = self.runQuery(proteins_with_good_ligand_activities)
         moa_drug_list = self.runQuery(proteins_with_moa_drugs)
@@ -45,7 +44,7 @@ class TDLInputAdapter(InputAdapter, Neo4jAdapter):
             )
             nodes.append(Protein(id=protein_id, tdl=new_tdl))
 
-        return nodes
+        yield nodes
 
 def calculate_tdl(has_ligand: bool, has_moa_drug: bool, has_good_go_term: bool, has_few_generifs: bool, has_low_pm_score: bool, has_low_ab_score: bool):
     if has_moa_drug:

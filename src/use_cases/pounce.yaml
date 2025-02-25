@@ -1,5 +1,7 @@
 #testing: true
 
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pounce_prod.yaml
+
 resolvers:
   - label: cell_line_resolver
     import: ./src/id_resolvers/cell_line_resolver.py
@@ -51,4 +53,6 @@ input_adapters:
         - tpm
 
 output_adapters:
-  - ./src/use_cases/secrets/ifxdev_pounce_prod.yaml
+  - import: ./src/output_adapters/pounce_output_adapter.py
+    class: PounceOutputAdapter
+    credentials: *source_credentials

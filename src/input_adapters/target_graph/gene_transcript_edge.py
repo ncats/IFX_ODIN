@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -18,7 +18,7 @@ class GeneTranscriptEdgeAdapter(InputAdapter, TargetGraphTranscriptParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> List[GeneTranscriptRelationship]:
+    def get_all(self) -> Generator[List[GeneTranscriptRelationship], None, None]:
         relationships = []
 
         for line in self.all_rows():
@@ -47,4 +47,4 @@ class GeneTranscriptEdgeAdapter(InputAdapter, TargetGraphTranscriptParser):
                 )
             )
 
-        return relationships
+        yield relationships

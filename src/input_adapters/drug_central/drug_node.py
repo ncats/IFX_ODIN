@@ -1,11 +1,11 @@
-from typing import List
+from typing import List, Generator
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.drug_central.tables import Structures, DBVersion
 from src.input_adapters.sql_adapter import PostgreSqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand
-from src.models.node import Node, EquivalentId
+from src.models.node import EquivalentId
 from src.shared.db_credentials import DBCredentials
 
 
@@ -32,7 +32,7 @@ class DrugNodeAdapter(InputAdapter, DrugCentralAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> List[Node]:
+    def get_all(self) -> Generator[List[Ligand], None, None]:
         query_results = self.get_session().query(
             Structures.id,
             Structures.name,
@@ -48,4 +48,4 @@ class DrugNodeAdapter(InputAdapter, DrugCentralAdapter):
             )
             for row in query_results
         ]
-        return drug_list
+        yield drug_list

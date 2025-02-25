@@ -1,4 +1,0 @@
-type: neo4j
-import: ./src/output_adapters/pounce_output_adapter.py
-class: PounceOutputAdapter
-credentials: ./src/use_cases/secrets/ifxdev_pounce_prod.yaml

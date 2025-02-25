@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, date
-from typing import List
+from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
@@ -25,7 +25,7 @@ class TotalPMScoreAdapter(InputAdapter):
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Protein], None, None]:
         total_pm_dict = {}
         with open(self.file_path, 'r') as file:
             for line in file:
@@ -41,4 +41,4 @@ class TotalPMScoreAdapter(InputAdapter):
             protein = Protein(id = prefixed_id.id_str(), pm_score = score)
             proteins.append(protein)
 
-        return proteins
+        yield proteins

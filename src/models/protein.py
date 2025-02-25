@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from enum import Enum
+from typing import Union
 
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
@@ -26,10 +28,10 @@ class IDGFamily(SimpleEnum):
     NuclearReceptor = 'Nuclear Receptor'
     TFEpigenetic = 'TF-Epigenetic'
 
-    @staticmethod
-    def parse(tcrd_value: str):
+    @classmethod
+    def parse(cls, tcrd_value: Union[str, Enum]):
         if tcrd_value is None or tcrd_value == '':
-            return IDGFamily.Other
+            return None
         if tcrd_value == 'IC':
             return IDGFamily.IonChannel
         if tcrd_value == 'TF; Epigenetic':

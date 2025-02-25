@@ -1,5 +1,4 @@
-from typing import List
-
+from typing import List, Generator
 from src.constants import DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -18,7 +17,7 @@ class TranscriptNodeAdapter(InputAdapter, TargetGraphTranscriptParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> List[Transcript]:
+    def get_all(self) -> Generator[List[Transcript], None, None]:
         transcript_list = []
 
         for line in self.all_rows():
@@ -42,4 +41,4 @@ class TranscriptNodeAdapter(InputAdapter, TargetGraphTranscriptParser):
 
             transcript_list.append(transcript_obj)
 
-        return transcript_list
+        yield transcript_list
