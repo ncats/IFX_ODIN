@@ -4,7 +4,7 @@ import os
 from abc import ABC
 from contextlib import contextmanager
 from datetime import date, datetime
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Generator
 
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
@@ -63,7 +63,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
     def get_experiment_name(self):
         return f"{self.get_datasource_name().value} - {self.get_version().version}"
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         print("parsing ccle data")
         start_time = datetime.now()
         experiment_obj = Experiment(
@@ -73,8 +73,11 @@ class CCLEInputAdapter(InputAdapter, ABC):
             description='The Cancer Cell Line Encyclopedia (CCLE) project started in 2008 as a collaboration between the Broad Institute, and the Novartis Institutes for Biomedical Research and its Genomics Institute of the Novartis Research Foundation. The goal is to conduct a detailed genetic and pharmacologic characterization of a large panel of human cancer models, to develop integrated computational analyses that link distinct pharmacologic vulnerabilities to genomic patterns and to translate cell line integrative genomics into cancer patient stratification. Later the MD Anderson and Harvard Medical school joined the project. As of summer of 2018 CCLE continues its efforts as part of the Broad Cancer Dependency Map Project.',
             category="in vitro"
         )
+        yield [experiment_obj]
 
         sample_dict = get_sample_map(self.data_files[0])
+
+        yield list(sample_dict.values())
 
         exp_samp_edges = []
         for sample_obj in sample_dict.values():
@@ -83,6 +86,8 @@ class CCLEInputAdapter(InputAdapter, ABC):
                 end_node=sample_obj
             )
             exp_samp_edges.append(exp_samp_edge)
+
+        yield exp_samp_edges
 
         biospecimens = []
         samp_bio_edges: List[SampleFactorRelationship] = []
@@ -116,9 +121,12 @@ class CCLEInputAdapter(InputAdapter, ABC):
                         end_node=biospecimen
                     ))
 
+        yield biospecimens
+        yield samp_bio_edges
+
         limit = None
 
-        measurement_dict = {}
+        measurement_objs = []
         samp_meas_edges = []
         meas_gene_edges = []
 
@@ -142,43 +150,37 @@ class CCLEInputAdapter(InputAdapter, ABC):
                             continue
 
                         measurement_id = f"{sample_obj.id}-{gene_id}"
-                        if measurement_id in measurement_dict:
-                            measurement_obj = measurement_dict[measurement_id]
+                        measurement_obj = Measurement(
+                            id=measurement_id
+                        )
+                        measurement_objs.append(measurement_obj)
 
-                        else:
-                            measurement_obj = Measurement(
-                                id=f"{sample_obj.id}-{gene_id}"
-                            )
-                            measurement_dict[measurement_id] = measurement_obj
+                        samp_meas_edge = SampleMeasurementRelationship(
+                            start_node=sample_obj,
+                            end_node=measurement_obj
+                        )
+                        samp_meas_edges.append(samp_meas_edge)
 
-                            samp_meas_edge = SampleMeasurementRelationship(
-                                start_node=sample_obj,
-                                end_node=measurement_obj
+                        gene_meas_edge = MeasurementAnalyteRelationship(
+                            start_node=measurement_obj,
+                            end_node=Gene(
+                                id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
                             )
-                            samp_meas_edges.append(samp_meas_edge)
-
-                            gene_meas_edge = MeasurementAnalyteRelationship(
-                                start_node=measurement_obj,
-                                end_node=Gene(
-                                    id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
-                                )
-                            )
-                            meas_gene_edges.append(gene_meas_edge)
+                        )
+                        meas_gene_edges.append(gene_meas_edge)
 
                         measurement_obj.__setattr__(field_name, measurement_value)
 
-        measurement_objects = list(measurement_dict.values())
+                    if len(measurement_objs) > self.batch_size:
+                        yield measurement_objs
+                        yield samp_meas_edges
+                        yield meas_gene_edges
+                        measurement_objs = []
+                        samp_meas_edges = []
+                        meas_gene_edges = []
 
         end_time = datetime.now()
         print(f"parsing ccle data took:{end_time - start_time}s")
-
-        return [
-            experiment_obj,
-            *sample_dict.values(),
-            *exp_samp_edges,
-            *biospecimens,
-            *samp_bio_edges,
-            *measurement_objects,
-            *samp_meas_edges,
-            *meas_gene_edges
-        ]
+        yield measurement_objs
+        yield samp_meas_edges
+        yield meas_gene_edges

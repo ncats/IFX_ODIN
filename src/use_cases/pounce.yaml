@@ -51,4 +51,4 @@ input_adapters:
         - tpm
 
 output_adapters:
-  - ./src/use_cases/secrets/ifxdev_pounce_dev.yaml
+  - ./src/use_cases/secrets/ifxdev_pounce_prod.yaml

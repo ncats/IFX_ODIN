@@ -1,10 +1,10 @@
-from typing import List
+from typing import List, Generator, Union
 
 from src.constants import DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
-from src.models.node import Node
+from src.models.node import Node, Relationship
 from src.shared.targetgraph_parser import TargetGraphGeneParser
 
 
@@ -18,7 +18,7 @@ class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
 
-    def get_all(self) -> List[Node]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         gene_list = []
         for line in self.all_rows():
             id = TargetGraphGeneParser.get_id(line)
@@ -41,5 +41,5 @@ class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
                 "Symbol_Provenance": line.get('Symbol_Provenance', None),
             }
             gene_list.append(gene_obj)
-        return gene_list
+        yield gene_list
 
