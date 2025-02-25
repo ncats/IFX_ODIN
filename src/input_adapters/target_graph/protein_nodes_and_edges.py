@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Generator
 from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -102,9 +102,9 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
     def __init__(self, file_path: str, additional_id_file_path: str = None):
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
 
-    def get_all(self) -> List[Protein]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         protein_list, _, _, _ = self.get_all_combined()
-        return protein_list
+        yield protein_list
 
 
 class ProteinRelationshipAdapter(InputAdapter, TGProteinFileBase):
@@ -122,20 +122,20 @@ class ProteinRelationshipAdapter(InputAdapter, TGProteinFileBase):
 
 class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, transcript_relationships, _, _ = self.get_all_combined()
-        return transcript_relationships
+        yield transcript_relationships
 
 
 class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, _, gene_relationships, _ = self.get_all_combined()
-        return gene_relationships
+        yield gene_relationships
 
 
 class IsoformProteinEdgeAdapter(ProteinRelationshipAdapter):
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, _, _, isoform_relationships = self.get_all_combined()
-        return isoform_relationships
+        yield isoform_relationships

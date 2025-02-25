@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Generator
 
 from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
@@ -17,7 +17,7 @@ class ExpandIDGFamilies(InputAdapter, Neo4jAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo()
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         unmatched_fams = self.runQuery(unmatched_fam_query)
         new_fam_map = {}
 
@@ -28,7 +28,7 @@ class ExpandIDGFamilies(InputAdapter, Neo4jAdapter):
             else:
                 set_fam(canpro_id, pro_fam, new_fam_map)
 
-        return [Protein(id=id, idg_family=fam) for id, fam in new_fam_map.items()]
+        yield [Protein(id=id, idg_family=fam) for id, fam in new_fam_map.items()]
 
 
 def set_fam(protein_id, fam_to_set, fam_map):

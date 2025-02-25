@@ -89,7 +89,7 @@ class GoType(SimpleEnum):
             return GoType.Component
         if input_value == 'molecular_function':
             return GoType.Function
-        return SimpleEnum.parse(input_value)
+        return super().parse(input_value)
 
 
 

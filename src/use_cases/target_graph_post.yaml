@@ -1,26 +1,36 @@
 #testing: true
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
 
 labeler:
   import: ./src/interfaces/labeler.py
   class: BiolinkLabeler
 
 input_adapters:
-  nodes:
-    - import: ./src/input_adapters/neo4j_pharos/expand_IDG_families.py
-      class: ExpandIDGFamilies
-      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+  - import: ./src/input_adapters/neo4j_pharos/expand_IDG_families.py
+    class: ExpandIDGFamilies
+    credentials: *source_credentials
 
-    - import: ./src/input_adapters/neo4j_pharos/set_ligand_activity_flag.py
-      class: SetLigandActivityFlagAdapter
-      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+  - import: ./src/input_adapters/neo4j_pharos/set_ligand_activity_flag.py
+    class: SetLigandActivityFlagAdapter
+    credentials: *source_credentials
 
-    - import: ./src/input_adapters/neo4j_pharos/set_go_term_leaf_flag.py
-      class: SetGoTermLeafFlagAdapter
-      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+  - import: ./src/input_adapters/neo4j_pharos/set_go_term_leaf_flag.py
+    class: SetGoTermLeafFlagAdapter
+    credentials: *source_credentials
 
-    - import: ./src/input_adapters/neo4j_pharos/tdl_input_adapter.py
-      class: TDLInputAdapter
-      credentials: ./src/use_cases/secrets/ifxdev_neo4j_1.yaml
+  - import: ./src/input_adapters/neo4j_pharos/tdl_input_adapter.py
+    class: TDLInputAdapter
+    credentials: *source_credentials
 
 output_adapters:
-  - ./src/use_cases/ifxdev_neo4j_output.yaml
+  - import: ./src/output_adapters/neo4j_output_adapter.py
+    class: Neo4jOutputAdapter
+    credentials: *source_credentials
+    kwargs:
+      post_processing:
+        - "MATCH (n:`biolink:Protein`)  
+           WHERE n.tdl IS NOT NULL  
+           CALL apoc.create.addLabels(n, [n.tdl])  
+           YIELD node  
+           RETURN node;
+           "

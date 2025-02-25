@@ -1,7 +1,7 @@
 import csv
 import os
 from datetime import date, datetime
-from typing import List
+from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
@@ -27,7 +27,7 @@ class AntibodyCountAdapter(InputAdapter):
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
-    def get_all(self) -> List[Protein]:
+    def get_all(self) -> Generator[List[Protein], None, None]:
         proteins = []
         with open(self.file_path, mode='r') as file:
             csv_reader = csv.DictReader(file)
@@ -40,4 +40,4 @@ class AntibodyCountAdapter(InputAdapter):
                 protein = Protein(id=equiv_id.id_str(), antibody_count=antibody_count)
                 proteins.append(protein)
 
-        return proteins
+        yield proteins

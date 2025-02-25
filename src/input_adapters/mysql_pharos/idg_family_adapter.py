@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.sql_adapter import MySqlAdapter
@@ -19,7 +20,7 @@ class IDGFamilyAdapter(InputAdapter, MySqlAdapter):
             version_date=datetime.fromisoformat("2024-02-15"),
         )
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Protein], None, None]:
         results = (self.get_session().query(
             mysql_Protein.uniprot,
             mysql_Target.fam
@@ -33,4 +34,4 @@ class IDGFamilyAdapter(InputAdapter, MySqlAdapter):
             ) for row in results
         ]
 
-        return nodes
+        yield nodes

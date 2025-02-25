@@ -1,7 +1,7 @@
 import gzip
 import os
 from datetime import datetime, date
-from typing import List
+from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
@@ -34,7 +34,7 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
         self.source = source
         self.download_date = datetime.fromtimestamp(os.path.getmtime(gaf_file_name)).date()
 
-    def get_all(self) -> List[ProteinGoTermRelationship]:
+    def get_all(self) -> Generator[List[ProteinGoTermRelationship], None, None]:
         pro_go_edges: List[ProteinGoTermRelationship] = []
 
         with gzip.open(self.gaf_file_name, 'rt') as file:
@@ -62,7 +62,7 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                     assigned_by=[assigned_by]
                 ))
 
-        return pro_go_edges
+        yield pro_go_edges
 
 
 def parse_gaf_line(line):

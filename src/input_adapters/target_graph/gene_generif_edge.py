@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -18,7 +18,7 @@ class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> List[GeneGeneRifRelationship]:
+    def get_all(self) -> Generator[List[GeneGeneRifRelationship], None, None]:
         relationships = []
 
         for line in self.all_rows():
@@ -36,4 +36,4 @@ class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
                 )
             )
 
-        return relationships
+        yield relationships

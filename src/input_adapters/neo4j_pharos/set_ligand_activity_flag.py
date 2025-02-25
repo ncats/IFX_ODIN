@@ -1,11 +1,10 @@
-from typing import List, Union
+from typing import List, Generator
 
 from src.constants import DataSourceName
 from src.input_adapters.neo4j_adapter import Neo4jAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import ProteinLigandRelationship, Ligand
-from src.models.node import Node
 from src.models.protein import Protein
 
 
@@ -17,10 +16,10 @@ class SetLigandActivityFlagAdapter(InputAdapter, Neo4jAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo()
 
-    def get_all(self) -> List[Union[Node, ProteinLigandRelationship]]:
+    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
         passing_activities = self.runQuery(passing_activities_query)
 
-        return [ProteinLigandRelationship(
+        yield [ProteinLigandRelationship(
             start_node=Protein(id=pro_id),
             end_node=Ligand(id=lig_id),
             meets_idg_cutoff=True

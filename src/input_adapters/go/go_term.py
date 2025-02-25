@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, date
-from typing import List
+from typing import List, Generator, Union
 
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
@@ -9,19 +9,10 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.go_term import GoTerm, GoType, GoTermHasParent
 from src.models.node import EquivalentId
 
-
-class GOTermBaseAdapter:
+class GOTermAdapter(InputAdapter):
     file_path: str
     file_name: str
     download_date: date
-
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.file_name = os.path.basename(file_path)
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
-
-
-class GOTermAdapter(GOTermBaseAdapter, InputAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GO
@@ -31,12 +22,16 @@ class GOTermAdapter(GOTermBaseAdapter, InputAdapter):
             download_date=self.download_date
         )
 
-    def __init__(self, **kwargs):
-        GOTermBaseAdapter.__init__(self, **kwargs)
+    def __init__(self, file_path: str):
         InputAdapter.__init__(self)
+        self.file_path = file_path
+        self.file_name = os.path.basename(file_path)
+        self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Union[GoTerm, GoTermHasParent]], None, None]:
         go_terms: List[GoTerm] = []
+        go_term_edges: List[GoTermHasParent] = []
+
         with open(self.file_path, 'r') as file:
             data = json.load(file)
             nodes = data['graphs'][0]['nodes']
@@ -69,23 +64,8 @@ class GOTermAdapter(GOTermBaseAdapter, InputAdapter):
                         subsets=subsets
                     )
                     go_terms.append(go_term)
-        return go_terms
+            yield go_terms
 
-
-class GOParentRelationship(GOTermBaseAdapter, InputAdapter):
-
-    def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.GO
-
-    def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
-
-    def get_all(self) -> List[GoTermHasParent]:
-        go_term_edges: List[GoTermHasParent] = []
-        with open(self.file_path, 'r') as file:
-            data = json.load(file)
             edges = data['graphs'][0]['edges']
             for edge in edges:
                 if edge['pred'] != 'is_a':
@@ -101,8 +81,9 @@ class GOParentRelationship(GOTermBaseAdapter, InputAdapter):
                     start_node=GoTerm(id=sub_id_obj.id_str()),
                     end_node=GoTerm(id=obj_id_obj.id_str())
                 ))
-        return go_term_edges
+            yield go_term_edges
 
-    def __init__(self, **kwargs):
-        GOTermBaseAdapter.__init__(self, **kwargs)
-        InputAdapter.__init__(self)
+
+
+
+

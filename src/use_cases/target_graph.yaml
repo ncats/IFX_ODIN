@@ -1,6 +1,7 @@
-#testing: true
+testing: true
 
-pchembl_cutoff: &pchembl_cutoff 5
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+pchembl_cutoff: &pchembl_cutoff 11
 
 labeler:
   import: ./src/interfaces/labeler.py
@@ -10,175 +11,151 @@ resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
+    kwargs:
+      types:
+        - Ligand
 
   - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/gene_ids.csv
+      file_path: ./input_files/manual/target_graph/gene_ids.csv
+      types:
+        - Gene
 
   - label: tg_transcripts
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/transcript_ids.csv
+      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      types:
+        - Transcript
 
   - label: tg_proteins
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
       file_paths:
-        - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
-        - /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-      additional_ids: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.csv
+        - ./input_files/manual/target_graph/mapped_isoform_ids.csv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+      types:
+        - Protein
 
 
 input_adapters:
-  nodes:
-    - import: ./src/input_adapters/go/go_term.py
-      class: GOTermAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/go-basic.json
+  - import: ./src/input_adapters/go/go_term.py
+    class: GOTermAdapter
+    kwargs:
+      file_path: ./input_files/auto/go/go-basic.json
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: ProteinNodeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
-      id_resolver: tg_proteins
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
 
-    - import: ./src/input_adapters/target_graph/gene_node.py
-      class: GeneNodeAdapter
-      kwargs:
-        file_path: ./input_files/target_graph/gene_ids.csv
-      id_resolver: tg_genes
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
 
-    - import: ./src/input_adapters/target_graph/transcript_node.py
-      class: TranscriptNodeAdapter
-      kwargs:
-        file_path: ./input_files/target_graph/transcript_ids.csv
-      id_resolver: tg_transcripts
+  - import: ./src/input_adapters/target_graph/gene_node.py
+    class: GeneNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/gene_ids.csv
 
-    - import: ./src/input_adapters/target_graph/generif_node.py
-      class: GeneRifNodeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/generif_9606.csv
+  - import: ./src/input_adapters/target_graph/transcript_node.py
+    class: TranscriptNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/transcript_ids.csv
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: ProteinNodeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-      id_resolver: tg_proteins
+  - import: ./src/input_adapters/target_graph/generif_node.py
+    class: GeneRifNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-    - import: ./src/input_adapters/drug_central/drug_node.py
-      class: DrugNodeAdapter
-      credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-      id_resolver: translator_nn
+  - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
+    class: GeneTranscriptEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/transcript_ids.csv
 
-    - import: ./src/input_adapters/chembl/drug_node.py
-      class: DrugNodeAdapter
-      kwargs:
-        pchembl_cutoff: *pchembl_cutoff
-      credentials: ./src/use_cases/secrets/chembl_credentials.yaml
-      id_resolver: translator_nn
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: TranscriptProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
 
-    - import: ./src/input_adapters/jensenlab/total_pmscore.py
-      class: TotalPMScoreAdapter
-      id_resolver: tg_proteins
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/jensenlab/protein_counts.tsv
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: TranscriptProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
 
-    - import: ./src/input_adapters/antibodypedia/antibody_count.py
-      class: AntibodyCountAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/antibodypedia/antibodypedia_data.csv
-      id_resolver: tg_proteins
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: GeneProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
 
-    - import: ./src/input_adapters/mysql_pharos/idg_family_adapter.py
-      class: IDGFamilyAdapter
-      credentials: ./src/use_cases/secrets/pharos_credentials.yaml
-      id_resolver: tg_proteins
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: GeneProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
 
-  edges:
-    - import: ./src/input_adapters/go/go_term.py
-      class: GOParentRelationship
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/go-basic.json
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: IsoformProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
 
-    - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
-      class: GeneTranscriptEdgeAdapter
-      kwargs:
-        file_path: ./input_files/target_graph/transcript_ids.csv
-      start_id_resolver: tg_genes
-      end_id_resolver: tg_transcripts
+  - import: ./src/input_adapters/target_graph/gene_generif_edge.py
+    class: GeneGeneRifEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: TranscriptProteinEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
-      start_id_resolver: tg_transcripts
-      end_id_resolver: tg_proteins
+  - import: ./src/input_adapters/drug_central/drug_node.py
+    class: DrugNodeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: TranscriptProteinEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-      start_id_resolver: tg_transcripts
-      end_id_resolver: tg_proteins
+  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
+    class: ProteinDrugEdgeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: GeneProteinEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/protein_ids.csv
-      start_id_resolver: tg_genes
-      end_id_resolver: tg_proteins
+  - import: ./src/input_adapters/chembl/drug_node.py
+    class: DrugNodeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: GeneProteinEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-      start_id_resolver: tg_genes
-      end_id_resolver: tg_proteins
+  - import: ./src/input_adapters/chembl/drug_node.py
+    class: ProteinDrugEdgeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
-    - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-      class: IsoformProteinEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/mapped_isoform_ids.csv
-      start_id_resolver: tg_proteins
-      end_id_resolver: tg_proteins
+  - import: ./src/input_adapters/jensenlab/total_pmscore.py
+    class: TotalPMScoreAdapter
+    kwargs:
+      file_path: ./input_files/auto/jensenlab/protein_counts.tsv
 
-    - import: ./src/input_adapters/target_graph/gene_generif_edge.py
-      class: GeneGeneRifEdgeAdapter
-      kwargs:
-        file_path: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/target_graph/generif_9606.csv
-      start_id_resolver: tg_genes
+  - import: ./src/input_adapters/antibodypedia/antibody_count.py
+    class: AntibodyCountAdapter
+    kwargs:
+      file_path: ./input_files/manual/antibodypedia/antibodypedia_data.csv
 
-    - import: ./src/input_adapters/chembl/drug_node.py
-      class: ProteinDrugEdgeAdapter
-      kwargs:
-        pchembl_cutoff: *pchembl_cutoff
-      credentials: ./src/use_cases/secrets/chembl_credentials.yaml
-      start_id_resolver: tg_proteins
-      end_id_resolver: translator_nn
+  - import: ./src/input_adapters/mysql_pharos/idg_family_adapter.py
+    class: IDGFamilyAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
 
-    - import: ./src/input_adapters/drug_central/protein_drug_edge.py
-      class: ProteinDrugEdgeAdapter
-      credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-      start_id_resolver: tg_proteins
-      end_id_resolver: translator_nn
+  - import: ./src/input_adapters/go/go_gaf.py
+    class: ProteinGoTermEdgeAdapter
+    kwargs:
+      gaf_file_name: ./input_files/auto/go/goa_human-uniprot.gaf.gz
+      source: UniProt
 
-    - import: ./src/input_adapters/go/go_gaf.py
-      class: ProteinGoTermEdgeAdapter
-      kwargs:
-        gaf_file_name: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/goa_human (uniprot).gaf.gz
-        source: UniProt
-      start_id_resolver: tg_proteins
-
-    - import: ./src/input_adapters/go/go_gaf.py
-      class: ProteinGoTermEdgeAdapter
-      kwargs:
-        gaf_file_name: /Users/kelleherkj/IdeaProjects/NCATS_ODIN/input_files/go/goa_human (go).gaf.gz
-        source: GO
-      start_id_resolver: tg_proteins
+  - import: ./src/input_adapters/go/go_gaf.py
+    class: ProteinGoTermEdgeAdapter
+    kwargs:
+      gaf_file_name: ./input_files/auto/go/goa_human-go.gaf.gz
+      source: GO
 
 output_adapters:
-  - ./src/use_cases/ifxdev_neo4j_output.yaml
+  - import: ./src/output_adapters/neo4j_output_adapter.py
+    class: Neo4jOutputAdapter
+    credentials: *source_credentials

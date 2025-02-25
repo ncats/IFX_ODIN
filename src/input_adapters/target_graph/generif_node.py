@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 from src.constants import DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -17,7 +17,7 @@ class GeneRifNodeAdapter(InputAdapter, TargetGraphGeneRIFParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> List[GeneRif]:
+    def get_all(self) -> Generator[List[GeneRif], None, None]:
         gene_rifs = []
 
         for line in self.all_rows():
@@ -32,4 +32,4 @@ class GeneRifNodeAdapter(InputAdapter, TargetGraphGeneRIFParser):
             rif_date = TargetGraphGeneRIFParser.get_generif_update_time(line)
             gene_rifs.append(rif_obj)
 
-        return gene_rifs
+        yield gene_rifs

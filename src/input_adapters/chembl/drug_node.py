@@ -1,6 +1,6 @@
 import os
 import pickle
-from typing import List, Dict
+from typing import List, Dict, Generator
 
 from sqlalchemy import or_
 
@@ -12,7 +12,7 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
-from src.models.node import Node, EquivalentId, Relationship
+from src.models.node import EquivalentId
 from src.models.protein import Protein
 from src.shared.db_credentials import DBCredentials
 
@@ -108,7 +108,7 @@ class DrugNodeAdapter(InputAdapter, ChemblAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> List[Node]:
+    def get_all(self) -> Generator[List[Ligand], None, None]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
 
         drug_dict: Dict[str, Ligand] = {}
@@ -124,7 +124,7 @@ class DrugNodeAdapter(InputAdapter, ChemblAdapter):
                     name=row.compound_name
                 )
 
-        return list(drug_dict.values())
+        yield list(drug_dict.values())
 
 
 class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
@@ -134,7 +134,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> List[Relationship]:
+    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
 
         relationships: List[ProteinLigandRelationship] = []
@@ -168,4 +168,4 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
             pro_lig_edge.details = activity_details
             relationships.append(pro_lig_edge)
 
-        return relationships
+        yield relationships

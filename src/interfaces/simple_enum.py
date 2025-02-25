@@ -24,7 +24,7 @@ class SimpleEnum(Enum):
                 return member
             if member.value.lower() == input_value.lower():
                 return member
-        print (input_value)
+        print(f"couldn't parse this value: {input_value}")
 
 
 class NodeLabel(SimpleEnum):
