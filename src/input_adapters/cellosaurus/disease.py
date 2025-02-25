@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Generator
 
 from src.constants import Prefix
 from src.input_adapters.cellosaurus.cellosaurus import CellosaurusBaseAdapter
@@ -17,7 +17,7 @@ def parse_id(database: str, accession: str):
 
 class DiseaseAdapter(CellosaurusBaseAdapter):
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         root_node = self.get_root_node()
         disease_map = {}
         for disease_node in root_node.findall('./cell-line-list/cell-line/disease-list/xref'):
@@ -33,10 +33,10 @@ class DiseaseAdapter(CellosaurusBaseAdapter):
             )
 
             disease_map[disease_id] = disease_obj
-        return list(disease_map.values())
+        yield list(disease_map.values())
 
 class DiseaseCellLineRelationshipAdapter(CellosaurusBaseAdapter):
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         root_node = self.get_root_node()
         cell_line_disease_edges = []
         disease_map = {}
@@ -60,4 +60,4 @@ class DiseaseCellLineRelationshipAdapter(CellosaurusBaseAdapter):
                         end_node=disease_obj
                     )
                 )
-        return cell_line_disease_edges
+        yield cell_line_disease_edges

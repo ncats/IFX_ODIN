@@ -1,6 +1,6 @@
 import copy
 from abc import ABC, abstractmethod
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Generator, Any
 
 from src.constants import DataSourceName
 from src.interfaces.id_resolver import IdResolver
@@ -9,12 +9,13 @@ from src.models.node import Node, Relationship
 
 
 class InputAdapter(ABC):
+    batch_size = 1000000
 
     def get_name(self) -> str:
         return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
 
     @abstractmethod
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         raise NotImplementedError("derived classes must implement get_all")
 
     @abstractmethod
@@ -25,7 +26,7 @@ class InputAdapter(ABC):
     def get_version(self) -> DatasourceVersionInfo:
         raise NotImplementedError("derived classes must implement get_version")
 
-    def get_resolved_and_provenanced_list(self, resolver_map: Dict[str, IdResolver]) -> List:
+    def get_resolved_and_provenanced_list(self, resolver_map: Dict[str, IdResolver]) -> Generator[list[Any], Any, None]:
         def get_and_delete_old_id(node):
             source_id = node.id
             if hasattr(node, 'old_id'):
@@ -33,87 +34,87 @@ class InputAdapter(ABC):
                 delattr(node, 'old_id')
             return source_id
 
-        entries = self.get_all()
+        for entries in self.get_all():
 
-        for entry in entries:
-            version_info = self.get_version()
-            version_data = [self.get_datasource_name(), version_info.version, version_info.version_date, version_info.download_date]
-            version_string = '\t'.join([str(e) for e in version_data])
-            entry.provenance = version_string
+            for entry in entries:
+                version_info = self.get_version()
+                version_data = [self.get_datasource_name(), version_info.version, version_info.version_date, version_info.download_date]
+                version_string = '\t'.join([str(e) for e in version_data])
+                entry.provenance = version_string
 
-        nodes = [e for e in entries if isinstance(e, Node)]
-        relationships = [e for e in entries if isinstance(e, Relationship)]
+            nodes = [e for e in entries if isinstance(e, Node)]
+            relationships = [e for e in entries if isinstance(e, Relationship)]
 
-        if len(nodes) > 0:
-            type_map = {}
+            if len(nodes) > 0:
+                type_map = {}
+                for node in nodes:
+                    type = node.__class__.__name__
+                    if type not in type_map:
+                        type_map[type] = []
+                    type_map[type].append(node)
+
+                resolved_nodes = []
+                for type, node_list in type_map.items():
+                    if type in resolver_map:
+                        resolver = resolver_map[type]
+                        entity_map = resolver.resolve_nodes(node_list)
+                        resolved_nodes.extend(resolver.parse_flat_node_list_from_map(entity_map))
+                    else:
+                        resolved_nodes.extend(node_list)
+                nodes = resolved_nodes
+
             for node in nodes:
-                type = node.__class__.__name__
-                if type not in type_map:
-                    type_map[type] = []
-                type_map[type].append(node)
+                source_id = get_and_delete_old_id(node)
+                node.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ source_id }"
 
-            resolved_nodes = []
-            for type, node_list in type_map.items():
-                if type in resolver_map:
-                    resolver = resolver_map[type]
-                    entity_map = resolver.resolve_nodes(node_list)
-                    resolved_nodes.extend(resolver.parse_flat_node_list_from_map(entity_map))
-                else:
-                    resolved_nodes.extend(node_list)
-            nodes = resolved_nodes
+            for rel in relationships:
+                start_source_id = get_and_delete_old_id(rel.start_node)
+                end_source_id = get_and_delete_old_id(rel.end_node)
+                rel.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ start_source_id }\t{ end_source_id }"
 
-        for node in nodes:
-            source_id = get_and_delete_old_id(node)
-            node.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ source_id }"
+            if len(relationships) > 0:
+                temp_nodes = [entry.start_node for entry in relationships] + [entry.end_node for entry in relationships]
+                type_map = {}
+                node_map = {}
 
-        for rel in relationships:
-            start_source_id = get_and_delete_old_id(rel.start_node)
-            end_source_id = get_and_delete_old_id(rel.end_node)
-            rel.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ start_source_id }\t{ end_source_id }"
+                for node in temp_nodes:
+                    type = node.__class__.__name__
+                    if type not in type_map:
+                        type_map[type] = []
+                    type_map[type].append(node)
 
-        if len(relationships) > 0:
-            temp_nodes = [entry.start_node for entry in relationships] + [entry.end_node for entry in relationships]
-            type_map = {}
-            node_map = {}
+                for type in type_map:
+                    if type in resolver_map:
+                        resolver = resolver_map[type]
+                        temp_node_map = resolver.resolve_nodes(type_map[type])
+                        node_map.update(resolver.parse_entity_map(temp_node_map))
 
-            for node in temp_nodes:
-                type = node.__class__.__name__
-                if type not in type_map:
-                    type_map[type] = []
-                type_map[type].append(node)
+                return_relationships = []
+                for entry in relationships:
 
-            for type in type_map:
-                if type in resolver_map:
-                    resolver = resolver_map[type]
-                    temp_node_map = resolver.resolve_nodes(type_map[type])
-                    node_map.update(resolver.parse_entity_map(temp_node_map))
+                    start_id = entry.start_node.id
+                    start_nodes = [entry.start_node]
 
-            return_relationships = []
-            for entry in relationships:
+                    end_id = entry.end_node.id
+                    end_nodes = [entry.end_node]
 
-                start_id = entry.start_node.id
-                start_nodes = [entry.start_node]
+                    if start_id in node_map:
+                        start_nodes = node_map[start_id]
+                    if end_id in node_map:
+                        end_nodes = node_map[end_id]
 
-                end_id = entry.end_node.id
-                end_nodes = [entry.end_node]
-
-                if start_id in node_map:
-                    start_nodes = node_map[start_id]
-                if end_id in node_map:
-                    end_nodes = node_map[end_id]
-
-                for start_node in start_nodes:
-                    count = 0
-                    for end_node in end_nodes:
-                        count += 1
-                        if count > 1:
-                            rel_copy = copy.deepcopy(entry)
-                        else:
-                            rel_copy = entry
-                        rel_copy.start_node.id = start_node.id
-                        rel_copy.end_node.id = end_node.id
-                        return_relationships.append(rel_copy)
-            relationships = return_relationships
-            print(f"prepared {len(relationships)} relationship records to merge")
-        return [*nodes, *relationships]
+                    for start_node in start_nodes:
+                        count = 0
+                        for end_node in end_nodes:
+                            count += 1
+                            if count > 1:
+                                rel_copy = copy.deepcopy(entry)
+                            else:
+                                rel_copy = entry
+                            rel_copy.start_node.id = start_node.id
+                            rel_copy.end_node.id = end_node.id
+                            return_relationships.append(rel_copy)
+                relationships = return_relationships
+                print(f"prepared {len(relationships)} relationship records to merge")
+            yield [*nodes, *relationships]
 

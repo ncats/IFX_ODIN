@@ -2,7 +2,7 @@ import os
 from abc import ABC
 from datetime import datetime
 import xml.etree.ElementTree as ET
-from typing import List, Union
+from typing import List, Union, Generator
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -53,7 +53,7 @@ class CellosaurusBaseAdapter(InputAdapter, XMLAdapter, ABC):
 
 class CellosaurusCellLineAdapter(CellosaurusBaseAdapter):
 
-    def get_all(self) -> List[Union[Node, Relationship]]:
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         root_node = self.get_root_node()
         biospecimens = []
         for cell_line in root_node.findall('./cell-line-list/cell-line'):
@@ -91,4 +91,4 @@ class CellosaurusCellLineAdapter(CellosaurusBaseAdapter):
                 age=age
             )
             biospecimens.append(biospecimen)
-        return biospecimens
+        yield biospecimens
