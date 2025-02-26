@@ -160,8 +160,6 @@ class TargetGraphGeneParser(TargetGraphParser):
 
         location = prop_dict.get('consolidated_location', None)
         strand = prop_dict.get('ensembl_strand', None)
-        start = prop_dict.get('ensembl_start', None)
-        end = prop_dict.get('ensembl_end', None)
         loc = GeneticLocation()
         has_data = False
         if location is not None and len(location) > 0:
@@ -170,8 +168,6 @@ class TargetGraphGeneParser(TargetGraphParser):
             has_data = True
         if strand is not None and len(strand) > 0:
             loc.strand = Strand.parse(strand)
-            loc.start = int(float(start))
-            loc.end = int(float(end))
             has_data = True
         if has_data:
             return loc
