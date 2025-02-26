@@ -23,8 +23,6 @@ class GeneticLocation:
     location: str = None
     chromosome: int = None
     strand: Strand = None
-    start: int = None
-    end: int = None
 
     def to_dict(self) -> Dict[str, str]:
         ret_dict = {}
@@ -33,8 +31,6 @@ class GeneticLocation:
             ret_dict['chromosome'] = self.chromosome
         if self.strand is not None:
             ret_dict['chromosome_strand'] = self.strand.value
-            ret_dict['chromosome_start'] = self.start
-            ret_dict['chromosome_end'] = self.end
         return ret_dict
 
 @dataclass
