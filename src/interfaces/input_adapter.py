@@ -104,13 +104,8 @@ class InputAdapter(ABC):
                         end_nodes = node_map[end_id]
 
                     for start_node in start_nodes:
-                        count = 0
                         for end_node in end_nodes:
-                            count += 1
-                            if count > 1:
-                                rel_copy = copy.deepcopy(entry)
-                            else:
-                                rel_copy = entry
+                            rel_copy = copy.deepcopy(entry)
                             rel_copy.start_node.id = start_node.id
                             rel_copy.end_node.id = end_node.id
                             return_relationships.append(rel_copy)
