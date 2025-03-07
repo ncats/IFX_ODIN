@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Generator
 
+from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalytePathwayRelationship as SqliteAnalytePathwayRelationship
 from src.models.analyte import Analyte
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.pathway import AnalytePathwayRelationship, Pathway
 
 
@@ -23,7 +25,7 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
     def get_id_prefix(self) -> str:
         pass
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[AnalytePathwayRelationship], None, None]:
         results = self.get_session().query(
             SqliteAnalytePathwayRelationship.rampId,
             SqliteAnalytePathwayRelationship.pathwayRampId,
@@ -37,7 +39,7 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
                 source=row[2]
             ) for row in results
         ]
-        return analyte_pathway_relationships
+        yield analyte_pathway_relationships
 
 
 class MetabolitePathwayRelationshipAdapter(AnalytePathwayRelationshipAdapter):

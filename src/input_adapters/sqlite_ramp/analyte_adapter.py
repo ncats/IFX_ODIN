@@ -1,14 +1,26 @@
 from abc import ABC, abstractmethod
 from typing import List
+
+from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import (
     Source as SqliteSource)
 from src.interfaces.input_adapter import InputAdapter
 from src.models.analyte import Analyte
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 
 
 class AnalyteAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.RaMP
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=self.ramp_version_info.db_version.id,
+            version_date=self.ramp_version_info.db_version.timestamp
+        )
 
     @abstractmethod
     def get_source_prefix(self):
@@ -37,14 +49,10 @@ class AnalyteAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
 
         for analyte in analytes:
             if analyte.id in analyte_dict:
-                equiv_ids = [EquivalentId(
-                    id=row[1],
-                    type=row[2],
-                    status=row[3],
-                    source=row[4]
-                ) for row in analyte_dict[analyte.id]]
+                equiv_ids = []
+                for row in analyte_dict[analyte.id]:
+                    equiv_id = EquivalentId.parse(row[1])
+                    equiv_id.source = row[4]
+                    equiv_id.status = row[3]
+                    equiv_ids.append(equiv_id)
                 analyte.xref = equiv_ids
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [
-            f"Node created based on RaMP version: {self.get_database_version().id}"
-        ]

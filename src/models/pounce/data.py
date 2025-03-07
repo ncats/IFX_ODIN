@@ -9,6 +9,8 @@ from src.models.pounce.experiment import Experiment
 class Sample(Node):
     name: str = None
     description: str = None
+    type: str = None
+    replicate: int = None
 
 @dataclass
 class Measurement(Node):

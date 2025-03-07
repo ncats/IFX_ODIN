@@ -10,6 +10,7 @@ HUMAN_TAX_ID = 9606
 TARGET_GRAPH_VERSION = "1.0"
 
 class DataSourceName(SimpleEnum):
+    NCATSPounce = "NCATSPounce"
     TargetGraph = "Pharos 2.0 CSV"
     TargetGraphNCBI = "Pharos 2.0 CSV (NCBI)"
     ChEMBL = "ChEMBL"
@@ -25,6 +26,7 @@ class DataSourceName(SimpleEnum):
     UniProt = "UniProt"
     Dummy = "Dummy DataSource"
     PostProcessing = "ETL Post Processing"
+    RaMP = "RaMP"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
@@ -96,6 +98,7 @@ class Prefix(SimpleEnum):
     BRENDA = "BRENDA"
     CCDS = "CCDS"
     CHEMBL_PROTEIN = "CHEMBL.PROTEIN"
+    LIPIDMAPS = "LIPIDMAPS"
     DIP = "DIP"
     DisProt = "DisProt"
     EN = "EN"
@@ -113,6 +116,19 @@ class Prefix(SimpleEnum):
     TranscriptSymbol = "Transcript"
     Vega = "Vega"
     Wikidata = "Wikidata"
+
+    # ramp prefixes
+    RefMet = "RefMet"
+    chemspider = "chemspider"
+    pubchem = "pubchem"
+    kegg = "kegg"
+    rhea_comp = "rhea.comp"
+    swisslipids = "swisslipids"
+    kegg_glycan = "kegg_glycan"
+    polymer = "polymer"
+    lipidbank = "lipidbank"
+    plantfa = "plantfa"
+
 
     # cell line data sources
     # 4DN = "4DN"

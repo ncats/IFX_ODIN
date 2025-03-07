@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Generator
 
+from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.metabolite_adapter import MetaboliteAdapter
 from src.interfaces.input_adapter import InputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite import Metabolite
 from src.models.node import Relationship
 from src.models.version import DatabaseVersion
@@ -18,23 +20,25 @@ class SharesMetaboliteIDrelationship(Relationship):
 class MetaboliteSetRelationshipAdapter(InputAdapter):
     name: str = "Metabolite Set Relationship Adapter"
 
-    def get_audit_trail_entries(self, obj: SharesMetaboliteIDrelationship) -> List[str]:
-        left_version: DatabaseVersion = self.left_adapter.get_database_version()
-        right_version: DatabaseVersion = self.right_adapter.get_database_version()
-        return [f"Relationship based on {obj.count} overlapping IDs between {left_version.id} and {right_version.id}"]
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.Dummy
 
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version="calculated"
+        )
     left_adapter: MetaboliteAdapter
     right_adapter: MetaboliteAdapter
 
-    def get_all(self) -> List[SharesMetaboliteIDrelationship]:
-        left_mets = self.left_adapter.get_all()
-        right_mets = self.right_adapter.get_all()
+    def get_all(self) -> Generator[List[SharesMetaboliteIDrelationship], None, None]:
+        left_mets = list(self.left_adapter.get_all())[0]
+        right_mets = list(self.right_adapter.get_all())[0]
 
         reverse_lookup = {}
 
         for metabolite in left_mets:
             ramp_id = metabolite.id
-            equiv_ids = [equiv_id.id for equiv_id in metabolite.xref]
+            equiv_ids = [equiv_id.id_str() for equiv_id in metabolite.xref]
             for id in equiv_ids:
                 if id in reverse_lookup:
                     existing_id = reverse_lookup[id]
@@ -46,7 +50,7 @@ class MetaboliteSetRelationshipAdapter(InputAdapter):
         relationship_map = {}
         for metabolite in right_mets:
             ramp_id = metabolite.id
-            equiv_ids = [equiv_id.id for equiv_id in metabolite.xref]
+            equiv_ids = [equiv_id.id_str() for equiv_id in metabolite.xref]
             for id in equiv_ids:
                 if id not in reverse_lookup:
                     print(f"{id} exists in the 'right' list and not the 'left'. Skipping it...")
@@ -63,13 +67,16 @@ class MetaboliteSetRelationshipAdapter(InputAdapter):
         relationships = []
         for key, count in relationship_map.items():
             start_id, end_id = key.split('|')
+            start_met = Metabolite(id=start_id)
+            end_met = Metabolite(id=end_id)
+
             relationships.append(
                 SharesMetaboliteIDrelationship(
-                    start_node=Metabolite(id=start_id),
-                    end_node=Metabolite(id=end_id),
+                    start_node=start_met,
+                    end_node=end_met,
                     count=count))
 
-        return relationships
+        yield relationships
 
     def set_left(self, ramp_file: str):
         self.left_adapter = MetaboliteAdapter(sqlite_file=ramp_file)

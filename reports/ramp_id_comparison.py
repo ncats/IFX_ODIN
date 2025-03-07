@@ -2,11 +2,7 @@ from typing import List
 
 from neo4j import GraphDatabase
 
-from src.use_cases.secrets.local_neo4j import alt_neo4j_credentials
-
-print(alt_neo4j_credentials)
-
-driver = GraphDatabase.driver(alt_neo4j_credentials.url, auth=(alt_neo4j_credentials.user, alt_neo4j_credentials.password))
+driver = GraphDatabase.driver("bolt://ifxdev.ncats.nih.gov:8046", auth=("neo4j", "password"))
 
 class Recombination:
     left_nodes: List[dict]
@@ -100,8 +96,7 @@ class RecombinationList:
 
     def generate_html_view(self, left_prop_dict, right_prop_dict,
                            left_path_dict, right_path_dict,
-                           left_class_dict, right_class_dict,
-                           left_provenance, right_provenance):
+                           left_class_dict, right_class_dict):
 
         def get_node_table(nodes, prop_dict, path_dict, class_dict):
             node_text = f"""
@@ -133,7 +128,7 @@ class RecombinationList:
                         <tr>
                             <td>{node['id']}</td>
                             <td>{'<br />'.join(sorted(node['xref']))}</td>
-                            <td>{'<br />'.join(sorted(node['synonyms']))}</td>
+                            <td>{'<br />'.join(sorted(node['synonyms'] if 'synonyms' in node else []))}</td>
                             <td>-- {'<br />-- '.join(sorted(pathways))}</td>
                             <td>-- {'<br />-- '.join(sorted(classes))}</td>
                             <td>{'<br />'.join(MWs)}</td>
@@ -148,10 +143,14 @@ class RecombinationList:
                 right_nodes = f"""<h3>{len(recomb.right_nodes)} nodes</h3>"""
                 if len(recomb.left_nodes) == 1:
                     left_nodes += ', '.join(node['id'] for node in recomb.left_nodes)
+                    left_nodes += '<br /><br />'
+                    left_nodes += '<br />'.join(sorted(recomb.left_nodes[0]['xref']))
                 else:
                     left_nodes += get_node_table(recomb.left_nodes, left_prop_dict, left_path_dict, left_class_dict)
                 if len(recomb.right_nodes) == 1:
                     right_nodes += ', '.join(node['id'] for node in recomb.right_nodes)
+                    right_nodes += '<br /><br />'
+                    right_nodes += '<br />'.join(sorted(recomb.right_nodes[0]['xref']))
                 else:
                     right_nodes += get_node_table(recomb.right_nodes, right_prop_dict, right_path_dict, right_class_dict)
                 row_class = "odd-row" if i % 2 == 0 else "even-row"
@@ -221,24 +220,20 @@ class RecombinationList:
             </style>
         </head>
         <body>
-        
-            
+
+
             <table class="styled-table"><tbody>
             <tr>
-            <th>Left Nodes</th><th>Right Nodes</th>            
-            </tr>
-            <tr>
-            <td>{"<br />".join(left_provenance)}</td>
-            <td>{"<br />".join(right_provenance)}</td>
+            <th>Left Nodes</th><th>Right Nodes</th>
             </tr>
             </tbody></table>
-            
+
             <div class="nav-links">
                 <a href="#Unmergers">Unmergers ({len(self.get_unmergers())})</a>
                 <a href="#Mergers">Mergers ({len(self.get_mergers())})</a>
                 <a href="#Recombinations">Recombinations ({len(self.get_recombinations())})</a>
             </div>
-            
+
             {unmergers_html}
             {mergers_html}
             {recombinations_html}
@@ -299,7 +294,7 @@ with driver.session() as session:
     left_prop_dict = {rec['id']: rec['props'] for rec in left_chem_props}
 
     right_chem_props = session.run(
-        f"""match (node:ramp_rc1_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
+        f"""match (node:ramp_with_refmet_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
         where node.id in {recombinations.get_all_right_ids()}
             return node.id as id, collect(prop) as props
             """)
@@ -340,14 +335,9 @@ with driver.session() as session:
             limit 1"""
     )
 
-    for rec in prov_nodes:
-        left_prov =  rec['n']['provided_by']
-        right_prov = rec['o']['provided_by']
-
     recombinations.generate_html_view(
         left_prop_dict, right_prop_dict,
         left_path_dict, right_path_dict,
-        left_class_dict, right_class_dict,
-        left_prov, right_prov)
+        left_class_dict, right_class_dict)
 
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date
 
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
@@ -13,7 +13,7 @@ class Experiment(Node):
     description: str = None
     design: str = None
     category: str = None
-    run_date: datetime = None
+    run_date: date = None
 
 
 @dataclass

@@ -1,18 +1,27 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Generator
 
+from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalyteSynonym as SqliteAnalyteSynonym
 from src.models.analyte import Synonym, Analyte
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite import Metabolite
 from src.models.protein import Protein
 
 
 class AnalyteSynonymAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
     cls = Analyte
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'synonyms updated by {self.name}']
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.RaMP
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=self.ramp_version_info.db_version.id,
+            version_date=self.ramp_version_info.db_version.timestamp
+        )
 
     def __init__(self, sqlite_file):
         InputAdapter.__init__(self)
@@ -22,7 +31,7 @@ class AnalyteSynonymAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
     def get_id_prefix(self) -> str:
         pass
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Analyte], None, None]:
         results = self.get_session().query(
             SqliteAnalyteSynonym.rampId,
             SqliteAnalyteSynonym.Synonym,
@@ -45,7 +54,7 @@ class AnalyteSynonymAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
                          term=row[1], source=row[2]) for row in synonym_list]
             ) for key, synonym_list in analyte_dict.items()
         ]
-        return objs
+        yield objs
 
 
 class MetaboliteSynonymAdapter(AnalyteSynonymAdapter):
