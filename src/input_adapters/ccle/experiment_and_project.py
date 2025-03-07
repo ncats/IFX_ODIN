@@ -69,7 +69,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
         experiment_obj = Experiment(
             id=self.get_experiment_name(),
             name=self.get_datasource_name().value,
-            type='RNA-seq',
+            type='bulk_rnaseq',
             description='The Cancer Cell Line Encyclopedia (CCLE) project started in 2008 as a collaboration between the Broad Institute, and the Novartis Institutes for Biomedical Research and its Genomics Institute of the Novartis Research Foundation. The goal is to conduct a detailed genetic and pharmacologic characterization of a large panel of human cancer models, to develop integrated computational analyses that link distinct pharmacologic vulnerabilities to genomic patterns and to translate cell line integrative genomics into cancer patient stratification. Later the MD Anderson and Harvard Medical school joined the project. As of summer of 2018 CCLE continues its efforts as part of the Broad Cancer Dependency Map Project.',
             category="in vitro"
         )

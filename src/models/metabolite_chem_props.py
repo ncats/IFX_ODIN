@@ -16,6 +16,6 @@ class MetaboliteChemProps(Node):
     mol_formula: str = None
 
     def set_id(self):
-        filtered_attributes = {k: v for k, v in self.__dict__.items() if not isinstance(v, list)}
+        filtered_attributes = {k: v for k, v in self.__dict__.items() if not isinstance(v, list) and k != 'extra_properties'}
         attributes = tuple(sorted(filtered_attributes.items()))
         self.id = str(hash(attributes))

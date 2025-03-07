@@ -130,14 +130,14 @@ class IdResolver(ABC):
                                     new_entry.add_label("Unmerged_ID")
                                 if new_entry.id not in [node.id for node in entity_map[IdResolver.MatchKeys.newborns][old_id]]:
                                     entity_map[IdResolver.MatchKeys.newborns][old_id].append(new_entry)
-                else:
-                    if old_id not in entity_map[IdResolver.MatchKeys.unmatched]:
-                        new_entry = copy.deepcopy(entry)
-                        new_entry.old_id = old_id
-                        if self.add_labels_for_resolver_events:
-                            new_entry.add_label("Unmatched_ID")
+            else:
+                if entry.id not in entity_map[IdResolver.MatchKeys.unmatched]:
+                    new_entry = copy.deepcopy(entry)
+                    new_entry.old_id = entry.id
+                    if self.add_labels_for_resolver_events:
+                        new_entry.add_label("Unmatched_ID")
 
-                        entity_map[IdResolver.MatchKeys.unmatched][old_id] = new_entry
+                    entity_map[IdResolver.MatchKeys.unmatched][entry.id] = new_entry
 
         print(f"updated {updated_count} ids, validated {validated_count} ids")
         return entity_map
@@ -146,11 +146,19 @@ class IdResolver(ABC):
         match_map = {k: [v] for k, v in entity_map[IdResolver.MatchKeys.matched].items()}
         if self.multi_match_behavior == MultiMatchBehavior.All:
             newborn_map = entity_map[IdResolver.MatchKeys.newborns]
-            match_map.update(newborn_map)
+            for key, value in newborn_map.items():
+                if key in match_map:
+                    match_map[key].extend(value)
+                else:
+                    match_map[key] = value
 
         if self.no_match_behavior == NoMatchBehavior.Allow:
             unmatched_map = {k: [v] for k, v in entity_map[IdResolver.MatchKeys.unmatched].items()}
-            match_map.update(unmatched_map)
+            for key, value in unmatched_map.items():
+                if key in match_map:
+                    match_map[key].extend(value)
+                else:
+                    match_map[key] = value
 
         return match_map
 

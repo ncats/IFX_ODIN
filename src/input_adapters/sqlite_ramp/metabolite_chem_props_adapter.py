@@ -1,18 +1,23 @@
-from typing import List, Union
+from typing import List, Union, Generator
 
+from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.interfaces.input_adapter import InputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsRelationship
 from src.input_adapters.sqlite_ramp.tables import ChemProps as SqliteChemProps
 
 
 class MetaboliteChemPropsAdapter(InputAdapter, RaMPSqliteAdapter):
-    def get_audit_trail_entries(self, obj: Union[MetaboliteChemProps, MetaboliteChemPropsRelationship]) -> List[str]:
-        if isinstance(obj, MetaboliteChemProps):
-            data_version = self.get_data_version(obj.chem_data_source)
-        else:
-            data_version = self.get_data_version(obj.end_node.chem_data_source)
-        return [f"Chemical Properties from {data_version.name} ({data_version.version})"]
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.RaMP
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=self.ramp_version_info.db_version.id,
+            version_date=self.ramp_version_info.db_version.timestamp
+        )
 
     name = "RaMP Metabolite ChemProps Adapter"
 
@@ -20,7 +25,7 @@ class MetaboliteChemPropsAdapter(InputAdapter, RaMPSqliteAdapter):
         InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Union[MetaboliteChemProps, MetaboliteChemPropsRelationship]], None, None]:
         results = self.get_session().query(
             SqliteChemProps.ramp_id,
             SqliteChemProps.chem_data_source,
@@ -56,4 +61,4 @@ class MetaboliteChemPropsAdapter(InputAdapter, RaMPSqliteAdapter):
                 start_node=Metabolite(id=row[0]),
                 end_node=chem_prop_obj
             ))
-        return nodes_and_relationships
+        yield nodes_and_relationships
