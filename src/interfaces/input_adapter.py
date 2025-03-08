@@ -66,6 +66,7 @@ class InputAdapter(ABC):
             for node in nodes:
                 source_id = get_and_delete_old_id(node)
                 node.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ source_id }"
+            yield nodes
 
             for rel in relationships:
                 start_source_id = get_and_delete_old_id(rel.start_node)
@@ -109,7 +110,12 @@ class InputAdapter(ABC):
                             rel_copy.start_node.id = start_node.id
                             rel_copy.end_node.id = end_node.id
                             return_relationships.append(rel_copy)
-                relationships = return_relationships
-                print(f"prepared {len(relationships)} relationship records to merge")
-            yield [*nodes, *relationships]
+
+                    if len(return_relationships) > 50000:
+                        print(f"prepared a batch of {len(return_relationships)} relationship records")
+                        yield return_relationships
+                        return_relationships = []
+
+            print(f"final batch: {len(return_relationships)} relationship records")
+            yield return_relationships
 
