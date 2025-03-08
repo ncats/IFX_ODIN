@@ -116,6 +116,6 @@ class InputAdapter(ABC):
                         yield return_relationships
                         return_relationships = []
 
-            print(f"final batch: {len(return_relationships)} relationship records")
-            yield return_relationships
+                print(f"final batch: {len(return_relationships)} relationship records")
+                yield return_relationships
 
