@@ -31,7 +31,7 @@ def create_object_from_config(config: dict):
         cred_node = config['credentials']
         kwargs['credentials'] = (
             DBCredentials(
-                user=cred_node['user'],
+                user=cred_node.get('user', None),
                 url=cred_node['url'],
                 password=cred_node.get('password', None),
                 schema=cred_node.get('schema', None),

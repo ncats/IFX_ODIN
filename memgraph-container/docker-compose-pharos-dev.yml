@@ -1,0 +1,28 @@
+services:
+  pharos_dev_memgraph:
+    image: memgraph/memgraph-mage:latest
+    container_name: pharos_dev
+    ports:
+      - "8042:7687"
+    command: ["--log-level=TRACE"]
+    environment:
+      - MEMGRAPH_USER=neo4j
+      - MEMGRAPH_PASSWORD=password
+    volumes:
+      - pharos_dev_data:/var/lib/memgraph
+
+  pharos_dev_lab:
+    image: memgraph/lab:latest
+    container_name: memgraph-lab
+    ports:
+      - "8041:3000"
+    depends_on:
+      - pharos_dev_memgraph
+    environment:
+      - QUICK_CONNECT_MG_HOST=pharos_dev_memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+      - QUICK_CONNECT_MG_USER=neo4j
+      - QUICK_CONNECT_MG_PASSWORD=password
+
+volumes:
+  pharos_dev_data:

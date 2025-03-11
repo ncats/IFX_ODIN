@@ -9,10 +9,10 @@ import os
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node, Relationship
-from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
+from src.output_adapters.neo4j_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
-output_adapter = Neo4jOutputAdapter(credentials=DBCredentials(
+output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
     url = "bolt://ifxdev.ncats.nih.gov:8046", user = "neo4j", password="password"
 ))
 

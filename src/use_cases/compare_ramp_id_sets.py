@@ -12,7 +12,7 @@ from src.input_adapters.sqlite_ramp.pathway_adapter import PathwayAdapter
 from src.interfaces.input_adapter import InputAdapter
 
 from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
-from src.output_adapters.neo4j_output_adapter import Neo4jOutputAdapter
+from src.output_adapters.neo4j_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
 
@@ -23,7 +23,7 @@ class build_db_for_comparing_ramp_ids:
     right_label: str
     third_db: str
     third_label: str
-    output_adapter: Neo4jOutputAdapter
+    output_adapter: MemgraphOutputAdapter
     etl: ETL
     def __init__(self, left_db: str, left_label: str,
                  right_db: str, right_label: str,
@@ -35,7 +35,7 @@ class build_db_for_comparing_ramp_ids:
         self.third_db = third_db
         self.third_label = third_label
 
-        self.output_adapter = Neo4jOutputAdapter(credentials=DBCredentials(
+        self.output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
             url = "bolt://ifxdev.ncats.nih.gov:8046",
             user = "neo4j", password="password"
         ))
