@@ -15,7 +15,7 @@ class FieldConflictBehavior(SimpleEnum):
     KeepLast = "KeepLast"
 
 
-class Neo4jDataLoader:
+class GraphDBDataLoader:
     base_path: str
     driver: Driver
     field_conflict_behavior: FieldConflictBehavior
@@ -50,9 +50,21 @@ class Neo4jDataLoader:
                 total = result.single()["total"]
                 print(f"{total} nodes remaining")
 
-            print("deleting constraints and stuff")
-            session.run("CALL apoc.schema.assert({}, {})")
+            self.delete_constraints_and_stuff(session)
         return True
+
+    def delete_constraints_and_stuff(self, session):
+        print("deleting constraints and stuff")
+
+        indexes = session.run("SHOW INDEX INFO;")
+
+        # Step 2: Drop each index
+        for record in indexes:
+            label = record["label"]
+            prop = record["property"]
+            print(f"DROP INDEX ON :`{label}`(`{prop}`)")
+            session.run(f"DROP INDEX ON :`{label}`(`{prop}`)")
+
 
     def get_list_type(self, list):
         for item in list:
@@ -97,23 +109,22 @@ class Neo4jDataLoader:
                 records.append(row)
         return records
 
-    def index_exists(self, session: Session, index_name: str) -> bool:
-        result = session.run("show indexes")
-        for record in result:
-            if record['name'] == index_name:
-                print(f"{index_name} already exists")
+    def index_exists(self, session: Session, label: str, field: str) -> bool:
+        print(f'checking index exists {label}: {field}')
+        indexes = session.run("SHOW INDEX INFO;")
+        for record in indexes:
+            if label == record['label'] and field == record['property']:
                 return True
         return False
 
+    def create_index(self, session: Session, label: str, field: str):
+        print(f'creating index {label}: {field}')
+        session.run(f"CREATE INDEX ON :`{label}`({field})")
+
     def add_index(self, session: Session, label: NodeLabel, field: str):
         label_str = label.value if hasattr(label, 'value') else label
-        index_name = (f"{label_str}_{field}_index".lower()
-                      .replace(':', '_')
-                      .replace(' ', '_')
-                      .replace('-', '_')
-                      )
-        if not self.index_exists(session, index_name):
-            session.run(f"CREATE INDEX {index_name} FOR (n:`{label_str}`) ON (n.{field})")
+        if not self.index_exists(session, label_str, field):
+            self.create_index(session, label_str, field)
 
     def ensure_list(self, possible_list):
         if not isinstance(possible_list, list):
@@ -292,7 +303,7 @@ class Neo4jDataLoader:
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
 
 
-def batch(iterable, batch_size=50000):
+def batch(iterable, batch_size=50050):
     l = len(iterable)
     if l > batch_size:
         print(f"batching records into size: {batch_size}")
@@ -302,7 +313,7 @@ def batch(iterable, batch_size=50000):
         yield iterable[ndx:min(ndx + batch_size, l)]
 
 
-def load_to_neo4j(session, query, records, batch_size=50000):
+def load_to_neo4j(session, query, records, batch_size=50050):
     for record_batch in batch(records, batch_size):
         retries = 3
         while retries > 0:
@@ -315,3 +326,31 @@ def load_to_neo4j(session, query, records, batch_size=50000):
                 if retries == 0:
                     raise
                 time.sleep(1)  # Add a delay before retrying
+
+
+class Neo4jDataLoader(GraphDBDataLoader):
+
+    def delete_constraints_and_stuff(self, session):
+        print("deleting constraints and stuff")
+        session.run("CALL apoc.schema.assert({}, {})")
+
+    def _get_index_name(self, label: str, field: str):
+        index_name = (f"{label}_{field}_index".lower()
+                      .replace(':', '_')
+                      .replace(' ', '_')
+                      .replace('-', '_')
+                      )
+        return index_name
+
+    def index_exists(self, session: Session, label: str, field: str) -> bool:
+        result = session.run("show indexes")
+        index_name = self._get_index_name(label, field)
+        for record in result:
+            if record['name'] == index_name:
+                print(f"{index_name} already exists")
+                return True
+        return False
+
+    def create_index(self, session: Session, label: str, field: str):
+        index_name = self._get_index_name(label, field)
+        session.run(f"CREATE INDEX {index_name} FOR (n:`{label}`) ON (n.{field})")

@@ -1,4 +1,4 @@
-from dataclasses import fields
+from abc import ABC
 from enum import Enum
 from typing import Union, List
 
@@ -10,15 +10,15 @@ from src.models.node import Relationship, Node
 from src.models.pounce.investigator import InvestigatorRelationship
 
 from src.shared.db_credentials import DBCredentials
-from src.shared.neo4j_data_loader import Neo4jDataLoader
+from src.shared.graphdb_data_loader import GraphDBDataLoader, Neo4jDataLoader
 
 
-class Neo4jOutputAdapter(OutputAdapter):
-    loader: Neo4jDataLoader
+class GraphDBOutputAdapter(OutputAdapter, ABC):
+    loader: GraphDBDataLoader
     post_processing: List[str]
 
-    def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
-        self.loader = Neo4jDataLoader(credentials, **kwargs)
+    def __init__(self, post_processing: List[str] = [], **kwargs):
+        super().__init__(**kwargs)
         self.post_processing = post_processing
 
     def create_or_truncate_datastore(self) -> bool:
@@ -127,3 +127,17 @@ class Neo4jOutputAdapter(OutputAdapter):
             print(post_process)
             with self.loader.driver.session() as session:
                 session.run(post_process)
+
+class MemgraphOutputAdapter(GraphDBOutputAdapter):
+    loader = GraphDBDataLoader
+
+    def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
+        super().__init__(post_processing, **kwargs)
+        self.loader = GraphDBDataLoader(credentials, **kwargs)
+
+class Neo4jOutputAdapter(GraphDBOutputAdapter):
+    loader: Neo4jDataLoader
+
+    def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
+        super().__init__(post_processing, **kwargs)
+        self.loader = Neo4jDataLoader(credentials, **kwargs)

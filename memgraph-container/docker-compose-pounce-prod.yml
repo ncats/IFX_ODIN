@@ -1,0 +1,28 @@
+services:
+  pounce_prod_memgraph:
+    image: memgraph/memgraph-mage:latest
+    container_name: pounce_prod
+    ports:
+      - "8048:7687"
+    command: ["--log-level=TRACE"]
+    environment:
+      - MEMGRAPH_USER=neo4j
+      - MEMGRAPH_PASSWORD=password
+    volumes:
+      - pounce_prod_data:/var/lib/memgraph
+
+  pounce_prod_lab:
+    image: memgraph/lab:latest
+    container_name: memgraph-lab
+    ports:
+      - "8047:3000"
+    depends_on:
+      - pounce_prod_memgraph
+    environment:
+      - QUICK_CONNECT_MG_HOST=pounce_prod_memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+      - QUICK_CONNECT_MG_USER=neo4j
+      - QUICK_CONNECT_MG_PASSWORD=password
+
+volumes:
+  pounce_prod_data:

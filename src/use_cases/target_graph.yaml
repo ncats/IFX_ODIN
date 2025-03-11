@@ -157,5 +157,5 @@ input_adapters:
 
 output_adapters:
   - import: ./src/output_adapters/neo4j_output_adapter.py
-    class: Neo4jOutputAdapter
+    class: MemgraphOutputAdapter
     credentials: *source_credentials

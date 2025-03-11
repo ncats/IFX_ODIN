@@ -58,5 +58,5 @@ input_adapters:
 
 output_adapters:
   - import: ./src/output_adapters/pounce_output_adapter.py
-    class: PounceOutputAdapter
+    class: MemgraphOutputAdapter
     credentials: *source_credentials
