@@ -8,6 +8,9 @@ services:
     environment:
       - MEMGRAPH_USER=neo4j
       - MEMGRAPH_PASSWORD=password
+      - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=4g
+      - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=3g
+    mem_limit: 4g
     volumes:
       - pounce_prod_data:/var/lib/memgraph
 
