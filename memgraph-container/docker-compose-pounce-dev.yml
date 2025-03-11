@@ -13,7 +13,7 @@ services:
 
   pounce_dev_lab:
     image: memgraph/lab:latest
-    container_name: memgraph-lab
+    container_name: pounce_dev_lab
     ports:
       - "8045:3000"
     depends_on:

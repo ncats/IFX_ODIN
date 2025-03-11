@@ -13,7 +13,7 @@ services:
 
   pharos_dev_lab:
     image: memgraph/lab:latest
-    container_name: memgraph-lab
+    container_name: pharos_dev_lab
     ports:
       - "8041:3000"
     depends_on:
