@@ -62,7 +62,6 @@ class GraphDBDataLoader:
         for record in indexes:
             label = record["label"]
             prop = record["property"]
-            print(f"DROP INDEX ON :`{label}`(`{prop}`)")
             session.run(f"DROP INDEX ON :`{label}`(`{prop}`)")
 
 
@@ -98,19 +97,7 @@ class GraphDBDataLoader:
         except (ValueError, SyntaxError):
             return str(value)
 
-    def read_csv_to_list(self, csv_file: str) -> List[dict]:
-        print(f"loading {csv_file}")
-        records = []
-        with open(f"{self.base_path}{csv_file}") as csvfile:
-            reader: csv.DictReader = csv.DictReader(csvfile)
-            for row in reader:
-                for key, value in row.items():
-                    row[key] = self.parse_and_clean_string_value(value)
-                records.append(row)
-        return records
-
     def index_exists(self, session: Session, label: str, field: str) -> bool:
-        print(f'checking index exists {label}: {field}')
         indexes = session.run("SHOW INDEX INFO;")
         for record in indexes:
             if label == record['label'] and field == record['property']:
@@ -177,7 +164,8 @@ class GraphDBDataLoader:
             field_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} END" for prop in
                                field_keys]
 
-        list_set_stmts = [f"n.{prop} = apoc.coll.toSet(CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE n.{prop} + rec.{prop} END)" for
+
+        list_set_stmts = [f"n.{prop} = CASE WHEN n.{prop} IS NULL THEN rec.{prop} ELSE apoc.coll.toSet(n.{prop} + rec.{prop}) END" for
                           prop in list_keys]
 
         # set once fields
@@ -187,7 +175,7 @@ class GraphDBDataLoader:
         # update provenance
         provenance_update_stmt = f"n.node_updates = CASE WHEN n.node_creation IS NULL THEN [] ELSE {' + '.join(provenance_updates)} END"
 
-        resolved_id_statment = f"n.resolved_ids = apoc.coll.toSet(CASE WHEN n.resolved_ids IS NULL THEN [rec.entity_resolution] ELSE n.resolved_ids + [rec.entity_resolution] END)"
+        resolved_id_statment = f"n.resolved_ids = CASE WHEN n.resolved_ids IS NULL THEN [rec.entity_resolution] ELSE apoc.coll.toSet(n.resolved_ids + [rec.entity_resolution]) END"
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts, xref_set_stmt, provenance_set_stmt, provenance_update_stmt, resolved_id_statment])
 
@@ -256,14 +244,14 @@ class GraphDBDataLoader:
                                for prop in field_keys]
 
         list_set_stmts = [
-            f"rel.{prop} = apoc.coll.toSet(CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE rel.{prop} + relRecord.{prop} END)"
+            f"rel.{prop} = CASE WHEN rel.{prop} IS NULL THEN relRecord.{prop} ELSE apoc.coll.toSet(rel.{prop} + relRecord.{prop}) END"
             for prop in list_keys]
 
         provenance_set_stmt = f"rel.edge_creation = CASE WHEN rel.edge_creation IS NULL THEN relRecord.provenance ELSE rel.edge_creation END"
 
         provenance_update_stmt = f"rel.edge_updates = CASE WHEN rel.edge_updates IS NULL THEN [] ELSE {' + '.join(provenance_updates)} END"
 
-        resolved_id_statment = f"rel.resolved_ids = apoc.coll.toSet(CASE WHEN rel.resolved_ids IS NULL THEN [relRecord.entity_resolution] ELSE rel.resolved_ids + [relRecord.entity_resolution] END)"
+        resolved_id_statment = f"rel.resolved_ids = CASE WHEN rel.resolved_ids IS NULL THEN [relRecord.entity_resolution] ELSE apoc.coll.toSet(rel.resolved_ids + [relRecord.entity_resolution]) END"
 
         prop_str = ", ".join([*field_set_stmts, *list_set_stmts, provenance_set_stmt, provenance_update_stmt, resolved_id_statment])
 
