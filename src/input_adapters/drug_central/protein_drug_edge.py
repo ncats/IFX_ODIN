@@ -1,4 +1,4 @@
-from typing import List, Generator
+from typing import List, Generator, Dict
 from sqlalchemy.orm import aliased
 
 from src.constants import Prefix, DataSourceName
@@ -42,7 +42,8 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
             .filter(ActTableFull.organism == 'Homo sapiens')).distinct()
 
         query_results = query.all()
-        protein_ligand_rels = []
+        protein_ligand_rels: Dict[str, ProteinLigandRelationship] = {}
+
         for res in query_results:
             end_node=Ligand(id=EquivalentId(res.id, type=Prefix.DrugCentral).id_str())
             activityDetails = ActivityDetails()
@@ -57,12 +58,15 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
             for accession in accessions:
                 start_node=Protein(id=EquivalentId(accession, type=Prefix.UniProtKB).id_str())
 
-                protein_ligand_rels.append(
-                    ProteinLigandRelationship(
+                rel_id = f"{start_node.id}|{end_node.id}"
+                if rel_id in protein_ligand_rels:
+                    protein_ligand_rels[rel_id].details.append(activityDetails)
+                else:
+                    pro_lig_rel = ProteinLigandRelationship(
                         start_node=start_node,
                         end_node=end_node,
-                        details=activityDetails
+                        details=[activityDetails]
                     )
-                )
+                    protein_ligand_rels[rel_id] = pro_lig_rel
 
-        yield protein_ligand_rels
+        yield list(protein_ligand_rels.values())

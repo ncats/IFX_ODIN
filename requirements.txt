@@ -12,14 +12,9 @@ neo4j
 psycopg2
 cwltool
 snakemake
-
 pandas
-openpyxl
-
 GEOparse
-
 graphene
-Flask
 pyyaml
 
-networkx
+mgp

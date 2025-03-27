@@ -9,7 +9,7 @@ from src.models.node import Node, Relationship
 
 
 class InputAdapter(ABC):
-    batch_size = 1000000
+    batch_size = 50000
 
     def get_name(self) -> str:
         return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
@@ -66,7 +66,9 @@ class InputAdapter(ABC):
             for node in nodes:
                 source_id = get_and_delete_old_id(node)
                 node.entity_resolution = f"{self.get_datasource_name()}\t{self.__class__.__name__}\t{ source_id }"
-            yield nodes
+
+            for i in range(0, len(nodes), self.batch_size):
+                yield nodes[i:i + self.batch_size]
 
             for rel in relationships:
                 start_source_id = get_and_delete_old_id(rel.start_node)
@@ -111,7 +113,7 @@ class InputAdapter(ABC):
                             rel_copy.end_node.id = end_node.id
                             return_relationships.append(rel_copy)
 
-                    if len(return_relationships) > 50000:
+                    if len(return_relationships) > self.batch_size:
                         print(f"prepared a batch of {len(return_relationships)} relationship records")
                         yield return_relationships
                         return_relationships = []

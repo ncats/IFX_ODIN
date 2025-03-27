@@ -1,5 +1,5 @@
 from typing import List
-
+import yaml
 from src.core.etl import ETL
 from src.input_adapters.sqlite_ramp._compare_id_sets import MetaboliteSetRelationshipAdapter
 from src.input_adapters.sqlite_ramp.analyte_pathway_relationship_adapter import MetabolitePathwayRelationshipAdapter
@@ -14,6 +14,12 @@ from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
 from src.output_adapters.neo4j_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
+
+credentials_file = "./secrets/ifxdev_pounce_dev.yaml"
+
+with open(credentials_file, "r") as file:
+    credentials = yaml.safe_load(file)
+
 
 
 class build_db_for_comparing_ramp_ids:
@@ -36,9 +42,11 @@ class build_db_for_comparing_ramp_ids:
         self.third_label = third_label
 
         self.output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
-            url = "bolt://ifxdev.ncats.nih.gov:8046",
-            user = "neo4j", password="password"
+            url = credentials['url'],
+            user = credentials['user'],
+            password=credentials['password']
         ))
+
         self.etl = ETL(input_adapters=[], output_adapters=[self.output_adapter])
 
 

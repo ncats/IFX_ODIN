@@ -6,11 +6,12 @@ from src.interfaces.output_adapter import OutputAdapter
 from src.interfaces.simple_enum import NodeLabel, SimpleEnum
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
+from src.models.ligand import ProteinLigandRelationship
 from src.models.node import Relationship, Node
 from src.models.pounce.investigator import InvestigatorRelationship
 
 from src.shared.db_credentials import DBCredentials
-from src.shared.graphdb_data_loader import GraphDBDataLoader, Neo4jDataLoader
+from src.shared.graphdb_data_loader import GraphDBDataLoader, Neo4jDataLoader, MemgraphDataLoader
 
 
 class GraphDBOutputAdapter(OutputAdapter, ABC):
@@ -18,7 +19,7 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
     post_processing: List[str]
 
     def __init__(self, post_processing: List[str] = [], **kwargs):
-        super().__init__(**kwargs)
+        super().__init__()
         self.post_processing = post_processing
 
     def create_or_truncate_datastore(self) -> bool:
@@ -46,6 +47,17 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
                 ret_dict['xref'] = self.loader.remove_none_values_from_list(
                     list(set([x.id_str() for x in obj.xref]))
                 )
+        if isinstance(obj, ProteinLigandRelationship):
+            if hasattr(obj, 'details'):
+                del ret_dict['details']
+                for details_obj in obj.details:
+                    for key, value in vars(details_obj).items():
+                        if value is not None:
+                            if key in ret_dict:
+                                ret_dict[key].append(value)
+                            else:
+                                ret_dict[key] = [value]
+
         if isinstance(obj, Analyte):
             if hasattr(obj, 'synonyms'):
                 ret_dict['synonyms'] = self.loader.remove_none_values_from_list(
@@ -128,12 +140,14 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
             with self.loader.driver.session() as session:
                 session.run(post_process)
 
+
 class MemgraphOutputAdapter(GraphDBOutputAdapter):
-    loader = GraphDBDataLoader
+    loader = MemgraphDataLoader
 
     def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
         super().__init__(post_processing, **kwargs)
-        self.loader = GraphDBDataLoader(credentials, **kwargs)
+        self.loader = MemgraphDataLoader(credentials, **kwargs)
+
 
 class Neo4jOutputAdapter(GraphDBOutputAdapter):
     loader: Neo4jDataLoader
