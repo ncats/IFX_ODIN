@@ -1,17 +1,18 @@
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.shared.db_credentials import DBCredentials
 
 
 class SqlAdapter:
-    engine: Engine
+    connection_string: str
 
     def __init__(self, connection_string):
-        self.engine = create_engine(connection_string)
+        self.connection_string = connection_string
 
     def get_session(self):
-        Session = sessionmaker(bind=self.engine)
+        engine = create_engine(self.connection_string)
+        Session = sessionmaker(bind=engine)
         return Session()
 
 

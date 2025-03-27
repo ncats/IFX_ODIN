@@ -1,8 +1,13 @@
 from typing import List
-
 from neo4j import GraphDatabase
+import yaml
 
-driver = GraphDatabase.driver("bolt://ifxdev.ncats.nih.gov:8046", auth=("neo4j", "password"))
+credentials_file = "../src/use_cases/secrets/ifxdev_pounce_dev.yaml"
+
+with open(credentials_file, "r") as file:
+    credentials = yaml.safe_load(file)
+
+driver = GraphDatabase.driver(credentials['url'], auth=(credentials['user'], credentials['password']))
 
 class Recombination:
     left_nodes: List[dict]

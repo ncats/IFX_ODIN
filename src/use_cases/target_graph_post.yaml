@@ -1,5 +1,5 @@
 #testing: true
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
 
 labeler:
   import: ./src/interfaces/labeler.py
@@ -28,9 +28,9 @@ output_adapters:
     credentials: *source_credentials
     kwargs:
       post_processing:
-        - "MATCH (n:`biolink:Protein`)  
-           WHERE n.tdl IS NOT NULL  
-           CALL apoc.create.addLabels(n, [n.tdl])  
-           YIELD node  
+        - "MATCH (n:`biolink:Protein`)
+           WHERE n.tdl IS NOT NULL
+           CALL apoc.create.addLabels(n, [n.tdl])
+           YIELD node
            RETURN node;
            "

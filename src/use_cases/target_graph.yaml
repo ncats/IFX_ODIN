@@ -1,6 +1,9 @@
 #testing: true
 
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifx_memgraph.yaml
+#source_credentials: &source_credentials ./src/use_cases/secrets/local_memgraph.yaml
+#source_credentials: &source_credentials ./src/use_cases/secrets/local_neo4j.yaml
+
 pchembl_cutoff: &pchembl_cutoff 5
 
 labeler:
@@ -69,11 +72,6 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/transcript_ids.csv
 
-  - import: ./src/input_adapters/target_graph/generif_node.py
-    class: GeneRifNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/generif_9606.csv
-
   - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
     class: GeneTranscriptEdgeAdapter
     kwargs:
@@ -103,6 +101,11 @@ input_adapters:
     class: IsoformProteinEdgeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+
+  - import: ./src/input_adapters/target_graph/generif_node.py
+    class: GeneRifNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
 
   - import: ./src/input_adapters/target_graph/gene_generif_edge.py
     class: GeneGeneRifEdgeAdapter

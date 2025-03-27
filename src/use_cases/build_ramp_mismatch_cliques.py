@@ -1,7 +1,7 @@
 import csv
 import re
 from typing import Generator, List, Union
-
+import yaml
 from src.constants import DataSourceName
 from src.core.etl import ETL
 import os
@@ -12,8 +12,13 @@ from src.models.node import Node, Relationship
 from src.output_adapters.neo4j_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
+credentials_file = "./secrets/ifxdev_pounce_dev.yaml"
+
+with open(credentials_file, "r") as file:
+    credentials = yaml.safe_load(file)
+
 output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
-    url = "bolt://ifxdev.ncats.nih.gov:8046", user = "neo4j", password="password"
+    url = credentials['url'], user = credentials['user'], password=credentials['password']
 ))
 
 

@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict
+from dataclasses import dataclass, field
+from typing import List
 
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
@@ -27,16 +27,10 @@ class ActivityDetails:
     assay_type: str = None
     comment: str = None
 
-    def to_dict(self) -> Dict[str, List[str]]:
-        ret_dict = {}
-        for key, value in asdict(self).items():
-            if value not in [None, '', [], {}]:
-                ret_dict[key] = [value]
-        return ret_dict
 
 @dataclass
 class ProteinLigandRelationship(Relationship):
     start_node: Protein
     end_node: Ligand
     meets_idg_cutoff: bool = None
-    details: ActivityDetails = None
+    details: List[ActivityDetails] = field(default_factory=list)

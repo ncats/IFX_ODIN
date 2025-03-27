@@ -137,25 +137,30 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
     def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
 
-        relationships: List[ProteinLigandRelationship] = []
+        relationship_map: Dict[str, ProteinLigandRelationship] = {}
 
         for row in activity_results:
             compound_id = EquivalentId(id=row.compound_id, type=Prefix.CHEMBL_COMPOUND)
-            lig = Ligand(
-                id=compound_id.id_str()
-            )
-
             uniprot = row.uniprot_id
             if uniprot is not None and len(uniprot) > 0:
                 pro_id = EquivalentId(id=uniprot, type=Prefix.UniProtKB)
             else:
                 target_id = row.target_id
                 pro_id = EquivalentId(id=target_id, type=Prefix.CHEMBL_PROTEIN)
-            pro = Protein(id = pro_id.id_str())
 
-            pro_lig_edge = ProteinLigandRelationship(
-                start_node=pro, end_node=lig
-            )
+            rel_id = f"{compound_id.id_str()}|{pro_id.id_str()}"
+            if rel_id in relationship_map:
+                pro_lig_edge = relationship_map[rel_id]
+            else:
+                lig = Ligand(
+                    id=compound_id.id_str()
+                )
+                pro = Protein(id = pro_id.id_str())
+                pro_lig_edge = ProteinLigandRelationship(
+                    start_node=pro, end_node=lig
+                )
+                relationship_map[rel_id] = pro_lig_edge
+
             activity_details = ActivityDetails(
                 ref_id=row.activity_id,
                 act_value=float(row.pchembl_value),
@@ -165,7 +170,6 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
                 act_pmid=row.pubmed_id,
                 comment=f"Chembl Source ID: {row.src_id}"
             )
-            pro_lig_edge.details = activity_details
-            relationships.append(pro_lig_edge)
+            pro_lig_edge.details.append(activity_details)
 
-        yield relationships
+        yield list(relationship_map.values())
