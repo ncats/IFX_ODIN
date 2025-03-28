@@ -5,9 +5,9 @@ services:
     ports:
       - "8046:7687"
     command: ["--log-level=TRACE"]
+    env_file:
+      - secrets.env
     environment:
-      - MEMGRAPH_USER=neo4j
-      - MEMGRAPH_PASSWORD=password
       - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=4g
       - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=3g
     mem_limit: 4g
@@ -21,11 +21,11 @@ services:
       - "8045:3000"
     depends_on:
       - pounce_dev_memgraph
+    env_file:
+      - secrets.env
     environment:
       - QUICK_CONNECT_MG_HOST=pounce_dev_memgraph
       - QUICK_CONNECT_MG_PORT=7687
-      - QUICK_CONNECT_MG_USER=neo4j
-      - QUICK_CONNECT_MG_PASSWORD=password
 
 volumes:
   pounce_dev_data:
