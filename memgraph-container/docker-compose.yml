@@ -4,9 +4,8 @@ services:
     container_name: memgraph-mage
     ports:
       - "7687:7687"
-    environment:
-      - MEMGRAPH_USER=neo4j
-      - MEMGRAPH_PASSWORD=password
+    env_file:
+      - secrets.env
     volumes:
       - memgraph_data:/var/lib/memgraph
       - ./logs:/var/log/memgraph
@@ -19,11 +18,11 @@ services:
       - "3000:3000"
     depends_on:
       - memgraph
+    env_file:
+      - secrets.env
     environment:
       - QUICK_CONNECT_MG_HOST=memgraph
       - QUICK_CONNECT_MG_PORT=7687
-      - QUICK_CONNECT_MG_USER=neo4j
-      - QUICK_CONNECT_MG_PASSWORD=password
 
 volumes:
   memgraph_data:

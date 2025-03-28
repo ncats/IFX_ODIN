@@ -1,6 +1,7 @@
 input_files
 output_files
 secrets
+secrets.env
 .venv
 .snakemake
 .idea
