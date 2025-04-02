@@ -18,3 +18,5 @@ graphene
 pyyaml
 
 mgp
+python-arango
+gqlalchemy

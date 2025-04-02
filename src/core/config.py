@@ -49,11 +49,6 @@ class Config:
         self.config_dict = self.load_config_from_yaml(yaml_file)
         self.create_resolvers()
 
-    def is_testing(self):
-        if 'testing' in self.config_dict:
-            return self.config_dict['testing']
-        return False
-
     def create_labeler(self):
         if 'labeler' in self.config_dict:
             obj = create_object_from_config(self.config_dict['labeler'])

@@ -1,6 +1,4 @@
-#testing: true
-
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pounce_dev.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pounce_prod.yaml
 
 resolvers:
   - label: cell_line_resolver
@@ -53,6 +51,14 @@ input_adapters:
         - tpm
 
 output_adapters:
-  - import: ./src/output_adapters/pounce_output_adapter.py
+  - import: ./src/output_adapters/neo4j_output_adapter.py
     class: MemgraphOutputAdapter
     credentials: *source_credentials
+    kwargs:
+      post_processing:
+        - "MATCH (s:Sample)-[]-(b:Biospecimen)-[]-(d:Disease)
+                  WITH s, COLLECT(d.id) as diseaseIds
+                  SET s.diseaseIds = diseaseIds;"
+        - "MATCH (s:Sample)-[]->(b:Biospecimen)
+                  WITH s, COLLECT(b.id) AS biospecimenIds
+                  SET s.biospecimenIds = biospecimenIds;"

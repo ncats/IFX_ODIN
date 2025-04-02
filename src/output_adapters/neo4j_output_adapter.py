@@ -124,29 +124,28 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
         if not isinstance(objects, list):
             objects = [objects]
 
-        with self.loader.driver.session() as session:
-            object_groups = self.sort_and_convert_objects(objects)
-            for obj_list, labels, is_relationship, start_labels, end_labels in object_groups.values():
-                if is_relationship:
-                    self.loader.load_relationship_records(session, obj_list, start_labels, labels, end_labels)
-                else:
-                    self.loader.load_node_records(session, obj_list, labels)
+        object_groups = self.sort_and_convert_objects(objects)
+        for obj_list, labels, is_relationship, start_labels, end_labels in object_groups.values():
+            if is_relationship:
+                self.loader.load_relationship_records(obj_list, start_labels, labels, end_labels)
+            else:
+                self.loader.load_node_records(obj_list, labels)
         return True
 
-    def do_post_processing(self) -> None:
-        for post_process in self.post_processing:
-            print('Running post processing step:')
-            print(post_process)
-            with self.loader.driver.session() as session:
-                session.run(post_process)
-
-
 class MemgraphOutputAdapter(GraphDBOutputAdapter):
+
     loader = MemgraphDataLoader
 
     def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
         super().__init__(post_processing, **kwargs)
         self.loader = MemgraphDataLoader(credentials, **kwargs)
+
+
+    def do_post_processing(self) -> None:
+        for post_process in self.post_processing:
+            print('Running post processing step:')
+            print(post_process)
+            self.loader.memgraph.execute(post_process)
 
 
 class Neo4jOutputAdapter(GraphDBOutputAdapter):
@@ -155,3 +154,10 @@ class Neo4jOutputAdapter(GraphDBOutputAdapter):
     def __init__(self, credentials: DBCredentials, post_processing: List[str] = [], **kwargs):
         super().__init__(post_processing, **kwargs)
         self.loader = Neo4jDataLoader(credentials, **kwargs)
+
+    def do_post_processing(self) -> None:
+        for post_process in self.post_processing:
+            print('Running post processing step:')
+            print(post_process)
+            with self.loader.driver.session() as session:
+                session.run(post_process)

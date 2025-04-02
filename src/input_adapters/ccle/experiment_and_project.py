@@ -12,8 +12,11 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node, Relationship, EquivalentId
 from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleFactorRelationship, \
-    Measurement, SampleMeasurementRelationship, MeasurementAnalyteRelationship
+    SampleAnalyteRelationship
 from src.models.pounce.experiment import Experiment
+from src.models.pounce.project import Project
+from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
+
 
 @contextmanager
 def get_reader(file_path: str):
@@ -66,6 +69,13 @@ class CCLEInputAdapter(InputAdapter, ABC):
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         print("parsing ccle data")
         start_time = datetime.now()
+
+        proj_obj = Project(
+            id="CCLE",
+            name="Cancer Cell Line Encyclopedia",
+            description='The Cancer Cell Line Encyclopedia (CCLE) project started in 2008 as a collaboration between the Broad Institute, and the Novartis Institutes for Biomedical Research and its Genomics Institute of the Novartis Research Foundation. The goal is to conduct a detailed genetic and pharmacologic characterization of a large panel of human cancer models, to develop integrated computational analyses that link distinct pharmacologic vulnerabilities to genomic patterns and to translate cell line integrative genomics into cancer patient stratification. Later the MD Anderson and Harvard Medical school joined the project. As of summer of 2018 CCLE continues its efforts as part of the Broad Cancer Dependency Map Project.',
+        )
+
         experiment_obj = Experiment(
             id=self.get_experiment_name(),
             name=self.get_datasource_name().value,
@@ -73,7 +83,11 @@ class CCLEInputAdapter(InputAdapter, ABC):
             description='The Cancer Cell Line Encyclopedia (CCLE) project started in 2008 as a collaboration between the Broad Institute, and the Novartis Institutes for Biomedical Research and its Genomics Institute of the Novartis Research Foundation. The goal is to conduct a detailed genetic and pharmacologic characterization of a large panel of human cancer models, to develop integrated computational analyses that link distinct pharmacologic vulnerabilities to genomic patterns and to translate cell line integrative genomics into cancer patient stratification. Later the MD Anderson and Harvard Medical school joined the project. As of summer of 2018 CCLE continues its efforts as part of the Broad Cancer Dependency Map Project.',
             category="in vitro"
         )
-        yield [experiment_obj]
+
+        proj_exp_edge = ProjectExperimentRelationship(
+            start_node=proj_obj, end_node=experiment_obj
+        )
+        yield [proj_obj, experiment_obj, proj_exp_edge]
 
         sample_dict = get_sample_map(self.data_files[0])
 
@@ -125,18 +139,15 @@ class CCLEInputAdapter(InputAdapter, ABC):
         yield samp_bio_edges
 
         limit = None
-
-        measurement_objs = []
-        samp_meas_edges = []
-        meas_gene_edges = []
+        samp_gene_edges = []
 
         for index, file_path in enumerate(self.data_files):
             field_name = self.field_names[index]
-            index = 0
+            count = 0
             with get_reader(file_path) as reader:
                 for row in reader:
-                    index += 1
-                    if limit is not None and index > limit:
+                    count += 1
+                    if limit is not None and count > limit:
                         continue
 
                     if 'Name' in row:
@@ -144,43 +155,26 @@ class CCLEInputAdapter(InputAdapter, ABC):
                     else:
                         gene_id = row['gene_id'].split('.')[0]
 
+                    gene_obj = Gene(
+                        id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
+                    )
+
                     for sample, sample_obj in sample_dict.items():
                         measurement_value = float(row[sample])
                         if measurement_value == 0:
                             continue
 
-                        measurement_id = f"{sample_obj.id}-{gene_id}"
-                        measurement_obj = Measurement(
-                            id=measurement_id
-                        )
-                        measurement_objs.append(measurement_obj)
-
-                        samp_meas_edge = SampleMeasurementRelationship(
+                        samp_gene_edge = SampleAnalyteRelationship(
                             start_node=sample_obj,
-                            end_node=measurement_obj
+                            end_node=gene_obj
                         )
-                        samp_meas_edges.append(samp_meas_edge)
+                        samp_gene_edges.append(samp_gene_edge)
+                        samp_gene_edge.__setattr__(field_name, measurement_value)
 
-                        gene_meas_edge = MeasurementAnalyteRelationship(
-                            start_node=measurement_obj,
-                            end_node=Gene(
-                                id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
-                            )
-                        )
-                        meas_gene_edges.append(gene_meas_edge)
-
-                        measurement_obj.__setattr__(field_name, measurement_value)
-
-                    if len(measurement_objs) > self.batch_size:
-                        yield measurement_objs
-                        yield samp_meas_edges
-                        yield meas_gene_edges
-                        measurement_objs = []
-                        samp_meas_edges = []
-                        meas_gene_edges = []
+                    if len(samp_gene_edges) > self.batch_size:
+                        yield samp_gene_edges
+                        samp_gene_edges = []
 
         end_time = datetime.now()
         print(f"parsing ccle data took:{end_time - start_time}s")
-        yield measurement_objs
-        yield samp_meas_edges
-        yield meas_gene_edges
+        yield samp_gene_edges

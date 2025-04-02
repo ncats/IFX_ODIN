@@ -5,17 +5,13 @@ from src.models.disease import Disease
 from src.models.node import Node, Relationship
 from src.models.pounce.experiment import Experiment
 
+
 @dataclass
 class Sample(Node):
     name: str = None
     description: str = None
     type: str = None
     replicate: int = None
-
-@dataclass
-class Measurement(Node):
-    count: int = None
-    tpm: float = None
 
 @dataclass
 class Compound(Node):
@@ -25,15 +21,11 @@ class Compound(Node):
     inchi: str = None
 
 @dataclass
-class SampleMeasurementRelationship(Relationship):
+class SampleAnalyteRelationship(Relationship):
     start_node: Sample
-    end_node: Measurement
-
-@dataclass
-class MeasurementAnalyteRelationship(Relationship):
-    start_node: Measurement
     end_node: Node
-
+    count: int = None
+    tpm: float = None
 
 @dataclass
 class Factor(Node):

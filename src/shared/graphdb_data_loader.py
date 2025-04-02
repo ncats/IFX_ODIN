@@ -1,9 +1,11 @@
 import ast
 import numbers
 import time
+from abc import ABC, abstractmethod
 from typing import List, Union
 
 from neo4j import Driver, GraphDatabase, Session
+from gqlalchemy import Memgraph
 
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel, SimpleEnum
 from src.shared.db_credentials import DBCredentials
@@ -14,55 +16,22 @@ class FieldConflictBehavior(SimpleEnum):
     KeepLast = "KeepLast"
 
 
-class GraphDBDataLoader:
+class GraphDBDataLoader(ABC):
     base_path: str
-    driver: Driver
     field_conflict_behavior: FieldConflictBehavior
 
-    def __init__(self, credentials: DBCredentials, base_path: str = None, field_conflict_behavior:
-                 FieldConflictBehavior = FieldConflictBehavior.KeepLast):
+    def __init__(self, base_path: str = None, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = FieldConflictBehavior.parse(field_conflict_behavior)
         self.base_path = base_path
-        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
-                                           encrypted=False)
 
+
+    @abstractmethod
     def delete_all_data_and_indexes(self) -> bool:
-        node_batch_size = 25000
-        relationship_batch_size = 4 * node_batch_size
-        with self.driver.session() as session:
-            print("deleting relationships")
-            result = session.run("Match ()-[r]-() RETURN count(r) as total")
-            total = result.single()['total']
-            while total > 0:
-                session.run(f"MATCH ()-[r]-() WITH r limit {relationship_batch_size} DELETE r")
-                result = session.run("Match ()-[r]-() RETURN count(r) as total")
-                total = result.single()['total']
-                print(f"{total} relationships remaining")
+        pass
 
-            print("deleting nodes")
-            result = session.run("MATCH (n) RETURN count(n) as total")
-            total = result.single()["total"]
-
-            while total > 0:
-                session.run(f"MATCH (n) WITH n LIMIT {node_batch_size} DETACH DELETE n")
-                result = session.run("MATCH (n) RETURN count(n) as total")
-                total = result.single()["total"]
-                print(f"{total} nodes remaining")
-
-            self.delete_constraints_and_stuff(session)
-        return True
-
-    def delete_constraints_and_stuff(self, session):
-        print("deleting constraints and stuff")
-
-        indexes = session.run("SHOW INDEX INFO;")
-
-        # Step 2: Drop each index
-        for record in indexes:
-            label = record["label"]
-            prop = record["property"]
-            session.run(f"DROP INDEX ON :`{label}`(`{prop}`)")
-
+    @abstractmethod
+    def load_to_graph(self, query, records, batch_size=1):
+        pass
 
     def get_list_type(self, list):
         for item in list:
@@ -96,21 +65,11 @@ class GraphDBDataLoader:
         except (ValueError, SyntaxError):
             return str(value)
 
-    def index_exists(self, session: Session, label: str, field: str) -> bool:
-        indexes = session.run("SHOW INDEX INFO;")
-        for record in indexes:
-            if label == record['label'] and field == record['property']:
-                return True
-        return False
 
-    def create_index(self, session: Session, label: str, field: str):
-        print(f'creating index {label}: {field}')
-        session.run(f"CREATE INDEX ON :`{label}`({field})")
 
-    def add_index(self, session: Session, label: NodeLabel, field: str):
-        label_str = label.value if hasattr(label, 'value') else label
-        if not self.index_exists(session, label_str, field):
-            self.create_index(session, label_str, field)
+    @abstractmethod
+    def add_index(self, label: NodeLabel, field: str):
+        pass
 
     def ensure_list(self, possible_list):
         if not isinstance(possible_list, list):
@@ -266,21 +225,21 @@ class GraphDBDataLoader:
             """
         return query
 
-    def load_node_records(self, session: Session, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
+    def load_node_records(self, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
         start_time = time.time()
         labels = self.ensure_list(labels)
         for label in labels:
-            self.add_index(session, label, 'id')
+            self.add_index(label, 'id')
         query = self.generate_node_insert_query(records, labels)
         print(records[0])
         print(query)
 
-        load_to_graph(session, query, records)
+        self.load_to_graph(query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
 
-    def load_relationship_records(self, session: Session, records: List[dict], start_labels: List[NodeLabel],
+    def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
                                   end_labels: List[NodeLabel]):
         start_time = time.time()
@@ -288,7 +247,7 @@ class GraphDBDataLoader:
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(records[0])
         print(query)
-        load_to_graph(session, query, records)
+        self.load_to_graph(query, records)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
@@ -303,27 +262,153 @@ def batch(iterable, batch_size):
             print(f"running: {ndx + 1}-{min(ndx + batch_size, l)} of {l}")
         yield iterable[ndx:min(ndx + batch_size, l)]
 
-def load_to_graph(session, query, records, batch_size=50050):
-    for record_batch in batch(records, batch_size):
-        retries = 3
-        while retries > 0:
-            try:
-                res = session.run(query, records=record_batch)
-                res.consume()
-                break
-            except Exception as e:
-                print(record_batch[0])
-                print(f"Error: {e}, retrying...")
-                retries -= 1
-                if retries == 0:
-                    raise
-                time.sleep(1)  # Add a delay before retrying
-
 class MemgraphDataLoader(GraphDBDataLoader):
-    pass
 
+    memgraph: Memgraph
+
+    def __init__(self, credentials: DBCredentials, **kwargs):
+        GraphDBDataLoader.__init__(self, **kwargs)
+        self.memgraph = Memgraph(credentials.url, credentials.port, credentials.user, credentials.password)
+
+    def index_exists(self, label: str, field: str) -> bool:
+        indexes = self.memgraph.execute_and_fetch("SHOW INDEX INFO;")
+        for record in indexes:
+            if label == record['label'] and field == record['property']:
+                return True
+        return False
+
+    def create_index(self, label: str, field: str):
+        print(f'creating index {label}: {field}')
+        self.memgraph.execute(f"CREATE INDEX ON :`{label}`(`{field}`)")
+
+    def add_index(self, label: NodeLabel, field: str):
+        label_str = label.value if hasattr(label, 'value') else label
+        if not self.index_exists(label_str, field):
+            self.create_index(label_str, field)
+
+    def load_to_graph(self, query, records, batch_size=50050):
+        for record_batch in batch(records, batch_size):
+            retries = 3
+            while retries > 0:
+                try:
+                    self.memgraph.execute(query, {'records': record_batch})
+                    break
+                except Exception as e:
+                    print(record_batch[0])
+                    print(f"Error: {e}, retrying...")
+                    retries -= 1
+                    if retries == 0:
+                        raise
+                    time.sleep(1)  # Add a delay before retrying
+
+    def delete_all_data_and_indexes(self) -> bool:
+        node_batch_size = 25000
+        relationship_batch_size = 4 * node_batch_size
+        print("deleting relationships")
+        result = self.memgraph.execute_and_fetch("Match ()-[r]-() RETURN count(r) as total")
+        total = next(result, {}).get("total", 0)
+        while total > 0:
+            self.memgraph.execute(f"MATCH ()-[r]-() WITH r limit {relationship_batch_size} DELETE r")
+
+            result = self.memgraph.execute_and_fetch("Match ()-[r]-() RETURN count(r) as total")
+            total = next(result, {}).get("total", 0)
+            print(f"{total} relationships remaining")
+
+        print("deleting nodes")
+
+        result = self.memgraph.execute_and_fetch("MATCH (n) RETURN count(n) as total")
+        total = next(result, {}).get("total", 0)
+
+        while total > 0:
+            self.memgraph.execute(f"MATCH (n) WITH n LIMIT {node_batch_size} DETACH DELETE n")
+            result = self.memgraph.execute_and_fetch("MATCH (n) RETURN count(n) as total")
+            total = next(result, {}).get("total", 0)
+            print(f"{total} nodes remaining")
+
+        self.delete_constraints_and_stuff()
+        return True
+
+    def delete_constraints_and_stuff(self):
+        print("deleting constraints and stuff")
+
+        indexes = self.memgraph.execute_and_fetch("SHOW INDEX INFO;")
+
+        # Step 2: Drop each index
+        for record in indexes:
+            label = record["label"]
+            prop = record["property"]
+            self.memgraph.execute(f"DROP INDEX ON :`{label}`(`{prop}`)")
 
 class Neo4jDataLoader(GraphDBDataLoader):
+
+    driver: Driver
+
+    def __init__(self, credentials: DBCredentials, **kwargs):
+        GraphDBDataLoader.__init__(self, **kwargs)
+        self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
+                                               encrypted=False)
+
+    def index_exists(self, session: Session, label: str, field: str) -> bool:
+        indexes = session.run("SHOW INDEX INFO;")
+        for record in indexes:
+            if label == record['label'] and field == record['property']:
+                return True
+        return False
+
+    def create_index(self, session: Session, label: str, field: str):
+        print(f'creating index {label}: {field}')
+        session.run(f"CREATE INDEX ON :`{label}`({field})")
+
+
+    def add_index(self, label: NodeLabel, field: str):
+        label_str = label.value if hasattr(label, 'value') else label
+
+        with self.driver.session() as session:
+            if not self.index_exists(session, label_str, field):
+                self.create_index(session, label_str, field)
+
+    def load_to_graph(self, query, records, batch_size=50050):
+        with self.driver.session() as session:
+            for record_batch in batch(records, batch_size):
+                retries = 3
+                while retries > 0:
+                    try:
+                        res = session.run(query, records=record_batch)
+                        res.consume()
+                        break
+                    except Exception as e:
+                        print(record_batch[0])
+                        print(f"Error: {e}, retrying...")
+                        retries -= 1
+                        if retries == 0:
+                            raise
+                        time.sleep(1)  # Add a delay before retrying
+
+    def delete_all_data_and_indexes(self) -> bool:
+        node_batch_size = 25000
+        relationship_batch_size = 4 * node_batch_size
+        with self.driver.session() as session:
+            print("deleting relationships")
+            result = session.run("Match ()-[r]-() RETURN count(r) as total")
+            total = result.single()['total']
+            while total > 0:
+                session.run(f"MATCH ()-[r]-() WITH r limit {relationship_batch_size} DELETE r")
+                result = session.run("Match ()-[r]-() RETURN count(r) as total")
+                total = result.single()['total']
+                print(f"{total} relationships remaining")
+
+            print("deleting nodes")
+            result = session.run("MATCH (n) RETURN count(n) as total")
+            total = result.single()["total"]
+
+            while total > 0:
+                session.run(f"MATCH (n) WITH n LIMIT {node_batch_size} DETACH DELETE n")
+                result = session.run("MATCH (n) RETURN count(n) as total")
+                total = result.single()["total"]
+                print(f"{total} nodes remaining")
+
+            self.delete_constraints_and_stuff(session)
+        return True
 
     def delete_constraints_and_stuff(self, session):
         print("deleting constraints and stuff")
@@ -349,3 +434,5 @@ class Neo4jDataLoader(GraphDBDataLoader):
     def create_index(self, session: Session, label: str, field: str):
         index_name = self._get_index_name(label, field)
         session.run(f"CREATE INDEX {index_name} FOR (n:`{label}`) ON (n.{field})")
+
+
