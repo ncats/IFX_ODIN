@@ -29,6 +29,6 @@ class BuildGraphFromYaml:
         self.etl.create_or_truncate_datastores()
 
     def do_etl(self):
-        self.etl.do_etl(testing = self.configuration.is_testing())
+        self.etl.do_etl()
 
 

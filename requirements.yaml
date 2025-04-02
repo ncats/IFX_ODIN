@@ -23,3 +23,5 @@ dependencies:
   - cwltool
   - snakemake
   - mgp
+  - python-arango
+  - gqlalchemy

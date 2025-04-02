@@ -26,14 +26,12 @@ class ETL:
             if not output_adapter.create_or_truncate_datastore():
                 raise Exception("operation cancelled")
 
-    def do_etl(self, testing = False):
+    def do_etl(self):
         total_start_time = time.time()
         for input_adapter in self.input_adapters:
             print(f"Running: {input_adapter.get_name()}")
 
             for resolved_list in input_adapter.get_resolved_and_provenanced_list(resolver_map = self.resolver_map):
-                if testing:
-                    resolved_list = resolved_list[0:20000]
 
                 for output_adapter in self.output_adapters:
                     resolved_list = output_adapter.preprocess_objects(resolved_list)

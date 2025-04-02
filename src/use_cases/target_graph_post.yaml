@@ -1,4 +1,3 @@
-#testing: true
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
 
 labeler:
