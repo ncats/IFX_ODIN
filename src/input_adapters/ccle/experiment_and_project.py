@@ -161,8 +161,8 @@ class CCLEInputAdapter(InputAdapter, ABC):
 
                     for sample, sample_obj in sample_dict.items():
                         measurement_value = float(row[sample])
-                        if measurement_value == 0:
-                            continue
+                        # if measurement_value == 0:
+                        #     continue
 
                         samp_gene_edge = SampleAnalyteRelationship(
                             start_node=sample_obj,

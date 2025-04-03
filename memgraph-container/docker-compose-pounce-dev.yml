@@ -5,12 +5,14 @@ services:
     ports:
       - "8046:7687"
     command: ["--log-level=TRACE"]
+    sysctls:
+      - vm.max_map_count=262144
     env_file:
       - secrets.env
     environment:
-      - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=4g
-      - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=3g
-    mem_limit: 4g
+      - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=16g
+      - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=32g
+    mem_limit: 48g
     volumes:
       - pounce_dev_data:/var/lib/memgraph
 
