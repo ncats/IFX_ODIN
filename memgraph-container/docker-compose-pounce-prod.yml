@@ -5,8 +5,6 @@ services:
     ports:
       - "8048:7687"
     command: ["--log-level=TRACE"]
-    sysctls:
-      - vm.max_map_count=262144
     env_file:
       - secrets.env
     environment:
