@@ -7,22 +7,17 @@ from typing import List, Union
 from neo4j import Driver, GraphDatabase, Session
 from gqlalchemy import Memgraph
 
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel, SimpleEnum
+from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.shared.db_credentials import DBCredentials
-
-
-class FieldConflictBehavior(SimpleEnum):
-    KeepFirst = "KeepFirst"
-    KeepLast = "KeepLast"
-
+from src.shared.record_merger import FieldConflictBehavior, RecordMerger
 
 class GraphDBDataLoader(ABC):
     base_path: str
-    field_conflict_behavior: FieldConflictBehavior
+    merger: RecordMerger
 
     def __init__(self, base_path: str = None, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast):
-        self.field_conflict_behavior = FieldConflictBehavior.parse(field_conflict_behavior)
         self.base_path = base_path
+        self.merger = RecordMerger(field_conflict_behavior=field_conflict_behavior)
 
 
     @abstractmethod
@@ -76,29 +71,18 @@ class GraphDBDataLoader(ABC):
             return [possible_list]
         return possible_list
 
-    def get_example_record(self, records: List[dict]):
-        example_record = {}
-        for rec in records:
-            for k, v in rec.items():
-                if k not in example_record:
-                    if v is None:
-                        continue
-                    if isinstance(v, list) and len(v) == 0:
-                        continue
-                    example_record[k] = v
-        return example_record
 
     def generate_node_insert_query(self,
                                    records: List[dict],
                                    labels: [NodeLabel]):
 
-        example_record = self.get_example_record(records)
+        example_record = self.merger.get_example_record(records)
 
         conjugate_label_str = self.get_conjugate_label_str(labels)
 
-        field_keys, list_keys = self.parse_list_and_field_keys(example_record)
+        field_keys, list_keys = self.merger.parse_list_and_field_keys(example_record)
 
-        if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
+        if self.merger.field_conflict_behavior == FieldConflictBehavior.KeepLast:
             field_set_stmts = [f"graph_node.{prop} = COALESCE(new_entry.{prop}, graph_node.{prop})"
                     for prop in field_keys]
         else:
@@ -150,25 +134,6 @@ class GraphDBDataLoader(ABC):
                         {xref_set_stmt}"""
         return query
 
-    def parse_list_and_field_keys(self, example_record):
-        forbidden_keys = ['id', 'start_id', 'end_id', 'labels']
-        list_keys = []
-        field_keys = []
-
-        special_handling_fields = ['xref', 'provenance', 'entity_resolution']
-
-        for prop in example_record.keys():
-            if prop in special_handling_fields:
-                continue
-            if prop in forbidden_keys:
-                continue
-            if isinstance(example_record[prop], list):
-                list_keys.append(prop)
-            else:
-                field_keys.append(prop)
-
-        return field_keys, list_keys
-
     def get_conjugate_label_str(self, labels):
         labels = self.ensure_list(labels)
         lables_str = [l.value if hasattr(l, 'value') else l for l in labels]
@@ -180,23 +145,23 @@ class GraphDBDataLoader(ABC):
                                            rel_labels: List[RelationshipLabel],
                                            end_labels: List[NodeLabel]
                                            ):
-        example_record = self.get_example_record(records)
+        example_record = self.merger.get_example_record(records)
 
         conjugate_start_label_str = self.get_conjugate_label_str(start_labels)
         conjugate_label_str = self.get_conjugate_label_str(rel_labels)
         conjugate_end_label_str = self.get_conjugate_label_str(end_labels)
 
-        field_keys, list_keys = self.parse_list_and_field_keys(example_record)
+        field_keys, list_keys = self.merger.parse_list_and_field_keys(example_record)
 
         provenance_updates = ['COALESCE(rel.edge_updates, [])']
 
         provenance_updates.extend([
             f"CASE WHEN relRecord.{prop} IS NOT NULL AND (rel.{prop} IS NULL OR relRecord.{prop} <> rel.{prop}) "
-            f"THEN ['{prop}\t' + COALESCE(rel.{prop}, 'NULL') + '\t' + relRecord.{prop} + '\t' + relRecord.provenance + '\t{self.field_conflict_behavior.value}'] ELSE [] END"
+            f"THEN ['{prop}\t' + COALESCE(rel.{prop}, 'NULL') + '\t' + relRecord.{prop} + '\t' + relRecord.provenance + '\t{self.merger.field_conflict_behavior.value}'] ELSE [] END"
             for prop in field_keys
         ])
 
-        if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
+        if self.merger.field_conflict_behavior == FieldConflictBehavior.KeepLast:
             field_set_stmts = [
                 f"rel.{prop} = CASE WHEN relRecord.{prop} IS NULL THEN rel.{prop} ELSE relRecord.{prop} END" for prop in
                 field_keys]
@@ -226,7 +191,6 @@ class GraphDBDataLoader(ABC):
         return query
 
     def load_node_records(self, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
-        start_time = time.time()
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -235,22 +199,15 @@ class GraphDBDataLoader(ABC):
         print(query)
 
         self.load_to_graph(query, records)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} nodes")
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
                                   end_labels: List[NodeLabel]):
-        start_time = time.time()
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(records[0])
         print(query)
         self.load_to_graph(query, records)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {len(records)} relationships")
 
 
 def batch(iterable, batch_size):
@@ -285,6 +242,66 @@ class MemgraphDataLoader(GraphDBDataLoader):
         label_str = label.value if hasattr(label, 'value') else label
         if not self.index_exists(label_str, field):
             self.create_index(label_str, field)
+
+
+    def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
+                                  rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
+                                  end_labels: List[NodeLabel]):
+        rel_labels = self.ensure_list(rel_labels)
+
+        conjugate_start_label_str = self.get_conjugate_label_str(start_labels)
+        conjugate_label_str = self.get_conjugate_label_str(rel_labels)
+        conjugate_end_label_str = self.get_conjugate_label_str(end_labels)
+
+        unique_pairs = [[record['start_id'], record['end_id']] for record in records]
+
+        edges = self.memgraph.execute_and_fetch(f"""
+        UNWIND $unique_pairs AS pair
+            MATCH (source:`{conjugate_start_label_str}` {{id: pair[0]}})-[r:`{conjugate_label_str}`]->(target:`{conjugate_end_label_str}` {{id: pair[1]}})
+            RETURN r""", {'unique_pairs': list(unique_pairs)})
+
+        existing_edge_map = {(record['r'].start_id, record['r'].end_id): dict(record['r']) for record in edges}
+
+        records = self.merger.merge_records(records, existing_edge_map, 'edges')
+
+        query = f"""UNWIND $records as new_entry
+        MATCH (source:`{conjugate_start_label_str}` {{id: new_entry.start_id}})
+        MATCH (target:`{conjugate_end_label_str}` {{id: new_entry.end_id}})
+        MERGE (source)-[rel:`{conjugate_label_str}`]->(target)
+        SET rel += new_entry
+        RETURN rel"""
+
+        print(records[0])
+        print(query)
+
+        self.load_to_graph(query, records)
+
+    def load_node_records(self, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
+        labels = self.ensure_list(labels)
+        for label in labels:
+            self.add_index(label, 'id')
+
+        conjugate_label_str = self.get_conjugate_label_str(labels)
+
+        ids = [record['id'] for record in records]
+        ids = list(set(ids))
+
+        nodes = self.memgraph.execute_and_fetch(f"""
+        UNWIND $ids AS id
+            MATCH (n:`{conjugate_label_str}` {{id: id}})
+            RETURN n""", {'ids': ids})
+        existing_node_map = {record['n'].id: dict(record['n']) for record in nodes}
+
+        records = self.merger.merge_records(records, existing_node_map, 'nodes')
+
+        query = f"""UNWIND $records as new_entry
+        MERGE (n:`{conjugate_label_str}` {{id: new_entry.id}})
+        SET n += new_entry
+        RETURN n"""
+        print(records[0])
+        print(query)
+
+        self.load_to_graph(query, records)
 
     def load_to_graph(self, query, records, batch_size=50050):
         for record_batch in batch(records, batch_size):
@@ -347,18 +364,6 @@ class Neo4jDataLoader(GraphDBDataLoader):
         GraphDBDataLoader.__init__(self, **kwargs)
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
                                                encrypted=False)
-
-    def index_exists(self, session: Session, label: str, field: str) -> bool:
-        indexes = session.run("SHOW INDEX INFO;")
-        for record in indexes:
-            if label == record['label'] and field == record['property']:
-                return True
-        return False
-
-    def create_index(self, session: Session, label: str, field: str):
-        print(f'creating index {label}: {field}')
-        session.run(f"CREATE INDEX ON :`{label}`({field})")
-
 
     def add_index(self, label: NodeLabel, field: str):
         label_str = label.value if hasattr(label, 'value') else label

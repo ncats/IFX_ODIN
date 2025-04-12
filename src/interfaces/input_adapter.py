@@ -113,7 +113,7 @@ class InputAdapter(ABC):
                             rel_copy.end_node.id = end_node.id
                             return_relationships.append(rel_copy)
 
-                    if len(return_relationships) > self.batch_size:
+                    if len(return_relationships) >= self.batch_size:
                         print(f"prepared a batch of {len(return_relationships)} relationship records")
                         yield return_relationships
                         return_relationships = []

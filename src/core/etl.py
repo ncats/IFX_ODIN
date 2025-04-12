@@ -29,14 +29,19 @@ class ETL:
     def do_etl(self):
         total_start_time = time.time()
         for input_adapter in self.input_adapters:
+            start_time = time.time()
             print(f"Running: {input_adapter.get_name()}")
-
+            count = 0
             for resolved_list in input_adapter.get_resolved_and_provenanced_list(resolver_map = self.resolver_map):
-
+                count += len(resolved_list)
                 for output_adapter in self.output_adapters:
                     resolved_list = output_adapter.preprocess_objects(resolved_list)
                     self.labeler.assign_all_labels(resolved_list)
                     output_adapter.store(resolved_list)
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {count} records")
 
         for output_adapter in self.output_adapters:
             output_adapter.do_post_processing()

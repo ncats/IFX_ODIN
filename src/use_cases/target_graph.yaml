@@ -45,84 +45,84 @@ resolvers:
 
 
 input_adapters:
-#  - import: ./src/input_adapters/go/go_term.py
-#    class: GOTermAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/go/go-basic.json
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: ProteinNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/protein_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: ProteinNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/gene_node.py
-#    class: GeneNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/gene_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/transcript_node.py
-#    class: TranscriptNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/transcript_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
-#    class: GeneTranscriptEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/transcript_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: TranscriptProteinEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/protein_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: TranscriptProteinEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: GeneProteinEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/protein_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: GeneProteinEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: IsoformProteinEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-#
-#  - import: ./src/input_adapters/target_graph/generif_node.py
-#    class: GeneRifNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/generif_9606.csv
-#
-#  - import: ./src/input_adapters/target_graph/gene_generif_edge.py
-#    class: GeneGeneRifEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/generif_9606.csv
-#
-#  - import: ./src/input_adapters/drug_central/drug_node.py
-#    class: DrugNodeAdapter
-#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-#
-#  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
-#    class: ProteinDrugEdgeAdapter
-#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-#
-#  - import: ./src/input_adapters/chembl/drug_node.py
-#    class: DrugNodeAdapter
-#    kwargs:
-#      pchembl_cutoff: *pchembl_cutoff
-#    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
+  - import: ./src/input_adapters/go/go_term.py
+    class: GOTermAdapter
+    kwargs:
+      file_path: ./input_files/auto/go/go-basic.json
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+
+  - import: ./src/input_adapters/target_graph/gene_node.py
+    class: GeneNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/gene_ids.csv
+
+  - import: ./src/input_adapters/target_graph/transcript_node.py
+    class: TranscriptNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+
+  - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
+    class: GeneTranscriptEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: TranscriptProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: TranscriptProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: GeneProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: GeneProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: IsoformProteinEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+
+  - import: ./src/input_adapters/target_graph/generif_node.py
+    class: GeneRifNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
+
+  - import: ./src/input_adapters/target_graph/gene_generif_edge.py
+    class: GeneGeneRifEdgeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
+
+  - import: ./src/input_adapters/drug_central/drug_node.py
+    class: DrugNodeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+
+  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
+    class: ProteinDrugEdgeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+
+  - import: ./src/input_adapters/chembl/drug_node.py
+    class: DrugNodeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: ProteinDrugEdgeAdapter
