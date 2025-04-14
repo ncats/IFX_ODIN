@@ -8,9 +8,9 @@ services:
     env_file:
       - secrets.env
     environment:
-      - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=4g
-      - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=3g
-    mem_limit: 4g
+      - MEMGRAPH_DBMS_MEMORY_HEAP_SIZE=12g
+      - MEMGRAPH_DBMS_MEMORY_PAGECACHE_SIZE=9g
+    mem_limit: 21g
     volumes:
       - pharos_prod_data:/var/lib/memgraph
 
