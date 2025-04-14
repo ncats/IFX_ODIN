@@ -110,6 +110,18 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/generif_9606.csv
 
+  - import: ./src/input_adapters/chembl/drug_node.py
+    class: DrugNodeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
+
+  - import: ./src/input_adapters/chembl/drug_node.py
+    class: ProteinDrugEdgeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
+
   - import: ./src/input_adapters/drug_central/drug_node.py
     class: DrugNodeAdapter
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
@@ -117,18 +129,6 @@ input_adapters:
   - import: ./src/input_adapters/drug_central/protein_drug_edge.py
     class: ProteinDrugEdgeAdapter
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-
-  - import: ./src/input_adapters/chembl/drug_node.py
-    class: DrugNodeAdapter
-    kwargs:
-      pchembl_cutoff: *pchembl_cutoff
-    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
-
-  - import: ./src/input_adapters/chembl/drug_node.py
-    class: ProteinDrugEdgeAdapter
-    kwargs:
-      pchembl_cutoff: *pchembl_cutoff
-    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
