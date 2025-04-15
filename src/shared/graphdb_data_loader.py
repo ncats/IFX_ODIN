@@ -258,9 +258,9 @@ class MemgraphDataLoader(GraphDBDataLoader):
         edges = self.memgraph.execute_and_fetch(f"""
         UNWIND $unique_pairs AS pair
             MATCH (source:`{conjugate_start_label_str}` {{id: pair[0]}})-[r:`{conjugate_label_str}`]->(target:`{conjugate_end_label_str}` {{id: pair[1]}})
-            RETURN r""", {'unique_pairs': list(unique_pairs)})
+            RETURN properties(r) as props""", {'unique_pairs': list(unique_pairs)})
 
-        existing_edge_map = {(record['r'].start_id, record['r'].end_id): dict(record['r']) for record in edges}
+        existing_edge_map = {(record['props']['start_id'], record['props']['end_id']): record['props'] for record in edges}
 
         records = self.merger.merge_records(records, existing_edge_map, 'edges')
 
@@ -268,7 +268,7 @@ class MemgraphDataLoader(GraphDBDataLoader):
         MATCH (source:`{conjugate_start_label_str}` {{id: new_entry.start_id}})
         MATCH (target:`{conjugate_end_label_str}` {{id: new_entry.end_id}})
         MERGE (source)-[rel:`{conjugate_label_str}`]->(target)
-        SET rel += new_entry
+        SET rel = new_entry
         RETURN rel"""
 
         print(records[0])
@@ -289,14 +289,14 @@ class MemgraphDataLoader(GraphDBDataLoader):
         nodes = self.memgraph.execute_and_fetch(f"""
         UNWIND $ids AS id
             MATCH (n:`{conjugate_label_str}` {{id: id}})
-            RETURN n""", {'ids': ids})
-        existing_node_map = {record['n'].id: dict(record['n']) for record in nodes}
+            RETURN properties(n) as props""", {'ids': ids})
+        existing_node_map = {record['props']['id']: record['props'] for record in nodes}
 
         records = self.merger.merge_records(records, existing_node_map, 'nodes')
 
         query = f"""UNWIND $records as new_entry
         MERGE (n:`{conjugate_label_str}` {{id: new_entry.id}})
-        SET n += new_entry
+        SET n = new_entry
         RETURN n"""
         print(records[0])
         print(query)
