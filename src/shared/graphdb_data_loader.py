@@ -262,12 +262,18 @@ class MemgraphDataLoader(GraphDBDataLoader):
 
         existing_edge_map = {(record['props']['start_id'], record['props']['end_id']): record['props'] for record in edges}
 
+        if len(existing_edge_map) > 0:
+            self.memgrxece(f"""
+            UNWIND $unique_pairs AS pair
+                MATCH (source:`{conjugate_start_label_str}` {{id: pair[0]}})-[r:`{conjugate_label_str}`]->(target:`{conjugate_end_label_str}` {{id: pair[1]}})
+                DELETE r""", {'unique_pairs': list(unique_pairs)})
+
         records = self.merger.merge_records(records, existing_edge_map, 'edges')
 
         query = f"""UNWIND $records as new_entry
         MATCH (source:`{conjugate_start_label_str}` {{id: new_entry.start_id}})
         MATCH (target:`{conjugate_end_label_str}` {{id: new_entry.end_id}})
-        MERGE (source)-[rel:`{conjugate_label_str}`]->(target)
+        CREATE (source)-[rel:`{conjugate_label_str}`]->(target)
         SET rel = new_entry
         RETURN rel"""
 

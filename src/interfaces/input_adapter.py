@@ -9,7 +9,7 @@ from src.models.node import Node, Relationship
 
 
 class InputAdapter(ABC):
-    batch_size = 50000
+    batch_size = 10000
 
     def get_name(self) -> str:
         return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
