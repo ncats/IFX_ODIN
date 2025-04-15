@@ -37,10 +37,6 @@ class RecordMerger:
         for rec in records:
             for k, v in rec.items():
                 if k not in example_record:
-                    if v is None:
-                        continue
-                    if isinstance(v, list) and len(v) == 0:
-                        continue
                     example_record[k] = v
         return example_record
 
@@ -58,9 +54,6 @@ class RecordMerger:
         example_record = self.get_example_record(records)
         field_keys, list_keys = self.parse_list_and_field_keys(example_record)
 
-        pre_existing_nodes = list(merged_record_map.keys())
-        example_keys = list(example_record.keys())
-
         for record in records:
             if key_func(record) not in merged_record_map:
                 record['creation'] = record['provenance']
@@ -68,10 +61,14 @@ class RecordMerger:
                 record['resolved_ids'] = [record['entity_resolution']]
                 del record['entity_resolution']
 
-                for prop in record.keys():
+                reckeys = list(record.keys())
+                for prop in reckeys:
+                    if prop in field_keys:
+                        if record[prop] is None:
+                            del record[prop]
                     if prop in list_keys:
-                        if record[prop] is not None and (isinstance(record[prop], list) and len(record[prop]) > 0):
-                            record[prop] = list(set(record[prop]))
+                        if isinstance(record[prop], list) and len(record[prop]) == 0:
+                            del record[prop]
                 merged_record_map[key_func(record)] = record
             else:
                 existing_node = merged_record_map[key_func(record)]
@@ -104,13 +101,5 @@ class RecordMerger:
                             existing_node[prop] = list(set(record[prop]))
                     else:
                         raise Exception('key is neither field nor list', prop, record)
-
-        for val in merged_record_map.values():
-            valkeys = list(val.keys())
-            for prop in valkeys:
-                if prop not in example_keys and prop not in created_keys:
-                    del val[prop]
-                if prop == 'xref' and val['id'] in pre_existing_nodes:
-                    del val['xref']
 
         return list(merged_record_map.values())
