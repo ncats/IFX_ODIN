@@ -81,6 +81,8 @@ class RecordMerger:
                 for prop in record.keys():
                     if prop in forbidden_keys:
                         continue
+                    if prop.startswith('_'):
+                        continue
                     if record[prop] is None or (isinstance(record[prop], list) and len(record[prop]) == 0):
                         continue
                     existing_prop_value = existing_node.get(prop)
