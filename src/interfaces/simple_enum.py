@@ -2,7 +2,7 @@ from enum import Enum
 from typing import List, Union
 
 
-class SimpleEnum(Enum):
+class SimpleEnum(str, Enum):
     def __str__(self):
         return self.value
 

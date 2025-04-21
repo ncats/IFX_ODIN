@@ -1,6 +1,4 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
-#source_credentials: &source_credentials ./src/use_cases/secrets/local_memgraph.yaml
-#source_credentials: &source_credentials ./src/use_cases/secrets/local_neo4j.yaml
 
 pchembl_cutoff: &pchembl_cutoff 5
 
@@ -157,6 +155,8 @@ input_adapters:
       source: GO
 
 output_adapters:
-  - import: ./src/output_adapters/neo4j_output_adapter.py
-    class: MemgraphOutputAdapter
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: pharos
     credentials: *source_credentials

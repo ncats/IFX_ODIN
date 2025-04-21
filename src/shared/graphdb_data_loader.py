@@ -1,5 +1,3 @@
-import ast
-import numbers
 import time
 from abc import ABC, abstractmethod
 from typing import List, Union
@@ -27,39 +25,6 @@ class GraphDBDataLoader(ABC):
     @abstractmethod
     def load_to_graph(self, query, records, batch_size=1):
         pass
-
-    def get_list_type(self, list):
-        for item in list:
-            if item is not None:
-                return type(item)
-        return str
-
-    def is_numeric_type(self, tp):
-        return issubclass(tp, numbers.Integral) or issubclass(tp, numbers.Real)
-
-    def get_none_val_for_type(self, tp):
-        if self.is_numeric_type(tp):
-            return -1
-        return ''
-
-    def remove_none_values_from_list(self, list):
-        if len(list) == 0:
-            return None
-        type = self.get_list_type(list)
-        return [self.get_none_val_for_type(type) if val is None else val for val in list]
-
-    def parse_and_clean_string_value(self, value):
-        try:
-            clean_val = ast.literal_eval(value)
-            if clean_val is None:
-                return ""
-            elif isinstance(clean_val, list):
-                return self.remove_none_values_from_list(clean_val)
-            else:
-                return clean_val
-        except (ValueError, SyntaxError):
-            return str(value)
-
 
 
     @abstractmethod
