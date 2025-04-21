@@ -7,6 +7,10 @@ class CSVParser:
     file_path: str
     download_date: date
 
+    def get_version_info(self):
+        metadata = os.stat(self.file_path)
+        return f"{self.file_path}\t{metadata.st_mtime}\t{metadata.st_size}"
+
     def __init__(self, file_path):
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()

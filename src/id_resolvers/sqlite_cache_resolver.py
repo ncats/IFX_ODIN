@@ -20,28 +20,15 @@ class SqliteCacheResolver(IdResolver, ABC):
     def cache_location(self):
         return f"input_files/sqlite_resolver/{self.__class__.__name__}.sqlite"
 
-    def lookup_db_exists(self):
-        if not os.path.exists(self.cache_location()):
-            return False
-
-        cur = self.connection.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='matches'")
-        if cur.fetchone():
-            print('using existing sqlite cache')
-            return True
-        return False
-
     def __init__(self, **kwargs):
         IdResolver.__init__(self, **kwargs)
         self.connection = self.create_connection()
 
-        if not self.lookup_db_exists():
+        if self.db_is_corrupt() or self.input_version_has_changed():
             self.create_lookup_db()
             self.populate_lookup_db()
-
-    def __del__(self):
-        if self.connection is not None:
-            self.connection.close()
+        else:
+            print('\tusing existing sqlite database for id resolution')
 
     def create_connection(self):
         cache_loc = self.cache_location()
@@ -49,21 +36,74 @@ class SqliteCacheResolver(IdResolver, ABC):
             os.makedirs(os.path.dirname(cache_loc), exist_ok=True)
         return sqlite3.connect(cache_loc)
 
-    def create_lookup_db(self):
-        cur = self.connection.cursor()
-        cur.execute('CREATE TABLE matches (id TEXT, match TEXT, type TEXT)')
-        self.connection.commit()
+    def db_is_corrupt(self):
+        if not self.table_exists('matches'):
+            print('\texisting database is missing table "matches"')
+            return True
+        if not self.table_exists('file_metadata'):
+            print('\texisting database is missing table "file_metadata"')
+            return True
+        return False
 
+    def table_exists(self, table):
+        cur = self.connection.cursor()
+        cur.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
+        return cur.fetchone() is not None
+
+    def input_version_has_changed(self) -> bool:
+        cur = self.connection.cursor()
+        cur.execute('SELECT version_key FROM file_metadata')
+        sqlite_version_info = cur.fetchone()
+        if sqlite_version_info is None:
+            print('\texisting database is missing the version key')
+            return True
+        sqlite_version_info = sqlite_version_info[0]
+        input_version_info = self.get_version_info()
+        if sqlite_version_info != input_version_info:
+            print(f'\texisting data version does not match input version')
+            print(f'\t{sqlite_version_info}')
+            print(f'\t{input_version_info}')
+            return True
+        return sqlite_version_info != input_version_info
+
+    def create_lookup_db(self):
+        print('\tcreating sqlite cache')
+        cur = self.connection.cursor()
+
+        cur.execute('DROP TABLE IF EXISTS matches')
+        cur.execute('DROP TABLE IF EXISTS file_metadata')
+
+        cur.execute('CREATE TABLE matches (id TEXT, match TEXT, type TEXT)')
+        cur.execute('CREATE INDEX id_index ON matches (id)')
+        cur.execute('CREATE INDEX match_index ON matches (match)')
+        cur.execute('CREATE TABLE file_metadata (version_key TEXT)')
+
+        self.connection.commit()
 
     def populate_lookup_db(self):
         matches = list(set([match for match in self.matching_ids()]))
         self.save_to_sqlite(matches)
+        self.store_file_metadata()
+
+    def store_file_metadata(self):
+        cur = self.connection.cursor()
+        cur.execute('DELETE FROM file_metadata')  # Clear any existing metadata
+        cur.execute('INSERT INTO file_metadata (version_key) VALUES (?)', (self.get_version_info(),))
+        self.connection.commit()
 
     def save_to_sqlite(self, matches: List[MatchingPair]):
         cur = self.connection.cursor()
         cur.executemany('INSERT INTO matches VALUES (?, ?, ?)',
                   [(match.id, match.match, match.type) for match in matches])
         self.connection.commit()
+
+    def __del__(self):
+        if self.connection is not None:
+            self.connection.close()
+
+    @abstractmethod
+    def get_version_info(self) -> str:
+        raise NotImplementedError('derived class must implement get_version_info')
 
     @abstractmethod
     def matching_ids(self) -> List[MatchingPair]:
