@@ -32,6 +32,14 @@ class TargetGraphResolver(SqliteCacheResolver):
         match_list.sort(key=lambda x: scores.get(x.context[0], float('inf')))
         return match_list
 
+
+    def get_version_info(self) -> str:
+        version_info = []
+        for parser in self.parsers:
+            version_info.append(parser.get_version_info())
+        return '\t'.join(version_info)
+
+
     def matching_ids(self) -> List[MatchingPair]:
         for parser in self.parsers:
             yield from self.get_one_match(parser)
