@@ -20,7 +20,7 @@ class ArangoOutputAdapter(OutputAdapter):
         self.initialize()
 
     def initialize(self):
-        self.client = ArangoClient()
+        self.client = ArangoClient(hosts=self.credentials.url)
 
     def get_db(self):
         if self.db is None:
