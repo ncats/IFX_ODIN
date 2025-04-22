@@ -4,7 +4,7 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import Ligand
 from src.models.node import Node
-from src.input_adapters.mysql_pharos.tables import Ligand as mysql_ligand
+from src.input_adapters.pharos_mysql.tables import Ligand as mysql_ligand
 
 class LigandAdapter(NodeInputAdapter, MySqlAdapter):
     name = "Pharos Ligand Adapter"

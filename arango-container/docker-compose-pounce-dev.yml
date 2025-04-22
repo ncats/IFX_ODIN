@@ -1,15 +1,15 @@
 services:
-  arangodb:
+  pounce_dev_arangodb:
     image: arangodb:latest
-    container_name: arangodb
+    container_name: pounce_dev
     env_file:
       - secrets.env
     ports:
       - "8043:8529"
     volumes:
-      - arangodb_data:/var/lib/arangodb3
-      - arangodb_apps:/var/lib/arangodb3-apps
+      - pounce_dev_data:/var/lib/arangodb3
+      - pounce_dev_apps:/var/lib/arangodb3-apps
 
 volumes:
-  arangodb_data:
-  arangodb_apps:
+  pounce_dev_data:
+  pounce_dev_apps:

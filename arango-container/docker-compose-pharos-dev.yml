@@ -1,15 +1,15 @@
 services:
-  arangodb:
+  pharos_dev_arangodb:
     image: arangodb:latest
-    container_name: arangodb
+    container_name: pharos_dev
     env_file:
       - secrets.env
     ports:
       - "8041:8529"
     volumes:
-      - arangodb_data:/var/lib/arangodb3
-      - arangodb_apps:/var/lib/arangodb3-apps
+      - pharos_dev_data:/var/lib/arangodb3
+      - pharos_dev_apps:/var/lib/arangodb3-apps
 
 volumes:
-  arangodb_data:
-  arangodb_apps:
+  pharos_dev_data:
+  pharos_dev_apps:

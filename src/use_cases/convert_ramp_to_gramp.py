@@ -72,7 +72,7 @@ etl_input_list = [
 ]
 
 etl_output_list = [
-    neo4j_output_adapter
+    cypher_output_adapter
 ]
 
 etl = ETL(input_adapters=etl_input_list, output_adapters=etl_output_list)

@@ -8,7 +8,7 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Relationship
 
-from src.input_adapters.mysql_pharos.tables import (Protein as mysql_protein, PPI as mysql_ppi)
+from src.input_adapters.pharos_mysql.tables import (Protein as mysql_protein, PPI as mysql_ppi)
 from src.models.ppi import PPIRelationship
 from src.models.protein import Protein
 

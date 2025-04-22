@@ -2,7 +2,7 @@ from typing import Union, List
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
-from src.input_adapters.mysql_pharos.tables import GeneRif as mysql_generif, GeneRif2Pubmed as mysql_generif2pubmed, \
+from src.input_adapters.pharos_mysql.tables import GeneRif as mysql_generif, GeneRif2Pubmed as mysql_generif2pubmed, \
     Protein as mysql_protein
 from src.models.generif import ProteinGeneRifRelationship, GeneRif
 from src.models.protein import Protein

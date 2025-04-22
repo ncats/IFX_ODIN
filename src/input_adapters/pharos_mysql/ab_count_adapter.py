@@ -3,13 +3,12 @@ from typing import List
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.mysql_pharos.tables import Protein as mysql_Protein, TDL_info as mysql_tdl_info
+from src.input_adapters.pharos_mysql.tables import Protein as mysql_Protein, TDL_info as mysql_tdl_info
 from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein
 
 
-class TdlTableAdapter(NodeInputAdapter, MySqlAdapter, ABC):
-    name = "Pharos TDL Table Adapter"
+class TdlTableAdapter(InputAdapter, MySqlAdapter, ABC):
     column = None
     field = None
     itype = None
@@ -40,7 +39,6 @@ class TdlTableAdapter(NodeInputAdapter, MySqlAdapter, ABC):
 
 
 class AntibodyCountAdapter(TdlTableAdapter):
-    name = "Pharos Antibody Count Adapter"
     field = 'antibody_count'
     itype = "Ab Count"
 
@@ -49,7 +47,6 @@ class AntibodyCountAdapter(TdlTableAdapter):
 
 
 class PubMedScoreAdapter(TdlTableAdapter):
-    name = "Pharos PubMed Score Adapter"
     field = 'pm_score'
     itype = "JensenLab PubMed Score"
 

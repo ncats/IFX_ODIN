@@ -5,7 +5,7 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Relationship
-from src.input_adapters.mysql_pharos.tables import (DrugActivity as mysql_drug_activity,
+from src.input_adapters.pharos_mysql.tables import (DrugActivity as mysql_drug_activity,
                                                     T2TC as mysql_t2tc, Protein as mysql_protein)
 from src.models.protein import Protein
 
