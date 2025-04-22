@@ -12,7 +12,7 @@ from src.input_adapters.sqlite_ramp.pathway_adapter import PathwayAdapter
 from src.interfaces.input_adapter import InputAdapter
 
 from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
-from src.output_adapters.neo4j_output_adapter import MemgraphOutputAdapter
+from src.output_adapters.cypher_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
 credentials_file = "./secrets/ifxdev_pounce_dev.yaml"

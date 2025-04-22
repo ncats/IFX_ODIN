@@ -1,38 +1,10 @@
 import hashlib
-
-from arango import ArangoClient
-from arango.database import StandardDatabase
-
 from src.interfaces.output_adapter import OutputAdapter
-from src.shared.db_credentials import DBCredentials
+from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 
-class ArangoOutputAdapter(OutputAdapter):
-    credentials: DBCredentials
-    database_name: str
-    client: ArangoClient = None
-    db: StandardDatabase = None
-
-    def __init__(self, credentials: DBCredentials, database_name: str):
-        self.credentials = credentials
-        self.database_name = database_name
-        self.initialize()
-
-    def initialize(self):
-        self.client = ArangoClient(hosts=self.credentials.url)
-
-    def get_db(self):
-        if self.db is None:
-            self.db = self.client.db(self.database_name, username=self.credentials.user,
-                                     password=self.credentials.password)
-        return self.db
-
-    def get_graph(self):
-        db = self.get_db()
-        if not db.has_graph("graph"):
-            db.create_graph("graph")
-        return db.graph("graph")
+class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     def store(self, objects) -> bool:
         def generate_edge_key(from_node, to_node, edge_type):

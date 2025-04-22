@@ -51,7 +51,7 @@ input_adapters:
         - tpm
 
 output_adapters:
-  - import: ./src/output_adapters/neo4j_output_adapter.py
+  - import: ./src/output_adapters/cypher_output_adapter.py
     class: MemgraphOutputAdapter
     credentials: *source_credentials
     kwargs:

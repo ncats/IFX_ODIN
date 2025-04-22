@@ -3,7 +3,7 @@ from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.mysql_pharos.tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
+from src.input_adapters.pharos_mysql.tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId

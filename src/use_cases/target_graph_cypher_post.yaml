@@ -5,24 +5,24 @@ labeler:
   class: BiolinkLabeler
 
 input_adapters:
-  - import: ./src/input_adapters/neo4j_pharos/expand_IDG_families.py
+  - import: ./src/input_adapters/cypher_pharos/expand_IDG_families.py
     class: ExpandIDGFamilies
     credentials: *source_credentials
 
-  - import: ./src/input_adapters/neo4j_pharos/set_ligand_activity_flag.py
+  - import: ./src/input_adapters/cypher_pharos/set_ligand_activity_flag.py
     class: SetLigandActivityFlagAdapter
     credentials: *source_credentials
 
-  - import: ./src/input_adapters/neo4j_pharos/set_go_term_leaf_flag.py
+  - import: ./src/input_adapters/cypher_pharos/set_go_term_leaf_flag.py
     class: SetGoTermLeafFlagAdapter
     credentials: *source_credentials
 
-  - import: ./src/input_adapters/neo4j_pharos/tdl_input_adapter.py
+  - import: ./src/input_adapters/cypher_pharos/tdl_input_adapter.py
     class: TDLInputAdapter
     credentials: *source_credentials
 
 output_adapters:
-  - import: ./src/output_adapters/neo4j_output_adapter.py
+  - import: ./src/output_adapters/cypher_output_adapter.py
     class: MemgraphOutputAdapter
     credentials: *source_credentials
     kwargs:
