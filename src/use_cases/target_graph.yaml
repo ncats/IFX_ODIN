@@ -138,7 +138,7 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/antibodypedia/antibodypedia_data.csv
 
-  - import: ./src/input_adapters/mysql_pharos/idg_family_adapter.py
+  - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
     credentials: ./src/use_cases/secrets/pharos_credentials.yaml
 
