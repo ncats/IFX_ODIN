@@ -83,11 +83,12 @@ FOR n IN `biolink:Protein`
 """
 
 proteins_with_moa_drugs = """
-FOR n IN `biolink:Protein`
-  FOR l, r IN OUTBOUND n `biolink:interacts_with`
-    FILTER l.isDrug == true
-      AND LENGTH(r.has_moa[* FILTER CURRENT == TRUE]) > 0
-    RETURN DISTINCT n.id
+for pro in `biolink:Protein`
+  filter pro.uniprot_reviewed == TRUE
+  for lig, act in outbound pro `biolink:interacts_with`
+    FILTER lig.isDrug == TRUE
+    FILTER LENGTH(act.has_moa[* FILTER CURRENT == TRUE]) > 0
+  RETURN distinct pro.id
 """
 
 proteins_with_experimental_f_or_p_go_terms = """
