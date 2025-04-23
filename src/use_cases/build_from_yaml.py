@@ -1,18 +1,33 @@
-from src.core.config import Config
+from src.core.config import ETL_Config, Dashboard_Config
 from src.core.etl import ETL
+from src.interfaces.data_api_adapter import APIAdapter
+
+
+class HostDashboardFromYaml:
+    configuration: Dashboard_Config
+    api_adapter: APIAdapter
+
+    def __init__(self, yaml_file: str):
+        self.load_yaml(yaml_file)
+
+    def load_yaml(self, yaml_file: str):
+        self.configuration = Dashboard_Config(yaml_file)
+        self.api_adapter = self.configuration.create_object_list('api_adapter')[0]
+        self.api_adapter.labeler = self.configuration.create_labeler()
+
 
 
 class BuildGraphFromYaml:
-    configuration: Config
+    configuration: ETL_Config
     etl: ETL
 
     def __init__(self, yaml_file: str):
         self.load_yaml(yaml_file)
 
     def load_yaml(self, yaml_file: str):
-        self.configuration = Config(yaml_file)
+        self.configuration = ETL_Config(yaml_file)
         output_adapters = self.configuration.create_output_adapters()
-        input_adapters = self.configuration.create_adapters()
+        input_adapters = self.configuration.create_input_adapters()
         resolver_map = {}
         for resolver in self.configuration.resolvers.values():
             for type in resolver.types:

@@ -1,0 +1,107 @@
+
+labeler:
+  import: ./src/interfaces/labeler.py
+  class: BiolinkLabeler
+
+api_adapter:
+  - import: ./src/api_adapters/arango_api_adapter.py
+    class: ArangoAPIAdapter
+    kwargs:
+      database_name: pharos
+      label: Pharos PROD
+    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+
+dashboard:
+  tab_order:
+    - Protein
+    - Transcript
+    - Gene
+    - Ligand
+    - others
+  list_fields:
+    - class: Protein
+      fields:
+        - id
+        - uniprot_reviewed
+        - uniprot_id
+        - symbol
+        - name
+        - tdl
+        - idg_family
+        - uniprot_function
+        - creation
+        - others
+    - class: Transcript
+      fields:
+        - id
+        - type
+        - status
+        - transcript_length
+        - support_level
+        - bp_start
+        - bp_end
+        - MANE_select
+        - creation
+        - others
+    - class: Gene
+      fields:
+        - id
+        - symbol
+        - type
+        - full_name
+        - chromosome
+        - chromosome_strand
+        - location
+        - mapping_ratio
+        - creation
+        - others
+    - class: Ligand
+      fields:
+        - id
+        - name
+        - isDrug
+        - smiles
+        - creation
+        - others
+    - class: GoTerm
+      fields:
+        - id
+        - type
+        - term
+        - definition
+        - creation
+        - others
+    - class: GeneRif
+      fields:
+        - text
+        - pmids
+        - creation
+        - others
+  facets:
+    - class: Protein
+      facets:
+        - uniprot_reviewed
+        - ensembl_canonical
+        - tdl
+        - creation
+        - idg_family
+    - class: GoTerm
+      facets:
+        - type
+    - class: Transcript
+      facets:
+        - status
+        - type
+        - support_level
+        - ensembl_version
+        - creation
+    - class: Gene
+      facets:
+        - type
+        - chromosome_strand
+        - chromosome
+        - creation
+    - class: Ligand
+      facets:
+        - isDrug
+        - creation

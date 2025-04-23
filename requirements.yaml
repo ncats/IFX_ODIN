@@ -25,3 +25,4 @@ dependencies:
   - mgp
   - python-arango
   - gqlalchemy
+  - streamlit

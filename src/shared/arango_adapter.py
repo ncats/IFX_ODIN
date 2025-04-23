@@ -3,7 +3,7 @@ from arango.database import StandardDatabase
 from src.shared.db_credentials import DBCredentials
 
 
-class ArangoAdapter():
+class ArangoAdapter:
     credentials: DBCredentials
     database_name: str
     client: ArangoClient = None
