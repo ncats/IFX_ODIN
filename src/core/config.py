@@ -43,24 +43,14 @@ def create_object_from_config(config: dict):
 class Config:
     config_dict: {}
     yaml_files: list = []
-    resolvers: dict[str, IdResolver] = {}
-
     def __init__(self, yaml_file):
         self.config_dict = self.load_config_from_yaml(yaml_file)
-        self.create_resolvers()
 
     def create_labeler(self):
         if 'labeler' in self.config_dict:
             obj = create_object_from_config(self.config_dict['labeler'])
             return obj
         return None
-
-    def create_resolvers(self):
-        if 'resolvers' in self.config_dict:
-            for config in self.config_dict['resolvers']:
-                key = config['label']
-                obj = create_object_from_config(config)
-                self.resolvers[key] = obj
 
     def load_config_from_yaml(self, file_path):
         config_dict = self.load_one_yaml(file_path)
@@ -94,23 +84,41 @@ class Config:
                     config_node[index] = self._load_nested_yamls(entry)
         return config_node
 
-    def create_output_adapters(self) -> List[OutputAdapter]:
-        config = self.config_dict['output_adapters']
-        output_adapters = []
-        for c in config:
-            obj = create_object_from_config(c)
-            output_adapters.append(obj)
-        return output_adapters
-
-    def create_adapters(self) -> List[InputAdapter]:
-        input_adapters = []
-        if 'input_adapters' not in self.config_dict:
-            return input_adapters
-        config = self.config_dict['input_adapters']
-        for c in config:
-            obj = create_object_from_config(c)
-            input_adapters.append(obj)
-        return input_adapters
-
     def __repr__(self):
         return f"{self.__class__.__name__}({self.config_dict})"
+
+    def create_object_list(self, key, required = True):
+        objects = []
+        if key not in self.config_dict and required == False:
+            return objects
+        config = self.config_dict[key]
+        for c in config:
+            obj = create_object_from_config(c)
+            objects.append(obj)
+        return objects
+
+
+class Dashboard_Config(Config):
+    pass
+
+
+class ETL_Config(Config):
+    resolvers: dict[str, IdResolver] = {}
+
+    def __init__(self, yaml_file):
+        Config.__init__(self, yaml_file)
+        self.create_resolvers()
+
+    def create_resolvers(self):
+        if 'resolvers' in self.config_dict:
+            for config in self.config_dict['resolvers']:
+                key = config['label']
+                obj = create_object_from_config(config)
+                self.resolvers[key] = obj
+
+    def create_output_adapters(self) -> List[OutputAdapter]:
+        return self.create_object_list('output_adapters')
+
+    def create_input_adapters(self) -> List[InputAdapter]:
+        return self.create_object_list('input_adapters', False)
+

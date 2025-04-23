@@ -20,3 +20,4 @@ pyyaml
 mgp
 python-arango
 gqlalchemy
+streamlit
