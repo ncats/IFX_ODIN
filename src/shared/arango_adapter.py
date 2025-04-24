@@ -17,7 +17,9 @@ class ArangoAdapter:
         self.initialize()
 
     def initialize(self):
-        self.client = ArangoClient(hosts=self.credentials.internal_url if self.use_internal_url else self.credentials.url, request_timeout=600)
+        url = self.credentials.internal_url if self.use_internal_url else self.credentials.url
+        print(f"Connecting to ArangoDB at {url}")
+        self.client = ArangoClient(hosts=url, request_timeout=600)
 
     def get_db(self):
         if self.db is None:
