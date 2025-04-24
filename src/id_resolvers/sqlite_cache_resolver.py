@@ -67,7 +67,7 @@ class SqliteCacheResolver(IdResolver, ABC):
         return sqlite_version_info != input_version_info
 
     def create_lookup_db(self):
-        print('\tcreating sqlite cache')
+        print('\tcreating sqlite lookup db')
         cur = self.connection.cursor()
 
         cur.execute('DROP TABLE IF EXISTS matches')

@@ -51,14 +51,8 @@ input_adapters:
         - tpm
 
 output_adapters:
-  - import: ./src/output_adapters/cypher_output_adapter.py
-    class: MemgraphOutputAdapter
-    credentials: *source_credentials
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
     kwargs:
-      post_processing:
-        - "MATCH (s:Sample)-[]-(b:Biospecimen)-[]-(d:Disease)
-                  WITH s, COLLECT(d.id) as diseaseIds
-                  SET s.diseaseIds = diseaseIds;"
-        - "MATCH (s:Sample)-[]->(b:Biospecimen)
-                  WITH s, COLLECT(b.id) AS biospecimenIds
-                  SET s.biospecimenIds = biospecimenIds;"
+      database_name: pounce
+    credentials: *source_credentials
