@@ -1,0 +1,151 @@
+tab_order:
+  - Protein
+  - Transcript
+  - Gene
+  - Ligand
+  - ProteinGoTermRelationship
+  - ProteinLigandRelationship
+  - IsoformProteinRelationship
+  - TranscriptProteinRelationship
+  - GeneTranscriptRelationship
+  - GeneProteinRelationship
+  - GeneGeneRifRelationship
+  - GoTermHasParentRelationship
+  - others
+models:
+  - class: ProteinGoTermRelationship
+    column_order:
+      - start_id
+      - end_id
+      - category
+      - abbreviation
+      - text
+      - evidence
+      - assigned_by
+      - others
+    facets:
+      - start_id
+      - end_id
+  - class: ProteinLigandRelationship
+    column_order:
+      - start_id
+      - end_id
+      - act_value
+      - act_type
+      - assay_type
+      - act_pmid
+      - ref_id
+      - comment
+      - has_moa
+      - others
+  - class: IsoformProteinRelationship
+    column_order:
+      - start_id
+      - end_id
+      - others
+  - class: TranscriptProteinRelationship
+    column_order:
+      - start_id
+      - end_id
+      - others
+  - class: GeneTranscriptRelationship
+    column_order:
+      - start_id
+      - end_id
+      - others
+  - class: GeneProteinRelationship
+    column_order:
+      - start_id
+      - end_id
+      - others
+  - class: GeneGeneRifRelationship
+    column_order:
+      - start_id
+      - end_id
+      - gene_id
+      - others
+  - class: GoTermHasParent
+    column_order:
+      - start_id
+      - end_id
+      - others
+  - class: Protein
+    column_order:
+      - id
+      - uniprot_reviewed
+      - uniprot_id
+      - symbol
+      - name
+      - tdl
+      - idg_family
+      - uniprot_function
+      - creation
+      - others
+    facets:
+      - uniprot_reviewed
+      - ensembl_canonical
+      - tdl
+      - creation
+      - idg_family
+  - class: Transcript
+    column_order:
+      - id
+      - type
+      - status
+      - transcript_length
+      - support_level
+      - bp_start
+      - bp_end
+      - MANE_select
+      - creation
+      - others
+    facets:
+      - status
+      - type
+      - support_level
+      - ensembl_version
+      - creation
+  - class: Gene
+    column_order:
+      - id
+      - symbol
+      - type
+      - full_name
+      - chromosome
+      - chromosome_strand
+      - location
+      - mapping_ratio
+      - creation
+      - others
+    facets:
+      - type
+      - chromosome_strand
+      - chromosome
+      - creation
+  - class: Ligand
+    column_order:
+      - id
+      - name
+      - isDrug
+      - smiles
+      - creation
+      - others
+    facets:
+      - isDrug
+      - creation
+  - class: GoTerm
+    column_order:
+      - id
+      - type
+      - term
+      - definition
+      - creation
+      - others
+    facets:
+      - type
+  - class: GeneRif
+    column_order:
+      - text
+      - pmids
+      - creation
+      - others

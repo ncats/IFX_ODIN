@@ -16,7 +16,6 @@ class HostDashboardFromYaml:
         self.api_adapter.labeler = self.configuration.create_labeler()
 
 
-
 class BuildGraphFromYaml:
     configuration: ETL_Config
     etl: ETL

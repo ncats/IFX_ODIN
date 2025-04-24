@@ -6,6 +6,7 @@ import yaml
 
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
+from src.interfaces.labeler import Labeler
 from src.interfaces.output_adapter import OutputAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -51,7 +52,7 @@ class Config:
         if 'labeler' in self.config_dict:
             obj = create_object_from_config(self.config_dict['labeler'])
             return obj
-        return None
+        return Labeler()
 
     def load_config_from_yaml(self, file_path):
         config_dict = self.load_one_yaml(file_path)

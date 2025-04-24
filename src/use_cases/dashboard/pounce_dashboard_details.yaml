@@ -1,0 +1,71 @@
+tab_order:
+  - Project
+  - Experiment
+  - Disease
+  - Biospecimen
+  - Gene
+  - others
+models:
+  - class: Project
+    column_order:
+      - id
+      - name
+      - description
+      - creation
+      - others
+  - class: Experiment
+    column_order:
+      - id
+      - name
+      - category
+      - type
+      - description
+      - creation
+      - others
+    facets:
+      - category
+      - type
+  - class: Disease
+    column_order:
+      - id
+      - name
+      - creation
+      - others
+  - class: Biospecimen
+    column_order:
+      - id
+      - name
+      - part
+      - sex
+      - category
+      - age
+      - creation
+      - others
+    facets:
+      - part
+      - sex
+      - category
+      - age
+  - class: Gene
+    column_order:
+      - id
+      - symbol
+      - type
+      - full_name
+      - chromosome
+      - chromosome_strand
+      - location
+      - mapping_ratio
+      - creation
+      - others
+    facets:
+      - type
+      - chromosome_strand
+      - chromosome
+      - creation
+  - class: Sample
+    column_order:
+      - id
+      - name
+      - creation
+      - others
