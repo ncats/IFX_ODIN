@@ -35,7 +35,8 @@ def create_object_from_config(config: dict):
                 url=cred_node['url'],
                 password=cred_node.get('password', None),
                 schema=cred_node.get('schema', None),
-                port=cred_node.get('port', None)
+                port=cred_node.get('port', None),
+                internal_url=cred_node.get('internal_url', cred_node['url'])
             ))
 
     return cls(**kwargs)

@@ -5,17 +5,19 @@ from src.shared.db_credentials import DBCredentials
 
 class ArangoAdapter:
     credentials: DBCredentials
+    use_internal_url: bool
     database_name: str
     client: ArangoClient = None
     db: StandardDatabase = None
 
-    def __init__(self, credentials: DBCredentials, database_name: str):
+    def __init__(self, credentials: DBCredentials, database_name: str, internal: bool = False):
+        self.use_internal_url = internal
         self.credentials = credentials
         self.database_name = database_name
         self.initialize()
 
     def initialize(self):
-        self.client = ArangoClient(hosts=self.credentials.url, request_timeout=600)
+        self.client = ArangoClient(hosts=self.credentials.internal_url if self.use_internal_url else self.credentials.url, request_timeout=600)
 
     def get_db(self):
         if self.db is None:

@@ -7,7 +7,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
     def __init__(self, credentials: DBCredentials, database_name: str, label: str):
         APIAdapter.__init__(self, label=label)
-        ArangoAdapter.__init__(self, credentials, database_name)
+        ArangoAdapter.__init__(self, credentials, database_name, internal=True)
 
     def list_data_models(self):
         collections = self.get_db().collections()

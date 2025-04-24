@@ -8,3 +8,4 @@ class DBCredentials:
     password: str
     port: int = None
     schema: str = None
+    internal_url: str = None
