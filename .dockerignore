@@ -1,0 +1,9 @@
+input_files
+input_files_old
+.snakemake
+.venv
+orphans
+.github
+.idea
+.coverage
+coverage.xml
