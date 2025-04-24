@@ -1,6 +1,6 @@
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
-dashboard = HostDashboardFromYaml(yaml_file="./src/use_cases/pharos_dashboard.yaml")
+dashboard = HostDashboardFromYaml(yaml_file="./src/use_cases/dashboard/pharos_dashboard.yaml")
 config = dashboard.configuration.config_dict['dashboard']
 api = dashboard.api_adapter
 

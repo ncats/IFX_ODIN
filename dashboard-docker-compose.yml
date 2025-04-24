@@ -1,0 +1,10 @@
+services:
+  streamlit-app:
+    build:
+      context: .
+      dockerfile: dashboard.Dockerfile
+    ports:
+      - "8045:8501"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
