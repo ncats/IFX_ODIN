@@ -11,10 +11,14 @@ class APIAdapter(ABC):
         self.label = label
 
     @abstractmethod
-    def list_data_models(self):
+    def list_nodes(self):
         """List all data models in the database."""
         raise NotImplementedError("Derived classes must implement list_data_models")
 
+    @abstractmethod
+    def list_edges(self):
+        """List all edges in the database."""
+        raise NotImplementedError("Derived classes must implement list_edges")
 
     @abstractmethod
     def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20):

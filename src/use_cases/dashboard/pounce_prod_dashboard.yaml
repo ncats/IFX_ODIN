@@ -1,0 +1,10 @@
+
+api_adapter:
+  - import: ./src/api_adapters/arango_api_adapter.py
+    class: ArangoAPIAdapter
+    kwargs:
+      database_name: pounce
+      label: Pounce PROD
+    credentials: ./src/use_cases/secrets/ifxdev_pounce_prod.yaml
+
+dashboard: ./src/use_cases/dashboard/pounce_dashboard_details.yaml

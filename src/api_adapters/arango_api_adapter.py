@@ -9,15 +9,22 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         APIAdapter.__init__(self, label=label)
         ArangoAdapter.__init__(self, credentials, database_name, internal=True)
 
-    def list_data_models(self):
+    def _list_models(self, nodes_or_edges = 'nodes'):
         collections = self.get_db().collections()
-
-        models = [collection for collection in collections if not collection['name'].startswith("_") and collection['type'] == 'document' and collection['status'] == 'loaded']
-
+        if nodes_or_edges == 'nodes':
+            models = [collection for collection in collections if not collection['name'].startswith("_") and collection['type'] == 'document' and collection['status'] == 'loaded']
+        else:
+            models = [collection for collection in collections if not collection['name'].startswith("_") and not collection['type'] == 'document' and collection['status'] == 'loaded']
         model_set = set()
         for model in models:
             model_set.update(self.labeler.get_classes(model['name']))
         return list(model_set)
+
+    def list_edges(self):
+        return self._list_models('edges')
+
+    def list_nodes(self, include_edges: bool = False):
+        return self._list_models('nodes')
 
     def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20):
         label = self.labeler.get_labels_for_class_name(data_model)[0]
@@ -50,7 +57,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             FOR doc IN `{label}`
                 {f"FILTER { ' AND '.join([f'doc.{key} IN {value}' for key, value in filter.items()]) }" if filter else ""}
                 LIMIT {skip}, {top}
-                RETURN UNSET(doc, ["_key", "_id", "_rev"])
+                RETURN UNSET(doc, ["_key", "_id", "_rev", "_from", "_to"])
             """
         result = self.runQuery(query)
         return list(result)

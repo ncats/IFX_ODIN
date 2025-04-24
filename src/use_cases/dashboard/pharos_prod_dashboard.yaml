@@ -1,0 +1,14 @@
+
+labeler:
+  import: ./src/interfaces/labeler.py
+  class: BiolinkLabeler
+
+api_adapter:
+  - import: ./src/api_adapters/arango_api_adapter.py
+    class: ArangoAPIAdapter
+    kwargs:
+      database_name: pharos
+      label: Pharos PROD
+    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+
+dashboard: ./src/use_cases/dashboard/pharos_dashboard_details.yaml
