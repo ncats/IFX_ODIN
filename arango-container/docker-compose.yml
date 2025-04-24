@@ -9,7 +9,14 @@ services:
     volumes:
       - arangodb_data:/var/lib/arangodb3
       - arangodb_apps:/var/lib/arangodb3-apps
+    networks:
+      - dashboard_network
 
 volumes:
   arangodb_data:
   arangodb_apps:
+
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network
