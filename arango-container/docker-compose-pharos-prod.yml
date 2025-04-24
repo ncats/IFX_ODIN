@@ -9,7 +9,14 @@ services:
     volumes:
       - pharos_prod_data:/var/lib/arangodb3
       - pharos_prod_apps:/var/lib/arangodb3-apps
+    networks:
+      - dashboard_network
 
 volumes:
   pharos_prod_data:
   pharos_prod_apps:
+
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network

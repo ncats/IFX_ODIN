@@ -8,3 +8,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
+    networks:
+      - dashboard_network
+
+networks:
+  dashboard_network:
+    name: shared_dashboard_network
+    driver: bridge

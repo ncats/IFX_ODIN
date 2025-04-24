@@ -9,7 +9,14 @@ services:
     volumes:
       - pounce_prod_data:/var/lib/arangodb3
       - pounce_prod_apps:/var/lib/arangodb3-apps
+    networks:
+      - dashboard_network
 
 volumes:
   pounce_prod_data:
   pounce_prod_apps:
+
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network
