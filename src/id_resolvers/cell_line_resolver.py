@@ -1,3 +1,4 @@
+import os
 import xml.etree.ElementTree as ET
 from typing import List
 from src.constants import Prefix
@@ -7,6 +8,10 @@ from src.models.node import EquivalentId
 
 class CellosaurusCellLineResolver(SqliteCacheResolver):
     file_path: str
+
+    def get_version_info(self) -> str:
+        metadata = os.stat(self.file_path)
+        return f"{self.file_path}\t{metadata.st_mtime}\t{metadata.st_size}"
 
     def __init__(self, file_path: str, **kwargs):
         self.file_path = file_path
