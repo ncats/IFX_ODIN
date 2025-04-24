@@ -8,6 +8,7 @@ import streamlit as st
 st.set_page_config(layout="wide")
 
 st.title(f"Data Browser: {api.label}")
+st.write(f"{api.credentials.url}")
 
 model_names = api.list_data_models()
 model_names = sorted(
