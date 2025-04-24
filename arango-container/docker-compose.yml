@@ -1,7 +1,7 @@
 services:
   arangodb:
     image: arangodb:latest
-    container_name: arangodb
+    container_name: local_arangodb
     env_file:
       - secrets.env
     ports:
