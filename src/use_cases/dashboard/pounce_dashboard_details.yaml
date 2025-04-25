@@ -4,6 +4,10 @@ tab_order:
   - Disease
   - Biospecimen
   - Gene
+  - ProjectExperimentRelationship
+  - ExperimentSampleRelationship
+  - BiospecimenDiseaseRelationship
+  - SampleFactorRelationship
   - others
 models:
   - class: Project
