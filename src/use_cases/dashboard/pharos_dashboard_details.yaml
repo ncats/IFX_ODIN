@@ -24,6 +24,10 @@ models:
       - assigned_by
       - others
     facets:
+      - category
+      - abbreviation
+      - text
+      - assigned_by
       - start_id
       - end_id
   - class: ProteinLigandRelationship
@@ -38,6 +42,9 @@ models:
       - comment
       - has_moa
       - others
+    facets:
+      - act_type
+      - assay_type
   - class: IsoformProteinRelationship
     column_order:
       - start_id

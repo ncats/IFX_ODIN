@@ -2,6 +2,28 @@ from src.use_cases.build_from_yaml import HostDashboardFromYaml
 import streamlit as st
 st.set_page_config(layout="wide")
 
+def get_filter(st, data_model):
+    filters = {}
+    for key, value in st.session_state.items():
+        if value and '|' in key:  # Ensure it's a checkbox key
+            api_label, filter_model, field, actual_value = key.split('|')
+            if api_label != api.label:
+                continue
+            if filter_model != data_model:
+                continue
+            if field not in filters:
+                filters[field] = []
+            if actual_value == 'True':
+                filters[field].append(True)
+            elif actual_value == 'False':
+                filters[field].append(False)
+            elif actual_value == 'None':
+                filters[field].append(None)
+            else:
+                filters[field].append(actual_value)
+    return filters
+
+
 yaml_options = {
     "Pharos PROD": "./src/use_cases/dashboard/pharos_prod_dashboard.yaml",
     "Pharos DEV": "./src/use_cases/dashboard/pharos_dev_dashboard.yaml",
@@ -39,25 +61,6 @@ if 'others' not in config['tab_order']:
     model_names = [model_name for model_name in model_names if model_name in config['tab_order']]
 
 
-def get_filter(st, data_model):
-    filters = {}
-    for key, value in st.session_state.items():
-        if value and '|' in key:  # Ensure it's a checkbox key
-            api_label, filter_model, field, value = key.split('|')
-            if api_label != api.label:
-                continue
-            if filter_model != data_model:
-                continue
-            if field not in filters:
-                filters[field] = []
-            if value == 'True':
-                filters[field].append(True)
-            elif value == 'False':
-                filters[field].append(False)
-            else:
-                filters[field].append(value)
-    return filters
-
 tabs = st.container()
 with tabs:
     st.markdown(
@@ -92,14 +95,16 @@ with tabs:
                     for facet in facet_list:
                         st.markdown(f"<div style='font-size: 2em;'>{facet}</div>", unsafe_allow_html=True)
                         with st.expander(facet, expanded=True):
-
-                            facet_values = api.get_facet_values(model_names[i], facet, get_filter(st, model_names[i]))
-                            if facet_values:
-                                for value in facet_values:
+                            facet_results = api.get_facet_values(model_names[i], facet, filter=get_filter(st, model_names[i]))
+                            if facet_results:
+                                for result in facet_results:
                                     col1, col2, col3 = st.columns([2, 1, 1])
-                                    col1.write(value['facet'])
-                                    col2.write(value['count'])
-                                    value['selected'] = col3.checkbox("Filter", key=f"{api.label}|{model_names[i]}|{facet}|{value['facet']}", label_visibility="collapsed")
+                                    col1.write(f"{result['value']}")
+                                    col2.write(result['count'])
+                                    key = f"{api.label}|{model_names[i]}|{facet}|{result['value']}"
+                                    result['selected'] = col3.checkbox("Filter",
+                                                                      key=key,
+                                                                      label_visibility="collapsed")
                             else:
                                 st.write("No data available for this facet.")
             with col_right:
