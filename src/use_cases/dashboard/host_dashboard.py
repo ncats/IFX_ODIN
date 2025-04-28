@@ -111,6 +111,7 @@ with tabs:
                 total_count = api.get_count(model_names[i], get_filter(st, model_names[i]))
 
                 st.markdown(f"<div style='font-size: 2em;'>Total Count: {total_count}</div>", unsafe_allow_html=True)
+
                 filters = get_filter(st, model_names[i])
 
                 st.write("Selected filters:")
@@ -119,7 +120,6 @@ with tabs:
                 else:
                     for key, values in filters.items():
                         st.write(f"{key}: {', '.join([str(val) for val in values])}")
-
 
                 # Initialize skip in session state if not already set
                 if f"skip_{api.label}_{model_names[i]}" not in st.session_state:
@@ -149,7 +149,16 @@ with tabs:
                 st.write(f"Showing items {start_range} to {end_range} of {total_count}")
 
                 # Fetch and display the data
-                list = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
+                results = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
+                data_list = results['results']
+
+                if 'id' in data_list[0]:
+                    st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
+                # if 'start_id' in data_list[0]:
+                #     st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['start_id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
+                # if 'end_id' in data_list[0]:
+                #     st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['end_id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
+
 
                 configured_fields = [
                     model.get('column_order', [])
@@ -161,18 +170,20 @@ with tabs:
 
                 if len(configured_fields) > 0:
                     if 'others' in configured_fields:
-                        all_keys = set(key for item in list for key in item.keys())
+                        all_keys = set(key for item in data_list for key in item.keys())
                         primary_fields = [key for key in configured_fields if key != 'others']
                         final_fields = primary_fields + [key for key in all_keys if key not in primary_fields]
                     else:
-                        all_keys = set(key for item in list for key in item.keys())
+                        all_keys = set(key for item in data_list for key in item.keys())
                         final_fields = [key for key in configured_fields if key in all_keys]
 
-                    list = [
-                        {key: item.get(key, None) for key in final_fields} for item in list
+                    data_list = [
+                        {key: item.get(key, None) for key in final_fields} for item in data_list
                     ]
 
-                if list:
-                    st.dataframe(list)
+                if data_list:
+                    st.dataframe(data_list)
                 else:
                     st.write("No data available for this model.")
+
+                st.code(results['query'], language='aql')
