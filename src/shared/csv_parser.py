@@ -18,6 +18,7 @@ class CSVParser:
     @staticmethod
     def parse_excel_date(excel_date: str):
         formats = [
+            "%Y-%m-%dT%H:%M:%S.%f",  # new format: with 'T' separator and microseconds
             "%Y-%m-%d %H:%M:%S.%f",  # First try: most specific (with microseconds)
             "%Y-%m-%d %H:%M:%S",     # Second: standard format with seconds
             "%Y-%m-%d %H:%M"         # Third: basic format with only minutes
