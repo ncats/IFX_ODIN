@@ -93,6 +93,7 @@ models:
       - ensembl_canonical
       - tdl
       - creation
+      - uniprot_entryType
       - idg_family
   - class: Transcript
     column_order:

@@ -31,7 +31,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 if not graph.has_edge_collection(label):
                     edge_collection = graph.create_edge_definition(label, start_labels, end_labels)
                 else:
-                    edge_collection = graph.edge_collection(label)
+                    edge_definition = [definition for definition in graph.edge_definitions() if definition['edge_collection'] == label][0]
+                    updated_from = list(set(edge_definition['from_vertex_collections'] + start_labels))
+                    updated_to = list(set(edge_definition['to_vertex_collections'] + end_labels))
+                    edge_collection = graph.replace_edge_definition(label, updated_from, updated_to)
 
                 keys = [generate_edge_key(obj['start_id'], obj['end_id'], label) for obj in obj_list]
 

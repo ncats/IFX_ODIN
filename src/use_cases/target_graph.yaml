@@ -1,4 +1,4 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
 
 pchembl_cutoff: &pchembl_cutoff 5
 
@@ -18,6 +18,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
+      no_match_behavior: Skip
       file_path: ./input_files/manual/target_graph/gene_ids.csv
       types:
         - Gene
@@ -26,6 +27,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
+      no_match_behavior: Skip
       file_path: ./input_files/manual/target_graph/transcript_ids.csv
       types:
         - Transcript
@@ -34,6 +36,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
+      no_match_behavior: Skip
       file_paths:
         - ./input_files/manual/target_graph/protein_ids.csv
         - ./input_files/manual/target_graph/mapped_isoform_ids.csv
