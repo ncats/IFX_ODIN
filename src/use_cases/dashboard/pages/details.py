@@ -20,9 +20,8 @@ if api.credentials.internal_url != api.credentials.url:
 else:
     st.write(api.credentials.url)
 
-details = api.get_details(model, item_id)
-
-
+result = api.get_details(model, item_id)
+details = result.details
 
 st.header(f"{model} Details")
 st.write(details)
@@ -44,7 +43,6 @@ if len(edge_collections['outgoing']) > 0:
                 st.dataframe(nodes)
         else:
             st.write(None)
-# TODO fix unlabeling in cases like this: http://localhost:8501/details?model=Protein&id=IFXProtein:UWA6BB9&api=./src/use_cases/dashboard/pharos_local_dashboard.yaml
 
 if len(edge_collections['incoming']) > 0:
     st.subheader("Incoming Edges")

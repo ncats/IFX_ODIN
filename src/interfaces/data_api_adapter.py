@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from src.interfaces.labeler import Labeler
+from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
 
 
 class APIAdapter(ABC):
@@ -21,22 +22,22 @@ class APIAdapter(ABC):
         raise NotImplementedError("Derived classes must implement list_edges")
 
     @abstractmethod
-    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20):
+    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20) -> FacetQueryResult:
         """Get the top N facet values for a given data model and field."""
         raise NotImplementedError("Derived classes must implement get_facet_values")
 
     @abstractmethod
-    def get_count(self, data_model: str, filter: dict = None):
+    def get_count(self, data_model: str, filter: dict = None) -> CountQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 
     @abstractmethod
-    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0):
+    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0) -> ListQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 
     @abstractmethod
-    def get_details(self, data_model: str, id: str):
+    def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 

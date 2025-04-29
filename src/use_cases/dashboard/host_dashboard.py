@@ -95,7 +95,8 @@ with tabs:
                     for facet in facet_list:
                         st.markdown(f"<div style='font-size: 2em;'>{facet}</div>", unsafe_allow_html=True)
                         with st.expander(facet, expanded=True):
-                            facet_results = api.get_facet_values(model_names[i], facet, filter=get_filter(st, model_names[i]))
+                            results = api.get_facet_values(model_names[i], facet, filter=get_filter(st, model_names[i]))
+                            facet_results = results.facet_values
                             if facet_results:
                                 for result in facet_results:
                                     col1, col2, col3 = st.columns([2, 1, 1])
@@ -108,7 +109,8 @@ with tabs:
                             else:
                                 st.write("No data available for this facet.")
             with col_right:
-                total_count = api.get_count(model_names[i], get_filter(st, model_names[i]))
+                result = api.get_count(model_names[i], get_filter(st, model_names[i]))
+                total_count = result.count
 
                 st.markdown(f"<div style='font-size: 2em;'>Total Count: {total_count}</div>", unsafe_allow_html=True)
 
@@ -139,7 +141,6 @@ with tabs:
                     if st.button("Next", key=f"next_{model_names[i]}"):
                         st.session_state[f"skip_{api.label}_{model_names[i]}"] += page_size  # Adjust page size as needed
                 with col5:
-                    total_count = api.get_count(model_names[i], get_filter(st, model_names[i]))
                     if st.button("Last Page", key=f"last_{model_names[i]}"):
                         st.session_state[f"skip_{api.label}_{model_names[i]}"] = (total_count // page_size) * page_size  # Adjust page size as needed
 
@@ -149,8 +150,8 @@ with tabs:
                 st.write(f"Showing items {start_range} to {end_range} of {total_count}")
 
                 # Fetch and display the data
-                results = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
-                data_list = results['results']
+                result = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
+                data_list = result.results
 
                 if 'id' in data_list[0]:
                     st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
@@ -186,4 +187,4 @@ with tabs:
                 else:
                     st.write("No data available for this model.")
 
-                st.code(results['query'], language='aql')
+                st.code(result.query, language='aql')
