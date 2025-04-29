@@ -1,4 +1,5 @@
 from src.interfaces.data_api_adapter import APIAdapter
+from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -51,7 +52,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             UNSET({variable}, ["_key", "_id", "_rev", "_from", "_to"])
             """
 
-    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20):
+    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20) -> FacetQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
         query = f"""
@@ -66,9 +67,9 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             """
 
         result = self.runQuery(query)
-        return list(result)
+        return FacetQueryResult(query = query, facet_values=list(result))
 
-    def get_count(self, data_model: str, filter: dict = None):
+    def get_count(self, data_model: str, filter: dict = None) -> CountQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         query = f"""
             FOR doc IN `{label}`
@@ -77,9 +78,9 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN count
                 """
         result = self.runQuery(query)
-        return list(result)[0]
+        return CountQueryResult(query = query, count=result[0]) if result else CountQueryResult(query = query, count=0)
 
-    def get_list_query(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0):
+    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0) -> ListQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         query = f"""
             FOR doc IN `{label}`
@@ -87,14 +88,10 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 LIMIT {skip}, {top}
                 RETURN {self._get_document_cleanup_clause()}
             """
-        return query
-
-    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0):
-        query = self.get_list_query(data_model, filter, top, skip)
         result = self.runQuery(query)
-        return {"results": list(result), "query": query}
+        return ListQueryResult(query = query, results=list(result)) if result else ListQueryResult(query = query, results=[])
 
-    def get_details(self, data_model: str, id: str):
+    def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         query = f"""
             FOR doc IN `{label}`
@@ -102,7 +99,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN {self._get_document_cleanup_clause()}
             """
         result = self.runQuery(query)
-        return list(result)[0] if result else None
+        return DetailsQueryResult(query = query, details=list(result)[0]) if result else DetailsQueryResult(query = query, details={})
 
     def get_edge_types(self, data_model: str):
         label = self.labeler.get_labels_for_class_name(data_model)[0]
@@ -130,6 +127,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
         query = f"""
         FOR v, e IN 1..1 {direction} '{node_label}/{id}' `{edge_label}`
+            LIMIT {skip}, {top}
             RETURN {{
                 "edge": {self._get_document_cleanup_clause('e')}, 
                 "node": {self._get_document_cleanup_clause('v')}

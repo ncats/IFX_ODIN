@@ -94,6 +94,10 @@ class InputAdapter(ABC):
 
                 return_relationships = []
                 for entry in relationships:
+                    if entry.start_node.__class__.__name__ in resolver_map and entry.start_node.id not in node_map:
+                        continue
+                    if entry.end_node.__class__.__name__ in resolver_map and entry.end_node.id not in node_map:
+                        continue
 
                     start_id = entry.start_node.id
                     start_nodes = [entry.start_node]
