@@ -11,7 +11,7 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node, Relationship, EquivalentId
-from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleFactorRelationship, \
+from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleBiospecimenRelationship, \
     SampleAnalyteRelationship
 from src.models.pounce.experiment import Experiment
 from src.models.pounce.project import Project
@@ -104,7 +104,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
         yield exp_samp_edges
 
         biospecimens = []
-        samp_bio_edges: List[SampleFactorRelationship] = []
+        samp_bio_edges: List[SampleBiospecimenRelationship] = []
 
         with open(self.cell_line_annotation_file, 'r') as file:
             reader = csv.DictReader(file, delimiter='\t')
@@ -130,7 +130,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
 
                 sample_obj = sample_dict.get(ccle_id)
                 if sample_obj is not None:
-                    samp_bio_edges.append(SampleFactorRelationship(
+                    samp_bio_edges.append(SampleBiospecimenRelationship(
                         start_node=sample_obj,
                         end_node=biospecimen
                     ))

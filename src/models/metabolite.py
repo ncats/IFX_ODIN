@@ -8,7 +8,9 @@ from src.models.reaction import Reaction
 
 @dataclass
 class Metabolite(Analyte):
-    pass
+    name: str = None
+    type: str = None,
+    identification_level: int = None
 
 
 @dataclass

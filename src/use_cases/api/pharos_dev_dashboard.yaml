@@ -11,4 +11,4 @@ api_adapter:
       label: Pharos DEV
     credentials: ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
 
-dashboard: ./src/use_cases/dashboard/pharos_dashboard_details.yaml
+dashboard: ./src/use_cases/api/pharos_dashboard_details.yaml

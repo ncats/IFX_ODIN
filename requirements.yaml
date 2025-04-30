@@ -26,3 +26,6 @@ dependencies:
   - python-arango
   - gqlalchemy
   - streamlit
+  - pyvis
+  - networkx
+  - graphql-server

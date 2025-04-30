@@ -18,4 +18,4 @@ COPY . .
 EXPOSE 8501
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
-CMD ["streamlit", "run", "src/use_cases/dashboard/host_dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "src/use_cases/api/host_dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]

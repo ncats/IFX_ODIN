@@ -25,10 +25,10 @@ def get_filter(st, data_model):
 
 
 yaml_options = {
-    "Pharos PROD": "./src/use_cases/dashboard/pharos_prod_dashboard.yaml",
-    "Pharos DEV": "./src/use_cases/dashboard/pharos_dev_dashboard.yaml",
-    "Pounce PROD": "./src/use_cases/dashboard/pounce_prod_dashboard.yaml",
-    "Pounce DEV": "./src/use_cases/dashboard/pounce_dev_dashboard.yaml"
+    "Pharos PROD": "./src/use_cases/api/pharos_prod_dashboard.yaml",
+    "Pharos DEV": "./src/use_cases/api/pharos_dev_dashboard.yaml",
+    "Pounce PROD": "./src/use_cases/api/pounce_prod_dashboard.yaml",
+    "Pounce DEV": "./src/use_cases/api/pounce_dev_dashboard.yaml"
 }
 
 selected_label = st.selectbox("Choose a data source", options=list(yaml_options.keys()))
@@ -45,11 +45,20 @@ if api.credentials.internal_url != api.credentials.url:
 else:
     st.write(api.credentials.url)
 
+
+st.markdown(f"<a href='./schema?api={yaml_file}' target='_blank'>View Schema</a>", unsafe_allow_html=True)
+
+
 edge_names = api.list_edges()
 node_names = api.list_nodes()
 
 view_type = st.radio("Choose model type", ["Nodes", "Edges"], horizontal=True)
 model_names = node_names if view_type == "Nodes" else edge_names
+
+count_map = {}
+for model_name in model_names:
+    result = api.get_count(model_name, get_filter(st, model_name))
+    count_map[model_name] = result.count
 
 model_names = sorted(
     model_names,
@@ -57,9 +66,6 @@ model_names = sorted(
         config['tab_order'].index(x) if x in config['tab_order'] else float('inf')
     )
 )
-if 'others' not in config['tab_order']:
-    model_names = [model_name for model_name in model_names if model_name in config['tab_order']]
-
 
 tabs = st.container()
 with tabs:
@@ -75,7 +81,7 @@ with tabs:
         """,
         unsafe_allow_html=True,
     )
-    selected_tab = st.tabs(model_names)
+    selected_tab = st.tabs([f"{model_names[i]} ({count_map[model_names[i]]})" for i, _ in enumerate(model_names)])
     for i, t in enumerate(selected_tab):
         with t:
             col_left, col_right = st.columns([1, 3])  # Adjust
@@ -94,10 +100,12 @@ with tabs:
                     facet_list = configured_facets
                     for facet in facet_list:
                         st.markdown(f"<div style='font-size: 2em;'>{facet}</div>", unsafe_allow_html=True)
+                        facet_had_data = False
                         with st.expander(facet, expanded=True):
                             results = api.get_facet_values(model_names[i], facet, filter=get_filter(st, model_names[i]))
                             facet_results = results.facet_values
                             if facet_results:
+                                facet_had_data = True
                                 for result in facet_results:
                                     col1, col2, col3 = st.columns([2, 1, 1])
                                     col1.write(f"{result['value']}")
@@ -108,9 +116,11 @@ with tabs:
                                                                       label_visibility="collapsed")
                             else:
                                 st.write("No data available for this facet.")
+                        # if facet_had_data:
+                        #     with st.expander("Show Query", expanded=False):
+                        #         st.code(results.query, language='aql')
             with col_right:
-                result = api.get_count(model_names[i], get_filter(st, model_names[i]))
-                total_count = result.count
+                total_count = count_map[model_names[i]]
 
                 st.markdown(f"<div style='font-size: 2em;'>Total Count: {total_count}</div>", unsafe_allow_html=True)
 
@@ -169,18 +179,17 @@ with tabs:
                 if len(configured_fields) > 0:
                     configured_fields = configured_fields[0]
 
-                if len(configured_fields) > 0:
-                    if 'others' in configured_fields:
-                        all_keys = set(key for item in data_list for key in item.keys())
-                        primary_fields = [key for key in configured_fields if key != 'others']
-                        final_fields = primary_fields + [key for key in all_keys if key not in primary_fields]
-                    else:
-                        all_keys = set(key for item in data_list for key in item.keys())
-                        final_fields = [key for key in configured_fields if key in all_keys]
+                if view_type == 'Nodes':
+                    configured_fields = ['id'] + configured_fields
+                else:
+                    configured_fields = ['start_id', 'end_id'] + configured_fields
 
-                    data_list = [
-                        {key: item.get(key, None) for key in final_fields} for item in data_list
-                    ]
+                all_keys = set(key for item in data_list for key in item.keys())
+                final_fields = configured_fields + [key for key in all_keys if key not in configured_fields]
+
+                data_list = [
+                    {key: item.get(key, None) for key in final_fields} for item in data_list
+                ]
 
                 if data_list:
                     st.dataframe(data_list)

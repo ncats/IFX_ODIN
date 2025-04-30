@@ -1,6 +1,6 @@
 import numbers
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum
 from typing import List, Union
 
@@ -106,7 +106,7 @@ class OutputAdapter(ABC):
                     continue
                 if isinstance(val, Enum):
                     temp_dict[key] = val.value
-                if convert_dates and isinstance(val, datetime):
+                if convert_dates and (isinstance(val, datetime) or isinstance(val, date)):
                     temp_dict[key] = val.isoformat()
                 else:
                     temp_dict[key] = val

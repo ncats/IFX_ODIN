@@ -93,6 +93,7 @@ class InputAdapter(ABC):
                         node_map.update(resolver.parse_entity_map(temp_node_map))
 
                 return_relationships = []
+                has_returned_batches = False
                 for entry in relationships:
                     if entry.start_node.__class__.__name__ in resolver_map and entry.start_node.id not in node_map:
                         continue
@@ -118,10 +119,12 @@ class InputAdapter(ABC):
                             return_relationships.append(rel_copy)
 
                     if len(return_relationships) >= self.batch_size:
+                        has_returned_batches = True
                         print(f"prepared a batch of {len(return_relationships)} relationship records")
                         yield return_relationships
                         return_relationships = []
 
-                print(f"final batch: {len(return_relationships)} relationship records")
+                if has_returned_batches:
+                    print(f"final batch: {len(return_relationships)} relationship records")
                 yield return_relationships
 

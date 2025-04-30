@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+import networkx as nx
+
 from src.interfaces.labeler import Labeler
 from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
 
@@ -10,6 +12,12 @@ class APIAdapter(ABC):
 
     def __init__(self, label: str):
         self.label = label
+
+    @abstractmethod
+    def get_graph_representation(self, unlabel: bool = False) -> nx.Graph:
+        """Get the graph representation of the data."""
+        raise NotImplementedError("Derived classes must implement get_graph")
+
 
     @abstractmethod
     def list_nodes(self):

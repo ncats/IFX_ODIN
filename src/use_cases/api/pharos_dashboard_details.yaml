@@ -11,18 +11,14 @@ tab_order:
   - GeneProteinRelationship
   - GeneGeneRifRelationship
   - GoTermHasParentRelationship
-  - others
 models:
   - class: ProteinGoTermRelationship
     column_order:
-      - start_id
-      - end_id
       - category
       - abbreviation
       - text
       - evidence
       - assigned_by
-      - others
     facets:
       - category
       - abbreviation
@@ -32,8 +28,6 @@ models:
       - end_id
   - class: ProteinLigandRelationship
     column_order:
-      - start_id
-      - end_id
       - act_value
       - act_type
       - assay_type
@@ -41,44 +35,14 @@ models:
       - ref_id
       - comment
       - has_moa
-      - others
     facets:
       - act_type
       - assay_type
-  - class: IsoformProteinRelationship
-    column_order:
-      - start_id
-      - end_id
-      - others
-  - class: TranscriptProteinRelationship
-    column_order:
-      - start_id
-      - end_id
-      - others
-  - class: GeneTranscriptRelationship
-    column_order:
-      - start_id
-      - end_id
-      - others
-  - class: GeneProteinRelationship
-    column_order:
-      - start_id
-      - end_id
-      - others
   - class: GeneGeneRifRelationship
     column_order:
-      - start_id
-      - end_id
       - gene_id
-      - others
-  - class: GoTermHasParent
-    column_order:
-      - start_id
-      - end_id
-      - others
   - class: Protein
     column_order:
-      - id
       - uniprot_reviewed
       - uniprot_id
       - symbol
@@ -87,7 +51,6 @@ models:
       - idg_family
       - uniprot_function
       - creation
-      - others
     facets:
       - uniprot_reviewed
       - ensembl_canonical
@@ -97,7 +60,6 @@ models:
       - idg_family
   - class: Transcript
     column_order:
-      - id
       - type
       - status
       - transcript_length
@@ -106,7 +68,6 @@ models:
       - bp_end
       - MANE_select
       - creation
-      - others
     facets:
       - status
       - type
@@ -115,7 +76,6 @@ models:
       - creation
   - class: Gene
     column_order:
-      - id
       - symbol
       - type
       - full_name
@@ -124,7 +84,6 @@ models:
       - location
       - mapping_ratio
       - creation
-      - others
     facets:
       - type
       - chromosome_strand
@@ -132,23 +91,19 @@ models:
       - creation
   - class: Ligand
     column_order:
-      - id
       - name
       - isDrug
       - smiles
       - creation
-      - others
     facets:
       - isDrug
       - creation
   - class: GoTerm
     column_order:
-      - id
       - type
       - term
       - definition
       - creation
-      - others
     facets:
       - type
   - class: GeneRif
@@ -156,4 +111,3 @@ models:
       - text
       - pmids
       - creation
-      - others

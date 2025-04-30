@@ -1,5 +1,3 @@
-import re
-
 from src.interfaces.output_adapter import OutputAdapter
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
@@ -8,14 +6,9 @@ from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     def store(self, objects) -> bool:
-        def safe_key(key):
-            key = key.strip()
-            key = re.sub(r'\s+', '_', key)
-            key = re.sub(r'[^a-zA-Z0-9_\-\.@()\+,=;\$!\*\'%:]', '', key)
-            return key
 
         def generate_edge_key(from_node, to_node, edge_type):
-            return f"{safe_key(edge_type)}__{safe_key(from_node)}__{safe_key(to_node)}"
+            return f"{self.safe_key(edge_type)}__{self.safe_key(from_node)}__{self.safe_key(to_node)}"
 
         merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
 
@@ -48,8 +41,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 for obj in merged_records:
                     edge = {
                         **obj,
-                        "_from": f"{start_labels[0]}/{safe_key(obj['start_id'])}",
-                        "_to": f"{end_labels[0]}/{safe_key(obj['end_id'])}",
+                        "_from": f"{start_labels[0]}/{self.safe_key(obj['start_id'])}",
+                        "_to": f"{end_labels[0]}/{self.safe_key(obj['end_id'])}",
                         "_key": generate_edge_key(obj["start_id"], obj["end_id"], label)
                     }
                     edges.append(edge)
@@ -61,7 +54,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 else:
                     collection = db.collection(label)
 
-                keys = [safe_key(obj['id']) for obj in obj_list]
+                keys = [self.safe_key(obj['id']) for obj in obj_list]
                 existing_nodes = collection.get_many(keys)
                 existing_record_map = {
                     record['id']: record for record in existing_nodes
@@ -69,7 +62,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 merged_nodes = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='nodes')
 
                 collection.insert_many(
-                    [{**obj, "_key": safe_key(obj["id"])} for obj in merged_nodes],
+                    [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes],
                     overwrite=True
                 )
 

@@ -12,7 +12,6 @@ from src.shared.db_credentials import DBCredentials
 
 
 def create_object_from_config(config: dict):
-    print(f'creating: {config["class"]}')
     module_path = config['import']
     class_name = config['class']
     module_name = os.path.splitext(os.path.basename(module_path))[0]

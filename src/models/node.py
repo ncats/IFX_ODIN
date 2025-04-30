@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import List, Union, Dict, Any
 
 from src.constants import Prefix
@@ -51,6 +51,12 @@ class Node:
     def add_label(self, new_label: Union[str, NodeLabel]):
         if new_label not in self.labels:
             self.labels.append(new_label)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        field_names = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in field_names}
+        return cls(**filtered_data)
 
 
 @dataclass

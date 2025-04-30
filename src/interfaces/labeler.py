@@ -33,11 +33,14 @@ class Labeler:
             class_labels = [default_label(obj)]
         return list({*class_labels, *obj.labels})
 
-    def get_classes(self, label):
+    def get_classes(self, label, keepClass: bool = False):
         class_list = []
         for class_name, labels in self.class_label_mapping.items():
             if label in labels:
-                class_list.append(class_name.__name__)
+                if keepClass:
+                    class_list.append(class_name)
+                else:
+                    class_list.append(class_name.__name__)
         if len(class_list) > 0:
             return class_list
         return [label]

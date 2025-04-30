@@ -1,9 +1,6 @@
-import math
 from datetime import datetime
 
 import pandas as pd
-
-from src.models.pounce.investigator import Investigator, InvestigatorRelationship, Role
 
 const_val_column = "Submitter_Value"
 const_key_column = "NCATSDPI_Variable_Name"
@@ -18,7 +15,7 @@ class ExcelsheetParser:
 
     def _read_all_sheets(self) -> dict[str, pd.DataFrame]:
         xls = pd.ExcelFile(self.file_path)
-        return {sheet: xls.parse(sheet) for sheet in xls.sheet_names}
+        return {sheet: xls.parse(sheet, keep_default_na=False) for sheet in xls.sheet_names}
 
     def _get_one_value(self, sheet_df, data_key):
         matches = sheet_df[sheet_df[const_key_column] == data_key][const_val_column]
