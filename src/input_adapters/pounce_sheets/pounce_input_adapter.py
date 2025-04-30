@@ -2,17 +2,21 @@ import os
 from datetime import datetime, date
 from typing import Generator, List, Union
 
-from src.constants import DataSourceName
+from src.constants import DataSourceName, Prefix
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.input_adapters.pounce_sheets.constants import ProjectWorkbook, ExperimentWorkbook
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.node import Node, Relationship
-from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleFactorRelationship
+from src.models.gene import Gene
+from src.models.metabolite import Metabolite
+from src.models.node import Node, Relationship, EquivalentId
+from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleBiospecimenRelationship, \
+    SampleAnalyteRelationship
 from src.models.pounce.experiment import Experiment
 from src.models.pounce.investigator import Investigator, ProjectInvestigatorRelationship, Role
 from src.models.pounce.project import Project, ProjectPrivacy, ProjectType, ProjectTypeRelationship
 from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
+from src.models.protein import Protein
 
 
 class PounceInputAdapter(InputAdapter):
@@ -51,6 +55,7 @@ class PounceInputAdapter(InputAdapter):
             id=expt_name,
             name=expt_name,
             type=self.get_experiment_type(),
+            category=self.get_experiment_category(),
             description=self.get_experiment_description(),
             design=self.get_experiment_design(),
             run_date=self.get_experiment_date()
@@ -62,6 +67,7 @@ class PounceInputAdapter(InputAdapter):
                 ProjectWorkbook.ExperimentSheet.Key.experiment_name,
                 ProjectWorkbook.ExperimentSheet.Key.date,
                 ProjectWorkbook.ExperimentSheet.Key.experiment_design,
+                ProjectWorkbook.ExperimentSheet.Key.experiment_category,
                 ProjectWorkbook.ExperimentSheet.Key.description,
                 ProjectWorkbook.ExperimentSheet.Key.platform_type,
                 ProjectWorkbook.ExperimentSheet.Key.point_of_contact,
@@ -128,8 +134,8 @@ class PounceInputAdapter(InputAdapter):
             biospecimen_group_label = row[biospecimen_group_label_column]
             biospecimen_obj = Biospecimen(
                 id=f"{expt_obj.id}_{biospecimen_id}",
-                name=biospecimen_name,
-                type=biospecimen_type,
+                name=str(biospecimen_name),
+                type=str(biospecimen_type),
                 organism=[organism],
                 category=biospecimen_group_label,
                 comment=exposure_type
@@ -168,7 +174,7 @@ class PounceInputAdapter(InputAdapter):
 
         sample_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.SampleDataSheet.name]
 
-        samples = []
+        sample_map = {}
         exp_samp_edges = []
         samp_bio_edges = []
 
@@ -179,22 +185,23 @@ class PounceInputAdapter(InputAdapter):
             replicate = None
             type = None
 
-            if replicate_column is not None:
+            if replicate_column is not None and replicate_column != '':
                 replicate = int(row[replicate_column])
             if type_column is not None:
                 type = row[type_column]
 
+            sample_obj_id = f"{expt_obj.id}_{sample_id}"
             sample_obj = Sample(
-                id=f"{expt_obj.id}_{sample_id}",
+                id=sample_obj_id,
                 name=sample_id,
                 description=comparison_label,
                 type=type,
                 replicate=replicate
             )
-            samples.append(sample_obj)
+            sample_map[sample_id] = sample_obj
 
             samp_bio_edges.append(
-                SampleFactorRelationship(
+                SampleBiospecimenRelationship(
                     start_node=sample_obj,
                     end_node=biospecimen_map[biospecimen_id]
                 )
@@ -205,7 +212,130 @@ class PounceInputAdapter(InputAdapter):
                     start_node=expt_obj,
                     end_node=sample_obj
             ))
-        yield [*samples, *exp_samp_edges, *samp_bio_edges]
+        yield [*sample_map.values(), *exp_samp_edges, *samp_bio_edges]
+
+        yield from self.get_analytes_and_measurements(sample_map)
+
+    def get_analytes_and_measurements(self, sample_map):
+        if ExperimentWorkbook.GeneSheet.name in self.experiment_parser.sheet_dfs and ExperimentWorkbook.GeneDataSheet.name in self.experiment_parser.sheet_dfs:
+            yield from self.get_genes_and_measurements(sample_map)
+        if ExperimentWorkbook.MetabSheet.name in self.experiment_parser.sheet_dfs and ExperimentWorkbook.MetabDataSheet.name in self.experiment_parser.sheet_dfs:
+            yield from self.get_metabolites_and_measurements(sample_map)
+        if ExperimentWorkbook.ProteinSheet.name in self.experiment_parser.sheet_dfs and ExperimentWorkbook.ProteinDataSheet.name in self.experiment_parser.sheet_dfs:
+            yield from self.get_proteins_and_measurements(sample_map)
+
+    def get_proteins_and_measurements(self, sample_map):
+        analyte_map = self.experiment_parser.get_parameter_map(ExperimentWorkbook.ProteinSheet.name)
+        analyte_id_column = analyte_map[ExperimentWorkbook.ProteinSheet.Key.protein_id]
+        analyte_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.ProteinDataSheet.name]
+        analyte_map = {}
+        extra_columns = self.experiment_parser.get_other_properties(
+            sheet_name=ExperimentWorkbook.ProteinSheet.name,
+            skip_keys=[
+                ExperimentWorkbook.ProteinSheet.Key.protein_id
+            ])
+        for index, row in analyte_df.iterrows():
+            analyte_id = row[analyte_id_column]
+            obj_id = EquivalentId(id=analyte_id, type=Prefix.UniProtKB)
+            analyte_obj = Protein(id=obj_id.id_str())
+            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
+            analyte_obj.extra_properties = extra_props
+            analyte_map[analyte_id] = analyte_obj
+
+        yield analyte_map.values()
+        yield from self.get_measurements(sample_map, analyte_map, analyte_id_column)
+
+    def get_metabolites_and_measurements(self, sample_map):
+        analyte_map = self.experiment_parser.get_parameter_map(ExperimentWorkbook.MetabSheet.name)
+        analyte_id_column = analyte_map[ExperimentWorkbook.MetabSheet.Key.metab_id]
+        analyte_name_column = analyte_map[ExperimentWorkbook.MetabSheet.Key.metab_name]
+        analyte_biotype_column = analyte_map[ExperimentWorkbook.MetabSheet.Key.metab_biotype]
+        analyte_identification_level_column = analyte_map[ExperimentWorkbook.MetabSheet.Key.identification_level]
+
+        analyte_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.MetabDataSheet.name]
+        analyte_map = {}
+        extra_columns = self.experiment_parser.get_other_properties(
+            sheet_name=ExperimentWorkbook.MetabSheet.name,
+            skip_keys=[
+                ExperimentWorkbook.MetabSheet.Key.metab_id,
+                ExperimentWorkbook.MetabSheet.Key.metab_name,
+                ExperimentWorkbook.MetabSheet.Key.metab_biotype,
+                ExperimentWorkbook.MetabSheet.Key.identification_level
+            ])
+
+        for index, row in analyte_df.iterrows():
+            analyte_id = row[analyte_id_column]
+            analyte_name = row[analyte_name_column]
+            analyte_biotype = row.get(analyte_biotype_column)
+            analyte_identification_level = row.get(analyte_identification_level_column)
+            analyte_obj = Metabolite(
+                id=str(analyte_id),
+                name=str(analyte_name),
+                type=analyte_biotype,
+                identification_level=analyte_identification_level
+            )
+            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
+            analyte_obj.extra_properties = extra_props
+            analyte_map[analyte_id] = analyte_obj
+
+        yield analyte_map.values()
+        yield from self.get_measurements(sample_map, analyte_map, analyte_id_column)
+
+    def get_genes_and_measurements(self, sample_map):
+
+        analyte_map = self.experiment_parser.get_parameter_map(ExperimentWorkbook.GeneSheet.name)
+        analyte_id_column = analyte_map[ExperimentWorkbook.GeneSheet.Key.ensembl_gene_id]
+        symbol_column = analyte_map[ExperimentWorkbook.GeneSheet.Key.hgnc_gene_symbol]
+
+        analyte_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.GeneDataSheet.name]
+        analyte_map = {}
+
+        extra_columns = self.experiment_parser.get_other_properties(
+            sheet_name=ExperimentWorkbook.GeneSheet.name,
+            skip_keys=[
+                ExperimentWorkbook.GeneSheet.Key.ensembl_gene_id,
+                ExperimentWorkbook.GeneSheet.Key.hgnc_gene_symbol
+            ])
+
+        for index, row in analyte_df.iterrows():
+            analyte_id = row[analyte_id_column]
+            equiv_id = EquivalentId(id = analyte_id, type = Prefix.ENSEMBL)
+            symbol = row[symbol_column]
+            analyte_obj = Gene(
+                id = equiv_id.id_str(),
+                symbol = symbol
+            )
+            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
+            analyte_obj.extra_properties = extra_props
+            analyte_map[analyte_id] = analyte_obj
+        yield analyte_map.values()
+
+        yield from self.get_measurements(sample_map, analyte_map, analyte_id_column)
+
+    def get_measurements(self, sample_map, analyte_map, analyte_id_column):
+        raw_data_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.RawDataSheet.name]
+        stats_ready_df = self.experiment_parser.sheet_dfs[ExperimentWorkbook.StatsReadyDataSheet.name]
+
+        measurement_map = {}
+        for df, field in zip([raw_data_df, stats_ready_df], ['raw_data', 'stats_ready_data']):
+            for index, row in df.iterrows():
+                analyte_id = row[analyte_id_column]
+                for column in df.columns:
+                    if column == analyte_id_column:
+                        continue
+                    key = f"{analyte_id}|X|{column}"
+                    if key in measurement_map:
+                        edge_obj = measurement_map[key]
+                    else:
+                        edge_obj = SampleAnalyteRelationship(
+                            start_node=sample_map[column],
+                            end_node=analyte_map[analyte_id]
+                        )
+                        measurement_map[key] = edge_obj
+                    edge_obj.__setattr__(field, row[column])
+        yield measurement_map.values()
+
+
 
     def get_other_project_nodes_and_edges(self, proj_obj):
         types = self.get_project_type()
@@ -283,6 +413,9 @@ class PounceInputAdapter(InputAdapter):
 
     def get_experiment_type(self) -> str:
         return self.project_parser.get_one_string(sheet_name=ProjectWorkbook.ExperimentSheet.name, data_key=ProjectWorkbook.ExperimentSheet.Key.platform_type)
+
+    def get_experiment_category(self) -> str:
+        return self.project_parser.get_one_string(sheet_name=ProjectWorkbook.ExperimentSheet.name, data_key=ProjectWorkbook.ExperimentSheet.Key.experiment_category)
 
     def get_experiment_description(self) -> str:
         return self.project_parser.get_one_string(sheet_name=ProjectWorkbook.ExperimentSheet.name, data_key=ProjectWorkbook.ExperimentSheet.Key.description)

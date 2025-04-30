@@ -1,3 +1,5 @@
+import networkx as nx
+
 from src.interfaces.data_api_adapter import APIAdapter
 from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
 from src.shared.arango_adapter import ArangoAdapter
@@ -9,6 +11,34 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
     def __init__(self, credentials: DBCredentials, database_name: str, label: str):
         APIAdapter.__init__(self, label=label)
         ArangoAdapter.__init__(self, credentials, database_name, internal=True)
+
+    def get_graph_representation(self, unLabel: bool = False) -> nx.DiGraph:
+        graph = self.get_graph()
+        g = nx.DiGraph()
+
+        collections = self.get_db().collections()
+        node_collections = [collection for collection in collections if not collection['name'].startswith("_") and collection['type'] == 'document' and collection['status'] == 'loaded']
+        if unLabel:
+            for collection in node_collections:
+                for cls in self.labeler.get_classes(collection['name']):
+                    g.add_node(cls)
+        else:
+            g.add_nodes_from([collection['name'] for collection in node_collections])
+
+        for edge_def in graph.edge_definitions():
+            for from_node in edge_def['from_vertex_collections']:
+                for to_node in edge_def['to_vertex_collections']:
+                    edge_label = edge_def['edge_collection']
+                    if unLabel:
+                        for from_class in self.labeler.get_classes(from_node):
+                            for to_class in self.labeler.get_classes(to_node):
+                                for edge_class in self.labeler.get_classes(edge_label, True):
+                                    edge_class_name = edge_class.__name__ if hasattr(edge_class, '__name__') else edge_class
+                                    g.add_edge(from_class, to_class, label=edge_class_name)
+                    else:
+                        g.add_edge(from_node, to_node, label=edge_label)
+
+        return g
 
     def _list_models(self, nodes_or_edges = 'nodes'):
         collections = self.get_db().collections()
@@ -115,14 +145,16 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             }
 
     def get_edge_list(self, data_model: str,  edge_data_model: str, start_id: str = None, end_id: str = None, top: int = 10, skip: int = 0):
+
+
         edge_label = self.labeler.get_labels_for_class_name(edge_data_model)[0]
         node_label = self.labeler.get_labels_for_class_name(data_model)[0]
 
         if start_id is not None:
-            id = start_id
+            id = self.safe_key(start_id)
             direction = 'OUTBOUND'
         else:
-            id = end_id
+            id = self.safe_key(end_id)
             direction = 'INBOUND'
 
         query = f"""

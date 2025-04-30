@@ -64,6 +64,11 @@ class SampleFactorRelationship(Relationship):
     end_node: Factor
 
 @dataclass
+class SampleBiospecimenRelationship(Relationship):
+    start_node: Sample
+    end_node: Biospecimen
+
+@dataclass
 class ExperimentSampleRelationship(Relationship):
     start_node: Experiment
     end_node: Sample

@@ -1,0 +1,122 @@
+tab_order:
+  - Project
+  - Experiment
+  - Investigator
+  - Disease
+  - Biospecimen
+  - Sample
+  - Gene
+  - Protein
+  - Metabolite
+  - ProjectInvestigatorRelationship
+  - ProjectExperimentRelationship
+  - ExperimentSampleRelationship
+  - BiospecimenDiseaseRelationship
+  - SampleBiospecimenRelationship
+models:
+  - class: SampleAnalyteRelationship
+    facets:
+      - end_id
+  - class: ProjectTypeRelationship
+    facets:
+      - end_id
+  - class: SampleBiospecimenRelationship
+    facets:
+      - end_id
+  - class: ExperimentSampleRelationship
+    facets:
+      - start_id
+  - class: ProjectInvestigatorRelationship
+    facets:
+      - end_id
+      - roles
+  - class: Protein
+    column_order:
+      - uniprot_reviewed
+      - uniprot_id
+      - symbol
+      - name
+      - tdl
+      - idg_family
+      - uniprot_function
+      - creation
+    facets:
+      - uniprot_reviewed
+      - ensembl_canonical
+      - tdl
+      - creation
+      - uniprot_entryType
+      - idg_family
+  - class: Project
+    column_order:
+      - id
+      - privacy_level
+      - name
+      - description
+      - keywords
+      - lab_groups
+      - date
+      - creation
+    facets:
+      - privacy_level
+      - lab_groups
+      - keywords
+  - class: Experiment
+    column_order:
+      - id
+      - name
+      - platform_output_type
+      - category
+      - data_provider
+      - platform_name
+      - type
+      - description
+      - extraction_protocol
+      - creation
+    facets:
+      - platform_output_type
+      - category
+      - type
+      - data_provider
+      - platform_name
+  - class: Disease
+    column_order:
+      - id
+      - name
+      - creation
+  - class: Biospecimen
+    column_order:
+      - id
+      - name
+      - part
+      - sex
+      - category
+      - age
+      - creation
+    facets:
+      - part
+      - type
+      - cell_line
+      - sex
+      - category
+      - age
+  - class: Gene
+    column_order:
+      - id
+      - symbol
+      - gene_biotype
+      - creation
+    facets:
+      - type
+      - gene_biotype
+      - creation
+  - class: Sample
+    column_order:
+      - name
+      - creation
+    facets:
+      - type
+  - class: Investigator
+    column_order:
+      - id
+      - email

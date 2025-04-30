@@ -10,13 +10,47 @@ class ExperimentWorkbook:
             biospecimen_comparison_label = "biospecimen_comparison_label"
             biological_replicate_number = "biological_replicate_number"
             sample_type = "sample_type"
+    class MetabDataSheet:
+        name = "MetabMeta"
+    class MetabSheet:
+        name = "MetabMap"
+        class Key:
+            metab_id = "metab_id"
+            metab_name = "metab_name"
+            metab_biotype = "metab_biotype"
+            identification_level = "identification_level"
+            alternate_metab_id = "alternate_metab_id"
+            alternate_metab_symbol = "alternate_metab_symbol"
+            pathway_ids = "pathway_ids"
+            category_1 = "category 1"
+            category_2 = "category 2"
+            category_3 = "category 3"
+            category_4 = "category 4"
+            category_5 = "category 5"
+            category_6 = "category 6"
+            category_7 = "category 7"
+    class ProteinDataSheet:
+        name = "ProteinMeta"
+    class ProteinSheet:
+        name = "ProteinMap"
+        class Key:
+            protein_id = "protein_id"
+            gene_symbol = "gene_symbol"
+            pathway_ids = "pathway_ids"
+            category_1 = "category 1"
+            category_2 = "category 2"
+            category_3 = "category 3"
+            category_4 = "category 4"
+            category_5 = "category 5"
+            category_6 = "category 6"
+            category_7 = "category 7"
     class GeneDataSheet:
         name = "GeneMeta"
     class GeneSheet:
         name = "GeneMap"
         class Key:
-            ensembl_gene_id = "ensembl_gene_id"
-            hgnc_gene_symbol = "hgnc_gene_symbol"
+            ensembl_gene_id = "gene_id"
+            hgnc_gene_symbol = "gene_symbol"
             gene_biotype = "gene_biotype"
             alternate_gene_id = "alternate_gene_id"
             chromosome_location = "chromosome_location"

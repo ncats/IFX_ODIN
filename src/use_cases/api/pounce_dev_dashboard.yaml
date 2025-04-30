@@ -7,4 +7,4 @@ api_adapter:
       label: Pounce DEV
     credentials: ./src/use_cases/secrets/ifxdev_pounce_dev.yaml
 
-dashboard: ./src/use_cases/dashboard/pounce_dashboard_details.yaml
+dashboard: ./src/use_cases/api/pounce_dashboard_details.yaml

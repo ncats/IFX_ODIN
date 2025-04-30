@@ -47,7 +47,7 @@ if len(edge_collections['outgoing']) > 0:
 if len(edge_collections['incoming']) > 0:
     st.subheader("Incoming Edges")
     for edge in edge_collections['incoming']:
-        st.write(edge)
+        st.write(edge['edge_collection'])
         edge_list = api.get_edge_list(model, edge['edge_collection'], end_id=item_id)
         if edge_list is not None:
             edges = [row['edge'] for row in edge_list]

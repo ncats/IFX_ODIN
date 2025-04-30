@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List
 
@@ -44,6 +44,5 @@ class Gene(Audited, Node):
     location: GeneticLocation = None
     pubmed_ids: List[int] = None
     mapping_ratio: float = None
+    symbol: str = None
 
-    def __init__(self, **kwargs):
-        Node.__init__(self, **kwargs)

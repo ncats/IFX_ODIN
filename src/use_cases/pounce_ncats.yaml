@@ -1,6 +1,6 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pounce_dev.yaml
 
-#resolvers:
+resolvers:
 #  - label: cell_line_resolver
 #    import: ./src/id_resolvers/cell_line_resolver.py
 #    class: CellosaurusCellLineResolver
@@ -8,14 +8,25 @@ source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_de
 #      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 #      types:
 #        - Biospecimen
-#
-#  - label: tg_genes
-#    import: ./src/id_resolvers/target_graph_resolver.py
-#    class: TargetGraphGeneResolver
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/gene_ids.csv
-#      types:
-#        - Gene
+
+  - label: tg_genes
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphGeneResolver
+    kwargs:
+      file_path: ./input_files/manual/target_graph/gene_ids.csv
+      types:
+        - Gene
+
+  - label: tg_proteins
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphProteinResolver
+    kwargs:
+      file_paths:
+        - ./input_files/manual/target_graph/protein_ids.csv
+        - ./input_files/manual/target_graph/mapped_isoform_ids.csv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+      types:
+        - Protein
 
 input_adapters:
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
@@ -23,7 +34,7 @@ input_adapters:
     kwargs:
       experiment_file: ./input_files/manual/pounce/HUVEC_Quer_Smoke_Tox_Experiment_Data_POUNCE_Input.xlsx
       project_file: ./input_files/manual/pounce/HUVEC_Quer_Smoke_Tox_Project_Metadata_POUNCE_Input.xlsx
-      
+
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
@@ -55,6 +66,8 @@ input_adapters:
       project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_TEMPLATE_v1.xlsx
 
 output_adapters:
-  - import: ./src/output_adapters/pounce_output_adapter.py
-    class: MemgraphOutputAdapter
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: pounce
     credentials: *source_credentials

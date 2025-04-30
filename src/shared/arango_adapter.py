@@ -1,5 +1,9 @@
+import re
+
 from arango import ArangoClient
 from arango.database import StandardDatabase
+from arango.graph import Graph
+
 from src.shared.db_credentials import DBCredentials
 
 
@@ -16,6 +20,13 @@ class ArangoAdapter:
         self.database_name = database_name
         self.initialize()
 
+    @staticmethod
+    def safe_key(key):
+        key = key.strip()
+        key = re.sub(r'\s+', '_', key)
+        key = re.sub(r'[^a-zA-Z0-9_\-\.@()\+,=;\$!\*\'%:]', '', key)
+        return key
+
     def initialize(self):
         url = self.credentials.internal_url if self.use_internal_url else self.credentials.url
         print(f"Connecting to ArangoDB at {url}")
@@ -27,7 +38,7 @@ class ArangoAdapter:
                                      password=self.credentials.password)
         return self.db
 
-    def get_graph(self):
+    def get_graph(self) -> Graph:
         db = self.get_db()
         if not db.has_graph("graph"):
             db.create_graph("graph")
