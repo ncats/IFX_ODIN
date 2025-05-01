@@ -81,7 +81,7 @@ with tabs:
         """,
         unsafe_allow_html=True,
     )
-    selected_tab = st.tabs([f"{model_names[i]} ({count_map[model_names[i]]})" for i, _ in enumerate(model_names)])
+    selected_tab = st.tabs(model_names)
     for i, t in enumerate(selected_tab):
         with t:
             col_left, col_right = st.columns([1, 3])  # Adjust
