@@ -34,18 +34,16 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
             protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
 
-            protein_obj.extra_properties = {
-                "protein_name_match_score": line.get('match_score', None),
-                "name_match_method": line.get('match_method', None),
-                "Ensembl_ID_Provenance": line.get('Ensembl_ID_Provenance', None),
-                "RefSeq_ID_Provenance": line.get('RefSeq_ID_Provenance', None),
-                "Uniprot_ID_Provenance": line.get('UniProt_ID_Provenance', None),
-                "uniprot_isoform": line.get('SPARQL_uniprot_isoform', None),
-                "ensembl_canonical": TargetGraphProteinParser.get_boolean_or_none(line, 'ensembl_canonical'),
-                "uniprot_canonical": TargetGraphProteinParser.get_boolean_or_none(line, 'uniprot_canonical'),
-                "uniprot_entryType": TargetGraphProteinParser.get_uniprot_entryType(line),
-                "mapping_ratio": TargetGraphProteinParser.get_mapping_ratio(line)
-            }
+            protein_obj.protein_name_match_score = line.get('match_score', None)
+            protein_obj.name_match_method = line.get('match_method', None)
+            protein_obj.Ensembl_ID_Provenance = line.get('Ensembl_ID_Provenance', None)
+            protein_obj.RefSeq_ID_Provenance = line.get('RefSeq_ID_Provenance', None)
+            protein_obj.Uniprot_ID_Provenance = line.get('UniProt_ID_Provenance', None)
+            protein_obj.uniprot_isoform = line.get('SPARQL_uniprot_isoform', None)
+            protein_obj.ensembl_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'ensembl_canonical')
+            protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'uniprot_canonical')
+            protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
+            protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)
 
             transcript_ensembl_id = TargetGraphProteinParser.get_transcript_id(line)
 

@@ -25,6 +25,8 @@ class Project(Node):
     date: date = None
     privacy_level: ProjectPrivacy = None
     keywords: List[str] = field(default_factory=list)
+    project_sheet: str = None
+    experiment_sheet: str = None
 
 
 @dataclass

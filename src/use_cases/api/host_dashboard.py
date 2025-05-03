@@ -161,7 +161,7 @@ with tabs:
 
                 # Fetch and display the data
                 result = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
-                data_list = result.results
+                data_list = result.list
 
                 if 'id' in data_list[0]:
                     st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)

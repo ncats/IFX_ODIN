@@ -28,6 +28,8 @@ class Transcript(Audited, Node):
     is_canonical: bool = None
     MANE_select: str = None
     status: str = None
+    Ensembl_Transcript_ID_Provenance: str = None
+    RefSeq_Provenance: str = None
 
     def __init__(self, **kwargs):
         Node.__init__(self, **kwargs)

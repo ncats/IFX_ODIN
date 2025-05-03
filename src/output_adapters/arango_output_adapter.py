@@ -61,6 +61,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 }
                 merged_nodes = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='nodes')
 
+                print(merged_nodes[0])
                 collection.insert_many(
                     [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes],
                     overwrite=True

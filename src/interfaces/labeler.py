@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import List, Union
 from src.models.analyte import Analyte
 from src.models.disease import Disease, GeneDiseaseRelationship
@@ -11,9 +12,12 @@ from src.models.transcript import Transcript, GeneTranscriptRelationship, Transc
 from src.output_adapters.biolink_labels import BiolinkNodeLabel, BiolinkRelationshipLabel
 from src.output_adapters.generic_labels import GenericNodeLabel
 
+@dataclass(frozen=True)
+class PretendEnum:
+    value: str
 
 def default_label(obj):
-    return obj.__class__.__name__
+    return PretendEnum(value = obj.__class__.__name__)
 
 
 class Labeler:
@@ -48,8 +52,8 @@ class Labeler:
     def get_labels_for_class_name(self, class_name):
         for cls, labels in self.class_label_mapping.items():
             if cls.__name__ == class_name:
-                return [label.value if hasattr(label, 'value') else label for label in labels]
-        return [class_name.value if hasattr(class_name, 'value') else class_name]
+                return [label.value for label in labels]
+        return [class_name.value]
 
 
 class BiolinkLabeler(Labeler):

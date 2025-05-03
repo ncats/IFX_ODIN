@@ -1,3 +1,5 @@
+from typing import List
+
 import networkx as nx
 
 from src.interfaces.data_api_adapter import APIAdapter
@@ -8,9 +10,10 @@ from src.shared.db_credentials import DBCredentials
 
 class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
-    def __init__(self, credentials: DBCredentials, database_name: str, label: str):
-        APIAdapter.__init__(self, label=label)
+    def __init__(self, credentials: DBCredentials, database_name: str, label: str, imports: List[str]):
+        APIAdapter.__init__(self, label=label, imports=imports)
         ArangoAdapter.__init__(self, credentials, database_name, internal=True)
+
 
     def get_graph_representation(self, unLabel: bool = False) -> nx.DiGraph:
         graph = self.get_graph()
@@ -119,7 +122,10 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN {self._get_document_cleanup_clause()}
             """
         result = self.runQuery(query)
-        return ListQueryResult(query = query, results=list(result)) if result else ListQueryResult(query = query, results=[])
+
+        list = [self.convert_to_class(data_model, res) for res in result]
+
+        return ListQueryResult(query = query, list=list) if result else ListQueryResult(query = query, list=[])
 
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]

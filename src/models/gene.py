@@ -45,4 +45,10 @@ class Gene(Audited, Node):
     pubmed_ids: List[int] = None
     mapping_ratio: float = None
     symbol: str = None
+    Name_Provenance: str = None
+    Location_Provenance: str = None
+    Ensembl_ID_Provenance: str = None
+    NCBI_ID_Provenance: str = None
+    HGNC_ID_Provenance: str = None
+    Symbol_Provenance: str = None
 

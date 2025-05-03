@@ -31,15 +31,12 @@ class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
             gene_obj.pubmed_ids = TargetGraphGeneParser.get_pubmed_ids(line)
             gene_obj.mapping_ratio = TargetGraphGeneParser.get_mapping_ratio(line)
             gene_obj.symbol = TargetGraphGeneParser.get_symbol(line)
-
-            gene_obj.extra_properties = {
-                "Name_Provenance": line.get('Description_Provenance', None),
-                "Location_Provenance": line.get('Location_Provenance', None),
-                "Ensembl_ID_Provenance": line.get('Ensembl_ID_Provenance', None),
-                "NCBI_ID_Provenance": line.get('NCBI_ID_Provenance', None),
-                "HGNC_ID_Provenance": line.get('HGNC_ID_Provenance', None),
-                "Symbol_Provenance": line.get('Symbol_Provenance', None),
-            }
+            gene_obj.Name_Provenance = line.get('Description_Provenance', None)
+            gene_obj.Location_Provenance = line.get('Location_Provenance', None)
+            gene_obj.Ensembl_ID_Provenance = line.get('Ensembl_ID_Provenance', None)
+            gene_obj.NCBI_ID_Provenance = line.get('NCBI_ID_Provenance', None)
+            gene_obj.HGNC_ID_Provenance = line.get('HGNC_ID_Provenance', None)
+            gene_obj.Symbol_Provenance = line.get('Symbol_Provenance', None)
             gene_list.append(gene_obj)
         yield gene_list
 

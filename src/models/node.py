@@ -3,6 +3,7 @@ from typing import List, Union, Dict, Any
 
 from src.constants import Prefix
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
+from src.output_adapters.biolink_labels import BiolinkNodeLabel
 
 
 @dataclass
@@ -43,12 +44,11 @@ class EquivalentId:
 @dataclass
 class Node:
     id: str
-    labels: List[Union[str, NodeLabel]] = field(default_factory=list)
+    labels: List[BiolinkNodeLabel] = field(default_factory=list)
     xref: List[EquivalentId] = field(default_factory=list)
     provenance: str = None
-    extra_properties: Dict[str, Any] = field(default_factory=dict)
 
-    def add_label(self, new_label: Union[str, NodeLabel]):
+    def add_label(self, new_label: BiolinkNodeLabel):
         if new_label not in self.labels:
             self.labels.append(new_label)
 

@@ -33,11 +33,8 @@ class TranscriptNodeAdapter(InputAdapter, TargetGraphTranscriptParser):
             transcript_obj.MANE_select = TargetGraphTranscriptParser.get_mane_select(line)
             transcript_obj.status = TargetGraphTranscriptParser.get_transcript_status(line)
             transcript_obj.ensembl_version = TargetGraphTranscriptParser.get_transcript_version(line)
-
-            transcript_obj.extra_properties = {
-                "Ensembl_Transcript_ID_Provenance": line.get('Ensembl_Transcript_ID_Provenance', None),
-                "RefSeq_Provenance": line.get('RefSeq_Provenance', None)
-            }
+            transcript_obj.Ensembl_Transcript_ID_Provenance = line.get('Ensembl_Transcript_ID_Provenance', None)
+            transcript_obj.RefSeq_Provenance = line.get('RefSeq_Provenance', None)
 
             transcript_list.append(transcript_obj)
 

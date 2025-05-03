@@ -4,6 +4,7 @@ from datetime import datetime, date
 from enum import Enum
 from typing import List, Union
 
+from src.interfaces.labeler import PretendEnum
 from src.interfaces.simple_enum import NodeLabel, SimpleEnum
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
@@ -51,21 +52,16 @@ class OutputAdapter(ABC):
 
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
         for key, value in vars(obj).items():
-            if isinstance(value, NodeLabel):
+            if isinstance(value, Enum) or type(value).__name__ == "PretendEnum":
                 ret_dict[key] = value.value
             if isinstance(value, list):
                 ret_dict[key] = self.remove_none_values_from_list(value)
                 if ret_dict[key] is not None:
-                    ret_dict[key] = [l.value if isinstance(l, SimpleEnum) else l for l in ret_dict[key]]
+                    ret_dict[key] = [l.value if isinstance(l, Enum) or type(l).__name__ == "PretendEnum" else l for l in ret_dict[key]]
             if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
                 del ret_dict[key]
                 flat_dict = value.to_dict()
                 ret_dict.update(flat_dict)
-            if key == "extra_properties":
-                del ret_dict[key]
-                for k in value:
-                    if not k.startswith('_'):
-                        ret_dict[k] = value[k]
         if isinstance(obj, Node):
             if hasattr(obj, 'xref'):
                 ret_dict['xref'] = self.remove_none_values_from_list(
@@ -102,11 +98,9 @@ class OutputAdapter(ABC):
             for key, val in obj.__dict__.items():
                 if key in forbidden_keys:
                     continue
-                if isinstance(val, list) and len(val) == 0:
-                    continue
-                if isinstance(val, Enum):
-                    temp_dict[key] = val.value
-                if convert_dates and (isinstance(val, datetime) or isinstance(val, date)):
+                elif isinstance(val, list) and len(val) == 0:
+                        continue
+                elif convert_dates and (isinstance(val, datetime) or isinstance(val, date)):
                     temp_dict[key] = val.isoformat()
                 else:
                     temp_dict[key] = val
@@ -119,12 +113,13 @@ class OutputAdapter(ABC):
     def sort_and_convert_objects(self, objects: List[Union[Node, Relationship]], convert_dates: bool = False):
         object_lists = {}
         for obj in objects:
-
             obj_type = type(obj).__name__
-            obj_labels = NodeLabel.to_list(obj.labels)
+            obj_labels = [l.value for l in obj.labels]
             obj_key = f"{obj_type}:{obj_labels}"
             if isinstance(obj, Relationship):
-                obj_key = f"{obj.start_node.labels}:{obj_labels}:{obj.end_node.labels}"
+                start_labels = [l.value for l in obj.start_node.labels]
+                end_labels = [l.value for l in obj.end_node.labels]
+                obj_key = f"{start_labels}:{obj_labels}:{end_labels}"
 
             if obj_key in object_lists:
                 obj_list, _, _, _, _ = object_lists[obj_key]
@@ -138,10 +133,10 @@ class OutputAdapter(ABC):
                 if isinstance(obj, Relationship):
                     one_obj['start_id'] = obj.start_node.id
                     one_obj['end_id'] = obj.end_node.id
-                    object_lists[obj_key] = ([one_obj], obj.labels, True,
-                                             obj.start_node.labels,
-                                             obj.end_node.labels)
+                    object_lists[obj_key] = ([one_obj], obj_labels, True,
+                                             start_labels,
+                                             end_labels)
                 else:
-                    object_lists[obj_key] = [one_obj], obj.labels, False, None, None
+                    object_lists[obj_key] = [one_obj], obj_labels, False, None, None
 
         return object_lists

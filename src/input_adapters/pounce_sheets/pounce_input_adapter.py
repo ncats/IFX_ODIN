@@ -42,12 +42,10 @@ class PounceInputAdapter(InputAdapter):
             lab_groups=self.get_project_lab_groups(),
             date=self.get_project_date(),
             privacy_level=self.get_project_privacy_level(),
-            keywords=self.get_project_keywords()
+            keywords=self.get_project_keywords(),
+            project_sheet=self.project_file,
+            experiment_sheet=self.experiment_file
         )
-        proj_obj.extra_properties = {
-            "project_sheet": self.project_file,
-            "experiment_sheet": self.experiment_file
-        }
         yield from self.get_other_project_nodes_and_edges(proj_obj)
 
         expt_name = self.get_experiment_name()
@@ -61,7 +59,7 @@ class PounceInputAdapter(InputAdapter):
             run_date=self.get_experiment_date()
         )
 
-        expt_obj.extra_properties = self.project_parser.get_other_properties(
+        extra_columns = self.project_parser.get_other_properties(
             sheet_name=ProjectWorkbook.ExperimentSheet.name,
             skip_keys=[
                 ProjectWorkbook.ExperimentSheet.Key.experiment_name,
@@ -77,6 +75,12 @@ class PounceInputAdapter(InputAdapter):
                 ProjectWorkbook.ExperimentSheet.Key.lead_informatician,
                 ProjectWorkbook.ExperimentSheet.Key.lead_informatician_email
             ])
+
+        for key, val in extra_columns.items():
+            if val is None or val == '':
+                continue
+            setattr(expt_obj, key.replace(' ', '_'), row[val])
+
 
         yield [expt_obj, ProjectExperimentRelationship(start_node=proj_obj, end_node=expt_obj)]
 
@@ -156,8 +160,11 @@ class PounceInputAdapter(InputAdapter):
                     ProjectWorkbook.BiospecimenSheet.Key.biospecimen_group_label,
                     ProjectWorkbook.BiospecimenSheet.Key.cell_line
                 ])
-            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
-            biospecimen_obj.extra_properties = extra_props
+
+            for key, val in extra_columns.items():
+                if val is None or val == '':
+                    continue
+                setattr(biospecimen_obj, key.replace(' ', '_'), row[val])
 
 
         yield biospecimen_map.values()
@@ -238,8 +245,10 @@ class PounceInputAdapter(InputAdapter):
             analyte_id = row[analyte_id_column]
             obj_id = EquivalentId(id=analyte_id, type=Prefix.UniProtKB)
             analyte_obj = Protein(id=obj_id.id_str())
-            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
-            analyte_obj.extra_properties = extra_props
+            for key, val in extra_columns.items():
+                if val is None or val == '':
+                    continue
+                setattr(analyte_obj, key.replace(' ', '_'), row[val])
             analyte_map[analyte_id] = analyte_obj
 
         yield analyte_map.values()
@@ -274,8 +283,10 @@ class PounceInputAdapter(InputAdapter):
                 type=analyte_biotype,
                 identification_level=analyte_identification_level
             )
-            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
-            analyte_obj.extra_properties = extra_props
+            for key, val in extra_columns.items():
+                if val is None or val == '':
+                    continue
+                setattr(analyte_obj, key.replace(' ', '_'), row[val])
             analyte_map[analyte_id] = analyte_obj
 
         yield analyte_map.values()
@@ -305,8 +316,10 @@ class PounceInputAdapter(InputAdapter):
                 id = equiv_id.id_str(),
                 symbol = symbol
             )
-            extra_props = {key.replace(' ', '_'): row[val] for key, val in extra_columns.items() if val is not None and val != ''}
-            analyte_obj.extra_properties = extra_props
+            for key, val in extra_columns.items():
+                if val is None or val == '':
+                    continue
+                setattr(analyte_obj, key.replace(' ', '_'), row[val])
             analyte_map[analyte_id] = analyte_obj
         yield analyte_map.values()
 
