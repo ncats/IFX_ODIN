@@ -14,7 +14,7 @@ class RecordMerger:
         self.field_conflict_behavior = field_conflict_behavior
 
     def parse_list_and_field_keys(self, example_record):
-        forbidden_keys = ['id', 'start_id', 'end_id', 'labels']
+        forbidden_keys = ['id', 'start_id', 'end_id']
         list_keys = []
         field_keys = []
 
@@ -49,7 +49,7 @@ class RecordMerger:
         key_func = node_key if nodes_or_edges == 'nodes' else edge_key
 
         created_keys = ['updates', 'creation', 'resolved_ids']
-        forbidden_keys = ['id', 'start_id', 'end_id', 'labels', 'xref', 'provenance', 'entity_resolution', *created_keys]
+        forbidden_keys = ['id', 'start_id', 'end_id', 'xref', 'provenance', 'entity_resolution', *created_keys]
 
         example_record = self.get_example_record(records)
         field_keys, list_keys = self.parse_list_and_field_keys(example_record)

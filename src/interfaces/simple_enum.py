@@ -12,7 +12,7 @@ class SimpleEnum(str, Enum):
     @staticmethod
     def to_list(val_list: List[Enum], delimiter: str = "-"):
         val_list = list(set(val_list))
-        return delimiter.join([val.value if hasattr(val, 'value') else val for val in val_list])
+        return delimiter.join([val.value for val in val_list])
 
 
     @classmethod

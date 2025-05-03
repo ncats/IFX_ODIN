@@ -24,3 +24,6 @@ streamlit
 pyvis
 networkx
 graphql-server
+fastapi
+strawberry-graphql
+uvicorn

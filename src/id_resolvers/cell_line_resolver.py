@@ -1,6 +1,6 @@
 import os
 import xml.etree.ElementTree as ET
-from typing import List
+from typing import Generator
 from src.constants import Prefix
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
 from src.models.node import EquivalentId
@@ -17,8 +17,7 @@ class CellosaurusCellLineResolver(SqliteCacheResolver):
         self.file_path = file_path
         SqliteCacheResolver.__init__(self, **kwargs)
 
-    def matching_ids(self) -> List[MatchingPair]:
-
+    def matching_ids(self) -> Generator[MatchingPair]:
         tree = ET.parse(self.file_path)
         root = tree.getroot()
         for node in root.findall('./cell-line-list/cell-line'):

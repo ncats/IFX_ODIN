@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import List
 
+from src.models.node import Node
+
 
 @dataclass
 class QueryResult:
@@ -9,7 +11,7 @@ class QueryResult:
 
 @dataclass
 class ListQueryResult(QueryResult):
-    results: list
+    list: List[Node]
 
 
 @dataclass

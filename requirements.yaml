@@ -29,3 +29,6 @@ dependencies:
   - pyvis
   - networkx
   - graphql-server
+  - strawberry-graphql
+  - fastapi
+  - uvicorn

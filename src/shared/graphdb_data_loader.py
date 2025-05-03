@@ -39,7 +39,7 @@ class GraphDBDataLoader(ABC):
 
     def generate_node_insert_query(self,
                                    records: List[dict],
-                                   labels: [NodeLabel]):
+                                   labels: List[NodeLabel]):
 
         example_record = self.merger.get_example_record(records)
 
@@ -101,7 +101,7 @@ class GraphDBDataLoader(ABC):
 
     def get_conjugate_label_str(self, labels):
         labels = self.ensure_list(labels)
-        lables_str = [l.value if hasattr(l, 'value') else l for l in labels]
+        lables_str = [l.value for l in labels]
         return "`&`".join(lables_str)
 
     def generate_relationship_insert_query(self,
@@ -155,7 +155,7 @@ class GraphDBDataLoader(ABC):
             """
         return query
 
-    def load_node_records(self, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
+    def load_node_records(self, records: List[dict], labels: List[NodeLabel]):
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -166,7 +166,7 @@ class GraphDBDataLoader(ABC):
         self.load_to_graph(query, records)
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
-                                  rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
+                                  rel_labels: List[RelationshipLabel],
                                   end_labels: List[NodeLabel]):
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
@@ -204,13 +204,13 @@ class MemgraphDataLoader(GraphDBDataLoader):
         self.memgraph.execute(f"CREATE INDEX ON :`{label}`(`{field}`)")
 
     def add_index(self, label: NodeLabel, field: str):
-        label_str = label.value if hasattr(label, 'value') else label
+        label_str = label.value
         if not self.index_exists(label_str, field):
             self.create_index(label_str, field)
 
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
-                                  rel_labels: Union[RelationshipLabel, List[RelationshipLabel]],
+                                  rel_labels: List[RelationshipLabel],
                                   end_labels: List[NodeLabel]):
         rel_labels = self.ensure_list(rel_labels)
 
@@ -337,7 +337,7 @@ class Neo4jDataLoader(GraphDBDataLoader):
                                                encrypted=False)
 
     def add_index(self, label: NodeLabel, field: str):
-        label_str = label.value if hasattr(label, 'value') else label
+        label_str = label.value
 
         with self.driver.session() as session:
             if not self.index_exists(session, label_str, field):
