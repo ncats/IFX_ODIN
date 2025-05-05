@@ -65,13 +65,10 @@ class Protein(Audited, Analyte):
     uniprot_annotationScore: int = None
     uniprot_reviewed: bool = None
     uniprot_function: str = None
-    protein_name_match_score: str = None
-    name_match_method: str = None
     Ensembl_ID_Provenance: str = None
     RefSeq_ID_Provenance: str = None
     Uniprot_ID_Provenance: str = None
-    uniprot_isoform: str = None
-    ensembl_canonical: bool = None
+    ensembl_canonical: str = None
     uniprot_canonical: bool = None
     uniprot_entryType: str = None
     mapping_ratio: float = None

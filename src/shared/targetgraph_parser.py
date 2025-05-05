@@ -100,6 +100,10 @@ class TargetGraphParser(CSVParser, ABC):
     def get_boolean_or_none(prop_dict: Dict, key: str) -> Optional[bool]:
         val = prop_dict.get(key, None)
         if val is not None and len(val) > 0:
+            if val == 'True':
+                return True
+            elif val == 'False':
+                return False
             return True if float(val) == 1 else False
         return None
 
@@ -298,7 +302,7 @@ class TargetGraphProteinParser(TargetGraphParser):
 
     @staticmethod
     def get_uniprot_id(prop_dict: Dict) -> Optional[str]:
-        return prop_dict.get('consolidated_uniprot_id', None)
+        return prop_dict.get('uniprot_id', None)
 
     @staticmethod
     def get_name(prop_dict: Dict) -> Optional[str]:
@@ -306,26 +310,28 @@ class TargetGraphProteinParser(TargetGraphParser):
 
     def get_equivalent_ids(self, prop_dict: Dict) -> List[EquivalentId]:
         ids = []
-        try_append_id(ids, prop_dict, 'SPARQL_uniprot_isoform', None, 'uniprot', Prefix.UniProtKB, removeVersion=True)
-        try_append_id(ids, prop_dict, 'consolidated_uniprot_id', 'UniProt_ID_Provenance', None, Prefix.UniProtKB)
+        try_append_id(ids, prop_dict, 'uniprot_id', 'UniProt_ID_Provenance', None, Prefix.UniProtKB)
         try_append_id(ids, prop_dict, 'consolidated_ensembl_protein_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL,
-                      removeDecimal=True)
+                      removeDecimal=True, splitIDs=True)
         try_append_id(ids, prop_dict, 'consolidated_refseq_protein', 'RefSeq_ID_Provenance', None, Prefix.RefSeq,
                       removeDecimal=True, splitIDs=True)
         try_append_id(ids, prop_dict, 'consolidated_symbol', None, None, Prefix.Symbol)
         try_append_id(ids, prop_dict, 'uniprot_secondaryAccessions', None, 'uniprot', Prefix.UniProtKB, splitIDs=True)
         try_append_id(ids, prop_dict, 'uniprot_uniProtkbId', None, 'uniprot', Prefix.UniProtKB)
         try_append_id(ids, prop_dict, 'combined_protein_name', None, 'uniprot', Prefix.Name)
-        uniprot_id = prop_dict.get('consolidated_uniprot_id', None)
+        uniprot_id = prop_dict.get('uniprot_id', None)
         extra_ids = self.additional_id_map.get(uniprot_id, None)
         if extra_ids is not None:
             return [*ids, *extra_ids]
         return ids
 
     @staticmethod
-    def get_transcript_id(prop_dict: Dict) -> Optional[str]:
-        transcript_id = prop_dict.get('consolidated_ensembl_transcript_id', None)
-        return remove_decimal(transcript_id)
+    def get_transcript_ids(prop_dict: Dict) -> List[str]:
+        cell_value = prop_dict.get('consolidated_ensembl_transcript_id', None)
+        transcript_ids = split_and_trim_str(cell_value, '|')
+        if transcript_ids is None:
+            return []
+        return [remove_decimal(id) for id in transcript_ids]
 
     @staticmethod
     def get_gene_id(prop_dict: Dict) -> Optional[str]:

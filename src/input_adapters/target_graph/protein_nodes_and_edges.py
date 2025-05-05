@@ -34,29 +34,27 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
             protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
 
-            protein_obj.protein_name_match_score = line.get('match_score', None)
-            protein_obj.name_match_method = line.get('match_method', None)
             protein_obj.Ensembl_ID_Provenance = line.get('Ensembl_ID_Provenance', None)
             protein_obj.RefSeq_ID_Provenance = line.get('RefSeq_ID_Provenance', None)
             protein_obj.Uniprot_ID_Provenance = line.get('UniProt_ID_Provenance', None)
-            protein_obj.uniprot_isoform = line.get('SPARQL_uniprot_isoform', None)
-            protein_obj.ensembl_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'ensembl_canonical')
-            protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'uniprot_canonical')
+            protein_obj.ensembl_canonical = line.get('ensembl_canonical', None)
+            protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'is_canonical')
             protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
             protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)
 
-            transcript_ensembl_id = TargetGraphProteinParser.get_transcript_id(line)
+            transcript_ensembl_ids = TargetGraphProteinParser.get_transcript_ids(line)
 
-            transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
+            for transcript_ensembl_id in transcript_ensembl_ids:
+                transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
 
-            transcript_relationships.append(
-                TranscriptProteinRelationship(
-                    start_node=Transcript(id=transcript_id.id_str()),
-                    end_node=protein_obj,
-                    created=protein_obj.created,
-                    updated=protein_obj.updated
+                transcript_relationships.append(
+                    TranscriptProteinRelationship(
+                        start_node=Transcript(id=transcript_id.id_str()),
+                        end_node=protein_obj,
+                        created=protein_obj.created,
+                        updated=protein_obj.updated
+                    )
                 )
-            )
 
             gene_ncbi_id = TargetGraphProteinParser.get_gene_id(line)
             gene_id = EquivalentId(id=gene_ncbi_id, type=Prefix.NCBIGene)

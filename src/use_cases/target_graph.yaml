@@ -39,7 +39,6 @@ resolvers:
       no_match_behavior: Skip
       file_paths:
         - ./input_files/manual/target_graph/protein_ids.csv
-        - ./input_files/manual/target_graph/mapped_isoform_ids.csv
       additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
       types:
         - Protein
@@ -57,9 +56,9 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.csv
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
+    class: IsoformProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
 
   - import: ./src/input_adapters/target_graph/gene_node.py
     class: GeneNodeAdapter
@@ -82,24 +81,9 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.csv
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: TranscriptProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: GeneProteinEdgeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.csv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: GeneProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: IsoformProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/mapped_isoform_ids.csv
 
   - import: ./src/input_adapters/target_graph/generif_node.py
     class: GeneRifNodeAdapter
