@@ -23,7 +23,6 @@ resolvers:
     kwargs:
       file_paths:
         - ./input_files/manual/target_graph/protein_ids.csv
-        - ./input_files/manual/target_graph/mapped_isoform_ids.csv
       additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
       types:
         - Protein

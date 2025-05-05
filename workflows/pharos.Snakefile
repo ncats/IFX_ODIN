@@ -1,7 +1,6 @@
 rule all:
     input:
         "../input_files/manual/target_graph/gene_ids.csv",
-        "../input_files/manual/target_graph/mapped_isoform_ids.csv",
         "../input_files/manual/target_graph/protein_ids.csv",
         "../input_files/manual/target_graph/transcript_ids.csv",
         "../input_files/manual/target_graph/uniprotkb_mapping.csv",
