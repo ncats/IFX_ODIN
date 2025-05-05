@@ -310,6 +310,7 @@ class TargetGraphProteinParser(TargetGraphParser):
 
     def get_equivalent_ids(self, prop_dict: Dict) -> List[EquivalentId]:
         ids = []
+        try_append_id(ids, prop_dict, 'uniprot_isoform', None, 'uniprot', Prefix.UniProtKB, removeVersion=True)
         try_append_id(ids, prop_dict, 'uniprot_id', 'UniProt_ID_Provenance', None, Prefix.UniProtKB)
         try_append_id(ids, prop_dict, 'consolidated_ensembl_protein_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL,
                       removeDecimal=True, splitIDs=True)
