@@ -84,7 +84,6 @@ FOR n IN `biolink:Protein`
 
 proteins_with_moa_drugs = """
 for pro in `biolink:Protein`
-  filter pro.uniprot_reviewed == TRUE
   for lig, act in outbound pro `biolink:interacts_with`
     FILTER lig.isDrug == TRUE
     FILTER LENGTH(act.has_moa[* FILTER CURRENT == TRUE]) > 0

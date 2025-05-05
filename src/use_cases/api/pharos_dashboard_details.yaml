@@ -31,6 +31,7 @@ models:
       - act_value
       - act_type
       - assay_type
+      - meets_idg_cutoff
       - act_pmid
       - ref_id
       - comment
@@ -38,6 +39,7 @@ models:
     facets:
       - act_type
       - assay_type
+      - meets_idg_cutoff
   - class: GeneGeneRifRelationship
     column_order:
       - gene_id
