@@ -72,6 +72,9 @@ class Protein(Audited, Analyte):
     uniprot_canonical: bool = None
     uniprot_entryType: str = None
     mapping_ratio: float = None
+    protein_name_score: str = None
+    protein_name_method: str = None
+    uniprot_isoform: str = None
 
 
 @dataclass
