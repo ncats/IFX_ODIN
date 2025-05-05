@@ -33,7 +33,7 @@ passing_activities_query = """FOR pro IN `biolink:Protein`
       (pro.idg_family == "Kinase" AND LENGTH(rel.act_value[* FILTER CURRENT >= 7.52288]) > 0) OR
       (pro.idg_family == "Ion Channel" AND LENGTH(rel.act_value[* FILTER CURRENT >= 5]) > 0) OR
       (
-        (pro.idg_family == null OR NOT pro.idg_family IN ["Ion Channel", "Kinase", "GPCR", "Nuclear Receptor"])
+        (pro.idg_family == null OR pro.idg_family NOT IN ["Ion Channel", "Kinase", "GPCR", "Nuclear Receptor"])
         AND LENGTH(rel.act_value[* FILTER CURRENT >= 6]) > 0
       )
     )
