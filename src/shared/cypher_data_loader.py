@@ -1,6 +1,6 @@
 import time
 from abc import ABC, abstractmethod
-from typing import List, Union
+from typing import List
 
 from neo4j import Driver, GraphDatabase, Session
 from gqlalchemy import Memgraph
@@ -28,7 +28,7 @@ class GraphDBDataLoader(ABC):
 
 
     @abstractmethod
-    def add_index(self, label: NodeLabel, field: str):
+    def add_index(self, label: str, field: str):
         pass
 
     def ensure_list(self, possible_list):
@@ -101,8 +101,7 @@ class GraphDBDataLoader(ABC):
 
     def get_conjugate_label_str(self, labels):
         labels = self.ensure_list(labels)
-        lables_str = [l.value for l in labels]
-        return "`&`".join(lables_str)
+        return "`&`".join(labels)
 
     def generate_relationship_insert_query(self,
                                            records: List[dict],
@@ -155,7 +154,7 @@ class GraphDBDataLoader(ABC):
             """
         return query
 
-    def load_node_records(self, records: List[dict], labels: List[NodeLabel]):
+    def load_node_records(self, records: List[dict], labels: List[str]):
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -203,10 +202,9 @@ class MemgraphDataLoader(GraphDBDataLoader):
         print(f'creating index {label}: {field}')
         self.memgraph.execute(f"CREATE INDEX ON :`{label}`(`{field}`)")
 
-    def add_index(self, label: NodeLabel, field: str):
-        label_str = label.value
-        if not self.index_exists(label_str, field):
-            self.create_index(label_str, field)
+    def add_index(self, label: str, field: str):
+        if not self.index_exists(label, field):
+            self.create_index(label, field)
 
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
@@ -247,7 +245,7 @@ class MemgraphDataLoader(GraphDBDataLoader):
 
         self.load_to_graph(query, records)
 
-    def load_node_records(self, records: List[dict], labels: Union[NodeLabel, List[NodeLabel]]):
+    def load_node_records(self, records: List[dict], labels: List[str]):
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -261,7 +259,10 @@ class MemgraphDataLoader(GraphDBDataLoader):
         UNWIND $ids AS id
             MATCH (n:`{conjugate_label_str}` {{id: id}})
             RETURN properties(n) as props""", {'ids': ids})
-        existing_node_map = {record['props']['id']: record['props'] for record in nodes}
+
+        existing_node_map = {}
+        for record in nodes:
+            existing_node_map[record['props']['id']] = record['props']
 
         records = self.merger.merge_records(records, existing_node_map, 'nodes')
 
@@ -336,12 +337,10 @@ class Neo4jDataLoader(GraphDBDataLoader):
         self.driver = GraphDatabase.driver(credentials.url, auth=(credentials.user, credentials.password),
                                                encrypted=False)
 
-    def add_index(self, label: NodeLabel, field: str):
-        label_str = label.value
-
+    def add_index(self, label: str, field: str):
         with self.driver.session() as session:
-            if not self.index_exists(session, label_str, field):
-                self.create_index(session, label_str, field)
+            if not self.index_exists(session, label, field):
+                self.create_index(session, label, field)
 
     def load_to_graph(self, query, records, batch_size=50050):
         with self.driver.session() as session:

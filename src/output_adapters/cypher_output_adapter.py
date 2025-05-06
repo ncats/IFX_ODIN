@@ -4,7 +4,7 @@ from typing import List
 from src.interfaces.output_adapter import OutputAdapter
 
 from src.shared.db_credentials import DBCredentials
-from src.shared.graphdb_data_loader import GraphDBDataLoader, Neo4jDataLoader, MemgraphDataLoader
+from src.shared.cypher_data_loader import GraphDBDataLoader, Neo4jDataLoader, MemgraphDataLoader
 
 
 class GraphDBOutputAdapter(OutputAdapter, ABC):
