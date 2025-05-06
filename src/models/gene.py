@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node
@@ -20,9 +20,9 @@ class Strand(SimpleEnum):
 
 @dataclass
 class GeneticLocation:
-    location: str = None
-    chromosome: int = None
-    strand: Strand = None
+    location: Optional[str] = None
+    chromosome: Optional[int] = None
+    strand: Optional[Strand] = None
 
     def to_dict(self) -> Dict[str, str]:
         ret_dict = {}
@@ -35,20 +35,20 @@ class GeneticLocation:
 
 @dataclass
 class Audited:
-    created: datetime = None
-    updated: datetime = None
+    created: Optional[datetime] = None
+    updated: Optional[datetime] = None
 
 
 @dataclass
 class Gene(Audited, Node):
-    location: GeneticLocation = None
-    pubmed_ids: List[int] = None
-    mapping_ratio: float = None
-    symbol: str = None
-    Name_Provenance: str = None
-    Location_Provenance: str = None
-    Ensembl_ID_Provenance: str = None
-    NCBI_ID_Provenance: str = None
-    HGNC_ID_Provenance: str = None
-    Symbol_Provenance: str = None
+    location: Optional[GeneticLocation] = None
+    pubmed_ids: Optional[List[int]] = None
+    mapping_ratio: Optional[float] = None
+    symbol: Optional[str] = None
+    Name_Provenance: Optional[str] = None
+    Location_Provenance: Optional[str] = None
+    Ensembl_ID_Provenance: Optional[str] = None
+    NCBI_ID_Provenance: Optional[str] = None
+    HGNC_ID_Provenance: Optional[str] = None
+    Symbol_Provenance: Optional[str] = None
 

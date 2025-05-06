@@ -1,3 +1,5 @@
+from dataclasses import fields
+
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 import streamlit as st
 st.set_page_config(layout="wide")
@@ -163,8 +165,8 @@ with tabs:
                 result = api.get_list(model_names[i], get_filter(st, model_names[i]), top=page_size, skip=st.session_state[f"skip_{api.label}_{model_names[i]}"])
                 data_list = result.list
 
-                if 'id' in data_list[0]:
-                    st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
+                if hasattr(data_list[0], 'id'):
+                    st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0].id}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
                 # if 'start_id' in data_list[0]:
                 #     st.markdown(f"<a href='./details?model={model_names[i]}&id={data_list[0]['start_id']}&api={yaml_file}' target='_blank'>Go to Details</a>", unsafe_allow_html=True)
                 # if 'end_id' in data_list[0]:
@@ -184,11 +186,12 @@ with tabs:
                 else:
                     configured_fields = ['start_id', 'end_id'] + configured_fields
 
-                all_keys = set(key for item in data_list for key in item.keys())
+
+                all_keys = set(field.name for item in data_list for field in fields(type(item)))
                 final_fields = configured_fields + [key for key in all_keys if key not in configured_fields]
 
                 data_list = [
-                    {key: item.get(key, None) for key in final_fields} for item in data_list
+                    {key: getattr(item, key) for key in final_fields if hasattr(item, key)} for item in data_list
                 ]
 
                 if data_list:

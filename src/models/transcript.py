@@ -31,9 +31,6 @@ class Transcript(Audited, Node):
     Ensembl_Transcript_ID_Provenance: str = None
     RefSeq_Provenance: str = None
 
-    def __init__(self, **kwargs):
-        Node.__init__(self, **kwargs)
-
 @dataclass
 class GeneTranscriptRelationship(Relationship, Audited):
     start_node: Gene = None

@@ -53,7 +53,7 @@ class Labeler:
         for cls, labels in self.class_label_mapping.items():
             if cls.__name__ == class_name:
                 return [label.value for label in labels]
-        return [class_name.value]
+        return [class_name]
 
 
 class BiolinkLabeler(Labeler):
