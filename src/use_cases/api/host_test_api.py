@@ -1,13 +1,17 @@
-from dataclasses import field
-from typing import Union, List
-
-from src.models.disease import Disease, GeneDiseaseRelationship
+import os
 from src.models.gene import Gene, GeneticLocation
 import strawberry
 from fastapi import FastAPI
 from strawberry.fastapi import GraphQLRouter
 
 from src.models.node import EquivalentId
+from src.use_cases.build_from_yaml import HostDashboardFromYaml
+
+print(os.getcwd())
+
+yaml_file = "./src/use_cases/api/pharos_prod_dashboard.yaml"
+dashboard = HostDashboardFromYaml(yaml_file=yaml_file)
+api = dashboard.api_adapter
 
 EquivalentIdType = strawberry.type(EquivalentId)
 GeneticLocationType = strawberry.type(GeneticLocation)
@@ -16,15 +20,11 @@ GeneType = strawberry.type(Gene)
 @strawberry.type
 class Query:
     @strawberry.field
-    def gene(self, symbol: str) -> GeneType:
-        # Normally you would fetch from Arango here
-        return Gene(
-            id="gene_id",
-            symbol=symbol,
-            pubmed_ids=[123456, 234567],
-            mapping_ratio=0.95,
-            location=None  # whatever makes sense here
-        )
+    def gene(self, id: str) -> GeneType:
+
+        res = api.get_details("Gene", id="IFXGene:05TD54T")
+
+        return Gene.from_dict(res.details)
 
 schema = strawberry.Schema(query=Query)
 

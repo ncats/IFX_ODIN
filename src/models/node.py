@@ -1,10 +1,35 @@
 from dataclasses import dataclass, field, fields
-from typing import List, Union, Dict, Any
+from datetime import datetime
+from typing import List, Union, get_origin, get_args, Optional
 
 from src.constants import Prefix
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
+from src.interfaces.simple_enum import RelationshipLabel
 from src.output_adapters.biolink_labels import BiolinkNodeLabel
 
+def is_datetime_field(type_hint):
+    if type_hint is datetime:
+        return True
+    origin = get_origin(type_hint)
+    args = get_args(type_hint)
+    return origin in (Union, Optional) and datetime in args
+
+def generate_class_from_dict(cls, data: dict) :
+    result = {}
+    for f in fields(cls):
+        value = data.get(f.name)
+        type_hint = f.type
+
+        # Check for Optional[datetime] or datetime
+        if is_datetime_field(type_hint) and isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError:
+                pass
+                # optionally raise or handle differently
+
+        result[f.name] = value
+
+    return cls(**result)
 
 @dataclass
 class EquivalentId:
@@ -54,9 +79,7 @@ class Node:
 
     @classmethod
     def from_dict(cls, data: dict):
-        field_names = {f.name for f in fields(cls)}
-        filtered_data = {k: v for k, v in data.items() if k in field_names}
-        return cls(**filtered_data)
+        return generate_class_from_dict(cls, data)
 
 
 @dataclass
@@ -65,3 +88,7 @@ class Relationship:
     end_node: Node
     provenance: str = None
     labels: List[RelationshipLabel] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return generate_class_from_dict(cls, data)

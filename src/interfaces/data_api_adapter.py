@@ -1,12 +1,12 @@
 import os.path
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Union
 import importlib.util
 import networkx as nx
 
 from src.interfaces.labeler import Labeler
 from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
-from src.models.node import Node
+from src.models.node import Node, Relationship
 
 
 class APIAdapter(ABC):
@@ -25,7 +25,7 @@ class APIAdapter(ABC):
             spec.loader.exec_module(module)
             self.modules.append(module)
 
-    def convert_to_class(self, class_name: str, data: dict) -> Node:
+    def convert_to_class(self, class_name: str, data: dict) -> Union[Node, Relationship]:
         cls = self.get_class(class_name)
         if cls is None:
             raise Exception(f"Class {class_name} not found in class map")

@@ -124,7 +124,6 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         result = self.runQuery(query)
 
         list = [self.convert_to_class(data_model, res) for res in result]
-
         return ListQueryResult(query = query, list=list) if result else ListQueryResult(query = query, list=[])
 
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
