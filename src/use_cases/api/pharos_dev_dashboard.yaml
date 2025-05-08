@@ -9,6 +9,13 @@ api_adapter:
     kwargs:
       database_name: pharos
       label: Pharos DEV
+      imports:
+        - ./src/models/protein.py
+        - ./src/models/ligand.py
+        - ./src/models/transcript.py
+        - ./src/models/gene.py
+        - ./src/models/go_term.py
+        - ./src/models/generif.py
     credentials: ./src/use_cases/secrets/ifxdev_pharos_dev.yaml
 
 dashboard: ./src/use_cases/api/pharos_dashboard_details.yaml

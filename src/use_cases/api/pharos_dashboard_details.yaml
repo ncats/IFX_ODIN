@@ -102,11 +102,13 @@ models:
   - class: GoTerm
     column_order:
       - type
+      - is_leaf
       - term
       - definition
       - creation
     facets:
       - type
+      - is_leaf
   - class: GeneRif
     column_order:
       - text

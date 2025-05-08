@@ -3,7 +3,8 @@ from typing import List
 import networkx as nx
 
 from src.interfaces.data_api_adapter import APIAdapter
-from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
+from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult, \
+    ResolveResult, LinkedListQueryResult, LinkDetails
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -85,6 +86,12 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             UNSET({variable}, ["_key", "_id", "_rev", "_from", "_to"])
             """
 
+    def _get_sortby_clause(self, sortby: dict):
+        if not sortby:
+            return ""
+        clauses = [f"doc.{k} {v}" for k, v in sortby.items()]
+        return "SORT " + ', '.join(clauses)
+
     def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20) -> FacetQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
@@ -113,7 +120,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         result = self.runQuery(query)
         return CountQueryResult(query = query, count=result[0]) if result else CountQueryResult(query = query, count=0)
 
-    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0) -> ListQueryResult:
+    def get_list(self, data_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> ListQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         query = f"""
             FOR doc IN `{label}`
@@ -126,15 +133,76 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         list = [self.convert_to_class(data_model, res) for res in result]
         return ListQueryResult(query = query, list=list) if result else ListQueryResult(query = query, list=[])
 
+    def get_linked_list(self, source_data_model: str, source_id: str,
+                        dest_data_model: str, dest_id: str,
+                        edge_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> LinkedListQueryResult:
+        source_label = self.labeler.get_labels_for_class_name(source_data_model)[0]
+        dest_label = self.labeler.get_labels_for_class_name(dest_data_model)[0]
+        edge_label = self.labeler.get_labels_for_class_name(edge_model)[0]
+        if source_id is not None:
+            id = self.safe_key(source_id)
+            anchor_label = source_label
+            query_label = dest_label
+            query_model = dest_data_model
+            direction = 'OUTBOUND'
+        else:
+            id = self.safe_key(dest_id)
+            anchor_label = dest_label
+            query_label = source_label
+            query_model = source_data_model
+            direction = 'INBOUND'
+
+        query = f"""
+            FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
+                OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
+                LIMIT {skip}, {top}
+                RETURN {{
+                    edge: {self._get_document_cleanup_clause('e')},
+                    node: {self._get_document_cleanup_clause('v')}
+                  }}
+        """
+        results = self.runQuery(query)
+        result_list = []
+        for row in results:
+            result_list.append(LinkDetails(
+                node=self.convert_to_class(query_model, row['node']),
+                edge=self.convert_to_class(edge_model, row['edge'])
+            ))
+        return LinkedListQueryResult(query = query, list=result_list)
+
+    def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
+        label = self.labeler.get_labels_for_class_name(data_model)[0]
+
+        query = f"""
+            FOR doc IN `{label}`
+                FILTER '{id}' IN doc.xref
+                {self._get_sortby_clause(sortby)}
+                LIMIT 11
+                RETURN {self._get_document_cleanup_clause()}
+            """
+
+        result = self.runQuery(query)
+        result_list =  [self.convert_to_class(data_model, res) for res in result]
+
+        return ResolveResult(
+            query = query,
+            match=result_list[0] if result_list else None,
+            other_matches=result_list[1:] if len(result_list) > 1 else None
+        )
+
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
         query = f"""
             FOR doc IN `{label}`
                 FILTER doc.id == '{id}'
+                LIMIT 1
                 RETURN {self._get_document_cleanup_clause()}
             """
         result = self.runQuery(query)
-        return DetailsQueryResult(query = query, details=list(result)[0]) if result else DetailsQueryResult(query = query, details={})
+        result_list =  [self.convert_to_class(data_model, res) for res in result]
+        return DetailsQueryResult(query = query, details=result_list[0]) \
+            if result \
+            else DetailsQueryResult(query = query, details=None)
 
     def get_edge_types(self, data_model: str):
         label = self.labeler.get_labels_for_class_name(data_model)[0]

@@ -1,9 +1,14 @@
+from dataclasses import dataclass
+
 from src.interfaces.labeler import Labeler
 from src.interfaces.simple_enum import NodeLabel
 
+@dataclass(eq=False)
 class TestLabel(NodeLabel):
-    Test = "Test"
-    Node = "Node"
+    pass
+
+TestLabel.Test = TestLabel.get("Test")
+TestLabel.Node = TestLabel.get("Node")
 
 class TestLabeler(Labeler):
 

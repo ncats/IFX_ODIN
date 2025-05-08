@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from src.models.node import Node
 
 
@@ -11,4 +11,4 @@ class Synonym:
 
 @dataclass
 class Analyte(Node):
-    synonyms: List[Synonym] = field(default_factory=list)
+    synonyms: Optional[List[Synonym]] = field(default_factory=list)

@@ -1,31 +1,78 @@
 from dataclasses import dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Union, get_origin, get_args, Optional
 
 from src.constants import Prefix
-from src.interfaces.simple_enum import RelationshipLabel
-from src.output_adapters.biolink_labels import BiolinkNodeLabel
+from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
 
-def is_datetime_field(type_hint):
-    if type_hint is datetime:
+
+def is_atypeof_field(type_hint, cls):
+    if type_hint is cls:
         return True
     origin = get_origin(type_hint)
     args = get_args(type_hint)
-    return origin in (Union, Optional) and datetime in args
+    return origin in (Union, Optional) and cls in args
 
-def generate_class_from_dict(cls, data: dict) :
+def is_datetime_field(type_hint):
+    return is_atypeof_field(type_hint, datetime)
+
+def is_date_field(type_hint):
+    return is_atypeof_field(type_hint, date)
+
+def unwrap_optional(type_hint):
+    if get_origin(type_hint) is Union:
+        args = get_args(type_hint)
+        non_none = [arg for arg in args if arg is not type(None)]
+        if len(non_none) == 1:
+            return non_none[0]
+    return type_hint
+
+def generate_class_from_dict(cls, data: dict):
     result = {}
     for f in fields(cls):
         value = data.get(f.name)
-        type_hint = f.type
+        type_hint = unwrap_optional(f.type)
 
-        # Check for Optional[datetime] or datetime
+        if f.name == 'start_node':
+            result[f.name] = generate_class_from_dict(type_hint, {'id': data['start_id']})
+            continue
+
+        if f.name == 'end_node':
+            result[f.name] = generate_class_from_dict(type_hint, {'id': data['end_id']})
+            continue
+
+        if hasattr(type_hint, 'from_dict'):
+            value = type_hint.from_dict(data)
+            result[f.name] = None
+
+        if value is None:
+            result[f.name] = None
+            continue
+
         if is_datetime_field(type_hint) and isinstance(value, str):
             try:
                 value = datetime.fromisoformat(value)
             except ValueError:
+                pass  # or raise a warning/log
+        elif is_date_field(type_hint) and isinstance(value, str):
+            try:
+                value = date.fromisoformat(value)
+            except ValueError:
                 pass
-                # optionally raise or handle differently
+
+        elif get_origin(type_hint) is list and isinstance(value, list) and len(value) > 0:
+            item_type = get_args(type_hint)[0]
+            if isinstance(value[0], str) and hasattr(item_type, 'parse'):
+                value = [item_type.parse(item) if isinstance(item, str) else item for item in value]
+            elif hasattr(item_type, 'from_dict'):
+                value = [item_type.from_dict(item) for item in value]
+            elif isinstance(value[0], dict):
+                value = [generate_class_from_dict(item_type, item) for item in value]
+
+        elif isinstance(value, dict):
+            value = generate_class_from_dict(type_hint, value)
+        elif isinstance(value, str) and hasattr(type_hint, 'parse'):
+            value = type_hint.parse(value)
 
         result[f.name] = value
 
@@ -35,8 +82,8 @@ def generate_class_from_dict(cls, data: dict) :
 class EquivalentId:
     id: str
     type: Prefix
-    source: List[str] = None
-    status: str = ''
+    source: Optional[List[str]] = None
+    status: Optional[str] = None
 
     def type_str(self):
         if hasattr(self.type, 'value'):
@@ -69,11 +116,11 @@ class EquivalentId:
 @dataclass
 class Node:
     id: str
-    labels: List[BiolinkNodeLabel] = field(default_factory=list)
-    xref: List[EquivalentId] = field(default_factory=list)
-    provenance: str = None
+    labels: List[NodeLabel] = field(default_factory=list)
+    xref: Optional[List[EquivalentId]] = field(default_factory=list)
+    provenance: Optional[str] = None
 
-    def add_label(self, new_label: BiolinkNodeLabel):
+    def add_label(self, new_label: NodeLabel):
         if new_label not in self.labels:
             self.labels.append(new_label)
 

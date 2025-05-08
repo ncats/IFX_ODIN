@@ -1,8 +1,27 @@
+import enum
+import json
 from dataclasses import fields
 
+from src.models.node import EquivalentId
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 import streamlit as st
 st.set_page_config(layout="wide")
+
+
+def safe_serialize(value):
+    if isinstance(value, enum.Enum):
+        return value.value
+    if isinstance(value, list):
+        return [safe_serialize(item) for item in value]
+    if isinstance(value, EquivalentId):
+        return value.id_str()
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    try:
+        return json.dumps(value, default=str)  # fallback to str if not serializable
+    except Exception:
+        return str(value)
+
 
 def get_filter(st, data_model):
     filters = {}
@@ -184,18 +203,18 @@ with tabs:
                 if view_type == 'Nodes':
                     configured_fields = ['id'] + configured_fields
                 else:
-                    configured_fields = ['start_id', 'end_id'] + configured_fields
-
+                    configured_fields = ['start_node', 'end_node'] + configured_fields
 
                 all_keys = set(field.name for item in data_list for field in fields(type(item)))
                 final_fields = configured_fields + [key for key in all_keys if key not in configured_fields]
 
-                data_list = [
-                    {key: getattr(item, key) for key in final_fields if hasattr(item, key)} for item in data_list
+                serialized_data_list = [
+                    {key: safe_serialize(getattr(item, key)) for key in final_fields if hasattr(item, key)}
+                    for item in data_list
                 ]
 
-                if data_list:
-                    st.dataframe(data_list)
+                if serialized_data_list:
+                    st.dataframe(serialized_data_list)
                 else:
                     st.write("No data available for this model.")
 

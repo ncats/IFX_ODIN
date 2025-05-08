@@ -38,7 +38,9 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
         pro_go_edges: List[ProteinGoTermRelationship] = []
 
         with gzip.open(self.gaf_file_name, 'rt') as file:
+            count = 0
             for line in file:
+                count += 1
                 if line.startswith('!'):
                     continue
                 parsed_line = parse_gaf_line(line)
@@ -52,15 +54,18 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                 go_id = EquivalentId(id=parsed_line['go_id'].split(':', 1)[1], type=Prefix.GO)
                 go_obj = GoTerm(id=go_id.id_str())
 
-                go_evidence = GoEvidence.parse_by_abbreviation(abbreviation=parsed_line['evidence_code'])
-                assigned_by = parsed_line['assigned_by']
+                go_evidence = GoEvidence.parse_by_abbreviation(
+                    abbreviation=parsed_line['evidence_code'],
+                    assigned_by=parsed_line['assigned_by'])
 
                 pro_go_edges.append(ProteinGoTermRelationship(
                     start_node=pro_obj,
                     end_node=go_obj,
-                    evidence=go_evidence,
-                    assigned_by=[assigned_by]
+                    evidence=[go_evidence]
                 ))
+                if count >= self.batch_size:
+                    yield pro_go_edges
+                    pro_go_edges: List[ProteinGoTermRelationship] = []
 
         yield pro_go_edges
 

@@ -5,7 +5,8 @@ import importlib.util
 import networkx as nx
 
 from src.interfaces.labeler import Labeler
-from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult
+from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult, \
+    ResolveResult, LinkedListQueryResult
 from src.models.node import Node, Relationship
 
 
@@ -45,6 +46,7 @@ class APIAdapter(ABC):
     def initialize_class_map(self):
         nodes = self.list_nodes()
         edges = self.list_edges()
+
         self.class_map = {}
         for class_name in [*nodes, *edges]:
             found = False
@@ -84,7 +86,18 @@ class APIAdapter(ABC):
         raise NotImplementedError("Derived classes must implement get_data_model")
 
     @abstractmethod
-    def get_list(self, data_model: str, filter: dict = None, top: int = 20, skip: int = 0) -> ListQueryResult:
+    def get_list(self, data_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> ListQueryResult:
+        """Get the data model."""
+        raise NotImplementedError("Derived classes must implement get_data_model")
+
+    @abstractmethod
+    def get_linked_list(self, source_data_model: str, source_id: str,
+                        dest_data_model: str, dest_id: str,
+                        edge_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> LinkedListQueryResult:
+        raise NotImplementedError("Derived classes must implement get_linked_list")
+
+    @abstractmethod
+    def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 

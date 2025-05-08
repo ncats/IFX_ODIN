@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 from src.models.gene import Gene, Audited
-from src.models.node import Node, Relationship
+from src.models.node import Node, Relationship, generate_class_from_dict
 from src.models.protein import Protein
 
 
@@ -20,16 +20,22 @@ class TranscriptLocation:
             ret_dict['transcript_length'] = self.length
         return ret_dict
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        if data is None:
+            return None
+        return TranscriptLocation(start=data.get('bp_start'), end=data.get('bp_end'), length=data.get('transcript_length'))
+
 @dataclass
 class Transcript(Audited, Node):
-    location: TranscriptLocation = None
-    ensembl_version: str = None
-    support_level: str = None
-    is_canonical: bool = None
-    MANE_select: str = None
-    status: str = None
-    Ensembl_Transcript_ID_Provenance: str = None
-    RefSeq_Provenance: str = None
+    location: Optional[TranscriptLocation] = None
+    ensembl_version: Optional[str] = None
+    support_level: Optional[str] = None
+    is_canonical: Optional[bool] = None
+    MANE_select: Optional[str] = None
+    status: Optional[str] = None
+    Ensembl_Transcript_ID_Provenance: Optional[str] = None
+    RefSeq_Provenance: Optional[str] = None
 
 @dataclass
 class GeneTranscriptRelationship(Relationship, Audited):

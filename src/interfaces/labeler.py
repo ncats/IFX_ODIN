@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Union
+
+from src.interfaces.simple_enum import Label
 from src.models.analyte import Analyte
 from src.models.disease import Disease, GeneDiseaseRelationship
 from src.models.gene import Gene
@@ -12,12 +14,8 @@ from src.models.transcript import Transcript, GeneTranscriptRelationship, Transc
 from src.output_adapters.biolink_labels import BiolinkNodeLabel, BiolinkRelationshipLabel
 from src.output_adapters.generic_labels import GenericNodeLabel
 
-@dataclass(frozen=True)
-class PretendEnum:
-    value: str
-
 def default_label(obj):
-    return PretendEnum(value = obj.__class__.__name__)
+    return Label.get(value = obj.__class__.__name__)
 
 
 class Labeler:
@@ -40,7 +38,8 @@ class Labeler:
     def get_classes(self, label, keepClass: bool = False):
         class_list = []
         for class_name, labels in self.class_label_mapping.items():
-            if label in labels:
+            label_str = [label.value for label in labels]
+            if label in label_str:
                 if keepClass:
                     class_list.append(class_name)
                 else:
