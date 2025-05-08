@@ -42,8 +42,7 @@ class GoTermAdapter(NodeInputAdapter, RelationshipInputAdapter, MySqlAdapter):
             relationships.append(ProteinGoTermRelationship(
                 start_node=Protein(id=f"{Prefix.UniProtKB}:{uniprot}"),
                 end_node=go_term_obj,
-                evidence=GoEvidence(eco),
-                assigned_by=assigned_by
+                evidence=[GoEvidence(eco, assigned_by=assigned_by)]
             ))
 
         return [*nodes, *relationships]

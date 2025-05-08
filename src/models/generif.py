@@ -13,13 +13,6 @@ class GeneRif(Node):
 
 
 @dataclass
-class ProteinGeneRifRelationship(Relationship):
-    start_node: Protein
-    end_node: GeneRif
-    gene_id: int = None
-    date: datetime = None
-
-@dataclass
 class GeneGeneRifRelationship(Relationship):
     start_node = Gene
     end_node = GeneRif

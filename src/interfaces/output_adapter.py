@@ -4,11 +4,9 @@ from datetime import datetime, date
 from enum import Enum
 from typing import List, Union
 
-from src.interfaces.labeler import PretendEnum
-from src.interfaces.simple_enum import NodeLabel, SimpleEnum
+from src.interfaces.simple_enum import Label
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
-from src.models.ligand import ProteinLigandRelationship
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
 
@@ -52,12 +50,14 @@ class OutputAdapter(ABC):
 
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
         for key, value in vars(obj).items():
-            if isinstance(value, Enum) or type(value).__name__ == "PretendEnum":
+            if isinstance(value, Enum) or isinstance(value, Label):
                 ret_dict[key] = value.value
             if isinstance(value, list):
                 ret_dict[key] = self.remove_none_values_from_list(value)
                 if ret_dict[key] is not None:
-                    ret_dict[key] = [l.value if isinstance(l, Enum) or type(l).__name__ == "PretendEnum" else l for l in ret_dict[key]]
+                    if hasattr(value[0], 'to_dict') and callable(getattr(value[0], 'to_dict')):
+                        ret_dict[key] = [l.to_dict() for l in value]
+                    ret_dict[key] = [l.value if isinstance(l, Enum) or isinstance(l, Label) else l for l in ret_dict[key]]
             if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
                 del ret_dict[key]
                 flat_dict = value.to_dict()
@@ -67,16 +67,6 @@ class OutputAdapter(ABC):
                 ret_dict['xref'] = self.remove_none_values_from_list(
                     list(set([x.id_str() for x in obj.xref]))
                 )
-        if isinstance(obj, ProteinLigandRelationship):
-            if hasattr(obj, 'details'):
-                del ret_dict['details']
-                for details_obj in obj.details:
-                    for key, value in vars(details_obj).items():
-                        if value is not None:
-                            if key in ret_dict:
-                                ret_dict[key].append(value)
-                            else:
-                                ret_dict[key] = [value]
 
         if isinstance(obj, Analyte):
             if hasattr(obj, 'synonyms'):

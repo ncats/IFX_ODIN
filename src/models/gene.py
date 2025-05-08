@@ -33,6 +33,13 @@ class GeneticLocation:
             ret_dict['chromosome_strand'] = self.strand.value
         return ret_dict
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        if data is None:
+            return None
+        return GeneticLocation(location=data.get('location'), chromosome=data.get('chromosome'), strand=Strand.parse(data.get('chromosome_strand')))
+
+
 @dataclass
 class Audited:
     created: Optional[datetime] = None

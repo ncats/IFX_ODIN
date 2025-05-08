@@ -1,3 +1,4 @@
+import json
 from typing import List
 
 from src.interfaces.simple_enum import SimpleEnum
@@ -97,7 +98,12 @@ class RecordMerger:
                     elif prop in list_keys:
                         if existing_prop_value is not None and len(existing_prop_value) > 0:
                             updates.append(f"{prop}\t{len(existing_prop_value)} entries already there\t{len(record[prop])} entries being merged\t{record['provenance']}")
-                            existing_node[prop] = list(set(existing_prop_value + record[prop]))
+                            if isinstance(record[prop][0], dict):
+                                combined = existing_prop_value + record[prop]
+                                deduped = list({json.dumps(d, sort_keys=True) for d in combined})
+                                existing_node[prop] = [json.loads(d) for d in deduped]
+                            else:
+                                existing_node[prop] = list(set(existing_prop_value + record[prop]))
                         else:
                             updates.append(f"{prop}\tNULL\t{len(record[prop])} entries being merged\t{record['provenance']}")
                             existing_node[prop] = list(set(record[prop]))

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union
+from typing import Union, Optional
 
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
@@ -49,32 +49,32 @@ class IDGFamily(SimpleEnum):
 
 @dataclass
 class Protein(Audited, Analyte):
-    protein_type: str = None
-    description: str = None
-    symbol: str = None
-    ensembl_id: str = None
-    refseq_id: str = None
-    uniprot_id: str = None
-    sequence: str = None
-    gene_name: str = None
-    tdl: TDL = None
-    name: str = None
-    idg_family: IDGFamily = None
-    antibody_count: int = None
-    pm_score: float = None
-    uniprot_annotationScore: int = None
-    uniprot_reviewed: bool = None
-    uniprot_function: str = None
-    Ensembl_ID_Provenance: str = None
-    RefSeq_ID_Provenance: str = None
-    Uniprot_ID_Provenance: str = None
-    ensembl_canonical: str = None
-    uniprot_canonical: bool = None
-    uniprot_entryType: str = None
-    mapping_ratio: float = None
-    protein_name_score: str = None
-    protein_name_method: str = None
-    uniprot_isoform: str = None
+    protein_type: Optional[str] = None
+    description: Optional[str] = None
+    symbol: Optional[str] = None
+    ensembl_id: Optional[str] = None
+    refseq_id: Optional[str] = None
+    uniprot_id: Optional[str] = None
+    sequence: Optional[str] = None
+    gene_name: Optional[str] = None
+    tdl: Optional[TDL] = None
+    name: Optional[str] = None
+    idg_family: Optional[IDGFamily] = None
+    antibody_count: Optional[int] = None
+    pm_score: Optional[float] = None
+    uniprot_annotationScore: Optional[int] = None
+    uniprot_reviewed: Optional[bool] = None
+    uniprot_function: Optional[str] = None
+    Ensembl_ID_Provenance: Optional[str] = None
+    RefSeq_ID_Provenance: Optional[str] = None
+    Uniprot_ID_Provenance: Optional[str] = None
+    ensembl_canonical: Optional[str] = None
+    uniprot_canonical: Optional[bool] = None
+    uniprot_entryType: Optional[str] = None
+    mapping_ratio: Optional[float] = None
+    protein_name_score: Optional[str] = None
+    protein_name_method: Optional[str] = None
+    uniprot_isoform: Optional[str] = None
 
 
 @dataclass

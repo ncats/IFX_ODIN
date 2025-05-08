@@ -1,50 +1,46 @@
-from src.api_adapters.graphene_utils import GrapheneConverter
+from src.api_adapters.strawberry_models.query_models import ResolveProteinResult, ResolveGeneResult, \
+    ResolveTranscriptResult, ResolveLigandResult, GoTermResult, Gene
+import strawberry
+from fastapi import FastAPI
+from strawberry.fastapi import GraphQLRouter
+
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
-yaml_file = "./src/use_cases/api/pharos_local_dashboard.yaml"
+yaml_file = "./src/use_cases/api/pharos_prod_dashboard.yaml"
 dashboard = HostDashboardFromYaml(yaml_file=yaml_file)
 api = dashboard.api_adapter
 
-import graphene
-from flask import Flask
-from graphql_server.flask import GraphQLView
+@strawberry.type
+class Query:
+    @strawberry.field
+    def resolve_protein(self, id: str) -> ResolveProteinResult:
+        result = api.resolve_id("Protein", id=id, sortby={"uniprot_reviewed": "desc", "uniprot_canonical": "desc", "mapping_ratio": "desc"})
+        return result
+
+    @strawberry.field
+    def resolve_gene(self, id: str) -> ResolveGeneResult:
+        result = api.resolve_id("Gene", id=id, sortby={"mapping_ratio": "desc"})
+        return result
+
+    @strawberry.field
+    def resolve_transcript(self, id: str) -> ResolveTranscriptResult:
+        result = api.resolve_id("Transcript", id=id, sortby={"mapping_ratio": "desc"})
+        return result
+
+    @strawberry.field
+    def resolve_ligand(self, id: str) -> ResolveLigandResult:
+        result = api.resolve_id("Ligand", id=id)
+        return result
+
+    @strawberry.field
+    def go_term(self, id: str) -> GoTermResult:
+        result = api.get_details("GoTerm", id=id)
+        return result
 
 
-class_map = api.get_class_map()
-graphene_class_map = {}
+schema = strawberry.Schema(query=Query)
 
+graphql_app = GraphQLRouter(schema)
 
-for class_name, cls in class_map.items():
-    print(f"Creating Graphene class for {class_name}")
-    graphene_class_map[class_name] = GrapheneConverter.from_dataclass(cls)
-
-
-def generic_resolver(data_model):
-    def resolve(root, info):
-        result = api.get_list(data_model, {}, 10, 0)
-        return result.list
-    return resolve
-
-def create_query():
-    fields = {
-        f"{class_name.lower()}s":
-        graphene.Field(
-            graphene.List(graphene_class_map[class_name]),
-            resolver=generic_resolver(class_name)
-        )
-    for class_name in class_map.keys()}
-    return type('Query', (graphene.ObjectType,), fields)
-
-# Dynamically create the Query class
-Query = create_query()
-
-# Create the schema
-schema = graphene.Schema(query=Query)
-
-
-app = Flask(__name__)
-app.add_url_rule(
-    "/graphql",
-    view_func=GraphQLView.as_view("graphql", schema=schema, graphiql=True)
-)
-app.run()
+app = FastAPI()
+app.include_router(graphql_app, prefix="/graphql")

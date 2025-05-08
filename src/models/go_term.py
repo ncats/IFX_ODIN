@@ -1,7 +1,7 @@
 import csv
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
@@ -9,20 +9,26 @@ from src.models.protein import Protein
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
+_eco_mapping: dict = None
+
 @dataclass
 class GoEvidence:
     code: str
-
-    # static variable
-    _eco_mapping: dict = None
+    assigned_by: str
 
     def to_dict(self):
         ret_dict = {}
-        ret_dict['evidence'] = [self.code]
-        ret_dict['abbreviation'] = [self.abbreviation()]
-        ret_dict['category'] = [self.category()]
-        ret_dict['text'] = [self.text()]
+        ret_dict['evidence'] = self.code
+        ret_dict['abbreviation'] = self.abbreviation()
+        ret_dict['category'] = self.category()
+        ret_dict['text'] = self.text()
+        ret_dict['assigned_by'] = self.assigned_by
         return ret_dict
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        print(data.get('evidence'))
+        return GoEvidence(code=data.get('evidence'), assigned_by=data.get('assigned_by'))
 
     @staticmethod
     def no_data_codes():
@@ -30,8 +36,9 @@ class GoEvidence:
 
     @staticmethod
     def _get_eco_map():
-        if GoEvidence._eco_mapping is None:
-            GoEvidence._eco_mapping = dict()
+        global _eco_mapping
+        if _eco_mapping is None:
+            _eco_mapping = {}
             with open(os.path.join(current_directory, 'eco_mappings.csv'), 'r', encoding='utf-8-sig') as file:
                 reader: csv.DictReader = csv.DictReader(file)
 
@@ -41,16 +48,16 @@ class GoEvidence:
                         "text": row['text'],
                         "abbreviation": row['abbreviation']
                     }
-                    GoEvidence._eco_mapping[row['eco']] = eco_obj
-                    GoEvidence._eco_mapping[row['abbreviation']] = eco_obj
+                    _eco_mapping[row['eco']] = eco_obj
+                    _eco_mapping[row['abbreviation']] = eco_obj
 
-        return GoEvidence._eco_mapping
+        return _eco_mapping
 
     @staticmethod
-    def parse_by_abbreviation(abbreviation: str):
+    def parse_by_abbreviation(abbreviation: str, assigned_by: str):
         for key, value in GoEvidence._get_eco_map().items():
             if value['abbreviation'] == abbreviation:
-                return GoEvidence(code=key)
+                return GoEvidence(code=key, assigned_by=assigned_by)
         return None
 
     def abbreviation(self):
@@ -61,6 +68,7 @@ class GoEvidence:
 
     def text(self):
         return GoEvidence._get_eco_map().get(self.code)['text']
+
 
 @dataclass
 class GoType(SimpleEnum):
@@ -98,9 +106,9 @@ class GoTerm(Node):
     id: str
     type: GoType = None
     term: str = None
-    definition: str = None
-    subsets: List[str] = field(default_factory=list)
-    is_leaf: bool = None
+    definition: Optional[str] = None
+    subsets: Optional[List[str]] = field(default_factory=list)
+    is_leaf: Optional[bool] = None
 
 @dataclass
 class GoTermHasParent(Relationship):
@@ -113,5 +121,4 @@ class GoTermHasParent(Relationship):
 class ProteinGoTermRelationship(Relationship):
     start_node: Protein
     end_node: GoTerm
-    evidence: GoEvidence = None
-    assigned_by: List[str] = field(default_factory=list)
+    evidence: List[GoEvidence] = field(default_factory=list)
