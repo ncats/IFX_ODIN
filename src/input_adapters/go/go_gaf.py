@@ -65,6 +65,7 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                 ))
                 if count >= self.batch_size:
                     yield pro_go_edges
+                    count = 0
                     pro_go_edges: List[ProteinGoTermRelationship] = []
 
         yield pro_go_edges
