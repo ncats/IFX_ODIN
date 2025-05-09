@@ -28,15 +28,12 @@ class SetLigandActivityFlagAdapter(InputAdapter, ArangoAdapter):
 
 passing_activities_query = """FOR pro IN `biolink:Protein`
   FOR chem, rel IN OUTBOUND pro `biolink:interacts_with`
-    FILTER (
-      (pro.idg_family IN ["GPCR", "Nuclear Receptor"] AND LENGTH(rel.act_value[* FILTER CURRENT >= 7]) > 0) OR
-      (pro.idg_family == "Kinase" AND LENGTH(rel.act_value[* FILTER CURRENT >= 7.52288]) > 0) OR
-      (pro.idg_family == "Ion Channel" AND LENGTH(rel.act_value[* FILTER CURRENT >= 5]) > 0) OR
-      (
-        (pro.idg_family == null OR pro.idg_family NOT IN ["Ion Channel", "Kinase", "GPCR", "Nuclear Receptor"])
-        AND LENGTH(rel.act_value[* FILTER CURRENT >= 6]) > 0
-      )
-    )
+    LET act_values = rel.details[* FILTER CURRENT.act_value >= (
+      pro.idg_family == "Kinase" ? 7.52288 :
+      pro.idg_family == "Ion Channel" ? 5 :
+      pro.idg_family IN ["GPCR", "Nuclear Receptor"] ? 7 : 6
+    )]
+    FILTER LENGTH(act_values) > 0
     RETURN DISTINCT {
       protein_id: pro.id,
       chemical_entity_id: chem.id

@@ -48,14 +48,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     edges.append(edge)
 
                 edge_collection.insert_many(edges, overwrite=True)
-            else:
-                if not db.has_collection(label):
-                    collection = db.create_collection(label)
-                else:
-                    collection = db.collection(label)
 
-                keys = [self.safe_key(obj['id']) for obj in obj_list]
-                existing_nodes = collection.get_many(keys)
+                cursor = db.aql.execute(f""" 
+                        FOR e IN `{edge_collection.name}`
+                          FILTER !DOCUMENT(e._from) || !DOCUMENT(e._to)
+                          REMOVE e IN `{edge_collection.name}`
+                    """)
+                result = cursor.statistics()
+                deleted_count = result.get('modified', 0)
+                if deleted_count > 0:
+                    print(f"Deleted {deleted_count} dangling edges.")
+            else:
+                collection, existing_nodes = self.get_existing_nodes(db, label, obj_list)
                 existing_record_map = {
                     record['id']: record for record in existing_nodes
                 }
@@ -68,6 +72,15 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 )
 
         return True
+
+    def get_existing_nodes(self, db, label, obj_list):
+        if not db.has_collection(label):
+            collection = db.create_collection(label)
+        else:
+            collection = db.collection(label)
+        keys = [self.safe_key(obj['id']) for obj in obj_list]
+        existing_nodes = collection.get_many(keys)
+        return collection, existing_nodes
 
     def create_or_truncate_datastore(self) -> bool:
         sys_db = self.client.db('_system', username=self.credentials.user,

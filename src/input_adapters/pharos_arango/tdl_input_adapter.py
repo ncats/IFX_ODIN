@@ -83,11 +83,12 @@ FOR n IN `biolink:Protein`
 """
 
 proteins_with_moa_drugs = """
-for pro in `biolink:Protein`
-  for lig, act in outbound pro `biolink:interacts_with`
+FOR pro IN `biolink:Protein`
+  FOR lig, act IN OUTBOUND pro `biolink:interacts_with`
     FILTER lig.isDrug == TRUE
-    FILTER LENGTH(act.has_moa[* FILTER CURRENT == TRUE]) > 0
-  RETURN distinct pro.id
+    LET has_moa_flags = act.details[* FILTER CURRENT.has_moa == TRUE RETURN CURRENT.has_moa]
+    FILTER LENGTH(has_moa_flags) > 0
+    RETURN DISTINCT pro.id
 """
 
 proteins_with_experimental_f_or_p_go_terms = """
@@ -95,7 +96,8 @@ FOR p IN `biolink:Protein`
   FOR g, r IN OUTBOUND p `ProteinGoTermRelationship`
     FILTER g.is_leaf == true
       AND g.type != 'C'
-      AND 'Experimental evidence code' IN r.category
+    LET evidence_categories = r.evidence[* RETURN CURRENT.category]
+    FILTER 'Experimental evidence code' IN evidence_categories
     RETURN DISTINCT p.id
 """
 
