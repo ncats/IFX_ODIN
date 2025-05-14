@@ -7,6 +7,21 @@ from arango.graph import Graph
 from src.shared.db_credentials import DBCredentials
 
 
+REPLACEMENTS = {
+    '+': '_plus_',
+    '-': '_minus_',
+    '/': '_slash_',
+    "'": '_prime_',
+    '"': '_dprime_',
+    '*': '_star_',
+    '(': '',
+    ')': '',
+    '[': '',
+    ']': '',
+    ',': '_',
+    ' ': '_',
+}
+
 class ArangoAdapter:
     credentials: DBCredentials
     use_internal_url: bool
@@ -20,12 +35,22 @@ class ArangoAdapter:
         self.database_name = database_name
         self.initialize()
 
+
     @staticmethod
-    def safe_key(key):
+    def safe_key(key: str) -> str:
         key = key.strip()
-        key = re.sub(r'\s+', '_', key)
-        key = re.sub(r'[^a-zA-Z0-9_\-\.@()\+,=;\$!\*\'%:]', '', key)
-        return key
+
+        # Apply manual replacements
+        for orig, repl in REPLACEMENTS.items():
+            key = key.replace(orig, repl)
+
+        # Remove anything else that's not safe
+        key = re.sub(r'[^a-zA-Z0-9_\-\.@+\$!%:*]', '', key)
+
+        # Collapse multiple underscores
+        key = re.sub(r'_+', '_', key)
+
+        return key.strip('_')
 
     def initialize(self):
         url = self.credentials.internal_url if self.use_internal_url else self.credentials.url

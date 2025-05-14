@@ -1,12 +1,12 @@
 import os.path
 from abc import ABC, abstractmethod
-from typing import List, Union
+from typing import List, Union, Optional
 import importlib.util
 import networkx as nx
 
 from src.interfaces.labeler import Labeler
-from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult, \
-    ResolveResult, LinkedListQueryResult
+from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
+    ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext
 from src.models.node import Node, Relationship
 
 
@@ -31,6 +31,8 @@ class APIAdapter(ABC):
         if cls is None:
             raise Exception(f"Class {class_name} not found in class map")
         instance = cls.from_dict(data)
+        setattr(instance, 'creation', data.get('creation'))
+        setattr(instance, 'updates', data.get('updates'))
         return instance
 
     def get_class_map(self):
@@ -75,27 +77,62 @@ class APIAdapter(ABC):
         """List all edges in the database."""
         raise NotImplementedError("Derived classes must implement list_edges")
 
-    @abstractmethod
-    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20) -> FacetQueryResult:
-        """Get the top N facet values for a given data model and field."""
-        raise NotImplementedError("Derived classes must implement get_facet_values")
+
+    # FETCH TOP LEVEL LISTS
+    def get_list_obj(self, context: ListQueryContext = None) -> ListQueryResult:
+        result = ListQueryResult()
+        result._query_context = context
+        result._query_service = self
+        return result
 
     @abstractmethod
-    def get_count(self, data_model: str, filter: dict = None) -> CountQueryResult:
+    def get_query(self, context: ListQueryContext, top: int, skip: int) -> str:
+        raise NotImplementedError("Derived classes must implement get_query")
+
+    @abstractmethod
+    def get_list(self, context: ListQueryContext, top: int, skip: int) -> ListQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 
     @abstractmethod
-    def get_list(self, data_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> ListQueryResult:
+    def get_count(self, context: ListQueryContext = None) -> int:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
 
     @abstractmethod
-    def get_linked_list(self, source_data_model: str, source_id: str,
-                        dest_data_model: str, dest_id: str,
-                        edge_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> LinkedListQueryResult:
+    def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
+        raise NotImplementedError("Derived classes must implement get_facets")
+
+
+
+
+
+    # FETCH LISTS LINKED TO A NODE
+    def get_linked_list(self, context: LinkedListQueryContext) -> LinkedListQueryResult:
+        result = LinkedListQueryResult()
+        result._query_context = context
+        result._query_service = self
+        return result
+
+    @abstractmethod
+    def get_linked_list_query(self, context: LinkedListQueryContext, top: int, skip: int) -> str:
+        raise NotImplementedError("Derived classes must implement get_linked_list_query")
+
+    @abstractmethod
+    def get_linked_list_count(self, context: LinkedListQueryContext) -> int:
+        raise NotImplementedError("Derived classes must implement get_linked_list_count")
+
+    @abstractmethod
+    def get_linked_list_details(self, context: LinkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
         raise NotImplementedError("Derived classes must implement get_linked_list")
 
+    @abstractmethod
+    def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]], edge_facets: Optional[List[str]]) -> List[FacetQueryResult]:
+        raise NotImplementedError("Derived classes must implement get_linked_list_facets")
+
+
+
+    # FETCH DETAILS
     @abstractmethod
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         """Get the data model."""
@@ -105,6 +142,9 @@ class APIAdapter(ABC):
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
+
+
+
 
     @abstractmethod
     def get_edge_types(self, data_model: str):

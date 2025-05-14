@@ -5,6 +5,13 @@ api_adapter:
     kwargs:
       database_name: pounce
       label: Pounce DEV
+      imports:
+        - ./src/models/pounce/project.py
+        - ./src/models/pounce/data.py
+        - ./src/models/metabolite.py
+        - ./src/models/pounce/project_experiment_relationship.py
+        - ./src/models/pounce/investigator.py
+        - ./src/models/pounce/output.py
     credentials: ./src/use_cases/secrets/ifxdev_pounce_dev.yaml
 
 dashboard: ./src/use_cases/api/pounce_dashboard_details.yaml

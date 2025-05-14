@@ -1,10 +1,11 @@
-from typing import List
+from typing import List, Optional
 
 import networkx as nx
 
 from src.interfaces.data_api_adapter import APIAdapter
-from src.interfaces.result_types import FacetQueryResult, CountQueryResult, ListQueryResult, DetailsQueryResult, \
-    ResolveResult, LinkedListQueryResult, LinkDetails
+from src.interfaces.result_types import FacetQueryResult, DetailsQueryResult, \
+    ResolveResult, LinkDetails, LinkedListQueryContext, FacetResult, ListQueryContext
+from src.models.node import Node
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -61,22 +62,23 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
     def list_nodes(self, include_edges: bool = False):
         return self._list_models('nodes')
 
-    def _get_filter_constraint_clause(self, filter: dict):
+    def _get_filter_constraint_clause(self, filter: dict, variable: str = 'doc'):
         clauses = []
         for key, value in filter.items():
+
             if None in value:
                 # Remove None for explicit non-null values
                 non_null_values = [v for v in value if v is not None]
                 if non_null_values:
                     clause = (
-                        f"(IS_ARRAY(doc.{key}) ? LENGTH(INTERSECTION(doc.{key}, {non_null_values})) > 0 : doc.{key} IN {non_null_values}) "
-                        f"|| doc.{key} == null || !HAS(doc, '{key}')"
+                        f"(IS_ARRAY({variable}.{key}) ? LENGTH(INTERSECTION({variable}.{key}, {non_null_values})) > 0 : {variable}.{key} IN {non_null_values}) "
+                        f"|| {variable}.{key} == null || !HAS({variable}, '{key}')"
                     )
                 else:
-                    clause = f"(doc.{key} == null || !HAS(doc, '{key}'))"
+                    clause = f"({variable}.{key} == null || !HAS({variable}, '{key}'))"
             else:
                 clause = (
-                    f"(IS_ARRAY(doc.{key}) ? LENGTH(INTERSECTION(doc.{key}, {value})) > 0 : doc.{key} IN {value})"
+                    f"(IS_ARRAY({variable}.{key}) ? LENGTH(INTERSECTION({variable}.{key}, {value})) > 0 : {variable}.{key} IN {value})"
                 )
             clauses.append(f"({clause})")
         return ' AND '.join(clauses)
@@ -92,25 +94,19 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         clauses = [f"doc.{k} {v}" for k, v in sortby.items()]
         return "SORT " + ', '.join(clauses)
 
-    def get_facet_values(self, data_model: str, field: str, filter: dict = None, top: int = 20) -> FacetQueryResult:
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
-        other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
-        query = f"""
-        FOR doc IN `{label}`
-            {f"FILTER { self._get_filter_constraint_clause(other_filter) }" if other_filter else ""}
-            LET values = (IS_ARRAY(doc.{field}) ? UNIQUE(doc.{field}) : [doc.{field}])
+    def _get_facet_clause(self, field: str, top: int = 20, variable: str = 'doc' ):
+        return f"""
+        LET values = (IS_ARRAY({variable}.{field}) ? UNIQUE({variable}.{field}) : [{variable}.{field}])
             FOR item IN values
                 COLLECT value = item WITH COUNT INTO count
                 SORT count DESC
                 LIMIT {top}
-                RETURN {{ value, count }}
-            """
+                RETURN {{ value, count }}"""
 
-        result = self.runQuery(query)
-        return FacetQueryResult(query = query, facet_values=list(result))
 
-    def get_count(self, data_model: str, filter: dict = None) -> CountQueryResult:
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
+    def get_count(self, context: ListQueryContext = None) -> int:
+        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        filter = context.filter.to_dict() if context and context.filter else None
         query = f"""
             FOR doc IN `{label}`
                 {f"FILTER { self._get_filter_constraint_clause(filter) }" if filter else ""}
@@ -118,57 +114,141 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN count
                 """
         result = self.runQuery(query)
-        return CountQueryResult(query = query, count=result[0]) if result else CountQueryResult(query = query, count=0)
 
-    def get_list(self, data_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> ListQueryResult:
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
+        return result[0] if result else 0
+
+    def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
+        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        filter = context.filter.to_dict() if context and context.filter else None
+        full_results = []
+        for field in facets:
+            other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
+            query = f"""
+                FOR doc IN `{label}`
+                    {f"FILTER { self._get_filter_constraint_clause(other_filter) }" if other_filter else ""}
+                    {self._get_facet_clause(field, top)}
+                    """
+            results = self.runQuery(query)
+            fq_result = FacetQueryResult(
+                name = field,
+                query = query,
+                facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
+            )
+            full_results.append(fq_result)
+        return full_results
+
+    def get_query(self, context: ListQueryContext, top: int, skip: int) -> str:
+        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        filter = context.filter.to_dict() if context and context.filter else None
+        query = self.get_list_query(filter, label, skip, top)
+        return query
+
+    def get_list(self, context: ListQueryContext, top: int, skip: int) -> List[Node]:
+        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        filter = context.filter.to_dict() if context and context.filter else None
+        query = self.get_list_query(filter, label, skip, top)
+        result = self.runQuery(query)
+        return [self.convert_to_class(context.source_data_model, res) for res in result]
+
+    def get_list_query(self, filter, label, skip, top):
         query = f"""
             FOR doc IN `{label}`
-                {f"FILTER { self._get_filter_constraint_clause(filter) }" if filter else ""}
+                {f"FILTER {self._get_filter_constraint_clause(filter)}" if filter else ""}
                 LIMIT {skip}, {top}
                 RETURN {self._get_document_cleanup_clause()}
             """
-        result = self.runQuery(query)
+        return query
 
-        list = [self.convert_to_class(data_model, res) for res in result]
-        return ListQueryResult(query = query, list=list) if result else ListQueryResult(query = query, list=[])
+    def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]], edge_facets: Optional[List[str]]) \
+            -> List[FacetQueryResult]:
+        full_results = []
+        for coll, variable in zip([node_facets, edge_facets], ['v', 'e']):
+            if not coll or len(coll) == 0:
+                continue
+            for field in coll:
 
-    def get_linked_list(self, source_data_model: str, source_id: str,
-                        dest_data_model: str, dest_id: str,
-                        edge_model: str, filter: dict = None, top: int = 10, skip: int = 0) -> LinkedListQueryResult:
-        source_label = self.labeler.get_labels_for_class_name(source_data_model)[0]
-        dest_label = self.labeler.get_labels_for_class_name(dest_data_model)[0]
-        edge_label = self.labeler.get_labels_for_class_name(edge_model)[0]
-        if source_id is not None:
-            id = self.safe_key(source_id)
-            anchor_label = source_label
-            query_label = dest_label
-            query_model = dest_data_model
-            direction = 'OUTBOUND'
-        else:
-            id = self.safe_key(dest_id)
-            anchor_label = dest_label
-            query_label = source_label
-            query_model = source_data_model
-            direction = 'INBOUND'
+                query_model, collection_clause = self.parse_linked_list_context(context, variable, field)
+                facet_clause = self._get_facet_clause(field = field, variable = variable)
+                query = f"{collection_clause} {facet_clause}"
+                results = self.runQuery(query)
+                fq_result = FacetQueryResult(
+                    name = field,
+                    query = query,
+                    facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
+                )
+                full_results.append(fq_result)
 
-        query = f"""
-            FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
-                OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
+        return full_results
+
+    def get_linked_list_count(self, context: LinkedListQueryContext) -> int:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        count_query = f"""
+            RETURN COUNT(
+                {collection_clause}
+                RETURN 1)
+                """
+        count = self.runQuery(count_query)
+        return count[0]
+
+    def get_linked_list_query(self, context: LinkedListQueryContext, top: int, skip: int) -> str:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        list_query = self.get_linked_list_query_str(collection_clause, context, top, skip)
+        return list_query
+
+    def get_linked_list_details(self, context: LinkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        list_query = self.get_linked_list_query_str(collection_clause, context, top, skip)
+        results = self.runQuery(list_query)
+        result_list = []
+        for row in results:
+            result_list.append(LinkDetails(
+                node=self.convert_to_class(query_model, row['node']),
+                edge=self.convert_to_class(context.edge_model, row['edge'])
+            ))
+        return result_list
+
+    def get_linked_list_query_str(self, collection_clause, context, top: int, skip: int):
+        list_query = f"""
+            {collection_clause}
                 LIMIT {skip}, {top}
                 RETURN {{
                     edge: {self._get_document_cleanup_clause('e')},
                     node: {self._get_document_cleanup_clause('v')}
                   }}
         """
-        results = self.runQuery(query)
-        result_list = []
-        for row in results:
-            result_list.append(LinkDetails(
-                node=self.convert_to_class(query_model, row['node']),
-                edge=self.convert_to_class(edge_model, row['edge'])
-            ))
-        return LinkedListQueryResult(query = query, list=result_list)
+        return list_query
+
+    def parse_linked_list_context(self, context, ignore_var: str = None, ignore_field: str = None) -> (str, str):
+        source_label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        dest_label = self.labeler.get_labels_for_class_name(context.dest_data_model)[0]
+        edge_label = self.labeler.get_labels_for_class_name(context.edge_model)[0]
+        if context.source_id is not None:
+            id = self.safe_key(context.source_id)
+            anchor_label = source_label
+            query_label = dest_label
+            query_model = context.dest_data_model
+            direction = 'OUTBOUND'
+        else:
+            id = self.safe_key(context.dest_id)
+            anchor_label = dest_label
+            query_label = source_label
+            query_model = context.source_data_model
+            direction = 'INBOUND'
+
+        node_filter = context.filter.node_filter.to_dict() if context.filter and context.filter.node_filter else None
+        edge_filter = context.filter.edge_filter.to_dict() if context.filter and context.filter.edge_filter else None
+        if node_filter and ignore_var == 'v':
+            node_filter = {k: v for k, v in node_filter.items() if k != ignore_field}
+        if edge_filter and ignore_var == 'e':
+            edge_filter = {k: v for k, v in edge_filter.items() if k != ignore_field}
+        collection_clause = f"""
+            FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
+                OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
+                {f"FILTER { self._get_filter_constraint_clause(node_filter, variable='v') } " if node_filter else ""}
+                {f"FILTER { self._get_filter_constraint_clause(edge_filter, variable='e') } " if edge_filter else ""}
+        """
+
+        return query_model, collection_clause
 
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
@@ -218,8 +298,6 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             }
 
     def get_edge_list(self, data_model: str,  edge_data_model: str, start_id: str = None, end_id: str = None, top: int = 10, skip: int = 0):
-
-
         edge_label = self.labeler.get_labels_for_class_name(edge_data_model)[0]
         node_label = self.labeler.get_labels_for_class_name(data_model)[0]
 
@@ -238,6 +316,5 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 "node": {self._get_document_cleanup_clause('v')}
                 }}
             """
-        print(query)
         result = self.runQuery(query)
         return list(result) if result else None

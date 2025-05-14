@@ -58,7 +58,10 @@ def generate_class_from_dict(cls, data: dict):
             try:
                 value = date.fromisoformat(value)
             except ValueError:
-                pass
+                try:
+                    value = datetime.fromisoformat(value).date()
+                except ValueError:
+                    pass
 
         elif get_origin(type_hint) is list and isinstance(value, list) and len(value) > 0:
             item_type = get_args(type_hint)[0]
