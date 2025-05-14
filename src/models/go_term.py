@@ -27,7 +27,6 @@ class GoEvidence:
 
     @classmethod
     def from_dict(cls, data: dict):
-        print(data.get('evidence'))
         return GoEvidence(code=data.get('evidence'), assigned_by=data.get('assigned_by'))
 
     @staticmethod

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from src.models.disease import Disease
 from src.models.node import Node, Relationship
@@ -25,7 +25,9 @@ class SampleAnalyteRelationship(Relationship):
     start_node: Sample
     end_node: Node
     count: int = None
-    tpm: float = None
+    raw_data: Optional[float] = None
+    stats_ready_data: Optional[float] = None
+    tpm: Optional[float] = None
 
 @dataclass
 class Factor(Node):
@@ -46,12 +48,12 @@ class Protocol(Factor):
 @dataclass
 class Biospecimen(Factor):
     organism: List[str] = field(default_factory=list)
-    part: str = None
-    cell_line: str = None
-    sex: str = None
-    comment: str = None
+    part: Optional[str] = None
+    cell_line: Optional[str] = None
+    sex: Optional[str] = None
+    comment: Optional[str] = None
     category: str = None
-    age: str = None
+    age: Optional[str] = None
 
 @dataclass
 class BiospecimenDiseaseRelationship(Relationship):

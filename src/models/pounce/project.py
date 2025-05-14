@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date as date_class
 from typing import List
 
 from src.interfaces.simple_enum import SimpleEnum
@@ -22,7 +22,7 @@ class Project(Node):
     name: str = None
     description: str = None
     lab_groups: List[str] = field(default_factory=list)
-    date: date = None
+    date: date_class = None
     privacy_level: ProjectPrivacy = None
     keywords: List[str] = field(default_factory=list)
     project_sheet: str = None

@@ -55,6 +55,7 @@ models:
       - creation
     facets:
       - uniprot_reviewed
+      - uniprot_canonical
       - tdl
       - creation
       - uniprot_entryType

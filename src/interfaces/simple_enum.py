@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Union
+from typing import Union
 
 
 class SimpleEnum(str, Enum):
@@ -12,6 +12,8 @@ class SimpleEnum(str, Enum):
 
     @classmethod
     def parse(cls, input_value: Union[str, Enum]):
+        if input_value is None:
+            return None
         if isinstance(input_value, Enum):
             return input_value
         for member in cls:
