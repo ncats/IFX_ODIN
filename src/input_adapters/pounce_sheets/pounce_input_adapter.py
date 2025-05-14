@@ -79,7 +79,7 @@ class PounceInputAdapter(InputAdapter):
         for key, val in extra_columns.items():
             if val is None or val == '':
                 continue
-            setattr(expt_obj, key.replace(' ', '_'), row[val])
+            setattr(expt_obj, key.replace(' ', '_'), val)
 
 
         yield [expt_obj, ProjectExperimentRelationship(start_node=proj_obj, end_node=expt_obj)]
