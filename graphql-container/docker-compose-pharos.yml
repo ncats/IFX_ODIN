@@ -9,3 +9,10 @@ services:
     environment:
       YAML_FILE: ./src/use_cases/api/pharos_dev_dashboard.yaml
     restart: unless-stopped
+    networks:
+      - dashboard_network
+
+networks:
+  dashboard_network:
+    name: shared_dashboard_network
+    driver: bridge

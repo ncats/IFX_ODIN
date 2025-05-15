@@ -8,6 +8,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from src.api_adapters.strawberry_models.pharos_query_models import Query as pharosQuery
 from src.api_adapters.strawberry_models.pounce_query_models import Query as pounceQuery
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
@@ -31,6 +32,15 @@ def create_app(yaml_file: str) -> FastAPI:
     graphql_app = GraphQLRouter(schema, context_getter=get_context)
 
     app = FastAPI()
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:4200"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(graphql_app, prefix="/graphql")
     return app
 
