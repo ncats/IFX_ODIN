@@ -1,8 +1,9 @@
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import strawberry
 from strawberry import Info
 
+from src.api_adapters.arango_api_adapter import ArangoAPIAdapter
 from src.api_adapters.strawberry_models.class_generators import make_linked_list_result_type
 from src.api_adapters.strawberry_models.input_types import LinkedListFilterSettings
 from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_list_resolver
@@ -40,7 +41,7 @@ class Biospecimen(BiospecimenBase):
 
     @strawberry.field()
     def samples(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "SampleBiospecimenQueryResult":
-        api = info.context["api"]
+        api: ArangoAPIAdapter = info.context["api"]
         context = LinkedListQueryContext(
             source_data_model="Sample",
             source_id=None,
@@ -251,11 +252,46 @@ class ProjectType(ProjectTypeBase):
         result = api.get_linked_list(context)
         return result
 
+
 @strawberry.type
 class Experiment(ExperimentBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
+
+    @strawberry.field()
+    def gene_data(root, info: Info, biospecimen_id: Optional[str] = None, gene_id: Optional[str] = None) -> Optional[List["GeneDataResults"]]:
+        api: ArangoAPIAdapter = info.context["api"]
+        query = f"""FOR exp IN Experiment
+          FILTER exp.id == "{root.id}"
+          
+          FOR sample IN OUTBOUND exp ExperimentSampleRelationship
+            FOR biospecimen IN OUTBOUND sample SampleBiospecimenRelationship
+              {"FILTER biospecimen.id == '" + biospecimen_id + "'" if biospecimen_id else ""} 
+              
+        
+              FOR gene, edge IN OUTBOUND sample SampleAnalyteRelationship
+                FILTER IS_SAME_COLLECTION("Gene", gene)
+                {"FILTER '" + gene_id + "' in gene.xref" if gene_id else ""}
+                RETURN {{
+                  sample: sample,
+                  biospecimen: biospecimen,
+                  gene: gene,
+                  data_edge: edge
+                }}"""
+
+        results = api.runQuery(query)
+
+        obj_results = [
+            GeneDataResults(
+                sample=api.convert_to_class("Sample", row['sample']),
+                biospecimen=api.convert_to_class("Biospecimen", row['biospecimen']),
+                gene=api.convert_to_class("Gene", row['gene']),
+                data_edge=api.convert_to_class("SampleAnalyteRelationship", row['data_edge'])
+            )
+            for row in results
+        ]
+        return obj_results
 
     @strawberry.field()
     def projects(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ExperimentProjectQueryResult":
@@ -396,6 +432,14 @@ class SampleAnalyteRelationship(SampleAnalyteRelationshipBase):
         return Provenance.parse_provenance_fields(root)
     start_node: Sample
     end_node: Union[Gene, Metabolite, Protein]
+
+
+@strawberry.type
+class GeneDataResults:
+    sample: Sample
+    biospecimen: Optional[Biospecimen]
+    gene: Gene
+    data_edge: SampleAnalyteRelationship
 
 ExperimentSampleQueryResult = make_linked_list_result_type("ExperimentSampleQueryResult", "ExperimentSampleDetails", ExperimentSampleRelationship, Sample)
 SampleExperimentQueryResult = make_linked_list_result_type("SampleExperimentQueryResult", "SampleExperimentDetails", ExperimentSampleRelationship, Experiment)

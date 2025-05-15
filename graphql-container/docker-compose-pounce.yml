@@ -1,0 +1,11 @@
+services:
+  fastapi-pounce:
+    build:
+      dockerfile: graphql-container/Dockerfile
+      context: ..
+    container_name: fastapi-pounce
+    ports:
+      - "8046:8000"
+    environment:
+      YAML_FILE: ./src/use_cases/api/pounce_dev_dashboard.yaml
+    restart: unless-stopped
