@@ -26,3 +26,4 @@ graphql-server
 fastapi
 strawberry-graphql
 uvicorn
+gunicorn

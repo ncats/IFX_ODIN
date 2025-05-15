@@ -31,3 +31,4 @@ dependencies:
   - strawberry-graphql
   - fastapi
   - uvicorn
+  - gunicorn
