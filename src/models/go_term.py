@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
@@ -101,6 +102,7 @@ class GoType(SimpleEnum):
 
 
 @dataclass
+@facets(category_fields=['type', 'subsets', 'is_leaf'])
 class GoTerm(Node):
     id: str
     type: GoType = None

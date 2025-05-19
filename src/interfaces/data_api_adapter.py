@@ -4,6 +4,7 @@ from typing import List, Union, Optional
 import importlib.util
 import networkx as nx
 
+from src.core.decorators import collect_facets
 from src.interfaces.labeler import Labeler
 from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
     ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext
@@ -44,6 +45,11 @@ class APIAdapter(ABC):
         if not self.class_map:
             self.initialize_class_map()
         return self.class_map[class_name]
+
+    def get_default_facets(self, class_name: str) -> List[str]:
+        cls = self.get_class(class_name)
+        categories, numerics = collect_facets(cls)
+        return [cat for cat in categories if cat not in ['id', 'xref']]
 
     def initialize_class_map(self):
         nodes = self.list_nodes()

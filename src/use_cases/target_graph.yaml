@@ -43,7 +43,6 @@ resolvers:
       types:
         - Protein
 
-
 input_adapters:
   - import: ./src/input_adapters/go/go_term.py
     class: GOTermAdapter

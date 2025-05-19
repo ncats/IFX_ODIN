@@ -17,7 +17,6 @@ class TGProteinFileBase(TargetGraphProteinParser):
         transcript_relationships = []
         gene_relationships = []
         isoform_relationships = []
-
         for line in self.all_rows():
             id = TargetGraphProteinParser.get_id(line)
             protein_obj = Protein(id=id)

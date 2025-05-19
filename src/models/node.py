@@ -3,6 +3,7 @@ from datetime import datetime, date
 from typing import List, Union, get_origin, get_args, Optional
 
 from src.constants import Prefix
+from src.core.decorators import facets
 from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
 
 
@@ -117,6 +118,7 @@ class EquivalentId:
 
 
 @dataclass
+@facets(category_fields=['id', 'xref'])
 class Node:
     id: str
     labels: List[NodeLabel] = field(default_factory=list)

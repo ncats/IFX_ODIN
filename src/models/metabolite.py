@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+
+from src.core.decorators import facets
 from src.models.analyte import Analyte
 from src.models.metabolite_chem_props import MetaboliteChemProps
 from src.models.node import Relationship
@@ -7,6 +9,7 @@ from src.models.reaction import Reaction
 
 
 @dataclass
+@facets(category_fields=['type', 'identfication_level'])
 class Metabolite(Analyte):
     name: str = None
     type: str = None,

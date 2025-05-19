@@ -1,12 +1,14 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from src.core.decorators import facets
 from src.models.disease import Disease
 from src.models.node import Node, Relationship
 from src.models.pounce.experiment import Experiment
 
 
 @dataclass
+@facets(category_fields=['type'])
 class Sample(Node):
     name: str = None
     description: str = None
@@ -46,6 +48,7 @@ class Protocol(Factor):
 
 
 @dataclass
+@facets(category_fields=['organism', 'part', 'cell_line','category','sex'])
 class Biospecimen(Factor):
     organism: List[str] = field(default_factory=list)
     part: Optional[str] = None

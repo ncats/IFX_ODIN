@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from src.core.decorators import facets
 from src.models.gene import Gene, Audited
-from src.models.node import Node, Relationship, generate_class_from_dict
+from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
 
@@ -27,6 +28,7 @@ class TranscriptLocation:
         return TranscriptLocation(start=data.get('bp_start'), end=data.get('bp_end'), length=data.get('transcript_length'))
 
 @dataclass
+@facets(category_fields=["support_level", "ensembl_version", "status", "is_canonical"])
 class Transcript(Audited, Node):
     location: Optional[TranscriptLocation] = None
     ensembl_version: Optional[str] = None

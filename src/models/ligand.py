@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
+from src.core.decorators import facets
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
 
 @dataclass
+@facets(category_fields=["isDrug"])
 class Ligand(Node):
     name: Optional[str] = None
     isDrug: Optional[bool] = None
@@ -13,6 +15,8 @@ class Ligand(Node):
     description: Optional[str] = None
 
 @dataclass
+@facets(category_fields=["act_type", "has_moa", "action_type"],
+        numeric_fields=["act_value"])
 class ActivityDetails:
     ref_id: Optional[int] = None
     act_value: Optional[float] = None
@@ -35,6 +39,7 @@ class ActivityDetails:
         return cls(**data)
 
 @dataclass
+@facets(category_fields=["meets_idg_cutoff"])
 class ProteinLigandRelationship(Relationship):
     start_node: Protein
     end_node: Ligand

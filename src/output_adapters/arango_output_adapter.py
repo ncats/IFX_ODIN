@@ -1,9 +1,34 @@
+from typing import Type
+from src.core.decorators import collect_facets
 from src.interfaces.output_adapter import OutputAdapter
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
+
+    def create_indexes(self, cls: Type, collection):
+        categories, numerics = collect_facets(cls)
+
+        print(f"Creating indexes for {cls.__name__}")
+
+        existing_indexes = collection.indexes()
+        existing_fields = {tuple(index['fields']) for index in existing_indexes}
+
+        # Create hash indexes for category fields
+        for field in sorted(categories):
+            field_tuple = (field,)
+            if field_tuple not in existing_fields:
+                print(f"Creating HASH index on: {field}")
+                collection.add_hash_index(fields=[field], sparse=True)
+
+        # Create persistent indexes for numeric fields
+        for field in sorted(numerics):
+            field_tuple = (field,)
+            if field_tuple not in existing_fields:
+                print(f"Creating PERSISTENT index on: {field}")
+                collection.add_persistent_index(fields=[field], sparse=True)
+
 
     def store(self, objects) -> bool:
 
@@ -17,9 +42,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         db = self.get_db()
         graph = self.get_graph()
         object_groups = self.sort_and_convert_objects(objects, convert_dates=True)
-        for obj_list, labels, is_relationship, start_labels, end_labels in object_groups.values():
+        for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             label = labels[0]
-
             if is_relationship:
                 if not graph.has_edge_collection(label):
                     edge_collection = graph.create_edge_definition(label, start_labels, end_labels)
@@ -29,6 +53,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     updated_to = list(set(edge_definition['to_vertex_collections'] + end_labels))
                     edge_collection = graph.replace_edge_definition(label, updated_from, updated_to)
 
+                self.create_indexes(obj_cls, edge_collection)
                 keys = [generate_edge_key(obj['start_id'], obj['end_id'], label) for obj in obj_list]
 
                 existing_edges = edge_collection.get_many(keys)
@@ -60,6 +85,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     print(f"Deleted {deleted_count} dangling edges.")
             else:
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list)
+
+                self.create_indexes(obj_cls, collection)
                 existing_record_map = {
                     record['id']: record for record in existing_nodes
                 }

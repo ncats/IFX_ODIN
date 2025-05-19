@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Union, Optional
 
+from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
 from src.models.gene import Audited
@@ -48,6 +49,9 @@ class IDGFamily(SimpleEnum):
         raise Exception(f"Unknown IDG Family: {tcrd_value}")
 
 @dataclass
+@facets(
+    category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical", "uniprot_entryType"],
+    numeric_fields=["pm_score", "antibody_count"])
 class Protein(Audited, Analyte):
     protein_type: Optional[str] = None
     description: Optional[str] = None

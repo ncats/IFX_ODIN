@@ -24,7 +24,7 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
             objects = [objects]
 
         object_groups = self.sort_and_convert_objects(objects)
-        for obj_list, labels, is_relationship, start_labels, end_labels in object_groups.values():
+        for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             if is_relationship:
                 self.loader.load_relationship_records(obj_list, start_labels, labels, end_labels)
             else:
