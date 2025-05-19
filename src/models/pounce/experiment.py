@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from datetime import date as date_class
 
+from src.core.decorators import facets
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
 from src.models.pounce.platform import Platform
 
 
 @dataclass
+@facets(category_fields=['type', 'category'])
 class Experiment(Node):
     name: str = None
     type: str = None

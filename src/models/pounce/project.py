@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import date as date_class
 from typing import List
 
+from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
 
@@ -18,6 +19,9 @@ class ProjectType(Node):
 
 
 @dataclass
+@facets(
+    category_fields=['lab_groups', 'privacy_level', 'keywords'],
+)
 class Project(Node):
     name: str = None
     description: str = None

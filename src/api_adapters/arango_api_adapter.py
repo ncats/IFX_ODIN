@@ -121,6 +121,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
         filter = context.filter.to_dict() if context and context.filter else None
         full_results = []
+        if facets == None or len(facets) == 0:
+            facets = self.get_default_facets(context.source_data_model)
         for field in facets:
             other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
             query = f"""

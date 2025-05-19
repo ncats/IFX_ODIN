@@ -112,7 +112,7 @@ class OutputAdapter(ABC):
                 obj_key = f"{start_labels}:{obj_labels}:{end_labels}"
 
             if obj_key in object_lists:
-                obj_list, _, _, _, _ = object_lists[obj_key]
+                obj_list, _, _, _, _, _ = object_lists[obj_key]
                 one_obj = self.clean_dict(obj, convert_dates)
                 if isinstance(obj, Relationship):
                     one_obj['start_id'] = obj.start_node.id
@@ -125,8 +125,8 @@ class OutputAdapter(ABC):
                     one_obj['end_id'] = obj.end_node.id
                     object_lists[obj_key] = ([one_obj], obj_labels, True,
                                              start_labels,
-                                             end_labels)
+                                             end_labels, type(obj))
                 else:
-                    object_lists[obj_key] = [one_obj], obj_labels, False, None, None
+                    object_lists[obj_key] = [one_obj], obj_labels, False, None, None, type(obj)
 
         return object_lists

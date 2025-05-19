@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node
 
@@ -47,6 +48,7 @@ class Audited:
 
 
 @dataclass
+@facets(category_fields=["symbol"])
 class Gene(Audited, Node):
     location: Optional[GeneticLocation] = None
     pubmed_ids: Optional[List[int]] = None

@@ -85,7 +85,7 @@ def make_list_result_type(class_name: str, match_type: Type):
     def list_field(root, top: int = 10, skip: int = 0) -> List[match_type]:
         return root._query_service.get_list(root._query_context, top, skip)
 
-    def facets_field(root, facets: List[str], top: int = 20) -> List[FacetQueryResult]:
+    def facets_field(root, facets: Optional[List[str]] = None, top: int = 20) -> List[FacetQueryResult]:
         return root._query_service.get_facets(root._query_context, facets, top)
 
     def query_field(root, top: int = 10, skip: int = 0) -> str:

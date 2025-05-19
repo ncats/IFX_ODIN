@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List
 
+from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
 from src.models.pounce.project import Project
@@ -15,6 +16,7 @@ class Role(SimpleEnum):
 
 
 @dataclass
+@facets(category_fields=['institute', 'branch'])
 class Investigator(Node):
     name: str = None
     email: str = None
@@ -23,6 +25,7 @@ class Investigator(Node):
 
 
 @dataclass
+@facets(category_fields=['roles'])
 class InvestigatorRelationship(Relationship):
     end_node: Investigator
     roles: List[Role] = field(default_factory=list)
