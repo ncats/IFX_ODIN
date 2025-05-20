@@ -8,7 +8,7 @@ from src.models.node import Node
 from src.models.pounce.data import Biospecimen, \
     Sample, SampleFactorRelationship, ExperimentSampleRelationship, Factor, Treatment
 from src.models.pounce.experiment import Experiment, ExperimentPlatformRelationship
-from src.models.pounce.output import RNAProbe, SampleRNAProbeRelationship, Gene, GeneRNAProbeRelationship
+from src.models.pounce.output import RNAProbe, SampleRNAProbeRelationship, GeneRNAProbeRelationship
 from src.models.pounce.platform import Platform
 from src.models.pounce.project import Project, ProjectPrivacy
 from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship

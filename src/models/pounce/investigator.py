@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
@@ -18,10 +18,10 @@ class Role(SimpleEnum):
 @dataclass
 @facets(category_fields=['institute', 'branch'])
 class Investigator(Node):
-    name: str = None
+    name: Optional[str] = None
     email: str = None
-    institute: List[str] = field(default_factory=list)
-    branch: List[str] = field(default_factory=list)
+    institute: Optional[List[str]] = field(default_factory=list)
+    branch: Optional[List[str]] = field(default_factory=list)
 
 
 @dataclass
