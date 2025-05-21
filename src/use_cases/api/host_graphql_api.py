@@ -4,11 +4,11 @@ from strawberry.schema.config import StrawberryConfig
 
 import strawberry
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
 
 from src.api_adapters.strawberry_models.pharos_query_models import Query as pharosQuery
 from src.api_adapters.strawberry_models.pounce_query_models import Query as pounceQuery
-from fastapi.middleware.cors import CORSMiddleware
 
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 

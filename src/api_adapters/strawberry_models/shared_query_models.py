@@ -1,10 +1,10 @@
 from datetime import date, datetime
-from typing import Optional, List, Type
+from typing import Optional, List, Type, Dict
 
 import strawberry
 from strawberry import Info
 
-from src.api_adapters.strawberry_models.class_generators import make_list_result_type
+from src.api_adapters.strawberry_models.class_generators import make_list_result_type, make_resolve_result_type
 from src.api_adapters.strawberry_models.input_types import ListFilterSettings, ListQueryContext
 
 from src.shared.record_merger import FieldConflictBehavior
@@ -78,6 +78,16 @@ def parse_to_date(iso_format_str: str) -> Optional[date]:
     return date.fromisoformat(iso_format_str)
 
 
+def generate_details_resolver(source_data_model: Type, sortby = {}):
+    class_name = source_data_model.__name__
+    return_type = make_resolve_result_type(f"{class_name}ResolveResult", source_data_model)
+    @strawberry.field()
+    def resolver(self, info: Info, id: str) -> return_type:
+        api = info.context["api"]
+        return api.resolve_id(class_name, id=id, sortby=sortby)
+    return resolver
+
+
 def generate_list_resolver(source_data_model: Type):
     class_name = source_data_model.__name__
     return_type = make_list_result_type(f"{class_name}ListResult", source_data_model)
@@ -87,3 +97,22 @@ def generate_list_resolver(source_data_model: Type):
         context = ListQueryContext(source_data_model=class_name, filter=filter)
         return api.get_list_obj(context)
     return resolver
+
+
+def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]]):
+    global resolvers
+    list_resolvers = {
+        info["list"]: generate_list_resolver(model_cls)
+        for model_cls, info in ENDPOINTS.items()
+        if "list" in info
+    }
+    details_resolvers = {
+        info["details"]: generate_details_resolver(model_cls)
+        for model_cls, info in ENDPOINTS.items()
+        if "details" in info
+    }
+    resolvers = {
+        **list_resolvers,
+        **details_resolvers
+    }
+    return resolvers

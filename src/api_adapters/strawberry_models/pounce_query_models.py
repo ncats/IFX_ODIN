@@ -1,4 +1,4 @@
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 
 import strawberry
 from strawberry import Info
@@ -6,7 +6,7 @@ from strawberry import Info
 from src.api_adapters.arango_api_adapter import ArangoAPIAdapter
 from src.api_adapters.strawberry_models.class_generators import make_linked_list_result_type
 from src.api_adapters.strawberry_models.input_types import LinkedListFilterSettings
-from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_list_resolver
+from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_resolvers
 from src.interfaces.result_types import LinkedListQueryContext
 from src.models.node import EquivalentId
 from src.models.pounce.data import (Biospecimen as BiospecimenBase, Sample as SampleBase,
@@ -468,22 +468,45 @@ InvestigatorExperimentQueryResult = make_linked_list_result_type("InvestigatorEx
 
 top_level_classes = [Biospecimen, Sample, Investigator, Protein, Project, ProjectType, Experiment, Gene, Metabolite]
 
-
-LIST_RESOLVERS = {
-    "projects": Project,
-    "experiments": Experiment,
-    "investigators": Investigator,
-    "biospecimens": Biospecimen,
-    "samples": Sample,
-    "proteins": Protein,
-    "project_types": ProjectType,
-    "metabolite": Metabolite,
-    "genes": Gene
+ENDPOINTS: Dict[type, Dict[str, str]] = {
+    Project: {
+        "list": "projects",
+        "details": "resolve_project"
+    },
+    Experiment: {
+        "list": "experiments",
+        "details": "resolve_experiment"
+    },
+    Investigator: {
+        "list": "investigators",
+        "details": "resolve_investigator"
+    },
+    Biospecimen: {
+        "list": "biospecimens",
+        "details": "resolve_biospecimen"
+    },
+    Sample: {
+        "list": "samples",
+        "details": "resolve_sample"
+    },
+    Protein: {
+        "list": "proteins",
+        "details": "resolve_protein"
+    },
+    ProjectType: {
+        "list": "project_types",
+        "details": "resolve_project_type"
+    },
+    Metabolite: {
+        "list": "metabolites",
+        "details": "resolve_metabolite"
+    },
+    Gene: {
+        "list": "genes",
+        "details": "resolve_gene"
+    }
 }
 
-query_fields = {
-    name: generate_list_resolver(model_name)
-    for name, model_name in LIST_RESOLVERS.items()
-}
+resolvers = generate_resolvers(ENDPOINTS)
 
-Query = strawberry.type(type("Query", (), query_fields))
+Query = strawberry.type(type("Query", (), resolvers))

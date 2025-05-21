@@ -257,7 +257,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
         query = f"""
             FOR doc IN `{label}`
-                FILTER '{id}' IN doc.xref
+                FILTER '{id}' IN doc.xref OR doc.id == '{id}'
                 {self._get_sortby_clause(sortby)}
                 LIMIT 11
                 RETURN {self._get_document_cleanup_clause()}
