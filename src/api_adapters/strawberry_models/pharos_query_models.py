@@ -1,13 +1,11 @@
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict
 
 import strawberry
 from strawberry import Info
 
-from src.api_adapters.strawberry_models.class_generators import make_linked_list_result_type, make_resolve_result_type, \
-    make_details_result_type, make_list_result_type
-from src.api_adapters.strawberry_models.input_types import FilterOption, ListFilterSettings, LinkedListFilterSettings, \
-    ListQueryContext
-from src.api_adapters.strawberry_models.shared_query_models import Provenance
+from src.api_adapters.strawberry_models.class_generators import make_linked_list_result_type
+from src.api_adapters.strawberry_models.input_types import FilterOption, ListFilterSettings, LinkedListFilterSettings
+from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_resolvers
 from src.interfaces.result_types import LinkedListQueryContext
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.models.analyte import Synonym
@@ -297,20 +295,6 @@ class ProteinGoTermRelationship(ProteinGoTermRelationshipBase):
 
     evidence: List[GoEvidence]
 
-
-ProteinListResult = make_list_result_type("ProteinListResult", Protein)
-GeneListResult = make_list_result_type("GeneListResult", Gene)
-TranscriptListResult = make_list_result_type("TranscriptListResult", Transcript)
-LigandListResult = make_list_result_type("LigandListResult", Ligand)
-GoTermListResult = make_list_result_type("GoTermListResult", GoTerm)
-
-ResolveProteinResult = make_resolve_result_type("ResolveProteinResult", Protein)
-ResolveGeneResult = make_resolve_result_type("ResolveGeneResult", Gene)
-ResolveTranscriptResult = make_resolve_result_type("ResolveTranscriptResult", Transcript)
-ResolveLigandResult = make_resolve_result_type("ResolveLigandResult", Ligand)
-
-GoTermResult = make_details_result_type("GoTermResult", GoTerm)
-
 ProteinGeneQueryResult = make_linked_list_result_type("ProteinGeneQueryResult", "ProteinGeneDetails", GeneProteinRelationship, Gene)
 ProteinTranscriptQueryResult = make_linked_list_result_type("ProteinTranscriptQueryResult", "ProteinTranscriptDetails", TranscriptProteinRelationship, Transcript)
 ProteinGoTermQueryResult = make_linked_list_result_type("ProteinGoTermQueryResult", "ProteinGoTermDetails", ProteinGoTermRelationship, GoTerm)
@@ -328,86 +312,32 @@ GeneGeneRifQueryResult = make_linked_list_result_type("GeneGeneRifQueryResult", 
 
 LigandProteinQueryResult = make_linked_list_result_type("LigandProteinQueryResult", "LigandProteinDetails", ProteinLigandRelationship, Protein)
 
+ENDPOINTS: Dict[type, Dict[str, str]] = {
+    Protein: {
+        "list": "proteins",
+        "details": "resolve_protein",
+        "sortby": {"uniprot_reviewed": "desc", "uniprot_canonical": "desc", "mapping_ratio": "desc"}
+    },
+    Gene: {
+        "list": "genes",
+        "details": "resolve_gene",
+        "sortby": {"mapping_ratio": "desc"}
+    },
+    Transcript: {
+        "list": "transcripts",
+        "details": "resolve_transcript",
+        "sortby": {"mapping_ratio": "desc"}
+    },
+    Ligand: {
+        "list": "ligands",
+        "details": "resolve_ligand"
+    },
+    GoTerm: {
+        "list": "go_terms",
+        "details": "resolve_go_term"
+    }
+}
 
+resolvers = generate_resolvers(ENDPOINTS)
 
-@strawberry.type
-class Query:
-    @strawberry.field()
-    def proteins(self, info: Info, filter: Optional[ListFilterSettings] = None) -> ProteinListResult:
-        api = info.context["api"]
-        context = ListQueryContext(
-            source_data_model="Protein",
-            filter = filter
-        )
-        result = api.get_list_obj(context)
-        return result
-
-    @strawberry.field()
-    def genes(self, info: Info, filter: Optional[ListFilterSettings] = None) -> GeneListResult:
-        api = info.context["api"]
-        context = ListQueryContext(
-            source_data_model="Gene",
-            filter = filter
-        )
-        result = api.get_list_obj(context)
-        return result
-
-    @strawberry.field()
-    def transcripts(self, info: Info, filter: Optional[ListFilterSettings] = None) -> TranscriptListResult:
-        api = info.context["api"]
-        context = ListQueryContext(
-            source_data_model="Transcript",
-            filter = filter
-        )
-        result = api.get_list_obj(context)
-        return result
-
-    @strawberry.field()
-    def ligands(self, info: Info, filter: Optional[ListFilterSettings] = None) -> LigandListResult:
-        api = info.context["api"]
-        context = ListQueryContext(
-            source_data_model="Ligand",
-            filter = filter
-        )
-        result = api.get_list_obj(context)
-        return result
-
-    @strawberry.field()
-    def go_terms(self, info: Info, filter: Optional[ListFilterSettings] = None) -> GoTermListResult:
-        api = info.context["api"]
-        context = ListQueryContext(
-            source_data_model="GoTerm",
-            filter = filter
-        )
-        result = api.get_list_obj(context)
-        return result
-
-    @strawberry.field()
-    def resolve_protein(self, info: Info, id: str) -> ResolveProteinResult:
-        api = info.context["api"]
-        result = api.resolve_id("Protein", id=id, sortby={"uniprot_reviewed": "desc", "uniprot_canonical": "desc", "mapping_ratio": "desc"})
-        return result
-
-    @strawberry.field()
-    def resolve_gene(self, info: Info, id: str) -> ResolveGeneResult:
-        api = info.context["api"]
-        result = api.resolve_id("Gene", id=id, sortby={"mapping_ratio": "desc"})
-        return result
-
-    @strawberry.field()
-    def resolve_transcript(self, info: Info, id: str) -> ResolveTranscriptResult:
-        api = info.context["api"]
-        result = api.resolve_id("Transcript", id=id, sortby={"mapping_ratio": "desc"})
-        return result
-
-    @strawberry.field()
-    def resolve_ligand(self, info: Info, id: str) -> ResolveLigandResult:
-        api = info.context["api"]
-        result = api.resolve_id("Ligand", id=id)
-        return result
-
-    @strawberry.field()
-    def go_term(self, info: Info, id: str) -> GoTermResult:
-        api = info.context["api"]
-        result = api.get_details("GoTerm", id=id)
-        return result
+Query = strawberry.type(type("Query", (), resolvers))
