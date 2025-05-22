@@ -466,8 +466,6 @@ InvestigatorProjectQueryResult = make_linked_list_result_type("InvestigatorProje
 ExperimentInvestigatorQueryResult = make_linked_list_result_type("ExperimentInvestigatorQueryResult", "ExperimentInvestigatorDetails", ExperimentInvestigatorRelationship, Investigator)
 InvestigatorExperimentQueryResult = make_linked_list_result_type("InvestigatorExperimentQueryResult", "InvestigatorExperimentDetails", ExperimentInvestigatorRelationship, Experiment)
 
-top_level_classes = [Biospecimen, Sample, Investigator, Protein, Project, ProjectType, Experiment, Gene, Metabolite]
-
 ENDPOINTS: Dict[type, Dict[str, str]] = {
     Project: {
         "list": "projects",

@@ -10,15 +10,15 @@ from src.interfaces.result_types import LinkedListQueryContext
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.models.analyte import Synonym
 from src.models.gene import Gene as GeneBase, GeneticLocation
-from src.models.generif import GeneGeneRifRelationship, GeneRif as GeneRifBase
+from src.models.generif import GeneGeneRifRelationship as GeneGeneRifRelationshipBase, GeneRif as GeneRifBase
 from src.models.go_term import GoTerm as GoTermBase, ProteinGoTermRelationship as ProteinGoTermRelationshipBase, \
     GoEvidence as GoEvidenceBase
-from src.models.ligand import Ligand as LigandBase, ProteinLigandRelationship, ActivityDetails
+from src.models.ligand import Ligand as LigandBase, ProteinLigandRelationship as ProteinLigandRelationshipBase, ActivityDetails
 from src.models.node import Node, EquivalentId, Relationship
 from src.models.protein import Protein as ProteinBase
-from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship, \
-    GeneProteinRelationship, \
-    TranscriptProteinRelationship, GeneTranscriptRelationship
+from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship as IsoformProteinRelationshipBase, \
+    GeneProteinRelationship as GeneProteinRelationshipBase, \
+    TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
 
 NodeLabel = strawberry.type(NodeLabel)
 Node = strawberry.type(Node)
@@ -26,18 +26,9 @@ EquivalentId = strawberry.type(EquivalentId)
 Synonym = strawberry.type(Synonym)
 GeneticLocation = strawberry.type(GeneticLocation)
 ActivityDetails = strawberry.type(ActivityDetails)
-
-IsoformProteinRelationship = strawberry.type(IsoformProteinRelationship)
-GeneProteinRelationship = strawberry.type(GeneProteinRelationship)
-TranscriptProteinRelationship = strawberry.type(TranscriptProteinRelationship)
-GeneTranscriptRelationship = strawberry.type(GeneTranscriptRelationship)
-ProteinLigandRelationship = strawberry.type(ProteinLigandRelationship)
-GeneGeneRifRelationship = strawberry.type(GeneGeneRifRelationship)
 RelationshipLabel = strawberry.type(RelationshipLabel)
 Relationship = strawberry.type(Relationship)
-
 TranscriptLocation = strawberry.type(TranscriptLocation)
-
 
 @strawberry.type
 class GeneRif(GeneRifBase):
@@ -292,8 +283,58 @@ class ProteinGoTermRelationship(ProteinGoTermRelationshipBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
-
+    start_node: Protein
+    end_node: GoTerm
     evidence: List[GoEvidence]
+
+
+@strawberry.type
+class IsoformProteinRelationship(IsoformProteinRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Protein
+    end_node: Protein
+
+@strawberry.type
+class GeneProteinRelationship(GeneProteinRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Gene
+    end_node: Protein
+
+@strawberry.type
+class TranscriptProteinRelationship(TranscriptProteinRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Transcript
+    end_node: Protein
+
+@strawberry.type
+class GeneTranscriptRelationship(GeneTranscriptRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Gene
+    end_node: Transcript
+
+@strawberry.type
+class ProteinLigandRelationship(ProteinLigandRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Protein
+    end_node: Ligand
+
+@strawberry.type
+class GeneGeneRifRelationship(GeneGeneRifRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Gene
+    end_node: GeneRif
 
 ProteinGeneQueryResult = make_linked_list_result_type("ProteinGeneQueryResult", "ProteinGeneDetails", GeneProteinRelationship, Gene)
 ProteinTranscriptQueryResult = make_linked_list_result_type("ProteinTranscriptQueryResult", "ProteinTranscriptDetails", TranscriptProteinRelationship, Transcript)
