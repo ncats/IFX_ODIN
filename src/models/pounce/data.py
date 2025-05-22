@@ -26,7 +26,7 @@ class Compound(Node):
 class SampleAnalyteRelationship(Relationship):
     start_node: Sample
     end_node: Node
-    count: int = None
+    count: Optional[int] = None
     raw_data: Optional[float] = None
     stats_ready_data: Optional[float] = None
     tpm: Optional[float] = None
