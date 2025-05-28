@@ -7,7 +7,8 @@ import networkx as nx
 from src.core.decorators import collect_facets
 from src.interfaces.labeler import Labeler
 from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
-    ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext
+    ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext, \
+    NetworkedListQueryContext
 from src.models.node import Node, Relationship
 
 
@@ -109,10 +110,6 @@ class APIAdapter(ABC):
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
         raise NotImplementedError("Derived classes must implement get_facets")
 
-
-
-
-
     # FETCH LISTS LINKED TO A NODE
     def get_linked_list(self, context: LinkedListQueryContext) -> LinkedListQueryResult:
         result = LinkedListQueryResult()
@@ -135,6 +132,29 @@ class APIAdapter(ABC):
     @abstractmethod
     def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]], edge_facets: Optional[List[str]]) -> List[FacetQueryResult]:
         raise NotImplementedError("Derived classes must implement get_linked_list_facets")
+
+
+    def get_networked_list(self, context: NetworkedListQueryContext) -> LinkedListQueryResult:
+        result = LinkedListQueryResult()
+        result._query_context = context
+        result._query_service = self
+        return result
+
+    @abstractmethod
+    def get_networked_list_query(self, context: NetworkedListQueryContext, top: int, skip: int) -> str:
+        raise NotImplementedError("Derived classes must implement get_networked_list_query")
+
+    @abstractmethod
+    def get_networked_list_count(self, context: NetworkedListQueryContext) -> int:
+        raise NotImplementedError("Derived classes must implement get_networked_list_count")
+
+    @abstractmethod
+    def get_networked_list_details(self, context: NetworkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
+        raise NotImplementedError("Derived classes must implement get_networked_list_details")
+
+    @abstractmethod
+    def get_networked_list_facets(self, context: NetworkedListQueryContext, node_facets: Optional[List[str]]) -> List[FacetQueryResult]:
+        raise NotImplementedError("Derived classes must implement get_networked_list_facets")
 
 
 

@@ -3,26 +3,65 @@ from typing import Type, List, Optional
 import strawberry
 
 from src.interfaces.result_types import LinkedListQueryResult, ResolveResult, DetailsQueryResult, ListQueryResult, \
-    LinkDetails, FacetQueryResult as FacetQueryResultBase, FacetResult
+    LinkDetails, FacetQueryResult as FacetQueryResultBase, FacetResult, DerivedLinkDetails
 
+
+def make_linked_details_type(details_class_name: str, edge_type: Type, node_type: Type):
+    def edge_field(root) -> edge_type:
+        return root.edge
+    def node_field(root) -> node_type:
+        return root.node
+
+    new_class = type(
+        details_class_name,
+        (LinkDetails,),
+        {
+            "edge": strawberry.field(resolver = edge_field),
+            "node": strawberry.field(resolver = node_field)
+        }
+    )
+    return strawberry.type(new_class)
+
+def make_derived_linked_details_type(details_class_name: str, node_type: Type):
+    def node_field(root) -> node_type:
+        return root.node
+
+    new_class = type(
+        details_class_name,
+        (DerivedLinkDetails,),
+        {
+            "node": strawberry.field(resolver=node_field)
+        }
+    )
+    return strawberry.type(new_class)
+
+def make_networked_list_result_type(query_class_name: str, details_class_name: str, node_type: Type):
+    details_class = make_derived_linked_details_type(details_class_name, node_type)
+    def list_field(root, top: int = 10, skip: int = 0) -> List[details_class]:
+        return root._query_service.get_networked_list_details(root._query_context, top, skip)
+
+    def count_field(root) -> int:
+        return root._query_service.get_networked_list_count(root._query_context)
+
+    def query_field(root, top: int = 10, skip: int = 0) -> str:
+        return root._query_service.get_networked_list_query(root._query_context, top, skip)
+
+    def facets_field(root, node_facets: Optional[List[str]] = None) -> List[FacetQueryResult]:
+        return root._query_service.get_networked_list_facets(root._query_context, node_facets)
+
+    new_class = type(
+        query_class_name,
+        (LinkedListQueryResult,),
+        {
+            "query": strawberry.field(resolver=query_field),
+            "list": strawberry.field(resolver=list_field),
+            "count": strawberry.field(resolver=count_field),
+            "facets": strawberry.field(resolver=facets_field)
+        }
+    )
+    return strawberry.type(new_class)
 
 def make_linked_list_result_type(query_class_name: str, details_class_name: str, edge_type: Type, node_type: Type):
-    def make_linked_details_type(details_class_name: str, edge_type: Type, node_type: Type):
-        def edge_field(root) -> edge_type:
-            return root.edge
-        def node_field(root) -> node_type:
-            return root.node
-
-        new_class = type(
-            details_class_name,
-            (LinkDetails,),
-            {
-                "edge": strawberry.field(resolver = edge_field),
-                "node": strawberry.field(resolver = node_field)
-            }
-        )
-        return strawberry.type(new_class)
-
     details_class = make_linked_details_type(details_class_name, edge_type, node_type)
     def list_field(root, top: int = 10, skip: int = 0) -> List[details_class]:
         return root._query_service.get_linked_list_details(root._query_context, top, skip)

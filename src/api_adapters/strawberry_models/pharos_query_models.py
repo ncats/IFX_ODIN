@@ -32,7 +32,25 @@ TranscriptLocation = strawberry.type(TranscriptLocation)
 
 @strawberry.type
 class GeneRif(GeneRifBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
     pmids: List[str]
+
+
+    @strawberry.field()
+    def genes(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "GeneRifGeneQueryResult":
+        api = info.context["api"]
+        context = LinkedListQueryContext(
+            source_data_model="Gene",
+            source_id=None,
+            dest_data_model="GeneRif",
+            edge_model="GeneGeneRifRelationship",
+            dest_id=root.id,
+            filter=filter
+        )
+        result = api.get_linked_list(context)
+        return result
 
 def go_terms(root, info: Info, type: Literal["P", "F", "C"], filter: Optional[
     LinkedListFilterSettings] = None) -> "ProteinGoTermQueryResult":
@@ -350,6 +368,7 @@ TranscriptGeneQueryResult = make_linked_list_result_type("TranscriptGeneQueryRes
 GeneProteinQueryResult = make_linked_list_result_type("GeneProteinQueryResult", "GeneProteinDetails", GeneProteinRelationship, Protein)
 GeneTranscriptQueryResult = make_linked_list_result_type("GeneTranscriptQueryResult", "GeneTranscriptDetails", GeneTranscriptRelationship, Transcript)
 GeneGeneRifQueryResult = make_linked_list_result_type("GeneGeneRifQueryResult", "GeneGeneRifDetails", GeneGeneRifRelationship, GeneRif)
+GeneRifGeneQueryResult = make_linked_list_result_type("GeneRifGeneQueryResult", "GeneRifGeneDetails", GeneGeneRifRelationship, Gene)
 
 LigandProteinQueryResult = make_linked_list_result_type("LigandProteinQueryResult", "LigandProteinDetails", ProteinLigandRelationship, Protein)
 
@@ -376,6 +395,10 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     GoTerm: {
         "list": "go_terms",
         "details": "resolve_go_term"
+    },
+    GeneRif: {
+        "list": "gene_rifs",
+        "details": "resolve_generif"
     }
 }
 

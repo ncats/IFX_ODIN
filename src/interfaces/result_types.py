@@ -61,6 +61,10 @@ class LinkDetails:
     node: Node
 
 @dataclass
+class DerivedLinkDetails:
+    node: Node
+
+@dataclass
 class LinkedListQueryResult(QueryResult):
     count: Optional[int] = None
     list: Optional[List[LinkDetails]] = field(default_factory=list)
@@ -78,6 +82,18 @@ class LinkedListQueryContext:
     dest_id: Optional[str]
     edge_model: str
     filter: Optional[LinkedListFilterSettings] = None
+
+@dataclass
+class NetworkedListQueryContext:
+    source_data_model: str
+    source_id: Optional[str]
+    dest_data_model: str
+    dest_id: Optional[str]
+    intermediate_data_models: List[str]
+    edge_models: List[str]
+    # filter: Optional[LinkedListFilterSettings] = None
+    top: int = 10
+    skip: int = 0
 
 @dataclass
 class ListQueryResult(QueryResult):

@@ -1,10 +1,11 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import networkx as nx
 
 from src.interfaces.data_api_adapter import APIAdapter
 from src.interfaces.result_types import FacetQueryResult, DetailsQueryResult, \
-    ResolveResult, LinkDetails, LinkedListQueryContext, FacetResult, ListQueryContext
+    ResolveResult, LinkDetails, LinkedListQueryContext, FacetResult, ListQueryContext, NetworkedListQueryContext, \
+    DerivedLinkDetails
 from src.models.node import Node
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
@@ -194,12 +195,12 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
     def get_linked_list_query(self, context: LinkedListQueryContext, top: int, skip: int) -> str:
         query_model, collection_clause = self.parse_linked_list_context(context)
-        list_query = self.get_linked_list_query_str(collection_clause, context, top, skip)
+        list_query = self.get_linked_list_query_str(collection_clause, top, skip)
         return list_query
 
     def get_linked_list_details(self, context: LinkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
         query_model, collection_clause = self.parse_linked_list_context(context)
-        list_query = self.get_linked_list_query_str(collection_clause, context, top, skip)
+        list_query = self.get_linked_list_query_str(collection_clause, top, skip)
         results = self.runQuery(list_query)
         result_list = []
         for row in results:
@@ -209,7 +210,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             ))
         return result_list
 
-    def get_linked_list_query_str(self, collection_clause, context, top: int, skip: int):
+    def get_linked_list_query_str(self, collection_clause, top: int, skip: int):
         list_query = f"""
             {collection_clause}
                 LIMIT {skip}, {top}
@@ -220,10 +221,35 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         """
         return list_query
 
-    def parse_linked_list_context(self, context, ignore_var: str = None, ignore_field: str = None) -> (str, str):
+    def deduped_collection_clause(self, collection_clause):
+        return f"""
+            LET deduped = (
+                {collection_clause}
+                COLLECT id = v._id INTO group
+                RETURN group[0].v
+            )
+        """
+
+    def get_networked_list_query_str(self, collection_clause, top: int, skip: int):
+
+        list_query = f"""{self.deduped_collection_clause(collection_clause)}
+    
+            FOR node IN deduped
+            LIMIT {skip}, {top}
+            RETURN {{
+                node: UNSET(node, ["_key", "_id", "_rev", "_from", "_to"])
+            }}
+        """
+
+        return list_query
+
+
+    def parse_linked_list_context(self,
+                                  context: Union[LinkedListQueryContext, NetworkedListQueryContext],
+                                  ignore_var: str = None,
+                                  ignore_field: str = None) -> (str, str):
         source_label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
         dest_label = self.labeler.get_labels_for_class_name(context.dest_data_model)[0]
-        edge_label = self.labeler.get_labels_for_class_name(context.edge_model)[0]
         if context.source_id is not None:
             id = self.safe_key(context.source_id)
             anchor_label = source_label
@@ -237,20 +263,98 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             query_model = context.source_data_model
             direction = 'INBOUND'
 
+        if isinstance(context, NetworkedListQueryContext):
+            edge_labels = [self.labeler.get_labels_for_class_name(edge_model)[0] for edge_model in context.edge_models]
+            query_labels = [query_label] + [self.labeler.get_labels_for_class_name(model)[0] for model in context.intermediate_data_models]
+            collection_clause = f"""
+                FOR v, e IN 1..{len(query_labels)} {direction} '{anchor_label}/{id}' GRAPH 'graph'
+                    OPTIONS {{ edgeCollections: {edge_labels}, vertexCollections: {query_labels} }}
+                    FILTER IS_SAME_COLLECTION('{query_label}', v)
+                    """
+            return query_model, collection_clause
+
+        edge_label = self.labeler.get_labels_for_class_name(context.edge_model)[0]
+        collection_clause = f"""
+            FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
+                OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
+                """
+
+
         node_filter = context.filter.node_filter.to_dict() if context.filter and context.filter.node_filter else None
         edge_filter = context.filter.edge_filter.to_dict() if context.filter and context.filter.edge_filter else None
         if node_filter and ignore_var == 'v':
             node_filter = {k: v for k, v in node_filter.items() if k != ignore_field}
         if edge_filter and ignore_var == 'e':
             edge_filter = {k: v for k, v in edge_filter.items() if k != ignore_field}
-        collection_clause = f"""
-            FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
-                OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
-                {f"FILTER { self._get_filter_constraint_clause(node_filter, variable='v') } " if node_filter else ""}
-                {f"FILTER { self._get_filter_constraint_clause(edge_filter, variable='e') } " if edge_filter else ""}
+        collection_clause += f"""
+            {f"FILTER { self._get_filter_constraint_clause(node_filter, variable='v') } " if node_filter else ""}
+            {f"FILTER { self._get_filter_constraint_clause(edge_filter, variable='e') } " if edge_filter else ""}
         """
 
         return query_model, collection_clause
+
+    def get_networked_list_query(self, context: NetworkedListQueryContext, top: int, skip: int) -> str:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        list_query = self.get_networked_list_query_str(collection_clause, top, skip)
+        return list_query
+
+    def get_networked_list_count(self, context: NetworkedListQueryContext) -> int:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        count_query = f"""
+            {self.deduped_collection_clause(collection_clause)}
+            RETURN COUNT(deduped)
+                """
+        count = self.runQuery(count_query)
+        return count[0] if count else 0
+
+    def get_networked_list_details(self, context: NetworkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
+        query_model, collection_clause = self.parse_linked_list_context(context)
+        list_query = self.get_networked_list_query_str(collection_clause, top, skip)
+        results = self.runQuery(list_query)
+        result_list = []
+        for row in results:
+            result_list.append(DerivedLinkDetails(
+                node=self.convert_to_class(query_model, row['node'])
+            ))
+        return result_list
+
+    def get_networked_list_facets(self, context: NetworkedListQueryContext, node_facets: Optional[List[str]]) -> List[FacetQueryResult]:
+        full_results = []
+        for coll, variable in zip([node_facets], ['v']):
+            if not coll or len(coll) == 0:
+                continue
+            for field in coll:
+
+                query_model, collection_clause = self.parse_linked_list_context(context, variable, field)
+                deduped_collection_clause = self.deduped_collection_clause(collection_clause)
+
+                query = f"""
+                        {deduped_collection_clause}
+                        LET allValues = (
+                          FOR v IN deduped
+                            LET values = IS_ARRAY(v.{field}) ? v.{field} : [v.{field}]
+                            FOR val IN values
+                              RETURN val
+                        )
+                        
+                        FOR item IN UNIQUE(allValues)
+                          COLLECT value = item WITH COUNT INTO count
+                          SORT count DESC
+                          LIMIT {20}
+                          RETURN {{ value, count }}"""
+
+                results = self.runQuery(query)
+                fq_result = FacetQueryResult(
+                    name = field,
+                    query = query,
+                    facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
+                )
+                full_results.append(fq_result)
+
+        return full_results
+
+
+
 
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]

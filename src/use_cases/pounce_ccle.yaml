@@ -19,26 +19,6 @@ resolvers:
 
 
 input_adapters:
-  - import: ./src/input_adapters/cellosaurus/cellosaurus.py
-    class: CellosaurusCellLineAdapter
-    kwargs:
-      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-
-  - import: ./src/input_adapters/cellosaurus/disease.py
-    class: DiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-
-  - import: ./src/input_adapters/cellosaurus/disease.py
-    class: DiseaseCellLineRelationshipAdapter
-    kwargs:
-      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-
-  - import: ./src/input_adapters/target_graph/gene_node.py
-    class: GeneNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.csv
-
   - import: ./src/input_adapters/ccle/experiment_and_project.py
     class: CCLEInputAdapter
     kwargs:
@@ -47,8 +27,8 @@ input_adapters:
         - ./input_files/manual/ccle/CCLE_RNAseq_genes_counts_20180929.gct.gz
         - ./input_files/manual/ccle/CCLE_RNAseq_rsem_genes_tpm_20180929.txt.gz
       field_names:
-        - count
-        - tpm
+        - raw_data
+        - stats_ready_data
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

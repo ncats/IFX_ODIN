@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from src.core.decorators import facets
 from src.models.analyte import Analyte
@@ -12,8 +13,8 @@ from src.models.reaction import Reaction
 @facets(category_fields=['type', 'identfication_level'])
 class Metabolite(Analyte):
     name: str = None
-    type: str = None,
-    identification_level: int = None
+    type: Optional[str] = None,
+    identification_level: Optional[int] = None
 
 
 @dataclass
