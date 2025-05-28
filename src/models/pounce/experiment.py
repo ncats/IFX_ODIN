@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date as date_class
+from typing import Optional
 
 from src.core.decorators import facets
 from src.models.node import Node, Relationship
@@ -13,9 +14,9 @@ class Experiment(Node):
     name: str = None
     type: str = None
     description: str = None
-    design: str = None
-    category: str = None
-    run_date: date_class = None
+    design: Optional[str] = None
+    category: Optional[str] = None
+    run_date: Optional[date_class] = None
 
 
 @dataclass

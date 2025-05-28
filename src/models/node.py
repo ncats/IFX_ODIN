@@ -46,7 +46,7 @@ def generate_class_from_dict(cls, data: dict):
             value = type_hint.from_dict(data)
             result[f.name] = None
 
-        if value is None:
+        if value is None or (isinstance(value, str) and value.strip() == ''):
             result[f.name] = None
             continue
 

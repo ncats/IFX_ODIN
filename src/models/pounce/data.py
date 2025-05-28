@@ -13,7 +13,7 @@ class Sample(Node):
     name: str = None
     description: str = None
     type: str = None
-    replicate: int = None
+    replicate: Optional[int] = None
 
 @dataclass
 class Compound(Node):
@@ -50,12 +50,12 @@ class Protocol(Factor):
 @dataclass
 @facets(category_fields=['organism', 'part', 'cell_line','category','sex'])
 class Biospecimen(Factor):
-    organism: List[str] = field(default_factory=list)
+    organism: Optional[List[str]] = field(default_factory=list)
     part: Optional[str] = None
     cell_line: Optional[str] = None
     sex: Optional[str] = None
     comment: Optional[str] = None
-    category: str = None
+    category: Optional[str] = None
     age: Optional[str] = None
 
 @dataclass
