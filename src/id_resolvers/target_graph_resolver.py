@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
 from src.interfaces.id_resolver import IdMatch
