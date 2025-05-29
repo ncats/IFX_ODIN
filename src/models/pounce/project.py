@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import date as date_class
-from typing import List
+from typing import List, Optional
 
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
@@ -25,12 +25,12 @@ class ProjectType(Node):
 class Project(Node):
     name: str = None
     description: str = None
-    lab_groups: List[str] = field(default_factory=list)
-    date: date_class = None
-    privacy_level: ProjectPrivacy = None
-    keywords: List[str] = field(default_factory=list)
-    project_sheet: str = None
-    experiment_sheet: str = None
+    lab_groups: Optional[List[str]] = field(default_factory=list)
+    date: Optional[date_class] = None
+    privacy_level: Optional[ProjectPrivacy] = None
+    keywords: Optional[List[str]] = field(default_factory=list)
+    project_sheet: Optional[str] = None
+    experiment_sheet: Optional[str] = None
 
 
 @dataclass

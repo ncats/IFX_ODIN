@@ -11,8 +11,8 @@ from src.models.pounce.experiment import Experiment
 @facets(category_fields=['type'])
 class Sample(Node):
     name: str = None
-    description: str = None
-    type: str = None
+    description: Optional[str] = None
+    type: Optional[str] = None
     replicate: Optional[int] = None
 
 @dataclass
@@ -34,7 +34,7 @@ class SampleAnalyteRelationship(Relationship):
 @dataclass
 class Factor(Node):
     name: str = None
-    type: str = None
+    type: Optional[str] = None
 
 @dataclass
 class Treatment(Factor):
