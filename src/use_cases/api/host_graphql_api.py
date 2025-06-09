@@ -44,5 +44,5 @@ def create_app(yaml_file: str) -> FastAPI:
     app.include_router(graphql_app, prefix="/graphql")
     return app
 
-yaml_path = os.environ.get("YAML_FILE", "./src/use_cases/api/pounce_dev_dashboard.yaml")
+yaml_path = os.environ.get("YAML_FILE", "./src/use_cases/api/pharos_prod_dashboard.yaml")
 app = create_app(yaml_file=yaml_path)

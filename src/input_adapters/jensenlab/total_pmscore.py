@@ -11,7 +11,7 @@ from src.models.protein import Protein
 
 class TotalPMScoreAdapter(InputAdapter):
     def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.JensenLab
+        return DataSourceName.JensenLabPM
 
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo(
