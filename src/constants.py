@@ -19,7 +19,7 @@ class DataSourceName(SimpleEnum):
     CLO = "Cell Line Ontology (CLO)"
     GO = "Gene Ontology (GO)"
     DrugCentral = "DrugCentral"
-    JensenLab = "JensenLab"
+    JensenLabPM = "JensenLab PubMed Score"
     Antibodypedia = "Antibodypedia.com"
     NCBI = "NCBI"
     OldPharos = "Pharos 3.19"

@@ -297,7 +297,12 @@ class Experiment(ExperimentBase):
 
 
     @strawberry.field()
-    def gene_data(root, info: Info, biospecimen_id: Optional[str] = None, gene_id: Optional[str] = None, top: Optional[int] = 10, skip: Optional[int] = 0) -> Optional[List["GeneDataResults"]]:
+    def gene_data(root,
+                  info: Info, biospecimen_id: Optional[str] = None,
+                  gene_id: Optional[str] = None,
+                  top: Optional[int] = 10,
+                  skip: Optional[int] = 0
+                  ) -> Optional[List["GeneDataResults"]]:
         api: ArangoAPIAdapter = info.context["api"]
         query = Experiment.data_query(root, "Gene", biospecimen_id=biospecimen_id, analyte_id=gene_id, top=top, skip=skip)
         results = api.runQuery(query)

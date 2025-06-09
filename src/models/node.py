@@ -118,12 +118,13 @@ class EquivalentId:
 
 
 @dataclass
-@facets(category_fields=['id', 'xref'])
+@facets(category_fields=['id', 'xref', 'sources'])
 class Node:
     id: str
     labels: List[NodeLabel] = field(default_factory=list)
     xref: Optional[List[EquivalentId]] = field(default_factory=list)
     provenance: Optional[str] = None
+    sources: List[str] = field(default_factory=list)
 
     def add_label(self, new_label: NodeLabel):
         if new_label not in self.labels:
@@ -138,7 +139,8 @@ class Node:
 class Relationship:
     start_node: Node
     end_node: Node
-    provenance: str = None
+    provenance: Optional[str] = None
+    sources: List[str] = field(default_factory=list)
     labels: List[RelationshipLabel] = field(default_factory=list)
 
     @classmethod

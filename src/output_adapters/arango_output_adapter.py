@@ -74,15 +74,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
                 edge_collection.insert_many(edges, overwrite=True)
 
-                cursor = db.aql.execute(f""" 
-                        FOR e IN `{edge_collection.name}`
-                          FILTER !DOCUMENT(e._from) || !DOCUMENT(e._to)
-                          REMOVE e IN `{edge_collection.name}`
-                    """)
-                result = cursor.statistics()
-                deleted_count = result.get('modified', 0)
-                if deleted_count > 0:
-                    print(f"Deleted {deleted_count} dangling edges.")
+
             else:
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list)
 
@@ -118,3 +110,19 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         sys_db.create_database(self.database_name)
 
         return True
+
+    def do_post_processing(self) -> None:
+        print('cleaning up dangling edges')
+        db = self.get_db()
+        graph = self.get_graph()
+        for edge_collection in graph.edge_definitions():
+            print(f'cleaning up {edge_collection.name}')
+            cursor = db.aql.execute(f""" 
+                            FOR e IN `{edge_collection.name}`
+                              FILTER !DOCUMENT(e._from) || !DOCUMENT(e._to)
+                              REMOVE e IN `{edge_collection.name}`
+                        """)
+            result = cursor.statistics()
+            deleted_count = result.get('modified', 0)
+            if deleted_count > 0:
+                print(f"Deleted {deleted_count} dangling edges from {edge_collection.name}")

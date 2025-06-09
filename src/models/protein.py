@@ -50,7 +50,7 @@ class IDGFamily(SimpleEnum):
 
 @dataclass
 @facets(
-    category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical", "uniprot_entryType"],
+    category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
     numeric_fields=["pm_score", "antibody_count"])
 class Protein(Audited, Analyte):
     protein_type: Optional[str] = None
