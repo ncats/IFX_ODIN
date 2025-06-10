@@ -116,13 +116,14 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         db = self.get_db()
         graph = self.get_graph()
         for edge_collection in graph.edge_definitions():
-            print(f'cleaning up {edge_collection.name}')
+            collection_name = edge_collection['edge_collection']
+            print(f'cleaning up {collection_name}')
             cursor = db.aql.execute(f""" 
-                            FOR e IN `{edge_collection.name}`
+                            FOR e IN `{collection_name}`
                               FILTER !DOCUMENT(e._from) || !DOCUMENT(e._to)
-                              REMOVE e IN `{edge_collection.name}`
+                              REMOVE e IN `{collection_name}`
                         """)
             result = cursor.statistics()
             deleted_count = result.get('modified', 0)
             if deleted_count > 0:
-                print(f"Deleted {deleted_count} dangling edges from {edge_collection.name}")
+                print(f"Deleted {deleted_count} dangling edges from {collection_name}")

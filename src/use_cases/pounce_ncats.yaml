@@ -1,14 +1,6 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pounce_prod.yaml
 
 resolvers:
-#  - label: cell_line_resolver
-#    import: ./src/id_resolvers/cell_line_resolver.py
-#    class: CellosaurusCellLineResolver
-#    kwargs:
-#      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
-#      types:
-#        - Biospecimen
-
   - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
