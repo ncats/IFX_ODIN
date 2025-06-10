@@ -593,6 +593,16 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     }
 }
 
-resolvers = generate_resolvers(ENDPOINTS)
+EDGES : Dict[type, str] = {
+    SampleAnalyteRelationship: "sample_analyte_edges",
+    ProjectTypeRelationship: "project_type_edges",
+    ExperimentInvestigatorRelationship: "experiment_investigator_edges",
+    ExperimentSampleRelationship: "experiment_sample_edges",
+    SampleBiospecimenRelationship: "sample_biospecimen_edges",
+    ProjectExperimentRelationship: "project_experiment_edges",
+    ProjectInvestigatorRelationship: "project_investigator_edges"
+}
+
+resolvers = generate_resolvers(ENDPOINTS, EDGES)
 
 Query = strawberry.type(type("Query", (), resolvers))

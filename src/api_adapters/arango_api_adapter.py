@@ -5,7 +5,7 @@ import networkx as nx
 from src.interfaces.data_api_adapter import APIAdapter
 from src.interfaces.result_types import FacetQueryResult, DetailsQueryResult, \
     ResolveResult, LinkDetails, LinkedListQueryContext, FacetResult, ListQueryContext, NetworkedListQueryContext, \
-    DerivedLinkDetails
+    DerivedLinkDetails, UpsetQueryContext, UpsetResult
 from src.models.node import Node
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
@@ -117,6 +117,28 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         result = self.runQuery(query)
 
         return result[0] if result else 0
+
+    def get_upset(self, context: ListQueryContext, facet_context: UpsetQueryContext) -> List[UpsetResult]:
+        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        filter = context.filter.to_dict() if context and context.filter else None
+        field = facet_context.name
+        other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
+        query = f"""FOR doc IN `{label}`
+            {f"FILTER { self._get_filter_constraint_clause(other_filter) }" if other_filter else ""}
+            LET agg = IS_ARRAY(doc.{field}) ? UNIQUE(doc.{field}) : [doc.{field}]
+            
+            LET sortedAgg = SORTED(agg)
+            
+            LET key = CONCAT_SEPARATOR("|", sortedAgg)
+            
+            COLLECT combo = key WITH COUNT INTO count
+            SORT count DESC
+            RETURN {{
+                combination: combo,
+                count: count
+            }}"""
+        results = self.runQuery(query)
+        return  [UpsetResult(values = row['combination'].split('|'), count = row['count']) for row in results]
 
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
         label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]

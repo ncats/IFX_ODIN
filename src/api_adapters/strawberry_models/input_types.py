@@ -4,7 +4,8 @@ import strawberry
 from strawberry.scalars import JSON
 
 from src.interfaces.result_types import FilterOption as FilterOptionBase, ListFilterSettings as ListFilterSettingsBase, \
-    LinkedListFilterSettings as LinkedListFilterSettingsBase, ListQueryContext as ListQueryContextBase
+    LinkedListFilterSettings as LinkedListFilterSettingsBase, ListQueryContext as ListQueryContextBase, \
+    UpsetQueryContext as UpsetQueryContextBase
 
 
 @strawberry.input
@@ -26,3 +27,7 @@ class LinkedListFilterSettings(LinkedListFilterSettingsBase):
 @strawberry.input
 class ListQueryContext(ListQueryContextBase):
     filter: Optional[ListFilterSettings] = None
+
+@strawberry.input
+class UpsetQueryContext(UpsetQueryContextBase):
+    values: Optional[List[str]] = None

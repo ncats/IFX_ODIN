@@ -41,7 +41,8 @@ class InputAdapter(ABC):
                 version_data = [self.get_datasource_name(), version_info.version, version_info.version_date, version_info.download_date]
                 version_string = '\t'.join([str(e) for e in version_data])
                 entry.provenance = version_string
-                entry.sources = [version_string]
+                if self.get_datasource_name() != DataSourceName.PostProcessing:
+                    entry.sources = [version_string]
 
             nodes = [e for e in entries if isinstance(e, Node)]
             relationships = [e for e in entries if isinstance(e, Relationship)]

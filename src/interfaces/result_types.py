@@ -75,6 +75,16 @@ class ListQueryContext:
     filter: Optional[ListFilterSettings] = None
 
 @dataclass
+class UpsetQueryContext:
+    name: str
+    values: Optional[List[str]] = None
+
+@dataclass
+class UpsetResult:
+    values: List[str]
+    count: int
+
+@dataclass
 class LinkedListQueryContext:
     source_data_model: str
     source_id: Optional[str]
