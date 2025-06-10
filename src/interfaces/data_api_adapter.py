@@ -8,7 +8,7 @@ from src.core.decorators import collect_facets
 from src.interfaces.labeler import Labeler
 from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
     ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext, \
-    NetworkedListQueryContext
+    NetworkedListQueryContext, UpsetQueryContext, UpsetResult
 from src.models.node import Node, Relationship
 
 
@@ -109,6 +109,10 @@ class APIAdapter(ABC):
     @abstractmethod
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
         raise NotImplementedError("Derived classes must implement get_facets")
+
+    @abstractmethod
+    def get_upset(self, context: ListQueryContext, facet_context: UpsetQueryContext) -> List[UpsetResult]:
+        raise NotImplementedError("Derived classes must implement get_upset")
 
     # FETCH LISTS LINKED TO A NODE
     def get_linked_list(self, context: LinkedListQueryContext) -> LinkedListQueryResult:

@@ -402,6 +402,16 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     }
 }
 
-resolvers = generate_resolvers(ENDPOINTS)
+EDGES : Dict[type, str] = {
+    ProteinGoTermRelationship: "protein_go_term_edges",
+    IsoformProteinRelationship: "isoform_protein_edges",
+    GeneProteinRelationship: "gene_protein_edges",
+    TranscriptProteinRelationship: "transcript_protein_edges",
+    GeneTranscriptRelationship: "gene_transcript_edges",
+    ProteinLigandRelationship: "protein_ligand_edges",
+    GeneGeneRifRelationship: "gene_generif_edges"
+}
+
+resolvers = generate_resolvers(ENDPOINTS, EDGES)
 
 Query = strawberry.type(type("Query", (), resolvers))

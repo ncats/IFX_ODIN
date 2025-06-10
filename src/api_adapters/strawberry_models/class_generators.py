@@ -2,8 +2,10 @@ from typing import Type, List, Optional
 
 import strawberry
 
+from src.api_adapters.strawberry_models.input_types import UpsetQueryContext
 from src.interfaces.result_types import LinkedListQueryResult, ResolveResult, DetailsQueryResult, ListQueryResult, \
-    LinkDetails, FacetQueryResult as FacetQueryResultBase, FacetResult, DerivedLinkDetails
+    LinkDetails, FacetQueryResult as FacetQueryResultBase, FacetResult, DerivedLinkDetails, \
+    UpsetResult as UpsetResultBase
 
 
 def make_linked_details_type(details_class_name: str, edge_type: Type, node_type: Type):
@@ -133,12 +135,16 @@ def make_list_result_type(class_name: str, match_type: Type):
     def count_field(root) -> int:
         return root._query_service.get_count(root._query_context)
 
+    def upset_field(root, facet_context: UpsetQueryContext) -> List[UpsetResult]:
+        return root._query_service.get_upset(root._query_context, facet_context)
+
     new_class = type(
         class_name, (ListQueryResult,),
         {
             "list": strawberry.field(resolver=list_field),
             "facets": strawberry.field(resolver=facets_field),
             "query": strawberry.field(resolver=query_field),
+            "upset": strawberry.field(resolver=upset_field),
             "count": strawberry.field(resolver=count_field)
         }
     )
@@ -151,6 +157,11 @@ LinkDetails = strawberry.type(LinkDetails)
 @strawberry.type
 class FacetQueryResult(FacetQueryResultBase):
     facet_values: List[FacetResult]
+
+
+@strawberry.type
+class UpsetResult(UpsetResultBase):
+    pass
 
 
 FacetResult = strawberry.type(FacetResult)

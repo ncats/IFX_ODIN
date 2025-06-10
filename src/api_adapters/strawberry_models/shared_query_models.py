@@ -99,7 +99,24 @@ def generate_list_resolver(source_data_model: Type):
     return resolver
 
 
-def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]]):
+
+def create_edge_collections_class(EDGES: Dict[type, str]):
+    namespace = {}
+    for model, name in EDGES.items():
+        namespace[name] = generate_list_resolver(model)
+    return strawberry.type(type("EdgeCollections", (), namespace))
+
+def create_edge_collection(EDGES: Dict[type, str]):
+    EdgeCollections = create_edge_collections_class(EDGES)
+
+    # Resolver for the edges root field
+    @strawberry.field()
+    def edges() -> EdgeCollections:
+        return EdgeCollections()
+
+    return edges
+
+def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, str]):
     global resolvers
     list_resolvers = {
         info["list"]: generate_list_resolver(model_cls)
@@ -111,8 +128,11 @@ def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]]):
         for model_cls, info in ENDPOINTS.items()
         if "details" in info
     }
+    edge_resolvers = {'edges': create_edge_collection(EDGES)}
+
     resolvers = {
         **list_resolvers,
-        **details_resolvers
+        **details_resolvers,
+        **edge_resolvers
     }
     return resolvers
