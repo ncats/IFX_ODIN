@@ -1,3 +1,4 @@
+import time
 from typing import Type
 from src.core.decorators import collect_facets
 from src.interfaces.output_adapter import OutputAdapter
@@ -111,18 +112,80 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return True
 
-    def do_post_processing(self) -> None:
+    def do_post_processing(self, batch_size: int = 250000) -> None:
         print('cleaning up dangling edges')
         db = self.get_db()
         graph = self.get_graph()
+
         for edge_collection in graph.edge_definitions():
-            print(f'cleaning up {edge_collection.name}')
-            cursor = db.aql.execute(f""" 
-                            FOR e IN `{edge_collection.name}`
-                              FILTER !DOCUMENT(e._from) || !DOCUMENT(e._to)
-                              REMOVE e IN `{edge_collection.name}`
-                        """)
-            result = cursor.statistics()
-            deleted_count = result.get('modified', 0)
-            if deleted_count > 0:
-                print(f"Deleted {deleted_count} dangling edges from {edge_collection.name}")
+            collection_name = edge_collection['edge_collection']
+            print(f'cleaning up {collection_name}')
+
+            total_deleted = 0
+            last_key = ''
+
+            while True:
+                start_time = time.time()
+
+                # Get a batch of edges first, then check them
+                key_filter = f"FILTER e._key > '{last_key}'" if last_key else ""
+
+                # Step 1: Get edge batch
+                cursor = db.aql.execute(f"""
+                    FOR e IN `{collection_name}`
+                        {key_filter}
+                        SORT e._key
+                        LIMIT {batch_size}
+                        RETURN {{_key: e._key, _from: e._from, _to: e._to}}
+                """)
+
+                edges = list(cursor)
+                if not edges:
+                    break
+
+                last_key = edges[-1]['_key']
+
+                # Step 2: Check which ones are dangling (batch the DOCUMENT calls)
+                from_docs = [e['_from'] for e in edges]
+                to_docs = [e['_to'] for e in edges]
+
+                # Check existence in batches
+                from_check = db.aql.execute(f"""
+                    FOR doc_id IN {from_docs}
+                        LET exists = DOCUMENT(doc_id) != null
+                        RETURN {{id: doc_id, exists: exists}}
+                """)
+
+                to_check = db.aql.execute(f"""
+                    FOR doc_id IN {to_docs}
+                        LET exists = DOCUMENT(doc_id) != null
+                        RETURN {{id: doc_id, exists: exists}}
+                """)
+
+                from_exists = {item['id']: item['exists'] for item in from_check}
+                to_exists = {item['id']: item['exists'] for item in to_check}
+
+                # Find dangling edges
+                dangling_keys = []
+                for edge in edges:
+                    if not from_exists.get(edge['_from'], True) or not to_exists.get(edge['_to'], True):
+                        dangling_keys.append(edge['_key'])
+
+                # Step 3: Delete dangling edges by key
+                if dangling_keys:
+                    db.aql.execute(f"""
+                        FOR key IN {dangling_keys}
+                            REMOVE key IN `{collection_name}`
+                    """)
+
+                deleted_count = len(dangling_keys)
+                total_deleted += deleted_count
+
+                print(f"Processed {len(edges)} edges, deleted {deleted_count} dangling, "
+                      f"total deleted: {total_deleted}, time: {time.time() - start_time:.1f}s")
+
+                if len(edges) < batch_size:
+                    break
+
+            print(f"Completed {collection_name}: {total_deleted} total edges deleted")
+
