@@ -1,7 +1,14 @@
+import os
+import platform
+import socket
 import time
-from typing import Type
+from datetime import datetime
+from typing import Type, List
+
 from src.core.decorators import collect_facets
+from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
 from src.interfaces.output_adapter import OutputAdapter
+from src.models.datasource_version_info import DataSourceDetails
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
@@ -112,11 +119,107 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return True
 
-    def do_post_processing(self, batch_size: int = 250000) -> None:
+
+    def get_metadata(self) -> DatabaseMetadata:
+        collections: List[CollectionMetadata] = []
+        ignore_list = [self.metadata_store_label]
+
+        db = self.get_db()
+
+        for collection in db.collections():
+            if collection['system']:
+                continue
+            name = collection['name']
+            if name in ignore_list:
+                continue
+            count_query = f"""
+                    RETURN COUNT(
+                        FOR doc IN `{name}`
+                        RETURN 1)
+                    """
+
+            cursor = db.aql.execute(count_query)
+            coll_obj = CollectionMetadata(name=name, total_count=cursor.pop())
+
+            source_count_query = f"""
+                    FOR doc IN `{collection['name']}`
+                        LET values = UNIQUE(doc.sources)
+                        FOR item IN values
+                            COLLECT value = item WITH COUNT INTO count
+                        SORT count DESC
+                        RETURN {{ value, count }}
+                    """
+
+            cursor = db.aql.execute(source_count_query)
+            res = list(cursor)
+
+            for row in res:
+                count = row['count']
+                source_tsv = row['value']
+                dsd = DataSourceDetails.parse_tsv(source_tsv)
+                coll_obj.sources.append(dsd)
+                coll_obj.marginal_source_counts[dsd.name] = count
+
+            upset_count_query = f"""FOR doc IN `{collection['name']}`
+                LET agg = doc.sources
+                LET sortedAgg = SORTED(agg)
+                LET key = CONCAT_SEPARATOR("|", sortedAgg)
+                COLLECT combo = key WITH COUNT INTO count
+                SORT count DESC
+                RETURN {{
+                    combination: combo,
+                    count: count
+            }}"""
+
+            cursor = db.aql.execute(upset_count_query)
+            res = list(cursor)
+
+            for row in res:
+                count = row['count']
+                combined_source_tsv = row['combination']
+                sources: List[str] = [DataSourceDetails.parse_tsv(source_tsv).name for source_tsv in combined_source_tsv.split('|')]
+                coll_obj.joint_source_counts['|'.join(sources)] = count
+
+            collections.append(coll_obj)
+
+        return DatabaseMetadata(collections=collections)
+
+    def do_post_processing(self) -> None:
+        self.clean_up_dangling_edges()
+        metadata_store = self.get_metadata_store(truncate = True)
+
+        db_metadata = self.get_metadata()
+        metadata_store.insert({
+            "_key": "database_metadata",
+            "value": db_metadata.to_dict()
+        }, overwrite=True)
+
+        etl_metadata = self.get_etl_metadata()
+        metadata_store.insert({
+            "_key": "etl_metadata",
+            "value": etl_metadata
+        }, overwrite=True)
+
+    def get_etl_metadata(self):
+        git_info = get_git_metadata()
+        etl_metadata = {
+            "_key": f"etl_run_{datetime.now().isoformat()}",
+            "type": "etl_run",
+            "run_date": datetime.now().isoformat(),
+            "runner": os.getenv("USER", "unknown"),
+            "git_info": git_info,
+            "hostname": socket.gethostname(),
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": platform.python_version(),
+        }
+        return etl_metadata
+
+
+    def clean_up_dangling_edges(self, batch_size: int = 250000):
         print('cleaning up dangling edges')
         db = self.get_db()
         graph = self.get_graph()
-
         for edge_collection in graph.edge_definitions():
             collection_name = edge_collection['edge_collection']
             print(f'cleaning up {collection_name}')

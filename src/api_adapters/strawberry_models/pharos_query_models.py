@@ -412,6 +412,6 @@ EDGES : Dict[type, str] = {
     GeneGeneRifRelationship: "gene_generif_edges"
 }
 
-resolvers = generate_resolvers(ENDPOINTS, EDGES)
-
-Query = strawberry.type(type("Query", (), resolvers))
+def Query(url):
+    resolvers = generate_resolvers(ENDPOINTS, EDGES, url)
+    return strawberry.type(type("Query", (), resolvers))

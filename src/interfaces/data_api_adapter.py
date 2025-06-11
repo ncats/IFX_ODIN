@@ -6,6 +6,7 @@ import networkx as nx
 
 from src.core.decorators import collect_facets
 from src.interfaces.labeler import Labeler
+from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
     ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext, \
     NetworkedListQueryContext, UpsetQueryContext, UpsetResult
@@ -67,6 +68,14 @@ class APIAdapter(ABC):
                     break
             if not found:
                 print(f"Class {class_name} not found.  are you missing an import?")
+
+    @abstractmethod
+    def get_metadata(self) -> DatabaseMetadata:
+        raise NotImplementedError("Derived classes must implement get_metadata")
+
+    @abstractmethod
+    def get_etl_metadata(self) -> any:
+        raise NotImplementedError("Derived classes must implement get_etl_metadata")
 
 
     @abstractmethod
@@ -160,8 +169,6 @@ class APIAdapter(ABC):
     def get_networked_list_facets(self, context: NetworkedListQueryContext, node_facets: Optional[List[str]]) -> List[FacetQueryResult]:
         raise NotImplementedError("Derived classes must implement get_networked_list_facets")
 
-
-
     # FETCH DETAILS
     @abstractmethod
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
@@ -172,9 +179,6 @@ class APIAdapter(ABC):
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_data_model")
-
-
-
 
     @abstractmethod
     def get_edge_types(self, data_model: str):

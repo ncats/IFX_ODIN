@@ -2,6 +2,7 @@ from typing import List, Optional, Union
 
 import networkx as nx
 
+from src.api_adapters.strawberry_models.shared_query_models import DatabaseMetadata
 from src.interfaces.data_api_adapter import APIAdapter
 from src.interfaces.result_types import FacetQueryResult, DetailsQueryResult, \
     ResolveResult, LinkDetails, LinkedListQueryContext, FacetResult, ListQueryContext, NetworkedListQueryContext, \
@@ -17,6 +18,15 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         APIAdapter.__init__(self, label=label, imports=imports)
         ArangoAdapter.__init__(self, credentials, database_name, internal=True)
 
+    def get_metadata(self) -> DatabaseMetadata:
+        query = 'RETURN DOCUMENT("metadata_store", "database_metadata").value'
+        results = self.runQuery(query)[0]
+        return DatabaseMetadata.from_dict(results)
+
+    def get_etl_metadata(self) -> any:
+        query = 'RETURN DOCUMENT("metadata_store", "etl_metadata").value'
+        results = self.runQuery(query)[0]
+        return results
 
     def get_graph_representation(self, unLabel: bool = False) -> nx.DiGraph:
         graph = self.get_graph()

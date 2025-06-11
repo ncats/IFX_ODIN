@@ -4,11 +4,13 @@ from datetime import datetime, date
 from enum import Enum
 from typing import List, Union
 
+from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.simple_enum import Label
 from src.models.analyte import Analyte
 from src.models.generif import GeneRif
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
+
 
 
 class OutputAdapter(ABC):
@@ -24,6 +26,9 @@ class OutputAdapter(ABC):
     @abstractmethod
     def create_or_truncate_datastore(self) -> bool:
         pass
+
+    def get_metadata(self) -> DatabaseMetadata:
+        return DatabaseMetadata(collections=[])
 
     def preprocess_objects(self, objects):
         return objects

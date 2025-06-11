@@ -26,7 +26,7 @@ class ETL:
             if not output_adapter.create_or_truncate_datastore():
                 raise Exception("operation cancelled")
 
-    def do_etl(self):
+    def do_etl(self, do_post_processing = True):
         total_start_time = time.time()
         for input_adapter in self.input_adapters:
             start_time = time.time()
@@ -43,8 +43,9 @@ class ETL:
             elapsed_time = end_time - start_time
             print(f"\tElapsed time: {elapsed_time:.4f} seconds merging {count} records")
 
-        for output_adapter in self.output_adapters:
-            output_adapter.do_post_processing()
+        if do_post_processing:
+            for output_adapter in self.output_adapters:
+                output_adapter.do_post_processing()
 
         total_elapsed_time = time.time() - total_start_time
         elapsed_timedelta = datetime.timedelta(seconds=total_elapsed_time)

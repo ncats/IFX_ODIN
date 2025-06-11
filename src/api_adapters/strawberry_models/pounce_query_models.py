@@ -603,6 +603,7 @@ EDGES : Dict[type, str] = {
     ProjectInvestigatorRelationship: "project_investigator_edges"
 }
 
-resolvers = generate_resolvers(ENDPOINTS, EDGES)
 
-Query = strawberry.type(type("Query", (), resolvers))
+def Query(url):
+    resolvers = generate_resolvers(ENDPOINTS, EDGES, url)
+    return strawberry.type(type("Query", (), resolvers))
