@@ -1,32 +1,35 @@
-from datetime import date, datetime
+from dataclasses import field
 from typing import Optional, List, Type, Dict
 
 import strawberry
 from strawberry import Info
+from strawberry.scalars import JSON
 
+from src.interfaces.metadata import CollectionMetadata as CollectionMetadataBase, DatabaseMetadata as DatabaseMetadataBase
 from src.api_adapters.strawberry_models.class_generators import make_list_result_type, make_resolve_result_type
 from src.api_adapters.strawberry_models.input_types import ListFilterSettings, ListQueryContext
+from src.models.datasource_version_info import parse_to_date, DataSourceDetails
 
 from src.shared.record_merger import FieldConflictBehavior
 
+DataSourceDetails = strawberry.type(DataSourceDetails)
 
 @strawberry.type
-class DataSourceDetails:
-    name: str
-    version: Optional[str]
-    version_date: Optional[date]
-    download_date: Optional[date]
+class KeyValuePair:
+    key: str
+    value: int
 
-    @staticmethod
-    def parse_tsv(tsv_str: str) -> "DataSourceDetails":
-        name, version, version_date, download_date = tsv_str.split('\t')
-        dsv = DataSourceDetails(
-            name=name,
-            version=version if version else None,
-            version_date=parse_to_date(version_date),
-            download_date=parse_to_date(download_date)
-        )
-        return dsv
+
+@strawberry.type
+class CollectionMetadata(CollectionMetadataBase):
+    sources: List[DataSourceDetails] = field(default_factory=list)
+    marginal_source_counts: List[KeyValuePair] = field(default_factory=list)
+    joint_source_counts: List[KeyValuePair] = field(default_factory=list)
+
+@strawberry.type
+class DatabaseMetadata(DatabaseMetadataBase):
+    collections: List[CollectionMetadata]
+    url: str
 
 
 @strawberry.type
@@ -66,18 +69,6 @@ class Provenance:
             creation=creation_details,
             updates=[FieldUpdateDetails.parse_tsv(line) for line in update_strs if not line.startswith('labels')] if update_strs else None)
 
-
-def parse_to_date(iso_format_str: str) -> Optional[date]:
-    if iso_format_str is None:
-        return None
-    if iso_format_str == 'None':
-        return None
-    if len(iso_format_str) > 10:
-        dt = datetime.fromisoformat(iso_format_str)
-        return date(dt.year, dt.month, dt.day)
-    return date.fromisoformat(iso_format_str)
-
-
 def generate_details_resolver(source_data_model: Type, sortby = {}):
     class_name = source_data_model.__name__
     return_type = make_resolve_result_type(f"{class_name}ResolveResult", source_data_model)
@@ -116,7 +107,26 @@ def create_edge_collection(EDGES: Dict[type, str]):
 
     return edges
 
-def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, str]):
+
+@strawberry.field
+def etl_metadata(info: Info) -> JSON:
+    api = info.context['api']
+    result = api.get_etl_metadata()
+    return result
+
+def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, str], url):
+
+    @strawberry.field
+    def database_metadata(info: Info) -> DatabaseMetadata:
+        api = info.context["api"]
+        result: DatabaseMetadata = api.get_metadata()
+        for coll in result.collections:
+            coll.marginal_source_counts = [KeyValuePair(key=k, value=v) for k,v in coll.marginal_source_counts.items()]
+            coll.joint_source_counts = [KeyValuePair(key=k, value=v) for k,v in coll.joint_source_counts.items()]
+        result.url = url
+        return result
+
+
     global resolvers
     list_resolvers = {
         info["list"]: generate_list_resolver(model_cls)
@@ -133,6 +143,8 @@ def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, 
     resolvers = {
         **list_resolvers,
         **details_resolvers,
-        **edge_resolvers
+        **edge_resolvers,
+        'database_metadata': database_metadata,
+        'etl_metadata': etl_metadata
     }
     return resolvers

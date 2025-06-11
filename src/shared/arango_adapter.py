@@ -63,6 +63,16 @@ class ArangoAdapter:
                                      password=self.credentials.password)
         return self.db
 
+    metadata_store_label = 'metadata_store'
+    def get_metadata_store(self, truncate = False):
+        db = self.get_db()
+        if db.has_collection(self.metadata_store_label):
+            if truncate:
+                db.delete_collection(self.metadata_store_label)
+            else:
+                return db.collection(self.metadata_store_label)
+        return db.create_collection(self.metadata_store_label)
+
     def get_graph(self) -> Graph:
         db = self.get_db()
         if not db.has_graph("graph"):

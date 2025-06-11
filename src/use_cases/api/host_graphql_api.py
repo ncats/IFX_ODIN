@@ -15,11 +15,11 @@ from src.use_cases.build_from_yaml import HostDashboardFromYaml
 def create_app(yaml_file: str) -> FastAPI:
     dashboard = HostDashboardFromYaml(yaml_file=yaml_file)
     api = dashboard.api_adapter
-
+    url = dashboard.configuration.config_dict['api_adapter'][0]['credentials']['url']
     if yaml_file.find('pounce') >= 0:
-        Query = pounceQuery
+        Query = pounceQuery(url)
     else:
-        Query = pharosQuery
+        Query = pharosQuery(url)
 
     schema = strawberry.Schema(query=Query,
                                config=StrawberryConfig(
