@@ -32,3 +32,4 @@ dependencies:
   - fastapi
   - uvicorn
   - gunicorn
+  - ijson

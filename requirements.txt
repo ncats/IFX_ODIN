@@ -15,6 +15,7 @@ snakemake
 pandas
 GEOparse
 pyyaml
+ijson
 
 mgp
 python-arango
