@@ -40,6 +40,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.Uniprot_ID_Provenance = line.get('UniProt_ID_Provenance', None)
             protein_obj.uniprot_isoform = line.get('uniprot_isoform', None)
             protein_obj.ensembl_canonical = line.get('ensembl_canonical', None)
+            protein_obj.ncbi_id = TargetGraphProteinParser.get_gene_id(line)
             protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'is_canonical')
             protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
             protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)

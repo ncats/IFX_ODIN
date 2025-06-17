@@ -3,7 +3,7 @@ from typing import List, Generator
 from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.protein import TDL, Protein
+from src.models.protein import TDL, Protein, TDLMetadata
 from src.shared.arango_adapter import ArangoAdapter
 
 
@@ -17,52 +17,64 @@ class TDLInputAdapter(InputAdapter, ArangoAdapter):
 
     def get_all(self) -> Generator[List[Protein], None, None]:
         all_protein_list = self.runQuery(all_proteins)
-        good_ligand_list = self.runQuery(proteins_with_good_ligand_activities)
-        moa_drug_list = self.runQuery(proteins_with_moa_drugs)
-        good_go_terms_list = self.runQuery(proteins_with_experimental_f_or_p_go_terms)
-        few_generifs_list = self.runQuery(proteins_with_three_or_fewer_generifs)
-        low_pm_score_list = self.runQuery(proteins_with_low_pm_score)
-        low_ab_count_list = self.runQuery(proteins_with_low_ab_count)
-
         all_protein_set = make_set(all_protein_list)
-        good_ligand_set = make_set(good_ligand_list)
-        moa_drug_set = make_set(moa_drug_list)
-        good_go_terms_set = make_set(good_go_terms_list)
-        few_generifs_set = make_set(few_generifs_list)
-        low_pm_score_set = make_set(low_pm_score_list)
-        low_ab_count_set = make_set(low_ab_count_list)
+
+        ligand_counts = self.runQuery(ligand_activity_count)
+        drug_counts = self.runQuery(moa_drug_count)
+        go_term_counts = self.runQuery(experimental_f_or_p_go_term_count)
+        pm_score_values = self.runQuery(pm_scores)
+        ab_count_values = self.runQuery(ab_counts)
+        generif_counts = self.runQuery(gene_rif_count)
+
+        ligand_counts_dict = make_dict(ligand_counts)
+        drug_counts_dict = make_dict(drug_counts)
+        go_term_counts_dict = make_dict(go_term_counts)
+        pm_score_values_dict = make_dict(pm_score_values)
+        ab_count_values_dict = make_dict(ab_count_values)
+        generif_counts_dict = make_dict(generif_counts)
 
         nodes: List[Protein] = []
         for protein_id in all_protein_set:
-            new_tdl = calculate_tdl(
-                protein_id in good_ligand_set,
-                protein_id in moa_drug_set,
-                protein_id in good_go_terms_set,
-                protein_id in few_generifs_set,
-                protein_id in low_pm_score_set,
-                protein_id in low_ab_count_set
+            new_tdl = calculate_tdl_from_counts(
+                ligand_counts_dict[protein_id],
+                drug_counts_dict[protein_id],
+                go_term_counts_dict[protein_id],
+                generif_counts_dict[protein_id],
+                pm_score_values_dict[protein_id],
+                ab_count_values_dict[protein_id]
             )
-            nodes.append(Protein(id=protein_id, tdl=new_tdl))
+
+            tdl_metadata = TDLMetadata(
+                tdl_ligand_count=ligand_counts_dict.get(protein_id) or 0,
+                tdl_drug_count=drug_counts_dict.get(protein_id) or 0,
+                tdl_go_term_count=go_term_counts_dict.get(protein_id) or 0,
+                tdl_generif_count=generif_counts_dict.get(protein_id) or 0,
+                tdl_pm_score=pm_score_values_dict.get(protein_id) or 0,
+                tdl_antibody_count=ab_count_values_dict.get(protein_id) or 0
+            )
+
+            nodes.append(Protein(id=protein_id, tdl=new_tdl, tdl_meta=tdl_metadata))
 
         yield nodes
 
-def calculate_tdl(has_ligand: bool, has_moa_drug: bool, has_good_go_term: bool, has_few_generifs: bool, has_low_pm_score: bool, has_low_ab_score: bool):
-    if has_moa_drug:
+def calculate_tdl_from_counts(ligand_count: int, drug_count: int, go_term_count: int, generif_count: int, pm_score: float, ab_count: int):
+    if drug_count is not None and drug_count > 0:
         return TDL.Tclin
-    if has_ligand:
+    if ligand_count is not None and ligand_count > 0:
         return TDL.Tchem
-    if has_good_go_term:
+    if go_term_count is not None and go_term_count > 0:
         return TDL.Tbio
     darkPoints = 0
-    if has_low_pm_score:
+    if pm_score is None or pm_score < 5:
         darkPoints += 1
-    if has_few_generifs:
+    if generif_count is None or generif_count <= 3:
         darkPoints += 1
-    if has_low_ab_score:
+    if ab_count is None or ab_count <= 50:
         darkPoints += 1
     if darkPoints >= 2:
         return TDL.Tdark
     return TDL.Tbio
+
 
 def make_set(list_query_result: list):
     ret_set = set()
@@ -70,69 +82,99 @@ def make_set(list_query_result: list):
         ret_set.add(row)
     return ret_set
 
+def make_dict(list_query_result: list):
+    return {row['protein_id']: row['value'] for row in list_query_result}
+
 all_proteins = """
 FOR n IN `biolink:Protein`
   RETURN n.id
 """
 
-proteins_with_good_ligand_activities = """
+ligand_activity_count = """
 FOR n IN `biolink:Protein`
-  FOR l, r IN OUTBOUND n `biolink:interacts_with`
-    FILTER r.meets_idg_cutoff == true
-    RETURN DISTINCT n.id
+  LET distinct_ligands = UNIQUE(
+    FOR l, r IN OUTBOUND n `biolink:interacts_with`
+      FILTER r.meets_idg_cutoff == true
+      RETURN l._id
+  )
+  RETURN {
+    protein_id: n.id,
+    value: LENGTH(distinct_ligands)
+  }
 """
 
-proteins_with_moa_drugs = """
+moa_drug_count = """
 FOR pro IN `biolink:Protein`
-  FOR lig, act IN OUTBOUND pro `biolink:interacts_with`
-    FILTER lig.isDrug == TRUE
-    LET has_moa_flags = act.details[* FILTER CURRENT.has_moa == TRUE RETURN CURRENT.has_moa]
-    FILTER LENGTH(has_moa_flags) > 0
-    RETURN DISTINCT pro.id
+  LET moa_drugs = UNIQUE(
+    FOR lig, act IN OUTBOUND pro `biolink:interacts_with`
+      FILTER lig.isDrug == TRUE
+      FILTER LENGTH(
+        act.details[* FILTER CURRENT.has_moa == TRUE]
+      ) > 0
+      RETURN lig._id
+  )
+  RETURN {
+    protein_id: pro.id,
+    value: LENGTH(moa_drugs)
+  }
 """
 
-proteins_with_experimental_f_or_p_go_terms = """
+experimental_f_or_p_go_term_count = """
 FOR p IN `biolink:Protein`
-  FOR g, r IN OUTBOUND p `ProteinGoTermRelationship`
-    FILTER g.is_leaf == true
-      AND g.type != 'C'
-    LET evidence_categories = r.evidence[* RETURN CURRENT.category]
-    FILTER 'Experimental evidence code' IN evidence_categories
-    RETURN DISTINCT p.id
+  LET go_terms = UNIQUE(
+    FOR g, r IN OUTBOUND p `ProteinGoTermRelationship`
+      FILTER g.is_leaf == true
+        AND g.type != 'C'
+      LET evidence_categories = r.evidence[* RETURN CURRENT.category]
+      FILTER 'Experimental evidence code' IN evidence_categories
+      RETURN g._id
+  )
+  RETURN {
+    protein_id: p.id,
+    value: LENGTH(go_terms)
+  }
 """
 
-proteins_with_low_pm_score = """
-FOR n IN `biolink:Protein`
-  FILTER n.pm_score < 5 OR n.pm_score == null
-  RETURN DISTINCT n.id
-"""
-
-proteins_with_low_ab_count = """
-FOR n IN `biolink:Protein`
-  FILTER n.antibody_count <= 50 OR n.antibody_count == null
-  RETURN DISTINCT n.id
-"""
-
-proteins_with_three_or_fewer_generifs = """
+pm_scores = """
 FOR p IN `biolink:Protein`
-  LET genes = (
+  RETURN {
+    protein_id: p.id,
+    value: p.pm_score
+  }
+"""
+
+ab_counts = """
+FOR p IN `biolink:Protein`
+  RETURN {
+    protein_id: p.id,
+    value: p.antibody_count
+  }
+"""
+
+gene_rif_count = """
+FOR p IN `biolink:Protein`
+LET genes = (
     FOR g IN INBOUND p `biolink:translates_to`
-      FILTER g._id LIKE "biolink:Gene/%"
-      RETURN g
-  )
-  LET more_genes = (
+FILTER g._id LIKE "biolink:Gene/%"
+RETURN g
+)
+LET more_genes = (
     FOR t IN INBOUND p `biolink:translates_to`
-      FILTER t._id LIKE "biolink:Transcript/%"
-      FOR g IN INBOUND t `biolink:transcribed_to`
-        FILTER g._id LIKE "biolink:Gene/%"
-        RETURN g
-  )
-  LET all_genes = UNION(genes, more_genes)
-  LET all_gene_rifs = (
-    FOR gene in all_genes
-      FOR rif in OUTBOUND gene `GeneGeneRifRelationship`
-      return rif
-  )
-  FILTER COUNT_DISTINCT(all_gene_rifs) <= 3
-RETURN DISTINCT p.id
+FILTER t._id LIKE "biolink:Transcript/%"
+FOR g IN INBOUND t `biolink:transcribed_to`
+FILTER g._id LIKE "biolink:Gene/%"
+RETURN g
+)
+LET all_genes = UNION(genes, more_genes)
+
+LET all_gene_rifs = UNIQUE(
+    FOR gene IN all_genes
+FOR rif IN OUTBOUND gene `GeneGeneRifRelationship`
+RETURN rif._id
+)
+
+RETURN {
+    protein_id: p.id,
+    value: LENGTH(all_gene_rifs)
+}
 """

@@ -78,14 +78,15 @@ class IdResolver(ABC):
 
     def resolve_nodes(self, entries: List):
         id_map = self._resolve_internal(entries)
-        updated_count, validated_count = 0, 0
+        return self.get_merged_map(entries, id_map)
 
+    def get_merged_map(self, entries, id_map):
+        updated_count, validated_count = 0, 0
         entity_map = {
             IdResolver.MatchKeys.matched: {},
             IdResolver.MatchKeys.newborns: {},
             IdResolver.MatchKeys.unmatched: {}
         }
-
         for entry in entries:
             if entry.id in id_map and len(id_map.get(entry.id)) > 0:
                 matches = id_map[entry.id]
@@ -129,7 +130,8 @@ class IdResolver(ABC):
                                     new_entry.old_id = old_id
                                     if self.add_labels_for_resolver_events:
                                         new_entry.add_label("Unmerged_ID")
-                                    if new_entry.id not in [node.id for node in entity_map[IdResolver.MatchKeys.newborns][old_id]]:
+                                    if new_entry.id not in [node.id for node in
+                                                            entity_map[IdResolver.MatchKeys.newborns][old_id]]:
                                         entity_map[IdResolver.MatchKeys.newborns][old_id].append(new_entry)
             else:
                 if entry.id not in entity_map[IdResolver.MatchKeys.unmatched]:
@@ -139,7 +141,6 @@ class IdResolver(ABC):
                         new_entry.add_label("Unmatched_ID")
 
                     entity_map[IdResolver.MatchKeys.unmatched][entry.id] = new_entry
-
         print(f"updated {updated_count} ids, validated {validated_count} ids")
         return entity_map
 
