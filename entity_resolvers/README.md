@@ -56,11 +56,6 @@ or
 ```bash
 python main.py TARGETS --ncbi_download
 ```
-Or use Snakemake:
-
-```bash
-snakemake -s src/workflows/targets.Snakefile --cores 4
-```
 
 ## 📦 Dependencies
 
@@ -82,7 +77,11 @@ conda env create -f tgbuild.yml
 - Metadata, logs, and diffs in `*data/metadata/`
 
 ## 📅 Automate
-Schedule with cron or run full DAG via Snakemake.
+
+Workflows can be scheduled using tools like `cron`, SLURM, or integrated into CI/CD pipelines. For DAG-based execution:
+
+```bash
+snakemake -s src/workflows/targets.Snakefile --cores 4
 
 ---
 
