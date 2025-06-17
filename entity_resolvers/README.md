@@ -1,4 +1,4 @@
-# Target Data Pipeline
+# Entity Resolver Pipeline
 
 This repository contains a modular, config-driven data curation and processing pipeline for biomedical entities such as genes, transcripts, proteins, pathways, and diseases. It is designed to support reproducibility, automation, and downstream graph modeling.
 
