@@ -82,7 +82,7 @@ Workflows can be scheduled using tools like `cron`, SLURM, or integrated into CI
 
 ```bash
 snakemake -s src/workflows/targets.Snakefile --cores 4
-
+```
 ---
 
 © 2025 NCATS_IFX
