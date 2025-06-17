@@ -1,0 +1,154 @@
+global:
+  qc_mode: false
+
+ensembl_data:
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_ensembl_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/ensembl_download.log"
+  diff_file: "src/data/publicdata/target_data/metadata/ensembl.diff.txt"
+  output_paths:
+    biomart_csvs:
+      - "src/data/publicdata/target_data/raw/ensembl_data_part1.csv"
+      - "src/data/publicdata/target_data/raw/ensembl_data_part2.csv"
+      - "src/data/publicdata/target_data/raw/ensembl_data_part3.csv"
+      - "src/data/publicdata/target_data/raw/ensembl_data_part4.csv"
+    final_merged: "src/data/publicdata/target_data/cleaned/sources/ensembl_data_with_isoforms.csv"
+    comparison: "src/data/publicdata/target_data/qc/ensembl_uniprot_isoform_comparison_results.qc.csv"
+  biomart_queries:
+    - "src/queries/ensembl_part1.xml"
+    - "src/queries/ensembl_part2.xml"
+    - "src/queries/ensembl_part3.xml"
+    - "src/queries/ensembl_part4.xml"
+
+ncbi_data:
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_ncbi_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_ncbi_metadata.json"
+  diff_file: "src/data/publicdata/target_data/metadata/ncbi.diff.txt"
+  log_file: "src/data/publicdata/target_data/metadata/ncbi_download.log"
+  download_url: "https://ftp.ncbi.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz"
+  output_path: "src/data/publicdata/target_data/raw/ncbi_gene_info.gz"
+  parsed_output: "src/data/publicdata/target_data/cleaned/sources/ncbi_gene_info.csv"
+
+hgnc_data:
+  download_url: "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_hgnc_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_hgnc_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/hgnc_download.log"
+  diff_file: "src/data/publicdata/target_data/metadata/hgnc.diff.txt"
+  output_path: "src/data/publicdata/target_data/raw/hgnc_complete_set.txt"
+  parsed_output: "src/data/publicdata/target_data/cleaned/sources/hgnc_complete_set.csv"
+
+refseq_data:
+  refseq:
+    download_url: "https://ftp.ncbi.nih.gov/gene/DATA/gene2refseq.gz"
+    path: "src/data/publicdata/target_data/raw/refseq_9606.gz"
+    decompressed: "src/data/publicdata/target_data/raw/refseq_9606.tsv"
+    rna_concatenated_path: "src/data/publicdata/target_data/cleaned/sources/refseq_rna_concatenated.csv"
+    protein_concatenated_path: "src/data/publicdata/target_data/cleaned/sources/refseq_protein_concatenated.csv"
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_refSeq_metadata.json"
+  transformed_data_path: "src/data/publicdata/target_data/cleaned/sources/refseq_transformed.csv"
+  log_file: "src/data/publicdata/target_data/metadata/refseq_download.log"
+  diff_file: "src/data/publicdata/target_data/metadata/refseq.diff.txt"
+  ensembl:
+    url: "https://ftp.ncbi.nih.gov/gene/DATA/gene2ensembl.gz"
+    path: "src/data/publicdata/target_data/raw/refseq_ensembl_9606.gz"
+    decompressed: "src/data/publicdata/target_data/raw/refseq_ensembl_9606.csv"
+  uniprot:
+    url: "https://ftp.ncbi.nih.gov/gene/DATA/gene_refseq_uniprotkb_collab.gz"
+    path: "src/data/publicdata/target_data/raw/refseq_uniprot_9606.gz"
+    decompressed: "src/data/publicdata/target_data/raw/refseq_uniprot_9606.csv"
+
+uniprot_data:
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_uniprot_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_uniprot_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/uniprot_download.log"
+  diff_file: "src/data/publicdata/target_data/metadata/uniprot.diff.txt"
+  download_url: "https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=%28*%29+AND+%28model_organism%3A9606%29"
+  output_path: "src/data/publicdata/target_data/raw/uniprotkb_taxonomy_id_9606.json.gz"
+  decompressed_path: "src/data/publicdata/target_data/raw/uniprotkb_taxonomy_id_9606.json"
+  mapping_output: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_mapping.csv"
+  reviewed_info_output: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_info.csv"
+  canonical_isoforms_output: "src/data/publicdata/target_data/cleaned/sources/uniprot_canonical_isoforms.csv"
+  comp_isoforms_output: "src/data/publicdata/target_data/cleaned/sources/uniprot_computationally_mapped_isoforms.csv"
+  idmap_dir: "src/data/publicdata/target_data/raw/"
+  idmap_file: "HUMAN_9606_idmapping.dat.gz"
+  idmap_url: "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/HUMAN_9606_idmapping.dat.gz"
+  idmap_output: "src/data/publicdata/target_data/raw/uniprotkb_idmapping_9606.csv"
+
+nodenorm_genes:
+  raw_file: "src/data/publicdata/target_data/raw/nodenorm_genes.jsonl"
+  output_file: "src/data/publicdata/target_data/cleaned/sources/nodenorm_genes.csv"
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/nodenorm_genes_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_nodenorm_genes_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/nodenorm_genes.log"
+  diff_file: "src/data/publicdata/target_data/metadata/nodenorm_genes.diff.txt"
+  url_base: "https://stars.renci.org/var/babel_outputs/"
+
+nodenorm_proteins:
+  log_file: "src/data/publicdata/target_data/metadata/nodenorm_protein_download.log"
+  url_base: "https://stars.renci.org/var/babel_outputs/"
+  raw_file: "src/data/publicdata/target_data/raw/nodenorm_proteins.jsonl"
+  download_dir: "src/data/publicdata/target_data/raw/nodenorm_chunks"
+  output_file: "src/data/publicdata/target_data/cleaned/sources/nodenorm_proteins.csv"
+  dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_nodenorm_proteins_metadata.json"
+  tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_nodenorm_proteins_metadata.json"
+  diff_file: "src/data/publicdata/target_data/metadata/nodenorm_proteins.diff.txt"
+
+gene_merge:
+  ensembl_file: "src/data/publicdata/target_data/cleaned/sources/ensembl_data_with_isoforms.csv"
+  ncbi_file: "src/data/publicdata/target_data/cleaned/sources/ncbi_gene_info.csv"
+  hgnc_file: "src/data/publicdata/target_data/cleaned/sources/hgnc_complete_set.csv"
+  nodenorm_file: "src/data/publicdata/target_data/cleaned/sources/nodenorm_genes.csv"
+  output_file: "src/data/publicdata/target_data/cleaned/sources/gene_mapping_provenance.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/gene_merge_metadata.json"
+  diff_file: "src/data/publicdata/target_data/metadata/gene_merge.diff.txt"
+  log_file: "src/data/publicdata/target_data/metadata/gene_merge.log"
+  sources_file: "src/data/publicdata/target_data/qc/gene_source_stats.qc.csv"
+  stats_file: "src/data/publicdata/target_data/qc/gene_mapping_stats.qc.csv"
+
+gene_data:
+  source_file: "src/data/publicdata/target_data/cleaned/sources/gene_mapping_provenance.csv"
+  ensembl_data: "src/data/publicdata/target_data/cleaned/sources/ensembl_data_with_isoforms.csv"
+  ncbi_data: "src/data/publicdata/target_data/cleaned/sources/ncbi_gene_info.csv"
+  hgnc_data: "src/data/publicdata/target_data/cleaned/sources/hgnc_complete_set.csv"
+  intermediate_gene_ids_path: "src/data/publicdata/target_data/qc/exploded_gene_ids.qc.csv"
+  gene_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/gene_data_metadata.json"
+  log_file: "logs/gene_data_processor.log"
+
+transcript_merge:
+  biomart_output: "src/data/publicdata/target_data/qc/ensembl_transcript_data.qc.csv"
+  isoform_file: "src/data/publicdata/target_data/cleaned/sources/ensembl_data_with_isoforms.csv"
+  refseq_ensembl_file: "src/data/publicdata/target_data/raw/refseq_ensembl_9606.csv"
+  refseq_file: "src/data/publicdata/target_data/cleaned/sources/refseq_transformed.csv"
+  transformed_data_path: "src/data/publicdata/target_data/cleaned/sources/transcript_mapping_provenance.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/transcript_merge_metadata.json"
+  metrics_file: "src/data/publicdata/target_data/qc/transcript_mappingstats.qc.csv"
+  log_file: "src/data/publicdata/target_data/metadata/transcript_merge.log"
+
+transcript_ids:
+  source_file: "src/data/publicdata/target_data/qc/transcript_mapping_provenance.qc.csv"
+  transcript_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/transcript_id_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/transcript_id.log"
+
+protein_merge:
+  log_file: "src/data/publicdata/target_data/metadata/protein_merge.log"
+  ensembl_isoform_csv: "src/data/publicdata/target_data/cleaned/sources/ensembl_data_with_isoforms.csv"
+  refseq_uniprot_csv: "src/data/publicdata/target_data/raw/refseq_uniprot_9606.csv"
+  refseq_ensembl_csv: "src/data/publicdata/target_data/raw/refseq_ensembl_9606.csv"
+  uniprot_mapping_csv: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_mapping.csv"
+  uniprot_info_csv: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_info.csv"
+  nodenorm_file: "src/data/publicdata/target_data/cleaned/sources/nodenorm_proteins.csv"
+  qc_file: "src/data/publicdata/target_data/qc/uniprot_baseid_duplicates.qc.csv"
+  transformed_data_path: "src/data/publicdata/target_data/cleaned/sources/protein_provenance_mapping.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/protein_data_metadata.json"
+
+protein_data:
+  source_file: "src/data/publicdata/target_data/cleaned/sources/protein_provenance_mapping.csv"
+  uniprot_info_file: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_info.csv"
+  protein_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv"
+  metadata_file: "src/data/publicdata/target_data/metadata/protein_data_metadata.json"
+  log_file: "src/data/publicdata/target_data/metadata/protein_data_processor.log"
+  qc_file: "src/data/publicdata/target_data/qc/ensembl_uniprot_replacements.qc.csv"

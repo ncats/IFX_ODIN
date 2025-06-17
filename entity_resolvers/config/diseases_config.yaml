@@ -1,0 +1,108 @@
+
+global:
+  qc_mode: true
+
+mondo:
+  download_url: https://purl.obolibrary.org/obo/mondo.json
+  mondo_file: src/data/publicdata/disease_data/raw/mondo.json
+  cleaned_output: src/data/publicdata/disease_data/cleaned/sources/mondo_ids.csv
+  obsolete_output: src/data/publicdata/disease_data/cleaned/sources/mondo_obsolete_ids.csv
+  transform_metadata: src/data/publicdata/disease_data/metadata/mondo_transform_metadata.json
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/mondo_dl_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/mondo_transform.log
+
+doid:
+  download_url: http://purl.obolibrary.org/obo/doid.obo
+  raw_file: src/data/publicdata/disease_data/raw/HumanDO.obo
+  cleaned_file: src/data/publicdata/disease_data/cleaned/sources/doid.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/doid_dl_metadata.json
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/doid_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/doid.log
+
+medgen:
+  medgen_id_mappings:
+    url: https://ftp.ncbi.nlm.nih.gov/pub/medgen/MedGenIDMappings.txt.gz
+    local_txt: src/data/publicdata/disease_data/raw/MedGenIDMappings.txt
+    output_csv: src/data/publicdata/disease_data/cleaned/sources/medgen_id_mappings.csv
+    column_names: ["CUI_or_CN_id", "Preferred_Name", "Source_ID", "Source"]
+
+  medgen_hpo_mappings:
+    url: https://ftp.ncbi.nlm.nih.gov/pub/medgen/MedGen_HPO_Mapping.txt.gz
+    local_txt: src/data/publicdata/disease_data/raw/MedGen_HPO_Mapping.txt
+    output_csv: src/data/publicdata/disease_data/cleaned/sources/medgen_hpo_mappings.csv
+    column_names: ["CUI", "SDUI", "HPO_Term", "MedGen_Term", "MedGen_Source", "STY"]
+
+  medgen_hpo_omim_mappings:
+    url: https://ftp.ncbi.nlm.nih.gov/pub/medgen/MedGen_HPO_OMIM_Mapping.txt.gz
+    local_txt: src/data/publicdata/disease_data/raw/MedGen_HPO_OMIM_Mapping.txt
+    output_csv: src/data/publicdata/disease_data/cleaned/sources/medgen_hpo_omim_mappings.csv
+    column_names: ["OMIM_CUI", "MIM_Number", "OMIM_Name", "Relationship", "HPO_CUI", "HPO_ID", "HPO_Name", "MedGen_Name", "MedGen_Source", "STY"]
+
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/medgen_download_metadata.json
+  transform_metadata: src/data/publicdata/disease_data/metadata/medgen_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/medgen_transform.log
+
+orphanet:
+  owl_url: https://www.orphadata.com/data/ontologies/ordo/last_version/ORDO_en_4.6.owl
+  owl_file: src/data/publicdata/disease_data/raw/ORDO_en_4.6.owl
+  gene_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_gene_ids.csv
+  disease_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
+  xml_url: https://www.orphadata.com/data/xml/en_product6.xml
+  xml_file: src/data/publicdata/disease_data/raw/orphanet_gene_associations.xml
+  xml_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_gene_associations.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/orphanet_download_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/orphanet_download.log
+  transform_metadata: src/data/publicdata/disease_data/metadata/orphanet_transform_metadata.json
+  cleaned_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
+
+omim:
+  raw_dir: src/data/publicdata/disease_data/raw
+  input_file: src/data/publicdata/disease_data/raw/mimTitles.txt
+  cleaned_genes_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_genes.csv
+  cleaned_diseases_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_diseases.csv
+  cleaned_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_obsolete.csv
+  output_file: src/data/publicdata/disease_data/cleaned/sources/omim_api_data.json
+  transformed_file: src/data/publicdata/disease_data/cleaned/sources/omim_gene2disease.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/omim_download_metadata.json
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/omim_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/omim.log
+
+umls: 
+  download_url: https://uts-ws.nlm.nih.gov/rest/content/current/CUI/lookup?string=disease&includeChildren=true&includeRoot=true&returnIdType=code
+  raw_file: src/data/publicdata/disease_data/raw/umls_diseases.json
+  cleaned_file: src/data/publicdata/disease_data/cleaned/sources/umls_diseases.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/umls_dl_metadata.json
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/umls_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/umls.log
+  
+jensen:
+  download_url: https://download.jensenlab.org/human_disease_integrated_full.tsv
+  raw_file: src/data/publicdata/disease_data/raw/jensen_disease_gene_associations.tsv
+  cleaned_file: src/data/publicdata/disease_data/cleaned/final/jensen_disease_gene_associations.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/jensen_dl_metadata.json
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/jensen_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/jensen.log
+  protein_id_file: src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv
+
+nodenorm:
+  url_base: https://stars.renci.org/var/babel_outputs/
+  raw_file: src/data/publicdata/disease_data/raw/nodenorm_disease.txt
+  diff_file: src/data/publicdata/disease_data/metadata/nodenorm_disease.diff.txt
+  cleaned_output: src/data/publicdata/disease_data/cleaned/sources/nodenorm_disease.csv
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/nodenorm_disease_dl_metadata.json
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/nodenorm_disease_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/metadata/nodenorm_disease.log
+
+disease_merge:
+  mondo_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/mondo_ids.csv
+  doid_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/doid.csv
+  omim_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_diseases.csv
+  orphanet_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
+  medgen_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/medgen_id_mappings.csv
+  nodenorm_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/nodenorm_disease.csv
+  output_dir: src/data/publicdata/disease_data/cleaned/merged/
+  merged_output: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_provenance.csv
+  stats_output: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_stats.qc.csv
+  mismatches_output: src/data/publicdata/disease_data/cleaned/sources/disease_mismatches.qc.csv
+  log_file: src/data/publicdata/disease_data/logs/disease_merge.log
+  transform_metadata_file: src/data/publicdata/disease_data/metadata/disease_merge_metadata.json
