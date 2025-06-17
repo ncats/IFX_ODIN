@@ -7,11 +7,11 @@ This directory contains YAML configuration files used to control the behavior of
 ## 📁 Directory Structure
 
 - `config/`
-  - `target_config.yaml` — Configuration for processing gene/protein/target datasets (e.g., Ensembl, RefSeq, UniProt)
-  - `disease_config.yaml` — Configuration for disease ID resolution, harmonization (e.g., MONDO, DOID, MedGen, OMIM)
-  - `drug_config.yaml` — Configuration for drug identifier resolution and metadata extraction (e.g., GSRS, ChEMBL)
-  - `pathway_config.yaml` — Configuration for pathway resources (e.g., Reactome, WikiPathways)
-  - `phenotype_config.yaml` — Configuration for phenotypic associations and metadata
+  - `targets_config.yaml` — Configuration for processing gene/protein/target datasets (e.g., Ensembl, RefSeq, UniProt)
+  - `diseases_config.yaml` — Configuration for disease ID resolution, harmonization (e.g., MONDO, DOID, MedGen, OMIM)
+  - `drugs_config.yaml` — Configuration for drug identifier resolution and metadata extraction (e.g., GSRS, ChEMBL)
+  - `pathways_config.yaml` — Configuration for pathway resources (e.g., Reactome, WikiPathways)
+  - `phenotypes_config.yaml` — Configuration for phenotypic associations and metadata
   - `go_config.yaml` — Configuration for Gene Ontology data processing
   - `ppi_config.yaml` — Configuration for protein-protein interaction data integration
 
