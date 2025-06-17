@@ -29,6 +29,8 @@ python src/code/main.py ALL
 #### Run a specific domain (e.g., TARGETS):
 ```bash
 python src/code/main.py TARGETS --all
+python src/code/main.py DISEASES --all
+python src/code/main.py DRUGS --all
 ```
 
 #### Run specific processor(s) (e.g., gene_merge, protein_merge):
@@ -57,8 +59,7 @@ QC and diff outputs are automatically routed to `src/data/**/qc/` and metadata t
 ## 📁 Directory Layout
 
 ```
-config/
-  └── targets/         # YAML configs per domain
+config/         # YAML configs per domain
 src/
   ├── code/
   │   └── publicdata/  # Modular data processing scripts
