@@ -217,7 +217,6 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
 
     def clean_up_dangling_edges(self, batch_size: int = 250000):
-        print('cleaning up dangling edges')
         db = self.get_db()
         graph = self.get_graph()
         for edge_collection in graph.edge_definitions():

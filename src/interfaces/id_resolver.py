@@ -78,16 +78,17 @@ class IdResolver(ABC):
 
     def resolve_nodes(self, entries: List):
         id_map = self._resolve_internal(entries)
-        updated_count, validated_count = 0, 0
+        return self.get_merged_map(entries, id_map)
 
+    def get_merged_map(self, entries, id_map):
+        updated_count, validated_count = 0, 0
         entity_map = {
             IdResolver.MatchKeys.matched: {},
             IdResolver.MatchKeys.newborns: {},
             IdResolver.MatchKeys.unmatched: {}
         }
-
         for entry in entries:
-            if hasattr(entry, 'id') and entry.id in id_map:
+            if entry.id in id_map and len(id_map.get(entry.id)) > 0:
                 matches = id_map[entry.id]
 
                 old_id = entry.id
@@ -96,10 +97,10 @@ class IdResolver(ABC):
                         first_match = matches[0]
                         new_id = first_match.match
 
+                        full_xref_list = list(set([
+                            EquivalentId.parse(equiv_id) for m in matches for equiv_id in m.equivalent_ids
+                        ]))
                         if old_id not in entity_map[IdResolver.MatchKeys.matched]:
-                            full_xref_list = list(set([
-                                EquivalentId.parse(equiv_id) for m in matches for equiv_id in m.equivalent_ids
-                            ]))
 
                             first_entry = copy.deepcopy(entry)
                             first_entry.id = new_id
@@ -117,19 +118,21 @@ class IdResolver(ABC):
 
                             entity_map[IdResolver.MatchKeys.matched][old_id] = first_entry
 
-                    if len(matches) > 1:
-                        if old_id not in entity_map[IdResolver.MatchKeys.newborns]:
-                            entity_map[IdResolver.MatchKeys.newborns][old_id] = []
-                            for subsequent_match in matches[1:]:
-                                new_id = subsequent_match.match
-                                new_entry = copy.deepcopy(entry)
-                                new_entry.id = new_id
-                                new_entry.xref = full_xref_list
-                                new_entry.old_id = old_id
-                                if self.add_labels_for_resolver_events:
-                                    new_entry.add_label("Unmerged_ID")
-                                if new_entry.id not in [node.id for node in entity_map[IdResolver.MatchKeys.newborns][old_id]]:
-                                    entity_map[IdResolver.MatchKeys.newborns][old_id].append(new_entry)
+                        if len(matches) > 1:
+                            if old_id not in entity_map[IdResolver.MatchKeys.newborns]:
+
+                                entity_map[IdResolver.MatchKeys.newborns][old_id] = []
+                                for subsequent_match in matches[1:]:
+                                    new_id = subsequent_match.match
+                                    new_entry = copy.deepcopy(entry)
+                                    new_entry.id = new_id
+                                    new_entry.xref = full_xref_list
+                                    new_entry.old_id = old_id
+                                    if self.add_labels_for_resolver_events:
+                                        new_entry.add_label("Unmerged_ID")
+                                    if new_entry.id not in [node.id for node in
+                                                            entity_map[IdResolver.MatchKeys.newborns][old_id]]:
+                                        entity_map[IdResolver.MatchKeys.newborns][old_id].append(new_entry)
             else:
                 if entry.id not in entity_map[IdResolver.MatchKeys.unmatched]:
                     new_entry = copy.deepcopy(entry)
@@ -138,7 +141,6 @@ class IdResolver(ABC):
                         new_entry.add_label("Unmatched_ID")
 
                     entity_map[IdResolver.MatchKeys.unmatched][entry.id] = new_entry
-
         print(f"updated {updated_count} ids, validated {validated_count} ids")
         return entity_map
 

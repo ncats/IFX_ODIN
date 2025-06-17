@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Union, Optional
+from typing import Union, Optional, Dict
 
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
@@ -15,6 +15,22 @@ class TDL(SimpleEnum):
     Tchem = 'Tchem'
     Tbio = 'Tbio'
     Tdark = 'Tdark'
+
+@dataclass
+class TDLMetadata:
+    tdl_ligand_count: int
+    tdl_drug_count: int
+    tdl_go_term_count: int
+    tdl_generif_count: int
+    tdl_pm_score: float
+    tdl_antibody_count: int
+
+    def to_dict(self) -> Dict[str, str]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(**data)
 
 class IDGFamily(SimpleEnum):
     Other = 'Other'
@@ -56,12 +72,14 @@ class Protein(Audited, Analyte):
     protein_type: Optional[str] = None
     description: Optional[str] = None
     symbol: Optional[str] = None
+    ncbi_id: Optional[str] = None
     ensembl_id: Optional[str] = None
     refseq_id: Optional[str] = None
     uniprot_id: Optional[str] = None
     sequence: Optional[str] = None
     gene_name: Optional[str] = None
     tdl: Optional[TDL] = None
+    tdl_meta: Optional[TDLMetadata] = None
     name: Optional[str] = None
     idg_family: Optional[IDGFamily] = None
     antibody_count: Optional[int] = None

@@ -11,12 +11,13 @@ TARGET_GRAPH_VERSION = "1.0"
 
 class DataSourceName(SimpleEnum):
     NCATSPounce = "NCATSPounce"
-    TargetGraph = "Pharos 2.0 CSV"
-    TargetGraphNCBI = "Pharos 2.0 CSV (NCBI)"
+    TargetGraph = "Pharos 4.0 CSV"
+    TargetGraphNCBI = "Pharos 4.0 CSV (NCBI)"
     ChEMBL = "ChEMBL"
     CCLE = "Cancer Cell Line Encyclopedia (CCLE)"
     Cellosaurus = "Cellosaurus"
     CLO = "Cell Line Ontology (CLO)"
+    FRDB = "Fast Response Database (Rancho)"
     GO = "Gene Ontology (GO)"
     DrugCentral = "DrugCentral"
     JensenLabPM = "JensenLab PubMed Score"
@@ -45,6 +46,7 @@ class Prefix(SimpleEnum):
     ENSEMBL = 'ENSEMBL'                 	# from TNN
     FB = 'FB'                           	# from TNN
     FBbt = 'FBbt'                       	# from TNN
+    FMA = 'FMA'
     GO = 'GO'                           	# from TNN
     GTOPDB = 'GTOPDB'                   	# from TNN
     HGNC = 'HGNC'                       	# from TNN
@@ -91,6 +93,8 @@ class Prefix(SimpleEnum):
     WormBase = 'WormBase'               	# from TNN
     ZFA = 'ZFA'                         	# from TNN
     ZFIN = 'ZFIN'                       	# from TNN
+    ICD11Foundation = 'icd11.foundation'
+    ICD11 = 'icd11'
     # ADDED Prefixes
     IFXProtein = "IFXProtein"
     IFXGene = "IFXGene"
@@ -242,3 +246,5 @@ class Prefix(SimpleEnum):
     Ubigene = "Ubigene"
     WiCell = "WiCell"
     Ximbio = "Ximbio"
+
+    FRDB = "FRDB"
