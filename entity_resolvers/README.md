@@ -11,6 +11,25 @@ bash setup.sh
 pip install -r requirements.txt
 python src/code/main.py --help
 ```
+
+## 🧩 Global `qc_mode` Flag
+
+All YAML config files include a top-level `qc_mode` setting:
+
+```yaml
+qc_mode: true
+```
+
+When enabled, this flag activates the following quality control features:
+
+* Intermediate `.qc.csv` files with mapping or merge stats
+* Flagged rows for manual review and debugging
+* Partial transformation outputs for inspection
+* All saved under `qc/` directories alongside cleaned outputs
+
+Set `qc_mode: false` in production for faster runs and minimal output.
+
+
 ## 📁 Structure
 ```bash
 src/code/                    # Core processing scripts
@@ -21,8 +40,9 @@ src/data/                   # Input/output
 │   └── target_data/
 │        └── raw/                # Downloaded files (ignored in Git)
 │        └── cleaned/            # Final curated outputs
-│            └── sources/         # cleaned dataframes
-│        └── metadata/               # Metadata & provenance
+│            └── sources/        # cleaned dataframes
+│        └── metadata/           # Metadata & provenance
+│        └── qc/               # intermediate files for QC & mapping stats
 src/workflows/              # Snakemake workflows, cron scripts
 src/tests/                  # Pytest unit tests per module
 ```
