@@ -12,18 +12,6 @@ pip install -r requirements.txt
 python src/code/main.py --help
 ```
 ## 📁 Structure
-```
-config/
-  └── targets/         # YAML configs per domain
-src/
-  ├── code/
-  │   └── publicdata/  # Modular data processing scripts
-  └── data/
-      ├── raw/         # Unmodified downloaded files
-      ├── cleaned/     # Transformed and merged outputs
-      ├── qc/          # Intermediate debug/QC files
-      └── metadata/    # Metadata logs and reports
-```
 ```bash
 src/code/                    # Core processing scripts
 ├── publicdata/         # Domain-specific modules (targets, drugs, etc.)
