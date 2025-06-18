@@ -30,7 +30,14 @@ class TDLMetadata:
 
     @classmethod
     def from_dict(cls, data: dict):
-        return cls(**data)
+        return TDLMetadata(
+            tdl_ligand_count=data['tdl_ligand_count'],
+            tdl_drug_count=data['tdl_drug_count'],
+            tdl_go_term_count=data['tdl_go_term_count'],
+            tdl_generif_count=data['tdl_generif_count'],
+            tdl_pm_score=data['tdl_pm_score'],
+            tdl_antibody_count=data['tdl_antibody_count']
+        )
 
 class IDGFamily(SimpleEnum):
     Other = 'Other'

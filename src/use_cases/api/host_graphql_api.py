@@ -3,7 +3,7 @@ import os
 from strawberry.schema.config import StrawberryConfig
 
 import strawberry
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
 
@@ -42,6 +42,14 @@ def create_app(yaml_file: str) -> FastAPI:
     )
 
     app.include_router(graphql_app, prefix="/graphql")
+
+    rest_endpoints = api.get_rest_endpoints()
+    router = APIRouter()
+
+    for path, handler in rest_endpoints.items():
+        router.add_api_route(f"/{path}", handler, methods=["GET"])
+    app.include_router(router)
+
     return app
 
 yaml_path = os.environ.get("YAML_FILE", "./src/use_cases/api/pharos_prod_dashboard.yaml")

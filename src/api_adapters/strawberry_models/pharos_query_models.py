@@ -15,7 +15,7 @@ from src.models.go_term import GoTerm as GoTermBase, ProteinGoTermRelationship a
     GoEvidence as GoEvidenceBase
 from src.models.ligand import Ligand as LigandBase, ProteinLigandRelationship as ProteinLigandRelationshipBase, ActivityDetails
 from src.models.node import Node, EquivalentId, Relationship
-from src.models.protein import Protein as ProteinBase
+from src.models.protein import Protein as ProteinBase, TDLMetadata
 from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship as IsoformProteinRelationshipBase, \
     GeneProteinRelationship as GeneProteinRelationshipBase, \
     TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
@@ -29,6 +29,7 @@ ActivityDetails = strawberry.type(ActivityDetails)
 RelationshipLabel = strawberry.type(RelationshipLabel)
 Relationship = strawberry.type(Relationship)
 TranscriptLocation = strawberry.type(TranscriptLocation)
+TDLMetadata = strawberry.type(TDLMetadata)
 
 @strawberry.type
 class GeneRif(GeneRifBase):
