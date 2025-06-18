@@ -1,6 +1,7 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Callable
 
 import networkx as nx
+from fastapi import Request
 
 from src.api_adapters.strawberry_models.shared_query_models import DatabaseMetadata
 from src.interfaces.data_api_adapter import APIAdapter
@@ -33,7 +34,9 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         g = nx.DiGraph()
 
         collections = self.get_db().collections()
-        node_collections = [collection for collection in collections if not collection['name'].startswith("_") and collection['type'] == 'document' and collection['status'] == 'loaded']
+        node_collections = [collection for collection in collections if
+                            not collection['name'].startswith("_") and collection['type'] == 'document' and collection[
+                                'status'] == 'loaded']
         if unLabel:
             for collection in node_collections:
                 for cls in self.labeler.get_classes(collection['name']):
@@ -49,19 +52,24 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                         for from_class in self.labeler.get_classes(from_node):
                             for to_class in self.labeler.get_classes(to_node):
                                 for edge_class in self.labeler.get_classes(edge_label, True):
-                                    edge_class_name = edge_class.__name__ if hasattr(edge_class, '__name__') else edge_class
+                                    edge_class_name = edge_class.__name__ if hasattr(edge_class,
+                                                                                     '__name__') else edge_class
                                     g.add_edge(from_class, to_class, label=edge_class_name)
                     else:
                         g.add_edge(from_node, to_node, label=edge_label)
 
         return g
 
-    def _list_models(self, nodes_or_edges = 'nodes'):
+    def _list_models(self, nodes_or_edges='nodes'):
         collections = self.get_db().collections()
         if nodes_or_edges == 'nodes':
-            models = [collection for collection in collections if not collection['name'].startswith("_") and collection['type'] == 'document' and collection['status'] == 'loaded']
+            models = [collection for collection in collections if
+                      not collection['name'].startswith("_") and collection['type'] == 'document' and collection[
+                          'status'] == 'loaded']
         else:
-            models = [collection for collection in collections if not collection['name'].startswith("_") and not collection['type'] == 'document' and collection['status'] == 'loaded']
+            models = [collection for collection in collections if
+                      not collection['name'].startswith("_") and not collection['type'] == 'document' and collection[
+                          'status'] == 'loaded']
         model_set = set()
         for model in models:
             model_set.update(self.labeler.get_classes(model['name']))
@@ -105,7 +113,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         clauses = [f"doc.{k} {v}" for k, v in sortby.items()]
         return "SORT " + ', '.join(clauses)
 
-    def _get_facet_clause(self, field: str, top: int = 20, variable: str = 'doc' ):
+    def _get_facet_clause(self, field: str, top: int = 20, variable: str = 'doc'):
         return f"""
         LET values = (IS_ARRAY({variable}.{field}) ? UNIQUE({variable}.{field}) : [{variable}.{field}])
             FOR item IN values
@@ -114,13 +122,12 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 LIMIT {top}
                 RETURN {{ value, count }}"""
 
-
     def get_count(self, context: ListQueryContext = None) -> int:
         label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
         filter = context.filter.to_dict() if context and context.filter else None
         query = f"""
             FOR doc IN `{label}`
-                {f"FILTER { self._get_filter_constraint_clause(filter) }" if filter else ""}
+                {f"FILTER {self._get_filter_constraint_clause(filter)}" if filter else ""}
                 COLLECT AGGREGATE count = COUNT(doc)
                 RETURN count
                 """
@@ -134,7 +141,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         field = facet_context.name
         other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
         query = f"""FOR doc IN `{label}`
-            {f"FILTER { self._get_filter_constraint_clause(other_filter) }" if other_filter else ""}
+            {f"FILTER {self._get_filter_constraint_clause(other_filter)}" if other_filter else ""}
             LET agg = IS_ARRAY(doc.{field}) ? UNIQUE(doc.{field}) : [doc.{field}]
             
             LET sortedAgg = SORTED(agg)
@@ -148,7 +155,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 count: count
             }}"""
         results = self.runQuery(query)
-        return  [UpsetResult(values = row['combination'].split('|'), count = row['count']) for row in results]
+        return [UpsetResult(values=row['combination'].split('|'), count=row['count']) for row in results]
 
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
         label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
@@ -160,13 +167,13 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
             query = f"""
                 FOR doc IN `{label}`
-                    {f"FILTER { self._get_filter_constraint_clause(other_filter) }" if other_filter else ""}
+                    {f"FILTER {self._get_filter_constraint_clause(other_filter)}" if other_filter else ""}
                     {self._get_facet_clause(field, top)}
                     """
             results = self.runQuery(query)
             fq_result = FacetQueryResult(
-                name = field,
-                query = query,
+                name=field,
+                query=query,
                 facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
             )
             full_results.append(fq_result)
@@ -194,21 +201,21 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             """
         return query
 
-    def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]], edge_facets: Optional[List[str]]) \
+    def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]],
+                               edge_facets: Optional[List[str]]) \
             -> List[FacetQueryResult]:
         full_results = []
         for coll, variable in zip([node_facets, edge_facets], ['v', 'e']):
             if not coll or len(coll) == 0:
                 continue
             for field in coll:
-
                 query_model, collection_clause = self.parse_linked_list_context(context, variable, field)
-                facet_clause = self._get_facet_clause(field = field, variable = variable)
+                facet_clause = self._get_facet_clause(field=field, variable=variable)
                 query = f"{collection_clause} {facet_clause}"
                 results = self.runQuery(query)
                 fq_result = FacetQueryResult(
-                    name = field,
-                    query = query,
+                    name=field,
+                    query=query,
                     facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
                 )
                 full_results.append(fq_result)
@@ -275,7 +282,6 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
         return list_query
 
-
     def parse_linked_list_context(self,
                                   context: Union[LinkedListQueryContext, NetworkedListQueryContext],
                                   ignore_var: str = None,
@@ -297,7 +303,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
         if isinstance(context, NetworkedListQueryContext):
             edge_labels = [self.labeler.get_labels_for_class_name(edge_model)[0] for edge_model in context.edge_models]
-            query_labels = [query_label] + [self.labeler.get_labels_for_class_name(model)[0] for model in context.intermediate_data_models]
+            query_labels = [query_label] + [self.labeler.get_labels_for_class_name(model)[0] for model in
+                                            context.intermediate_data_models]
             collection_clause = f"""
                 FOR v, e IN 1..{len(query_labels)} {direction} '{anchor_label}/{id}' GRAPH 'graph'
                     OPTIONS {{ edgeCollections: {edge_labels}, vertexCollections: {query_labels} }}
@@ -311,7 +318,6 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
                 """
 
-
         node_filter = context.filter.node_filter.to_dict() if context.filter and context.filter.node_filter else None
         edge_filter = context.filter.edge_filter.to_dict() if context.filter and context.filter.edge_filter else None
         if node_filter and ignore_var == 'v':
@@ -319,8 +325,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         if edge_filter and ignore_var == 'e':
             edge_filter = {k: v for k, v in edge_filter.items() if k != ignore_field}
         collection_clause += f"""
-            {f"FILTER { self._get_filter_constraint_clause(node_filter, variable='v') } " if node_filter else ""}
-            {f"FILTER { self._get_filter_constraint_clause(edge_filter, variable='e') } " if edge_filter else ""}
+            {f"FILTER {self._get_filter_constraint_clause(node_filter, variable='v')} " if node_filter else ""}
+            {f"FILTER {self._get_filter_constraint_clause(edge_filter, variable='e')} " if edge_filter else ""}
         """
 
         return query_model, collection_clause
@@ -350,13 +356,13 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             ))
         return result_list
 
-    def get_networked_list_facets(self, context: NetworkedListQueryContext, node_facets: Optional[List[str]]) -> List[FacetQueryResult]:
+    def get_networked_list_facets(self, context: NetworkedListQueryContext, node_facets: Optional[List[str]]) -> List[
+        FacetQueryResult]:
         full_results = []
         for coll, variable in zip([node_facets], ['v']):
             if not coll or len(coll) == 0:
                 continue
             for field in coll:
-
                 query_model, collection_clause = self.parse_linked_list_context(context, variable, field)
                 deduped_collection_clause = self.deduped_collection_clause(collection_clause)
 
@@ -377,16 +383,13 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
                 results = self.runQuery(query)
                 fq_result = FacetQueryResult(
-                    name = field,
-                    query = query,
+                    name=field,
+                    query=query,
                     facet_values=[FacetResult(value=row['value'], count=row['count']) for row in results]
                 )
                 full_results.append(fq_result)
 
         return full_results
-
-
-
 
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         label = self.labeler.get_labels_for_class_name(data_model)[0]
@@ -400,10 +403,10 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             """
 
         result = self.runQuery(query)
-        result_list =  [self.convert_to_class(data_model, res) for res in result]
+        result_list = [self.convert_to_class(data_model, res) for res in result]
 
         return ResolveResult(
-            query = query,
+            query=query,
             match=result_list[0] if result_list else None,
             other_matches=result_list[1:] if len(result_list) > 1 else None
         )
@@ -417,10 +420,10 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN {self._get_document_cleanup_clause()}
             """
         result = self.runQuery(query)
-        result_list =  [self.convert_to_class(data_model, res) for res in result]
-        return DetailsQueryResult(query = query, details=result_list[0]) \
+        result_list = [self.convert_to_class(data_model, res) for res in result]
+        return DetailsQueryResult(query=query, details=result_list[0]) \
             if result \
-            else DetailsQueryResult(query = query, details=None)
+            else DetailsQueryResult(query=query, details=None)
 
     def get_edge_types(self, data_model: str):
         label = self.labeler.get_labels_for_class_name(data_model)[0]
@@ -433,9 +436,10 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         return {
             "outgoing": outgoing_edges,
             "incoming": incoming_edges
-            }
+        }
 
-    def get_edge_list(self, data_model: str,  edge_data_model: str, start_id: str = None, end_id: str = None, top: int = 10, skip: int = 0):
+    def get_edge_list(self, data_model: str, edge_data_model: str, start_id: str = None, end_id: str = None,
+                      top: int = 10, skip: int = 0):
         edge_label = self.labeler.get_labels_for_class_name(edge_data_model)[0]
         node_label = self.labeler.get_labels_for_class_name(data_model)[0]
 
@@ -456,3 +460,62 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             """
         result = self.runQuery(query)
         return list(result) if result else None
+
+    def get_tdl_csv(self, request: Request):
+        import io, csv
+        from fastapi.responses import StreamingResponse
+
+        data = self.runQuery("""for pro in `biolink:Protein`
+          return {
+          id: pro.id,
+          uniprot_id: pro.uniprot_id,
+          tdl: pro.tdl,
+          uniprot_reviewed: pro.uniprot_reviewed,
+          name: pro.name,
+          xref: pro.xref,
+          idg_family: pro.idg_family,
+          uniprot_function: pro.uniprot_function,
+          symbol: pro.symbol,
+          ncbi_id: pro.ncbi_id,
+          ensembl_id: pro.ensembl_id,
+          uniprot_canonical: pro.uniprot_canonical,
+          tdl_ligand_count: pro.tdl_ligand_count,
+          tdl_drug_count: pro.tdl_drug_count,
+          tdl_go_term_count: pro.tdl_go_term_count,
+          tdl_generif_count: pro.tdl_generif_count,
+          tdl_pm_score: pro.tdl_pm_score,
+          tdl_antibody_count: pro.tdl_antibody_count
+          }""")
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            'id',
+            'uniprot_id',
+            'tdl',
+            'uniprot_reviewed',
+            'name',
+            'xref',
+            'idg_family',
+            'uniprot_function',
+            'symbol',
+            'ncbi_id',
+            'ensembl_id',
+            'uniprot_canonical',
+            'tdl_ligand_count',
+            'tdl_drug_count',
+            'tdl_go_term_count',
+            'tdl_generif_count',
+            'tdl_pm_score',
+            'tdl_antibody_count'])
+        writer.writeheader()
+        writer.writerows(data)
+        output.seek(0)
+
+        return StreamingResponse(output, media_type="text/csv", headers={
+            "Content-Disposition": "attachment; filename=current_tdls.csv"
+        })
+
+    def get_rest_endpoints(self) -> Dict[str, Callable]:
+        return {
+            "export/current_tdls": self.get_tdl_csv
+        }

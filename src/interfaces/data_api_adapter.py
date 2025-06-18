@@ -1,6 +1,6 @@
 import os.path
 from abc import ABC, abstractmethod
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict, Callable
 import importlib.util
 import networkx as nx
 
@@ -189,3 +189,10 @@ class APIAdapter(ABC):
     def get_edge_list(self, data_model: str,  edge_data_model: str, start_id: str = None, end_id: str = None, top: int = 10, skip: int = 0):
         """Get the edge list for a given edge data model."""
         raise NotImplementedError("Derived classes must implement get_edge_list")
+
+    def get_rest_endpoints(self) -> Dict[str, Callable]:
+        """
+        Return a dict mapping from endpoint paths to callables that implement the logic.
+        Each callable should take (request: Request) as an argument (or use FastAPI params).
+        """
+        return {}
