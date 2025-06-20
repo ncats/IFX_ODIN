@@ -50,6 +50,13 @@ from publicdata.disease_data.disease_merge import DiseaseDataMerger
 from publicdata.disease_data.jensen_download import JensenDiseaseDownloader
 from publicdata.disease_data.jensen_transform import JensenDiseaseTransformer
 
+#DRUGS category imports
+from publicdata.drug_data.gsrs_download import GSRSDownloader
+from publicdata.drug_data.gsrs_transform import GSRSTransformer
+
+#GO category imports
+from publicdata.go_data.go_download import GODownloader
+# from publicdata.go_data.go_transform import GOTransformer
 
 # Default config paths by category
 DEFAULT_CONFIGS = {
@@ -108,7 +115,15 @@ PROCESSOR_MAP = {
    # "disgenet_transform":      (DisgenetTransformer,      None),
     "disease_merge":           (DiseaseDataMerger,        None),
     "jensen_download":         (JensenDiseaseDownloader,         None),
-    "jensen_transform":        (JensenDiseaseTransformer,        None)
+    "jensen_transform":        (JensenDiseaseTransformer,        None),
+
+    # DRUGS
+    "gsrs_download": (GSRSDownloader, None),
+    "gsrs_transform": (GSRSTransformer, None),
+
+    #GO
+    "go_download": (GODownloader, None)
+    # "go_transform": (GOTransformer, None),  # GOTransformer not implemented yet
 }
 
 def run_selected_processors(selected, config):
@@ -133,7 +148,7 @@ def run_selected_processors(selected, config):
 def main():
     parser = argparse.ArgumentParser(description="Run modular ETL processors from config")
     parser.add_argument("category",
-                        choices=["TARGETS", "DISEASES"],
+                        choices=["TARGETS", "DISEASES", "DRUGS"],
                         help="Data category to process")
     parser.add_argument("--config", type=str,
                         help="Path to YAML config file. Defaults per category.")
@@ -163,7 +178,9 @@ def main():
         "DISEASES": [
             "mondo_", "doid_", "medgen_", "orphanet_", "omim_", "umls",
             "nodenorm_disease_", "disease_", "jensen_"
-        ]
+        ],
+        "DRUGS": [
+        "gsrs_"]
     }
 
     # Determine which processors to run
