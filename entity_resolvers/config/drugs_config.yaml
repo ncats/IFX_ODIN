@@ -1,0 +1,11 @@
+global:
+  qc_mode: true
+
+gsrs:
+  url: https://gsrs.ncats.nih.gov/downloads/dump-public-2024-08-29.gsrs
+  raw_file: src/data/publicdata/drug_data/raw/gsrs_public_2024_08_29.json.gz
+  dl_metadata_file: src/data/publicdata/drug_data/metadata/gsrs_download_metadata.json
+  log_file: src/data/publicdata/drug_data/logs/gsrs.log
+  cleaned_file: src/data/publicdata/drug_data/cleaned/gsrs_drug_ids.tsv
+  transform_metadata_file: src/data/publicdata/drug_data/metadata/gsrs_transform_metadata.json
+
