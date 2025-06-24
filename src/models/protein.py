@@ -97,7 +97,6 @@ class Protein(Audited, Analyte):
     tdl_meta: Optional[TDLMetadata] = None
     name: Optional[str] = None
     idg_family: Optional[IDGFamily] = None
-    antibody_count: Optional[int] = None
     pm_score: Optional[float] = None
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None

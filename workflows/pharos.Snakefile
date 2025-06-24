@@ -4,7 +4,7 @@ rule all:
         "../input_files/manual/target_graph/protein_ids.csv",
         "../input_files/manual/target_graph/transcript_ids.csv",
         "../input_files/manual/target_graph/uniprotkb_mapping.csv",
-        "../input_files/manual/antibodypedia/antibodypedia_data.csv",
+        "../input_files/manual/antibodypedia/genes_php",
         "../input_files/auto/go/go-basic.json",
         "../input_files/auto/jensenlab/protein_counts.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",

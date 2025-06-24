@@ -6,8 +6,8 @@ from typing import List, Generator
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
+from src.models.gene import Gene
 from src.models.node import EquivalentId
-from src.models.protein import Protein
 
 
 class AntibodyCountAdapter(InputAdapter):
@@ -27,17 +27,15 @@ class AntibodyCountAdapter(InputAdapter):
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
-    def get_all(self) -> Generator[List[Protein], None, None]:
-        proteins = []
+    def get_all(self) -> Generator[List[Gene], None, None]:
+        genes = []
         with open(self.file_path, mode='r') as file:
-            csv_reader = csv.DictReader(file)
+            csv_reader = csv.DictReader(file, delimiter='\t')
             for row in csv_reader:
-                uniprot_id = row['uniprot_id']
-                if uniprot_id in ['0', '#N/A']:
-                    continue
-                equiv_id = EquivalentId(id=uniprot_id, type=Prefix.UniProtKB)
-                antibody_count = int(row['Antibodies'].split()[0])
-                protein = Protein(id=equiv_id.id_str(), antibody_count=antibody_count)
-                proteins.append(protein)
+                ensembl_id = row['ensembl']
+                equiv_id = EquivalentId(id=ensembl_id, type=Prefix.ENSEMBL)
+                antibody_count = int(row['num_antibodies'])
+                gene_obj = Gene(id=equiv_id.id_str(), antibody_count=antibody_count)
+                genes.append(gene_obj)
 
-        yield proteins
+        yield genes
