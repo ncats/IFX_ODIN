@@ -4,7 +4,6 @@ rule all:
         "../input_files/manual/target_graph/protein_ids.csv",
         "../input_files/manual/target_graph/transcript_ids.csv",
         "../input_files/manual/target_graph/uniprotkb_mapping.csv",
-        "../input_files/manual/antibodypedia/genes_php",
         "../input_files/auto/go/go-basic.json",
         "../input_files/auto/jensenlab/protein_counts.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
@@ -19,8 +18,8 @@ rule download_iuphar:
         "../input_files/auto/iuphar/interactions.csv"
     shell:
         """
-        curl -sk -o {output[1]} https://www.guidetopharmacology.org/DATA/ligands.csv
-        curl -sk -o {output[2]} https://www.guidetopharmacology.org/DATA/interactions.csv
+        curl -sk -o {output[0]} https://www.guidetopharmacology.org/DATA/ligands.csv
+        curl -sk -o {output[1]} https://www.guidetopharmacology.org/DATA/interactions.csv
         """
 
 rule download_uniprot:
