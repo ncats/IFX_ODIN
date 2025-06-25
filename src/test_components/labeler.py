@@ -1,9 +1,7 @@
-from dataclasses import dataclass
-
 from src.interfaces.labeler import Labeler
 from src.interfaces.simple_enum import NodeLabel
 
-@dataclass(eq=False)
+
 class TestLabel(NodeLabel):
     pass
 

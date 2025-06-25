@@ -50,7 +50,11 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
             for field in ['act_value', 'act_type', 'action_type', 'act_source', 'moa_source', 'act_pmid', 'moa_pmid', 'comment']:
                 val = getattr(res, field)
                 if val not in (None, '', [], {}):
-                    setattr(activityDetails, field, val)
+                    if field == 'act_pmid':
+                        setattr(activityDetails, 'act_pmids', [val])
+                    else:
+                        setattr(activityDetails, field, val)
+
             if res.has_moa == 1:
                 activityDetails.has_moa = True
 

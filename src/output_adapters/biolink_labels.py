@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 
-@dataclass(eq=False)
+
 class BiolinkNodeLabel(NodeLabel):
-    pass
+
+    def __hash__(self):
+        return hash(self.value)
 
 BiolinkNodeLabel.Analyte = BiolinkNodeLabel.get("Analyte")
 BiolinkNodeLabel.Metabolite = BiolinkNodeLabel.get("Metabolite")
@@ -21,9 +21,12 @@ BiolinkNodeLabel.Ligand = BiolinkNodeLabel.get("biolink:ChemicalEntity")
 BiolinkNodeLabel.DatabaseVersion = BiolinkNodeLabel.get("DatabaseVersion")
 BiolinkNodeLabel.DataVersion = BiolinkNodeLabel.get("DataVersion")
 
-@dataclass(eq=False)
+
 class BiolinkRelationshipLabel(RelationshipLabel):
-    pass
+
+    def __hash__(self):
+        return hash(self.value)
+
 
 BiolinkRelationshipLabel.Analyte_Has_Class = BiolinkRelationshipLabel.get("biolink:member_of")
 BiolinkRelationshipLabel.Analyte_Has_Pathway = BiolinkRelationshipLabel.get("biolink:participates_in")

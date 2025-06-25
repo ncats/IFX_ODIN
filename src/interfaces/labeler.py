@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import List, Union
 
 from src.interfaces.simple_enum import Label

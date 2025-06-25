@@ -32,7 +32,7 @@ models:
       - act_type
       - assay_type
       - meets_idg_cutoff
-      - act_pmid
+      - act_pmids
       - ref_id
       - comment
       - has_moa

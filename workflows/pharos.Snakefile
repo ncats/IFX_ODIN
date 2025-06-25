@@ -8,7 +8,27 @@ rule all:
         "../input_files/auto/go/go-basic.json",
         "../input_files/auto/jensenlab/protein_counts.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
-        "../input_files/auto/go/goa_human-go.gaf.gz"
+        "../input_files/auto/go/goa_human-go.gaf.gz",
+        "../input_files/auto/uniprot/uniprot-human.json.gz",
+        "../input_files/auto/iuphar/ligands.csv",
+        "../input_files/auto/iuphar/interactions.csv",
+
+rule download_iuphar:
+    output:
+        "../input_files/auto/iuphar/ligands.csv",
+        "../input_files/auto/iuphar/interactions.csv"
+    shell:
+        """
+        curl -sk -o {output[1]} https://www.guidetopharmacology.org/DATA/ligands.csv
+        curl -sk -o {output[2]} https://www.guidetopharmacology.org/DATA/interactions.csv
+        """
+
+rule download_uniprot:
+    output:
+        "../input_files/auto/uniprot/uniprot-human.json.gz"
+    shell:
+        "curl -o {output} 'https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=(*)+AND+(model_organism:9606)'"
+
 
 rule download_go:
     output:

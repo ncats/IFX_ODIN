@@ -22,12 +22,14 @@ class DataSourceName(SimpleEnum):
     DrugCentral = "DrugCentral"
     JensenLabPM = "JensenLab PubMed Score"
     Antibodypedia = "Antibodypedia.com"
+    IUPHAR = "IUPHAR/BPS Guide to PHARMACOLOGY"
     NCBI = "NCBI"
     OldPharos = "Pharos 3.19"
     UniProt = "UniProt"
     Dummy = "Dummy DataSource"
     PostProcessing = "ETL Post Processing"
     RaMP = "RaMP"
+    ManualUpdate = "Manual Update"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN

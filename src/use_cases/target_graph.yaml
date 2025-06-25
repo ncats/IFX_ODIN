@@ -94,6 +94,18 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/generif_9606.csv
 
+  - import: ./src/input_adapters/iuphar/ligand_node.py
+    class: LigandNodeAdapter
+    kwargs:
+      file_path: ./input_files/auto/iuphar/ligands.csv
+
+  - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
+    class: ProteinLigandEdgeAdapter
+    kwargs:
+      pchembl_cutoff: *pchembl_cutoff
+      file_path: ./input_files/auto/iuphar/ligands.csv
+      interaction_file_path: ./input_files/auto/iuphar/interactions.csv
+
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
     kwargs:
