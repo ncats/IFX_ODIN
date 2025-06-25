@@ -1,8 +1,6 @@
-from dataclasses import dataclass
-
 from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 
-@dataclass(eq=False)
+
 class GenericNodeLabel(NodeLabel):
     pass
 
@@ -18,7 +16,7 @@ GenericNodeLabel.ReactionClass = GenericNodeLabel.get("ReactionClass")
 GenericNodeLabel.DatabaseVersion = GenericNodeLabel.get("DatabaseVersion")
 GenericNodeLabel.DataVersion = GenericNodeLabel.get("DataVersion")
 
-@dataclass(eq=False)
+
 class GenericRelationshipLabel(RelationshipLabel):
     pass
 

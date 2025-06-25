@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from enum import Enum
 from typing import Union
 
@@ -25,7 +24,7 @@ class SimpleEnum(str, Enum):
                 return member
         print(f"couldn't parse this value: {input_value}")
 
-@dataclass(eq=False)
+
 class Label:
     _known = {}
     value: str
@@ -50,7 +49,7 @@ class Label:
         return f"{self.__class__.__name__}({self.value!r})"
 
     def __eq__(self, other):
-        return isinstance(other, Label) and self.value == other.value
+        return type(self) is type(other) and self.value == other.value
 
     def __hash__(self):
         return hash(self.value)
@@ -66,11 +65,9 @@ class Label:
         raise TypeError(f"Cannot parse {input_value!r} into a {cls.__name__}")
 
 
-@dataclass(eq=False)
 class NodeLabel(Label):
     pass
 
-@dataclass(eq=False)
 class RelationshipLabel(Label):
     pass
 

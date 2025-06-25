@@ -167,7 +167,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
                 act_type=row.standard_type,
                 action_type=row.action_type,
                 assay_type=row.assay_type,
-                act_pmid=row.pubmed_id,
+                act_pmids=[row.pubmed_id],
                 comment=f"Chembl Source ID: {row.src_id}"
             )
             pro_lig_edge.details.append(activity_details)

@@ -24,7 +24,7 @@ class ActivityDetails:
     action_type: Optional[str] = None
     has_moa: Optional[bool] = None
     reference: Optional[str] = None
-    act_pmid: Optional[int] = None
+    act_pmids: Optional[List[int]] = field(default_factory=list)
     moa_pmid: Optional[int] = None
     act_source: Optional[str] = None
     moa_source: Optional[str] = None
