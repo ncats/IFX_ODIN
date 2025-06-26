@@ -108,15 +108,17 @@ def create_edge_collection(EDGES: Dict[type, str]):
     return edges
 
 
-@strawberry.field
-def etl_metadata(info: Info) -> JSON:
+@strawberry.field()
+def etl_metadata(info: Info) -> Optional[JSON]:
     api = info.context['api']
     result = api.get_etl_metadata()
+    if result is None:
+        return {}
     return result
 
 def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, str], url):
 
-    @strawberry.field
+    @strawberry.field()
     def database_metadata(info: Info) -> DatabaseMetadata:
         api = info.context["api"]
         result: DatabaseMetadata = api.get_metadata()

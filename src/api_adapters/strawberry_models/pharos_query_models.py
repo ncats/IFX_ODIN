@@ -7,7 +7,6 @@ from src.api_adapters.strawberry_models.class_generators import make_linked_list
 from src.api_adapters.strawberry_models.input_types import FilterOption, ListFilterSettings, LinkedListFilterSettings
 from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_resolvers
 from src.interfaces.result_types import LinkedListQueryContext
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.models.analyte import Synonym
 from src.models.gene import Gene as GeneBase, GeneticLocation
 from src.models.generif import GeneGeneRifRelationship as GeneGeneRifRelationshipBase, GeneRif as GeneRifBase
@@ -19,14 +18,15 @@ from src.models.protein import Protein as ProteinBase, TDLMetadata
 from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship as IsoformProteinRelationshipBase, \
     GeneProteinRelationship as GeneProteinRelationshipBase, \
     TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
+from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
 
 NodeLabel = strawberry.type(NodeLabel)
+RelationshipLabel = strawberry.type(RelationshipLabel)
 Node = strawberry.type(Node)
 EquivalentId = strawberry.type(EquivalentId)
 Synonym = strawberry.type(Synonym)
 GeneticLocation = strawberry.type(GeneticLocation)
 ActivityDetails = strawberry.type(ActivityDetails)
-RelationshipLabel = strawberry.type(RelationshipLabel)
 Relationship = strawberry.type(Relationship)
 TranscriptLocation = strawberry.type(TranscriptLocation)
 TDLMetadata = strawberry.type(TDLMetadata)

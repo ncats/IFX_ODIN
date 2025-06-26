@@ -3,6 +3,9 @@ from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 
 class BiolinkNodeLabel(NodeLabel):
 
+    def __init__(self, value: str):
+        super().__init__(value)
+
     def __hash__(self):
         return hash(self.value)
 
@@ -27,6 +30,8 @@ class BiolinkRelationshipLabel(RelationshipLabel):
     def __hash__(self):
         return hash(self.value)
 
+    def __init__(self, value: str):
+        super().__init__(value)
 
 BiolinkRelationshipLabel.Analyte_Has_Class = BiolinkRelationshipLabel.get("biolink:member_of")
 BiolinkRelationshipLabel.Analyte_Has_Pathway = BiolinkRelationshipLabel.get("biolink:participates_in")
