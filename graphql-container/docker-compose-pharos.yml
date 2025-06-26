@@ -7,7 +7,7 @@ services:
     ports:
       - "8045:8000"
     environment:
-      YAML_FILE: ./src/use_cases/api/pharos_dev_dashboard.yaml
+      YAML_FILE: ./src/use_cases/api/pharos_prod_dashboard.yaml
     restart: unless-stopped
     networks:
       - dashboard_network
