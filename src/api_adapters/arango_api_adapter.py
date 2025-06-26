@@ -65,7 +65,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         if nodes_or_edges == 'nodes':
             models = [collection for collection in collections if
                       not collection['name'].startswith("_") and collection['type'] == 'document' and collection[
-                          'status'] == 'loaded']
+                          'status'] == 'loaded' and not collection['name'].startswith("metadata")]
         else:
             models = [collection for collection in collections if
                       not collection['name'].startswith("_") and not collection['type'] == 'document' and collection[

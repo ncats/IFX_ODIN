@@ -44,12 +44,17 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
             ligand_dict = {}
 
             for row in csv_reader:
+                if row['Ligand Type'] in ['Peptide', 'Antibody']:
+                    continue
                 uniprot_id_column = row['Target UniProt ID']
                 if not uniprot_id_column or uniprot_id_column == '':
                     continue
 
                 ligand_id = row['Ligand ID']
                 ligand_cid = self.id_map.get(ligand_id)
+                if ligand_cid == '' or ligand_cid is None:
+                    continue
+
                 ligand_id_to_use = EquivalentId(id=ligand_cid, type=Prefix.PUBCHEM_COMPOUND).id_str()
 
                 if ligand_id_to_use in ligand_dict:

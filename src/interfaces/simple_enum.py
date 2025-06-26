@@ -66,8 +66,14 @@ class Label:
 
 
 class NodeLabel(Label):
-    pass
+    value: str
+
+    def __init__(self, value: str):
+        super().__init__(value)
 
 class RelationshipLabel(Label):
-    pass
+    value: str
+
+    def __init__(self, value: str):
+        super().__init__(value)
 
