@@ -49,6 +49,24 @@ input_adapters:
       database_name: *database_name
     credentials: *source_credentials
 
+  - import: ./src/input_adapters/pharos_arango/set_ligand_activity_flag.py
+    class: SetLigandActivityFlagAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
+
+  - import: ./src/input_adapters/pharos_arango/set_go_term_leaf_flag.py
+    class: SetGoTermLeafFlagAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
+
+  - import: ./src/input_adapters/pharos_arango/tdl_input_adapter.py
+    class: TDLInputAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
+
   - import: ./src/input_adapters/manual/tdl_override.py
     class: TDLOverrideAdapter
     kwargs:
