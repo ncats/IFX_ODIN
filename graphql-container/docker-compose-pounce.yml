@@ -7,7 +7,7 @@ services:
     ports:
       - "8046:8000"
     environment:
-      YAML_FILE: ./src/use_cases/api/pounce_dev_dashboard.yaml
+      YAML_FILE: ./src/use_cases/api/pounce_prod_dashboard.yaml
     restart: unless-stopped
     networks:
       - dashboard_network
