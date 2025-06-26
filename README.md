@@ -1,12 +1,11 @@
 # IFX_ODIN
-Ontology and Data Integration Network
+Ontology and Data Integration Network (ODIN)
 
-We are currently enhancing our data integration capabilities (NCATS and other open-source biomedical datasets) by 
-transitioning from traditional relational databases to an interoperable graph database, structured around the BioLink 
-Data Model, https://github.com/ncats/IFX_ODIN. This integration seamlessly incorporates comprehensive gene/protein 
-information, disease associations, and drug data, enabling more advanced AI/ML applications. A public graph database 
-is coming soon.For more information about our initiatives or to collaborate, please contact Jessica Maine or Keith 
-Kelleher
+ODIN is a modular, standards-driven platform developed at NCATS to support scalable data integration, curation, and harmonization across internal and external biomedical datasets. Built around FAIR principles (Findable, Accessible, Interoperable, and Reproducible), ODIN enables semi-automated mapping and normalization of data using established biomedical ontologies. It plays a central role in supporting translational science platforms such as Pharos, RaMP-DB, GSRS, and CURE ID by ensuring data consistency, provenance tracking, and interoperability across systems.
+
+Rather than a single database or user-facing tool, ODIN functions as the infrastructure layer for harmonizing diverse knowledge sources—powering NCATS’s efforts to build trustworthy, AI/ML-ready datasets for downstream discovery and collaboration.
+
+For more information or to explore collaboration opportunities, please contact Jessica Maine or Keith Kelleher.
 
 make virtual environment
 * `python -m venv .venv`
