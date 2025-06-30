@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 from datetime import date, datetime
 from typing import List, Generator
 
@@ -30,11 +31,20 @@ class AntibodyCountAdapter(InputAdapter):
     def get_all(self) -> Generator[List[Gene], None, None]:
         genes = []
         with open(self.file_path, mode='r') as file:
-            csv_reader = csv.DictReader(file, delimiter='\t')
+            csv_reader = csv.DictReader(file)
             for row in csv_reader:
-                ensembl_id = row['ensembl']
-                equiv_id = EquivalentId(id=ensembl_id, type=Prefix.ENSEMBL)
-                antibody_count = int(row['num_antibodies'])
+                uniprot_id = row['uniprot_id']
+                equiv_id = EquivalentId(id=uniprot_id, type=Prefix.UniProtKB)
+                antibody_str = row['antibodies']
+                if antibody_str is None or antibody_str == '':
+                    continue
+                match = re.search(r'\d+', antibody_str)
+                if match:
+                    antibody_count = int(match.group())
+                else:
+                    antibody_count = 0  # or handle the error
+                if antibody_count <= 0:
+                    continue
                 gene_obj = Gene(id=equiv_id.id_str(), antibody_count=antibody_count)
                 genes.append(gene_obj)
 

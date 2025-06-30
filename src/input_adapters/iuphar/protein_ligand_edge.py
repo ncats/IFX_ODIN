@@ -1,59 +1,20 @@
 import csv
-from typing import Generator, List, Optional
-from src.api_adapters.strawberry_models.pharos_query_models import EquivalentId
+from typing import Generator, List
 from src.constants import Prefix
 from src.input_adapters.iuphar.ligand_node import IUPHARAdapter
 from src.models.ligand import ProteinLigandRelationship, Ligand, ActivityDetails
+from src.models.node import EquivalentId
 from src.models.protein import Protein
 
 
 class ProteinLigandEdgeAdapter(IUPHARAdapter):
     interaction_file_path: str
-    id_map: dict
     pchembl_cutoff: float
 
     def __init__(self, file_path: str, interaction_file_path: str, pchembl_cutoff: float):
         super().__init__(file_path)
         self.interaction_file_path = interaction_file_path
-        self.id_map = self.get_id_map()
         self.pchembl_cutoff = pchembl_cutoff
-
-    def get_id(self, ligand_id: str) -> Optional[str]:
-        if ligand_id in self.id_map:
-            cid = self.id_map[ligand_id]['cid']
-            chembl = self.id_map[ligand_id]['chembl']
-            inchikey = self.id_map[ligand_id]['inchikey']
-            if cid:
-                return EquivalentId(id=cid, type=Prefix.PUBCHEM_COMPOUND).id_str()
-            elif chembl:
-                return EquivalentId(id=chembl, type=Prefix.CHEMBL_COMPOUND).id_str()
-            elif inchikey:
-                return EquivalentId(id=inchikey, type=Prefix.INCHIKEY).id_str()
-        return None
-
-    def get_id_map(self):
-        id_map = {}
-        with open(self.file_path, mode='r') as file:
-            next(file)
-            csv_reader = csv.DictReader(file)
-            for row in csv_reader:
-                if row['Type'] in ['Peptide', 'Antibody']:
-                    continue
-                id = row['Ligand ID']
-                cid = row['PubChem CID']
-                chembl = row['ChEMBL ID']
-                inchikey = row['InChIKey']
-
-                if (not cid or cid == '') and (not chembl or chembl == '') and (not inchikey or inchikey == ''):
-                    continue
-                id_map[id]= {
-                    'cid': cid,
-                    'chembl': chembl,
-                    'inchikey': inchikey
-                }
-
-        return id_map
-
 
     def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
         edges: List[ProteinLigandRelationship] = []
@@ -76,6 +37,8 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
                 ligand_id_to_use = self.get_id(ligand_id)
                 if ligand_id_to_use is None:
                     continue
+
+
 
                 if ligand_id_to_use in ligand_dict:
                     ligand_node = ligand_dict[ligand_id_to_use]

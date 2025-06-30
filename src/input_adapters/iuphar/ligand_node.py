@@ -2,7 +2,7 @@ import csv
 import os
 from abc import ABC
 from datetime import datetime, date
-from typing import Generator, List
+from typing import Generator, List, Optional
 
 from src.api_adapters.strawberry_models.pharos_query_models import EquivalentId
 from src.constants import DataSourceName, Prefix
@@ -15,6 +15,7 @@ class IUPHARAdapter(InputAdapter, ABC):
     version: str
     version_date: date
     download_date: date
+    id_map: dict
 
     def __init__(self, file_path: str):
         InputAdapter.__init__(self)
@@ -30,6 +31,8 @@ class IUPHARAdapter(InputAdapter, ABC):
         self.version = version_part
         self.version_date = datetime.strptime(date_part, "%Y-%m-%d").date()
 
+        self.id_map = self.get_id_map()
+
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.IUPHAR
 
@@ -39,6 +42,42 @@ class IUPHARAdapter(InputAdapter, ABC):
             version_date=self.version_date,
             download_date=self.download_date
         )
+
+    def get_id(self, ligand_id: str) -> Optional[str]:
+        if ligand_id in self.id_map:
+            cid = self.id_map[ligand_id]['cid']
+            chembl = self.id_map[ligand_id]['chembl']
+            inchikey = self.id_map[ligand_id]['inchikey']
+            if cid and cid != '':
+                return EquivalentId(id=cid, type=Prefix.PUBCHEM_COMPOUND).id_str()
+            elif chembl and chembl != '':
+                return EquivalentId(id=chembl, type=Prefix.CHEMBL_COMPOUND).id_str()
+            elif inchikey and inchikey != '':
+                return EquivalentId(id=inchikey, type=Prefix.INCHIKEY).id_str()
+        return None
+
+    def get_id_map(self):
+        id_map = {}
+        with open(self.file_path, mode='r') as file:
+            next(file)
+            csv_reader = csv.DictReader(file)
+            for row in csv_reader:
+                if row['Type'] in ['Peptide', 'Antibody']:
+                    continue
+                id = row['Ligand ID']
+                cid = row['PubChem CID']
+                chembl = row['ChEMBL ID']
+                inchikey = row['InChIKey']
+
+                if (not cid or cid == '') and (not chembl or chembl == '') and (not inchikey or inchikey == ''):
+                    continue
+                id_map[id]= {
+                    'cid': cid,
+                    'chembl': chembl,
+                    'inchikey': inchikey
+                }
+
+        return id_map
 
 class LigandNodeAdapter(IUPHARAdapter):
     def get_all(self) -> Generator[List[Ligand], None, None]:
@@ -51,12 +90,14 @@ class LigandNodeAdapter(IUPHARAdapter):
                 if row['Type'] in ['Peptide', 'Antibody']:
                     continue
                 name = row['Name']
-                cid = row['PubChem CID']
                 smiles = row['SMILES']
-                if not cid or cid == '':
+                ligand_id = row['Ligand ID']
+                ligand_id_to_use = self.get_id(ligand_id)
+                if ligand_id_to_use is None:
                     continue
+
                 ligand_obj = Ligand(
-                    id=EquivalentId(id=cid, type=Prefix.PUBCHEM_COMPOUND).id_str(),
+                    id=ligand_id_to_use,
                     name=name,
                     smiles = smiles
                 )
