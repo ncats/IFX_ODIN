@@ -11,7 +11,7 @@ from src.models.analyte import Synonym
 from src.models.gene import Gene as GeneBase, GeneticLocation
 from src.models.generif import GeneGeneRifRelationship as GeneGeneRifRelationshipBase, GeneRif as GeneRifBase
 from src.models.go_term import GoTerm as GoTermBase, ProteinGoTermRelationship as ProteinGoTermRelationshipBase, \
-    GoEvidence as GoEvidenceBase
+    GoEvidence as GoEvidenceBase, GoTermHasParent as GoTermHasParentBase
 from src.models.ligand import Ligand as LigandBase, ProteinLigandRelationship as ProteinLigandRelationshipBase, ActivityDetails
 from src.models.node import Node, EquivalentId, Relationship
 from src.models.protein import Protein as ProteinBase, TDLMetadata
@@ -19,6 +19,7 @@ from src.models.transcript import Transcript as TranscriptBase, TranscriptLocati
     GeneProteinRelationship as GeneProteinRelationshipBase, \
     TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
 from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
+
 
 NodeLabel = strawberry.type(NodeLabel)
 RelationshipLabel = strawberry.type(RelationshipLabel)
@@ -283,6 +284,34 @@ class GoTerm(GoTermBase):
         result = api.get_linked_list(context)
         return result
 
+    @strawberry.field()
+    def parents(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "GoTermGoTermQueryResult":
+        api = info.context["api"]
+        context = LinkedListQueryContext(
+            source_data_model="GoTerm",
+            source_id=root.id,
+            dest_data_model="GoTerm",
+            edge_model="GoTermHasParent",
+            dest_id=None,
+            filter=filter
+        )
+        result = api.get_linked_list(context)
+        return result
+
+    @strawberry.field()
+    def children(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "GoTermGoTermQueryResult":
+        api = info.context["api"]
+        context = LinkedListQueryContext(
+            source_data_model="GoTerm",
+            source_id=None,
+            dest_data_model="GoTerm",
+            edge_model="GoTermHasParent",
+            dest_id=root.id,
+            filter=filter
+        )
+        result = api.get_linked_list(context)
+        return result
+
 @strawberry.type
 class GoEvidence(GoEvidenceBase):
     @strawberry.field()
@@ -305,6 +334,15 @@ class ProteinGoTermRelationship(ProteinGoTermRelationshipBase):
     start_node: Protein
     end_node: GoTerm
     evidence: List[GoEvidence]
+
+
+@strawberry.type
+class GoTermHasParent(GoTermHasParentBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: GoTerm
+    end_node: GoTerm
 
 
 @strawberry.type
@@ -362,7 +400,7 @@ ProteinIsoformQueryResult = make_linked_list_result_type("ProteinIsoformQueryRes
 ProteinLigandQueryResult = make_linked_list_result_type("ProteinLigandQueryResult", "ProteinLigandDetails", ProteinLigandRelationship, Ligand)
 
 GoTermProteinQueryResult = make_linked_list_result_type("GoTermProteinQueryResult", "GoTermProteinDetails", ProteinGoTermRelationship, Protein)
-
+GoTermGoTermQueryResult = make_linked_list_result_type("GoTermGoTermQueryResult", "GoTermGoTermDetails", GoTermHasParent, GoTerm)
 TranscriptProteinQueryResult = make_linked_list_result_type("TranscriptProteinQueryResult", "TranscriptProteinDetails", TranscriptProteinRelationship, Protein)
 TranscriptGeneQueryResult = make_linked_list_result_type("TranscriptGeneQueryResult", "TranscriptGeneDetails", GeneTranscriptRelationship, Gene)
 

@@ -31,7 +31,7 @@ passing_activities_query = """FOR pro IN `biolink:Protein`
     LET act_values = rel.details[* FILTER CURRENT.act_value >= (
       pro.idg_family == "Kinase" ? 7.52288 :
       pro.idg_family == "Ion Channel" ? 5 :
-      pro.idg_family IN ["GPCR", "Nuclear Receptor"] ? 7 : 6
+      pro.idg_family == "GPCR" ? 7 : 6
     )]
     FILTER LENGTH(act_values) > 0
     RETURN DISTINCT {
