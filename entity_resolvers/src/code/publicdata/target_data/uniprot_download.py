@@ -152,30 +152,38 @@ class UniprotDownloader:
         )
         logging.info("Decompression complete")
 
-    def _make_diff(self):
+    def _make_diff(self, max_lines=200):
         bak = self.decompressed_path + ".backup"
         if not os.path.exists(bak):
             return None, None, None
-        logging.info("Generating diff (zero-context)")
+
+        logging.info(f"Generating diff (max {max_lines} lines)")
         try:
             with open(bak, "r", encoding="utf-8", errors="ignore") as old_f, \
                 open(self.decompressed_path, "r", encoding="utf-8", errors="ignore") as new_f:
                 old_lines = old_f.readlines()
                 new_lines = new_f.readlines()
+
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             base = os.path.splitext(self.base_diff_file)[0]
             diff_txt = f"{base}_{ts}.txt"
-            diff_html = f"{base}_{ts}.html"
-            # write unified diff
+
+            # use ndiff (or unified diff)
+            diff = list(difflib.unified_diff(
+                old_lines, new_lines,
+                fromfile="old", tofile="new", n=2
+            ))
+
+            if len(diff) > max_lines:
+                diff = diff[:max_lines]
+                diff.append(f"\n... [Diff truncated at {max_lines} lines] ...\n")
+
             with open(diff_txt, "w", encoding="utf-8") as dt:
-                dt.writelines(difflib.unified_diff(old_lines, new_lines, fromfile="old", tofile="new"))
-            # write HTML diff
-            with open(diff_html, "w", encoding="utf-8") as dh:
-                dh.write(difflib.HtmlDiff().make_file(
-                    old_lines, new_lines, fromdesc="Old", todesc="New", context=True, numlines=2
-                ))
-            logging.info(f"Diff saved: {diff_txt} and {diff_html}")
-            return diff_txt, diff_html, "".join(old_lines[:10])  
+                dt.writelines(diff)
+
+            logging.info(f"Diff saved: {diff_txt}")
+            return diff_txt, None, "".join(diff[:10])  # no HTML anymore
+
         except Exception as e:
             logging.warning(f"Diff generation failed: {e}")
             return None, None, None
@@ -290,9 +298,15 @@ class UniprotDownloader:
             idmap_updated = self._download_idmapping()
 
             dec_start = datetime.now()
-            self._decompress()
-            dec_end = datetime.now()
-            diff_txt, diff_html, diff_sum = self._make_diff()
+            if updated:
+                self._decompress()
+                dec_end = datetime.now()
+                diff_txt, diff_html, diff_sum = self._make_diff()
+            else:
+                logging.info("No update to archive — skipping decompression and diff.")
+                dec_end = datetime.now()
+                diff_txt, diff_html, diff_sum = None, None, None
+
             sparql_stats = self._retrieve_isoforms()
 
             # build metadata
@@ -321,7 +335,10 @@ class UniprotDownloader:
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Download & process UniProt data")
-    parser.add_argument("--config", required=True, help="YAML config path")
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.config))
     UniprotDownloader(cfg).run()

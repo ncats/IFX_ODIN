@@ -178,7 +178,7 @@ class NCBIDownloader:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download and decompress NCBI gene_info data")
-    parser.add_argument("--config", type=str, default="config/targets/targets_config.yaml")
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
     
     with open(args.config) as f:

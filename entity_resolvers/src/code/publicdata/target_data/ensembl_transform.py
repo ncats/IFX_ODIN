@@ -70,6 +70,8 @@ class EnsemblTransformer:
         self.logger.info("Loading input CSV parts…")
         df1 = pd.read_csv(self.inputs[0], dtype=str)
         df2 = pd.read_csv(self.inputs[1], dtype=str)
+        print("🧪 df2 columns:", df2.columns.tolist())
+
         df3 = pd.read_csv(self.inputs[2], dtype=str)
         df4 = pd.read_csv(self.inputs[3], dtype=str)
         self.metadata["processing_steps"]["input_counts"] = {
@@ -141,6 +143,38 @@ class EnsemblTransformer:
         final.to_csv(self.final_output, index=False)
         self.logger.info("Saved final merged to %s", self.final_output)
 
+        # === DIFF LOGIC ON CLEANED OUTPUT ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.final_output))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
+
+        if os.path.exists(backup_path):
+            try:
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = final.fillna("")
+
+                join_col = "ensembl_transcript_id_version" if "ensembl_transcript_id_version" in final.columns else None
+                try:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+                except Exception:
+                    pass  # fallback to index comparison
+
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_csv_path)
+                    self.logger.info("✅ Diff written to %s", diff_csv_path)
+                else:
+                    self.logger.info("✅ No differences found in cleaned output.")
+            except Exception as e:
+                self.logger.warning("⚠️ Could not generate diff on cleaned output: %s", e)
+
+        # Always update backup for next run
+        final.to_csv(backup_path, index=False)
+
+        # === Save metadata ===
         meta = {
             "timestamp": {
                 "start": self.metadata["timestamp"]["start"],
@@ -167,7 +201,7 @@ class EnsemblTransformer:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform Ensembl BioMart CSVs")
     parser.add_argument("--config", type=str,
-                        default="config/targets/targets_config.yaml")
+                        default="config/targets_config.yaml")
     args = parser.parse_args()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)

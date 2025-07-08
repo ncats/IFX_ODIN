@@ -186,8 +186,13 @@ class EnsemblUniProtIsoformXref:
         else:
             rerun = False
 
+        # Always load or fetch SPARQL results
         sparql_df = self.fetch_sparql_results() if rerun else pd.read_csv(self.save_path)
         comparison_df = self.compare_isoform_columns(sparql_df)
+
+        # ✅ Drop duplicates before final QC export
+        comparison_df.drop_duplicates(inplace=True)
+
         comparison_df.to_csv(self.save_path, index=False)
         self.update_ensembl_output(comparison_df)
         self.logger.info(f"Final QC export written to: {self.save_path}")

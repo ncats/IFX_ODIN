@@ -91,7 +91,7 @@ class RefSeqTransformer:
             "columns_after": df.columns.tolist()
         })
 
-        # 3. Save transformed main table
+        # 3. Save transformed data
         logging.info(f"Saving transformed RefSeq data to {self.transformed_data_path}...")
         os.makedirs(os.path.dirname(self.transformed_data_path), exist_ok=True)
         try:
@@ -99,12 +99,53 @@ class RefSeqTransformer:
         except Exception as e:
             logging.error(f"Error saving transformed RefSeq data: {e}")
             return None
+
         self.metadata["outputs"].append({
             "name": "RefSeq Transformed Data",
             "path": self.transformed_data_path,
             "records": records_before,
             "generated_at": datetime.now().isoformat()
         })
+
+        # === Column-wise diff logic ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.transformed_data_path))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
+
+        if os.path.exists(backup_path):
+            try:
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = df.fillna("")
+
+                join_col = "refseq_ncbi_id" if "refseq_ncbi_id" in df.columns else None
+                if join_col:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+
+                # Align both index and columns
+                common_cols = sorted(set(old_df.columns).intersection(new_df.columns))
+                old_df = old_df[common_cols].sort_index()
+                new_df = new_df[common_cols].sort_index()
+
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_csv_path)
+                    logging.info(f"✅ Cleaned CSV diff written to {diff_csv_path}")
+                    self.metadata["outputs"].append({
+                        "name": "RefSeq Cleaned Column Diff",
+                        "path": diff_csv_path,
+                        "generated_at": datetime.now().isoformat()
+                    })
+                else:
+                    logging.info("✅ No differences found in cleaned RefSeq output.")
+            except Exception as e:
+                logging.warning(f"⚠️ Could not generate column-level diff: {e}")
+
+        # Always update backup
+        df.to_csv(backup_path, index=False)
+
         return df
 
     def generate_concatenated_files(self, df):
@@ -186,7 +227,7 @@ class RefSeqTransformer:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform and clean RefSeq data")
-    parser.add_argument("--config", type=str, default="config/targets/targets_config.yaml")
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)

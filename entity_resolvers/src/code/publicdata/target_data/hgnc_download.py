@@ -110,8 +110,10 @@ class HGNCDownloader:
                 diff_text = "".join(diff)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 base_name = os.path.splitext(os.path.basename(self.output_path))[0]
-                diff_txt = f"{base_name}_diff_{timestamp}.txt"
-                diff_html = f"{base_name}_diff_{timestamp}.html"
+                qc_dir = "src/data/publicdata/target_data/qc"
+                os.makedirs(qc_dir, exist_ok=True)
+                diff_txt = os.path.join(qc_dir, f"{base_name}_diff_{timestamp}.txt")
+                diff_html = os.path.join(qc_dir, f"{base_name}_diff_{timestamp}.html")
                 with open(diff_txt, "w", encoding="utf-8") as f:
                     f.write(diff_text)
                 # Generate HTML diff with only changed rows (minimal context)
@@ -151,7 +153,7 @@ class HGNCDownloader:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download and update HGNC data")
-    parser.add_argument("--config", type=str, default="config/targets/targets_config.yaml")
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
     with open(args.config) as f:
         config = yaml.safe_load(f)

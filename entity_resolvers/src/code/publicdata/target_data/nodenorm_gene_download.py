@@ -171,7 +171,7 @@ class NodeNormGeneDownloader:
 
 if __name__=="__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="config/targets/targets_config.yaml")
+    p.add_argument("--config", default="config/targets_config.yaml")
     args = p.parse_args()
     cfg = yaml.safe_load(open(args.config))
     NodeNormGeneDownloader(cfg).run()

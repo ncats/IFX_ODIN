@@ -512,15 +512,22 @@ class ProteinDataProcessor:
         t0 = datetime.now()
         logging.info("STEP: save_data (write IFX cache)")
         path = self.protein_ids_path
+
+        # Change extension if still .csv in config
+        if path.endswith(".csv"):
+            path = path.replace(".csv", ".tsv")
+
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.protein_data.to_csv(path, index=False)
-        logging.info("Updated IFX cache (protein_ids_path) at %s", path)
+        self.protein_data.to_csv(path, index=False, sep='\t')
+        logging.info("Updated IFX cache (protein_ids_path) as TSV at %s", path)
+
         self.metadata["outputs"].append({
             "name": "ifx_protein_ids",
             "path": path,
             "records": len(self.protein_data)
         })
         self.metadata["timestamp"]["end"] = datetime.now().isoformat()
+
         os.makedirs(os.path.dirname(self.metadata_file), exist_ok=True)
         with open(self.metadata_file, 'w') as mf:
             json.dump(self.metadata, mf, indent=2)
@@ -540,10 +547,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Post-process protein provenance mappings"
     )
-    parser.add_argument(
-        "--config", required=True,
-        help="YAML config with 'protein_data' section"
-    )
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.config))
     processor = ProteinDataProcessor(cfg)

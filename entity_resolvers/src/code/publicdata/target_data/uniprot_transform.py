@@ -355,6 +355,43 @@ class UniProtTransformer:
         # 5) overwrite the reviewed-info file with the fully augmented version
         os.makedirs(os.path.dirname(self.reviewed_output), exist_ok=True)
         df.to_csv(self.reviewed_output, index=False)
+                # === Save column-level diff for reviewed output ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.reviewed_output))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_path = os.path.join(qc_dir, f"{base}_diff.csv")
+        try:
+            if os.path.exists(backup_path):
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = df.fillna("")
+
+                if "uniprot_id" in old_df.columns and "uniprot_id" in new_df.columns:
+                    old_df.set_index("uniprot_id", inplace=True)
+                    new_df.set_index("uniprot_id", inplace=True)
+
+                # Align columns and index
+                common_cols = sorted(set(old_df.columns).intersection(set(new_df.columns)))
+                old_df = old_df[common_cols].sort_index()
+                new_df = new_df[common_cols].sort_index()
+
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_path)
+                    logging.info(f"✅ Diff written to {diff_path}")
+                    self.metadata["outputs"].append({
+                        "name": "column_diff",
+                        "path": diff_path,
+                        "generated_at": datetime.now().isoformat()
+                    })
+                else:
+                    logging.info("✅ No differences found in reviewed output.")
+        except Exception as e:
+            logging.warning(f"⚠️ Error generating column-wise diff: {e}")
+
+        # Always update backup
+        df.to_csv(backup_path, index=False)
+
         self.metadata["outputs"].append({
             "name":   "reviewed_csv",
             "path":   os.path.abspath(self.reviewed_output),
@@ -375,7 +412,10 @@ class UniProtTransformer:
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Transform UniProt data")
-    parser.add_argument("--config", required=True)
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.config))
     UniProtTransformer(cfg).run()

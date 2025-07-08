@@ -136,7 +136,7 @@ class NCBITransformer:
 
     def run(self):
         try:
-            # Read the decompressed NCBI file; adjust skiprows if necessary
+            # Read the decompressed NCBI file
             ncbi_df = pd.read_csv(self.input_file, sep="\t", dtype=str)
             num_records_input = len(ncbi_df)
         except Exception as e:
@@ -148,7 +148,43 @@ class NCBITransformer:
         transformed_df.to_csv(self.output_file, index=False)
         logging.info(f"Transformed NCBI data saved to: {self.output_file}")
 
-        # Build detailed metadata for transformation
+        # === DIFF LOGIC ON CLEANED OUTPUT ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.output_file))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
+
+        if os.path.exists(backup_path):
+            try:
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = transformed_df.fillna("")
+
+                join_col = "ncbi_NCBI_id" if "ncbi_NCBI_id" in transformed_df.columns else None
+                if join_col:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+
+                # Align columns and index for comparison
+                common_cols = sorted(set(old_df.columns).intersection(set(new_df.columns)))
+                old_df = old_df[common_cols]
+                new_df = new_df[common_cols]
+                old_df.sort_index(inplace=True)
+                new_df.sort_index(inplace=True)
+
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_csv_path)
+                    logging.info(f"✅ Diff written to {diff_csv_path}")
+                else:
+                    logging.info("✅ No differences found in cleaned NCBI output.")
+            except Exception as e:
+                logging.warning(f"⚠️ Could not generate diff on cleaned output: {e}")
+
+        # Always update backup for next run
+        transformed_df.to_csv(backup_path, index=False)
+
+        # === METADATA ===
         meta = {
             "timestamp": datetime.now().isoformat(),
             "input_file": self.input_file,
@@ -166,7 +202,7 @@ class NCBITransformer:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform and clean NCBI gene_info data")
-    parser.add_argument("--config", type=str, default="config/targets/targets_config.yaml",
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml",
                         help="Path to YAML config file")
     args = parser.parse_args()
     

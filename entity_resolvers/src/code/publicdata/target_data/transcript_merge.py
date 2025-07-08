@@ -21,6 +21,7 @@ from requests.exceptions import HTTPError
 from urllib.parse import quote
 import hashlib
 import difflib
+import shutil
 
 
 # Suppress SSL warnings
@@ -157,10 +158,12 @@ class TranscriptResolver:
                 backup = output_csv + ".backup"
                 shutil.copy2(output_csv, backup)
 
-                ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 base = os.path.splitext(os.path.basename(output_csv))[0]
-                diff_txt  = f"{base}_diff_{ts}.txt"
-                diff_html = f"{base}_diff_{ts}.html"
+                qc_dir = "src/data/publicdata/target_data/qc"
+                os.makedirs(qc_dir, exist_ok=True)
+                diff_txt = os.path.join(qc_dir, f"{base}_diff_{ts}.txt")
+                diff_html = os.path.join(qc_dir, f"{base}_diff_{ts}.html")
 
                 try:
                     with open(backup,  "r", encoding="utf-8", errors="ignore") as fo, \
@@ -217,6 +220,7 @@ class TranscriptResolver:
         start = datetime.now()
         logging.info("STEP 2: process_biomart_csv")
         df = pd.read_csv(self.biomart_csv, sep="\t", dtype=str)
+        print("BioMart original columns:", df.columns.tolist())
         renames = {
             "Gene stable ID":                 "ensembl_gene_id",
             "Transcript stable ID":           "ensembl_transcript_id",
@@ -424,7 +428,10 @@ class TranscriptResolver:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Merge transcript sources with provenance & metadata")
-    parser.add_argument("--config", required=True, help="YAML config file")
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = parser.parse_args()
 
     cfg_all = yaml.safe_load(open(args.config))

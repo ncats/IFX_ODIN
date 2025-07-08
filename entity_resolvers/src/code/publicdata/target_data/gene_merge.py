@@ -533,13 +533,6 @@ class GENEDataMerger:
         with open(mf,'w') as f:
             json.dump(self.metadata, f, indent=2)
         print(f"✨ Metadata written to {mf}")
-   
-    def run(self):
-        full_cfg = {
-            "gene_merge": self.config,
-            "global": {"qc_mode": self.qc_mode}
-        }
-        process_gene_merge(full_cfg)
     
 def process_gene_merge(config):
     print("🚀 Starting full GENEDataMerger pipeline\n")
@@ -589,7 +582,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(
         description="Merge gene ID sources with provenance and metadata"
     )
-    p.add_argument("--config", required=True, help="YAML config file")
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="Path to YAML config file (default: config/targets_config.yaml)")
+
     args = p.parse_args()
 
     full_cfg = yaml.safe_load(open(args.config))

@@ -169,8 +169,42 @@ class NodeNormGeneTransformer:
         # 7) Save CSV
         os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
         df.to_csv(self.output_file, index=False)
-        out_count = len(df)
+        out_count = len(df)        
+                # === Save detailed column-level diff ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.output_file))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_path = os.path.join(qc_dir, f"{base}_diff.csv")
 
+        try:
+            if os.path.exists(backup_path):
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = df.fillna("")
+
+                # Choose an index for comparison
+                join_col = "nodenorm_NCBI_id" if "nodenorm_NCBI_id" in new_df.columns else None
+                if join_col:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+                # Align columns and index
+                common_cols = sorted(set(old_df.columns).intersection(set(new_df.columns)))
+                old_df = old_df[common_cols].sort_index()
+                new_df = new_df[common_cols].sort_index()
+
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_path)
+                    logging.info(f"✅ Column diff written to {diff_path}")
+                    diff_generated = diff_path  # Store for later
+
+                else:
+                    logging.info("✅ No differences found from previous NodeNorm output.")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to generate diff: {e}")
+
+        # Always update backup
+        df.to_csv(backup_path, index=False)
         t1 = datetime.now()
         duration = (t1 - t0).total_seconds()
 
@@ -212,6 +246,9 @@ class NodeNormGeneTransformer:
                 {"step":"write_csv","records":out_count}
             ]
         }
+        if 'diff_generated' in locals():
+            meta["output"]["diff_path"] = diff_generated
+
         with open(self.metadata_file, "w") as mf:
             json.dump(meta, mf, indent=2)
         logging.info(f"Transformation complete: {out_count} records → {self.output_file}")
@@ -219,7 +256,7 @@ class NodeNormGeneTransformer:
 
 if __name__=="__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="config/targets/targets_config.yaml")
+    p.add_argument("--config", default="config/targets_config.yaml")
     args = p.parse_args()
     cfg = yaml.safe_load(open(args.config))
     NodeNormGeneTransformer(cfg).run()

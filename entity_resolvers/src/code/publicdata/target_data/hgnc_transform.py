@@ -136,7 +136,54 @@ class HGNCTransformer:
         cleaned_df.to_csv(self.output_file, index=False)
         logging.info(f"Wrote cleaned HGNC data to {self.output_file}")
 
-        # 4) Write metadata JSON
+        # 4) Diff logic on cleaned output (simplified format)
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.output_file))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
+
+        if os.path.exists(backup_path):
+            try:
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = cleaned_df.fillna("")
+
+                join_col = "hgnc_hgnc_id"
+                if join_col in new_df.columns and join_col in old_df.columns:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+
+                    common_cols = sorted(set(old_df.columns).intersection(new_df.columns))
+                    old_df = old_df[common_cols].sort_index()
+                    new_df = new_df[common_cols].sort_index()
+
+                    # Generate simplified diff
+                    records = []
+                    for col in common_cols:
+                        for idx in new_df.index.intersection(old_df.index):
+                            old_val = old_df.at[idx, col]
+                            new_val = new_df.at[idx, col]
+                            if pd.notna(old_val) and pd.notna(new_val) and old_val != new_val:
+                                records.append({
+                                    "hgnc_hgnc_id": idx,
+                                    "column_changed": col,
+                                    "old_value": old_val,
+                                    "new_value": new_val
+                                })
+
+                    if records:
+                        diff_df = pd.DataFrame(records)
+                        diff_df.to_csv(diff_csv_path, index=False)
+                        logging.info(f"✅ Simplified diff written to {diff_csv_path}")
+                    else:
+                        logging.info("✅ No differences found in cleaned HGNC output.")
+            except Exception as e:
+                logging.warning(f"⚠️ Could not generate diff on cleaned output: {e}")
+
+        # Always update backup for next run
+        cleaned_df.to_csv(backup_path, index=False)
+
+        # 5) Write metadata JSON
         metadata = {
             "timestamp": {"start": t0.isoformat(), "end": t1.isoformat()},
             "input_file": self.input_file,
@@ -153,8 +200,10 @@ class HGNCTransformer:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform and clean HGNC data")
-    parser.add_argument("--config", type=str, required=True,
+    parser.add_argument("--config", type=str,
+                        default="config/targets_config.yaml",
                         help="Path to YAML config file")
+
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config))

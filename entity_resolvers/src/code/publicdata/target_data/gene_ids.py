@@ -212,17 +212,68 @@ class GeneDataProcessor:
 
     def aggregate_gene_ids(self):
         t0 = datetime.now()
-        keys = ['consolidated_NCBI_id','consolidated_hgnc_id','consolidated_symbol']
-        self.df['consolidated_gene_id'] = (
-            self.df.groupby(keys)['consolidated_gene_id']
-              .transform(lambda s: "|".join(sorted(set(s.dropna().astype(str)))))
-        )
-        self.df.drop_duplicates(subset=keys, inplace=True)
-        logging.info("Aggregated gene IDs; now %d rows", len(self.df))
-        self.add_metadata_step("Aggregate Gene IDs", "Concatenated duplicates, dropped extras")
+        key_col = 'consolidated_symbol'
+
+        def merge_values(series, lowercase=False, delimiter="|"):
+            seen = set()
+            for val in series.dropna().astype(str):
+                val = val.replace(";", delimiter).replace("|", delimiter).replace(",", delimiter)
+                for v in val.split(delimiter):
+                    v = v.strip()
+                    if lowercase:
+                        v = v.lower()
+                    if v and v != "nan":
+                        seen.add(v)
+            return ",".join(sorted(seen)) if lowercase else delimiter.join(sorted(seen))
+
+        # Split into two parts: those to merge, and those to leave untouched
+        merge_df = self.df[self.df[key_col].notna() & (self.df[key_col].str.strip() != "")]
+        untouched_df = self.df[self.df[key_col].isna() | (self.df[key_col].str.strip() == "")]
+        logging.info("Merging %d rows by symbol, skipping %d null/empty symbols", len(merge_df), len(untouched_df))
+
+        concat_columns = [
+            'Ensembl_ID_Provenance', 'NCBI_ID_Provenance', 'HGNC_ID_Provenance', 'OMIM_ID_Provenance',
+            'nodenorm_UMLS', 'Symbol_Provenance', 'Description_Provenance', 'Location_Provenance',
+            'Total_Mapping_Ratio', 'ensembl_strand', 'ncbi_miR_id', 'ncbi_imgt_id',
+            'hgnc_prev_symbol', 'hgnc_vega_id', 'hgnc_ccds_id', 'hgnc_pubmed_id', 'hgnc_orphanet_id',
+            'consolidated_gene_id', 'consolidated_NCBI_id', 'consolidated_hgnc_id',
+            'consolidated_description', 'consolidated_mim_id', 'consolidated_location',
+            'consolidated_gene_type'
+        ]
+
+        provenance_cols = {
+            'Ensembl_ID_Provenance', 'NCBI_ID_Provenance', 'HGNC_ID_Provenance',
+            'OMIM_ID_Provenance', 'Symbol_Provenance',
+            'Description_Provenance', 'Location_Provenance'
+        }
+
+        final_rows = []
+        grouped = merge_df.groupby(key_col, dropna=False)
+
+        for symbol, group in grouped:
+            row = {key_col: symbol}
+            for col in concat_columns:
+                is_provenance = col in provenance_cols
+                row[col] = merge_values(group[col],
+                                        lowercase=is_provenance,
+                                        delimiter="," if is_provenance else "|")
+            final_rows.append(row)
+
+        merged = pd.DataFrame(final_rows)
+
+        # Recombine with untouched rows
+        self.df = pd.concat([merged, untouched_df], ignore_index=True)
+
+        # Ensure all expected columns exist
+        for col in concat_columns + [key_col]:
+            if col not in self.df.columns:
+                self.df[col] = ""
+
+        logging.info("Fuzzy-aggregated %d groups, final rows including untouched: %d", len(merged), len(self.df))
+        self.add_metadata_step("Aggregate Gene IDs", "Merged rows by consolidated_symbol, kept null rows untouched")
         self.metadata["processing_steps"].append({
             "step": "aggregate_gene_ids",
-            "duration_seconds": (datetime.now()-t0).total_seconds(),
+            "duration_seconds": (datetime.now() - t0).total_seconds(),
             "records": len(self.df)
         })
         return self.df
@@ -239,7 +290,7 @@ class GeneDataProcessor:
 
         # 2) load existing IFXGene IDs
         if os.path.exists(self.gene_ids_path):
-            existing = pd.read_csv(self.gene_ids_path, dtype=str)
+            existing = pd.read_csv(self.gene_ids_path, sep="\t", dtype=str)
             existing = self._normalize_keys(existing, keys)
             existing = existing.set_index(keys)[['ncats_gene_id','createdAt','updatedAt']]
             existing_df = existing.reset_index()
@@ -269,7 +320,7 @@ class GeneDataProcessor:
                                                            if c not in ('ncats_gene_id','createdAt','updatedAt')]
         final = up[cols]
         os.makedirs(os.path.dirname(self.gene_ids_path), exist_ok=True)
-        final.to_csv(self.gene_ids_path, index=False)
+        final.to_csv(self.gene_ids_path, index=False, sep="\t")
         logging.info("Upserted IFXGene IDs to %s", self.gene_ids_path)
         self.add_metadata_step("Save Gene IDs",
                                f"Upserted IFXGene IDs to {self.gene_ids_path}")

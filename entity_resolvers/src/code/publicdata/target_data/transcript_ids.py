@@ -165,15 +165,21 @@ class TranscriptDataProcessor:
     def save_transcript_ids(self):
         t0 = datetime.now()
         logging.info("STEP 3: save_transcript_ids")
+
+        # Force .tsv extension if .csv is in the config
+        if self.output_path.endswith(".csv"):
+            self.output_path = self.output_path.replace(".csv", ".tsv")
+
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
-        self.ncats_df.to_csv(self.output_path, index=False)
+        self.ncats_df.to_csv(self.output_path, index=False, sep='\t')
+
         duration = (datetime.now() - t0).total_seconds()
         logging.info("Transcript IDs saved to %s", self.output_path)
         self.add_metadata_step("Save Transcript IDs",
-                               f"Saved {len(self.ncats_df)} rows to {self.output_path}",
-                               records=len(self.ncats_df),
-                               duration=duration,
-                               path=self.output_path)
+                            f"Saved {len(self.ncats_df)} rows to {self.output_path}",
+                            records=len(self.ncats_df),
+                            duration=duration,
+                            path=self.output_path)
 
     def save_metadata(self):
         self.metadata["timestamp"]["end"] = datetime.now().isoformat()
@@ -191,8 +197,10 @@ class TranscriptDataProcessor:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Post-process transcript provenance mappings")
-    p.add_argument("--config", required=True,
-                   help="YAML config with a `transcript_ids` section")
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = p.parse_args()
 
     full_cfg = yaml.safe_load(open(args.config))

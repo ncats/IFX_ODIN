@@ -220,7 +220,10 @@ class RefSeqDownloader:
 
 if __name__=="__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--config", required=True, help="YAML config")
+    p.add_argument("--config", type=str,
+               default="config/targets_config.yaml",
+               help="YAML config (default: config/targets_config.yaml)")
+
     args = p.parse_args()
     cfg = yaml.safe_load(open(args.config))
     RefSeqDownloader(cfg).run()

@@ -162,8 +162,10 @@ class EnsemblDownloader:
             shutil.copy2(output_csv, backup)
 
             base = os.path.splitext(os.path.basename(output_csv))[0]
-            diff_txt = os.path.join(os.path.dirname(output_csv), f"{base}.diff.txt")
-            diff_html = os.path.join(os.path.dirname(output_csv), f"{base}.diff.html")
+            qc_dir = "src/data/publicdata/target_data/qc"
+            os.makedirs(qc_dir, exist_ok=True)
+            diff_txt = os.path.join(qc_dir, f"{base}.diff.txt")
+            diff_html = os.path.join(qc_dir, f"{base}.diff.html")
             max_diff_lines = 100
 
             try:
@@ -238,7 +240,7 @@ class EnsemblDownloader:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download Ensembl BioMart data")
-    parser.add_argument("--config", type=str, default="config/targets/targets_config.yaml")
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
 
     with open(args.config) as f:

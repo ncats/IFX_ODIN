@@ -170,11 +170,43 @@ class NodeNormProteinTransformer:
     def run(self):
         self.parse_data()
         self.save_to_csv()
+                # === Save column-level diff for NodeNorm protein output ===
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(self.output_file))[0]
+        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
+        diff_path = os.path.join(qc_dir, f"{base}_diff.csv")
+
+        try:
+            if os.path.exists(backup_path):
+                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
+                new_df = self._df.fillna("")
+
+                join_col = "nodenorm_uniprot_id" if "nodenorm_uniprot_id" in new_df.columns else None
+                if join_col:
+                    old_df.set_index(join_col, inplace=True)
+                    new_df.set_index(join_col, inplace=True)
+                # Align columns and index
+                common_cols = sorted(set(old_df.columns).intersection(set(new_df.columns)))
+                old_df = old_df[common_cols].sort_index()
+                new_df = new_df[common_cols].sort_index()
+                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
+                if not diff_df.empty:
+                    diff_df.to_csv(diff_path)
+                    logging.info(f"✅ Column diff written to {diff_path}")
+                    self.metadata["diff_file"] = diff_path
+                else:
+                    logging.info("✅ No differences found in NodeNorm protein output.")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to generate diff: {e}")
+
+        # Always update backup
+        self._df.to_csv(backup_path, index=False)
         self.save_metadata()
 
 if __name__=="__main__":
     p = argparse.ArgumentParser(description="Transform NodeNorm protein JSONL to CSV")
-    p.add_argument("--config", default="config/targets/targets_config.yaml")
+    p.add_argument("--config", default="config/targets_config.yaml")
     args = p.parse_args()
     cfg = yaml.safe_load(open(args.config))
     NodeNormProteinTransformer(cfg).run()
