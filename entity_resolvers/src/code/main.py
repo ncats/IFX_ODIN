@@ -63,6 +63,11 @@ from publicdata.GO_data.GO_transform import GOTransformer
 from publicdata.PPI_data.string_download import StringPPIDownloader
 from publicdata.PPI_data.string_transform import StringPPITransformer
 
+#PHENOTYPES category imports
+from publicdata.phenotype_data.hpo_download import HPOPhenotypeDownloader
+from publicdata.phenotype_data.hpo_transform import HPOPhenotypeTransformer 
+
+
 
 # Default config paths by category
 DEFAULT_CONFIGS = {
@@ -70,7 +75,8 @@ DEFAULT_CONFIGS = {
     "DISEASES": "config/diseases_config.yaml",
     "DRUGS": "config/drugs_config.yaml",
     "GO": "config/GO_config.yaml",
-    "PPI": "config/ppi_config.yaml"
+    "PPI": "config/ppi_config.yaml",
+    "PHENOTYPES": "config/phenotypes_config.yaml"
 }
 
 def load_config(path):
@@ -137,6 +143,10 @@ PROCESSOR_MAP = {
     #PPI
     "string_download": (StringPPIDownloader, None),
     "string_transform": (StringPPITransformer, None),
+
+    #PHENOTYPES
+    "hpo_download": (HPOPhenotypeDownloader, None),
+    "hpo_transform": (HPOPhenotypeTransformer, None),
 }
 
 def run_selected_processors(selected, config):
@@ -161,7 +171,7 @@ def run_selected_processors(selected, config):
 def main():
     parser = argparse.ArgumentParser(description="Run modular ETL processors from config")
     parser.add_argument("category",
-                        choices=["TARGETS", "DISEASES", "DRUGS", "GO", "PPI"],
+                        choices=["TARGETS", "DISEASES", "DRUGS", "GO", "PPI", "PHENOTYPES"],
                         help="Data category to process")
     parser.add_argument("--config", type=str,
                         help="Path to YAML config file. Defaults per category.")
@@ -192,7 +202,8 @@ def main():
             "nodenorm_disease_", "disease_", "jensen_"],
         "DRUGS": ["gsrs_"],
         "GO": ["go_"],
-        "PPI": ["string_"]
+        "PPI": ["string_"],
+        "PHENOTYPES": ["hpo_"]
     }
 
     # Determine which processors to run
