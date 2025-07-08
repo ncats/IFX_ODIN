@@ -1,0 +1,16 @@
+global:
+  qc_mode: true
+
+ppi:
+  string:
+    download_url: "https://stringdb-downloads.org/download/protein.links.full.v12.0/9606.protein.links.full.v12.0.txt.gz"
+    raw_file: "src/data/publicdata/ppi_data/raw/9606.protein.links.full.v12.0.txt"
+    protein_reference: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.tsv"
+
+    unmapped_output: "src/data/publicdata/ppi_data/qc/unmapped_string_ppi.csv"
+    cleaned_prefix: "src/data/publicdata/ppi_data/cleaned/string_ppi"
+    metadata_file: "src/data/publicdata/ppi_data/metadata/string_transform_metadata.json"
+
+    log_file: "src/data/publicdata/ppi_data/logs/string_download.log"
+    dl_metadata_file: "src/data/publicdata/ppi_data/metadata/string_download_metadata.json"
+    diff_file: "src/data/publicdata/ppi_data/diff/string_download.diff.txt"
