@@ -8,11 +8,20 @@ phenotype:
     download_url_phenotype_hpoa: "https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2025-05-06/phenotype.hpoa"
     download_url_genes_to_phenotype: "https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2025-05-06/genes_to_phenotype.txt"
     download_url_phenotype_to_genes: "https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2025-05-06/phenotype_to_genes.txt"
+
     raw_dir: "src/data/publicdata/phenotype_data/raw/"
-    metadata_file: "src/data/publicdata/phenotype_data/metadata/hpo_download_metadata.json"
+    raw_obo: "src/data/publicdata/phenotype_data/raw/hp.obo"
     raw_phenotype_hpoa: "src/data/publicdata/phenotype_data/raw/phenotype.hpoa"
     raw_genes_to_phenotype: "src/data/publicdata/phenotype_data/raw/genes_to_phenotype.txt"
     raw_phenotype_to_genes: "src/data/publicdata/phenotype_data/raw/phenotype_to_genes.txt"
-    cleaned_genes_to_phenotype: "src/data/publicdata/phenotype_data/cleaned/genes_to_phenotype.csv"
-    cleaned_phenotype_to_genes: "src/data/publicdata/phenotype_data/cleaned/phenotype_to_genes.csv"
+
+    cleaned_genes_to_phenotype: "src/data/publicdata/phenotype_data/cleaned/resolved_edges/genes_to_phenotype.csv"
+    cleaned_phenotype_to_genes: "src/data/publicdata/phenotype_data/cleaned/resolved_edges/phenotype_to_genes.csv"
+    cleaned_phenotype_disease: "src/data/publicdata/phenotype_data/cleaned/resolved_edges/phenotype_disease.csv"
+
+    resolved_hpoa: "src/data/publicdata/phenotype_data/cleaned/resolved_node_ids/hpoa.tsv"
+    resolved_hpo_ids: "src/data/publicdata/phenotype_data/cleaned/resolved_node_ids/hpo_ids.tsv"
+
+    metadata_file: "src/data/publicdata/phenotype_data/metadata/hpo_download_metadata.json"
     transform_metadata_file: "src/data/publicdata/phenotype_data/metadata/hpo_transform_metadata.json"
+
