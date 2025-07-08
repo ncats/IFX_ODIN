@@ -28,6 +28,7 @@ from publicdata.target_data.transcript_merge import TranscriptResolver
 from publicdata.target_data.transcript_ids import TranscriptDataProcessor
 from publicdata.target_data.protein_merge import ProteinResolver
 from publicdata.target_data.protein_ids import ProteinDataProcessor
+from publicdata.target_data.antibodypedia_scraper import AntibodypediaScraper
 
 # DISEASES category imports
 from publicdata.disease_data.mondo_download import MondoDownloader
@@ -55,14 +56,21 @@ from publicdata.drug_data.gsrs_download import GSRSDownloader
 from publicdata.drug_data.gsrs_transform import GSRSTransformer
 
 #GO category imports
-from publicdata.go_data.go_download import GODownloader
-# from publicdata.go_data.go_transform import GOTransformer
+from publicdata.GO_data.GO_download import GODownloader
+from publicdata.GO_data.GO_transform import GOTransformer
+
+#PPI category imports
+from publicdata.PPI_data.string_download import StringPPIDownloader
+from publicdata.PPI_data.string_transform import StringPPITransformer
+
 
 # Default config paths by category
 DEFAULT_CONFIGS = {
     "TARGETS": "config/targets_config.yaml",
     "DISEASES": "config/diseases_config.yaml",
-    "DRUGS": "config/drugs_config.yaml"
+    "DRUGS": "config/drugs_config.yaml",
+    "GO": "config/GO_config.yaml",
+    "PPI": "config/ppi_config.yaml"
 }
 
 def load_config(path):
@@ -95,6 +103,7 @@ PROCESSOR_MAP = {
     "transcript_ids":          (TranscriptDataProcessor,  None),
     "protein_merge":           (ProteinResolver,          None),
     "protein_ids":             (ProteinDataProcessor,     None),
+    "antibodypedia":           (AntibodypediaScraper, None),
 
     # DISEASES
     "mondo_download":          (MondoDownloader,          None),
@@ -122,8 +131,12 @@ PROCESSOR_MAP = {
     "gsrs_transform": (GSRSTransformer, None),
 
     #GO
-    "go_download": (GODownloader, None)
-    # "go_transform": (GOTransformer, None),  # GOTransformer not implemented yet
+    "go_download": (GODownloader, None),
+    "go_transform": (GOTransformer, None), 
+
+    #PPI
+    "string_download": (StringPPIDownloader, None),
+    "string_transform": (StringPPITransformer, None),
 }
 
 def run_selected_processors(selected, config):
@@ -148,7 +161,7 @@ def run_selected_processors(selected, config):
 def main():
     parser = argparse.ArgumentParser(description="Run modular ETL processors from config")
     parser.add_argument("category",
-                        choices=["TARGETS", "DISEASES", "DRUGS"],
+                        choices=["TARGETS", "DISEASES", "DRUGS", "GO", "PPI"],
                         help="Data category to process")
     parser.add_argument("--config", type=str,
                         help="Path to YAML config file. Defaults per category.")
@@ -173,14 +186,13 @@ def main():
     CATEGORY_MODULE_PREFIXES = {
         "TARGETS": [
             "ensembl_", "ncbi_", "hgnc_", "refseq_", "uniprot_",
-            "nodenorm_gene_", "nodenorm_protein_", "gene_", "transcript_", "protein_"
-        ],
+            "nodenorm_gene_", "nodenorm_protein_", "gene_", "transcript_", "protein_"],
         "DISEASES": [
             "mondo_", "doid_", "medgen_", "orphanet_", "omim_", "umls",
-            "nodenorm_disease_", "disease_", "jensen_"
-        ],
-        "DRUGS": [
-        "gsrs_"]
+            "nodenorm_disease_", "disease_", "jensen_"],
+        "DRUGS": ["gsrs_"],
+        "GO": ["go_"],
+        "PPI": ["string_"]
     }
 
     # Determine which processors to run
