@@ -8,7 +8,7 @@ ppi:
     protein_reference: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.tsv"
 
     unmapped_output: "src/data/publicdata/ppi_data/qc/unmapped_string_ppi.csv"
-    cleaned_prefix: "src/data/publicdata/ppi_data/cleaned/string_ppi"
+    cleaned_prefix: "src/data/publicdata/ppi_data/cleaned/resolved_edges/string_ppi"
     metadata_file: "src/data/publicdata/ppi_data/metadata/string_transform_metadata.json"
 
     log_file: "src/data/publicdata/ppi_data/logs/string_download.log"
