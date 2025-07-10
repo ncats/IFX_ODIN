@@ -67,6 +67,19 @@ from publicdata.PPI_data.string_transform import StringPPITransformer
 from publicdata.phenotype_data.hpo_download import HPOPhenotypeDownloader
 from publicdata.phenotype_data.hpo_transform import HPOPhenotypeTransformer 
 
+#PATHWAYS category imports
+from publicdata.pathway_data.pathwaycommons_download import PathwayCommonsDownloader
+from publicdata.pathway_data.pathwaycommons_transform import PathwayCommonsTransformer
+from publicdata.pathway_data.panther_download import PantherDownloader
+from publicdata.pathway_data.panther_transform import PantherTransformer
+from publicdata.pathway_data.reactome_download import ReactomeDownloader
+from publicdata.pathway_data.reactome_transform import ReactomeTransformer
+from publicdata.pathway_data.wikipathway_download import WikiPathwaysDownloader
+from publicdata.pathway_data.wikipathway_transform import WikiPathwaysTransformer
+from publicdata.pathway_data.pathways_merge import PathwayMergerTransformer
+from publicdata.pathway_data.pathway_ids import PathwayIDGenerator
+
+
 
 
 # Default config paths by category
@@ -76,7 +89,8 @@ DEFAULT_CONFIGS = {
     "DRUGS": "config/drugs_config.yaml",
     "GO": "config/GO_config.yaml",
     "PPI": "config/ppi_config.yaml",
-    "PHENOTYPES": "config/phenotypes_config.yaml"
+    "PHENOTYPES": "config/phenotypes_config.yaml",
+    "PATHWAYS": "config/pathways_config.yaml"
 }
 
 def load_config(path):
@@ -147,7 +161,19 @@ PROCESSOR_MAP = {
     #PHENOTYPES
     "hpo_download": (HPOPhenotypeDownloader, None),
     "hpo_transform": (HPOPhenotypeTransformer, None),
-}
+
+    #PATHWAYS
+    "pathwaycommons_download": (PathwayCommonsDownloader, None),  
+    "pathwaycommons_transform": (PathwayCommonsTransformer, None),
+    "panther_download": (PantherDownloader, None),  
+    "panther_transform": (PantherTransformer, None),
+    "reactome_download": (ReactomeDownloader, None),
+    "reactome_transform": (ReactomeTransformer, None),
+    "wikipathway_download": (WikiPathwaysDownloader, None),
+    "wikipathway_transform": (WikiPathwaysTransformer, None),
+    "pathways_merge": (PathwayMergerTransformer, None),
+    "pathway_ids": (PathwayIDGenerator, None),
+} 
 
 def run_selected_processors(selected, config):
     for key in selected:
@@ -171,7 +197,7 @@ def run_selected_processors(selected, config):
 def main():
     parser = argparse.ArgumentParser(description="Run modular ETL processors from config")
     parser.add_argument("category",
-                        choices=["TARGETS", "DISEASES", "DRUGS", "GO", "PPI", "PHENOTYPES"],
+                        choices=["TARGETS", "DISEASES", "DRUGS", "GO", "PPI", "PHENOTYPES", "PATHWAYS"],
                         help="Data category to process")
     parser.add_argument("--config", type=str,
                         help="Path to YAML config file. Defaults per category.")
@@ -203,7 +229,8 @@ def main():
         "DRUGS": ["gsrs_"],
         "GO": ["go_"],
         "PPI": ["string_"],
-        "PHENOTYPES": ["hpo_"]
+        "PHENOTYPES": ["hpo_"],
+        "PATHWAYS": ["pathwaycommons_", "panther", "reactome_", "wikipathway_"],  
     }
 
     # Determine which processors to run
