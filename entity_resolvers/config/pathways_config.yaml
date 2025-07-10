@@ -1,0 +1,161 @@
+global:
+  qc_mode: true
+
+pathways:
+  pathwaycommons:
+    base_url: "https://download.baderlab.org/PathwayCommons/PC2/v14/"
+    raw_dir: "src/data/publicdata/pathway_data/raw/"
+    cleaned_dir: "src/data/publicdata/pathway_data/cleaned/"
+    qc_dir: "src/data/publicdata/pathway_data/qc/"
+    log_file: "src/data/publicdata/pathway_data/metadata/pathwaycommons_download.log"
+    metadata_file: "src/data/publicdata/pathway_data/metadata/pathwaycommons_download_metadata.json"
+    transform_metadata_file: "src/data/publicdata/pathway_data/metadata/pathwaycommons_transform_metadata.json"
+    fetch_xrefs: true
+    xref_output_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_xrefs_human.csv"
+    files:
+      uniprot.txt:
+        type: text
+        description: "Pathway Commons UniProt mappings"
+        cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_uniprot.csv"
+
+      pc-hgnc.txt.gz:
+        type: gz
+        description: "Pathway Commons HGNC mappings"
+        cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_hgnc.csv"
+
+      pathways.txt.gz:
+        type: pathways
+        description: "Pathway Commons pathways data"
+        cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_pathways.csv"
+
+      datasources.txt:
+        type: text
+        description: "Pathway Commons datasources list"
+        cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_datasources.csv"
+
+      blacklist.txt:
+        type: text
+        description: "Pathway Commons blacklist"
+        cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/pathwaycommons_blacklist.csv"
+
+  panther:
+    raw_dir: src/data/publicdata/pathway_data/raw
+    semi_dir: src/data/publicdata/pathway_data/semi
+    dl_metadata_file: src/data/publicdata/pathway_data/metadata/panther_download_metadata.json
+    transform_metadata_file: src/data/publicdata/pathway_data/metadata/panther_transform_metadata.json
+
+    files:
+      sequence_classifications:
+        url: http://data.pantherdb.org/ftp/sequence_classifications/current_release/PANTHER_Sequence_Classification_files/PTHR19.0_human
+        raw_path: src/data/publicdata/pathway_data/raw/PTHR19.0_human
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/panther_gene2classication.csv
+        description: PANTHER Sequence Classifications
+
+      sequence_association_pathway:
+        url: http://data.pantherdb.org/ftp/pathway/current_release/SequenceAssociationPathway3.6.8.txt
+        raw_path: src/data/publicdata/pathway_data/raw/SequenceAssociationPathway3.6.8.txt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/panther2uniprot.csv
+        description: PANTHER Sequence Association Pathway
+
+      hmm_classifications:
+        url: http://data.pantherdb.org/ftp/hmm_classifications/current_release/PANTHER19.0_HMM_classifications
+        raw_path: src/data/publicdata/pathway_data/raw/PANTHER19.0_HMM_classifications
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/PANTHER_classifications.csv
+        description: PANTHER HMM Classifications
+
+  reactome:
+    raw_dir: src/data/publicdata/pathway_data/raw
+    semi_dir: src/data/publicdata/pathway_data/semi
+    cleaned_dir: src/data/publicdata/pathway_data/cleaned
+    qc_dir: src/data/publicdata/pathway_data/qc
+    dl_metadata_file: src/data/publicdata/pathway_data/metadata/reactome_download_metadata.json
+    transform_metadata_file: src/data/publicdata/pathway_data/metadata/reactome_transform_metadata.json
+    log_file: src/data/publicdata/pathway_data/metadata/reactome_download.log
+
+    files:
+      pathways:
+        url: https://reactome.org/download/current/ReactomePathways.txt
+        columns: ["reactome_id", "pathway_name", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/ReactomePathways.txt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/reactome_pathways.csv
+
+      uniprot:
+        url: https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt
+        columns: ["uniprot_id", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/UniProt2Reactome_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/reactome_to_uniprot.csv
+
+      ensembl:
+        url: https://reactome.org/download/current/Ensembl2Reactome_All_Levels.txt
+        columns: ["ensembl_id", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/Ensembl2Reactome_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/semi/reactome_to_ensembl.csv
+
+      ncbi:
+        url: https://reactome.org/download/current/NCBI2Reactome_All_Levels.txt
+        columns: ["NCBI_id", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/NCBI2Reactome_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/reactome2genes.csv
+
+      uniprot_pe:
+        url: https://reactome.org/download/current/UniProt2Reactome_PE_All_Levels.txt
+        columns: ["uniprot_id", "reactome_compartment_id", "compartment", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/UniProt2Reactome_PE_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/reactome_compartment_to_uniprot.csv
+
+      ensembl_pe:
+        url: https://reactome.org/download/current/Ensembl2Reactome_PE_All_Levels.txt
+        columns: ["ensembl_id", "reactome_compartment_id", "compartment", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/Ensembl2Reactome_PE_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/semi/reactome_compartment_to_ensembl.csv
+
+      ncbi_pe:
+        url: https://reactome.org/download/current/NCBI2Reactome_PE_All_Levels.txt
+        columns: ["NCBI_id", "reactome_compartment_id", "compartment", "reactome_id", "source", "pathway", "GO_evidence_code", "species"]
+        species_column: species
+        raw_path: src/data/publicdata/pathway_data/raw/NCBI2Reactome_PE_All_Levels.txt
+        csv_path: src/data/publicdata/pathway_data/semi/reactome_compartment_to_ncbi.csv
+
+    gmt_file:
+      url: https://reactome.org/download/current/ReactomePathways.gmt.zip
+      path: src/data/publicdata/pathway_data/semi/ReactomePathways.gmt
+      raw_path: src/data/publicdata/pathway_data/raw/ReactomePathways.gmt
+
+  wikipathways:
+    log_file: src/data/publicdata/pathway_data/logs/wikipathways_download.log
+    dl_metadata_file: src/data/publicdata/pathway_data/metadata/wikipathways_download_metadata.json
+    transform_metadata_file: src/data/publicdata/pathway_data/metadata/wikipathways_transform_metadata.json
+    version_dir: https://data.wikipathways.org/current/gmt/
+
+    files:
+      gmt:
+        url_pattern: wikipathways-*-gmt-Homo_sapiens.gmt
+        save_dir: src/data/publicdata/pathway_data/raw/
+        latest_local_copy: src/data/publicdata/pathway_data/raw/wikipathways_latest_human.gmt
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/wikipathways2gene.csv
+
+      pathway_list:
+        url: https://webservice.wikipathways.org/listPathways?organism=Homo+sapiens&format=json
+        raw_path: src/data/publicdata/pathway_data/raw/wikipathways_human_pathways.json
+        csv_path: src/data/publicdata/pathway_data/cleaned/sources/wikipathways_human_pathways.tsv
+
+
+pathways_merge:
+  reactome_file: src/data/publicdata/pathway_data/cleaned/sources/reactome_pathways.csv
+  panther_file: src/data/publicdata/pathway_data/cleaned/sources/panther2uniprot.csv
+  wikipathways_file: src/data/publicdata/pathway_data/cleaned/sources/wikipathways_human_pathways.tsv
+  output_file: src/data/publicdata/pathway_data/cleaned/sources/pathway_provenance.csv
+  metadata_file: src/data/publicdata/pathway_data/metadata/pathways_merge_metadata.json
+  log_file: src/data/publicdata/pathway_data/metadata/pathways_merge.log
+
+pathways_ids:
+  input_file: src/data/publicdata/pathway_data/cleaned/sources/pathway_provenance.csv
+  output_file: src/data/publicdata/pathway_data/cleaned/resolved_node_ids/pathway_ids.tsv
+  metadata_file: src/data/publicdata/pathway_data/metadata/pathway_ids_metadata.json
+  log_file: src/data/publicdata/pathway_data/metadata/pathway_ids.log
