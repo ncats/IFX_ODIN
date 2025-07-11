@@ -42,7 +42,6 @@ class StringPPITransformer:
         df_protein = pd.read_csv(self.cfg["protein_reference"], sep="\t", dtype=str)
         df_protein = df_protein.dropna(subset=["consolidated_ensembl_protein_id", "ncats_protein_id"]).copy()
 
-        # Split and remove version
         df_protein["consolidated_ensembl_protein_id"] = df_protein["consolidated_ensembl_protein_id"].str.split("|")
         df_exploded = df_protein.explode("consolidated_ensembl_protein_id").copy()
         df_exploded["consolidated_ensembl_protein_id"] = df_exploded["consolidated_ensembl_protein_id"].str.replace(r"\.\d+$", "", regex=True)
@@ -51,32 +50,24 @@ class StringPPITransformer:
         logging.info(f"🔗 Built Ensembl-to-NCATS protein map with {len(id_map)} entries")
         self.append_step("ID mapping", "Exploded and version-stripped protein reference and built mapping")
 
-        # Map STRING IDs to NCATS IDs
         df['protein1_mapped'] = df['protein1'].map(id_map)
         df['protein2_mapped'] = df['protein2'].map(id_map)
 
-        # Save unmapped rows if QC mode is on
         if self.qc_mode:
             unmapped = df[df['protein1_mapped'].isna() | df['protein2_mapped'].isna()]
             os.makedirs(os.path.dirname(self.cfg["unmapped_output"]), exist_ok=True)
             unmapped.to_csv(self.cfg["unmapped_output"], index=False)
             self.append_step("Unmapped export", f"Saved {len(unmapped)} unmapped entries to {self.cfg['unmapped_output']}")
 
-        # Filter to mapped rows only
         df = df.dropna(subset=['protein1_mapped', 'protein2_mapped'])
         df['protein1'] = df['protein1_mapped']
         df['protein2'] = df['protein2_mapped']
         df = df.drop(columns=['protein1_mapped', 'protein2_mapped'])
 
-        # Chunked output
-        os.makedirs(os.path.dirname(self.cfg["cleaned_prefix"]), exist_ok=True)
-        chunk_size = len(df) // 5
-        for i in range(5):
-            start, end = i * chunk_size, (i + 1) * chunk_size if i < 4 else len(df)
-            part_path = f"{self.cfg['cleaned_prefix']}_part{i+1}.csv"
-            df.iloc[start:end].to_csv(part_path, index=False)
-            self.metadata["outputs"].append(part_path)
-            logging.info(f"✅ Saved chunk {i+1}: {part_path}")
+        os.makedirs(os.path.dirname(self.cfg["cleaned_output"]), exist_ok=True)
+        df.to_csv(self.cfg["cleaned_output"], index=False)
+        logging.info(f"✅ Saved cleaned STRING PPI data to: {self.cfg['cleaned_output']}")
+        self.metadata["outputs"].append(self.cfg["cleaned_output"])
 
         self.metadata["timestamp"]["end"] = str(datetime.now())
         with open(self.cfg["metadata_file"], "w") as f:
