@@ -1,0 +1,34 @@
+global:
+  qc_mode: true
+
+go:
+  # ---- Logging ----
+  log_file: src/data/publicdata/GO_data/metadata/go_download.log
+
+  # ---- Raw download paths ----
+  obo_url: http://current.geneontology.org/ontology/go.obo
+  obo_raw: src/data/publicdata/GO_data/raw/go.obo
+
+  gaf_url: http://current.geneontology.org/annotations/goa_human.gaf.gz
+  gaf_raw: src/data/publicdata/GO_data/raw/goa_human.gaf.gz
+
+  gene2go_url: https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2go.gz
+  gene2go_raw: src/data/publicdata/GO_data/raw/gene2go.gz
+
+  # ---- Cleaned outputs ----
+  obo_cleaned: src/data/publicdata/GO_data/cleaned/sources/go_obo_dataframe.csv
+  obo_obsolete: src/data/publicdata/GO_data/qc/go_obo_obsolete_dataframe.csv
+  go_node: src/data/publicdata/GO_data/cleaned/resolved_node_ids/GOterms.csv
+
+  gaf_cleaned: src/data/publicdata/GO_data/cleaned/sources/goa.csv
+
+  gene2go_cleaned: src/data/publicdata/GO_data/cleaned/sources/gene2go.csv
+  gene2go_edges_dir: src/data/publicdata/GO_data/cleaned/resolved_edges/
+
+  # ---- Target mappings ----
+  gene_mapping: src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.csv
+  protein_mapping: src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv
+
+  # ---- Metadata ----
+  transform_metadata_file: src/data/publicdata/GO_data/metadata/go_transform_metadata.json
+  dl_metadata_file: src/data/publicdata/GO_data/metadata/go_download_metadata.json

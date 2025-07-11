@@ -106,3 +106,8 @@ disease_merge:
   mismatches_output: src/data/publicdata/disease_data/cleaned/sources/disease_mismatches.qc.csv
   log_file: src/data/publicdata/disease_data/logs/disease_merge.log
   transform_metadata_file: src/data/publicdata/disease_data/metadata/disease_merge_metadata.json
+
+disease_name_cluster:
+  input_file: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_provenance.csv
+  output_file: src/data/publicdata/disease_data/cleaned/sources/disease_name_clusters.tsv
+  metadata_file: src/data/publicdata/disease_data/metadata/disease_name_cluster_metadata.json

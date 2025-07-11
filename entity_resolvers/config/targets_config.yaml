@@ -1,5 +1,5 @@
 global:
-  qc_mode: false
+  qc_mode: true
 
 ensembl_data:
   dl_metadata_file: "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json"
@@ -113,7 +113,7 @@ gene_data:
   ncbi_data: "src/data/publicdata/target_data/cleaned/sources/ncbi_gene_info.csv"
   hgnc_data: "src/data/publicdata/target_data/cleaned/sources/hgnc_complete_set.csv"
   intermediate_gene_ids_path: "src/data/publicdata/target_data/qc/exploded_gene_ids.qc.csv"
-  gene_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.csv"
+  gene_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.tsv"
   metadata_file: "src/data/publicdata/target_data/metadata/gene_data_metadata.json"
   log_file: "logs/gene_data_processor.log"
 
@@ -129,7 +129,7 @@ transcript_merge:
 
 transcript_ids:
   source_file: "src/data/publicdata/target_data/qc/transcript_mapping_provenance.qc.csv"
-  transcript_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.csv"
+  transcript_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.tsv"
   metadata_file: "src/data/publicdata/target_data/metadata/transcript_id_metadata.json"
   log_file: "src/data/publicdata/target_data/metadata/transcript_id.log"
 
@@ -148,7 +148,11 @@ protein_merge:
 protein_data:
   source_file: "src/data/publicdata/target_data/cleaned/sources/protein_provenance_mapping.csv"
   uniprot_info_file: "src/data/publicdata/target_data/cleaned/sources/uniprotkb_info.csv"
-  protein_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv"
+  protein_ids_path: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.tsv"
   metadata_file: "src/data/publicdata/target_data/metadata/protein_data_metadata.json"
   log_file: "src/data/publicdata/target_data/metadata/protein_data_processor.log"
   qc_file: "src/data/publicdata/target_data/qc/ensembl_uniprot_replacements.qc.csv"
+
+antibodypedia:
+  output_path: "src/data/publicdata/target_data/cleaned/sources/"
+  protein_ids_file: "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv"
