@@ -45,6 +45,7 @@ from publicdata.disease_data.umls_download import UMLSDownloader
 #from publicdata.disease_data.umls_transform import UMLSTransformer 
 from publicdata.disease_data.nodenorm_disease_download import NodeNormDiseaseDownloader
 from publicdata.disease_data.nodenorm_disease_transform import NodeNormDiseaseTransformer
+from publicdata.disease_data.disease_name_cluster import DiseaseNameClusterer
 #from publicdata.disease_data.disgenet_download import DisgenetDownloader
 #from publicdata.disease_data.disgenet_transform import DisgenetTransformer
 from publicdata.disease_data.disease_merge import DiseaseDataMerger
@@ -140,6 +141,7 @@ PROCESSOR_MAP = {
     #"umls_transform":          (UMLSTransformer,          None),  
     "nodenorm_disease_download":  (NodeNormDiseaseDownloader, None),
     "nodenorm_disease_transform": (NodeNormDiseaseTransformer, None),
+    "disease_name_cluster":      (DiseaseNameClusterer, None),  
    # "disgenet_download":       (DisgenetDownloader,       None), Need license to use DisGeNET data
    # "disgenet_transform":      (DisgenetTransformer,      None),
     "disease_merge":           (DiseaseDataMerger,        None),
