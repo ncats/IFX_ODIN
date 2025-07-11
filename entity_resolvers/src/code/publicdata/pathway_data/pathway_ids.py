@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import json
 import logging
@@ -30,6 +31,7 @@ class PathwayIDGenerator:
         self.input_file = self.config['input_file']
         self.output_file = self.config['output_file']
         self.metadata_file = self.config['metadata_file']
+        self.id_map_path = self.config.get("id_map_file", "cache/pathway_id_map.json")
 
         self.metadata = {
             "timestamp": {"start": str(datetime.now())},
@@ -46,7 +48,7 @@ class PathwayIDGenerator:
         provenance_cols = ['Reactome', 'WikiPathway', 'Panther']
         df['provenance_key'] = df[provenance_cols].fillna('').agg('|'.join, axis=1)
 
-        # 🚨 Drop duplicates: keep row with non-null similarity_score if exists
+        # 🚨 Drop fuzzy duplicates if similarity score is available
         if 'similarity_score' in df.columns:
             before = len(df)
             df.sort_values(by='similarity_score', ascending=False, na_position='last', inplace=True)
@@ -54,25 +56,41 @@ class PathwayIDGenerator:
             after = len(df)
             logging.info(f"🧹 Removed {before - after} fuzzy duplicate rows")
 
-        # Path to persistent ID map
-        id_map_path = self.config.get("id_map_file", "cache/pathway_id_map.json")
-        os.makedirs(os.path.dirname(id_map_path), exist_ok=True)
-
-        if os.path.exists(id_map_path):
-            with open(id_map_path) as f:
+        # Load previous ID map
+        os.makedirs(os.path.dirname(self.id_map_path), exist_ok=True)
+        if os.path.exists(self.id_map_path):
+            with open(self.id_map_path) as f:
                 id_map = json.load(f)
             logging.info(f"🧠 Loaded {len(id_map)} prior ID mappings")
+            original_id_map = dict(id_map)
         else:
             id_map = {}
+            original_id_map = {}
 
-        # Mint new IFX IDs for new provenance keys
+        # Mint and log new IFX IDs
         def mint_ifx():
             return f"IFXPathway:{''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(7))}"
 
+        new_ids = {}
         for key in df['provenance_key'].unique():
             if key not in id_map:
-                id_map[key] = mint_ifx()
+                new_id = mint_ifx()
+                id_map[key] = new_id
+                new_ids[key] = new_id
+                logging.info(f"🆕 Minted new IFX ID: {new_id} for provenance key: {key}")
 
+        # Save updated map and .diff
+        with open(self.id_map_path, 'w') as f:
+            json.dump(id_map, f, indent=2)
+        if new_ids:
+            diff_path = self.id_map_path.replace('.json', '.diff.json')
+            with open(diff_path, 'w') as f:
+                json.dump(new_ids, f, indent=2)
+            logging.info(f"📄 Wrote {len(new_ids)} new ID mappings to diff file: {diff_path}")
+        else:
+            logging.info("✅ No new IFX IDs were minted")
+
+        # Map IDs and clean up
         df['ncats_pathway_id'] = df['provenance_key'].map(id_map)
         df.drop(columns=['provenance_key'], inplace=True)
 
@@ -80,7 +98,6 @@ class PathwayIDGenerator:
         df['consolidated_pathway_name'] = df[['WikiPathway_name', 'Reactome_name', 'Panther_name']].bfill(axis=1).iloc[:, 0]
         logging.info("✅ Consolidated pathway names added from available sources")
 
-        # Save final output and metadata
         os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
         df.to_csv(self.output_file, index=False, sep='\t')
 
@@ -89,7 +106,7 @@ class PathwayIDGenerator:
         with open(self.metadata_file, 'w') as f:
             json.dump(self.metadata, f, indent=2)
         logging.info(f"✅ IFX Pathway IDs saved to {self.output_file} and metadata to {self.metadata_file}")
-    
+
     def run(self):
         self.assign_ifx_ids()
 
@@ -103,4 +120,4 @@ if __name__ == "__main__":
 
     setup_logging(full_cfg.get('pathways_ids', {}).get('log_file', ""))
     generator = PathwayIDGenerator(full_cfg)
-    generator.assign_ifx_ids()
+    generator.run()
