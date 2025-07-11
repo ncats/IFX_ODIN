@@ -150,12 +150,14 @@ pathways_merge:
   reactome_file: src/data/publicdata/pathway_data/cleaned/sources/reactome_pathways.csv
   panther_file: src/data/publicdata/pathway_data/cleaned/sources/panther2uniprot.csv
   wikipathways_file: src/data/publicdata/pathway_data/cleaned/sources/wikipathways_human_pathways.tsv
-  output_file: src/data/publicdata/pathway_data/cleaned/sources/pathway_provenance.csv
+  output_file: src/data/publicdata/pathway_data/cleaned/sources/pivoted_pathway_clusters.tsv
+  plot_file: src/data/publicdata/pathway_data/cleaned/resolved_node_ids/pathway_upset_plot.png
   metadata_file: src/data/publicdata/pathway_data/metadata/pathways_merge_metadata.json
   log_file: src/data/publicdata/pathway_data/metadata/pathways_merge.log
 
 pathways_ids:
-  input_file: src/data/publicdata/pathway_data/cleaned/sources/pathway_provenance.csv
+  input_file: src/data/publicdata/pathway_data/cleaned/sources/pathway_provenance.tsv
   output_file: src/data/publicdata/pathway_data/cleaned/resolved_node_ids/pathway_ids.tsv
   metadata_file: src/data/publicdata/pathway_data/metadata/pathway_ids_metadata.json
   log_file: src/data/publicdata/pathway_data/metadata/pathway_ids.log
+  id_map_file: src/data/publicdata/pathway_data/metadata/pathway_id_map.json
