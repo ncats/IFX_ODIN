@@ -1,4 +1,6 @@
-# semantic_disease_resolver.py - Query multiple disease names from the provenance file and resolve cross-source mappings using FAISS
+#!/usr/bin/env python
+
+# semantic_disease_resolver.py - Query disease names from provenance and resolve cross-source mappings using FAISS
 
 import os
 import faiss
@@ -12,25 +14,32 @@ INDEX_PATH = "src/data/publicdata/disease_data/index/layered_disease_index.faiss
 METADATA_CSV = "src/data/publicdata/disease_data/index/layered_disease_index_metadata.csv"
 MODEL_PATH = "src/data/publicdata/disease_data/index/sentence_model"
 PROVENANCE_FILE = "src/data/publicdata/disease_data/cleaned/sources/disease_mapping_provenance.csv"
-ADDITIONAL_DISEASE_LIST = "src/data/publicdata/disease_data/cleaned/sources/GARD_ids.csv"  
+ADDITIONAL_DISEASE_LIST = "src/data/publicdata/disease_data/cleaned/sources/GARD_ids.csv"
 OUTPUT_TSV = "src/data/publicdata/disease_data/index/resolved_disease_mappings.tsv"
 CLUSTERS_PIVOT_TSV = "src/data/publicdata/disease_data/index/resolved_clusters_pivot.tsv"
 TOP_MATCH_TSV = "src/data/publicdata/disease_data/index/resolved_top_matches.tsv"
 TOP_K = 25
 SCORE_THRESHOLD = 0.70
 CLUSTER_THRESHOLD = 0.95
+EXCLUDE_GARD = True
 
 # ───────────── LOAD MODELS ─────────────
-print("\U0001F4E6 Loading model, FAISS index, and metadata...")
+print("📦 Loading model, FAISS index, and metadata...")
 model = SentenceTransformer(MODEL_PATH)
 index = faiss.read_index(INDEX_PATH)
-metadata_df = pd.read_csv(METADATA_CSV, dtype={2: str}, low_memory=False)
+metadata_df = pd.read_csv(METADATA_CSV, dtype=str)
 texts = metadata_df['combined_text'].tolist()
-ids = metadata_df['resolved_id'].tolist()
 sources = metadata_df['source'].tolist()
 
+# Dynamically get the resolved ID per row
+def get_resolved_id(row):
+    col = f"{row['source']}_id"
+    return row.get(col)
+
+ids = [get_resolved_id(r) for _, r in metadata_df.iterrows()]
+
 # ───────────── LOAD QUERIES ─────────────
-print("\U0001F4E5 Loading disease names from provenance and additional list...")
+print("📥 Loading disease names from provenance and additional list...")
 prov_df = pd.read_csv(PROVENANCE_FILE, dtype=str)
 prov_df.rename(columns={
     "nodenorm_Nodenorm_name": "nodenorm_preferred_label",
@@ -43,7 +52,7 @@ prov_df['query_text'] = prov_df[query_cols].fillna('').agg('|'.join, axis=1)
 prov_queries = prov_df['query_text'].dropna().unique().tolist()
 
 extra_queries = []
-if os.path.exists(ADDITIONAL_DISEASE_LIST):
+if not EXCLUDE_GARD and os.path.exists(ADDITIONAL_DISEASE_LIST):
     extra_df = pd.read_csv(ADDITIONAL_DISEASE_LIST, dtype=str)
     if 'GARD_preferred_label' in extra_df.columns:
         extra_queries = extra_df['GARD_preferred_label'].dropna().unique().tolist()
@@ -70,13 +79,16 @@ for query in tqdm(all_queries):
     top_match_recorded = False
 
     for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
-        if score < SCORE_THRESHOLD:
+        if idx == -1 or score < SCORE_THRESHOLD:
             continue
+        matched_id = ids[idx]
+        matched_text = texts[idx]
+        matched_source = sources[idx]
         row = {
             "query": query,
-            "matched_text": texts[idx],
-            "resolved_id": ids[idx],
-            "source": sources[idx],
+            "matched_text": matched_text,
+            "resolved_id": matched_id,
+            "source": matched_source,
             "score": round(float(score), 4)
         }
         all_results.append(row)
@@ -84,7 +96,7 @@ for query in tqdm(all_queries):
             top_matches.append(row)
             top_match_recorded = True
 
-# Append to existing result file if present
+# ───────────── SAVE RESULTS ─────────────
 result_df = pd.DataFrame(all_results)
 if os.path.exists(OUTPUT_TSV):
     existing_df = pd.read_csv(OUTPUT_TSV, sep='\t')
@@ -93,11 +105,11 @@ if os.path.exists(OUTPUT_TSV):
 result_df.to_csv(OUTPUT_TSV, sep='\t', index=False)
 print(f"✅ Saved resolved mappings to {OUTPUT_TSV}")
 
-# Save top matches only
 pd.DataFrame(top_matches).to_csv(TOP_MATCH_TSV, sep='\t', index=False)
 print(f"⭐ Saved top matches to {TOP_MATCH_TSV}")
 
-# ───────────── OPTIONAL: CLUSTER EXTRACTION ─────────────
+# ───────────── BUILD PIVOT CLUSTER TABLE ─────────────
+print("🧮 Building pivot table for high-confidence clusters...")
 high_conf_df = result_df[result_df['score'] >= CLUSTER_THRESHOLD]
 grouped = high_conf_df.groupby('query')
 
@@ -105,10 +117,12 @@ pivot_rows = []
 for query, group in grouped:
     row = {"query": query}
     for _, r in group.iterrows():
-        col_key = f"{r['source']}__{r['resolved_id']}"
-        row[col_key] = r['matched_text']
+        src = r['source']
+        row[f"{src}_id"] = r['resolved_id']
+        row[f"{src}_disease_name"] = r['matched_text']
+        row[f"{src}_score"] = r['score']
     pivot_rows.append(row)
 
 pivot_df = pd.DataFrame(pivot_rows)
 pivot_df.to_csv(CLUSTERS_PIVOT_TSV, sep='\t', index=False)
-print(f"\U0001F4CA Saved high-confidence clusters pivot table to {CLUSTERS_PIVOT_TSV}")
+print(f"📊 Saved high-confidence clusters pivot table to {CLUSTERS_PIVOT_TSV}")
