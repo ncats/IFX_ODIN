@@ -87,6 +87,7 @@ class Protein(Audited, Analyte):
     protein_type: Optional[str] = None
     description: Optional[str] = None
     symbol: Optional[str] = None
+    antibody_count: Optional[int] = None
     ncbi_id: Optional[str] = None
     ensembl_id: Optional[str] = None
     refseq_id: Optional[str] = None

@@ -134,7 +134,7 @@ input_adapters:
   - import: ./src/input_adapters/antibodypedia/antibody_count.py
     class: AntibodyCountAdapter
     kwargs:
-      file_path: ./input_files/manual/antibodypedia/genes.php
+      file_path: ./input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv
 
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter

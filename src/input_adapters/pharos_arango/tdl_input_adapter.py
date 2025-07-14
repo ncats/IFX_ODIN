@@ -144,32 +144,11 @@ FOR p IN `biolink:Protein`
 """
 
 ab_counts = """
-FOR p IN `biolink:Protein`
-  LET genes = (
-    FOR g IN INBOUND p `biolink:translates_to`
-      FILTER g._id LIKE "biolink:Gene/%"
-      RETURN g
-  )
-  LET more_genes = (
-    FOR t IN INBOUND p `biolink:translates_to`
-      FILTER t._id LIKE "biolink:Transcript/%"
-      FOR g IN INBOUND t `biolink:transcribed_to`
-        FILTER g._id LIKE "biolink:Gene/%"
-        RETURN g
-  )
-  LET all_genes = UNION(genes, more_genes)
-
-  LET antibody_counts = (
-    FOR gene IN all_genes
-      FILTER HAS(gene, "antibody_count") && IS_NUMBER(gene.antibody_count)
-      RETURN gene.antibody_count
-  )
-
+FOR n IN `biolink:Protein`
   RETURN {
-    protein_id: p.id,
-    value: LENGTH(antibody_counts) > 0 ? MAX(antibody_counts) : null
+    protein_id: n.id,
+    value: n.antibody_count
   }
-
 """
 
 gene_rif_count = """

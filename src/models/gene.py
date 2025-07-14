@@ -54,7 +54,6 @@ class Gene(Audited, Node):
     pubmed_ids: Optional[List[int]] = None
     mapping_ratio: Optional[float] = None
     symbol: Optional[str] = None
-    antibody_count: Optional[int] = None
     Name_Provenance: Optional[str] = None
     Location_Provenance: Optional[str] = None
     Ensembl_ID_Provenance: Optional[str] = None
