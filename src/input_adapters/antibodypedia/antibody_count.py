@@ -9,6 +9,7 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import EquivalentId
+from src.models.protein import Protein
 
 
 class AntibodyCountAdapter(InputAdapter):
@@ -29,7 +30,7 @@ class AntibodyCountAdapter(InputAdapter):
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
     def get_all(self) -> Generator[List[Gene], None, None]:
-        genes = []
+        proteins = []
         with open(self.file_path, mode='r') as file:
             csv_reader = csv.DictReader(file)
             for row in csv_reader:
@@ -45,7 +46,7 @@ class AntibodyCountAdapter(InputAdapter):
                     antibody_count = 0  # or handle the error
                 if antibody_count <= 0:
                     continue
-                gene_obj = Gene(id=equiv_id.id_str(), antibody_count=antibody_count)
-                genes.append(gene_obj)
+                protein_obj = Protein(id=equiv_id.id_str(), antibody_count=antibody_count)
+                proteins.append(protein_obj)
 
-        yield genes
+        yield proteins

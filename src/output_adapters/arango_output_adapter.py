@@ -18,8 +18,6 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     def create_indexes(self, cls: Type, collection):
         categories, numerics = collect_facets(cls)
 
-        print(f"Creating indexes for {cls.__name__}")
-
         existing_indexes = collection.indexes()
         existing_fields = {tuple(index['fields']) for index in existing_indexes}
 
