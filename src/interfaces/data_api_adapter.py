@@ -38,11 +38,6 @@ class APIAdapter(ABC):
         setattr(instance, 'updates', data.get('updates'))
         return instance
 
-    def get_class_map(self):
-        if not self.class_map:
-            self.initialize_class_map()
-        return self.class_map
-
     def get_class(self, class_name: str):
         if not self.class_map:
             self.initialize_class_map()
