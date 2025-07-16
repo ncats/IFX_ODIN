@@ -1,33 +1,20 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import (
     Source as SqliteSource)
-from src.interfaces.input_adapter import InputAdapter
 from src.models.analyte import Analyte
-from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 
 
-class AnalyteAdapter(InputAdapter, RaMPSqliteAdapter, ABC):
-
-    def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.RaMP
-
-    def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=self.ramp_version_info.db_version.id,
-            version_date=self.ramp_version_info.db_version.timestamp
-        )
+class AnalyteAdapter(RaMPSqliteAdapter, ABC):
 
     @abstractmethod
     def get_source_prefix(self):
         raise NotImplementedError("derived classes must implement get_source_prefix")
 
     def __init__(self, sqlite_file: str):
-        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def add_equivalent_ids(self, analytes: List[Analyte]):

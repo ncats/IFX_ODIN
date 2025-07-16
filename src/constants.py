@@ -122,6 +122,7 @@ class Prefix(SimpleEnum):
     TranscriptSymbol = "Transcript"
     Vega = "Vega"
     Wikidata = "Wikidata"
+    Unknown = "Unknown"  # used for unknown prefixes
 
     # ramp prefixes
     RefMet = "RefMet"

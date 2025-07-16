@@ -6,8 +6,6 @@ from src.input_adapters.sqlite_ramp.tables import Analyte as SqliteAnalyte
 
 
 class MetaboliteAdapter(AnalyteAdapter):
-    name = "RaMP Metabolite Adapter"
-
     def get_source_prefix(self):
         return 'RAMP_C'
 
@@ -16,7 +14,7 @@ class MetaboliteAdapter(AnalyteAdapter):
             SqliteAnalyte.rampId
         ).filter(SqliteAnalyte.type == "compound").all()
 
-        metabolites: [Metabolite] = [
+        metabolites: List[Metabolite] = [
             Metabolite(
                 id=row[0]
             ) for row in results

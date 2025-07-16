@@ -1,9 +1,14 @@
+from abc import ABC
+
+from src.constants import DataSourceName
 from src.input_adapters.sql_adapter import SqliteAdapter
 from src.input_adapters.sqlite_ramp.ramp_version_info import RaMPVersionInfo
+from src.interfaces.input_adapter import InputAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.version import DataVersion, DatabaseVersion
 
 
-class RaMPSqliteAdapter(SqliteAdapter):
+class RaMPSqliteAdapter(SqliteAdapter, InputAdapter, ABC):
     ramp_version_info: RaMPVersionInfo
 
     def __init__(self, sqlite_file):
@@ -19,3 +24,12 @@ class RaMPSqliteAdapter(SqliteAdapter):
 
     def get_database_version(self) -> DatabaseVersion:
         return self.ramp_version_info.db_version
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.RaMP
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=self.ramp_version_info.db_version.id,
+            version_date=self.ramp_version_info.db_version.timestamp
+        )

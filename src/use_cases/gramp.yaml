@@ -1,0 +1,110 @@
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.10.sqlite
+
+input_adapters:
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_adapter.py
+    class: MetaboliteAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_adapter.py
+    class: MetaboliteClassAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
+    class: MetaboliteClassRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_synonym_adapter.py
+    class: MetaboliteSynonymAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_chem_props_adapter.py
+    class: MetaboliteChemPropsAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/protein_adapter.py
+    class: ProteinAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_synonym_adapter.py
+    class: ProteinSynonymAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_protein_relationship_adapter.py
+    class: MetaboliteProteinRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/pathway_adapter.py
+    class: PathwayAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
+    class: MetabolitePathwayRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
+    class: ProteinPathwayRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/ontology_adapter.py
+    class: OntologyAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_ontology_relationship_adapter.py
+    class: MetaboliteOntologyRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/reaction_adapter.py
+    class: ReactionAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/reaction_class_adapter.py
+    class: ReactionClassAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/reaction_class_relationship_adapter.py
+    class: ReactionClassRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/reaction_reaction_class_relationship_adapter.py
+    class: ReactionReactionClassRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_reaction_relationship_adapter.py
+    class: MetaboliteReactionRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/protein_reaction_relationship_adapter.py
+    class: ProteinReactionRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/version_metadata_adapter.py
+    class: VersionMetaAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: gramp
+    credentials: *source_credentials
