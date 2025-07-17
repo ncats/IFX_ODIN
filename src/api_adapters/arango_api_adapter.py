@@ -461,6 +461,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         result = self.runQuery(query)
         return list(result) if result else None
 
+class ArangoPharosAPIAdapter(ArangoAPIAdapter):
     def get_tdl_csv(self, request: Request):
         import io, csv
         from fastapi.responses import StreamingResponse

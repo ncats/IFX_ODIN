@@ -3,8 +3,9 @@ from typing import List, Generator
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalytePathwayRelationship as SqliteAnalytePathwayRelationship
-from src.models.analyte import Analyte
+from src.models.metabolite import Metabolite
 from src.models.pathway import AnalytePathwayRelationship, Pathway
+from src.models.protein import Protein
 
 
 class AnalytePathwayRelationshipAdapter(RaMPSqliteAdapter, ABC):
@@ -25,7 +26,7 @@ class AnalytePathwayRelationshipAdapter(RaMPSqliteAdapter, ABC):
 
         analyte_pathway_relationships: List[AnalytePathwayRelationship] = [
             AnalytePathwayRelationship(
-                start_node=Analyte(id=row[0]),
+                start_node=Metabolite(id=row[0]) if row[0].startswith("RAMP_C") else Protein(id=row[0]),
                 end_node=Pathway(id=row[1]),
                 source=row[2]
             ) for row in results

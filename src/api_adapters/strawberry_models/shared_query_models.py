@@ -140,7 +140,7 @@ def generate_resolvers(ENDPOINTS: Dict[type, Dict[str, str]], EDGES: Dict[type, 
         for model_cls, info in ENDPOINTS.items()
         if "details" in info
     }
-    edge_resolvers = {'edges': create_edge_collection(EDGES)}
+    edge_resolvers = {'edges': create_edge_collection(EDGES)} if EDGES else {}
 
     resolvers = {
         **list_resolvers,

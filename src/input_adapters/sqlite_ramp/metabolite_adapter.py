@@ -11,12 +11,14 @@ class MetaboliteAdapter(AnalyteAdapter):
 
     def get_all(self) -> Generator[List[Metabolite], None, None]:
         results = self.get_session().query(
-            SqliteAnalyte.rampId
+            SqliteAnalyte.rampId,
+            SqliteAnalyte.common_name
         ).filter(SqliteAnalyte.type == "compound").all()
 
         metabolites: List[Metabolite] = [
             Metabolite(
-                id=row[0]
+                id=row[0],
+                name=row[1]
             ) for row in results
         ]
 

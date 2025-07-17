@@ -16,12 +16,13 @@ class ProteinAdapter(AnalyteAdapter):
     def get_all(self) -> Generator[List[Protein], None, None]:
         results = (self.get_session().query(
             SqliteAnalyte.rampId,
+            SqliteAnalyte.common_name,
             SqliteCatalyzed.proteinType
         ).outerjoin(SqliteCatalyzed, SqliteAnalyte.rampId == SqliteCatalyzed.rampGeneId)
                    .filter(SqliteAnalyte.type == "gene").distinct())
 
         nodes: List[Protein] = [
-            Protein(id=row[0], protein_type=row[1]) for row in results
+            Protein(id=row[0], name=row[1], protein_type=row[2]) for row in results
         ]
 
         self.add_equivalent_ids(nodes)

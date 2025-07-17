@@ -5,7 +5,7 @@ labeler:
 
 api_adapter:
   - import: ./src/api_adapters/arango_api_adapter.py
-    class: ArangoAPIAdapter
+    class: ArangoPharosAPIAdapter
     kwargs:
       database_name: pharos
       label: Pharos PROD

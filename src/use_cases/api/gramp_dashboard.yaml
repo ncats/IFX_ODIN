@@ -1,0 +1,21 @@
+api_adapter:
+  - import: ./src/api_adapters/arango_api_adapter.py
+    class: ArangoAPIAdapter
+    kwargs:
+      database_name: gramp
+      label: Graph RaMP
+      imports:
+        - ./src/models/metabolite.py
+        - ./src/models/protein.py
+        - ./src/models/pathway.py
+        - ./src/models/metabolite_class.py
+        - ./src/models/ontology.py
+        - ./src/models/reaction.py
+        - ./src/models/version.py
+    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+
+dashboard:
+  tab_order:
+    - Metabolite
+  models:
+    - class: Metabolite
