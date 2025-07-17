@@ -1,24 +1,16 @@
 from abc import ABC, abstractmethod
 from typing import List, Generator
 
-from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.sqlite_ramp.tables import AnalytePathwayRelationship as SqliteAnalytePathwayRelationship
-from src.models.analyte import Analyte
-from src.models.datasource_version_info import DatasourceVersionInfo
+from src.models.metabolite import Metabolite
 from src.models.pathway import AnalytePathwayRelationship, Pathway
+from src.models.protein import Protein
 
 
-class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter, ABC):
-    name = "RaMP Analyte Pathway Relationship Adapter"
-
-    def get_audit_trail_entries(self, obj: AnalytePathwayRelationship) -> List[str]:
-        data_version = self.get_data_version(obj.source)
-        return [f"Analyte Pathway Relationship from {data_version.name} ({data_version.version})"]
+class AnalytePathwayRelationshipAdapter(RaMPSqliteAdapter, ABC):
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     @abstractmethod
@@ -32,9 +24,9 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
             SqliteAnalytePathwayRelationship.pathwaySource
         ).filter(SqliteAnalytePathwayRelationship.rampId.startswith(self.get_id_prefix())).all()
 
-        analyte_pathway_relationships: [AnalytePathwayRelationship] = [
+        analyte_pathway_relationships: List[AnalytePathwayRelationship] = [
             AnalytePathwayRelationship(
-                start_node=Analyte(id=row[0]),
+                start_node=Metabolite(id=row[0]) if row[0].startswith("RAMP_C") else Protein(id=row[0]),
                 end_node=Pathway(id=row[1]),
                 source=row[2]
             ) for row in results
@@ -43,14 +35,10 @@ class AnalytePathwayRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdap
 
 
 class MetabolitePathwayRelationshipAdapter(AnalytePathwayRelationshipAdapter):
-    name = "RaMP Metabolite Pathway Relationship Adapter"
-
     def get_id_prefix(self) -> str:
         return "RAMP_C"
 
 
 class ProteinPathwayRelationshipAdapter(AnalytePathwayRelationshipAdapter):
-    name = "RaMP Protein Pathway Relationship Adapter"
-
     def get_id_prefix(self) -> str:
         return "RAMP_G"

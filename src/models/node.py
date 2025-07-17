@@ -99,9 +99,20 @@ class EquivalentId:
     @staticmethod
     def parse(id: str):
         prefix_part, id_part = id.split(":", 1)
-        prefix = Prefix.parse(prefix_part)
+        if prefix_part == 'uniprot':
+            prefix = Prefix.UniProtKB
+        elif prefix_part == 'entrez':
+            prefix = Prefix.NCBIGene
+        elif prefix_part == 'gene_symbol':
+            prefix = Prefix.Symbol
+        elif prefix_part == 'ncbiprotein':
+            prefix = Prefix.Unknown
+        else:
+            prefix = Prefix.parse(prefix_part)
+
         if prefix is None:
             print(f"unknown prefix: {prefix_part}")
+            prefix = Prefix.Unknown
         return EquivalentId(id=id_part, type=prefix)
 
     def __hash__(self):

@@ -1,23 +1,13 @@
 from typing import List, Generator
-
-from src.constants import DataSourceName
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.interfaces.input_adapter import InputAdapter
-from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite import Metabolite
 from src.models.metabolite_class import MetaboliteClassRelationship, MetaboliteClass
 from src.input_adapters.sqlite_ramp.tables import MetaboliteClass as SqliteMetaboliteClass
 
 
-class MetaboliteClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAdapter):
-    name = "RaMP Metabolite Class Relationship Adapter"
-
-    def get_audit_trail_entries(self, obj: MetaboliteClassRelationship) -> List[str]:
-        data_version = self.get_data_version(obj.source)
-        return [f"Metabolite Class Relationship from {data_version.name} ({data_version.version})"]
+class MetaboliteClassRelationshipAdapter(RaMPSqliteAdapter):
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
     def get_all(self) -> Generator[List[MetaboliteClassRelationship], None, None]:
@@ -28,7 +18,7 @@ class MetaboliteClassRelationshipAdapter(RelationshipInputAdapter, RaMPSqliteAda
             SqliteMetaboliteClass.source
         ).all()
 
-        metabolite_class_relationships: [MetaboliteClassRelationship] = [
+        metabolite_class_relationships: List[MetaboliteClassRelationship] = [
             MetaboliteClassRelationship(
                 start_node=Metabolite(id=row[0]),
                 end_node=MetaboliteClass(

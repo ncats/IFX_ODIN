@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from src.models.analyte import Analyte
+from src.models.metabolite import Metabolite
 from src.models.node import Node, Relationship
 
 
@@ -10,6 +10,6 @@ class Ontology(Node):
 
 
 @dataclass
-class AnalyteOntologyRelationship(Relationship):
-    start_node: Analyte
+class MetaboliteOntologyRelationship(Relationship):
+    start_node: Metabolite
     end_node: Ontology

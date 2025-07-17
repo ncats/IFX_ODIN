@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Generator
 
 from src.input_adapters.sqlite_ramp.analyte_adapter import AnalyteAdapter
 from src.input_adapters.sqlite_ramp.tables import (
@@ -8,28 +8,23 @@ from src.models.protein import Protein
 
 
 class ProteinAdapter(AnalyteAdapter):
-    name = "RaMP Protein Adapter"
     cached_child_audit_trail_info = None
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        version_info = AnalyteAdapter.get_audit_trail_entries(self, obj)
-        version_info.append(f"protein_type field based on HMDB version: {self.get_data_version('hmdb').version}")
-        return version_info
 
     def get_source_prefix(self):
         return 'RAMP_G'
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[Protein], None, None]:
         results = (self.get_session().query(
             SqliteAnalyte.rampId,
+            SqliteAnalyte.common_name,
             SqliteCatalyzed.proteinType
         ).outerjoin(SqliteCatalyzed, SqliteAnalyte.rampId == SqliteCatalyzed.rampGeneId)
                    .filter(SqliteAnalyte.type == "gene").distinct())
 
-        nodes: [Protein] = [
-            Protein(id=row[0], protein_type=row[1]) for row in results
+        nodes: List[Protein] = [
+            Protein(id=row[0], name=row[1], protein_type=row[2]) for row in results
         ]
 
         self.add_equivalent_ids(nodes)
 
-        return nodes
+        yield nodes

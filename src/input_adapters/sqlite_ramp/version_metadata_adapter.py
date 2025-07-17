@@ -1,25 +1,17 @@
-from typing import List
+from typing import List, Generator
 
 from sqlalchemy import desc
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
-from src.interfaces.input_adapter import InputAdapter
 from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
 
 
-class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteAdapter):
-    name = "RaMP Metadata Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [
-            f"RaMP data version: {self.get_database_version().id}"
-        ]
+class VersionMetaAdapter(RaMPSqliteAdapter):
 
     def __init__(self, sqlite_file):
-        InputAdapter.__init__(self)
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
-    def get_all(self):
+    def get_all(self) -> Generator[List[DatabaseVersion], None, None]:
         result = self.get_session().query(
             SqliteDBVersion.ramp_version,
             SqliteDBVersion.load_timestamp,
@@ -39,7 +31,7 @@ class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteA
             SqliteVersionInfo.data_source_version
         ).filter(SqliteVersionInfo.status == 'current').all()
 
-        data_versions: [DataVersion] = [
+        data_versions: List[DataVersion] = [
             DataVersion(
                 id=row[0],
                 name=row[1],
@@ -48,11 +40,11 @@ class VersionMetaAdapter(NodeInputAdapter, RelationshipInputAdapter, RaMPSqliteA
             ) for row in results
         ]
 
-        relationships: [DatabaseDataVersionRelationship] = [
+        relationships: List[DatabaseDataVersionRelationship] = [
             DatabaseDataVersionRelationship(
                 start_node=db_version,
                 end_node=data_version
             ) for data_version in data_versions
         ]
-        return [db_version, *data_versions, *relationships]
+        yield [db_version, *data_versions, *relationships]
 

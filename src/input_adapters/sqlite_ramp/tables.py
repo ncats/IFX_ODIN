@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -15,6 +15,7 @@ class Analyte(Base):
     __tablename__ = 'analyte'
     rampId = Column(String(length=30), nullable=False, primary_key=True)
     type = Column(String(length=30), nullable=True)
+    common_name = Column(Text, nullable=True)
 
 class Pathway(Base):
     __tablename__ = 'pathway'

@@ -38,11 +38,6 @@ class APIAdapter(ABC):
         setattr(instance, 'updates', data.get('updates'))
         return instance
 
-    def get_class_map(self):
-        if not self.class_map:
-            self.initialize_class_map()
-        return self.class_map
-
     def get_class(self, class_name: str):
         if not self.class_map:
             self.initialize_class_map()
@@ -81,12 +76,12 @@ class APIAdapter(ABC):
     @abstractmethod
     def get_graph_representation(self, unlabel: bool = False) -> nx.Graph:
         """Get the graph representation of the data."""
-        raise NotImplementedError("Derived classes must implement get_graph")
+        raise NotImplementedError("Derived classes must implement get_graph_representation")
 
     @abstractmethod
     def list_nodes(self):
         """List all data models in the database."""
-        raise NotImplementedError("Derived classes must implement list_data_models")
+        raise NotImplementedError("Derived classes must implement list_nodes")
 
     @abstractmethod
     def list_edges(self):
@@ -108,12 +103,12 @@ class APIAdapter(ABC):
     @abstractmethod
     def get_list(self, context: ListQueryContext, top: int, skip: int) -> ListQueryResult:
         """Get the data model."""
-        raise NotImplementedError("Derived classes must implement get_data_model")
+        raise NotImplementedError("Derived classes must implement get_list")
 
     @abstractmethod
     def get_count(self, context: ListQueryContext = None) -> int:
         """Get the data model."""
-        raise NotImplementedError("Derived classes must implement get_data_model")
+        raise NotImplementedError("Derived classes must implement get_count")
 
     @abstractmethod
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
@@ -140,7 +135,7 @@ class APIAdapter(ABC):
 
     @abstractmethod
     def get_linked_list_details(self, context: LinkedListQueryContext, top: int, skip: int) -> List[LinkDetails]:
-        raise NotImplementedError("Derived classes must implement get_linked_list")
+        raise NotImplementedError("Derived classes must implement get_linked_list_details")
 
     @abstractmethod
     def get_linked_list_facets(self, context: LinkedListQueryContext, node_facets: Optional[List[str]], edge_facets: Optional[List[str]]) -> List[FacetQueryResult]:
@@ -173,12 +168,12 @@ class APIAdapter(ABC):
     @abstractmethod
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
         """Get the data model."""
-        raise NotImplementedError("Derived classes must implement get_data_model")
+        raise NotImplementedError("Derived classes must implement resolve_id")
 
     @abstractmethod
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
         """Get the data model."""
-        raise NotImplementedError("Derived classes must implement get_data_model")
+        raise NotImplementedError("Derived classes must implement get_details")
 
     @abstractmethod
     def get_edge_types(self, data_model: str):
