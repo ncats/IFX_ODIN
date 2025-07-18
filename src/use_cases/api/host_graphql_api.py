@@ -39,28 +39,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for api_config in api_configs:
-    yaml_file = api_config["yaml_file"]
-    prefix = api_config["prefix"]
-    query_function = api_config["query_function"]
-
+def create_graphql_router(prefix, yaml_file, query_function):
     dashboard = HostDashboardFromYaml(yaml_file=yaml_file)
     api = dashboard.api_adapter
     url = dashboard.configuration.config_dict['api_adapter'][0]['credentials']['url']
-    Query = query_function(url)
 
-    schema = strawberry.Schema(query=Query, config=StrawberryConfig(auto_camel_case=False))
+    QueryClass = query_function(url)  # ✅ New class
+    schema = strawberry.Schema(query=QueryClass, config=StrawberryConfig(auto_camel_case=False))
 
     def get_context(request: Request):
         return {"request": request, "api": api}
 
-    graphql_app = GraphQLRouter(schema, context_getter=get_context)
+    graphql_router = GraphQLRouter(schema, context_getter=get_context)
 
-    app.include_router(graphql_app, prefix=f"/graphql/{prefix}")
+    rest_router = APIRouter()
+    for path, handler in api.get_rest_endpoints().items():
+        rest_router.add_api_route(f"/rest/{prefix}/{path}", handler, methods=["GET"])
 
-    rest_endpoints = api.get_rest_endpoints()
-    router = APIRouter()
+    return graphql_router, rest_router
 
-    for path, handler in rest_endpoints.items():
-        router.add_api_route(f"/rest/{prefix}/{path}", handler, methods=["GET"])
-    app.include_router(router)
+# Now create and include each one
+for api_config in api_configs:
+    prefix = api_config["prefix"]
+    yaml_file = api_config["yaml_file"]
+    query_function = api_config["query_function"]
+
+    graphql_router, rest_router = create_graphql_router(prefix, yaml_file, query_function)
+
+    app.include_router(graphql_router, prefix=f"/graphql/{prefix}")
+    app.include_router(rest_router)
