@@ -13,7 +13,7 @@ from src.models.reaction import Reaction
 @facets(category_fields=['type', 'identfication_level'])
 class Metabolite(Analyte):
     name: Optional[str] = None
-    type: Optional[str] = None,
+    type: Optional[str] = None
     identification_level: Optional[int] = None
 
 
