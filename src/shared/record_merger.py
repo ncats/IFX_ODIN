@@ -106,7 +106,13 @@ class RecordMerger:
                                 existing_node[prop] = list(set(existing_prop_value + record[prop]))
                         else:
                             updates.append(f"{prop}\tNULL\t{len(record[prop])} entries being merged\t{record['provenance']}")
-                            existing_node[prop] = list(set(record[prop]))
+
+                            value = record[prop]
+                            if value and isinstance(value[0], dict):
+                                deduped = list({json.dumps(d, sort_keys=True) for d in value})
+                                existing_node[prop] = [json.loads(d) for d in deduped]
+                            else:
+                                existing_node[prop] = list(set(value))
                     else:
                         raise Exception('key is neither field nor list', prop, record)
 

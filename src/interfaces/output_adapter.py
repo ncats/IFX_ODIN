@@ -6,7 +6,6 @@ from typing import List, Union
 
 from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.simple_enum import Label
-from src.models.analyte import Analyte
 from src.models.generif import GeneRif
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
@@ -73,12 +72,6 @@ class OutputAdapter(ABC):
                     list(set([x.id_str() for x in obj.xref]))
                 )
 
-        if isinstance(obj, Analyte):
-            if hasattr(obj, 'synonyms'):
-                ret_dict['synonyms'] = self.remove_none_values_from_list(
-                    list(set([syn.term for syn in obj.synonyms])))
-                ret_dict['synonym_sources'] = self.remove_none_values_from_list(
-                    list(set([syn.source for syn in obj.synonyms])))
         if isinstance(obj, GeneRif):
             ret_dict['pmids'] = list(obj.pmids)
         if isinstance(obj, InvestigatorRelationship):
