@@ -1,13 +1,6 @@
-## 🔧 Capabilities
+# Entity Resolver Pipeline
 
-- Modular pipelines for each biomedical entity domain (Targets, Diseases, Drugs, etc.)
-- Full provenance tracking and QC toggling
-- Unified identifier resolution and consolidation logic
-- Reproducible metadata and structured diffs
-- Support for FTP, REST, and SPARQL-based ingestion
-- Designed for seamless handoff or csv files for resolved entities
-
----
+This repository contains a modular, config-driven data curation and processing pipeline for biomedical entities such as genes, transcripts, proteins, pathways, and diseases. It is designed to support reproducibility, automation, and downstream graph modeling.
 
 ## 🛠️ Getting Started
 
@@ -19,53 +12,77 @@ pip install -r requirements.txt
 python src/code/main.py --help
 ```
 
-### 1) Run the pipeline
+## 🧩 Global `qc_mode` Flag
 
-#### Run all processors:
-```bash
-python src/code/main.py ALL
+All YAML config files include a top-level `qc_mode` setting:
+
+```yaml
+qc_mode: true
 ```
 
-#### Run a specific domain (e.g., TARGETS):
+When enabled, this flag activates the following quality control features:
+
+* Intermediate `.qc.csv` files with mapping or merge stats
+* Flagged rows for manual review and debugging
+* Partial transformation outputs for inspection
+* All saved under `qc/` directories alongside cleaned outputs
+
+Set `qc_mode: false` in production for faster runs and minimal output.
+
+
+## 📁 Structure
 ```bash
-python src/code/main.py TARGETS --all
-python src/code/main.py DISEASES --all
-python src/code/main.py DRUGS --all
+src/code/                    # Core processing scripts
+├── publicdata/         # Domain-specific modules (targets, drugs, etc.)
+│   └── target_data/    # e.g., ensembl_download.py, ncbi_transform.py...
+│   └── disease_data/    # e.g., mondo_download.py, disease_merge.py...
+src/data/                   # Input/output
+│   └── target_data/
+│        └── raw/                # Downloaded files (ignored in Git)
+│        └── cleaned/            # Final curated outputs
+│            └── sources/        # cleaned dataframes
+│        └── metadata/           # Metadata & provenance
+│        └── qc/               # intermediate files for QC & mapping stats
+src/workflows/              # Snakemake workflows, cron scripts
+src/tests/                  # Pytest unit tests per module
 ```
 
-#### Run specific processor(s) (e.g., gene_merge, protein_merge):
+## 🛠️ Usage
+examples:
 ```bash
-python src/code/main.py TARGETS --gene_merge --protein_merge
+python src/scripts/main.py TARGETS --all
+```
+or 
+```bash
+python main.py TARGETS --ncbi_download
 ```
 
-> ⚠️ Each processor can be toggled into `qc_mode` using the global config flag to control intermediate qc outputs.
+## 📦 Dependencies
 
+Install with pip:
+
+```bash
+pip install -r requirements.txt
+```
+
+Or via conda:
+
+```bash
+conda env create -f tgbuild.yml
+```
+
+## 📊 Outputs
+- Raw source data downloads in `*data/raw/`
+- Cleaned TSVs/CSVs in `*data/cleaned/`
+- Metadata, logs, and diffs in `*data/metadata/`
+
+## 📅 Automate
+
+Workflows can be scheduled using tools like `cron`, SLURM, or integrated into CI/CD pipelines. For DAG-based execution:
+
+```bash
+snakemake -s src/workflows/targets.Snakefile --cores 4
+```
 ---
 
-## 🧠 Pipeline Logic
-
-Each domain (TARGETS, DRUGS, etc.) consists of modular Python scripts for:
-
-- **Download**: Retrieve raw files from FTP, REST APIs, or SPARQL endpoints.
-- **Transform**: Clean and structure files into intermediate CSVs.
-- **Merge**: Harmonize identifiers across sources with detailed provenance.
-- **Resolve IDs**: Consolidate and upsert NCATS identifiers.
-- **Metadata**: Each step logs metadata in a structured JSON format.
-
-QC and diff outputs are automatically routed to `src/data/**/qc/` and metadata to `src/data/**/metadata/`.
-
----
-
-## 📁 Directory Layout
-
-```
-config/         # YAML configs per domain
-src/
-  ├── code/
-  │   └── publicdata/  # Modular data processing scripts
-  └── data/
-      ├── raw/         # Unmodified downloaded files
-      ├── cleaned/     # Transformed and merged outputs
-      ├── qc/          # Intermediate debug/QC files
-      └── metadata/    # Metadata logs and reports
-```
+© 2025 NCATS_IFX
