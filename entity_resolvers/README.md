@@ -52,7 +52,7 @@ examples:
 ```bash
 python src/scripts/main.py TARGETS --all
 ```
-or 
+or
 ```bash
 python main.py TARGETS --ncbi_download
 ```
@@ -85,4 +85,4 @@ snakemake -s src/workflows/targets.Snakefile --cores 4
 ```
 ---
 
-© 2025 NCATS_IFX
+© 2025 NCATS_IFX  
