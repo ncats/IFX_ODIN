@@ -52,7 +52,7 @@ examples:
 ```bash
 python src/scripts/main.py TARGETS --all
 ```
-or 
+or
 ```bash
 python main.py TARGETS --ncbi_download
 ```
