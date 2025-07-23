@@ -36,6 +36,9 @@ class ActivityDetails:
 
     @classmethod
     def from_dict(cls, data: dict):
+        if 'act_pmids' in data and isinstance(data['act_pmids'], list):
+            data['act_pmids'] = [pmid for pmid in data['act_pmids'] if pmid is not None]
+
         return cls(**data)
 
 @dataclass
