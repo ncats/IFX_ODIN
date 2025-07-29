@@ -10,11 +10,12 @@ from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
+from src.models.metabolite import Metabolite
 from src.models.node import Node, Relationship, EquivalentId
 from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleBiospecimenRelationship, \
     SampleAnalyteRelationship
 from src.models.pounce.experiment import Experiment
-from src.models.pounce.project import Project
+from src.models.pounce.project import Project, ProjectType, ProjectTypeRelationship
 from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
 
 
@@ -43,16 +44,24 @@ def get_sample_map(file_path: str) -> Dict[str, Sample]:
 
 class CCLEInputAdapter(InputAdapter, ABC):
     cell_line_annotation_file: str
-    data_files: List[str]
-    field_names: List[str]
+    rnaseq_data_files: List[str]
+    rnaseq_field_names: List[str]
+    lcms_data_file: str
+
     download_date: date
 
-    def __init__(self, cell_line_annotation_file: str, data_files: List[str], field_names: List[str]):
+    def __init__(self,
+                 cell_line_annotation_file: str,
+                 rnaseq_data_files: List[str],
+                 rnaseq_field_names: List[str],
+                 lcms_data_file: str
+                 ):
         InputAdapter.__init__(self)
         self.cell_line_annotation_file = cell_line_annotation_file
-        self.data_files = data_files
-        self.field_names = field_names
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(self.data_files[0])).date()
+        self.rnaseq_data_files = rnaseq_data_files
+        self.rnaseq_field_names = rnaseq_field_names
+        self.download_date = datetime.fromtimestamp(os.path.getmtime(self.rnaseq_data_files[0])).date()
+        self.lcms_data_file = lcms_data_file
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.CCLE
@@ -87,9 +96,19 @@ class CCLEInputAdapter(InputAdapter, ABC):
         proj_exp_edge = ProjectExperimentRelationship(
             start_node=proj_obj, end_node=experiment_obj
         )
-        yield [proj_obj, experiment_obj, proj_exp_edge]
 
-        sample_dict = get_sample_map(self.data_files[0])
+        proj_type = ProjectType(
+            id="Disease Characterization", name="Disease Characterization"
+        )
+
+        proj_proj_type_edge = ProjectTypeRelationship(
+            start_node=proj_obj,
+            end_node=proj_type
+        )
+
+        yield [proj_obj, proj_type, proj_proj_type_edge, experiment_obj, proj_exp_edge]
+
+        sample_dict = get_sample_map(self.rnaseq_data_files[0])
 
         yield list(sample_dict.values())
 
@@ -140,9 +159,10 @@ class CCLEInputAdapter(InputAdapter, ABC):
 
         limit = None
         samp_gene_edges = []
+        genes = {}
 
-        for index, file_path in enumerate(self.data_files):
-            field_name = self.field_names[index]
+        for index, file_path in enumerate(self.rnaseq_data_files):
+            field_name = self.rnaseq_field_names[index]
             count = 0
             with get_reader(file_path) as reader:
                 for row in reader:
@@ -155,9 +175,13 @@ class CCLEInputAdapter(InputAdapter, ABC):
                     else:
                         gene_id = row['gene_id'].split('.')[0]
 
-                    gene_obj = Gene(
-                        id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
-                    )
+                    if gene_id in genes:
+                        gene_obj = genes[gene_id]
+                    else:
+                        gene_obj = Gene(
+                            id = EquivalentId(id=gene_id, type=Prefix.ENSEMBL).id_str()
+                        )
+                        genes[gene_id] = gene_obj
 
                     for sample, sample_obj in sample_dict.items():
                         measurement_value = float(row[sample])
@@ -176,5 +200,46 @@ class CCLEInputAdapter(InputAdapter, ABC):
                         samp_gene_edges = []
 
         end_time = datetime.now()
-        print(f"parsing ccle data took:{end_time - start_time}s")
+        yield list(genes.values())
         yield samp_gene_edges
+        yield from self.get_lcms_data(sample_dict)
+
+        print(f"parsing ccle data took:{end_time - start_time}s")
+
+    def get_lcms_data(self, sample_dict: Dict[str, Sample]) -> Generator[List[Union[Node, Relationship]], None, None]:
+        with open(self.lcms_data_file, 'r') as file:
+            reader = csv.DictReader(file)
+            metabolite_names = reader.fieldnames[2:]  # skip the first column (assumed to be sample or ID)
+
+            metabolites = {name: Metabolite(id=name, name=name)
+                for name in metabolite_names
+            }
+
+            yield list(metabolites.values())
+
+            metabolite_edges = []
+
+            for line in reader:
+                ccle_id = line.get('CCLE_ID')
+                sample_obj = sample_dict.get(ccle_id)
+                if sample_obj is None:
+                    continue
+
+                for metabolite_name in reader.fieldnames[2:]:
+                    metabolite_obj = metabolites.get(metabolite_name)
+
+                    if metabolite_obj is None:
+                        raise Exception(f"Metabolite {metabolite_name} not found in metabolites dictionary")
+
+                    samp_met_edge = SampleAnalyteRelationship(
+                        start_node=sample_obj,
+                        end_node=metabolite_obj,
+                        stats_ready_data=line[metabolite_name]
+                    )
+                    metabolite_edges.append(samp_met_edge)
+                    if len(metabolite_edges) >= self.batch_size:
+                        yield metabolite_edges
+                        metabolite_edges = []
+
+            yield metabolite_edges
+
