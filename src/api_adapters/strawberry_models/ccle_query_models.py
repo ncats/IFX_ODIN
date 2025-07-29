@@ -14,11 +14,10 @@ from src.models.pounce.data import (Biospecimen as BiospecimenBase, Sample as Sa
                                     SampleBiospecimenRelationship as SampleBiospecimenRelationshipBase,
                                     SampleAnalyteRelationship as SampleAnalyteRelationshipBase,
                                     ExperimentSampleRelationship as ExperimentSampleRelationshipBase)
-from src.models.pounce.investigator import Investigator as InvestigatorBase, ProjectInvestigatorRelationship as ProjectInvestigatorRelationshipBase
 from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship as ProjectExperimentRelationshipBase
-from src.models.protein import Protein as ProteinBase
+
 from src.models.pounce.project import Project as ProjectBase, ProjectType as ProjectTypeBase, ProjectTypeRelationship as ProjectTypeRelationshipBase
-from src.models.pounce.experiment import Experiment as ExperimentBase, ExperimentInvestigatorRelationship as ExperimentInvestigatorRelationshipBase
+from src.models.pounce.experiment import Experiment as ExperimentBase
 from src.models.gene import Gene as GeneBase, GeneticLocation
 from src.models.metabolite import Metabolite as MetaboliteBase
 
@@ -63,8 +62,8 @@ class Biospecimen(BiospecimenBase):
             dest_data_model="Biospecimen",
             intermediate_data_models=["Sample"],
             edge_models=["ExperimentSampleRelationship", "SampleBiospecimenRelationship" ],
-            dest_id=root.id,
-            filter=filter
+            dest_id=root.id
+            # filter=filter
         )
         result = api.get_networked_list(context)
         return result
@@ -119,20 +118,6 @@ class Sample(SampleBase):
         return result
 
     @strawberry.field()
-    def proteins(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "SampleProteinQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Sample",
-            source_id=root.id,
-            dest_data_model="Protein",
-            edge_model="SampleAnalyteRelationship",
-            dest_id=None,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
-
-    @strawberry.field()
     def metabolites(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "SampleMetaboliteQueryResult":
         api = info.context["api"]
         context = LinkedListQueryContext(
@@ -141,60 +126,6 @@ class Sample(SampleBase):
             dest_data_model="Metabolite",
             edge_model="SampleAnalyteRelationship",
             dest_id=None,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
-
-@strawberry.type
-class Investigator(InvestigatorBase):
-    @strawberry.field()
-    def provenance(root) -> Provenance:
-        return Provenance.parse_provenance_fields(root)
-
-    @strawberry.field()
-    def projects(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "InvestigatorProjectQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Project",
-            source_id=None,
-            dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship",
-            dest_id=root.id,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
-
-    @strawberry.field()
-    def experiments(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "InvestigatorExperimentQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Experiment",
-            source_id=None,
-            dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship", # should be ExperimentInvestigatorRelationship, but the database is wrong right now
-            dest_id=root.id,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
-
-@strawberry.type
-class Protein(ProteinBase):
-    @strawberry.field()
-    def provenance(root) -> Provenance:
-        return Provenance.parse_provenance_fields(root)
-
-    @strawberry.field()
-    def samples(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ProteinSampleQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Sample",
-            source_id=None,
-            dest_data_model="Protein",
-            edge_model="SampleAnalyteRelationship",
-            dest_id=root.id,
             filter=filter
         )
         result = api.get_linked_list(context)
@@ -228,20 +159,6 @@ class Project(ProjectBase):
             source_id=root.id,
             dest_data_model="Experiment",
             edge_model="ProjectExperimentRelationship",
-            dest_id=None,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
-
-    @strawberry.field()
-    def investigators(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ProjectInvestigatorQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Project",
-            source_id=root.id,
-            dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship",
             dest_id=None,
             filter=filter
         )
@@ -334,22 +251,6 @@ class Experiment(ExperimentBase):
         return obj_results
 
     @strawberry.field()
-    def protein_data(root, info: Info, biospecimen_id: Optional[str] = None, protein_id: Optional[str] = None, top: Optional[int] = 10, skip: Optional[int] = 0) -> Optional[List["ProteinDataResults"]]:
-        api: ArangoAPIAdapter = info.context["api"]
-        query = Experiment.data_query(root, "Protein", biospecimen_id=biospecimen_id, analyte_id=protein_id, top=top, skip=skip)
-        results = api.runQuery(query)
-        obj_results = [
-            ProteinDataResults(
-                sample=api.convert_to_class("Sample", row['sample']),
-                biospecimen=api.convert_to_class("Biospecimen", row['biospecimen']),
-                protein=api.convert_to_class("Protein", row['analyte']),
-                data_edge=api.convert_to_class("SampleAnalyteRelationship", row['data_edge'])
-            )
-            for row in results
-        ]
-        return obj_results
-
-    @strawberry.field()
     def projects(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ExperimentProjectQueryResult":
         api = info.context["api"]
         context = LinkedListQueryContext(
@@ -363,20 +264,6 @@ class Experiment(ExperimentBase):
         result = api.get_linked_list(context)
         return result
 
-
-    @strawberry.field()
-    def investigators(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ExperimentInvestigatorQueryResult":
-        api = info.context["api"]
-        context = LinkedListQueryContext(
-            source_data_model="Experiment",
-            source_id=root.id,
-            dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship", # should be ExperimentInvestigatorRelationship, but the database is wrong right now
-            dest_id=None,
-            filter=filter
-        )
-        result = api.get_linked_list(context)
-        return result
 
     @strawberry.field()
     def samples(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "ExperimentSampleQueryResult":
@@ -472,21 +359,6 @@ class ProjectExperimentRelationship(ProjectExperimentRelationshipBase):
     start_node: Project
     end_node: Experiment
 
-@strawberry.type
-class ProjectInvestigatorRelationship(ProjectInvestigatorRelationshipBase):
-    @strawberry.field()
-    def provenance(root) -> Provenance:
-        return Provenance.parse_provenance_fields(root)
-    start_node: Project
-    end_node: Investigator
-
-@strawberry.type
-class ExperimentInvestigatorRelationship(ExperimentInvestigatorRelationshipBase):
-    @strawberry.field()
-    def provenance(root) -> Provenance:
-        return Provenance.parse_provenance_fields(root)
-    start_node: Experiment
-    end_node: Investigator
 
 @strawberry.type
 class ProjectTypeRelationship(ProjectTypeRelationshipBase):
@@ -502,7 +374,7 @@ class SampleAnalyteRelationship(SampleAnalyteRelationshipBase):
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
     start_node: Sample
-    end_node: Union[Gene, Metabolite, Protein]
+    end_node: Union[Gene, Metabolite]
 
 
 @strawberry.type
@@ -510,13 +382,6 @@ class GeneDataResults:
     sample: Sample
     biospecimen: Optional[Biospecimen]
     gene: Gene
-    data_edge: SampleAnalyteRelationship
-
-@strawberry.type
-class ProteinDataResults:
-    sample: Sample
-    biospecimen: Optional[Biospecimen]
-    protein: Protein
     data_edge: SampleAnalyteRelationship
 
 @strawberry.type
@@ -534,10 +399,8 @@ BiospecimenExperimentQueryResult = make_networked_list_result_type("BiospecimenE
 
 SampleGeneQueryResult = make_linked_list_result_type("SampleGeneQueryResult", "SampleGeneDetails", SampleAnalyteRelationship, Gene)
 SampleMetaboliteQueryResult = make_linked_list_result_type("SampleMetaboliteQueryResult", "SampleMetaboliteDetails", SampleAnalyteRelationship, Metabolite)
-SampleProteinQueryResult = make_linked_list_result_type("SampleProteinQueryResult", "SampleProteinDetails", SampleAnalyteRelationship, Protein)
 GeneSampleQueryResult = make_linked_list_result_type("GeneSampleQueryResult", "GeneSampleDetails", SampleAnalyteRelationship, Sample)
 MetaboliteSampleQueryResult = make_linked_list_result_type("MetaboliteSampleQueryResult", "MetaboliteSampleDetails", SampleAnalyteRelationship, Sample)
-ProteinSampleQueryResult = make_linked_list_result_type("ProteinSampleQueryResult", "ProteinSampleDetails", SampleAnalyteRelationship, Sample)
 
 ProjectProjectTypeQueryResult = make_linked_list_result_type("ProjectProjectTypeQueryResult", "ProjectProjectTypeDetails", ProjectTypeRelationship, ProjectType)
 ProjectTypeProjectQueryResult = make_linked_list_result_type("ProjectTypeProjectQueryResult", "ProjectTypeProjectDetails", ProjectTypeRelationship, Project)
@@ -548,11 +411,6 @@ BiospecimenSampleQueryResult = make_linked_list_result_type("BiospecimenSampleQu
 ProjectExperimentQueryResult = make_linked_list_result_type("ProjectExperimentQueryResult", "ProjectExperimentDetails", ProjectExperimentRelationship, Experiment)
 ExperimentProjectQueryResult = make_linked_list_result_type("ExperimentProjectQueryResult", "ExperimentProjectDetails", ProjectExperimentRelationship, Project)
 
-ProjectInvestigatorQueryResult = make_linked_list_result_type("ProjectInvestigatorQueryResult", "ProjectInvestigatorDetails", ProjectInvestigatorRelationship, Investigator)
-InvestigatorProjectQueryResult = make_linked_list_result_type("InvestigatorProjectQueryResult", "InvestigatorProjectDetails", ProjectInvestigatorRelationship, Project)
-
-ExperimentInvestigatorQueryResult = make_linked_list_result_type("ExperimentInvestigatorQueryResult", "ExperimentInvestigatorDetails", ExperimentInvestigatorRelationship, Investigator)
-InvestigatorExperimentQueryResult = make_linked_list_result_type("InvestigatorExperimentQueryResult", "InvestigatorExperimentDetails", ExperimentInvestigatorRelationship, Experiment)
 
 ENDPOINTS: Dict[type, Dict[str, str]] = {
     Project: {
@@ -563,10 +421,6 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
         "list": "experiments",
         "details": "resolve_experiment"
     },
-    Investigator: {
-        "list": "investigators",
-        "details": "resolve_investigator"
-    },
     Biospecimen: {
         "list": "biospecimens",
         "details": "resolve_biospecimen"
@@ -574,10 +428,6 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     Sample: {
         "list": "samples",
         "details": "resolve_sample"
-    },
-    Protein: {
-        "list": "proteins",
-        "details": "resolve_protein"
     },
     ProjectType: {
         "list": "project_types",
@@ -596,11 +446,9 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
 EDGES : Dict[type, str] = {
     SampleAnalyteRelationship: "sample_analyte_edges",
     ProjectTypeRelationship: "project_type_edges",
-    ExperimentInvestigatorRelationship: "experiment_investigator_edges",
     ExperimentSampleRelationship: "experiment_sample_edges",
     SampleBiospecimenRelationship: "sample_biospecimen_edges",
-    ProjectExperimentRelationship: "project_experiment_edges",
-    ProjectInvestigatorRelationship: "project_investigator_edges"
+    ProjectExperimentRelationship: "project_experiment_edges"
 }
 
 

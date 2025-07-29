@@ -8,6 +8,7 @@ from strawberry.fastapi import GraphQLRouter
 from src.api_adapters.strawberry_models.pharos_query_models import Query as pharosQuery
 from src.api_adapters.strawberry_models.pounce_query_models import Query as pounceQuery
 from src.api_adapters.strawberry_models.gramp_query_models import Query as grampQuery
+from src.api_adapters.strawberry_models.ccle_query_models import Query as ccleQuery
 
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
@@ -26,6 +27,11 @@ api_configs = [
         "prefix": "gramp",
         "yaml_file": "./src/use_cases/api/gramp_dashboard.yaml",
         "query_function": grampQuery
+    },
+    {
+        "prefix": "ccle",
+        "yaml_file": "./src/use_cases/api/ccle_dashboard.yaml",
+        "query_function": ccleQuery
     }
 ]
 
