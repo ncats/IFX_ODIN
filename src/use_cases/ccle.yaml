@@ -19,6 +19,21 @@ resolvers:
 
 
 input_adapters:
+  - import: ./src/input_adapters/cellosaurus/cellosaurus.py
+    class: CellosaurusCellLineAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
+
+  - import: ./src/input_adapters/cellosaurus/disease.py
+    class: DiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
+
+  - import: ./src/input_adapters/cellosaurus/disease.py
+    class: DiseaseCellLineRelationshipAdapter
+    kwargs:
+      file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
+
   - import: ./src/input_adapters/ccle/experiment_and_project.py
     class: CCLEInputAdapter
     kwargs:
