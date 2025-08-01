@@ -160,6 +160,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
         limit = None
         samp_gene_edges = []
         genes = {}
+        yielded_genes = set()
 
         for index, file_path in enumerate(self.rnaseq_data_files):
             field_name = self.rnaseq_field_names[index]
@@ -196,14 +197,24 @@ class CCLEInputAdapter(InputAdapter, ABC):
                         samp_gene_edge.__setattr__(field_name, measurement_value)
 
                     if len(samp_gene_edges) > self.batch_size:
+
+                        unyielded_genes = [gene for gene in genes.values() if gene.id not in yielded_genes]
+                        yield unyielded_genes
+                        yielded_genes.update([gene.id for gene in unyielded_genes])
+
                         yield samp_gene_edges
                         samp_gene_edges = []
 
-        end_time = datetime.now()
-        yield list(genes.values())
+
+        unyielded_genes = [gene for gene in genes.values() if gene.id not in yielded_genes]
+        yield unyielded_genes
+        yielded_genes.update([gene.id for gene in unyielded_genes])
+
         yield samp_gene_edges
+
         yield from self.get_lcms_data(sample_dict)
 
+        end_time = datetime.now()
         print(f"parsing ccle data took:{end_time - start_time}s")
 
     def get_lcms_data(self, sample_dict: Dict[str, Sample]) -> Generator[List[Union[Node, Relationship]], None, None]:

@@ -63,8 +63,8 @@ class Biospecimen(BiospecimenBase):
             dest_data_model="Biospecimen",
             intermediate_data_models=["Sample"],
             edge_models=["ExperimentSampleRelationship", "SampleBiospecimenRelationship" ],
-            dest_id=root.id,
-            filter=filter
+            dest_id=root.id
+            # filter=filter
         )
         result = api.get_networked_list(context)
         return result
