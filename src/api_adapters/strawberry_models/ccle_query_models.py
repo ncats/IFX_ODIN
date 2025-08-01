@@ -9,11 +9,13 @@ from src.api_adapters.strawberry_models.class_generators import make_linked_list
 from src.api_adapters.strawberry_models.input_types import LinkedListFilterSettings
 from src.api_adapters.strawberry_models.shared_query_models import Provenance, generate_resolvers
 from src.interfaces.result_types import LinkedListQueryContext, NetworkedListQueryContext
+from src.models.disease import Disease as DiseaseBase
 from src.models.node import EquivalentId
 from src.models.pounce.data import (Biospecimen as BiospecimenBase, Sample as SampleBase,
                                     SampleBiospecimenRelationship as SampleBiospecimenRelationshipBase,
                                     SampleAnalyteRelationship as SampleAnalyteRelationshipBase,
-                                    ExperimentSampleRelationship as ExperimentSampleRelationshipBase)
+                                    ExperimentSampleRelationship as ExperimentSampleRelationshipBase,
+                                    BiospecimenDiseaseRelationship as BiospecimenDiseaseRelationshipBase)
 from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship as ProjectExperimentRelationshipBase
 
 from src.models.pounce.project import Project as ProjectBase, ProjectType as ProjectTypeBase, ProjectTypeRelationship as ProjectTypeRelationshipBase
@@ -34,10 +36,44 @@ GeneticLocation = strawberry.type(GeneticLocation)
 # node classes
 
 @strawberry.type
+class Disease(DiseaseBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+
+    @strawberry.field()
+    def biospecimens(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "DiseaseBiospecimenQueryResult":
+        api: ArangoAPIAdapter = info.context["api"]
+        context = LinkedListQueryContext(
+            source_data_model="Biospecimen",
+            source_id=None,
+            dest_data_model="Disease",
+            edge_model="BiospecimenDiseaseRelationship",
+            dest_id=root.id,
+            filter=filter
+        )
+        result = api.get_linked_list(context)
+        return result
+
+@strawberry.type
 class Biospecimen(BiospecimenBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
+
+    @strawberry.field()
+    def diseases(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "BiospecimenDiseaseQueryResult":
+        api: ArangoAPIAdapter = info.context["api"]
+        context = LinkedListQueryContext(
+            source_data_model="Biospecimen",
+            source_id=root.id,
+            dest_data_model="Disease",
+            edge_model="BiospecimenDiseaseRelationship",
+            dest_id=None,
+            filter=filter
+        )
+        result = api.get_linked_list(context)
+        return result
 
     @strawberry.field()
     def samples(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "SampleBiospecimenQueryResult":
@@ -376,6 +412,14 @@ class SampleAnalyteRelationship(SampleAnalyteRelationshipBase):
     start_node: Sample
     end_node: Union[Gene, Metabolite]
 
+@strawberry.type
+class BiospecimenDiseaseRelationship(BiospecimenDiseaseRelationshipBase):
+    @strawberry.field()
+    def provenance(root) -> Provenance:
+        return Provenance.parse_provenance_fields(root)
+    start_node: Biospecimen
+    end_node: Disease
+
 
 @strawberry.type
 class GeneDataResults:
@@ -411,6 +455,8 @@ BiospecimenSampleQueryResult = make_linked_list_result_type("BiospecimenSampleQu
 ProjectExperimentQueryResult = make_linked_list_result_type("ProjectExperimentQueryResult", "ProjectExperimentDetails", ProjectExperimentRelationship, Experiment)
 ExperimentProjectQueryResult = make_linked_list_result_type("ExperimentProjectQueryResult", "ExperimentProjectDetails", ProjectExperimentRelationship, Project)
 
+DiseaseBiospecimenQueryResult = make_linked_list_result_type("DiseaseBiospecimenQueryResult", "DiseaseBiospecimenDetails", BiospecimenDiseaseRelationship, Biospecimen)
+BiospecimenDiseaseQueryResult = make_linked_list_result_type("BiospecimenDiseaseQueryResult", "BiospecimenDiseaseDetails", BiospecimenDiseaseRelationship, Disease)
 
 ENDPOINTS: Dict[type, Dict[str, str]] = {
     Project: {
@@ -420,6 +466,10 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     Experiment: {
         "list": "experiments",
         "details": "resolve_experiment"
+    },
+    Disease: {
+        "list": "diseases",
+        "details": "resolve_disease"
     },
     Biospecimen: {
         "list": "biospecimens",
