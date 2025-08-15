@@ -1,11 +1,13 @@
 import re
 
+import urllib3
 from arango import ArangoClient
 from arango.database import StandardDatabase
 from arango.graph import Graph
 
 from src.shared.db_credentials import DBCredentials
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 REPLACEMENTS = {
     '+': '_plus_',

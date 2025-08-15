@@ -9,6 +9,7 @@ from src.api_adapters.strawberry_models.pharos_query_models import Query as phar
 from src.api_adapters.strawberry_models.pounce_query_models import Query as pounceQuery
 from src.api_adapters.strawberry_models.gramp_query_models import Query as grampQuery
 from src.api_adapters.strawberry_models.ccle_query_models import Query as ccleQuery
+from src.api_adapters.strawberry_models.cure_query_models import Query as cureQuery
 
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
@@ -32,6 +33,11 @@ api_configs = [
         "prefix": "ccle",
         "yaml_file": "./src/use_cases/api/ccle_dashboard.yaml",
         "query_function": ccleQuery
+    },
+    {
+        "prefix": "cure",
+        "yaml_file": "./src/use_cases/api/cure_dashboard.yaml",
+        "query_function": cureQuery
     }
 ]
 
