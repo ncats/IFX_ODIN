@@ -1,0 +1,19 @@
+
+api_adapter:
+  - import: ./src/api_adapters/arango_api_adapter.py
+    class: ArangoAPIAdapter
+    kwargs:
+      database_name: cure
+      label: CURE-ID
+      imports:
+        - ./src/models/cure/models.py
+    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+
+dashboard:
+  tab_order:
+    - Drug
+    - Disease
+    - PhenotypicFeature
+    - AdverseEvent
+    - Gene
+    - SequenceVariant

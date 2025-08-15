@@ -1,0 +1,14 @@
+destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+
+input_adapters:
+  - import: ./src/input_adapters/cure/cure_adapter.py
+    class: CUREAdapter
+    kwargs:
+      file_path: ./input_files/manual/cure/resolved_cureid.tsv
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: cure
+    credentials: *source_credentials
