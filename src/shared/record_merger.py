@@ -41,6 +41,62 @@ class RecordMerger:
                     example_record[k] = v
         return example_record
 
+    def get_pk(self, obj, mapper):
+        if len(mapper.primary_key) == 1:
+            return getattr(obj, mapper.primary_key[0].name)
+        elif len(mapper.primary_key) > 1:
+            return tuple(getattr(obj, col.name) for col in mapper.primary_key)
+        else:
+            raise ValueError("No primary key defined for the object")
+
+    def column_is_pk(self, column, mapper):
+        if len(mapper.primary_key) == 1:
+            return column.name == mapper.primary_key[0].name
+        elif len(mapper.primary_key) > 1:
+            return column in mapper.primary_key
+        else:
+            raise ValueError("No primary key defined for the object")
+
+    def merge_objects(self, objects, existing_object_map, mapper):
+
+        for obj in objects:
+            pk_value = self.get_pk(obj, mapper)
+            if pk_value not in existing_object_map:
+                existing_object_map[pk_value] = obj
+                obj.provenance = f"creation: {obj.provenance}"
+            else:
+                existing_obj = existing_object_map[pk_value]
+                provenance_trail = getattr(existing_obj, 'provenance', None).split('\n')
+
+                for col in mapper.columns:
+                    if self.column_is_pk(col, mapper):
+                        continue
+                    if col.name == 'provenance':
+                        continue
+
+                    new_value = getattr(obj, col.name)
+                    existing_value = getattr(existing_obj, col.name)
+
+                    if new_value is None or (isinstance(new_value, str) and new_value.strip() == ''):
+                        continue
+
+                    if self.field_conflict_behavior == FieldConflictBehavior.KeepFirst:
+                        if existing_value is None or (isinstance(existing_value, str) and existing_value.strip() == ''):
+                            setattr(existing_obj, col.name, new_value)
+                            provenance_trail.append(
+                                f"{col.name}\tNULL\t{new_value}\t{obj.provenance}\t{self.field_conflict_behavior.value}"
+                            )
+                    elif self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
+                        setattr(existing_obj, col.name, new_value)
+                        provenance_trail.append(
+                            f"{col.name}\t{existing_value}\t{new_value}\t{obj.provenance}\t{self.field_conflict_behavior.value}"
+                        )
+                    else:
+                        raise ValueError(f"Unknown field conflict behavior: {self.field_conflict_behavior}")
+                setattr(existing_obj, 'provenance', '\n'.join(provenance_trail))
+
+        return existing_object_map.values()
+
     def merge_records(self, records, merged_record_map, nodes_or_edges='nodes'):
         def node_key(record):
             return record['id']

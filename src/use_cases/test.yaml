@@ -1,0 +1,21 @@
+destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
+
+input_adapters:
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestNodeAdapter
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestNodeAdapter2
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestRelationshipAdapter
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestRelationshipAdapter2
+
+output_adapters:
+  - import: ./src/output_adapters/mysql_output_adapter.py
+    class: TestOutputAdapter
+    kwargs:
+      database_name: dummy
+    credentials: *destination_credentials

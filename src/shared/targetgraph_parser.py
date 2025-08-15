@@ -129,7 +129,7 @@ class TargetGraphGeneParser(TargetGraphParser):
     def get_equivalent_ids(self, prop_dict: Dict) -> List[EquivalentId]:
 
         ids = []
-        try_append_id(ids, prop_dict, 'consolidated_gene_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL)
+        try_append_id(ids, prop_dict, 'consolidated_gene_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL, splitIDs=True)
         try_append_id(ids, prop_dict, 'consolidated_hgnc_id', 'HGNC_ID_Provenance', None, Prefix.HGNC, True)
         try_append_id(ids, prop_dict, 'consolidated_NCBI_id', 'NCBI_ID_Provenance', None, Prefix.NCBIGene, False, True)
         try_append_id(ids, prop_dict, 'consolidated_symbol', 'Symbol_Provenance', None, Prefix.Symbol)
@@ -239,11 +239,11 @@ class TargetGraphTranscriptParser(TargetGraphParser):
 
     @staticmethod
     def get_associated_ensg_id(prop_dict: Dict) -> Optional[str]:
-        return prop_dict.get('ensembl_gene_id', None)
+        return remove_suffix(prop_dict.get('ensembl_gene_id'))
 
     @staticmethod
     def get_associated_ncbi_id(prop_dict: Dict) -> Optional[str]:
-        return prop_dict.get('refseq_ncbi_id', None)
+        return remove_decimal(prop_dict.get('refseq_ncbi_id'))
 
 
 class TargetGraphAddtlProteinIDParser(CSVParser):

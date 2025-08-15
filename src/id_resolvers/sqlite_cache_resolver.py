@@ -2,7 +2,7 @@ import os.path
 import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Generator, Any
 from src.interfaces.id_resolver import IdResolver, IdMatch
 from src.models.node import Node
 
@@ -106,7 +106,7 @@ class SqliteCacheResolver(IdResolver, ABC):
         raise NotImplementedError('derived class must implement get_version_info')
 
     @abstractmethod
-    def matching_ids(self) -> List[MatchingPair]:
+    def matching_ids(self) -> Generator[MatchingPair, Any, None]:
         raise NotImplementedError('derived class must implement matching_ids')
 
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
