@@ -2,7 +2,6 @@ from sqlalchemy import Column, String, Integer, Text, Enum, SmallInteger, Foreig
 from sqlalchemy.orm import declarative_base
 from enum import Enum as PyEnum
 
-Base = declarative_base()
 
 class TDL(PyEnum):
     TclinPlus = 'Tclin+'

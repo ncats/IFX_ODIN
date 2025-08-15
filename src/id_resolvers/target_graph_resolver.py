@@ -1,7 +1,9 @@
-from typing import List
+from typing import List, Any, Generator
 
+from src.constants import Prefix
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
 from src.interfaces.id_resolver import IdMatch
+from src.models.node import EquivalentId
 from src.shared.targetgraph_parser import TargetGraphGeneParser, TargetGraphTranscriptParser, TargetGraphProteinParser, \
     TargetGraphParser
 
@@ -40,7 +42,7 @@ class TargetGraphResolver(SqliteCacheResolver):
         return '\t'.join(version_info)
 
 
-    def matching_ids(self) -> List[MatchingPair]:
+    def matching_ids(self) -> Generator[MatchingPair, Any, None]:
         for parser in self.parsers:
             yield from self.get_one_match(parser)
 
