@@ -1,5 +1,18 @@
 destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
 
+#resolvers:
+#  - label: translator_nn
+#    import: ./src/id_resolvers/node_normalizer.py
+#    class: TranslatorNodeNormResolver
+#    kwargs:
+#      types:
+#        - Gene
+#        - Disease
+#        - Drug
+#        - SequenceVariant
+#        - AdverseEvent
+#        - PhenotypicFeature
+
 input_adapters:
   - import: ./src/input_adapters/cure/cure_adapter.py
     class: CUREAdapter

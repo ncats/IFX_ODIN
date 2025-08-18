@@ -8,7 +8,7 @@ from src.models.node import Node, Relationship
 @dataclass
 @facets(category_fields=['resolution_source', 'review_flag', 'review_reason'], numeric_fields=['confidence'])
 class CureNode(Node):
-    label: str = None
+    name: str = None
     resolution_source: Optional[str] = None
     confidence: float = None
     review_flag: Optional[bool] = None

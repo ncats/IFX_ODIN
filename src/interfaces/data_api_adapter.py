@@ -101,7 +101,7 @@ class APIAdapter(ABC):
         raise NotImplementedError("Derived classes must implement get_query")
 
     @abstractmethod
-    def get_list(self, context: ListQueryContext, top: int, skip: int) -> ListQueryResult:
+    def get_list(self, context: ListQueryContext, top: int, skip: int) -> List[Node]:
         """Get the data model."""
         raise NotImplementedError("Derived classes must implement get_list")
 
