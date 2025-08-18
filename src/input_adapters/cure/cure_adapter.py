@@ -114,7 +114,7 @@ class CUREAdapter(FlatFileAdapter):
         return self.get_node_class(type)
 
     def set_node_data(self, node: CureNode, row: dict, prefix: str):
-        node.label = row[f'{prefix}_label']
+        node.name = row[f'{prefix}_label']
         node.resolution = row[f'{prefix}_resolution_source']
         node.confidence = float(row[f'{prefix}_confidence'])
         node.review_flag = row[f'{prefix}_review_flag'] == 'Y'

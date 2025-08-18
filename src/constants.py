@@ -17,7 +17,7 @@ class DataSourceName(SimpleEnum):
     CCLE = "Cancer Cell Line Encyclopedia (CCLE)"
     Cellosaurus = "Cellosaurus"
     CLO = "Cell Line Ontology (CLO)"
-    CURE = "CURE"
+    CURE = "CURE-ID"
     FRDB = "Fast Response Database (Rancho)"
     GO = "Gene Ontology (GO)"
     DrugCentral = "DrugCentral"
