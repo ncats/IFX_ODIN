@@ -19,21 +19,20 @@ class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
         )
 
     def get_all(self) -> Generator[List[GeneGeneRifRelationship], None, None]:
-        relationships = []
-
+        rif_edges: List[GeneGeneRifRelationship] = []
         for line in self.all_rows():
-            text = TargetGraphGeneRIFParser.get_generif_text(line)
-            rif_id = str(hash(text))
+            rif_id = self.get_hash_id(line)
             rif_date = TargetGraphGeneRIFParser.get_generif_update_time(line)
             gene_id = EquivalentId(id = TargetGraphGeneRIFParser.get_generif_gene_id(line), type=Prefix.NCBIGene)
 
-            relationships.append(
+            pmids = TargetGraphGeneRIFParser.get_generif_pmids(line)
+
+            rif_edges.append(
                 GeneGeneRifRelationship(
                     start_node=Gene(id=gene_id.id_str()),
                     end_node=GeneRif(id=rif_id),
                     gene_id=int(gene_id.id),
-                    date=rif_date
-                )
-            )
-
-        yield relationships
+                    date=rif_date,
+                    pmids=pmids
+                ))
+        yield rif_edges

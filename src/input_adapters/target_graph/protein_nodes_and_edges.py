@@ -12,7 +12,7 @@ from src.shared.targetgraph_parser import TargetGraphProteinParser
 
 
 class TGProteinFileBase(TargetGraphProteinParser):
-    def get_all_combined(self):
+    def get_all_combined(self, reviewed_only = False):
         protein_list = []
         transcript_relationships = []
         gene_relationships = []
@@ -20,6 +20,9 @@ class TGProteinFileBase(TargetGraphProteinParser):
         for line in self.all_rows():
             id = TargetGraphProteinParser.get_id(line)
             protein_obj = Protein(id=id)
+            protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
+            if reviewed_only and not protein_obj.uniprot_reviewed:
+                continue
             protein_obj.created = TargetGraphProteinParser.get_creation_date(line)
             protein_obj.updated = TargetGraphProteinParser.get_updated_time(line)
             protein_obj.name = TargetGraphProteinParser.get_name(line)
@@ -31,7 +34,6 @@ class TGProteinFileBase(TargetGraphProteinParser):
             protein_obj.uniprot_id = TargetGraphProteinParser.get_uniprot_id(line)
             protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
             protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
-            protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
 
             protein_obj.protein_name_score = line.get('protein_name_score', None)
             protein_obj.protein_name_method = line.get('protein_name_method', None)
@@ -88,6 +90,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
 
 
 class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
+    reviewed_only: bool
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
@@ -98,11 +101,12 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
             download_date=self.download_date
         )
 
-    def __init__(self, file_path: str, additional_id_file_path: str = None):
+    def __init__(self, file_path: str, additional_id_file_path: str = None, reviewed_only = False):
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
+        self.reviewed_only = reviewed_only
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
-        protein_list, _, _, _ = self.get_all_combined()
+        protein_list, _, _, _ = self.get_all_combined(self.reviewed_only)
         yield protein_list
 
 

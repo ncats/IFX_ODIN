@@ -353,6 +353,10 @@ class TargetGraphGeneRIFParser(TargetGraphParser):
     def get_equivalent_ids(self, prop_dict: Dict) -> List[EquivalentId]:
         pass
 
+    def get_hash_id(self, prop_dict: Dict) -> str:
+        text = TargetGraphGeneRIFParser.get_generif_text(prop_dict)
+        return str(abs(hash(text)))
+
     @staticmethod
     def get_generif_gene_id(prop_dict: Dict) -> str:
         return prop_dict['Gene ID']

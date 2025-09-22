@@ -84,6 +84,7 @@ class IDGFamily(SimpleEnum):
     category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
     numeric_fields=["pm_score", "antibody_count"])
 class Protein(Audited, Analyte):
+    preferred_symbol: Optional[str] = None
     protein_type: Optional[str] = None
     description: Optional[str] = None
     symbol: Optional[str] = None

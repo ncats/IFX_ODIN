@@ -34,6 +34,9 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
         self.source = source
         self.download_date = datetime.fromtimestamp(os.path.getmtime(gaf_file_name)).date()
 
+    def get_go_object(self, id_obj: EquivalentId):
+        return GoTerm(id = id_obj.id_str())
+
     def get_all(self) -> Generator[List[ProteinGoTermRelationship], None, None]:
         pro_go_edges: List[ProteinGoTermRelationship] = []
 
@@ -52,7 +55,9 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                 pro_obj = Protein(id=pro_id.id_str())
 
                 go_id = EquivalentId(id=parsed_line['go_id'].split(':', 1)[1], type=Prefix.GO)
-                go_obj = GoTerm(id=go_id.id_str())
+                go_obj = self.get_go_object(id_obj=go_id)
+                if go_obj is None:
+                    continue
 
                 go_evidence = GoEvidence.parse_by_abbreviation(
                     abbreviation=parsed_line['evidence_code'],
@@ -70,7 +75,6 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
 
         yield pro_go_edges
 
-
 def parse_gaf_line(line):
     columns = line.strip().split('\t')
     return {
@@ -83,7 +87,7 @@ def parse_gaf_line(line):
         "evidence_code": columns[6],
         "with_or_from": columns[7],
         "type": GoType.parse(columns[8]),  # C, P, F
-        "term": columns[9],
+        "db_object_name": columns[9],
         "db_object_synonym": columns[10],
         "db_object_type": columns[11],
         "taxon": columns[12],  # protein taxon:9606
