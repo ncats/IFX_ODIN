@@ -1,0 +1,82 @@
+destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_database: &source_database pharos
+
+reviewed_only: &reviewed_only true
+meets_idg_cutoff: &meets_idg_cutoff true
+
+resolvers:
+  - label: tcrd_targets
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TCRDTargetResolver
+    kwargs:
+      reviewed_only: *reviewed_only
+      no_match_behavior: Skip
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      protein_file_paths:
+        - ./input_files/manual/target_graph/protein_ids.csv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+      types:
+        - Protein
+        - Gene
+        - Transcript
+
+input_adapters:
+  - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
+    class: ProteinAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
+    class: GeneRifAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
+    class: GoTermAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+    class: LigandNodeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      meets_idg_cutoff: *meets_idg_cutoff
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+    class: LigandEdgeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      meets_idg_cutoff: *meets_idg_cutoff
+      reviewed_only: *reviewed_only
+
+#  - import: ./src/input_adapters/chembl/drug_node.py
+#    class: ProteinDrugEdgeAdapter
+#    kwargs:
+#      pchembl_cutoff: *pchembl_cutoff
+#    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
+#
+#  - import: ./src/input_adapters/drug_central/drug_node.py
+#    class: DrugNodeAdapter
+#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+#
+#  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
+#    class: ProteinDrugEdgeAdapter
+#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+
+output_adapters:
+  - import: ./src/output_adapters/mysql_output_adapter.py
+    class: TCRDOutputAdapter
+    kwargs:
+      database_name: pharos400
+    credentials: *destination_credentials

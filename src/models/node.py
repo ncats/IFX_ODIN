@@ -156,4 +156,7 @@ class Relationship:
 
     @classmethod
     def from_dict(cls, data: dict):
-        return generate_class_from_dict(cls, data)
+        obj = generate_class_from_dict(cls, data)
+        obj.start_node.labels = obj.start_node.labels or []
+        obj.end_node.labels = obj.end_node.labels or []
+        return obj

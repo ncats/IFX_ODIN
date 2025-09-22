@@ -6,7 +6,6 @@ from typing import List, Union
 
 from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.simple_enum import Label
-from src.models.generif import GeneRif
 from src.models.node import Node, Relationship
 from src.models.pounce.investigator import InvestigatorRelationship
 
@@ -20,6 +19,9 @@ class OutputAdapter(ABC):
         pass
 
     def do_post_processing(self) -> None:
+        pass
+
+    def do_pre_processing(self) -> None:
         pass
 
     @abstractmethod
@@ -67,13 +69,11 @@ class OutputAdapter(ABC):
                 flat_dict = value.to_dict()
                 ret_dict.update(flat_dict)
         if isinstance(obj, Node):
-            if hasattr(obj, 'xref'):
+            if hasattr(obj, 'xref') and obj.xref is not None and isinstance(obj.xref, list) and len(obj.xref) > 0:
                 ret_dict['xref'] = self.remove_none_values_from_list(
                     list(set([x.id_str() for x in obj.xref]))
                 )
 
-        if isinstance(obj, GeneRif):
-            ret_dict['pmids'] = list(obj.pmids)
         if isinstance(obj, InvestigatorRelationship):
             ret_dict['roles'] = [role.value for role in obj.roles]
 
@@ -87,7 +87,12 @@ class OutputAdapter(ABC):
                 if key in forbidden_keys:
                     continue
                 elif isinstance(val, list) and len(val) == 0:
+                    continue
+                elif isinstance(val, set):
+                    if len(val) == 0:
                         continue
+                    else:
+                        temp_dict[key] = list(val)
                 elif convert_dates and (isinstance(val, datetime) or isinstance(val, date)):
                     temp_dict[key] = val.isoformat()
                 else:
@@ -98,7 +103,7 @@ class OutputAdapter(ABC):
         self.merge_nested_object_props_into_dict(ret_dict, obj)
         return ret_dict
 
-    def sort_and_convert_objects(self, objects: List[Union[Node, Relationship]], convert_dates: bool = False):
+    def sort_and_convert_objects(self, objects: List[Union[Node, Relationship]], convert_dates: bool = False, keep_nested_objects = False):
         object_lists = {}
         for obj in objects:
             obj_type = type(obj).__name__
@@ -115,12 +120,18 @@ class OutputAdapter(ABC):
                 if isinstance(obj, Relationship):
                     one_obj['start_id'] = obj.start_node.id
                     one_obj['end_id'] = obj.end_node.id
+                    if keep_nested_objects:
+                        one_obj['start_node'] = self.clean_dict(obj.start_node, convert_dates)
+                        one_obj['end_node'] = self.clean_dict(obj.end_node, convert_dates)
                 obj_list.append(one_obj)
             else:
                 one_obj = self.clean_dict(obj, convert_dates)
                 if isinstance(obj, Relationship):
                     one_obj['start_id'] = obj.start_node.id
                     one_obj['end_id'] = obj.end_node.id
+                    if keep_nested_objects:
+                        one_obj['start_node'] = self.clean_dict(obj.start_node, convert_dates)
+                        one_obj['end_node'] = self.clean_dict(obj.end_node, convert_dates)
                     object_lists[obj_key] = ([one_obj], obj_labels, True,
                                              start_labels,
                                              end_labels, type(obj))

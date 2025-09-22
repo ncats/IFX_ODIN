@@ -17,7 +17,7 @@ input_adapters:
   - import: ./src/input_adapters/cure/cure_adapter.py
     class: CUREAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/resolved_cureid.tsv
+      file_path: ./input_files/manual/cure/resolved_cureid_RASopathies_08.18.25.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

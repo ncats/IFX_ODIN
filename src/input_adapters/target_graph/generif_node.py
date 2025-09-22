@@ -22,15 +22,11 @@ class GeneRifNodeAdapter(InputAdapter, TargetGraphGeneRIFParser):
 
         for line in self.all_rows():
             text = TargetGraphGeneRIFParser.get_generif_text(line)
-            rif_id = str(hash(text))
-            pmids = TargetGraphGeneRIFParser.get_generif_pmids(line)
-            if rif_id in gene_rifs_map:
-                gene_rifs_map[rif_id].pmids.update(pmids)
-            else:
+            rif_id = self.get_hash_id(line)
+            if rif_id not in gene_rifs_map:
                 rif_obj = GeneRif(
                     id=rif_id,
-                    text=text,
-                    pmids=set(pmids)
+                    text=text
                 )
                 gene_rifs_map[rif_id] = rif_obj
 

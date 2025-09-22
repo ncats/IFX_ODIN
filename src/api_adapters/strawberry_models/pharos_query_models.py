@@ -37,8 +37,6 @@ class GeneRif(GeneRifBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
-    pmids: List[str]
-
 
     @strawberry.field()
     def genes(root, info: Info, filter: Optional[LinkedListFilterSettings] = None) -> "GeneRifGeneQueryResult":
@@ -392,6 +390,7 @@ class GeneGeneRifRelationship(GeneGeneRifRelationshipBase):
         return Provenance.parse_provenance_fields(root)
     start_node: Gene
     end_node: GeneRif
+    pmids: List[str]
 
 ProteinGeneQueryResult = make_linked_list_result_type("ProteinGeneQueryResult", "ProteinGeneDetails", GeneProteinRelationship, Gene)
 ProteinTranscriptQueryResult = make_linked_list_result_type("ProteinTranscriptQueryResult", "ProteinTranscriptDetails", TranscriptProteinRelationship, Transcript)

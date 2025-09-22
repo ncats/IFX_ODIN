@@ -1,7 +1,8 @@
 import json
 from typing import List
 
-from src.interfaces.simple_enum import SimpleEnum
+from src.interfaces.simple_enum import SimpleEnum, Label
+
 
 class FieldConflictBehavior(SimpleEnum):
     KeepFirst = "KeepFirst"
@@ -42,12 +43,7 @@ class RecordMerger:
         return example_record
 
     def get_pk(self, obj, mapper):
-        if len(mapper.primary_key) == 1:
-            return getattr(obj, mapper.primary_key[0].name)
-        elif len(mapper.primary_key) > 1:
-            return tuple(getattr(obj, col.name) for col in mapper.primary_key)
-        else:
-            raise ValueError("No primary key defined for the object")
+        return tuple(str(getattr(obj, col.name)) for col in mapper.primary_key)
 
     def column_is_pk(self, column, mapper):
         if len(mapper.primary_key) == 1:
@@ -57,17 +53,24 @@ class RecordMerger:
         else:
             raise ValueError("No primary key defined for the object")
 
-    def merge_objects(self, objects, existing_object_map, mapper):
+    def create_autoinc_objects(self, objects):
+        for obj in objects:
+            obj.provenance = f"creation: {obj.provenance}"
+        return objects
 
+    def merge_objects(self, objects, existing_object_map, mapper):
+        updates, inserts = [], []
         for obj in objects:
             pk_value = self.get_pk(obj, mapper)
             if pk_value not in existing_object_map:
                 existing_object_map[pk_value] = obj
                 obj.provenance = f"creation: {obj.provenance}"
+                inserts.append(obj)
             else:
                 existing_obj = existing_object_map[pk_value]
                 provenance_trail = getattr(existing_obj, 'provenance', None).split('\n')
 
+                updated = False
                 for col in mapper.columns:
                     if self.column_is_pk(col, mapper):
                         continue
@@ -75,9 +78,17 @@ class RecordMerger:
                         continue
 
                     new_value = getattr(obj, col.name)
+                    if isinstance(new_value, SimpleEnum) or isinstance(new_value, Label):
+                        new_value = new_value.value
+
                     existing_value = getattr(existing_obj, col.name)
+                    if isinstance(existing_value, SimpleEnum) or isinstance(existing_value, Label):
+                        existing_value = existing_value.value
 
                     if new_value is None or (isinstance(new_value, str) and new_value.strip() == ''):
+                        continue
+
+                    if existing_value == new_value:
                         continue
 
                     if self.field_conflict_behavior == FieldConflictBehavior.KeepFirst:
@@ -86,16 +97,19 @@ class RecordMerger:
                             provenance_trail.append(
                                 f"{col.name}\tNULL\t{new_value}\t{obj.provenance}\t{self.field_conflict_behavior.value}"
                             )
+                            updated = True
                     elif self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
                         setattr(existing_obj, col.name, new_value)
                         provenance_trail.append(
                             f"{col.name}\t{existing_value}\t{new_value}\t{obj.provenance}\t{self.field_conflict_behavior.value}"
                         )
+                        updated = True
                     else:
                         raise ValueError(f"Unknown field conflict behavior: {self.field_conflict_behavior}")
                 setattr(existing_obj, 'provenance', '\n'.join(provenance_trail))
-
-        return existing_object_map.values()
+                if updated:
+                    updates.append(existing_obj)
+        return inserts, updates
 
     def merge_records(self, records, merged_record_map, nodes_or_edges='nodes'):
         def node_key(record):

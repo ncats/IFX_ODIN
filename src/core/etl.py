@@ -28,6 +28,10 @@ class ETL:
 
     def do_etl(self, do_post_processing = True):
         total_start_time = time.time()
+
+        for output_adapter in self.output_adapters:
+            output_adapter.do_pre_processing()
+
         for input_adapter in self.input_adapters:
             start_time = time.time()
             print(f"Running: {input_adapter.get_name()}")

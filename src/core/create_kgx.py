@@ -2,25 +2,21 @@ import os
 
 from src.interfaces.result_types import ListQueryContext
 from src.models.datasource_version_info import DataSourceDetails
-
-yaml_file = "./src/use_cases/api/cure_dashboard.yaml"
-
 from src.use_cases.build_from_yaml import HostDashboardFromYaml
 
-
+yaml_file = "./src/use_cases/api/cure_dashboard.yaml"
 dashboard = HostDashboardFromYaml(yaml_file=yaml_file)
 api = dashboard.api_adapter
 
-batch_size = 10
+batch_size = 100
 
-output_directory = "./output"
+output_directory = "./kgx_output"
 
 def get_node_file_name(directory: str):
     return f"{directory}/nodes.jsonl"
 
 def get_edge_file_name(directory: str):
     return f"{directory}/edges.jsonl"
-
 
 def clear_output_files():
     node_file = get_node_file_name(output_directory)

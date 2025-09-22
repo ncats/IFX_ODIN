@@ -7,7 +7,6 @@ from src.input_adapters.pharos_mysql.tables import Protein as mysql_Protein, TDL
 from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein
 
-
 class TdlTableAdapter(InputAdapter, MySqlAdapter, ABC):
     column = None
     field = None
