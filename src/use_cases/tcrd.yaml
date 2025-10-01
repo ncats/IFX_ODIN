@@ -30,49 +30,35 @@ input_adapters:
       database_name: *source_database
       reviewed_only: *reviewed_only
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
-    class: GeneRifAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      reviewed_only: *reviewed_only
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
-    class: GoTermAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      reviewed_only: *reviewed_only
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-    class: LigandNodeAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
-      reviewed_only: *reviewed_only
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-    class: LigandEdgeAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
-      reviewed_only: *reviewed_only
-
-#  - import: ./src/input_adapters/chembl/drug_node.py
-#    class: ProteinDrugEdgeAdapter
+#  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
+#    class: GeneRifAdapter
+#    credentials: *source_credentials
 #    kwargs:
-#      pchembl_cutoff: *pchembl_cutoff
-#    credentials: ./src/use_cases/secrets/chembl_credentials.yaml
+#      database_name: *source_database
+#      reviewed_only: *reviewed_only
 #
-#  - import: ./src/input_adapters/drug_central/drug_node.py
-#    class: DrugNodeAdapter
-#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+#  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
+#    class: GoTermAdapter
+#    credentials: *source_credentials
+#    kwargs:
+#      database_name: *source_database
+#      reviewed_only: *reviewed_only
 #
-#  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
-#    class: ProteinDrugEdgeAdapter
-#    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+#  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+#    class: LigandNodeAdapter
+#    credentials: *source_credentials
+#    kwargs:
+#      database_name: *source_database
+#      meets_idg_cutoff: *meets_idg_cutoff
+#      reviewed_only: *reviewed_only
+#
+#  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+#    class: LigandEdgeAdapter
+#    credentials: *source_credentials
+#    kwargs:
+#      database_name: *source_database
+#      meets_idg_cutoff: *meets_idg_cutoff
+#      reviewed_only: *reviewed_only
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py

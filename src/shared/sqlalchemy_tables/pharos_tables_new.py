@@ -30,7 +30,7 @@ class HgramCDF(Base):
     __tablename__ = "hgram_cdf"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     type = Column(String(255), ForeignKey("gene_attribute_type.name"), nullable=False)
     attr_count = Column(Integer, nullable=False)
     attr_cdf = Column(DECIMAL(17, 16), nullable=False)
@@ -43,7 +43,8 @@ class HgramCDF(Base):
 class Protein(Base):
     __tablename__ = "protein"
 
-    id = Column(String(18), primary_key=True, nullable=False)
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=False)
+    ifx_id = Column(String(18), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     uniprot = Column(String(20), nullable=False)
@@ -78,7 +79,8 @@ class Protein(Base):
 
 class Target(Base):
     __tablename__ = 'target'
-    id = Column(String(18), primary_key=True)
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=False)
+    ifx_id = Column(String(18), nullable=False)
     name = Column(String(255), nullable=False)
     ttype = Column(String(255), nullable=False)
     description = Column(Text)
@@ -90,12 +92,12 @@ class Target(Base):
 
 class T2TC(Base):
     __tablename__ = 't2tc'
-    target_id = Column(String(18), ForeignKey('target.id'), primary_key=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey('protein.id'), primary_key=True)
+    target_id = Column(Integer, ForeignKey('target.id'), primary_key=True, nullable=False)
+    protein_id = Column(Integer, ForeignKey('protein.id'), primary_key=True)
 
 class GoA(Base):
     __tablename__ = 'goa'
-    protein_id = Column(String(18), ForeignKey('protein.id'), primary_key=True)
+    protein_id = Column(Integer, ForeignKey('protein.id'), primary_key=True)
     go_id = Column(String(255), primary_key=True)
     go_term = Column(Text)
     evidence = Column(String(3), primary_key=True)
@@ -116,8 +118,8 @@ class TDL_info(Base):
     __tablename__ = "tdl_info"
     id = Column(Integer, primary_key=True)
     itype = Column(String(255), nullable=False)
-    target_id = Column(String(18), ForeignKey('target.id'))
-    protein_id = Column(String(18), ForeignKey('protein.id'))
+    target_id = Column(Integer, ForeignKey('target.id'))
+    protein_id = Column(Integer, ForeignKey('protein.id'))
     string_value = Column(Text)
     number_value = Column(Float)
     integer_value = Column(Integer)
@@ -128,7 +130,7 @@ class TDL_info(Base):
 class GeneRif(Base):
     __tablename__ = 'generif'
     id = Column(String(64), primary_key=True, unique=True)
-    protein_id = Column(String(18), ForeignKey('protein.id'), nullable=False)
+    protein_id = Column(Integer, ForeignKey('protein.id'), nullable=False)
     gene_id = Column(Integer, nullable=False)
     text = Column(Text, nullable=False)
     date = Column(Date)
@@ -175,18 +177,21 @@ class LigandActivity(Base):
     __tablename__ = 'ncats_ligand_activity'
     id = Column(Integer, primary_key=True)
     ncats_ligand_id = Column(String(255), ForeignKey('ncats_ligands.id'), nullable=False)
-    target_id = Column(String(18), ForeignKey('target.id'), nullable=False)
+    target_id = Column(Integer, ForeignKey('target.id'), nullable=False)
     act_value = Column(Float)
     act_type = Column(String(255))
     action_type = Column(String(255))
     reference = Column(Text)
     reference_source = Column(String(255))
     pubmed_ids = Column(Text)  # pipe delimited list]]
+    __table_args__ = (
+        Index("target_ligand_index", "target_id", "ncats_ligand_id"),
+    )
 
 class DrugActivity(Base):
     __tablename__ = 'drug_activity'
     id = Column(Integer, primary_key=True)
-    target_id = Column(String(18), ForeignKey('target.id'), nullable=False)
+    target_id = Column(Integer, ForeignKey('target.id'), nullable=False)
     drug = Column(String(255), nullable=False)
     act_value = Column(Float)
     act_type = Column(String(255))
@@ -205,8 +210,8 @@ class PPI(Base):
     __tablename__ = "ncats_ppi"
     id = Column(Integer, primary_key=True)
     ppitypes = Column(String(255), nullable=False)
-    protein_id = Column(String(18), ForeignKey('protein.id'), nullable=False)
-    other_id = Column(String(18), ForeignKey('protein.id'), nullable=False)
+    protein_id = Column(Integer, ForeignKey('protein.id'), nullable=False)
+    other_id = Column(Integer, ForeignKey('protein.id'), nullable=False)
     p_int = Column(Float)
     p_ni = Column(Float)
     p_wrong = Column(Float)
@@ -281,7 +286,7 @@ class Disease(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     dtype = Column(String(255),
                    ForeignKey("disease_type.name"), nullable=False)
-    protein_id = Column(String(18), ForeignKey('protein.id'))
+    protein_id = Column(Integer, ForeignKey('protein.id'))
     nhprotein_id = Column(Integer, ForeignKey("nhprotein.id"))
     name = Column(Text, nullable=False)
     ncats_name = Column(Text, nullable=False)
@@ -363,7 +368,7 @@ class NcatsDataSourceMap(Base):
     url = Column(String(128))
     license = Column(String(128))
     licenseURL = Column(String(128))
-    protein_id = Column(String(18), ForeignKey("protein.id"))
+    protein_id = Column(Integer, ForeignKey("protein.id"))
     ncats_ligand_id = Column(String(255), ForeignKey("ncats_ligands.id"))
     disease_name = Column(Text)
 
@@ -378,7 +383,7 @@ class Ortholog(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     taxid = Column(Integer, nullable=False)
     species = Column(String(255), nullable=False)
     db_id = Column(String(255))
@@ -399,8 +404,8 @@ class Pathway(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    target_id = Column(String(18), ForeignKey("target.id", ondelete="CASCADE"))
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"))
+    target_id = Column(Integer, ForeignKey("target.id", ondelete="CASCADE"))
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"))
     pwtype = Column(String(255), ForeignKey("pathway_type.name"), nullable=False)
     id_in_source = Column(String(255))
     name = Column(Text, nullable=False)
@@ -427,7 +432,7 @@ class Phenotype(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     ptype = Column(String(255), ForeignKey("phenotype_type.name"), nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"))
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"))
     nhprotein_id = Column(Integer, ForeignKey("nhprotein.id", ondelete="CASCADE"))
     trait = Column(Text)
     top_level_term_id = Column(String(255))
@@ -465,7 +470,7 @@ class Expression(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     etype = Column(String(255), nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"))
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"))
     source_id = Column(String(20), nullable=False)
     tissue = Column(String(255), nullable=False)
     tissue_id = Column(Integer, ForeignKey("tissue.id", ondelete="CASCADE"), nullable=False)
@@ -503,7 +508,7 @@ class ViralPPI(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     viral_protein_id = Column(Integer, ForeignKey("viral_protein.id"), nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=True)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=True)
     dataSource = Column(String(20), nullable=True)
     finalLR = Column(DECIMAL(20, 12), nullable=False)
     pdbIDs = Column(String(128), nullable=True)
@@ -533,8 +538,8 @@ class Xref(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     xtype = Column(String(255), nullable=False)
-    target_id = Column(String(18), ForeignKey("target.id", ondelete="CASCADE"), nullable=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=True)
+    target_id = Column(Integer, ForeignKey("target.id", ondelete="CASCADE"), nullable=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=True)
     nucleic_acid_id = Column(Integer, nullable=True)  # No foreign key specified here
     value = Column(String(255), nullable=False)
     xtra = Column(String(255), nullable=True)
@@ -557,7 +562,7 @@ class NihList(Base):
     __tablename__ = "nih_list"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
     symbol = Column(String(20), nullable=False)
     family = Column(String(20), nullable=False)
     nih_list = Column(Integer, ForeignKey("nih_list_type.id"), nullable=False)
@@ -585,7 +590,7 @@ class P2PC(Base):
     __tablename__ = "p2pc"
 
     panther_class_id = Column(Integer, ForeignKey("panther_class.id"), primary_key=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), primary_key=True, nullable=False)
 
     __table_args__ = (
         Index("p2pc_idx1", "panther_class_id"),
@@ -616,7 +621,7 @@ class P2DTO(Base):
     __tablename__ = "p2dto"
 
     dtoid = Column(String(255), ForeignKey("dto.dtoid"), primary_key=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), primary_key=True, nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), primary_key=True, nullable=False)
     generation = Column(Integer, nullable=False)
 
     __table_args__ = (
@@ -640,7 +645,7 @@ class Tiga(Base):
     __tablename__ = "tiga"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     ensg = Column(String(15), nullable=False)
     efoid = Column(String(15), nullable=False)
     trait = Column(String(255), nullable=False)
@@ -683,7 +688,7 @@ class DrgcResource(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     rssid = Column(Text, nullable=False)
     resource_type = Column(String(255), nullable=False)
-    target_id = Column(String(18), ForeignKey("target.id", ondelete="CASCADE"), nullable=False)
+    target_id = Column(Integer, ForeignKey("target.id", ondelete="CASCADE"), nullable=False)
     json = Column(Text, nullable=False)
 
     __table_args__ = (
@@ -706,7 +711,7 @@ class TinxNovelty(Base):
     __tablename__ = "tinx_novelty"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
     score = Column(DECIMAL(34, 16), nullable=False)
 
     __table_args__ = (
@@ -719,7 +724,7 @@ class TinxImportance(Base):
     __tablename__ = "tinx_importance"
 
     doid = Column(String(20), ForeignKey("tinx_disease.doid"), primary_key=True, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), primary_key=True, nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), primary_key=True, nullable=False)
     score = Column(DECIMAL(34, 16), nullable=False)
 
     __table_args__ = (
@@ -791,7 +796,7 @@ class DOParent(Base):
 class Protein2Pubmed(Base):
     __tablename__ = "protein2pubmed"
 
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, primary_key=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, primary_key=True)
     pubmed_id = Column(Integer, nullable=False, primary_key=True)
     gene_id = Column(Integer, nullable=True, primary_key=True)
     source = Column(String(45), nullable=False, primary_key=True)
@@ -807,7 +812,7 @@ class Alias(Base):
     __tablename__ = "alias"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     type = Column(ENUM('symbol','uniprot','NCBI Gene ID'), nullable=False)
     value = Column(String(255), nullable=False)
     dataset_id = Column(Integer, nullable=True)
@@ -822,7 +827,7 @@ class Ptscore(Base):
     __tablename__ = "ptscore"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     year = Column(Integer, nullable=False)
     score = Column(DECIMAL(12, 6), nullable=False)
 
@@ -835,7 +840,7 @@ class Pmscore(Base):
     __tablename__ = "pmscore"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     year = Column(Integer, nullable=False)
     score = Column(DECIMAL(12, 6), nullable=False)
 
@@ -847,7 +852,7 @@ class PatentCount(Base):
     __tablename__ = "patent_count"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     year = Column(Integer, nullable=False)
     count = Column(Integer, nullable=False)
 
@@ -891,7 +896,7 @@ class SequenceAnnotation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     dataSource = Column(String(255), nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
     residue_start = Column(Integer, nullable=False)
     residue_end = Column(Integer, nullable=False)
     type = Column(Enum(
@@ -912,7 +917,7 @@ class SequenceVariant(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     dataSource = Column(String(255), nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
     residue = Column(Integer, nullable=False)
     variant = Column(String(1), nullable=False)
     bits = Column(Float(12, 11), nullable=False)
@@ -1000,8 +1005,8 @@ class KeggNearestTclin(Base):
     __tablename__ = "kegg_nearest_tclin"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
-    tclin_id = Column(String(18), ForeignKey("target.id", ondelete="CASCADE"), nullable=False, index=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
+    tclin_id = Column(Integer, ForeignKey("target.id", ondelete="CASCADE"), nullable=False, index=True)
     direction = Column(Enum('upstream', 'downstream'), nullable=False)
     distance = Column(Integer, nullable=False)
 
@@ -1014,8 +1019,8 @@ class KeggDistance(Base):
     __tablename__ = "kegg_distance"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    pid1 = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
-    pid2 = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
+    pid1 = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
+    pid2 = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
     distance = Column(Integer, nullable=False)
 
     __table_args__ = (
@@ -1027,7 +1032,7 @@ class Gtex(Base):
     __tablename__ = "gtex"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), index=True, nullable=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), index=True, nullable=True)
     tissue = Column(Text, nullable=False)
     tpm = Column(DECIMAL(12, 6), nullable=False)
     tpm_rank = Column(DECIMAL(4, 3), nullable=True)
@@ -1047,7 +1052,7 @@ class Gwas(Base):
     __tablename__ = "gwas"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
     disease_trait = Column(String(255), nullable=False)
     snps = Column(Text, nullable=True)
     pmid = Column(Integer, nullable=True)
@@ -1086,7 +1091,7 @@ class ExtLink(Base):
     __tablename__ = "extlink"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(String(18), ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
     source = Column(
         Enum(
             "GlyGen", "Prokino", "Dark Kinome", "Reactome", "ClinGen", "GENEVA",
@@ -1115,7 +1120,7 @@ class NcatsP2DA(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False)
-    protein_id = Column(String(18), ForeignKey("protein.id"), nullable=False)
+    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
     disease_assoc_id = Column(Integer, ForeignKey("disease.id"))
     direct = Column(Boolean)
 

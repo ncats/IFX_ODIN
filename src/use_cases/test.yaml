@@ -13,6 +13,19 @@ input_adapters:
   - import: ./src/input_adapters/test_mysql/test.py
     class: TestRelationshipAdapter2
 
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestAutoIncNode
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestAutoIncNode2
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestTwoKeyAutoIncNode
+
+  - import: ./src/input_adapters/test_mysql/test.py
+    class: TestTwoKeyAutoIncNode2
+
+
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TestOutputAdapter
