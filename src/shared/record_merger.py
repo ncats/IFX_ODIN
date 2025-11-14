@@ -42,26 +42,25 @@ class RecordMerger:
                     example_record[k] = v
         return example_record
 
-    def get_pk(self, obj, mapper):
-        return tuple(str(getattr(obj, col.name)) for col in mapper.primary_key)
+    def get_pk(self, obj, pk_columns):
+        return tuple(str(getattr(obj, col.name)) for col in pk_columns)
 
-    def column_is_pk(self, column, mapper):
-        if len(mapper.primary_key) == 1:
-            return column.name == mapper.primary_key[0].name
-        elif len(mapper.primary_key) > 1:
-            return column in mapper.primary_key
-        else:
-            raise ValueError("No primary key defined for the object")
+    def column_is_pk(self, column, pk_columns):
+        names = [col.name for col in pk_columns]
+        return column.name in names
 
     def create_autoinc_objects(self, objects):
         for obj in objects:
             obj.provenance = f"creation: {obj.provenance}"
         return objects
 
-    def merge_objects(self, objects, existing_object_map, mapper):
+    def merge_objects(self, objects, existing_object_map, mapper, pk_columns):
         updates, inserts = [], []
+        if len(pk_columns) == 1 and getattr(pk_columns[0], "autoincrement", False):
+            inserts = self.create_autoinc_objects(objects)
+            return inserts, updates
         for obj in objects:
-            pk_value = self.get_pk(obj, mapper)
+            pk_value = self.get_pk(obj, pk_columns)
             if pk_value not in existing_object_map:
                 existing_object_map[pk_value] = obj
                 obj.provenance = f"creation: {obj.provenance}"
@@ -72,7 +71,9 @@ class RecordMerger:
 
                 updated = False
                 for col in mapper.columns:
-                    if self.column_is_pk(col, mapper):
+                    if self.column_is_pk(col, mapper.primary_key):
+                        continue
+                    if self.column_is_pk(col, pk_columns):
                         continue
                     if col.name == 'provenance':
                         continue

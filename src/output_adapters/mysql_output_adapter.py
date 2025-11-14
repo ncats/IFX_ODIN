@@ -1,38 +1,29 @@
-from abc import abstractmethod, ABC
+from abc import ABC
 from datetime import datetime
-from typing import List, Union
 
 from sqlalchemy import inspect, tuple_
 
-from src.input_adapters.pharos_mysql.new_tables import Base
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
-from src.models.generif import GeneGeneRifRelationship
-from src.models.go_term import GoTerm, GoTermHasParent, ProteinGoTermRelationship
-from src.models.ligand import Ligand, ProteinLigandRelationship
-from src.models.protein import Protein
-from src.models.test_models import TestNode, TestRelationship
-from src.output_adapters.converters.tcrd import goterm_converter, goterm_parent_converter, protein_converter, \
-    t2tc_converter, target_converter, goa_converter, protein_alias_converter, tdl_info_converter, generif_converter, \
-    generif_assoc_converter, p2p_converter, ligand_converter, ligand_edge_converter
-from src.output_adapters.converters.test import TestBase, node_converter, rel_converter
+from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
+from src.output_adapters.sql_converters.tcrd import TCRDOutputConverter
+from src.output_adapters.sql_converters.test import TestSQLOutputConverter
 from src.shared.db_credentials import DBCredentials
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
+from src.shared.sqlalchemy_tables.test_tables import Base as TestBase
+from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
 
 
 class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     database_name: str
     no_merge: bool
+    output_converter: SQLOutputConverter
 
     def __init__(self, credentials: DBCredentials, database_name: str, no_merge: bool = True):
         self.database_name = database_name
         self.no_merge = no_merge
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
-
-    @abstractmethod
-    def get_output_converter(self, obj_cls) -> Union[callable, List[callable], None]:
-        raise NotImplementedError("Derived classes must implement get_table")
 
     def store(self, objects) -> bool:
         merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
@@ -45,7 +36,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
 
         try:
             for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
-                converters = self.get_output_converter(obj_cls)
+                converters = self.output_converter.get_object_converters(obj_cls)
                 if converters is None:
                     continue
 
@@ -69,29 +60,29 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     table_class = example.__class__
                     mapper = inspect(table_class)
                     pk_columns = mapper.primary_key
+                    merge_fields = getattr(converter, 'merge_fields', None)
+                    if merge_fields:
+                        pk_columns = tuple((c for c in mapper.columns if c.name in merge_fields))
 
                     if not pk_columns:
                         raise ValueError(f"No primary key defined for {table_class.__name__}")
 
-                    if len(pk_columns) == 1 and mapper.mapped_table.autoincrement_column is not None:
-                        to_insert = merger.create_autoinc_objects(converted_objects)
-                        to_update = []
+                    pk_values = [
+                        tuple(getattr(obj, col.name) for col in pk_columns)
+                        for obj in converted_objects
+                        if not any(getattr(obj, col.name) is None for col in pk_columns)
+                    ]
+
+                    if self.no_merge and not getattr(converter, 'merge_anyway', False):
+                        existing_rows = []
                     else:
-                        pk_values = [
-                            tuple(getattr(obj, col.name) for col in pk_columns)
-                            for obj in converted_objects
-                        ]
-                        if self.no_merge and not getattr(converter, 'merge_anyway', False):
-                            existing_rows = []
-                        else:
-                            existing_rows = session.query(table_class).filter(tuple_(*pk_columns).in_(pk_values)).all()
+                        existing_rows = session.query(table_class).filter(tuple_(*pk_columns).in_(pk_values)).all()
 
-                        existing_lookup = {
-                            tuple(str(getattr(row, col.name)) for col in pk_columns): row
-                            for row in existing_rows
-                        }
-                        to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper)
-
+                    existing_lookup = {
+                        tuple(str(getattr(row, col.name)) for col in pk_columns): row
+                        for row in existing_rows
+                    }
+                    to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper, pk_columns)
 
                     if len(to_insert) > 0:
                         print(f"Inserting {len(to_insert)} objects of type {table_class.__name__} using converter {converter.__name__}")
@@ -121,39 +112,26 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
 
 
 class TestOutputAdapter(MySQLOutputAdapter):
+    output_converter: TestSQLOutputConverter
+
+    def __init__(self, credentials: DBCredentials, database_name: str):
+        MySQLOutputAdapter.__init__(self, credentials, database_name, no_merge = False)
+        self.output_converter = TestSQLOutputConverter(sql_base=TestBase)
 
     def create_or_truncate_datastore(self) -> bool:
         super().create_or_truncate_datastore()
-        TestBase.metadata.create_all(self.get_engine())
+        self.output_converter.sql_base.metadata.create_all(self.get_engine())
         return True
 
-    def get_output_converter(self, obj_cls) -> Union[callable, List[callable], None]:
-        if obj_cls == TestNode:
-            return node_converter
-        if obj_cls == TestRelationship:
-            return rel_converter
-        return None
 
 class TCRDOutputAdapter(MySQLOutputAdapter):
+    output_converter = TCRDOutputConverter
+
+    def __init__(self, credentials: DBCredentials, database_name: str):
+        MySQLOutputAdapter.__init__(self, credentials, database_name, no_merge = True)
+        self.output_converter = TCRDOutputConverter(sql_base=TCRDBase)
 
     def create_or_truncate_datastore(self) -> bool:
         super().create_or_truncate_datastore()
-        Base.metadata.create_all(self.get_engine())
+        self.output_converter.sql_base.metadata.create_all(self.get_engine())
         return True
-
-    def get_output_converter(self, obj_cls) -> Union[callable, List[callable], None]:
-        if obj_cls == GoTerm:
-            return goterm_converter
-        if obj_cls == GoTermHasParent:
-            return goterm_parent_converter
-        if obj_cls == Protein:
-            return [protein_converter, target_converter, t2tc_converter, protein_alias_converter, tdl_info_converter]
-        if obj_cls == ProteinGoTermRelationship:
-            return goa_converter
-        if obj_cls == GeneGeneRifRelationship:
-            return [generif_converter, generif_assoc_converter, p2p_converter]
-        if obj_cls == Ligand:
-            return ligand_converter
-        if obj_cls == ProteinLigandRelationship:
-            return ligand_edge_converter
-        return None
