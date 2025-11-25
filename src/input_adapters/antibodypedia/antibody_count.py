@@ -46,7 +46,7 @@ class AntibodyCountAdapter(InputAdapter):
                     antibody_count = 0  # or handle the error
                 if antibody_count <= 0:
                     continue
-                protein_obj = Protein(id=equiv_id.id_str(), antibody_count=antibody_count)
+                protein_obj = Protein(id=equiv_id.id_str(), antibody_count=[antibody_count])
                 proteins.append(protein_obj)
 
         yield proteins

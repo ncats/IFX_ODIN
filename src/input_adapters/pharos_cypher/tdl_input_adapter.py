@@ -95,13 +95,13 @@ proteins_with_experimental_f_or_p_go_terms = """
 
 proteins_with_low_pm_score = """
     MATCH (n:`biolink:Protein`)
-        WHERE n.pm_score < 5 OR n.pm_score IS NULL
+        WHERE MAX(n.pm_score) < 5 OR n.pm_score IS NULL
     RETURN DISTINCT n.id
 """
 
 proteins_with_low_ab_count = """
     MATCH (n:`biolink:Protein`)
-        WHERE n.antibody_count <= 50 OR n.antibody_count IS NULL
+        WHERE MAX(n.antibody_count) <= 50 OR n.antibody_count IS NULL
     RETURN DISTINCT n.id
 """
 
