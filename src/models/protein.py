@@ -1,6 +1,6 @@
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Union, Optional, Dict
+from typing import Union, Optional, Dict, List
 
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
@@ -99,7 +99,7 @@ class Protein(Audited, Analyte):
     tdl_meta: Optional[TDLMetadata] = None
     name: Optional[str] = None
     idg_family: Optional[IDGFamily] = None
-    pm_score: Optional[float] = None
+    pm_score: Optional[List[float]] = None
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None
     uniprot_function: Optional[str] = None

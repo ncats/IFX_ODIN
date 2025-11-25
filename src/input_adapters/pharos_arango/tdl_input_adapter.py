@@ -139,7 +139,7 @@ pm_scores = """
 FOR p IN `biolink:Protein`
   RETURN {
     protein_id: p.id,
-    value: p.pm_score
+    value: MAX(p.pm_score)
   }
 """
 
@@ -153,28 +153,31 @@ FOR n IN `biolink:Protein`
 
 gene_rif_count = """
 FOR p IN `biolink:Protein`
-LET genes = (
+
+  LET genes = (
     FOR g IN INBOUND p `biolink:translates_to`
-FILTER g._id LIKE "biolink:Gene/%"
-RETURN g
-)
-LET more_genes = (
+      FILTER IS_SAME_COLLECTION("biolink:Gene", g)
+      RETURN g
+  )
+
+  LET more_genes = (
     FOR t IN INBOUND p `biolink:translates_to`
-FILTER t._id LIKE "biolink:Transcript/%"
-FOR g IN INBOUND t `biolink:transcribed_to`
-FILTER g._id LIKE "biolink:Gene/%"
-RETURN g
-)
-LET all_genes = UNION(genes, more_genes)
+      FILTER IS_SAME_COLLECTION("biolink:Transcript", t)
+      FOR g IN INBOUND t `biolink:transcribed_to`
+        FILTER IS_SAME_COLLECTION("biolink:Gene", g)
+        RETURN g
+  )
 
-LET all_gene_rifs = UNIQUE(
-    FOR gene IN all_genes
-FOR rif IN OUTBOUND gene `GeneGeneRifRelationship`
-RETURN rif._id
-)
+  LET all_genes = UNION(genes, more_genes)
 
-RETURN {
+  LET rif_ids = UNIQUE(
+    FOR g IN all_genes
+      FOR rif IN OUTBOUND g `GeneGeneRifRelationship`
+        RETURN rif._id
+  )
+
+  RETURN {
     protein_id: p.id,
-    value: LENGTH(all_gene_rifs)
-}
+    value: LENGTH(rif_ids)
+  }
 """

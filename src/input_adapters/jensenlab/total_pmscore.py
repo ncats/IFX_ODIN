@@ -38,7 +38,7 @@ class TotalPMScoreAdapter(InputAdapter):
         proteins: List[Protein] = []
         for ensp_id, score in total_pm_dict.items():
             prefixed_id = EquivalentId(id = ensp_id, type = Prefix.ENSEMBL)
-            protein = Protein(id = prefixed_id.id_str(), pm_score = score)
+            protein = Protein(id = prefixed_id.id_str(), pm_score = [score])
             proteins.append(protein)
 
         yield proteins
