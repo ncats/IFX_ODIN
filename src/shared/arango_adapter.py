@@ -83,6 +83,6 @@ class ArangoAdapter:
 
     def runQuery(self, query: str, bind_vars: dict = None):
         db = self.get_db()
-        cursor = db.aql.execute(query, bind_vars=bind_vars or {})
+        cursor = db.aql.execute(query, bind_vars=bind_vars or {}, max_runtime=600)
         return list(cursor)
 

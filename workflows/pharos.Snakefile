@@ -39,7 +39,7 @@ rule download_pm_scores:
     output:
         "../input_files/auto/jensenlab/protein_counts.tsv"
     shell:
-        "curl -o {output} https://download.jensenlab.org/KMC/protein_counts.tsv"
+        "curl -o {output} https://download.jensenlab.org/protein_counts.tsv"
 
 rule download_go_from_uniprot:
     output:
