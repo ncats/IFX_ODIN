@@ -147,7 +147,7 @@ ab_counts = """
 FOR n IN `biolink:Protein`
   RETURN {
     protein_id: n.id,
-    value: n.antibody_count
+    value: MAX(n.antibody_count)
   }
 """
 
