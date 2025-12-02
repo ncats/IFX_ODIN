@@ -2,6 +2,7 @@
 
 ## Overview Diagram
 
+```mermaid
 flowchart TD
     A[Raw CUREID JSON<br/>cureid_cases_VERSION.json] --> B
 
@@ -20,3 +21,4 @@ flowchart TD
     G[Apply LLM Mapping<br/>cureid_resolver_llm.py] --> H[SRI_resolved_cureid_VERSION_llm_ids.tsv]
 
     H --> I[Graph Export / Downstream Use]
+```
