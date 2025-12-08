@@ -102,7 +102,7 @@ class GeneRifAdapter(PharosArangoAdapter):
             if not rows:
                 break  # no more results
 
-            yield [
+            yield list(set([
                 GeneGeneRifRelationship(
                     start_node=Gene(id=row['ifxgene_id']),
                     end_node=GeneRif(text=row['text'], id=str(hash(row['text']))),
@@ -111,7 +111,9 @@ class GeneRifAdapter(PharosArangoAdapter):
                     pmids=row['pmids']
                 )
                 for row in rows
-            ]
+            ]))
+
+
 
             # Advance bookmark
             last_key = rows[-1]["_key"]
