@@ -18,7 +18,8 @@ flowchart TD
     C1 --> G
     F --> G
 
-    G[Apply LLM Mapping<br/>cureid_resolver_llm.py] --> H[SRI_resolved_cureid_VERSION_llm_ids.tsv]
+    G[Apply LLM Mapping<br/>cureid_resolver_llm.py] --> H[SRI_resolved_cureid_VERSION_llm_ids.tsv ready for manual review]
 
-    H --> I[Graph Export / Downstream Use]
+    H --> I[finalized nodes and edges for CUREID re-ingest]
+    I --> J[Graph Export (KGX file) / Downstream Use]
 ```
