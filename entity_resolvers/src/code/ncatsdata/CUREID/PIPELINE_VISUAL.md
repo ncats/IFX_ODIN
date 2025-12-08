@@ -13,12 +13,12 @@ flowchart TD
     D -->|Yes| E1[Auto-Accept]
     D -->|No| E2[Send to LLM for Curation/mapping <br/>Claude Code]
 
-    E2 --> F[SRI_nodes_non_exact_with_llm_mapping_VERSION.tsv]
+    E2 --> F[output file, llm_mapping_VERSION.tsv]
 
     C1 --> G
     F --> G
 
-    G[Apply LLM Mapping<br/>cureid_resolver_llm.py] --> H[SRI_resolved_cureid_VERSION_llm_ids.tsv ready for manual review]
+    G[Merge SRI and LLM Mapping<br/>cureid_resolver_llm.py] --> H[complete standardized node resolution file ready for manual review, SRI_resolved_cureid_VERSION_llm_ids.tsv ]
 
     H --> I[Finalized nodes and edges for CUREID re-ingest]
     I --> J[Graph Export 'KGX file'/ Downstream Use]
