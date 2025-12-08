@@ -23,6 +23,12 @@ resolvers:
         - Transcript
 
 input_adapters:
+#  - import: ./src/input_adapters/uniprot/extra_protein_data_adapter.py
+#    class: UniprotAdapter
+#    kwargs:
+#      reviewed_only: *reviewed_only
+#      file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
+#
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
     credentials: *source_credentials
@@ -30,39 +36,40 @@ input_adapters:
       database_name: *source_database
       reviewed_only: *reviewed_only
 
-#  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
-#    class: GeneRifAdapter
-#    credentials: *source_credentials
-#    kwargs:
-#      database_name: *source_database
-#      reviewed_only: *reviewed_only
-#
-#  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
-#    class: GoTermAdapter
-#    credentials: *source_credentials
-#    kwargs:
-#      database_name: *source_database
-#      reviewed_only: *reviewed_only
-#
-#  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-#    class: LigandNodeAdapter
-#    credentials: *source_credentials
-#    kwargs:
-#      database_name: *source_database
-#      meets_idg_cutoff: *meets_idg_cutoff
-#      reviewed_only: *reviewed_only
-#
-#  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-#    class: LigandEdgeAdapter
-#    credentials: *source_credentials
-#    kwargs:
-#      database_name: *source_database
-#      meets_idg_cutoff: *meets_idg_cutoff
-#      reviewed_only: *reviewed_only
+  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
+    class: GeneRifAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
+    class: GoTermAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+    class: LigandNodeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      meets_idg_cutoff: *meets_idg_cutoff
+      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
+    class: LigandEdgeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      meets_idg_cutoff: *meets_idg_cutoff
+      reviewed_only: *reviewed_only
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TCRDOutputAdapter
     kwargs:
       database_name: pharos400
+      truncate_tables: true
     credentials: *destination_credentials

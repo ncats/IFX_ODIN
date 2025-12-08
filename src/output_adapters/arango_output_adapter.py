@@ -36,7 +36,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 collection.add_persistent_index(fields=[field], sparse=True)
 
 
-    def store(self, objects) -> bool:
+    def store(self, objects, single_source = False) -> bool:
 
         def generate_edge_key(from_node, to_node, edge_type):
             return f"{self.safe_key(edge_type)}__{self.safe_key(from_node)}__{self.safe_key(to_node)}"
@@ -62,10 +62,12 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 self.create_indexes(obj_cls, edge_collection)
                 keys = [generate_edge_key(obj['start_id'], obj['end_id'], label) for obj in obj_list]
 
-                existing_edges = edge_collection.get_many(keys)
-                existing_record_map = {
-                    (record['start_id'], record['end_id']): record for record in existing_edges
-                }
+                existing_record_map = {}
+                if not single_source:
+                    existing_edges = edge_collection.get_many(keys)
+                    existing_record_map = {
+                        (record['start_id'], record['end_id']): record for record in existing_edges
+                    }
                 merged_records = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='edges')
 
                 edges = []
@@ -82,7 +84,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
 
             else:
-                collection, existing_nodes = self.get_existing_nodes(db, label, obj_list)
+                collection, existing_nodes = self.get_existing_nodes(db, label, obj_list, skip_merge=single_source)
 
                 self.create_indexes(obj_cls, collection)
                 existing_record_map = {
@@ -98,11 +100,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return True
 
-    def get_existing_nodes(self, db, label, obj_list):
+    def get_existing_nodes(self, db, label, obj_list, skip_merge = False):
         if not db.has_collection(label):
             collection = db.create_collection(label)
         else:
             collection = db.collection(label)
+        if skip_merge:
+            return collection, []
         keys = [self.safe_key(obj['id']) for obj in obj_list]
         existing_nodes = collection.get_many(keys)
         return collection, existing_nodes

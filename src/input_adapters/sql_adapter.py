@@ -58,12 +58,13 @@ class MySqlAdapter(HostedSqlAdapter):
     def __init__(self, credentials: DBCredentials):
         super().__init__(credentials, dialect="mysql+pymysql")
 
-    def recreate_mysql_db(self, db_name):
+    def recreate_mysql_db(self, db_name, truncate_tables = True):
         engine = self.get_engine()
 
         with engine.connect() as conn:
-            conn.execute(text(f"DROP DATABASE IF EXISTS `{db_name}`"))
-            conn.execute(text(f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
+            if truncate_tables:
+                conn.execute(text(f"DROP DATABASE IF EXISTS `{db_name}`"))
+                conn.execute(text(f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
             print(f"Created empty MySQL database: {db_name}")
             self.update_database(db_name)
 
