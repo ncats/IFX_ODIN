@@ -41,7 +41,7 @@ class ETL:
                 for output_adapter in self.output_adapters:
                     resolved_list = output_adapter.preprocess_objects(resolved_list)
                     self.labeler.assign_all_labels(resolved_list)
-                    output_adapter.store(resolved_list)
+                    output_adapter.store(resolved_list, single_source=input_adapter.is_single_source())
 
             end_time = time.time()
             elapsed_time = end_time - start_time

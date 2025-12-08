@@ -16,16 +16,18 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
 
 class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     database_name: str
+    truncate_tables: bool
     no_merge: bool
     output_converter: SQLOutputConverter
 
-    def __init__(self, credentials: DBCredentials, database_name: str, no_merge: bool = True):
+    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True, no_merge: bool = True):
         self.database_name = database_name
+        self.truncate_tables = truncate_tables
         self.no_merge = no_merge
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
 
-    def store(self, objects) -> bool:
+    def store(self, objects, single_source=False) -> bool:
         merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
 
         if not isinstance(objects, list):
@@ -107,7 +109,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
             session.close()
 
     def create_or_truncate_datastore(self) -> bool:
-        self.recreate_mysql_db(self.database_name)
+        self.recreate_mysql_db(self.database_name, self.truncate_tables)
         return True
 
 
@@ -127,8 +129,9 @@ class TestOutputAdapter(MySQLOutputAdapter):
 class TCRDOutputAdapter(MySQLOutputAdapter):
     output_converter = TCRDOutputConverter
 
-    def __init__(self, credentials: DBCredentials, database_name: str):
-        MySQLOutputAdapter.__init__(self, credentials, database_name, no_merge = True)
+    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool):
+        self.truncate_tables = truncate_tables
+        MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables = truncate_tables, no_merge = True)
         self.output_converter = TCRDOutputConverter(sql_base=TCRDBase)
 
     def create_or_truncate_datastore(self) -> bool:

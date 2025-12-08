@@ -2,12 +2,12 @@ from typing import List
 from neo4j import GraphDatabase
 import yaml
 
-credentials_file = "../src/use_cases/secrets/ifxdev_pounce_dev.yaml"
+credentials_file = "./src/use_cases/secrets/ifxdev_memgraph.yaml"
 
 with open(credentials_file, "r") as file:
     credentials = yaml.safe_load(file)
 
-driver = GraphDatabase.driver(credentials['url'], auth=(credentials['user'], credentials['password']))
+driver = GraphDatabase.driver(f"bolt://{credentials['url']}:{credentials['port']}", auth=(credentials['user'], credentials['password']))
 
 class Recombination:
     left_nodes: List[dict]
@@ -129,11 +129,16 @@ class RecombinationList:
                 else:
                     MWs = []
                     InchiKeys = []
+                terms = [
+                    x.get('term')
+                    for x in node.get('synonyms', [])
+                    if isinstance(x.get('term'), str)
+                ]
                 node_text += f"""
                         <tr>
                             <td>{node['id']}</td>
-                            <td>{'<br />'.join(sorted(node['xref']))}</td>
-                            <td>{'<br />'.join(sorted(node['synonyms'] if 'synonyms' in node else []))}</td>
+                            <td>{'<br />'.join(sorted(node.get('xref',[])))}</td>
+                            <td>{'<br />'.join(sorted(set(terms)))}</td>
                             <td>-- {'<br />-- '.join(sorted(pathways))}</td>
                             <td>-- {'<br />-- '.join(sorted(classes))}</td>
                             <td>{'<br />'.join(MWs)}</td>
@@ -149,13 +154,13 @@ class RecombinationList:
                 if len(recomb.left_nodes) == 1:
                     left_nodes += ', '.join(node['id'] for node in recomb.left_nodes)
                     left_nodes += '<br /><br />'
-                    left_nodes += '<br />'.join(sorted(recomb.left_nodes[0]['xref']))
+                    left_nodes += '<br />'.join(sorted(recomb.left_nodes[0].get('xref',[])))
                 else:
                     left_nodes += get_node_table(recomb.left_nodes, left_prop_dict, left_path_dict, left_class_dict)
                 if len(recomb.right_nodes) == 1:
                     right_nodes += ', '.join(node['id'] for node in recomb.right_nodes)
                     right_nodes += '<br /><br />'
-                    right_nodes += '<br />'.join(sorted(recomb.right_nodes[0]['xref']))
+                    right_nodes += '<br />'.join(sorted(recomb.right_nodes[0].get('xref',[])))
                 else:
                     right_nodes += get_node_table(recomb.right_nodes, right_prop_dict, right_path_dict, right_class_dict)
                 row_class = "odd-row" if i % 2 == 0 else "even-row"

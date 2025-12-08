@@ -1,6 +1,6 @@
 from typing import List, Union
 
-from src.interfaces.simple_enum import Label
+from src.interfaces.simple_enum import Label, NodeLabel
 from src.models.analyte import Analyte
 from src.models.disease import Disease, GeneDiseaseRelationship
 from src.models.gene import Gene
@@ -86,9 +86,9 @@ class AuxLabeler(RaMPLabeler):
 
     def get_labels(self, obj):
         if isinstance(obj, Metabolite):
-            return [f"{self.aux_val}_Metabolite", f"{self.aux_val}_Analyte"]
+            return [NodeLabel.get(f"{self.aux_val}_Metabolite")]
         if isinstance(obj, Analyte):
-            return [f"{self.aux_val}_Analyte"]
+            return [NodeLabel.get(f"{self.aux_val}_Analyte")]
         return [default_label(obj)]
 
 

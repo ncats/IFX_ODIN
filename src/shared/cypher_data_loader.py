@@ -154,7 +154,7 @@ class GraphDBDataLoader(ABC):
             """
         return query
 
-    def load_node_records(self, records: List[dict], labels: List[str]):
+    def load_node_records(self, records: List[dict], labels: List[str], skip_merge = False):
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -166,7 +166,7 @@ class GraphDBDataLoader(ABC):
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: List[RelationshipLabel],
-                                  end_labels: List[NodeLabel]):
+                                  end_labels: List[NodeLabel], skip_merge = False):
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(records[0])
@@ -200,16 +200,29 @@ class MemgraphDataLoader(GraphDBDataLoader):
 
     def create_index(self, label: str, field: str):
         print(f'creating index {label}: {field}')
-        self.memgraph.execute(f"CREATE INDEX ON :`{label}`(`{field}`)")
+        retries = 3
+        while retries > 0:
+            try:
+                self.memgraph.execute(f"CREATE INDEX ON :`{label}`(`{field}`)")
+                break
+            except Exception as e:
+                retries -= 1
+                print(f"Error creating index {label}:{field}: {e}, retrying ({retries} attempts left)...")
+                if retries == 0:
+                    raise
+                time.sleep(30)
 
     def add_index(self, label: str, field: str):
         if not self.index_exists(label, field):
             self.create_index(label, field)
 
+    def get_conjugate_label_str(self, labels):
+        labels = self.ensure_list(labels)
+        return "`:`".join(labels)
 
     def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
                                   rel_labels: List[RelationshipLabel],
-                                  end_labels: List[NodeLabel]):
+                                  end_labels: List[NodeLabel], skip_merge = False):
         rel_labels = self.ensure_list(rel_labels)
 
         conjugate_start_label_str = self.get_conjugate_label_str(start_labels)
@@ -218,10 +231,12 @@ class MemgraphDataLoader(GraphDBDataLoader):
 
         unique_pairs = [[record['start_id'], record['end_id']] for record in records]
 
-        edges = self.memgraph.execute_and_fetch(f"""
-        UNWIND $unique_pairs AS pair
-            MATCH (source:`{conjugate_start_label_str}` {{id: pair[0]}})-[r:`{conjugate_label_str}`]->(target:`{conjugate_end_label_str}` {{id: pair[1]}})
-            RETURN properties(r) as props""", {'unique_pairs': list(unique_pairs)})
+        edges = []
+        if not skip_merge:
+            edges = self.memgraph.execute_and_fetch(f"""
+            UNWIND $unique_pairs AS pair
+                MATCH (source:`{conjugate_start_label_str}` {{id: pair[0]}})-[r:`{conjugate_label_str}`]->(target:`{conjugate_end_label_str}` {{id: pair[1]}})
+                RETURN properties(r) as props""", {'unique_pairs': list(unique_pairs)})
 
         existing_edge_map = {(record['props']['start_id'], record['props']['end_id']): record['props'] for record in edges}
 
@@ -245,7 +260,7 @@ class MemgraphDataLoader(GraphDBDataLoader):
 
         self.load_to_graph(query, records)
 
-    def load_node_records(self, records: List[dict], labels: List[str]):
+    def load_node_records(self, records: List[dict], labels: List[str], skip_merge = False):
         labels = self.ensure_list(labels)
         for label in labels:
             self.add_index(label, 'id')
@@ -255,10 +270,13 @@ class MemgraphDataLoader(GraphDBDataLoader):
         ids = [record['id'] for record in records]
         ids = list(set(ids))
 
-        nodes = self.memgraph.execute_and_fetch(f"""
+        query = f"""
         UNWIND $ids AS id
             MATCH (n:`{conjugate_label_str}` {{id: id}})
-            RETURN properties(n) as props""", {'ids': ids})
+            RETURN properties(n) as props"""
+        nodes = []
+        if not skip_merge:
+            nodes = self.memgraph.execute_and_fetch(query, {'ids': ids})
 
         existing_node_map = {}
         for record in nodes:
