@@ -6,7 +6,7 @@
 flowchart TD
     A[Raw CUREID JSON<br/>cureid_cases_VERSION.json] --> B
 
-    B[SRI Name Resolution<br/>cureid_resolver_sri_only.py] --> C1[SRI_resolved_cureid_VERSION.tsv]
+    B[SRI Name Resolution; calls Translators name resolvers API<br/>cureid_resolver_sri_only.py] --> C1[SRI_resolved_cureid_VERSION.tsv]
     B --> C2[Non exact matches from SRI, SRI_nodes_non_exact_for_llm_VERSION.tsv]
 
     C2 --> D{Exact Match?}
