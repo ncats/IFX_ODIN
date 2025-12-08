@@ -80,18 +80,18 @@ class TCRDOutputConverter(SQLOutputConverter):
             preferred_symbol = obj['preferred_symbol']
         )
 
-    def tdl_info_converter(self, obj: dict) -> TDL_info:
+    def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
         tdl_infos = []
-        if 'antibody_count' in obj and obj['antibody_count'] is not None:
-            antibody_count = int(obj['antibody_count'])
+        if 'antibody_count' in obj and obj['antibody_count'] is not None and len(obj['antibody_count']) > 0:
+            antibody_count = max([int(p) for p in obj['antibody_count']])
             if antibody_count > 0:
                 tdl_infos.append(TDL_info(
                     itype="Ab Count",
                     protein_id=self.resolve_id('protein', obj['id']),
                     integer_value=antibody_count
                 ))
-        if 'pm_score' in obj and obj['pm_score'] is not None:
-            pm_score = float(obj['pm_score'])
+        if 'pm_score' in obj and obj['pm_score'] is not None and len(obj['pm_score']) > 0:
+            pm_score = max([float(p) for p in obj['pm_score']])
             tdl_infos.append(TDL_info(
                 itype="JensenLab PubMed Score",
                 protein_id=self.resolve_id('protein', obj['id']),
