@@ -15,12 +15,10 @@ from src.interfaces.labeler import AuxLabeler, ComparingLabeler, RaMPLabeler
 from src.output_adapters.cypher_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
-credentials_file = "./secrets/ifxdev_pounce_dev.yaml"
+credentials_file = "./src/use_cases/secrets/ifxdev_memgraph.yaml"
 
 with open(credentials_file, "r") as file:
     credentials = yaml.safe_load(file)
-
-
 
 class build_db_for_comparing_ramp_ids:
     left_db: str
@@ -44,7 +42,8 @@ class build_db_for_comparing_ramp_ids:
         self.output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
             url = credentials['url'],
             user = credentials['user'],
-            password=credentials['password']
+            password=credentials['password'],
+            port=credentials['port'],
         ))
 
         self.etl = ETL(input_adapters=[], output_adapters=[self.output_adapter])
@@ -55,8 +54,8 @@ class build_db_for_comparing_ramp_ids:
 
     def do_etl(self):
         # Common Input Adapters
-        pathway_adapter = PathwayAdapter(sqlite_file=self.left_db)
-        metabolite_class_adapter = MetaboliteClassAdapter(sqlite_file=self.left_db)
+        pathway_adapter = PathwayAdapter(sqlite_file=self.left_db).set_single_source(True)
+        metabolite_class_adapter = MetaboliteClassAdapter(sqlite_file=self.left_db).set_single_source(True)
 
         self.do_etl_step([
             pathway_adapter,
@@ -64,11 +63,11 @@ class build_db_for_comparing_ramp_ids:
         ])
 
         # Input Adapters
-        left_met_adapter = MetaboliteAdapter(sqlite_file=self.left_db)
+        left_met_adapter = MetaboliteAdapter(sqlite_file=self.left_db).set_single_source(True)
         left_metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=self.left_db)
-        left_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.left_db)
-        left_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.left_db)
-        left_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.left_db)
+        left_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.left_db).set_single_source(True)
+        left_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.left_db).set_single_source(True)
+        left_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.left_db).set_single_source(True)
 
         left_labeler = AuxLabeler(self.left_label)
 
@@ -79,12 +78,12 @@ class build_db_for_comparing_ramp_ids:
             left_metabolite_pathway_relationship_adapter,
             left_metabolite_class_relationship_adapter
         ], left_labeler)
-
-        right_met_adapter = MetaboliteAdapter(sqlite_file=self.right_db)
+        # raise Exception('Debug stop')
+        right_met_adapter = MetaboliteAdapter(sqlite_file=self.right_db).set_single_source(True)
         right_metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=self.right_db)
-        right_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.right_db)
-        right_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.right_db)
-        right_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.right_db)
+        right_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.right_db).set_single_source(True)
+        right_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.right_db).set_single_source(True)
+        right_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.right_db).set_single_source(True)
 
         right_labeler = AuxLabeler(self.right_label)
 
@@ -97,12 +96,10 @@ class build_db_for_comparing_ramp_ids:
         ], right_labeler)
 
         metabolite_set_relationship_adapter = (MetaboliteSetRelationshipAdapter()
-                                               .set_left(self.left_db).set_right(self.right_db))
+                                               .set_left(self.left_db).set_right(self.right_db).set_single_source(True))
         self.do_etl_step([
             metabolite_set_relationship_adapter
         ], ComparingLabeler().set_left_labeler(left_labeler).set_right_labeler(right_labeler))
-
-
 
         if self.third_db:
             third_met_adapter = MetaboliteAdapter(sqlite_file=self.third_db)
@@ -139,9 +136,9 @@ class build_db_for_comparing_ramp_ids:
         self.etl.input_adapters = input_list
         self.etl.do_etl()
 
-released_ramp = "/Users/kelleherkj/IdeaProjects/RaMP-DB-clean/db/RaMP_SQLite_v3.0.6.sqlite"
-new_ramp =      "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v3.0.7.sqlite"
+released_ramp = "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v3.0.11.sqlite"
+new_ramp =      "/Users/kelleherkj/IdeaProjects/ramp-backend-ncats/schema/RaMP_SQLite_v3.0.12.sqlite"
 
-build_engine = build_db_for_comparing_ramp_ids(released_ramp, "released_ramp", new_ramp, "ramp_with_refmet")
+build_engine = build_db_for_comparing_ramp_ids(released_ramp, "ramp3011", new_ramp, "ramp3012")
 build_engine.truncate_old_db()
 build_engine.do_etl()

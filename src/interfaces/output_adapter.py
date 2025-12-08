@@ -15,7 +15,7 @@ class OutputAdapter(ABC):
     name: str
 
     @abstractmethod
-    def store(self, objects) -> bool:
+    def store(self, objects, single_source=False) -> bool:
         pass
 
     def do_post_processing(self) -> None:

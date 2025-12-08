@@ -10,9 +10,17 @@ from src.models.node import Node, Relationship
 
 class InputAdapter(ABC):
     batch_size = 25000
+    single_source: bool = False
 
     def get_name(self) -> str:
         return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
+
+    def is_single_source(self) -> bool:
+        return self.single_source
+
+    def set_single_source(self, single_source: bool) -> 'InputAdapter':
+        self.single_source = single_source
+        return self
 
     @abstractmethod
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:

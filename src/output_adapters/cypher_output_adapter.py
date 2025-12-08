@@ -19,16 +19,16 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
         return self.loader.delete_all_data_and_indexes()
 
 
-    def store(self, objects) -> bool:
+    def store(self, objects, single_source = True) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
 
         object_groups = self.sort_and_convert_objects(objects)
         for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             if is_relationship:
-                self.loader.load_relationship_records(obj_list, start_labels, labels, end_labels)
+                self.loader.load_relationship_records(obj_list, start_labels, labels, end_labels, skip_merge=single_source)
             else:
-                self.loader.load_node_records(obj_list, labels)
+                self.loader.load_node_records(obj_list, labels, skip_merge=single_source)
         return True
 
 class MemgraphOutputAdapter(GraphDBOutputAdapter):

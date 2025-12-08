@@ -12,13 +12,13 @@ from src.models.node import Node, Relationship
 from src.output_adapters.cypher_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
-credentials_file = "./secrets/ifxdev_pounce_dev.yaml"
+credentials_file = "./secrets/local_memgraph.yaml"
 
 with open(credentials_file, "r") as file:
     credentials = yaml.safe_load(file)
 
 output_adapter = MemgraphOutputAdapter(credentials=DBCredentials(
-    url = credentials['url'], user = credentials['user'], password=credentials['password']
+    url = credentials['url'], user = credentials['user'], password=credentials['password'], port=credentials['port']
 ))
 
 
@@ -53,8 +53,8 @@ class DumpAdapter(InputAdapter):
         for node_file in node_files:
 
             ramp_id = re.search(r'RAMP_C_\d+', node_file).group(0)
-            ramp_node = Node(id=ramp_id, labels=['RAMP_ID'])
-            nodes.append(ramp_node)
+            # ramp_node = Node(id=ramp_id, labels=['RAMP_ID'])
+            # nodes.append(ramp_node)
 
             print('reading: ', node_file)
             with open(os.path.join(csv_directory, node_file), 'r') as f:
@@ -68,9 +68,9 @@ class DumpAdapter(InputAdapter):
                     setattr(id_node, 'synonyms', row[2])
                     nodes.append(id_node)
 
-                    relationships.append(Relationship(
-                        start_node=ramp_node, end_node=id_node
-                    ))
+                    # relationships.append(Relationship(
+                    #     start_node=ramp_node, end_node=id_node
+                    # ))
         print(len(nodes))
         yield [*nodes, *relationships]
 
