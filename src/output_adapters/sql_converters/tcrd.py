@@ -1,6 +1,5 @@
 import hashlib
 from typing import Union, List
-
 from src.constants import Prefix
 from src.models.generif import GeneGeneRifRelationship
 from src.models.ligand import Ligand, ProteinLigandRelationship
@@ -10,8 +9,26 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import Protein as mysqlProte
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermRelationship
 from src.models.node import EquivalentId
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
+from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
 
 class TCRDOutputConverter(SQLOutputConverter):
+    id_mapping = {}
+
+    def __init__(self):
+        super().__init__(sql_base=TCRDBase)
+
+    def preload_id_mappings(self, session):
+        self.id_mapping = {}
+        try:
+            rows = session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
+            mapping = {}
+            for ifx, pid in rows:
+                if ifx is not None:
+                    mapping[ifx] = pid
+            self.id_mapping['protein'] = mapping
+        except Exception:
+            # if preload fails (no DB/session available), leave mapping empty
+            self.id_mapping['protein'] = {}
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
         if obj_cls == GoTerm:
@@ -140,7 +157,6 @@ class TCRDOutputConverter(SQLOutputConverter):
             protein_id=self.resolve_id('protein', obj['id']),
             provenance = obj['provenance'])
 
-    id_mapping = {}
     def resolve_id(self, table, id):
         if table not in self.id_mapping:
             self.id_mapping[table] = {}
@@ -259,7 +275,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             pubmed_ids = [str(i) for i in pubmed_ids]
             activity_object = LigandActivity(
                 ncats_ligand_id = obj['end_id'],
-                target_id = obj['start_id'],
+                target_id = self.resolve_id('protein', obj['start_id']),
                 act_value=detail.get('act_value'),
                 act_type=detail.get('act_type'),
                 action_type=detail.get('action_type'),
