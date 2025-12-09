@@ -11,7 +11,6 @@ from src.output_adapters.sql_converters.test import TestSQLOutputConverter
 from src.shared.db_credentials import DBCredentials
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 from src.shared.sqlalchemy_tables.test_tables import Base as TestBase
-from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
 
 
 class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
@@ -134,9 +133,10 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
     def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool):
         self.truncate_tables = truncate_tables
         MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables = truncate_tables, no_merge = True)
-        self.output_converter = TCRDOutputConverter(sql_base=TCRDBase)
+        self.output_converter = TCRDOutputConverter()
 
     def create_or_truncate_datastore(self) -> bool:
         super().create_or_truncate_datastore()
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
+        self.output_converter.preload_id_mappings(self.get_session())
         return True
