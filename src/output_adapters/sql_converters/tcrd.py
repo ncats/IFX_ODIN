@@ -259,7 +259,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             pubmed_ids = [str(i) for i in pubmed_ids]
             activity_object = LigandActivity(
                 ncats_ligand_id = obj['end_id'],
-                target_id = obj['start_id'],
+                target_id = self.resolve_id('protein', obj['start_id']),
                 act_value=detail.get('act_value'),
                 act_type=detail.get('act_type'),
                 action_type=detail.get('action_type'),
