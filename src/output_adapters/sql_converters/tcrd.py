@@ -192,6 +192,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             provenance=obj['provenance']
         )
     setattr(generif_converter, 'merge_anyway', True)
+    setattr(generif_converter, 'deduplicate', True)
 
     def generif_assoc_converter(self, obj: dict) -> List[GeneRif2Pubmed]:
         hashed_id = self.get_generif_hash(obj)
