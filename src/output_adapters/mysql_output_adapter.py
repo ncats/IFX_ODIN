@@ -87,6 +87,8 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper, pk_columns)
 
                     if len(to_insert) > 0:
+                        if getattr(converter, 'deduplicate', False):
+                            to_insert = list({tuple(getattr(rr, col.name) for col in pk_columns): rr for rr in to_insert}.values())
                         print(f"Inserting {len(to_insert)} objects of type {table_class.__name__} using converter {converter.__name__}")
                         session.bulk_save_objects(to_insert)
                     if len(to_update) > 0:
