@@ -84,7 +84,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                         tuple(str(getattr(row, col.name)) for col in pk_columns): row
                         for row in existing_rows
                     }
-                    to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper, pk_columns)
+                    to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper, pk_columns, merge_anyway=getattr(converter, 'merge_anyway', False))
 
                     if len(to_insert) > 0:
                         if getattr(converter, 'deduplicate', False):

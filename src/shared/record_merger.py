@@ -54,9 +54,9 @@ class RecordMerger:
             obj.provenance = f"creation: {obj.provenance}"
         return objects
 
-    def merge_objects(self, objects, existing_object_map, mapper, pk_columns):
+    def merge_objects(self, objects, existing_object_map, mapper, pk_columns, merge_anyway = False):
         updates, inserts = [], []
-        if len(pk_columns) == 1 and getattr(pk_columns[0], "autoincrement", False):
+        if len(pk_columns) == 1 and getattr(pk_columns[0], "autoincrement", False) and not merge_anyway:
             inserts = self.create_autoinc_objects(objects)
             return inserts, updates
         for obj in objects:
