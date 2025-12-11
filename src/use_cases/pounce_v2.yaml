@@ -1,0 +1,16 @@
+destination_credentials: &destination_credentials ./src/use_cases/secrets/local_pounce.yaml
+
+input_adapters:
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinAdapter
+    kwargs:
+      file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
+
+
+output_adapters:
+  - import: ./src/output_adapters/mysql_output_adapter.py
+    class: PounceOutputAdapter
+    kwargs:
+      database_name: pounce_v2
+      truncate_tables: true
+    credentials: *destination_credentials

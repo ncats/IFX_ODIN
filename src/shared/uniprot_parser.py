@@ -32,8 +32,32 @@ class UniProtParser:
         return UniProtParser.find_matches(uniprot_obj, 'uniProtKBCrossReferences', 'database', ref_type)
 
     @staticmethod
+    def get_uniprot_id(uniprot_obj):
+        return uniprot_obj['primaryAccession']
+
+    @staticmethod
+    def get_isoforms(uniprot_obj):
+        ap_comments = UniProtParser.find_comments(uniprot_obj, 'ALTERNATIVE PRODUCTS')
+        isoforms = []
+        for alternative_product in ap_comments:
+            for isoform in alternative_product.get('isoforms', []):
+                if isoform['isoformSequenceStatus'] != 'Described':
+                    continue
+                isoforms.append({
+                    'id': isoform['isoformIds'][0],
+                    'name': isoform['name']['value'],
+                })
+        if len(isoforms) > 0:
+            return isoforms
+        return None
+
+    @staticmethod
     def get_primary_accession(uniprot_obj):
-        return f"{Prefix.UniProtKB}:" + uniprot_obj['primaryAccession']
+        return f"{Prefix.UniProtKB}:" + UniProtParser.get_uniprot_id(uniprot_obj)
+
+    @staticmethod
+    def get_gene_name(uniprot_obj):
+        return uniprot_obj['uniProtkbId']
 
     @staticmethod
     def get_full_name(uniprot_obj):
@@ -44,8 +68,26 @@ class UniProtParser:
         return UniProtParser.find_first_comment(uniprot_obj, "FUNCTION")
 
     @staticmethod
+    def get_symbols(uniprot_obj):
+        if 'genes' not in uniprot_obj:
+            return None
+        symbols = []
+        for g in uniprot_obj['genes']:
+            if 'geneName' in g:
+                symbols.append(g['geneName']['value'])
+        if len(symbols) == 0:
+            return None
+        return symbols
+
+    @staticmethod
     def get_sequence(uniprot_obj):
         return uniprot_obj['sequence']['value']
+
+    @staticmethod
+    def get_secondary_accessions(uniprot_obj):
+        if 'secondaryAccessions' in uniprot_obj:
+            return uniprot_obj['secondaryAccessions']
+        return None
 
     @staticmethod
     def parse_aliases(uniprot_obj):

@@ -6,6 +6,7 @@ from sqlalchemy import inspect, tuple_
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
+from src.output_adapters.sql_converters.pounce import PounceOutputConverter
 from src.output_adapters.sql_converters.tcrd import TCRDOutputConverter
 from src.output_adapters.sql_converters.test import TestSQLOutputConverter
 from src.shared.db_credentials import DBCredentials
@@ -139,4 +140,18 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         super().create_or_truncate_datastore()
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
         self.output_converter.preload_id_mappings(self.get_session())
+        return True
+
+class PounceOutputAdapter(MySQLOutputAdapter):
+
+    output_converter = PounceOutputConverter
+
+    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool):
+        self.truncate_tables = truncate_tables
+        MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables = truncate_tables, no_merge = True)
+        self.output_converter = PounceOutputConverter()
+
+    def create_or_truncate_datastore(self) -> bool:
+        super().create_or_truncate_datastore()
+        self.output_converter.sql_base.metadata.create_all(self.get_engine())
         return True
