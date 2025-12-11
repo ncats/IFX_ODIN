@@ -14,3 +14,6 @@ class SQLOutputConverter(ABC):
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
         raise NotImplementedError("Derived classes must implement convert")
 
+    def preload_id_mappings(self, param):
+        pass
+
