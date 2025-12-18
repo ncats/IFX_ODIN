@@ -114,12 +114,6 @@ Claude Code acts as a biomedical expert and:
 
 **Output:** `SRI_nodes_Claude_reviewed_VERSION.xlsx`
 
-**Quality Metrics:**
-- ~30-40% corrections (OVERRIDE)
-- ~25-35% confirmations (KEEP)
-- ~10-15% splits (multi-concept)
-- ~15-25% unmappable (sequence variants, too vague)
-
 ---
 
 ### Step 3: Merge Results
@@ -192,20 +186,6 @@ For each Claude-reviewed row, add:
 - `biolink_predicate`: Relationship type
 - `report_id`, `pmid`: Provenance
 - QC flags for missing mappings
-
----
-## 📈 Pipeline Statistics (RASopathies Example)
-
-| Stage | Input | Output | Time |
-|-------|-------|--------|------|
-| **SRI Resolution** | 211 JSON records | 149 unique nodes | ~5-10 min |
-| **Exact Matches** | 149 nodes | 69 auto-accepted (46%) | instant |
-| **AI Review** | 64 non-exact + 16 variants | 80 curated rows | ~5 min |
-| **Human QC** | 80 AI-reviewed | 80 validated | ~60-90 min |
-| **Final Apply** | 211 records | 258 edges (after splits) | ~2 min |
-
-**Total Time:** ~75-115 minutes per dataset (most time is human QC)
-
 ---
 
 ## 🎯 Quality Assurance Measures
