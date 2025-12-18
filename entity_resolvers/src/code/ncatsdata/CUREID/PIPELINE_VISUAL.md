@@ -48,11 +48,11 @@ flowchart TD
     
     FINAL --> APPLY[⚙️ Step 5: Apply to Full Dataset<br/>cureid_apply_final_ids.py<br/><i>Re-process original JSON</i>]
     
-    APPLY --> OUTPUT[🎯 Standardized Knowledge Graph<br/>All nodes + edges with CURIEs<br/><i>Ready for integration</i>]
+    APPLY --> OUTPUT[🎯 Standardized<br/>nodes + edges with CURIEs<br/><i>Ready for integration</i>]
     
     OUTPUT --> EXPORT[📤 Export Options]
     EXPORT --> KGX[KGX Format<br/><i>for Translator</i>]
-    EXPORT --> NEO4J[Neo4j Import<br/><i>for graph database</i>]
+    EXPORT --> Memgraph[Memgraph<br/><i>for graph database</i>]
     EXPORT --> ANALYSIS[Data Analysis<br/><i>for research</i>]
     
     style START fill:#e1f5ff
