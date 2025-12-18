@@ -1,4 +1,4 @@
-# 🔬 CUREID Node Curation Prompt V3 - Error Detection & Correction
+# 🔬 CUREID Node Curation Prompt - Error Detection & Correction
 
 ## ⚠️ CRITICAL: DO NOT WRITE CODE - CURATE DIRECTLY
 
