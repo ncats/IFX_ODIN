@@ -1,310 +1,428 @@
-# LLM Curation Prompt for CUREID Node Resolution
+# 🔬 CUREID Node Curation Prompt V3 - Error Detection & Correction
 
-## IMPORTANT: DO NOT WRITE CODE - CURATE DIRECTLY
+## ⚠️ CRITICAL: DO NOT WRITE CODE - CURATE DIRECTLY
 
-**You are Claude Code running in a live environment.** Your job is to:
-1. **Read the input TSV file directly**
-2. **Manually curate each row using your biomedical expertise**
-3. **Write the output TSV file directly**
+You are Claude Code. Load the file, curate each row using your biomedical expertise, and write the output file. DO NOT create Python scripts.
 
-**DO NOT** write Python scripts for the user to run. **DO NOT** try to encode curation logic into automated rules. Use your biomedical reasoning case-by-case.
+---
 
-## Task Overview
+## 🎯 Your Task
 
-You are an expert biomedical curator for the NIH NCATS TargetGraph team. Review and improve node mappings from the Translator SRI Name Resolver for patient-reported CUREID data.
+Review SRI Name Resolver mappings and detect/correct errors using your clinical expertise.
 
-## Input File
+**Input:** `data/output/qc/SRI_nodes_non_exact_for_review_12.16.25.xlsx`
 
-`data/output/SRI_nodes_non_exact_for_llm_<VERSION>.tsv`
+**Output:** `data/output/qc/SRI_nodes_Claude_reviewed_12.16.25.xlsx`
 
-### Input Columns:
-- `node_label`: Original free-text label from patient/doctor report
-- `node_type`: Disease | Drug | Gene | PhenotypicFeature | AdverseEvent | SequenceVariant
-- `node_curie`: SRI's top choice CURIE (may be empty)
-- `resolved_label`: SRI's label for that CURIE
-- `resolution_score`: SRI confidence (NOT 0-1 normalized, can be >1000)
-- `exact_match`: "Y" or "N" (based on exact string match to label or synonym)
-- `alternates_top5`: JSON array of up to 5 alternatives: `[{"curie":"...", "label":"...", "score":...}, ...]`
-- `n_edges`: How many times this node appears in the knowledge graph (importance metric)
+---
 
-## Output File
+## 📥 Input Columns
 
-`data/output/SRI_nodes_non_exact_with_llm_mapping_<VERSION>.tsv`
+- `original_node_label` - Free-text clinical term
+- `node_type` - Disease | Drug | Gene | PhenotypicFeature | AdverseEvent | SequenceVariant
+- `SRI_node_curie` - SRI's top choice
+- `SRI_resolved_label` - SRI's label for that CURIE
+- `resolution_source` - Where SRI found it
+- `SRI_score` - Confidence score
+- `exact_match` - Y/N
+- `SRI_alternates_top5` - JSON array of alternatives
+- `n_edges` - Frequency in knowledge graph
 
-Add these columns to the existing DataFrame:
+---
 
-### Required New Columns
+## 📤 Output Columns TO ADD
 
-1. **`recommendation`** (required): `KEEP | REPLACE | MULTI_SPLIT | UNMAPPABLE`
+Add these columns to the input file:
 
-2. **`split_terms`** (required):
-   - For MULTI_SPLIT: pipe-separated terms (`"term1|term2|term3"`)
-   - For others: copy `node_label` as-is
+### 1. `claude_decision`
+- `KEEP` - SRI is correct
+- `OVERRIDE` - Need different CURIE(s)
 
-3. **`mapped_curie_list`** (required):
-   - KEEP/REPLACE: single CURIE
-   - MULTI_SPLIT: pipe-separated CURIEs (`"HP:0001635|HP:0002091|HP:0012418"`)
-   - UNMAPPABLE: empty string `""`
+### 2. `error_tag`
+One or more error types (pipe-separated if multiple):
 
-4. **`mapped_label_list`** (required):
-   - Labels corresponding to CURIEs (pipe-separated for MULTI_SPLIT)
-   - UNMAPPABLE: empty string
+- `MULTI_CONCEPT_NEEDS_SPLIT` - Label contains multiple distinct concepts
+- `ROLE_MISMATCH` - Wrong anatomical site, action, or body system
+- `OVER_SPECIFIC` - SRI added unwarranted specificity (e.g., numbered subtype)
+- `UNDER_SPECIFIC` - SRI too broad/generic
+- `QUALIFIER_ONLY` - Mapped only qualifier, missed main concept
+- `VARIANT_UNMAPPABLE` - Sequence variant without genomic context
+- `WRONG_ONTOLOGY` - Used disease when phenotype needed (or vice versa)
+- `0` - No errors (only if KEEP)
 
-5. **`mapping_notes`** (required):
-   - 1-2 sentences explaining your decision
-   - Professional, biomedical, concise
-   - Explain WHY you made this choice
+**Can combine:** `ROLE_MISMATCH|UNDER_SPECIFIC`
 
-## Recommendation Types Explained
+### 3. `claude_mapped_curie_list`
+- KEEP: empty or copy SRI CURIE
+- OVERRIDE: your corrected CURIE(s)
+- MULTI_CONCEPT_NEEDS_SPLIT: pipe-separated CURIEs (`HP:0001|HP:0002|HP:0003`)
+- VARIANT_UNMAPPABLE: empty
 
-### KEEP
-SRI's `node_curie` is correct despite non-exact match.
+### 4. `claude_mapped_label_list`
+- Labels corresponding to CURIEs
+- Pipe-separated for splits
+- Empty for UNMAPPABLE
 
-**When to use:**
-- Resolved term semantically matches node_label
-- Formulation variants match base drug (e.g., "Leuprolide Acetate Depot" → Leuprolide)
-- Clinical qualifiers don't change core concept (e.g., "with symptoms", "severe", "bilateral")
+### 5. `curation_notes`
+- 1-2 sentences explaining decision
+- For OVERRIDE: explain what error you fixed
+- For MULTI_CONCEPT_NEEDS_SPLIT: explain how you split it
 
-**Example:**
-```
-node_label: "Everolimus (Afinitor, Afinitor Disperz, Zortress)"
-node_curie: CHEBI:68478
-resolved_label: "Everolimus"
-→ KEEP
-notes: "SRI correctly mapped to Everolimus base drug; brand names in parentheses are acceptable synonyms."
-```
+---
 
-### REPLACE
-Choose different CURIE (from alternates OR your biomedical knowledge).
+## 🔍 ERROR DETECTION GUIDE
 
-**CRITICAL: You CAN suggest CURIEs not in alternates_top5!**
+### Error Type 1: MULTI_CONCEPT_NEEDS_SPLIT
 
-**When to use:**
-- SRI chose wrong concept entirely
-- Wrong anatomical site (scalp ≠ face, nipples ≠ incisors)
-- Wrong action/verb (gaining ≠ bearing, gastrostomy ≠ eustachian)
-- Wrong specificity (generic label → overly specific numbered subtype)
-- Wrong vocabulary (MONDO disease when HP phenotype needed)
+**Detect when original label contains:**
+- Multiple comma-separated features: `"feature A, feature B, and feature C"`
+- Slash-separated alternatives: `"Chylacites/Chylous effusion"`
+- Multiple "and"-connected distinct concepts: `"thin eyebrows and scarce hair"`
+- Lists of phenotypes: `"curly hair, sparse eyebrows, prominent forehead"`
 
 **Examples:**
 ```
-node_label: "Difficulty gaining weight"
-SRI: "Difficulty weight-bearing"
-→ REPLACE with HP:0001824 "Poor weight gain"
-notes: "SRI incorrectly mapped 'gaining weight' (nutrition) to 'weight-bearing' (ambulation); HP:0001824 correctly captures inadequate weight gain phenotype."
+✓ SPLIT: "Sparse scalp hair and no eyelashes, eyebrows, or body hair"
+  → Split into: Sparse scalp hair | Absent eyelashes | Absent eyebrows | Absent body hair
+  → CURIEs: HP:0002209 | HP:0000561 | HP:0002223 | HP:0002230
 
-node_label: "Adrenocorticotropic Hormone Therapy (ACTH)"
-SRI: "Parathyroid hormone"
-→ REPLACE with CHEBI:3892 "Corticotropin"
-notes: "SRI incorrectly mapped ACTH to parathyroid hormone (PTH); completely different hormones. CHEBI:3892 (Corticotropin) is correct term for ACTH."
+✓ SPLIT: "Chylacites/Chylous effusion"
+  → Split into: Chylous ascites | Chylous effusion
+  → CURIEs: HP:0025406 | HP:0025309
 
-node_label: "Widely Spaced Nipples"
-SRI: "Widely spaced nipples (male)"
-→ REPLACE with HP:0006610 "Wide intermamillary distance"
-notes: "Replaced UMLS term with HP:0006610 (Wide intermamillary distance) which is preferred HPO term for widely spaced nipples regardless of sex."
+✓ SPLIT: "Hypertrophic cardiomyopathy and a decrease in left ventricular stroke volume"
+  → Split into: Hypertrophic cardiomyopathy | Decreased left ventricular stroke volume
+  → CURIEs: HP:0001639 | HP:0025473
+
+✗ DO NOT SPLIT: "Severe congenital neutropenia" (single concept with modifiers)
+✗ DO NOT SPLIT: "Growth and development" (standard compound term)
 ```
 
-### MULTI_SPLIT
-Label describes multiple distinct biomedical concepts.
+---
+
+### Error Type 2: ROLE_MISMATCH
+
+**Detect when SRI mapped to:**
+- Wrong anatomical site: nipples → incisors, scalp → face
+- Wrong action/verb: "gaining weight" → "weight-bearing", "passing stool" → "standing"
+- Wrong body system: gastrostomy tube → eustachian tube, pulmonary → intestinal
+- Wrong hormone: ACTH → PTH, FSH → TSH
+
+**Examples:**
+```
+✓ ROLE_MISMATCH:
+  Original: "Difficulty gaining weight"
+  SRI: "Difficulty weight-bearing"
+  Fix: HP:0001824 "Poor weight gain"
+
+✓ ROLE_MISMATCH:
+  Original: "G tube fed"
+  SRI: "Eustachian tube disorder"
+  Fix: HP:0011471 "Gastrostomy tube feeding dependence"
+
+✓ ROLE_MISMATCH:
+  Original: "ACTH (Adrenocorticotropic Hormone)"
+  SRI: "Parathyroid hormone"
+  Fix: CHEBI:3892 "Corticotropin"
+
+✓ ROLE_MISMATCH:
+  Original: "Widely spaced nipples"
+  SRI: "Widely-spaced incisors"
+  Fix: HP:0006610 "Wide intermamillary distance"
+```
+
+---
+
+### Error Type 3: OVER_SPECIFIC
+
+**Detect when SRI added:**
+- Numbered subtypes not in original: "cardiomyopathy" → "cardiomyopathy 7"
+- Location qualifiers not stated: "atrophy" → "posterior cortical atrophy"
+- Specific variants of generic terms: "rash" → "maculopapular rash, type 2A"
+
+**Examples:**
+```
+✓ OVER_SPECIFIC:
+  Original: "Hypertrophic cardiomyopathy"
+  SRI: "Hypertrophic cardiomyopathy 7"
+  Fix: Use generic HP:0001639 "Hypertrophic cardiomyopathy"
+
+✓ OVER_SPECIFIC:
+  Original: "Developmental delay"
+  SRI: "Developmental delay with autism spectrum disorder"
+  Fix: HP:0001263 "Global developmental delay" (if general)
+```
+
+---
+
+### Error Type 4: UNDER_SPECIFIC
+
+**Detect when SRI too broad:**
+- Specific symptom → generic category: "severe itching" → "skin disorder"
+- Detailed phenotype → vague term: "widely spaced nipples" → "chest abnormality"
+
+**Examples:**
+```
+✓ UNDER_SPECIFIC:
+  Original: "Severe itching of extremities"
+  SRI: "Skin disorder"
+  Fix: HP:0000989 "Pruritus"
+```
+
+---
+
+### Error Type 5: WRONG_ONTOLOGY
+
+**Detect when:**
+- PhenotypicFeature mapped to MONDO disease (should be HP)
+- Disease mapped to HP phenotype (should be MONDO)
+
+**Ontology preferences:**
+- PhenotypicFeature → **HP** >> MONDO
+- Disease → **MONDO** >> DOID
+- Drug → **CHEBI** >> RXCUI
+- AdverseEvent → HP > UMLS
+
+---
+
+### Error Type 6: VARIANT_UNMAPPABLE
+
+**Detect when:**
+- SequenceVariant with only protein notation: `p.Gly464Ala`
+- No genomic context available
+- Free-text variant descriptor
+
+**Action:** Mark VARIANT_UNMAPPABLE, leave CURIEs empty
+
+---
+
+## 🔧 Using Reference Files (Optional but Recommended)
+
+**Available in:** `data/reference_data/`
+
+### HPO Reference (`hpo_ids.tsv`)
+For PhenotypicFeature nodes:
+```python
+import pandas as pd
+hpo = pd.read_csv('data/reference_data/hpo_ids.tsv', sep='\t')
+matches = hpo[hpo['hpo_label'].str.contains('weight gain', case=False, na=False)]
+```
+
+### MONDO Reference (`mondo_ids.csv`)
+For Disease nodes:
+```python
+mondo = pd.read_csv('data/reference_data/mondo_ids.csv')
+matches = mondo[mondo['mondo_preferred_label'].str.contains('cardiomyopathy', case=False)]
+```
 
 **When to use:**
-- Comma/slash-separated lists
-- Multiple phenotypes in one label
-- Compound descriptions with "and" connecting distinct concepts
+- ✅ Check reference files for Phenotypes and Diseases
+- ✅ Validates CURIE exists and isn't obsolete
+- ✅ If found in reference → high confidence
+- ⚠️ If not found → use your expert knowledge
+- ❌ No reference for Drugs/Genes → always use knowledge
 
-**Example:**
+---
+
+## 📊 Target Metrics
+
+Aim for this distribution:
+
+| Category | Target % | Example Count (100 rows) |
+|----------|----------|--------------------------|
+| MULTI_CONCEPT_NEEDS_SPLIT | 10-15% | ~11 |
+| ROLE_MISMATCH | 15-20% | ~14 |
+| UNDER_SPECIFIC | 20-30% | ~25 |
+| OVER_SPECIFIC | 5-10% | ~4 |
+| VARIANT_UNMAPPABLE | 10-20% | ~16 |
+| WRONG_ONTOLOGY | 5-10% | ~5 |
+| No errors (KEEP) | 10-20% | ~9 |
+
+**Note:** Many rows will have multiple error tags (e.g., `ROLE_MISMATCH|UNDER_SPECIFIC`)
+
+---
+
+## ✅ Decision Making Process
+
+For EACH row:
+
+### Step 1: Check for Multiple Concepts
+- Does label contain commas, slashes, or "and" connecting distinct concepts?
+- If YES → `MULTI_CONCEPT_NEEDS_SPLIT`
+  - Split into pipe-separated terms
+  - Find CURIE for each term
+  - Set `claude_decision: OVERRIDE`
+
+### Step 2: Check SRI's Mapping (if not split)
+- Does SRI CURIE match the clinical concept?
+- Check anatomy, action/verb, body system
+- Check specificity level
+
+### Step 3: Determine Error Type
+- Wrong site/action/system → `ROLE_MISMATCH`
+- Added unwarranted specificity → `OVER_SPECIFIC`
+- Too broad/generic → `UNDER_SPECIFIC`
+- Disease for phenotype → `WRONG_ONTOLOGY`
+- Sequence variant → `VARIANT_UNMAPPABLE`
+
+### Step 4: Find Correct CURIE(s)
+- Search reference files (HPO/MONDO) if available
+- Use your biomedical knowledge
+- Check SRI alternates
+- Can propose CURIEs not in alternates
+
+### Step 5: Set Decision
+- Errors found → `claude_decision: OVERRIDE`
+- SRI correct → `claude_decision: KEEP` + `error_tag: 0`
+
+---
+
+## 🚫 Common Mistakes to Avoid
+
+❌ **Don't:**
+- Skip rows (curate ALL rows carefully)
+- Accept anatomical mismatches (nipples ≠ teeth!)
+- Accept action/verb errors (gaining ≠ bearing)
+- Miss obvious splits (commas, slashes, lists)
+- Use only SRI alternates (use your knowledge!)
+- Write code instead of curating
+
+✅ **Do:**
+- Read EVERY row carefully
+- Use reference files when available
+- Split composite labels
+- Correct anatomical/system errors
+- Use appropriate ontology (HP for phenotypes)
+- Explain your reasoning in notes
+
+---
+
+## 📝 Example Curations
+
+### Example 1: Multi-concept Split
 ```
-node_label: "Curly hair, sparse eyebrows, prominent forehead, and a small chin"
-→ MULTI_SPLIT
-split_terms: "Curly hair|sparse eyebrows|prominent forehead|small chin"
-mapped_curie_list: "HP:0002212|HP:0045075|HP:0011220|HP:0000347"
-mapped_label_list: "Curly hair|Sparse eyebrow|Prominent forehead|Micrognathia"
-notes: "Label describes four distinct craniofacial features separated by commas; split into individual HP terms for each phenotype."
-```
+Input:
+  original_node_label: "Curly hair, sparse eyebrows, prominent forehead, and a small chin"
+  node_type: PhenotypicFeature
+  SRI_node_curie: MONDO:0011053
+  SRI_resolved_label: "intellectual disability-sparse hair-brachydactyly syndrome"
 
-### UNMAPPABLE
-No reliable mapping exists.
-
-**When to use:**
-- SequenceVariants (protein notation without genomic context)
-- Too vague/ambiguous labels
-- SRI completely missed the concept and alternates don't help
-- Wrong category (dermatologic → skeletal disorder with no good alternates)
-
-**Reserve this for <15% of cases!**
-
-**Example:**
-```
-node_label: "p.Gly464Ala"
-node_type: SequenceVariant
-→ UNMAPPABLE
-notes: "Protein-level variant notation without genomic context; no standard ontology available for this free-text variant descriptor."
-```
-
-## Curation Principles
-
-### 1. Vocabulary Preferences by Node Type
-
-| Node Type | Preferred (in order) |
-|-----------|---------------------|
-| PhenotypicFeature | **HP** >> MONDO > UMLS |
-| Disease | **MONDO** > DOID > UMLS |
-| Drug | **CHEBI** > RXCUI > DRUGBANK |
-| Gene | **HGNC** > NCBIGene |
-| AdverseEvent | HP > UMLS |
-| SequenceVariant | Usually unmappable |
-
-### 2. Critical Semantic Checks
-
-#### For Drugs:
-- Match active pharmaceutical ingredient, not formulation
-- "Acetate", "Depot", "Hydrochloride" = formulations, map to base drug
-- Brand names in parentheses = acceptable
-- **Watch for hormone mix-ups** (ACTH ≠ PTH, FSH ≠ TSH)
-
-#### For Diseases:
-- Avoid numbered subtypes unless specified (e.g., "hypertrophic cardiomyopathy" not "hypertrophic cardiomyopathy 7")
-- Don't add location qualifiers not in original ("atrophy" ≠ "posterior atrophy")
-- Match specificity level
-
-#### For Phenotypic Features:
-**CRITICAL**: These are the most error-prone!
-
-- **Preserve actions/verbs**: "gaining" ≠ "bearing", "passing" ≠ "standing"
-- **Preserve anatomical sites**: "pulmonary" ≠ "intestinal", "scalp" ≠ "face", **"nipples" ≠ "incisors"**
-- **Preserve body systems**: "gastrostomy tube" ≠ "eustachian tube", "testicular" ≠ "vaginal"
-- Use generic HP terms when label is general (avoid overly specific subtypes)
-- Split composite descriptions into individual phenotypes
-- **Prefer HP terms** over MONDO diseases for phenotype nodes
-
-**Common mistakes to avoid:**
-- ❌ "Difficulty gaining weight" → "Difficulty weight-bearing"
-- ❌ "G tube fed" → "eustachian tube disorder"
-- ❌ "Severe Itching" → "severe congenital neutropenia"
-- ❌ "Widely Spaced Nipples" → "Widely-spaced incisors"
-
-### 3. Using External Knowledge
-
-**YOU ARE NOT LIMITED TO alternates_top5!**
-
-If you know a better term from your biomedical training:
-1. State the CURIE and label in `mapped_curie_list` / `mapped_label_list`
-2. Mark as REPLACE
-3. Explain in notes: "SRI alternates missed appropriate term; [CURIE] better matches clinical concept."
-
-**Common cases requiring external knowledge:**
-- Poor weight gain → HP:0001824
-- Gastrostomy tube feeding → HP:0011471
-- Global developmental delay → HP:0001263
-- Oral ulcer → HP:0000155
-- Hypsarrhythmia → HP:0002521
-- Pruritus → HP:0000989
-- Diarrhea (generic) → HP:0002014
-- Skin rash (generic) → HP:0000988
-- Low APGAR score → HP:0030917
-- Corticotropin (ACTH) → CHEBI:3892
-
-### 4. Multi-Split Detection
-
-Split when label contains:
-- Multiple comma-separated features: "feature A, feature B, feature C"
-- Slash-separated alternatives: "Chylacites/Chylous effusion"
-- Distinct "and"-connected concepts: "CHF, hypoxia, and hypercarbia"
-
-**Do NOT split:**
-- Standard compound terms: "growth and development"
-- Single concepts with modifiers: "severe congenital neutropenia"
-- Drug combinations that should stay together
-
-### 5. Quality Checks
-
-Before finalizing:
-- [ ] Does mapped term match the **literal meaning** of node_label?
-- [ ] Is the **specificity level** appropriate (not too general, not too specific)?
-- [ ] For phenotypes, did I use **HP terms** whenever possible?
-- [ ] For diseases, did I use **MONDO** when available?
-- [ ] Did I preserve critical qualifiers (**anatomical site, action/verb, severity**)?
-- [ ] Are my **mapping_notes clear and justified**?
-- [ ] Did I check for **obvious anatomical/system mismatches**?
-
-## Implementation Instructions
-
-### DO NOT write code! Execute directly:
-
-1. **Read the input file** using pandas:
-   ```python
-   import pandas as pd
-   df = pd.read_csv('data/output/SRI_nodes_non_exact_for_llm_<VERSION>.tsv', sep='\t')
-   ```
-
-2. **Iterate through each row** and apply your biomedical reasoning:
-   - Examine node_label, node_type, node_curie, resolved_label
-   - Parse alternates_top5 JSON
-   - Use your biomedical expertise to determine best mapping
-   - Populate the 5 new columns
-
-3. **Write the output** using pandas:
-   ```python
-   df.to_csv('data/output/SRI_nodes_non_exact_with_llm_mapping_<VERSION>.tsv', sep='\t', index=False)
-   ```
-
-4. **Print summary statistics**:
-   - Total rows processed
-   - Count by recommendation type
-   - Examples of REPLACE cases showing improvements
-
-## Target Metrics
-
-Aim for:
-- **REPLACE: 30-45%** (find better alternates or suggest new terms)
-- **KEEP: 25-35%** (SRI was correct)
-- **MULTI_SPLIT: 10-15%** (recognize composite labels)
-- **UNMAPPABLE: 15-20%** (including ~10 SequenceVariants which are expected)
-
-## Example Workflow
-
-```
-User: "Process CUREID nodes for version 251202"
-
-You should:
-1. Find: data/output/SRI_nodes_non_exact_for_llm_251202.tsv
-2. Load it with pandas
-3. For each row, apply biomedical reasoning:
-   - Row 1: "Everolimus (Afinitor...)" → Drug formulation, KEEP
-   - Row 2: "ACTH" → Wrong hormone mapping, REPLACE with CHEBI:3892
-   - Row 3: "Difficulty gaining weight" → Wrong action, REPLACE with HP:0001824
-   ...
-4. Write: data/output/SRI_nodes_non_exact_with_llm_mapping_251202.tsv
-5. Print summary showing improvements
+Output:
+  claude_decision: OVERRIDE
+  error_tag: MULTI_CONCEPT_NEEDS_SPLIT
+  claude_mapped_curie_list: HP:0002212|HP:0045075|HP:0011220|HP:0000347
+  claude_mapped_label_list: Curly hair|Sparse eyebrow|Prominent forehead|Micrognathia
+  curation_notes: "Label describes 4 distinct craniofacial phenotypes; SRI incorrectly mapped to syndrome. Split into individual HP terms for each feature."
 ```
 
-## Common Pitfalls to Avoid
+### Example 2: Role Mismatch
+```
+Input:
+  original_node_label: "ACTH (Adrenocorticotropic Hormone Therapy)"
+  node_type: Drug
+  SRI_node_curie: UNII:N19A0T0E5J
+  SRI_resolved_label: "Parathyroid hormone"
 
-❌ **Don't**:
-- Write code for the user to run manually
-- Try to encode biomedical logic into automated rules
-- Accept wrong anatomical sites (nipples ≠ incisors!)
-- Accept wrong actions/verbs (gaining ≠ bearing)
-- Map phenotypes to disease terms when HP exists
-- Default to UNMAPPABLE when you know a better term
-- Use only alternates_top5 when your knowledge has the answer
+Output:
+  claude_decision: OVERRIDE
+  error_tag: ROLE_MISMATCH
+  claude_mapped_curie_list: CHEBI:3892
+  claude_mapped_label_list: Corticotropin
+  curation_notes: "SRI confused ACTH with PTH - completely different hormones. CHEBI:3892 is correct identifier for corticotropin (ACTH)."
+```
 
-✅ **Do**:
-- Read the file and curate directly
-- Use your full biomedical reasoning on each case
-- Suggest appropriate HP/MONDO/CHEBI terms even if not in alternates
-- Split composite labels when they describe multiple concepts
-- Preserve specificity and critical qualifiers from original label
-- Write clear, professional mapping_notes
-- Aim for high REPLACE rate (30-45%) by finding better matches
+### Example 3: Over-Specific
+```
+Input:
+  original_node_label: "Hypertrophic cardiomyopathy"
+  node_type: Disease
+  SRI_node_curie: MONDO:0011000
+  SRI_resolved_label: "hypertrophic cardiomyopathy 7"
 
-## Final Checklist
+Output:
+  claude_decision: OVERRIDE
+  error_tag: OVER_SPECIFIC
+  claude_mapped_curie_list: MONDO:0005045
+  claude_mapped_label_list: Hypertrophic cardiomyopathy
+  curation_notes: "SRI added numbered subtype not specified in original label. Generic MONDO:0005045 more appropriate."
+```
 
-Before declaring completion:
-- ✓ All 71 (or N) rows have been curated
-- ✓ All 5 new columns are populated
-- ✓ Output TSV file has been written
-- ✓ Summary statistics printed
-- ✓ REPLACE percentage is 30-45%
-- ✓ No obvious anatomical/system mismatches remain
-- ✓ All SequenceVariants marked UNMAPPABLE (expected)
+### Example 4: Keep (Correct)
+```
+Input:
+  original_node_label: "Everolimus (Afinitor, Afinitor Disperz, Zortress)"
+  node_type: Drug
+  SRI_node_curie: CHEBI:68478
+  SRI_resolved_label: "Everolimus"
+
+Output:
+  claude_decision: KEEP
+  error_tag: 0
+  claude_mapped_curie_list: 
+  claude_mapped_label_list: 
+  curation_notes: "SRI correctly mapped to everolimus base drug. Brand names in parentheses are acceptable variants."
+```
+
+---
+
+## 🚀 Execution Instructions
+
+1. **Load input file:**
+```python
+import pandas as pd
+df = pd.read_excel('data/output/qc/SRI_nodes_non_exact_for_review_12.16.25.xlsx')
+```
+
+2. **Load reference files (optional but helpful):**
+```python
+hpo = pd.read_csv('data/reference_data/hpo_ids.tsv', sep='\t')
+mondo = pd.read_csv('data/reference_data/mondo_ids.csv')
+```
+
+3. **For EACH row, add the 5 new columns**
+
+4. **Write output:**
+```python
+df.to_excel('data/output/qc/SRI_nodes_Claude_reviewed_12.16.25.xlsx', index=False)
+```
+
+5. **Print summary:**
+```
+Total rows: 97
+By error type:
+  MULTI_CONCEPT_NEEDS_SPLIT: 11
+  ROLE_MISMATCH: 14
+  UNDER_SPECIFIC: 25
+  OVER_SPECIFIC: 4
+  VARIANT_UNMAPPABLE: 16
+  No errors (KEEP): 9
+  
+By decision:
+  OVERRIDE: 88
+  KEEP: 9
+```
+
+---
+
+## ⏱️ IMPORTANT: Review ALL Rows Carefully
+
+Don't rush through the file. Each row deserves careful biomedical reasoning.
+
+If you find yourself speeding up after row 10 → STOP and refocus.
+
+Quality > Speed.
+
+---
+
+## ✅ Final Checklist
+
+Before completion:
+- [ ] All rows have `claude_decision`
+- [ ] All rows have `error_tag`
+- [ ] OVERRIDE rows have CURIEs filled in
+- [ ] MULTI_CONCEPT_NEEDS_SPLIT rows have pipe-separated values
+- [ ] All rows have `curation_notes`
+- [ ] Summary statistics printed
+- [ ] Output file written
+
+**Now begin curation.**
