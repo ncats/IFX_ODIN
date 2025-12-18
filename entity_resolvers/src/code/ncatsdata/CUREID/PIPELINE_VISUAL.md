@@ -201,10 +201,10 @@ For each Claude-reviewed row, add:
 | **SRI Resolution** | 211 JSON records | 149 unique nodes | ~5-10 min |
 | **Exact Matches** | 149 nodes | 69 auto-accepted (46%) | instant |
 | **AI Review** | 64 non-exact + 16 variants | 80 curated rows | ~5 min |
-| **Human QC** | 80 AI-reviewed | 80 validated | ~30-60 min |
+| **Human QC** | 80 AI-reviewed | 80 validated | ~60-90 min |
 | **Final Apply** | 211 records | 258 edges (after splits) | ~2 min |
 
-**Total Time:** ~45-75 minutes per dataset (most time is human QC)
+**Total Time:** ~75-115 minutes per dataset (most time is human QC)
 
 ---
 
