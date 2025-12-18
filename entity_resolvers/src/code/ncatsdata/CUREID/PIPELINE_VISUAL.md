@@ -116,26 +116,7 @@ Claude Code acts as a biomedical expert and:
 
 ---
 
-### Step 3: Merge Results
-**Tool:** `cureid_resolver_llm.py` (or manual merge)
-
-**Process:**
-- Combine exact matches (from SRI)
-- Add Claude-reviewed non-exact matches
-- Create complete mapping table
-
-**Output:** `SRI_resolved_cureid_VERSION_llm_ids.tsv`
-
-Contains:
-- `original_node_label`: Original free text
-- `node_type`: Disease/Drug/Phenotype/etc
-- `SRI_node_curie`: SRI's suggestion
-- `claude_mapped_curie_list`: Claude's suggestion (if different)
-- `error_tag`: What issues were found
-
----
-
-### Step 4: Human Quality Control (Expert Review)
+### Step 3: Human Quality Control (Expert Review)
 **Tool:** Excel/Manual Review
 
 **Who:** Domain expert (you!) reviews AI suggestions
@@ -164,7 +145,7 @@ For each Claude-reviewed row, add:
 
 ---
 
-### Step 5: Apply Finalized Mappings
+### Step 4: Apply Finalized Mappings
 **Tool:** `cureid_apply_final_ids.py`
 
 **Input:**
