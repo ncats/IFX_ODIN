@@ -1,4 +1,4 @@
-# 🔬 CUREID Knowledge Graph Node Standardization Pipeline
+# 🔬 CUREID Node Standardization Pipeline
 
 ## What This Pipeline Does
 Transforms free-text clinical terms from patient reports into standardized biomedical identifiers that can be used in knowledge graphs and computational analysis.
