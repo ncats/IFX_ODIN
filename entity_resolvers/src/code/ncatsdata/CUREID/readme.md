@@ -180,56 +180,6 @@ python cureid_apply_final_ids.py \
 
 ---
 
-## 🎯 Quality Assurance
-
-### 1. Reference File Constraints
-- HPO and MONDO reference files constrain AI suggestions
-- Prevents hallucination of invalid identifiers
-- Only valid, non-obsolete CURIEs can be proposed
-
-### 2. Multi-Layer Validation
-- **Layer 1:** SRI API (automated database lookup)
-- **Layer 2:** Claude AI (error detection + correction)
-- **Layer 3:** Human expert (final validation)
-
-### 3. Error Detection Categories
-Systematic identification of:
-- Anatomical mismatches (wrong body part)
-- Action/verb errors (gaining ≠ bearing)
-- Specificity problems (too broad/narrow)
-- Ontology misuse (disease vs phenotype)
-- Multi-concept labels needing splits
-
-### 4. Provenance Tracking
-Every mapping preserves:
-- Original free-text label
-- SRI suggestion + score
-- AI suggestion + error tags
-- Human decision + comments
-- Final approved CURIE + label
-
----
-
-## 🔍 Common Issues & Solutions
-
-### Issue: Low SRI Match Quality
-**Symptoms:** Too many vague/generic matches  
-**Solution:** Increase `--sri_min_score` (try 150-200 for phenotypes)
-
-### Issue: AI Missing Obvious Splits
-**Symptoms:** Multi-concept labels not detected  
-**Solution:** Check prompt includes clear split examples; emphasize comma/slash detection
-
-### Issue: AI Hallucinating CURIEs
-**Symptoms:** Invalid identifiers like HP:9999999  
-**Solution:** Ensure reference files are loaded; prompt constrains to reference file CURIEs
-
-### Issue: Inconsistent AI Performance
-**Symptoms:** First 10 rows careful, then rushed  
-**Solution:** Add "review ALL rows carefully" reminder; consider chunking large files
-
----
-
 ## 📚 Additional Resources
 
 ### Documentation
