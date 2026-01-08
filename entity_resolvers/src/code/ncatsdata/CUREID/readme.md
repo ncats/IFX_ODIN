@@ -1,4 +1,4 @@
-# CUREID Knowledge Graph Standardization Pipeline
+# CUREID Standardization Pipeline
 
 A semi-automated hybrid pipeline for converting free-text clinical terms from patient case reports into standardized biomedical ontology identifiers, enabling computational analysis and knowledge graph integration.
 
