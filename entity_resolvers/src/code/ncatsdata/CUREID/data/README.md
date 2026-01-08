@@ -15,7 +15,8 @@
 ---
 
 ## 📊 Output Formats
-
+ also available here: https://opendata.ncats.nih.gov/public/cureid/
+ 
 ### Final Edge File (`cureid_edges_final_VERSION.tsv`)
 
 **Columns:**
