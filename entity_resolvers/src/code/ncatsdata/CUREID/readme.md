@@ -248,17 +248,9 @@ Every mapping preserves:
 
 ## 🔄 Version History
 
-### Version 3.0 (December 2024)
+### Version 1.0 (December 2025)
 - Added AI-assisted curation layer
 - Reference file constraint system
 - Multi-concept split detection
 - Improved error categorization
 - Human QC workflow integration
-
-### Version 2.0
-- SRI Name Resolver integration
-- Min score filtering
-- Caching system
-
-### Version 1.0
-- Initial manual curation workflow
