@@ -4,11 +4,11 @@
 
 | Stage | Input | Output | Time |
 |-------|-------|--------|------|
-| **SRI Resolution** | 211 JSON records | 149 unique nodes | ~5-10 min |
-| **Exact Matches** | 149 nodes | 58 auto-accepted (38%) | instant |
+| **SRI Resolution** | 223 rows from JSON | 148 unique nodes | ~5-10 min |
+| **Exact Matches** | 148 nodes | 58 auto-accepted (39%) | instant |
 | **AI Review** | 91 non-exact + 16 variants | 13 KEEP + 60 OVERRIDE | ~5-10 min |
 | **Human QC** | 91 non-exact | 54 AGREED_LLM(7 AGREED_SRI_KEEP) (67%), 5 SRI > LLM, 7 HUMAN OVERRIDE | ~90-120 min |
-| **Final Apply** | 149 records | 222 edges (after splits) | instant |
+| **Final Apply** | 148 records | 222 edges (after splits) | instant |
 
 **Total Time:** ~75-155 minutes per dataset (most time is human QC)
 
