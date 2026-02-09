@@ -12,15 +12,9 @@ from src.models.node import Node
 class GeneDiseaseAssociationAdapter(InputAdapter):
     file_path: str
     database_version: str = ""
-    name = "Alliance Genome Gene-Disease Relationship Adapter"
 
     def __init__(self, file_path: str):
         self.file_path = file_path
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        if isinstance(obj, Node):
-            return [f"Node created based on Alliance Genome version {self.database_version}"]
-        return [f"Relationship data source: Alliance Genome version {self.database_version}"]
 
     def get_all(self) -> List[Node]:
         disease_map = {}

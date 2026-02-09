@@ -15,6 +15,32 @@ from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
+    parquet_output_dir: str
+
+    def __init__(self, credentials, database_name, internal=False, parquet_output_dir=None):
+        self.parquet_output_dir = parquet_output_dir or os.path.join('.', 'output', 'parquet')
+        super().__init__(credentials=credentials, database_name=database_name, internal=internal)
+
+    def _handle_dataset_nodes(self, objects):
+        """Write DataFrame from any Dataset nodes to Parquet, update file_reference."""
+        from src.models.pounce.dataset import Dataset
+
+        for obj in objects:
+            if isinstance(obj, Dataset) and obj._data_frame is not None:
+                os.makedirs(self.parquet_output_dir, exist_ok=True)
+                safe_id = self.safe_key(obj.id).replace(':', '_')
+                parquet_path = os.path.join(self.parquet_output_dir, f"{safe_id}.parquet")
+
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
+                table = pa.Table.from_pandas(obj._data_frame)
+                pq.write_table(table, parquet_path)
+                print(f"Wrote Parquet: {parquet_path} ({obj.row_count} rows x {obj.column_count} cols)")
+
+                obj.file_reference = parquet_path
+                obj._data_frame = None
+
     def create_indexes(self, cls: Type, collection):
         categories, numerics = collect_facets(cls)
 
@@ -45,6 +71,9 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         if not isinstance(objects, list):
             objects = [objects]
+
+        self._handle_dataset_nodes(objects)
+
         db = self.get_db()
         graph = self.get_graph()
         object_groups = self.sort_and_convert_objects(objects, convert_dates=True)

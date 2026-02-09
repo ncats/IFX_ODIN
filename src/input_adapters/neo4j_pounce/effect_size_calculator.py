@@ -5,13 +5,7 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 
 
-class PounceEffectSizeCalculator(NodeInputAdapter, Neo4jAdapter):
-    name = "Pounce Effect Size Calculator"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return []
-
-
+class PounceEffectSizeCalculator(InputAdapter, Neo4jAdapter):
     accession: str
 
     def __init__(self, accession: str, **kwargs):

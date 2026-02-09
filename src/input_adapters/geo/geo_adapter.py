@@ -150,11 +150,7 @@ class ParseGeo:
         return nodes, relationships
 
 
-class GeoAdapter(NodeInputAdapter, ParseGeo):
-    name = "Pounce GEO Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return []
+class GeoAdapter(InputAdapter, ParseGeo):
 
     def get_all(self) -> List[Node]:
         print(self.accession)

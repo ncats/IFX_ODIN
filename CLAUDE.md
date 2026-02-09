@@ -111,3 +111,30 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 - POUNCE v2 database with UniProt protein annotations
 - Schema migration: v1 models in `models/pounce_v1/`, v2 in `models/pounce/`
 - SQLAlchemy table refactoring (Sample -> Biosample)
+
+### POUNCE Input Adapter (`src/input_adapters/pounce_sheets/`)
+
+Parses three Excel workbooks per project (all configured via `pounce_v2.yaml`):
+
+| Workbook | Sheets | Purpose |
+|----------|--------|---------|
+| **Project** | ProjectMeta, BioSampleMap, BioSampleMeta | Project metadata, biosamples, biospecimens, exposures |
+| **Experiment** | ExperimentMeta, RunSampleMap/Meta, GeneMap/Meta or MetabMap/Meta, RawData/Meta or PeakData/Meta | Experiment metadata, run-level samples, analytes, raw data matrix |
+| **StatsResults** | StatsResultsMeta, StatsReadyData, EffectSize_Map, EffectSize | Statistical analysis results (normalized data, effect sizes) |
+
+Sheet constants are in `constants.py` (`ProjectWorkbook`, `ExperimentWorkbook`, `StatsResultsWorkbook`). Map sheets define column name mappings from NCATS standard names to submitter names. Meta sheets contain the actual data rows.
+
+**Data model graph:**
+```
+Project -> Experiment -> Dataset -> RunBiosample -> Biosample <- Project
+                                -> Gene/Metabolite
+Project -> Biosample -> Biospecimen
+                     -> Exposure
+```
+
+- `Dataset` nodes carry a `_data_frame` field written to parquet by the ArangoOutputAdapter
+- Dataset edges to RunBiosample and Gene/Metabolite make the data matrix relationships explicit in the graph
+- `_parse_data_matrix()` is generic: handles RawData, PeakData, and StatsReadyData via `parser`, `analyte_id_col`, and `default_data_type` parameters
+- Empty data sheets (e.g. PeakData for metabo) are skipped gracefully
+
+**Supported templates:** Transcriptomics (genes, RawData) and Metabolomics (metabolites, PeakData). EffectSize parsing is not yet implemented.

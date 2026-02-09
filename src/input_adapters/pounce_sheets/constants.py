@@ -57,6 +57,11 @@ class ExperimentWorkbook:
     class PeakDataMetaSheet:
         name = "PeakDataMeta"
 
+        class Key:
+            pre_processing_description = "pre_processing_description"
+            peri_processing_description = "peri_processing_description"
+            peakdata_tag = "peakdata_tag"
+
     class PeakDataSheet:
         name = "PeakData"
 
@@ -78,8 +83,32 @@ class ExperimentWorkbook:
     class RawDataMetaSheet:
         name = "RawDataMeta"
 
+        class Key:
+            pre_processing_description = "pre_processing_description"
+            peakdata_tag = "peakdata_tag"
+
     class RawDataSheet:
         name = "RawData"
+
+
+class StatsResultsWorkbook:
+    class StatsResultsMetaSheet:
+        name = "StatsResultsMeta"
+
+        class Key:
+            statsresults_name = "statsresults_name"
+            experiment_name = "experiment_name"
+            experiment_id = "experiment_id"
+            lead_informatician = "lead_informatician"
+
+    class StatsReadyDataSheet:
+        name = "StatsReadyData"
+
+    class EffectSizeMapSheet:
+        name = "EffectSize_Map"
+
+    class EffectSizeSheet:
+        name = "EffectSize"
 
 
 class ProjectWorkbook:

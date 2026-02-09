@@ -8,20 +8,15 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Relationship
 
-from src.input_adapters.pharos_mysql.tables import (Protein as mysql_protein, PPI as mysql_ppi)
+from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, PPI as mysql_ppi
 from src.models.ppi import PPIRelationship
 from src.models.protein import Protein
 
-
-class ProteinProteinInteractionAdapter(RelationshipInputAdapter, MySqlAdapter):
-    name = "Pharos Protein-Protein Interaction Relationship Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f"Protein-Protein Interaction from {self.credentials.schema})"]
+class ProteinProteinInteractionAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self) -> List[Relationship]:
-        protein_alias1 = aliased(mysql_protein)
-        protein_alias2 = aliased(mysql_protein)
+        protein_alias1 = aliased(mysql_Protein)
+        protein_alias2 = aliased(mysql_Protein)
 
         results = (self.get_session().query(
             protein_alias1.uniprot,

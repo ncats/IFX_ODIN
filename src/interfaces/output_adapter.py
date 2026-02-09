@@ -77,6 +77,7 @@ class OutputAdapter(ABC):
             forbidden_keys = ['labels']
             if isinstance(obj, Relationship):
                 forbidden_keys.extend(['start_node', 'end_node'])
+            forbidden_keys.extend([k for k in obj.__dict__ if k.startswith('_')])
             temp_dict = {}
             for key, val in obj.__dict__.items():
                 if key in forbidden_keys:
