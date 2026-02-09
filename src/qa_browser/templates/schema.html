@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Schema - {{ db_name }} - QA Browser{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: isDark ? "dark" : "default",
+            flowchart: { curve: "basis", padding: 15 }
+        });
+    });
+</script>
+{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>Schema</span>
+{% endblock %}
+
+{% block content %}
+<h1>Graph Schema</h1>
+
+{% if edge_defs %}
+<div class="mermaid">
+{{ mermaid_text }}
+</div>
+
+<div class="card" style="margin-top:1.5rem">
+    <h2>Edge Definitions</h2>
+    <table class="schema-table">
+        <thead>
+            <tr>
+                <th>Edge Collection</th>
+                <th>From Collections</th>
+                <th>To Collections</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ed in edge_defs %}
+            <tr>
+                <td><a href="/db/{{ db_name }}/collection/{{ ed.edge_collection }}">{{ ed.edge_collection }}</a></td>
+                <td>
+                    {% for fc in ed.from_vertex_collections %}
+                    <a href="/db/{{ db_name }}/collection/{{ fc }}">{{ fc }}</a>{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for tc in ed.to_vertex_collections %}
+                    <a href="/db/{{ db_name }}/collection/{{ tc }}">{{ tc }}</a>{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p>No named graph found in this database.</p>
+</div>
+{% endif %}
+{% endblock %}

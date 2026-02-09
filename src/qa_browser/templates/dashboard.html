@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ db_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>{{ db_name }}</span>
+{% endblock %}
+
+{% block content %}
+<h1>{{ db_name }}</h1>
+
+<div class="stats-row">
+    <div class="stat-box">
+        <div class="value">{{ collections|length }}</div>
+        <div class="label">Collections</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ "{:,}".format(doc_count) }}</div>
+        <div class="label">Documents</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ "{:,}".format(edge_count) }}</div>
+        <div class="label">Edges</div>
+    </div>
+</div>
+
+<div class="two-col">
+    <div>
+        <div class="card">
+            <h2>Collections</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th style="text-align:right">Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for coll in collections %}
+                    <tr>
+                        <td><a href="/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
+                        <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
+                        <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        {% if edge_defs %}
+        <div class="card">
+            <h2>Graph Schema</h2>
+            <table class="schema-table">
+                <thead>
+                    <tr><th>Edge Collection</th><th>From</th><th>To</th></tr>
+                </thead>
+                <tbody>
+                    {% for ed in edge_defs %}
+                    <tr>
+                        <td>{{ ed.edge_collection }}</td>
+                        <td>{{ ed.from_vertex_collections | join(", ") }}</td>
+                        <td>{{ ed.to_vertex_collections | join(", ") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p style="margin-top:0.75rem"><a href="/db/{{ db_name }}/schema">Full schema diagram</a></p>
+        </div>
+        {% endif %}
+
+        {% if etl_meta %}
+        <div class="card">
+            <h2>ETL Metadata</h2>
+            <table class="doc-table">
+                {% for key, val in etl_meta.items() %}
+                <tr>
+                    <th>{{ key }}</th>
+                    <td>{{ val }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h2>Tools</h2>
+            <p><a href="/db/{{ db_name }}/aql">AQL Console</a></p>
+            <p><a href="/db/{{ db_name }}/schema">Schema Diagram</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

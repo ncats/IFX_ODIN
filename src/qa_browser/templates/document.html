@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}{{ doc_key }} - {{ coll_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<a href="/db/{{ db_name }}/collection/{{ coll_name }}">{{ coll_name }}</a>
+<span class="sep">/</span>
+<span>{{ doc_key }}</span>
+{% endblock %}
+
+{# ── Recursive macro for nested objects ─────────────────── #}
+{% macro render_fields(obj) %}
+<div class="field-list">
+    {% for key, val in obj.items() %}
+    {% if val is mapping %}
+    <div class="field-row nested-group">
+        <span class="field-key">{{ key }}</span>
+        <div class="field-nested">
+            {{ render_fields(val) }}
+        </div>
+    </div>
+    {% elif val is iterable and val is not string and val is not number %}
+        {% if val and val[0] is mapping %}
+        <div class="field-row nested-group">
+            <span class="field-key">{{ key }}</span>
+            <div class="field-nested">
+                {% for item in val %}
+                {% if not loop.first %}<hr class="obj-sep">{% endif %}
+                <div class="obj-list-label">#{{ loop.index }}</div>
+                {{ render_fields(item) }}
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="field-row">
+            <span class="field-key">{{ key }}</span>
+            <span class="field-val">
+                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+            </span>
+        </div>
+        {% endif %}
+    {% else %}
+    <div class="field-row">
+        <span class="field-key">{{ key }}</span>
+        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+        </span>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{% block content %}
+{% if doc %}
+
+{# ── Header ──────────────────────────────────────────────── #}
+<div class="doc-header">
+    <h1>{{ doc.get("name", doc.get("id", doc_key)) }}</h1>
+    <div class="doc-header-meta">
+        {% if doc.get("id") and doc.get("name") %}
+        <span class="doc-id">{{ doc.id }}</span>
+        {% endif %}
+        <span class="badge {% if is_edge %}badge-edge{% else %}badge-doc{% endif %}">{{ coll_name }}</span>
+    </div>
+</div>
+
+{# ── Edge Link ───────────────────────────────────────────── #}
+{% if is_edge and doc.get("_from") and doc.get("_to") %}
+<div class="edge-link-card">
+    {% set from_parts = doc["_from"].split("/") %}
+    {% set to_parts = doc["_to"].split("/") %}
+    <div class="edge-endpoint">
+        <span class="edge-label">from</span>
+        <a href="/db/{{ db_name }}/collection/{{ from_parts[0] }}/doc/{{ from_parts[1] }}">{{ doc["_from"] }}</a>
+    </div>
+    <span class="edge-arrow">&rarr;</span>
+    <div class="edge-endpoint">
+        <span class="edge-label">to</span>
+        <a href="/db/{{ db_name }}/collection/{{ to_parts[0] }}/doc/{{ to_parts[1] }}">{{ doc["_to"] }}</a>
+    </div>
+</div>
+{% endif %}
+
+{# ── Properties ──────────────────────────────────────────── #}
+{% if scalar_fields %}
+<div class="card">
+    <h2>Properties</h2>
+    <div class="field-list">
+        {% for key, val in scalar_fields %}
+        <div class="field-row">
+            <span class="field-key">{{ key }}</span>
+            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ── Lists ───────────────────────────────────────────────── #}
+{% if list_fields %}
+<div class="card">
+    <h2>Lists</h2>
+    <div class="field-list">
+        {% for key, val in list_fields %}
+        <div class="field-row">
+            <span class="field-key">{{ key }}</span>
+            <span class="field-val">
+                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ── Nested Objects ──────────────────────────────────────── #}
+{% for key, val in nested_fields %}
+<div class="card">
+    <h2>{{ key }}</h2>
+    {% if val is mapping %}
+        {{ render_fields(val) }}
+    {% elif val is iterable %}
+        {% for item in val %}
+        {% if not loop.first %}<hr class="obj-sep">{% endif %}
+        <div class="obj-list-label">#{{ loop.index }}</div>
+        {{ render_fields(item) }}
+        {% endfor %}
+    {% endif %}
+</div>
+{% endfor %}
+
+{# ── Provenance ──────────────────────────────────────────── #}
+{% if sources %}
+<div class="card">
+    <h2>Provenance</h2>
+    <div class="prov-list">
+        {% for src in sources %}
+        <div class="prov-item">
+            <span class="prov-name">{{ src.name }}</span>
+            {% if src.version %}<span class="prov-detail">v{{ src.version }}</span>{% endif %}
+            {% if src.version_date %}<span class="prov-detail">{{ src.version_date }}</span>{% endif %}
+            {% if src.download_date %}<span class="prov-detail">downloaded {{ src.download_date }}</span>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ── Cross-references ────────────────────────────────────── #}
+{% if doc.get("xref") %}
+<div class="card">
+    <h2>Cross-references</h2>
+    <div class="xref-list">
+        {% for ref in doc.xref %}
+        <span class="tag">{{ ref }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ── Raw JSON ────────────────────────────────────────────── #}
+<details class="card">
+    <summary>Raw Document</summary>
+    <pre class="raw-json">{{ doc | json_pretty }}</pre>
+</details>
+
+{% else %}
+<div class="card">
+    <p>Document <strong>{{ doc_key }}</strong> not found in <strong>{{ coll_name }}</strong>.</p>
+</div>
+{% endif %}
+{% endblock %}

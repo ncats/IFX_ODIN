@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}AQL Console - {{ db_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>AQL</span>
+{% endblock %}
+
+{% block content %}
+<h1>AQL Console</h1>
+
+<div class="card">
+    <form hx-post="/db/{{ db_name }}/aql"
+          hx-target="#aql-results"
+          hx-swap="innerHTML"
+          hx-indicator="#aql-spinner">
+        <textarea name="query" class="aql-editor" placeholder="FOR doc IN collection LIMIT 10 RETURN doc">{{ query }}</textarea>
+        <div style="display:flex; align-items:center; gap:1rem; margin-top:0.75rem">
+            <button type="submit" class="btn btn-primary">Run Query</button>
+            <span id="aql-spinner" class="htmx-indicator">Running...</span>
+        </div>
+    </form>
+</div>
+
+<div id="aql-results">
+    {% include "aql_results.html" %}
+</div>
+{% endblock %}
