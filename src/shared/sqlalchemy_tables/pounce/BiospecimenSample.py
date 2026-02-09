@@ -5,8 +5,8 @@ class BiospecimenSample(Base):
     __tablename__ = 'biospecimen_sample'
 
     id = Column(Integer, primary_key=True)
-    biospecimen_id = Column(Integer, ForeignKey('biospecimen.biospecimen_id'))
-    sample_id = Column(Integer, ForeignKey('sample.sample_id'))
-    expt_id = Column(Integer, ForeignKey('experiment.expt_id'))
+    biospecimen_id = Column(Integer, ForeignKey('biospecimen.id'))
+    sample_id = Column(Integer, ForeignKey('sample.id'))
+    expt_id = Column(Integer, ForeignKey('experiment.id'))
 
 UniqueConstraint(BiospecimenSample.biospecimen_id, BiospecimenSample.sample_id, BiospecimenSample.expt_id, name='biospec_sample_uid_idx')

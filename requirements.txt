@@ -9,14 +9,14 @@ humanize
 sqlalchemy
 pymysql
 neo4j
-psycopg2
+psycopg2-binary
 cwltool
 snakemake
 pandas
 GEOparse
 pyyaml
 ijson
-
+gffutils
 mgp
 python-arango
 gqlalchemy
@@ -28,3 +28,5 @@ fastapi
 strawberry-graphql
 uvicorn
 gunicorn
+jinja2
+python-multipart

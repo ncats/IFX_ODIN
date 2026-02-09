@@ -1,12 +1,12 @@
-from sqlalchemy import Column, Integer, String, TIMESTAMP, BLOB, ForeignKey
+from sqlalchemy import Column, Integer, String, BLOB, ForeignKey
 from .Base import Base
 
 class Experiment(Base):
     __tablename__ = 'experiment'
 
-    expt_id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     expt_display_id = Column(String(32))
-    project_id = Column(Integer, ForeignKey('project.project_id'))
+    project_id = Column(Integer, ForeignKey('project.id'))
     name = Column(String(256), unique=True)
     description = Column(String(4096))
     expt_design = Column(String(4096))
@@ -15,5 +15,4 @@ class Experiment(Base):
     data_type = Column(String(45))
     sample_count = Column(Integer)
     analyte_count = Column(Integer)
-    update_date = Column(TIMESTAMP)
 

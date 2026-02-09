@@ -16,11 +16,11 @@ class SimpleEnum(str, Enum):
         if isinstance(input_value, Enum):
             return input_value
         for member in cls:
-            if member.value.lower() == input_value.lower().replace('_', '.'):
+            if member.value.lower() == input_value.strip().lower().replace('_', '.'):
                 return member
-            if member.value.lower() == input_value.lower().replace('-', '.'):
+            if member.value.lower() == input_value.strip().lower().replace('-', '.'):
                 return member
-            if member.value.lower() == input_value.lower():
+            if member.value.lower() == input_value.strip().lower():
                 return member
         print(f"couldn't parse this value: {input_value}")
 
@@ -54,6 +54,8 @@ class Label:
     def __hash__(self):
         return hash(self.value)
 
+    def to_dict(self):
+        return self.value
 
 
     @classmethod

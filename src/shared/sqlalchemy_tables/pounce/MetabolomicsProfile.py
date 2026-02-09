@@ -4,13 +4,13 @@ from .Base import Base
 class MetabolomicsProfile(Base):
     __tablename__ = 'metabolomics_profile'
 
-    met_profile_id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     met_db_id = Column(Integer, nullable=False)
     met_expt_id = Column(String(128), nullable=False)
     met_name = Column(String(256), nullable=False)
-    expt_id = Column(Integer, ForeignKey('experiment.expt_id'), nullable=False)
-    sample_set_id = Column(Integer, ForeignKey('sample_set.sample_set_id'))
-    sample_set_stat_ready = Column(Integer, ForeignKey('sample_set.sample_set_id'))
+    expt_id = Column(Integer, ForeignKey('experiment.id'), nullable=False)
+    sample_set_id = Column(Integer, ForeignKey('sample_set.id'))
+    sample_set_stat_ready = Column(Integer, ForeignKey('sample_set.id'))
     val_cnt = Column(Integer)
     rt = Column(Double)
     mz = Column(Double)

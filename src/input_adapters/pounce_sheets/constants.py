@@ -1,84 +1,85 @@
-
 class ExperimentWorkbook:
-    class SampleDataSheet:
-        name = "SampleMeta"
-    class SampleSheet:
-        name = "SampleMap"
+    class ExperimentSheet:
+        name = "ExperimentMeta"
+
         class Key:
-            sample_id = "sample_id"
-            biospecimen_id = "biospecimen_id"
-            biospecimen_comparison_label = "biospecimen_comparison_label"
+            experiment_id = "experiment_id"
+            experiment_name = "experiment_name"
+            experiment_description = "experiment_description"
+            experiment_design = "experiment_design"
+            experiment_type = "experiment_type"
+            date = "date"
+            lead_data_generator = "lead_data_generator"
+            lead_data_generator_email = "lead_data_generator_email"
+            lead_informatician = "lead_informatician"
+            lead_informatician_email = "lead_informatician_email"
+            platform_type = "platform_type"
+            platform_name = "platform_name"
+            platform_provider = "platform_provider"
+            platform_output_type = "platform_output_type"
+            public_repo_id = "public_repo_id"
+            repo_url = "repo_url"
+            raw_file_archive_dir = "raw_file_archive_dir"
+            extraction_protocol = "extraction_protocol"
+            acquisition_method = "acquisition_method"
+            metabolite_identification_description = "metabolite_identification_description"
+            experiment_data_file = "experiment_data_file"
+            attached_file = "attached_file_{}"
+
+    class RunSampleMapSheet:
+        name = "RunSampleMap"
+
+        class Key:
+            run_biosample_id = "run_biosample_id"
+            biosample_id = "biosample_id"
             biological_replicate_number = "biological_replicate_number"
-            sample_type = "sample_type"
-    class MetabDataSheet:
-        name = "MetabMeta"
-    class MetabSheet:
+            technical_replicate_number = "technical_replicate_number"
+            biosample_run_order = "biosample_run_order"
+
+    class RunSampleMetaSheet:
+        name = "RunSampleMeta"
+
+    class MetabMapSheet:
         name = "MetabMap"
+
         class Key:
             metab_id = "metab_id"
             metab_name = "metab_name"
-            metab_biotype = "metab_biotype"
+            metab_chemclass = "metab_chemclass"
             identification_level = "identification_level"
             alternate_metab_id = "alternate_metab_id"
             alternate_metab_symbol = "alternate_metab_symbol"
             pathway_ids = "pathway_ids"
-            category_1 = "category 1"
-            category_2 = "category 2"
-            category_3 = "category 3"
-            category_4 = "category 4"
-            category_5 = "category 5"
-            category_6 = "category 6"
-            category_7 = "category 7"
-    class ProteinDataSheet:
-        name = "ProteinMeta"
-    class ProteinSheet:
-        name = "ProteinMap"
-        class Key:
-            protein_id = "protein_id"
-            gene_symbol = "gene_symbol"
-            pathway_ids = "pathway_ids"
-            category_1 = "category 1"
-            category_2 = "category 2"
-            category_3 = "category 3"
-            category_4 = "category 4"
-            category_5 = "category 5"
-            category_6 = "category 6"
-            category_7 = "category 7"
-    class GeneDataSheet:
-        name = "GeneMeta"
-    class GeneSheet:
+
+    class MetabMetaSheet:
+        name = "MetabMeta"
+
+    class PeakDataMetaSheet:
+        name = "PeakDataMeta"
+
+    class PeakDataSheet:
+        name = "PeakData"
+
+    class GeneMapSheet:
         name = "GeneMap"
+
         class Key:
-            ensembl_gene_id = "gene_id"
-            hgnc_gene_symbol = "gene_symbol"
+            gene_id = "gene_id"
+            hgnc_gene_symbol = "hgnc_gene_symbol"
             gene_biotype = "gene_biotype"
-            alternate_gene_id = "alternate_gene_id"
+            alternate_id = "alternate_id"
             chromosome_location = "chromosome_location"
             strand = "strand"
             pathway_ids = "pathway_ids"
-            category_1 = "category 1"
-            category_2 = "category 2"
-            category_3 = "category 3"
-            category_4 = "category 4"
-            category_5 = "category 5"
-            category_6 = "category 6"
-            category_7 = "category 7"
+
+    class GeneMetaSheet:
+        name = "GeneMeta"
+
+    class RawDataMetaSheet:
+        name = "RawDataMeta"
+
     class RawDataSheet:
         name = "RawData"
-    class StatsReadyDataSheet:
-        name = "StatsReadyData"
-    class EffectSizeDataSheet:
-        name = "EffectSize"
-    class DataAnalysisSheet:
-        name = "DataAnalysisMeta"
-        class Key:
-            Pre_processing_Description = "Pre_processing_Description"
-            Peri_processing_Description = "Peri_processing_Description"
-            Stats_Description = "Stats_Description"
-            ES = "ES"
-            adjPval = "adjPval"
-            DataAnalysisCode_Link = "DataAnalysisCode_Link"
-
 
 
 class ProjectWorkbook:
@@ -86,85 +87,53 @@ class ProjectWorkbook:
         name = "ProjectMeta"
         class Key:
             project_name = "project_name"
+            project_id = "project_id"
             description = "description"
             date = "date"
             owner_name = "owner_name"
             owner_email = "owner_email"
-            labgroups = "labgroups"
-            custom_keywords = "custom_keywords"
-            collaborator_names = "collaborator_names"
+            lab_groups = "lab_groups"
+            keywords = "keywords"
+            collaborator_name = "collaborator_name"
             collaborator_email = "collaborator_email"
             privacy_type = "privacy_type"
             project_type = "project_type"
-    class ExperimentSheet:
-        name = "ExperimentMeta"
+            RD_tag = "RD_tag"
+            biosample_preparation = "biosample_preparation"
+    class BiosampleMapSheet:
+        name = "BioSampleMap"
         class Key:
-            experiment_name = "experiment_name"
-            description = "description"
-            experiment_design = "experiment_design"
-            date = "date"
-            point_of_contact = "point_of_contact"
-            point_of_contact_email = "point_of_contact_email"
-            lead_data_generator = "lead_data_generator"
-            lead_data_generator_email = "lead_data_generator_email"
-            lead_informatician = "lead_informatician"
-            lead_informatician_email = "lead_informatician_email"
-            experiment_category = "experiment_category"
-            experiment_data_file = "experiment_data_file"
-            platform_type = "platform_type"
-            platform_output_type = "platform_output_type"
-            raw_file_archive_dir = "raw_file_archive_dir"
-            public_repo_id = "public_repo_id"
-            repo_url = "repo_url"
-            platform_name = "platform_name"
-            data_provider = "data_provider"
-            biospecimen_preparation = "biospecimen_preparation"
-            extraction_protocol = "extraction_protocol"
-            acquisition_method = "acquisition_method"
-            attached_file_1 = "attached_file_1"
-            attached_file_2 = "attached_file_2"
-    class BiospecimenSheet:
-        name = "BiospecimenMap"
-        class Key:
-            biospecimen_id = "biospecimen_id"
-            biospecimen_name = "biospecimen_name"
-            biospecimen_organism = "biospecimen_organism"
-            biospecimen_type = "biospecimen_type"
-            exposure_type = "exposure_type"
-            biospecimen_group_label = "biospecimen_group_label"
-            cell_line = "cell_line"
-            exposure = "exposure"
-            exposure_concentration = "exposure_concentration"
-            exposure_unit = "exposure_unit"
-            exposure_time = "exposure_time"
-            exposure_time_unit = "exposure_time_unit"
-            exposure_start = "exposure_start"
-            exposure_end = "exposure_end"
-            treatment_compound = "treatment_compound"
-            compound_concentration = "compound_concentration"
-            concentration_unit = "concentration_unit"
-            treatment_compound_2 = "treatment_compound_2"
-            compound_concentration_2 = "compound_concentration_2"
-            concentration_unit_2 = "concentration_unit_2"
-            exposure_time_2 = "exposure_time_2"
-            exposure_time_unit_2 = "exposure_time_unit_2"
-            exposure_start_2 = "exposure_start_2"
-            exposure_end_2 = "exposure_end_2"
-            age = "age"
-            race = "race"
-            ethinicity = "ethinicity"
-            sex = "sex"
-            growth_media = "growth_media"
-            category_1 = "category 1"
-            category_2 = "category 2"
-            category_3 = "category 3"
-            category_4 = "category 4"
-            category_5 = "category 5"
-            category_6 = "category 6"
-            category_7 = "category 7"
-    class BiospecimenDataSheet:
-        name = "BiospecimenMeta"
+            biosample_id = 'biosample_id'
+            biosample_type = 'biosample_type'
+
+            biospecimen_id = 'biospecimen_id'
+            biospecimen_type = 'biospecimen_type'
+            biospecimen_description = 'biospecimen_description'
+            organism_names = 'organism_names'
+            organism_category = 'organism_category'
+            disease_names = 'disease_names'
+            disease_category = 'disease_category'
+            phenotype_category = 'phenotype_category'
+
+            age = 'age'
+            race = 'race'
+            ethnicity = 'ethnicity'
+            sex = 'sex'
+            demographic_category = 'demographic_category'
+
+            exposure_names = 'exposure{}_names'
+            exposure_type = 'exposure{}_type'
+            exposure_category = 'exposure{}_category'
+            exposure_concentration = 'exposure{}_concentration'
+            exposure_unit = 'exposure{}_unit'
+            exposure_time = 'exposure{}_time'
+            exposure_time_unit = 'exposure{}_time_unit'
+            exposure_start = 'exposure{}_start'
+            exposure_end = 'exposure{}_end'
+            condition_category = 'condition{}_category'
+
+            growth_media = 'growth_media'
 
 
-
-
+    class BiosampleMetaSheet:
+        name = "BioSampleMeta"

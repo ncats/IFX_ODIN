@@ -4,9 +4,9 @@ from .Base import Base
 class MetAnnotation(Base):
     __tablename__ = 'met_annotation'
 
-    met_db_id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     met_id = Column(String(128), nullable=False)
-    expt_id = Column(Integer, ForeignKey('experiment.expt_id'), nullable=False)
+    expt_id = Column(Integer, ForeignKey('experiment.id'), nullable=False)
     met_name = Column(String(256), nullable=False)
     mz = Column(Float)
     rt = Column(Float)

@@ -1,30 +1,58 @@
-from dataclasses import dataclass
-from datetime import date as date_class
-from typing import Optional
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Optional, List, TYPE_CHECKING
 
 from src.core.decorators import facets
 from src.models.node import Node, Relationship
-from src.models.pounce.investigator import InvestigatorRelationship
-from src.models.pounce.platform import Platform
+
+if TYPE_CHECKING:
+    from src.models.pounce.project import Project, Person
+    from src.models.pounce.biosample import Biosample
 
 
 @dataclass
-@facets(category_fields=['type', 'category'])
+@facets(category_fields=['experiment_type', 'platform_type'])
 class Experiment(Node):
-    name: str = None
-    type: str = None
-    description: str = None
+    name: Optional[str] = None
+    description: Optional[str] = None
     design: Optional[str] = None
-    category: Optional[str] = None
-    run_date: Optional[date_class] = None
+    experiment_type: Optional[str] = None
+    date: Optional[date] = None
+    platform_type: Optional[str] = None
+    platform_name: Optional[str] = None
+    platform_provider: Optional[str] = None
+    platform_output_type: Optional[str] = None
+    public_repo_id: Optional[str] = None
+    repo_url: Optional[str] = None
+    raw_file_archive_dir: Optional[str] = None
+    extraction_protocol: Optional[str] = None
+    acquisition_method: Optional[str] = None
+    metabolite_identification_description: Optional[str] = None
+    experiment_data_file: Optional[str] = None
+    attached_files: List[str] = field(default_factory=list)
 
 
 @dataclass
-class ExperimentInvestigatorRelationship(InvestigatorRelationship):
-    start_node: Experiment
+class ProjectExperimentEdge(Relationship):
+    start_node: "Project" = None
+    end_node: "Experiment" = None
 
 
 @dataclass
-class ExperimentPlatformRelationship(Relationship):
-    start_node: Experiment
-    end_node: Platform
+class ExperimentPersonEdge(Relationship):
+    start_node: "Experiment" = None
+    end_node: "Person" = None
+    role: str = None
+
+
+@dataclass
+class RunBiosample(Node):
+    biological_replicate_number: Optional[int] = None
+    technical_replicate_number: Optional[int] = None
+    run_order: Optional[int] = None
+
+
+@dataclass
+class BiosampleRunBiosampleEdge(Relationship):
+    start_node: "Biosample" = None
+    end_node: "RunBiosample" = None

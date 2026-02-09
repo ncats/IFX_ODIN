@@ -1,4 +1,5 @@
-destination_credentials: &destination_credentials ./src/use_cases/secrets/local_pounce.yaml
+#destination_credentials: &destination_credentials ./src/use_cases/secrets/local_pounce.yaml
+destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
 
 input_adapters:
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
@@ -6,11 +7,35 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
 
+  - import: ./src/input_adapters/ensembl/gene.py
+    class: GeneAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/ensembl/Homo_sapiens.current.gtf.gz
+      version_file_path: ./input_files/auto/ensembl/version.csv
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Metabo_Template_v2.xlsx
+      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_Template_v2.xlsx
+      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
+
+#output_adapters:
+#  - import: ./src/output_adapters/mysql_output_adapter.py
+#    class: PounceOutputAdapter
+#    kwargs:
+#      database_name: pounce_v2
+#      truncate_tables: true
+#    credentials: *destination_credentials
 
 output_adapters:
-  - import: ./src/output_adapters/mysql_output_adapter.py
-    class: PounceOutputAdapter
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
     kwargs:
-      database_name: pounce_v2
-      truncate_tables: true
+      database_name: pounce
     credentials: *destination_credentials

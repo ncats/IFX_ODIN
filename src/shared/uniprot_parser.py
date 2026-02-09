@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
 from src.constants import Prefix
+from src.models.go_term import GoTerm, GoType, ProteinGoTermRelationship, GoEvidence
+from src.models.protein import Protein
 
 
 @dataclass
@@ -151,3 +153,21 @@ class UniProtParser:
         eco_assigned_by = pieces[1]
 
         return go_id, go_type, go_term, eco_term, eco_assigned_by
+
+    @staticmethod
+    def get_go_term_associations(uniprot_obj, protein: Protein):
+        go_associations = []
+        for go_term_json in UniProtParser.find_cross_refs(uniprot_obj, 'GO'):
+            go_id, go_type, go_term, eco_term, eco_assigned_by = UniProtParser.parse_go_term(go_term_json)
+            go_term = GoTerm(
+                id= go_id,
+                type= GoType.parse(go_type),
+                term= go_term)
+            go_associations.append(
+                ProteinGoTermRelationship(
+                    start_node=protein,
+                    end_node=go_term,
+                    evidence=[GoEvidence(code=eco_term, assigned_by=eco_assigned_by)]
+                )
+            )
+        return go_associations

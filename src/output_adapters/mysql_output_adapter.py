@@ -154,4 +154,5 @@ class PounceOutputAdapter(MySQLOutputAdapter):
     def create_or_truncate_datastore(self) -> bool:
         super().create_or_truncate_datastore()
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
+        self.output_converter.preload_id_mappings(self.get_session())
         return True

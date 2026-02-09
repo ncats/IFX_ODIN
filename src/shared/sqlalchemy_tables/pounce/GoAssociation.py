@@ -3,7 +3,7 @@ from .Base import Base
 
 class GoAssociation(Base):
     __tablename__ = "go_association"
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     uniprot_acc = Column(String(16), nullable=False)
     is_primary_acc = Column(Integer, nullable=False)
     hgnc_gene_symbol = Column(String(256))

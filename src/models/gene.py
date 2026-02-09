@@ -14,6 +14,10 @@ class Strand(SimpleEnum):
     def parse(cls, input_value: str):
         if input_value is None or input_value == '':
             return None
+        if input_value == '+':
+            return Strand.plus1
+        if input_value == '-':
+            return Strand.minus1
         int_val = int(float(input_value))
         if int_val > 0:
             return Strand.plus1
@@ -22,23 +26,35 @@ class Strand(SimpleEnum):
 @dataclass
 class GeneticLocation:
     location: Optional[str] = None
-    chromosome: Optional[int] = None
+    chromosome: Optional[str] = None
     strand: Optional[Strand] = None
+    start: Optional[int] = None
+    end: Optional[int] = None
 
     def to_dict(self) -> Dict[str, str]:
         ret_dict = {}
         if self.location is not None:
             ret_dict['location'] = self.location
+        if self.chromosome is not None:
             ret_dict['chromosome'] = self.chromosome
         if self.strand is not None:
             ret_dict['chromosome_strand'] = self.strand.value
+        if self.start is not None:
+            ret_dict['start_position'] = self.start
+        if self.end is not None:
+            ret_dict['end_position'] = self.end
         return ret_dict
 
     @classmethod
     def from_dict(cls, data: dict):
         if data is None:
             return None
-        return GeneticLocation(location=data.get('location'), chromosome=data.get('chromosome'), strand=Strand.parse(data.get('chromosome_strand')))
+        return GeneticLocation(
+            location=data.get('location'),
+            chromosome=data.get('chromosome'),
+            start=data.get('start_position'),
+            end=data.get('end_position'),
+            strand=Strand.parse(data.get('chromosome_strand')))
 
 
 @dataclass
@@ -54,6 +70,7 @@ class Gene(Audited, Node):
     pubmed_ids: Optional[List[int]] = None
     mapping_ratio: Optional[float] = None
     symbol: Optional[str] = None
+    biotype: Optional[str] = None
     Name_Provenance: Optional[str] = None
     Location_Provenance: Optional[str] = None
     Ensembl_ID_Provenance: Optional[str] = None
