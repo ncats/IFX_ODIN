@@ -101,6 +101,18 @@
 </div>
 {% endif %}
 
+{# ── Parquet Data Preview ────────────────────────────────── #}
+{% if doc.get("file_reference") and doc.get("file_reference", "").endswith(".parquet") %}
+<div class="card">
+    <h2>Parquet Data</h2>
+    <div hx-get="/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc_key }}/parquet-stats"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <span class="loading">Loading parquet stats...</span>
+    </div>
+</div>
+{% endif %}
+
 {# ── Lists ───────────────────────────────────────────────── #}
 {% if list_fields %}
 <div class="card">

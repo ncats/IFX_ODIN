@@ -525,3 +525,25 @@ details summary {
 }
 
 details summary:hover { color: var(--accent); }
+
+/* Parquet stats */
+.loading {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 13px;
+}
+
+.parquet-table {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.parquet-table th {
+    position: static;
+    white-space: nowrap;
+}
+
+.parquet-table td {
+    white-space: nowrap;
+    max-width: none;
+}

@@ -201,6 +201,66 @@ async def collection_stats(request: Request, db_name: str, coll_name: str):
     })
 
 
+@app.get("/db/{db_name}/collection/{coll_name}/doc/{doc_key:path}/parquet-stats", response_class=HTMLResponse)
+async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key: str):
+    """Load parquet file stats for a Dataset document (called via HTMX)."""
+    db = get_db(db_name)
+    coll = db.collection(coll_name)
+    error = None
+    stats = None
+
+    try:
+        doc = coll.get(doc_key)
+        file_ref = doc.get("file_reference") if doc else None
+        if not file_ref:
+            error = "No file_reference found on this document."
+        else:
+            parquet_path = Path(file_ref)
+            if not parquet_path.exists():
+                error = f"Parquet file not found: {file_ref}"
+            else:
+                import pyarrow.parquet as pq
+                pf = pq.ParquetFile(str(parquet_path))
+                metadata = pf.metadata
+
+                # Read into pandas for descriptive stats
+                table = pf.read()
+                df = table.to_pandas()
+
+                col_stats = []
+                for col_name in df.columns:
+                    col = df[col_name]
+                    info = {"name": col_name, "dtype": str(col.dtype), "non_null": int(col.count())}
+                    if col.dtype.kind in ("f", "i", "u"):  # numeric
+                        info["min"] = f"{col.min():.4g}"
+                        info["max"] = f"{col.max():.4g}"
+                        info["mean"] = f"{col.mean():.4g}"
+                        info["std"] = f"{col.std():.4g}"
+                    else:
+                        info["unique"] = int(col.nunique())
+                    col_stats.append(info)
+
+                stats = {
+                    "file_path": str(parquet_path),
+                    "file_size_mb": round(parquet_path.stat().st_size / (1024 * 1024), 2),
+                    "num_rows": metadata.num_rows,
+                    "num_columns": metadata.num_columns,
+                    "num_row_groups": metadata.num_row_groups,
+                    "index_name": df.index.name,
+                    "index_count": len(df.index),
+                    "columns": col_stats,
+                    "head": df.head(5).to_html(classes="parquet-table", border=0),
+                }
+    except Exception as e:
+        error = str(e)
+
+    return templates.TemplateResponse("parquet_stats.html", {
+        "request": request,
+        "stats": stats,
+        "error": error,
+    })
+
+
 @app.get("/db/{db_name}/collection/{coll_name}/doc/{doc_key:path}", response_class=HTMLResponse)
 async def document_detail(request: Request, db_name: str, coll_name: str, doc_key: str):
     db = get_db(db_name)
