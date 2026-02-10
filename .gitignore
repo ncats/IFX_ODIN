@@ -1,5 +1,6 @@
 input_files
 output_files
+output
 secrets
 secrets.env
 .venv
@@ -8,3 +9,7 @@ secrets.env
 .pytest_cache
 orphans
 /htmlcov/
+recombination_report.html
+coverage.xml
+.coverage
+lib

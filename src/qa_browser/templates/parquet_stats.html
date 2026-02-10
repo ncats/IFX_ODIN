@@ -1,0 +1,71 @@
+{% if error %}
+<p style="color: var(--danger, #e74c3c);">{{ error }}</p>
+{% elif stats %}
+
+<div class="field-list" style="margin-bottom: 1rem;">
+    <div class="field-row">
+        <span class="field-key">file</span>
+        <span class="field-val" style="font-size: 12px;">{{ stats.file_path }}</span>
+    </div>
+    <div class="field-row">
+        <span class="field-key">size</span>
+        <span class="field-val">{{ stats.file_size_mb }} MB</span>
+    </div>
+    <div class="field-row">
+        <span class="field-key">rows</span>
+        <span class="field-val">{{ "{:,}".format(stats.num_rows) }}</span>
+    </div>
+    <div class="field-row">
+        <span class="field-key">columns</span>
+        <span class="field-val">{{ "{:,}".format(stats.num_columns) }}</span>
+    </div>
+    {% if stats.index_name %}
+    <div class="field-row">
+        <span class="field-key">index</span>
+        <span class="field-val">{{ stats.index_name }} ({{ "{:,}".format(stats.index_count) }} values)</span>
+    </div>
+    {% endif %}
+</div>
+
+<details style="margin-bottom: 1rem;">
+    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 0.5rem;">Column Statistics ({{ stats.columns | length }})</summary>
+    <div style="overflow-x: auto;">
+        <table class="parquet-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+                <tr style="border-bottom: 2px solid var(--border);">
+                    <th style="text-align: left; padding: 4px 8px;">Column</th>
+                    <th style="text-align: left; padding: 4px 8px;">Type</th>
+                    <th style="text-align: right; padding: 4px 8px;">Non-null</th>
+                    <th style="text-align: right; padding: 4px 8px;">Min</th>
+                    <th style="text-align: right; padding: 4px 8px;">Max</th>
+                    <th style="text-align: right; padding: 4px 8px;">Mean</th>
+                    <th style="text-align: right; padding: 4px 8px;">Std</th>
+                    <th style="text-align: right; padding: 4px 8px;">Unique</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for col in stats.columns %}
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 4px 8px; font-weight: 500;">{{ col.name }}</td>
+                    <td style="padding: 4px 8px; color: var(--text-muted);">{{ col.dtype }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ "{:,}".format(col.non_null) }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ col.get("min", "") }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ col.get("max", "") }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ col.get("mean", "") }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ col.get("std", "") }}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{{ col.get("unique", "") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</details>
+
+<details>
+    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 0.5rem;">Data Preview (first 5 rows)</summary>
+    <div style="overflow-x: auto;">
+        {{ stats.head | safe }}
+    </div>
+</details>
+
+{% endif %}

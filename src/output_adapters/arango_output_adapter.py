@@ -22,11 +22,12 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         super().__init__(credentials=credentials, database_name=database_name, internal=internal)
 
     def _handle_dataset_nodes(self, objects):
-        """Write DataFrame from any Dataset nodes to Parquet, update file_reference."""
+        """Write DataFrame from any Dataset or StatsResult nodes to Parquet, update file_reference."""
         from src.models.pounce.dataset import Dataset
+        from src.models.pounce.stats_result import StatsResult
 
         for obj in objects:
-            if isinstance(obj, Dataset) and obj._data_frame is not None:
+            if isinstance(obj, (Dataset, StatsResult)) and obj._data_frame is not None:
                 os.makedirs(self.parquet_output_dir, exist_ok=True)
                 safe_id = self.safe_key(obj.id).replace(':', '_')
                 parquet_path = os.path.join(self.parquet_output_dir, f"{safe_id}.parquet")

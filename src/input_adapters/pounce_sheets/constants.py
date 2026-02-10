@@ -107,6 +107,10 @@ class StatsResultsWorkbook:
     class EffectSizeMapSheet:
         name = "EffectSize_Map"
 
+        class Key:
+            gene_id = "gene_id"
+            metabolite_id = "metabolite_id"
+
     class EffectSizeSheet:
         name = "EffectSize"
 

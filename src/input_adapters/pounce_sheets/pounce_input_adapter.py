@@ -13,6 +13,7 @@ from src.models.node import Node, Relationship, EquivalentId
 from src.models.pounce.biosample import BiosampleBiospecimenEdge
 from src.models.pounce.config_classes import ExposureConfig, BiosampleConfig, BiospecimenConfig, RunBiosampleConfig
 from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRunBiosampleEdge, DatasetGeneEdge, DatasetMetaboliteEdge
+from src.models.pounce.stats_result import StatsResult, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge
 from src.models.pounce.experiment import Experiment, ProjectExperimentEdge, ExperimentPersonEdge, BiosampleRunBiosampleEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
 from src.models.pounce.project import Project, AccessLevel, Person, ProjectPersonEdge, ProjectBiosampleEdge
@@ -205,6 +206,9 @@ class PounceInputAdapter(InputAdapter):
                     parser=self.stats_results_parser
                 )
 
+            if StatsResultsWorkbook.EffectSizeSheet.name in stats_sheet_names:
+                yield from self._parse_effect_size(experiment_obj)
+
     def _get_run_biosample_data(self, project_id: str) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse RunSampleMeta sheet and create RunBiosamples with edges to Biosamples."""
         run_sample_map = self.experiment_parser.get_parameter_map(ExperimentWorkbook.RunSampleMapSheet.name)
@@ -244,11 +248,6 @@ class PounceInputAdapter(InputAdapter):
         parser = parser or self.experiment_parser
         raw_df = parser.sheet_dfs[data_sheet]
 
-        # Skip if the sheet has no data
-        if raw_df.empty or len(raw_df.columns) == 0:
-            print(f"Skipping empty data sheet: {data_sheet}")
-            return
-
         # Read metadata from the companion meta sheet
         pre_processing = None
         peakdata_tag = None
@@ -265,6 +264,21 @@ class PounceInputAdapter(InputAdapter):
         except LookupError:
             pass
 
+        data_type = peakdata_tag.lower() if peakdata_tag else default_data_type
+        dataset_id = f"{experiment_obj.id}:{data_type}"
+
+        # If the sheet has no data, still emit a Dataset node with metadata
+        if raw_df.empty or len(raw_df.columns) == 0:
+            print(f"Empty data sheet: {data_sheet}")
+            dataset = Dataset(
+                id=dataset_id, data_type=data_type,
+                pre_processing_description=pre_processing,
+                row_count=0, column_count=0,
+                gene_id_column=analyte_id_col, sample_columns=[]
+            )
+            yield [dataset, ExperimentDatasetEdge(start_node=experiment_obj, end_node=dataset)]
+            return
+
         # Use the mapped analyte ID column, fall back to first column
         if not analyte_id_col:
             analyte_id_col = raw_df.columns[0]
@@ -276,15 +290,20 @@ class PounceInputAdapter(InputAdapter):
         raw_df = raw_df.dropna(subset=[analyte_id_col])
 
         if raw_df.empty:
-            print(f"Skipping data sheet with no valid rows: {data_sheet}")
+            print(f"No valid rows in data sheet: {data_sheet}")
+            dataset = Dataset(
+                id=dataset_id, data_type=data_type,
+                pre_processing_description=pre_processing,
+                row_count=0, column_count=0,
+                gene_id_column=analyte_id_col, sample_columns=[]
+            )
+            yield [dataset, ExperimentDatasetEdge(start_node=experiment_obj, end_node=dataset)]
             return
 
         # Set analyte ID as index for cleaner Parquet output
         raw_df = raw_df.set_index(analyte_id_col)
 
         sample_columns = list(raw_df.columns)
-        data_type = peakdata_tag.lower() if peakdata_tag else default_data_type
-        dataset_id = f"{experiment_obj.id}:{data_type}"
 
         dataset = Dataset(
             id=dataset_id,
@@ -318,6 +337,70 @@ class PounceInputAdapter(InputAdapter):
                 analyte_edges.append(DatasetGeneEdge(start_node=dataset, end_node=self._gene_by_raw_id[raw_id]))
             elif raw_id in self._metabolite_by_raw_id:
                 analyte_edges.append(DatasetMetaboliteEdge(start_node=dataset, end_node=self._metabolite_by_raw_id[raw_id]))
+        if analyte_edges:
+            yield analyte_edges
+
+    def _parse_effect_size(self, experiment_obj: Experiment) -> Generator[List[Union[Node, Relationship]], None, None]:
+        """Parse EffectSize sheet into a StatsResult node with edges to analytes."""
+        es_map = self.stats_results_parser.get_parameter_map(StatsResultsWorkbook.EffectSizeMapSheet.name)
+        analyte_id_col = (
+            es_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id)
+            or es_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id)
+        )
+
+        raw_df = self.stats_results_parser.sheet_dfs[StatsResultsWorkbook.EffectSizeSheet.name]
+
+        stats_result_id = f"{experiment_obj.id}:effect_size"
+
+        if raw_df.empty or len(raw_df.columns) == 0:
+            print(f"Empty data sheet: {StatsResultsWorkbook.EffectSizeSheet.name}")
+            stats_result = StatsResult(
+                id=stats_result_id, data_type="effect_size",
+                row_count=0, column_count=0,
+                analyte_id_column=analyte_id_col, comparison_columns=[]
+            )
+            yield [stats_result, ExperimentStatsResultEdge(start_node=experiment_obj, end_node=stats_result)]
+            return
+
+        if not analyte_id_col:
+            analyte_id_col = raw_df.columns[0]
+
+        raw_df = raw_df.dropna(axis=1, how='all')
+        raw_df = raw_df.dropna(subset=[analyte_id_col])
+
+        if raw_df.empty:
+            print(f"No valid rows in EffectSize sheet")
+            stats_result = StatsResult(
+                id=stats_result_id, data_type="effect_size",
+                row_count=0, column_count=0,
+                analyte_id_column=analyte_id_col, comparison_columns=[]
+            )
+            yield [stats_result, ExperimentStatsResultEdge(start_node=experiment_obj, end_node=stats_result)]
+            return
+
+        raw_df = raw_df.set_index(analyte_id_col)
+        comparison_columns = list(raw_df.columns)
+
+        stats_result = StatsResult(
+            id=stats_result_id,
+            data_type="effect_size",
+            row_count=len(raw_df),
+            column_count=len(raw_df.columns),
+            analyte_id_column=analyte_id_col,
+            comparison_columns=comparison_columns,
+            _data_frame=raw_df
+        )
+
+        yield [stats_result, ExperimentStatsResultEdge(start_node=experiment_obj, end_node=stats_result)]
+
+        # Create StatsResult -> Gene or StatsResult -> Metabolite edges
+        analyte_edges = []
+        for analyte_id in raw_df.index:
+            raw_id = str(analyte_id)
+            if raw_id in self._gene_by_raw_id:
+                analyte_edges.append(StatsResultGeneEdge(start_node=stats_result, end_node=self._gene_by_raw_id[raw_id]))
+            elif raw_id in self._metabolite_by_raw_id:
+                analyte_edges.append(StatsResultMetaboliteEdge(start_node=stats_result, end_node=self._metabolite_by_raw_id[raw_id]))
         if analyte_edges:
             yield analyte_edges
 
