@@ -12,7 +12,7 @@ input_adapters:
 #    kwargs:
 #      data_file_path: ./input_files/auto/ensembl/Homo_sapiens.current.gtf.gz
 #      version_file_path: ./input_files/auto/ensembl/version.csv
-#
+
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
@@ -27,12 +27,12 @@ input_adapters:
       experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
       stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_Template_v2.xlsx
 
-#  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
-#    class: PounceInputAdapter
-#    kwargs:
-#      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2.xlsx
-#      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
-#      stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2.xlsx
+      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
+      stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
 
 #output_adapters:
 #  - import: ./src/output_adapters/mysql_output_adapter.py

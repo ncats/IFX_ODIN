@@ -60,12 +60,18 @@ def create_adapter_with_mock(project_data: dict, biosample_map_data: dict = None
     """Helper to create a PounceInputAdapter with mocked parser."""
     mock_parser = create_mock_parser(project_data, biosample_map_data, biosample_meta_df)
 
-    with patch.object(PounceInputAdapter, '__init__', lambda self, project_file, experiment_file=None: None):
-        adapter = PounceInputAdapter("dummy.xlsx")
+    with patch.object(PounceInputAdapter, '__init__', lambda self, **kwargs: None):
+        adapter = PounceInputAdapter()
         adapter.project_file = "dummy.xlsx"
         adapter.project_parser = mock_parser
         adapter.experiment_file = None
         adapter.experiment_parser = None
+        adapter.stats_results_file = None
+        adapter.stats_results_parser = None
+        adapter._biosample_by_original_id = {}
+        adapter._run_biosample_by_original_id = {}
+        adapter._gene_by_raw_id = {}
+        adapter._metabolite_by_raw_id = {}
 
     return adapter
 
