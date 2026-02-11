@@ -7,9 +7,7 @@ Works with any Arango DB that was built by ArangoOutputAdapter.
 """
 import os
 import re
-from typing import List
 
-import sqlalchemy as sa
 from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index
 
 from src.input_adapters.sql_adapter import MySqlAdapter
