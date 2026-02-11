@@ -24,7 +24,7 @@ class Experiment(Node):
     platform_output_type: Optional[str] = None
     public_repo_id: Optional[str] = None
     repo_url: Optional[str] = None
-    raw_file_archive_dir: Optional[str] = None
+    raw_file_archive_dir: List[str] = field(default_factory=list)
     extraction_protocol: Optional[str] = None
     acquisition_method: Optional[str] = None
     metabolite_identification_description: Optional[str] = None

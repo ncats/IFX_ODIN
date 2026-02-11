@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 
 from src.input_adapters.pounce_sheets.constants import ProjectWorkbook, ExperimentWorkbook
 from src.models.pounce.biosample import Biosample
-from src.models.pounce.biospecimen import BioSpecimen
+from src.models.pounce.biospecimen import Biospecimen
 from src.models.pounce.category_value import CategoryValue
 from src.models.pounce.demographics import Demographics
 from src.models.pounce.exposure import Exposure
@@ -151,7 +151,7 @@ class BiospecimenConfig(ColumnConfig):
 
     def get_data(self, row):
         biospecimen_id = self.get_row_value(row, self.id_column, True)
-        return BioSpecimen(
+        return Biospecimen(
                 id=f"{self.project_id}-{biospecimen_id}",
                 original_id=biospecimen_id,
                 type=self.get_row_value(row, self.type_column, True),
@@ -217,13 +217,16 @@ class DemographicsConfig(ColumnConfig):
         self.demographic_category_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.demographic_category)
 
     def get_data(self, row):
+        age = self.get_row_value(row, self.age_column)
+        race = self.get_row_value(row, self.race_column)
+        ethnicity = self.get_row_value(row, self.ethnicity_column)
+        sex = self.get_row_value(row, self.sex_column)
+        category = self.get_category_value(row, self.demographic_category_column)
+        if all(v is None for v in [age, race, ethnicity, sex, category]):
+            return None
         return Demographics(
             id='ignored',
-            age=self.get_row_value(row, self.age_column),
-            race=self.get_row_value(row, self.race_column),
-            ethnicity=self.get_row_value(row, self.ethnicity_column),
-            sex=self.get_row_value(row, self.sex_column),
-            category=self.get_category_value(row, self.demographic_category_column)
+            age=age, race=race, ethnicity=ethnicity, sex=sex, category=category
         )
 
     @staticmethod

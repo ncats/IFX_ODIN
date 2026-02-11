@@ -7,7 +7,7 @@ from src.input_adapters.pounce_sheets.pounce_input_adapter import PounceInputAda
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.models.pounce.project import Project, Person, ProjectPersonEdge, ProjectBiosampleEdge, AccessLevel
 from src.models.pounce.biosample import Biosample, BiosampleBiospecimenEdge
-from src.models.pounce.biospecimen import BioSpecimen
+from src.models.pounce.biospecimen import Biospecimen
 from src.constants import DataSourceName
 
 
@@ -64,10 +64,8 @@ def create_adapter_with_mock(project_data: dict, biosample_map_data: dict = None
         adapter = PounceInputAdapter()
         adapter.project_file = "dummy.xlsx"
         adapter.project_parser = mock_parser
-        adapter.experiment_file = None
-        adapter.experiment_parser = None
-        adapter.stats_results_file = None
-        adapter.stats_results_parser = None
+        adapter.experiment_files = []
+        adapter.stats_results_files = []
         adapter._biosample_by_original_id = {}
         adapter._run_biosample_by_original_id = {}
         adapter._gene_by_raw_id = {}
@@ -363,7 +361,7 @@ def test_get_all_yields_biospecimens_and_biosamples():
     # Check biospecimens (should be deduplicated - only 1 unique)
     biospecimens = batches[1]
     assert len(biospecimens) == 1
-    assert isinstance(biospecimens[0], BioSpecimen)
+    assert isinstance(biospecimens[0], Biospecimen)
     assert biospecimens[0].original_id == "SP1"
 
     # Check biosamples

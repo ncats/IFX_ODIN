@@ -17,22 +17,41 @@ input_adapters:
     class: PounceInputAdapter
     kwargs:
       project_file: ./input_files/manual/pounce/POUNCE_Project_Metabo_Template_v2.xlsx
-      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
-      stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_Template_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_Template_v2.xlsx
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
       project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_Template_v2.xlsx
-      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
-      stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_Template_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_Template_v2.xlsx
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
       project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2.xlsx
-      experiment_file: ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
-      stats_results_file: ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project _Metabo_FDA_Flavivirus.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_ACUTE.xlsx
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_LTI_Lipidomics.xlsx
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_LTI_Metabolomics.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_ACUTE.xlsx
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Lipidomics.xlsx
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Metabolomics.xlsx
 
 #output_adapters:
 #  - import: ./src/output_adapters/mysql_output_adapter.py

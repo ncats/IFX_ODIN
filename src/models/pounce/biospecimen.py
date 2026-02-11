@@ -8,7 +8,7 @@ from src.models.pounce.category_value import CategoryValue
 
 @dataclass
 @facets(category_fields=['type', 'organism'])
-class BioSpecimen(Node):
+class Biospecimen(Node):
     original_id: str = None
     type: str = None
     description: Optional[str] = None

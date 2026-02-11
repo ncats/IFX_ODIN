@@ -2,7 +2,7 @@ from typing import Union, List
 from src.models.gene import Gene
 from src.models.go_term import ProteinGoTermRelationship
 from src.models.pounce.biosample import Biosample
-from src.models.pounce.biospecimen import BioSpecimen
+from src.models.pounce.biospecimen import Biospecimen
 from src.models.pounce.exposure import Exposure, BiosampleExposureEdge
 from src.models.pounce.project import Project, Person, ProjectPersonEdge
 from src.models.protein import Protein
@@ -64,7 +64,7 @@ class PounceOutputConverter(SQLOutputConverter):
 
         if obj_cls == Biosample:
             return [self.biosample_converter, self.demographics_converter]
-        if obj_cls == BioSpecimen:
+        if obj_cls == Biospecimen:
             return [self.biospecimen_converter, self.biospecimen_disease_converter]
 
         if obj_cls == Exposure:

@@ -30,10 +30,8 @@ class Project(Node):
     name: str = None
     description: str = None
     date: date = None
-    owners: List[Person] = field(default_factory=list)
     lab_groups: List[str] = field(default_factory=list)
     keywords: List[str] = field(default_factory=list)
-    collaborators: List[Person] = field(default_factory=list)
     access: AccessLevel = None
     project_type: List[str] = field(default_factory=list)
     rare_disease_focus: bool = None

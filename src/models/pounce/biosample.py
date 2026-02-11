@@ -6,7 +6,7 @@ from src.models.node import Node, Relationship
 from src.models.pounce.demographics import Demographics
 
 if TYPE_CHECKING:
-    from src.models.pounce.biospecimen import BioSpecimen
+    from src.models.pounce.biospecimen import Biospecimen
 
 
 @dataclass
@@ -20,4 +20,4 @@ class Biosample(Node):
 @dataclass
 class BiosampleBiospecimenEdge(Relationship):
     start_node: "Biosample" = None
-    end_node: "BioSpecimen" = None
+    end_node: "Biospecimen" = None
