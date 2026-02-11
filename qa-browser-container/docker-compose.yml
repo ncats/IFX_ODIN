@@ -1,0 +1,18 @@
+services:
+  qa-browser:
+    build:
+      context: ..
+      dockerfile: qa-browser-container/Dockerfile
+    container_name: qa_browser
+    ports:
+      - "8050:8050"
+    volumes:
+      - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
+    command:
+      - python
+      - -m
+      - src.qa_browser.app
+      - --host
+      - "0.0.0.0"
+      - -c
+      - src/use_cases/secrets/ifxdev_pharos_prod.yaml
