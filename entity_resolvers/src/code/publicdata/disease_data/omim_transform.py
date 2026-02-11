@@ -59,6 +59,10 @@ class OMIMTransformer:
             logging.error("❌ 'mim_number' column missing after cleaning. Aborting.")
             return None
 
+        # ✅ Add "OMIM:" prefix to all values in the mim_number column
+        df["mim_number"] = df["mim_number"].fillna("").astype(str).str.strip()
+        df["mim_number"] = "OMIM:" + df["mim_number"]
+
         return df
 
     def save_cleaned_titles(self, df):
