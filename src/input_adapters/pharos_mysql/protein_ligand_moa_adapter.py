@@ -5,25 +5,20 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Relationship
-from src.input_adapters.pharos_mysql.tables import (DrugActivity as mysql_drug_activity,
-                                                    T2TC as mysql_t2tc, Protein as mysql_protein)
+from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, DrugActivity as mysql_drug_activity, T2TC as mysql_t2tc
 from src.models.protein import Protein
 
 
-class ProteinLigandMOAAdapter(RelationshipInputAdapter, MySqlAdapter):
-    name = "Pharos Protein Ligand Has MOA Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f'has_moa updated by {self.name} using {self.credentials.schema}']
+class ProteinLigandMOAAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self) -> List[Relationship]:
         results = (self.get_session().query(
-            mysql_protein.uniprot,
+            mysql_Protein.uniprot,
             mysql_drug_activity.lychi_h4,
             mysql_drug_activity.drug,
             mysql_drug_activity.has_moa
         ).join(mysql_t2tc, mysql_drug_activity.target_id == mysql_t2tc.target_id)
-                   .join(mysql_protein, mysql_t2tc.protein_id == mysql_protein.id))
+                   .join(mysql_Protein, mysql_t2tc.protein_id == mysql_Protein.id))
 
         pl_rel_dict = dict()
 

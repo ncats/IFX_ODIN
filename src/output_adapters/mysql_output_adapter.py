@@ -1,8 +1,6 @@
 from abc import ABC
 from datetime import datetime
-
 from sqlalchemy import inspect, tuple_
-
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter

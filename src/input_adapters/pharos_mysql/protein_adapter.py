@@ -2,18 +2,11 @@ from typing import List
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.pharos_mysql.tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
+from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
 from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein, IDGFamily
 
-
-class ProteinAdapter(NodeInputAdapter, MySqlAdapter):
-    name = "Pharos Protein Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        version_info = [f"Node created based on Pharos version: {self.credentials.schema}"]
-        return version_info
-
+class ProteinAdapter(InputAdapter, MySqlAdapter):
     def get_all(self):
         results = (self.get_session().query(
             mysql_Protein.name,

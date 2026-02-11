@@ -7,8 +7,6 @@ from typing import List, Union
 from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.simple_enum import Label
 from src.models.node import Node, Relationship
-from src.models.pounce.investigator import InvestigatorRelationship
-
 
 
 class OutputAdapter(ABC):
@@ -56,6 +54,8 @@ class OutputAdapter(ABC):
 
     def merge_nested_object_props_into_dict(self, ret_dict, obj):
         for key, value in vars(obj).items():
+            if isinstance(obj, Relationship) and key == 'start_node' or key == 'end_node':
+                continue
             if isinstance(value, Enum) or isinstance(value, Label):
                 ret_dict[key] = value.value
             if isinstance(value, list):
@@ -65,23 +65,19 @@ class OutputAdapter(ABC):
                         ret_dict[key] = [l.to_dict() for l in value]
                     ret_dict[key] = [l.value if isinstance(l, Enum) or isinstance(l, Label) else l for l in ret_dict[key]]
             if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
-                del ret_dict[key]
-                flat_dict = value.to_dict()
-                ret_dict.update(flat_dict)
+                ret_dict[key] = value.to_dict()
         if isinstance(obj, Node):
             if hasattr(obj, 'xref') and obj.xref is not None and isinstance(obj.xref, list) and len(obj.xref) > 0:
                 ret_dict['xref'] = self.remove_none_values_from_list(
                     list(set([x.id_str() for x in obj.xref]))
                 )
 
-        if isinstance(obj, InvestigatorRelationship):
-            ret_dict['roles'] = [role.value for role in obj.roles]
-
     def clean_dict(self, obj, convert_dates: bool):
         def _clean_dict(obj):
             forbidden_keys = ['labels']
             if isinstance(obj, Relationship):
                 forbidden_keys.extend(['start_node', 'end_node'])
+            forbidden_keys.extend([k for k in obj.__dict__ if k.startswith('_')])
             temp_dict = {}
             for key, val in obj.__dict__.items():
                 if key in forbidden_keys:

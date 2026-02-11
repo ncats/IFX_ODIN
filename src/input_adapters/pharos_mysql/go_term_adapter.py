@@ -2,19 +2,12 @@ from typing import List, Union
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.pharos_mysql.tables import Protein as mysql_Protein, GoA as mysql_Goa, TDL_info as mysql_tdlInfo
+from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, GoA as mysql_Goa, TDL_info as mysql_tdlInfo
 from src.interfaces.input_adapter import InputAdapter
 from src.models.go_term import GoTerm, ProteinGoTermRelationship, GoEvidence
 from src.models.protein import Protein
 
-
-class GoTermAdapter(NodeInputAdapter, RelationshipInputAdapter, MySqlAdapter):
-    name = "Pharos GO Term Adapter"
-
-    def get_audit_trail_entries(self, obj: Union[GoTerm, ProteinGoTermRelationship]) -> List[str]:
-        if isinstance(obj, GoTerm):
-            return [f"GO Term from {self.credentials.schema}"]
-        return [f"GO Term Association from {self.credentials.schema}"]
+class GoTermAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self):
         results = self.get_session().query(
@@ -47,12 +40,7 @@ class GoTermAdapter(NodeInputAdapter, RelationshipInputAdapter, MySqlAdapter):
 
         return [*nodes, *relationships]
 
-class GoLeafTermAdapter(NodeInputAdapter, MySqlAdapter):
-    name = "Pharos GO Term is_leaf Adapter"
-
-    def get_audit_trail_entries(self, obj: Union[GoTerm, ProteinGoTermRelationship]) -> List[str]:
-        return [f"is_leaf updated from {self.credentials.schema}"]
-
+class GoLeafTermAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self):
 

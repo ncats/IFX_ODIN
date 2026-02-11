@@ -93,6 +93,7 @@ class Protein(Audited, Analyte):
     ensembl_id: Optional[str] = None
     refseq_id: Optional[str] = None
     uniprot_id: Optional[str] = None
+    secondary_uniprot_ids: Optional[List[str]] = None
     sequence: Optional[str] = None
     gene_name: Optional[str] = None
     tdl: Optional[TDL] = None
@@ -113,6 +114,7 @@ class Protein(Audited, Analyte):
     protein_name_score: Optional[str] = None
     protein_name_method: Optional[str] = None
     uniprot_isoform: Optional[str] = None
+    isoforms: Optional[List[{'id': str, 'name': str}]] = None
 
 
 @dataclass

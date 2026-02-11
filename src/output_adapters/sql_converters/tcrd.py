@@ -12,23 +12,15 @@ from src.output_adapters.sql_converters.output_converter_base import SQLOutputCo
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
 
 class TCRDOutputConverter(SQLOutputConverter):
-    id_mapping = {}
 
     def __init__(self):
         super().__init__(sql_base=TCRDBase)
 
-    def preload_id_mappings(self, session):
-        self.id_mapping = {}
-        try:
-            rows = session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
-            mapping = {}
-            for ifx, pid in rows:
-                if ifx is not None:
-                    mapping[ifx] = pid
-            self.id_mapping['protein'] = mapping
-        except Exception:
-            # if preload fails (no DB/session available), leave mapping empty
-            self.id_mapping['protein'] = {}
+    def get_preload_queries(self, session):
+        return [{
+            "table": 'protein',
+            "data": session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
+        }]
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
         if obj_cls == GoTerm:
@@ -157,13 +149,6 @@ class TCRDOutputConverter(SQLOutputConverter):
             protein_id=self.resolve_id('protein', obj['id']),
             provenance = obj['provenance'])
 
-    def resolve_id(self, table, id):
-        if table not in self.id_mapping:
-            self.id_mapping[table] = {}
-        mapping = self.id_mapping[table]
-        if id not in mapping:
-            mapping[id] = len(mapping.values()) + 1
-        return mapping[id]
 
     def target_converter(self, obj: dict) -> Target:
         return Target(

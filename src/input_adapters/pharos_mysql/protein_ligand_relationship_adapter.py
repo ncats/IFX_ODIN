@@ -5,20 +5,15 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.ligand import ProteinLigandRelationship, Ligand
 from src.models.node import Relationship
-from src.input_adapters.pharos_mysql.tables import (Ligand as mysql_ligand, LigandActivity as mysql_ligand_activity,
-                                                    T2TC as mysql_t2tc, Protein as mysql_protein)
+from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, Ligand as mysql_ligand, LigandActivity as mysql_ligand_activity, T2TC as mysql_t2tc
 from src.models.protein import Protein
 
 
-class ProteinLigandRelationshipAdapter(RelationshipInputAdapter, MySqlAdapter):
-    name = "Pharos Protein Ligand Relationship Adapter"
-
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return [f"Protein Ligand Relationship from {self.credentials.schema})"]
+class ProteinLigandRelationshipAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self) -> List[Relationship]:
         results = (self.get_session().query(
-            mysql_protein.uniprot,
+            mysql_Protein.uniprot,
             mysql_ligand.identifier,
             mysql_ligand_activity.act_value,
             mysql_ligand_activity.act_type,
@@ -27,7 +22,7 @@ class ProteinLigandRelationshipAdapter(RelationshipInputAdapter, MySqlAdapter):
             mysql_ligand_activity.reference_source,
             mysql_ligand_activity.pubmed_ids
         ).join(mysql_t2tc, mysql_ligand_activity.target_id == mysql_t2tc.target_id)
-                   .join(mysql_protein, mysql_t2tc.protein_id == mysql_protein.id)
+                   .join(mysql_Protein, mysql_t2tc.protein_id == mysql_Protein.id)
                    .join(mysql_ligand, mysql_ligand_activity.ncats_ligand_id == mysql_ligand.id))
 
         pl_rel_dict = dict()

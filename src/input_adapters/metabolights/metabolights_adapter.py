@@ -228,8 +228,6 @@ class ParseMetabolights:
 
 
 class MetabolightsAdapter(InputAdapter, ParseMetabolights):
-    def get_audit_trail_entries(self, obj) -> List[str]:
-        return []
 
     def get_all(self) -> List[Node]:
         proj_obj, exp_obj = self.parse_proj_and_exp()

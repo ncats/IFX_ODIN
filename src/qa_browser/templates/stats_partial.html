@@ -1,0 +1,14 @@
+<div class="stats-panel">
+    <p style="color:var(--text-muted); margin-bottom:0.75rem; font-size:13px">
+        Sampled {{ sample_size }} of {{ "{:,}".format(total) }} documents
+    </p>
+    {% for s in stats %}
+    <div class="stats-bar">
+        <span class="field-name">{{ s.field }}</span>
+        <div class="bar-track">
+            <div class="bar-fill" style="width: {{ s.pct }}%"></div>
+        </div>
+        <span class="pct">{{ s.pct }}%</span>
+    </div>
+    {% endfor %}
+</div>

@@ -1,9 +1,11 @@
+import dataclasses
 import os
 import platform
 import socket
 import time
-from datetime import datetime
-from typing import Type, List
+from datetime import datetime, date
+from enum import Enum
+from typing import Type, List, get_origin, get_args, Union
 
 from src.core.decorators import collect_facets
 from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
@@ -14,6 +16,105 @@ from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
+
+    parquet_output_dir: str
+
+    def __init__(self, credentials, database_name, internal=False, parquet_output_dir=None):
+        self.parquet_output_dir = parquet_output_dir or os.path.join('.', 'output', 'parquet')
+        self._collection_schemas = {}
+        super().__init__(credentials=credentials, database_name=database_name, internal=internal)
+
+    @staticmethod
+    def _introspect_dataclass(cls) -> dict:
+        """Extract a schema dict from a dataclass by inspecting its fields and type hints."""
+        skip_fields = {'labels', 'start_node', 'end_node'}
+        result = {}
+
+        for f in dataclasses.fields(cls):
+            if f.name.startswith('_') or f.name in skip_fields:
+                continue
+            result[f.name] = ArangoOutputAdapter._type_hint_to_schema(f.type)
+
+        return result
+
+    @staticmethod
+    def _type_hint_to_schema(type_hint) -> Union[str, dict]:
+        """Convert a Python type hint to a simple schema descriptor."""
+        # Unwrap Optional[X] → X
+        origin = get_origin(type_hint)
+        if origin is Union:
+            args = [a for a in get_args(type_hint) if a is not type(None)]
+            if len(args) == 1:
+                type_hint = args[0]
+                origin = get_origin(type_hint)
+
+        # Handle string annotations (forward references)
+        if isinstance(type_hint, str):
+            return "str"
+
+        # Primitives
+        if type_hint is str:
+            return "str"
+        if type_hint is int:
+            return "int"
+        if type_hint is float:
+            return "float"
+        if type_hint is bool:
+            return "bool"
+        if type_hint is date:
+            return "date"
+        if type_hint is datetime:
+            return "datetime"
+
+        # Enums → "str"
+        if isinstance(type_hint, type) and issubclass(type_hint, Enum):
+            return "str"
+
+        # List[X]
+        if origin is list:
+            item_args = get_args(type_hint)
+            if item_args:
+                item_type = item_args[0]
+                # List of dataclasses → nested object
+                if isinstance(item_type, type) and dataclasses.is_dataclass(item_type):
+                    return {
+                        "type": "list",
+                        "item_type": "object",
+                        "fields": ArangoOutputAdapter._introspect_dataclass(item_type)
+                    }
+                inner = ArangoOutputAdapter._type_hint_to_schema(item_type)
+                return {"type": "list", "item_type": inner}
+            return {"type": "list", "item_type": "str"}
+
+        # Dataclass objects
+        if isinstance(type_hint, type) and dataclasses.is_dataclass(type_hint):
+            return {
+                "type": "object",
+                "fields": ArangoOutputAdapter._introspect_dataclass(type_hint)
+            }
+
+        return "str"
+
+    def _handle_dataset_nodes(self, objects):
+        """Write DataFrame from any Dataset or StatsResult nodes to Parquet, update file_reference."""
+        from src.models.pounce.dataset import Dataset
+        from src.models.pounce.stats_result import StatsResult
+
+        for obj in objects:
+            if isinstance(obj, (Dataset, StatsResult)) and obj._data_frame is not None:
+                os.makedirs(self.parquet_output_dir, exist_ok=True)
+                safe_id = self.safe_key(obj.id).replace(':', '_')
+                parquet_path = os.path.join(self.parquet_output_dir, f"{safe_id}.parquet")
+
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
+                table = pa.Table.from_pandas(obj._data_frame)
+                pq.write_table(table, parquet_path)
+                print(f"Wrote Parquet: {parquet_path} ({obj.row_count} rows x {obj.column_count} cols)")
+
+                obj.file_reference = parquet_path
+                obj._data_frame = None
 
     def create_indexes(self, cls: Type, collection):
         categories, numerics = collect_facets(cls)
@@ -45,9 +146,33 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         if not isinstance(objects, list):
             objects = [objects]
+
+        self._handle_dataset_nodes(objects)
+
         db = self.get_db()
         graph = self.get_graph()
         object_groups = self.sort_and_convert_objects(objects, convert_dates=True)
+
+        # Collect schema info from each object group
+        for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
+            label = labels[0]
+            if label not in self._collection_schemas:
+                schema_entry = {
+                    "fields": self._introspect_dataclass(obj_cls),
+                }
+                if is_relationship:
+                    schema_entry["type"] = "edge"
+                    schema_entry["from_collections"] = start_labels
+                    schema_entry["to_collections"] = end_labels
+                else:
+                    schema_entry["type"] = "document"
+                self._collection_schemas[label] = schema_entry
+            elif is_relationship:
+                # Merge from/to collections for edges seen from multiple sources
+                existing = self._collection_schemas[label]
+                existing["from_collections"] = list(set(existing.get("from_collections", []) + start_labels))
+                existing["to_collections"] = list(set(existing.get("to_collections", []) + end_labels))
+
         for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             label = labels[0]
             if is_relationship:
@@ -201,6 +326,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "_key": "etl_metadata",
             "value": etl_metadata
         }, overwrite=True)
+
+        if self._collection_schemas:
+            metadata_store.insert({
+                "_key": "collection_schemas",
+                "collections": self._collection_schemas
+            }, overwrite=True)
+            print(f"Wrote collection schemas for {len(self._collection_schemas)} collections")
 
     def get_etl_metadata(self):
         git_info = get_git_metadata()
