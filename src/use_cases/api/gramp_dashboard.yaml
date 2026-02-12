@@ -12,7 +12,7 @@ api_adapter:
         - ./src/models/ontology.py
         - ./src/models/reaction.py
         - ./src/models/version.py
-    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+    credentials: ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 dashboard:
   tab_order:

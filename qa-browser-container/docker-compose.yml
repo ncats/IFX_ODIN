@@ -8,7 +8,6 @@ services:
       - "8050:8050"
     volumes:
       - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
-      - ../output:/app/output:ro
     command:
       - python
       - -m
@@ -16,7 +15,16 @@ services:
       - --host
       - "0.0.0.0"
       - -c
-      - src/use_cases/secrets/ifxdev_pharos_prod.yaml
+      - src/use_cases/secrets/local_arangodb.yaml
       - -m
       - src/use_cases/secrets/galeradev_write.yaml
+      - -s
+      - src/use_cases/secrets/local_minio.yaml
+    networks:
+      - dashboard_network
     restart: unless-stopped
+
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network

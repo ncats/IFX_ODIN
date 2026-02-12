@@ -1,4 +1,4 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 resolvers:
   - label: cell_line_resolver

@@ -12,7 +12,7 @@ from src.models.node import Node, Relationship
 from src.output_adapters.cypher_output_adapter import MemgraphOutputAdapter
 from src.shared.db_credentials import DBCredentials
 
-credentials_file = "./secrets/local_memgraph.yaml"
+credentials_file = "secrets/unused probably/local_memgraph.yaml"
 
 with open(credentials_file, "r") as file:
     credentials = yaml.safe_load(file)

@@ -33,34 +33,43 @@ _credentials: dict = {}
 _mysql_credentials: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
-_parquet_root: Optional[Path] = None
+_minio_credentials: dict = {}
 
 
-def _resolve_parquet_path(file_ref: str) -> Optional[Path]:
-    """Resolve a parquet file_reference to an existing path.
+def _get_parquet_buffer(file_ref: str):
+    """Fetch a parquet file from MinIO and return (BytesIO, size_bytes).
 
-    If the stored absolute path exists, use it directly. Otherwise, if
-    --parquet-root is configured, walk up the stored path stripping leading
-    components until a match is found under the new root. This handles the
-    case where the database was built on a different machine or the app runs
-    inside Docker with a mounted data directory.
+    file_ref must be an s3:// URI produced by the ETL pipeline.
+    Returns (None, None) if the file cannot be fetched.
     """
-    original = Path(file_ref)
-    if original.exists():
-        return original
-    if _parquet_root:
-        parts = original.parts
-        for i in range(1, len(parts)):
-            candidate = _parquet_root.joinpath(*parts[i:])
-            if candidate.exists():
-                return candidate
-    return None
+    if not file_ref.startswith("s3://"):
+        return None, None
+    try:
+        import io
+        import boto3
+        from botocore.client import Config
+
+        without_prefix = file_ref[len("s3://"):]
+        bucket, key = without_prefix.split("/", 1)
+        endpoint = _minio_credentials.get("internal_url") or _minio_credentials.get("url")
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=_minio_credentials.get("user"),
+            aws_secret_access_key=_minio_credentials.get("password"),
+            config=Config(signature_version="s3v4"),
+        )
+        response = s3.get_object(Bucket=bucket, Key=key)
+        data = response["Body"].read()
+        return io.BytesIO(data), response["ContentLength"]
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch {file_ref} from MinIO: {e}") from e
 
 
 def get_client() -> ArangoClient:
     global _client
     if _client is None:
-        url = _credentials.get("url", "http://localhost:8529")
+        url = _credentials.get("internal_url") or _credentials.get("url", "http://localhost:8529")
         _client = ArangoClient(hosts=url, request_timeout=120, verify_override=False)
     return _client
 
@@ -328,13 +337,12 @@ async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key:
         if not file_ref:
             error = "No file_reference found on this document."
         else:
-            parquet_path = _resolve_parquet_path(file_ref)
-            if not parquet_path:
-                hint = f" (parquet-root: {_parquet_root})" if _parquet_root else " (no --parquet-root configured)"
-                error = f"Parquet file not found: {file_ref}{hint}"
+            import pyarrow.parquet as pq
+            buf, content_length = _get_parquet_buffer(file_ref)
+            if buf is None:
+                error = f"Could not fetch parquet file: {file_ref}"
             else:
-                import pyarrow.parquet as pq
-                pf = pq.ParquetFile(str(parquet_path))
+                pf = pq.ParquetFile(buf)
                 metadata = pf.metadata
 
                 # Read into pandas for descriptive stats
@@ -355,8 +363,8 @@ async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key:
                     col_stats.append(info)
 
                 stats = {
-                    "file_path": str(parquet_path),
-                    "file_size_mb": round(parquet_path.stat().st_size / (1024 * 1024), 2),
+                    "file_path": file_ref,
+                    "file_size_mb": round(content_length / (1024 * 1024), 2),
                     "num_rows": metadata.num_rows,
                     "num_columns": metadata.num_columns,
                     "num_row_groups": metadata.num_row_groups,
@@ -871,14 +879,14 @@ def main():
     parser.add_argument("--mysql-credentials", "-m",
                         default=None,
                         help="Path to MySQL credentials YAML file (url, user, password, port)")
-    parser.add_argument("--parquet-root",
+    parser.add_argument("--minio-credentials", "-s",
                         default=None,
-                        help="Base directory to search for parquet files (remaps stored absolute paths)")
+                        help="Path to MinIO credentials YAML file (url, user, password, schema, internal_url)")
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _parquet_root
+    global _credentials, _mysql_credentials, _minio_credentials
     cred_path = Path(args.credentials)
     if cred_path.exists():
         with open(cred_path) as f:
@@ -897,9 +905,14 @@ def main():
         else:
             print(f"Warning: MySQL credentials file {mysql_path} not found")
 
-    if args.parquet_root:
-        _parquet_root = Path(args.parquet_root)
-        print(f"Parquet root: {_parquet_root}")
+    if args.minio_credentials:
+        minio_path = Path(args.minio_credentials)
+        if minio_path.exists():
+            with open(minio_path) as f:
+                _minio_credentials = yaml.safe_load(f)
+            print(f"Loaded MinIO credentials from {minio_path}")
+        else:
+            print(f"Warning: MinIO credentials file {minio_path} not found")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

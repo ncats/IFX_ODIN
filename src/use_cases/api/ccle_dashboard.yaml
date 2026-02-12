@@ -12,6 +12,6 @@ api_adapter:
         - ./src/models/pounce/project_experiment_relationship.py
         - ./src/models/pounce/investigator.py
         - ./src/models/pounce/output.py
-    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+    credentials: ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 dashboard: ./src/use_cases/api/pounce_dashboard_details.yaml

@@ -1,4 +1,4 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.10.sqlite
 
 input_adapters:

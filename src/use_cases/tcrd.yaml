@@ -1,5 +1,5 @@
 destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 source_database: &source_database pharos
 
 reviewed_only: &reviewed_only true
