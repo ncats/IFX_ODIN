@@ -18,7 +18,7 @@
         <div class="value">{{ "{:,}".format(doc_count) }}</div>
         <div class="label">Documents</div>
     </div>
-    <div class="stat-box">
+    <div class="stat-box nerd-only">
         <div class="value">{{ "{:,}".format(edge_count) }}</div>
         <div class="label">Edges</div>
     </div>
@@ -38,7 +38,7 @@
                 </thead>
                 <tbody>
                     {% for coll in collections %}
-                    <tr>
+                    <tr class="{{ 'nerd-only' if coll.type == 'edge' }}">
                         <td><a href="/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
                         <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
                         <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>
@@ -51,7 +51,7 @@
 
     <div>
         {% if edge_defs %}
-        <div class="card">
+        <div class="card nerd-only">
             <h2>Graph Schema</h2>
             <table class="schema-table">
                 <thead>
@@ -88,7 +88,7 @@
         <div class="card">
             <h2>Tools</h2>
             <p><a href="/db/{{ db_name }}/aql">AQL Console</a></p>
-            <p><a href="/db/{{ db_name }}/schema">Schema Diagram</a></p>
+            <p class="nerd-only"><a href="/db/{{ db_name }}/schema">Schema Diagram</a></p>
         </div>
     </div>
 </div>

@@ -101,6 +101,35 @@
 </div>
 {% endif %}
 
+{# ── Linked Entities ─────────────────────────────────────── #}
+{% if linked_groups %}
+<div class="card">
+    <h2>Linked Entities</h2>
+    {% for group in linked_groups %}
+    <div class="linked-group">
+        <div class="linked-group-header">
+            <span class="linked-coll-name">{{ group.collection }}</span>
+            <span class="linked-count">{{ group.count }}</span>
+            {% if group.nodes|length < group.count %}<span class="linked-truncated">showing {{ group.nodes|length }}</span>{% endif %}
+        </div>
+        <div class="linked-nodes">
+            {% for node in group.nodes %}
+            <a href="/db/{{ db_name }}/collection/{{ group.collection }}/doc/{{ node.key }}" class="linked-node">{{ node.label }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ── Linked Entities AQL (nerd-only) ─────────────────────── #}
+{% if linked_aql %}
+<details class="card nerd-only">
+    <summary>Linked Entities Query (AQL)</summary>
+    <pre class="raw-json">{{ linked_aql }}</pre>
+</details>
+{% endif %}
+
 {# ── Parquet Data Preview ────────────────────────────────── #}
 {% if doc.get("file_reference") and doc.get("file_reference", "").endswith(".parquet") %}
 <div class="card">

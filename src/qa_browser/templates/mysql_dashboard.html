@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ db_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>{{ db_name }}</span>
+<span class="badge badge-mysql" style="margin-left:0.25rem">MySQL</span>
+{% endblock %}
+
+{% block content %}
+<h1>{{ db_name }}</h1>
+
+<div class="stats-row">
+    <div class="stat-box">
+        <div class="value">{{ table_count }}</div>
+        <div class="label">Tables</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ "{:,}".format(total_rows) }}</div>
+        <div class="label">Total Rows</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ fk_defs|length }}</div>
+        <div class="label">Foreign Keys</div>
+    </div>
+</div>
+
+<div class="two-col">
+    <div>
+        <div class="card">
+            <h2>Tables</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="text-align:right">Rows</th>
+                        <th style="text-align:right">FKs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tbl in tables %}
+                    <tr>
+                        <td><a href="/mysql/{{ db_name }}/table/{{ tbl.name }}">{{ tbl.name }}</a></td>
+                        <td class="mono" style="text-align:right">{{ "{:,}".format(tbl.count) }}</td>
+                        <td class="mono" style="text-align:right">{{ tbl.fk_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        {% if fk_defs %}
+        <div class="card">
+            <h2>Foreign Keys</h2>
+            <table class="schema-table">
+                <thead>
+                    <tr><th>From Table</th><th>Column</th><th>To Table</th><th>Column</th></tr>
+                </thead>
+                <tbody>
+                    {% for fk in fk_defs %}
+                    <tr>
+                        <td><a href="/mysql/{{ db_name }}/table/{{ fk.from_table }}">{{ fk.from_table }}</a></td>
+                        <td>{{ fk.from_columns }}</td>
+                        <td><a href="/mysql/{{ db_name }}/table/{{ fk.to_table }}">{{ fk.to_table }}</a></td>
+                        <td>{{ fk.to_columns }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p style="margin-top:0.75rem"><a href="/mysql/{{ db_name }}/schema">Full schema diagram</a></p>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h2>Tools</h2>
+            <p><a href="/mysql/{{ db_name }}/sql">SQL Console</a></p>
+            <p><a href="/mysql/{{ db_name }}/schema">Schema Diagram</a></p>
+            <form method="post" action="/mysql/{{ db_name }}/refresh-schema" style="margin-top:0.75rem">
+                <button type="submit" class="btn btn-sm" style="background:var(--bg); border:1px solid var(--border); color:var(--text-muted)">Refresh Schema Cache</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ pk_value }} - {{ table_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<a href="/mysql/{{ db_name }}/table/{{ table_name }}">{{ table_name }}</a>
+<span class="sep">/</span>
+<span>{{ pk_value }}</span>
+{% endblock %}
+
+{% block content %}
+{% if row %}
+
+<div class="doc-header">
+    <h1>{{ row.get("name", row.get("id", pk_value)) }}</h1>
+    <div class="doc-header-meta">
+        {% if pk_cols %}
+        <span class="doc-id">{{ pk_cols[0] }}: {{ pk_value }}</span>
+        {% endif %}
+        <span class="badge badge-mysql">{{ table_name }}</span>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Fields</h2>
+    <div class="field-list">
+        {% for key, val in row.items() %}
+        <div class="field-row">
+            <span class="field-key">{{ key }}
+                {% if columns_info.get(key) %}
+                <span style="font-weight:400; font-size:11px; color:var(--text-muted)">{{ columns_info[key] }}</span>
+                {% endif %}
+            </span>
+            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                {%- if key in fk_links and val is not none -%}
+                <a href="{{ fk_links[key].url }}">{{ val }}</a>
+                <span style="font-size:11px; color:var(--text-muted); margin-left:0.5rem">&rarr; {{ fk_links[key].table }}.{{ fk_links[key].column }}</span>
+                {%- elif val is none %}null
+                {%- elif val is sameas true %}true
+                {%- elif val is sameas false %}false
+                {%- else %}{{ val }}
+                {%- endif -%}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<details class="card">
+    <summary>Raw JSON</summary>
+    <pre class="raw-json">{{ row | json_pretty }}</pre>
+</details>
+
+{% else %}
+<div class="card">
+    <p>Row <strong>{{ pk_value }}</strong> not found in <strong>{{ table_name }}</strong>.</p>
+</div>
+{% endif %}
+{% endblock %}

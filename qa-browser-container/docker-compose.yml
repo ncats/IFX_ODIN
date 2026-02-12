@@ -8,6 +8,7 @@ services:
       - "8050:8050"
     volumes:
       - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
+      - ../output:/app/output:ro
     command:
       - python
       - -m

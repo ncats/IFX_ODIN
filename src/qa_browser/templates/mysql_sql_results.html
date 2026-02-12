@@ -1,0 +1,36 @@
+{% if error %}
+<div class="error-box">{{ error }}</div>
+{% elif results is not none %}
+<div class="card" style="margin-top:1rem">
+    <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem">
+        <h2 style="margin:0">Results</h2>
+        <span style="color:var(--text-muted); font-size:13px">{{ results|length }} row{{ "s" if results|length != 1 }}</span>
+    </div>
+
+    {% if results|length == 0 %}
+    <p style="color:var(--text-muted)">Query returned no results.</p>
+
+    {% elif columns %}
+    <div style="overflow-x:auto">
+        <table>
+            <thead>
+                <tr>
+                    {% for col in columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in results %}
+                <tr>
+                    {% for col in columns %}
+                    <td class="mono">{{ row.get(col, "") | truncate_val(120) }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endif %}

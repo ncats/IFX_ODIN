@@ -15,7 +15,26 @@
             <a href="/">Databases</a>
             {% block breadcrumb %}{% endblock %}
         </div>
+        <div class="mode-switch" onclick="toggleMode()">
+            <span class="mode-switch-option" data-mode="qa">QA Mode</span>
+            <span class="mode-switch-option" data-mode="nerd">Nerd Mode</span>
+        </div>
     </nav>
+    <script>
+        (function() {
+            // QA mode is default; only switch to nerd if explicitly saved
+            if (localStorage.getItem('nerdMode') === 'true') {
+                document.body.classList.add('nerd-mode');
+            } else {
+                document.body.classList.add('qa-mode');
+            }
+        })();
+        function toggleMode() {
+            const isNerd = document.body.classList.toggle('nerd-mode');
+            document.body.classList.toggle('qa-mode', !isNerd);
+            localStorage.setItem('nerdMode', isNerd);
+        }
+    </script>
     <div class="container">
         {% block content %}{% endblock %}
     </div>

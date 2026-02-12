@@ -33,6 +33,28 @@ _credentials: dict = {}
 _mysql_credentials: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
+_parquet_root: Optional[Path] = None
+
+
+def _resolve_parquet_path(file_ref: str) -> Optional[Path]:
+    """Resolve a parquet file_reference to an existing path.
+
+    If the stored absolute path exists, use it directly. Otherwise, if
+    --parquet-root is configured, walk up the stored path stripping leading
+    components until a match is found under the new root. This handles the
+    case where the database was built on a different machine or the app runs
+    inside Docker with a mounted data directory.
+    """
+    original = Path(file_ref)
+    if original.exists():
+        return original
+    if _parquet_root:
+        parts = original.parts
+        for i in range(1, len(parts)):
+            candidate = _parquet_root.joinpath(*parts[i:])
+            if candidate.exists():
+                return candidate
+    return None
 
 
 def get_client() -> ArangoClient:
@@ -306,9 +328,10 @@ async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key:
         if not file_ref:
             error = "No file_reference found on this document."
         else:
-            parquet_path = Path(file_ref)
-            if not parquet_path.exists():
-                error = f"Parquet file not found: {file_ref}"
+            parquet_path = _resolve_parquet_path(file_ref)
+            if not parquet_path:
+                hint = f" (parquet-root: {_parquet_root})" if _parquet_root else " (no --parquet-root configured)"
+                error = f"Parquet file not found: {file_ref}{hint}"
             else:
                 import pyarrow.parquet as pq
                 pf = pq.ParquetFile(str(parquet_path))
@@ -403,6 +426,52 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
             else:
                 scalar_fields.append((key, val))
 
+    # Find connected nodes via graph traversal (vertex nodes only)
+    linked_groups = []
+    linked_aql = ""
+    if doc and not is_edge and db.has_graph("graph"):
+        try:
+            _SAMPLE_LIMIT = 20
+            linked_aql = (
+                f"LET counts = (\n"
+                f"    FOR v, e IN 1..1 ANY '{doc['_id']}' GRAPH 'graph'\n"
+                f"    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt\n"
+                f"    RETURN {{coll, cnt}}\n"
+                f")\n"
+                f"FOR c IN counts\n"
+                f"    LET samples = (\n"
+                f"        FOR v2, e2 IN 1..1 ANY '{doc['_id']}' GRAPH 'graph'\n"
+                f"        FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
+                f"        LIMIT {_SAMPLE_LIMIT}\n"
+                f"        RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
+                f"    )\n"
+                f"    SORT c.cnt DESC\n"
+                f"    RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}"
+            )
+            cursor = db.aql.execute(
+                """
+                LET counts = (
+                    FOR v, e IN 1..1 ANY @node_id GRAPH 'graph'
+                    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt
+                    RETURN {coll, cnt}
+                )
+                FOR c IN counts
+                    LET samples = (
+                        FOR v2, e2 IN 1..1 ANY @node_id GRAPH 'graph'
+                        FILTER SPLIT(v2._id, '/')[0] == c.coll
+                        LIMIT @sample_limit
+                        RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
+                    )
+                    SORT c.cnt DESC
+                    RETURN {collection: c.coll, count: c.cnt, nodes: samples}
+                """,
+                bind_vars={"node_id": doc["_id"], "sample_limit": _SAMPLE_LIMIT},
+                max_runtime=15,
+            )
+            linked_groups = list(cursor)
+        except Exception:
+            pass
+
     return templates.TemplateResponse("document.html", {
         "request": request,
         "db_name": db_name,
@@ -414,6 +483,8 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "scalar_fields": scalar_fields,
         "list_fields": list_fields,
         "nested_fields": nested_fields,
+        "linked_groups": linked_groups,
+        "linked_aql": linked_aql,
     })
 
 
@@ -800,11 +871,14 @@ def main():
     parser.add_argument("--mysql-credentials", "-m",
                         default=None,
                         help="Path to MySQL credentials YAML file (url, user, password, port)")
+    parser.add_argument("--parquet-root",
+                        default=None,
+                        help="Base directory to search for parquet files (remaps stored absolute paths)")
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials
+    global _credentials, _mysql_credentials, _parquet_root
     cred_path = Path(args.credentials)
     if cred_path.exists():
         with open(cred_path) as f:
@@ -822,6 +896,10 @@ def main():
             print(f"Loaded MySQL credentials from {mysql_path}")
         else:
             print(f"Warning: MySQL credentials file {mysql_path} not found")
+
+    if args.parquet_root:
+        _parquet_root = Path(args.parquet_root)
+        print(f"Parquet root: {_parquet_root}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

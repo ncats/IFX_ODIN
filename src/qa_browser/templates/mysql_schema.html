@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Schema - {{ db_name }} - QA Browser{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: isDark ? "dark" : "default",
+            er: { useMaxWidth: false }
+        });
+    });
+</script>
+{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>Schema</span>
+{% endblock %}
+
+{% block content %}
+<h1>Schema Diagram</h1>
+
+{% if fk_defs %}
+<div class="mermaid">
+{{ mermaid_text }}
+</div>
+
+<div class="card" style="margin-top:1.5rem">
+    <h2>Foreign Key Definitions</h2>
+    <table class="schema-table">
+        <thead>
+            <tr>
+                <th>From Table</th>
+                <th>Column</th>
+                <th>To Table</th>
+                <th>Column</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fk in fk_defs %}
+            <tr>
+                <td><a href="/mysql/{{ db_name }}/table/{{ fk.from_table }}">{{ fk.from_table }}</a></td>
+                <td>{{ fk.from_columns }}</td>
+                <td><a href="/mysql/{{ db_name }}/table/{{ fk.to_table }}">{{ fk.to_table }}</a></td>
+                <td>{{ fk.to_columns }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p>No foreign keys found in this database.</p>
+</div>
+{% endif %}
+{% endblock %}

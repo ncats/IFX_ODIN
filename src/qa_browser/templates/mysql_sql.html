@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}SQL Console - {{ db_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>SQL</span>
+{% endblock %}
+
+{% block content %}
+<h1>SQL Console</h1>
+
+<div class="card">
+    <form hx-post="/mysql/{{ db_name }}/sql"
+          hx-target="#sql-results"
+          hx-swap="innerHTML"
+          hx-indicator="#sql-spinner">
+        <textarea name="query" class="aql-editor" placeholder="SELECT * FROM table_name LIMIT 10">{{ query }}</textarea>
+        <div style="display:flex; align-items:center; gap:1rem; margin-top:0.75rem">
+            <button type="submit" class="btn btn-primary">Run Query</button>
+            <span id="sql-spinner" class="htmx-indicator">Running...</span>
+            <span style="color:var(--text-muted); font-size:12px">Read-only: SELECT, SHOW, DESCRIBE, EXPLAIN</span>
+        </div>
+    </form>
+</div>
+
+<div id="sql-results">
+    {% include "mysql_sql_results.html" %}
+</div>
+{% endblock %}
