@@ -20,8 +20,8 @@ services:
     env_file:
       - secrets.env
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8043:9000"
+      - "8044:9001"
     volumes:
       - minio_data:/data
     networks:
