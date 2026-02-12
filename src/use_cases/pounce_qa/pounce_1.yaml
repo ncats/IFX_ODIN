@@ -14,6 +14,6 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: DDLPScells_Untargeted
+      database_name: pounce_DDLPScells_Untargeted
       parquet_output_dir: ./output/parquet/pounce
     credentials: *destination_credentials

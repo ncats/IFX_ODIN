@@ -7,7 +7,8 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
     fastapi uvicorn jinja2 python-multipart \
-    python-arango pandas pyarrow pyyaml
+    python-arango pandas pyarrow pyyaml \
+    sqlalchemy pymysql
 
 COPY src ./src
 

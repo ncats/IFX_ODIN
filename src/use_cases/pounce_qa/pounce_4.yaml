@@ -19,6 +19,6 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: FDAFlavivirus_Untargeted
+      database_name: pounce_FDAFlavivirus_Untargeted
       parquet_output_dir: ./output/parquet/pounce
     credentials: *destination_credentials

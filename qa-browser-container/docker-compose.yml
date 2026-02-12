@@ -16,4 +16,6 @@ services:
       - "0.0.0.0"
       - -c
       - src/use_cases/secrets/ifxdev_pharos_prod.yaml
+      - -m
+      - src/use_cases/secrets/galeradev_write.yaml
     restart: unless-stopped

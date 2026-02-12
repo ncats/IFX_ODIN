@@ -15,6 +15,6 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: HAEC_ChemTox_202212
+      database_name: pounce_HAEC_ChemTox_202212
       parquet_output_dir: ./output/parquet/pounce
     credentials: *destination_credentials

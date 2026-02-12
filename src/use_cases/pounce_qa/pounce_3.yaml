@@ -15,6 +15,6 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: COVID_Motorneuron
+      database_name: pounce_COVID_Motorneuron
       parquet_output_dir: ./output/parquet/pounce
     credentials: *destination_credentials
