@@ -16,6 +16,6 @@ api_adapter:
         - ./src/models/gene.py
         - ./src/models/go_term.py
         - ./src/models/generif.py
-    credentials: ./src/use_cases/secrets/ifxdev_pharos_prod.yaml
+    credentials: ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 dashboard: ./src/use_cases/api/pharos_dashboard_details.yaml

@@ -26,13 +26,11 @@ REPLACEMENTS = {
 
 class ArangoAdapter:
     credentials: DBCredentials
-    use_internal_url: bool
     database_name: str
     client: ArangoClient = None
     db: StandardDatabase = None
 
-    def __init__(self, credentials: DBCredentials, database_name: str, internal: bool = False):
-        self.use_internal_url = internal
+    def __init__(self, credentials: DBCredentials, database_name: str):
         self.credentials = credentials
         self.database_name = database_name
         self.initialize()
@@ -55,7 +53,7 @@ class ArangoAdapter:
         return key.strip('_')
 
     def initialize(self):
-        url = self.credentials.internal_url if self.use_internal_url else self.credentials.url
+        url = self.credentials.url
         print(f"Connecting to ArangoDB at {url}")
         self.client = ArangoClient(hosts=url, request_timeout=600, verify_override=False)
 

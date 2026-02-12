@@ -5,12 +5,35 @@ services:
     env_file:
       - secrets.env
     ports:
-      - "8529:8529"
+      - "8042:8529"
     volumes:
-      - arangodb_data:/var/lib/arangodb3
-      - arangodb_apps:/var/lib/arangodb3-apps
+      - data:/var/lib/arangodb3
+      - apps:/var/lib/arangodb3-apps
+    networks:
+      - dashboard_network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    env_file:
+      - secrets.env
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - dashboard_network
+    restart: unless-stopped
 
 volumes:
-  arangodb_data:
-  arangodb_apps:
+  data:
+  apps:
+  minio_data:
 
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network

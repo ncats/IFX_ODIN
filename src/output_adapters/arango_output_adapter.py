@@ -14,15 +14,14 @@ from src.models.datasource_version_info import DataSourceDetails
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
+from src.shared.db_credentials import DBCredentials
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
-    parquet_output_dir: str
-
-    def __init__(self, credentials, database_name, internal=False, parquet_output_dir=None):
-        self.parquet_output_dir = parquet_output_dir or os.path.join('.', 'output', 'parquet')
+    def __init__(self, credentials, database_name, minio_credentials=None):
         self._collection_schemas = {}
-        super().__init__(credentials=credentials, database_name=database_name, internal=internal)
+        self.minio_creds = DBCredentials(**minio_credentials) if minio_credentials else None
+        super().__init__(credentials=credentials, database_name=database_name)
 
     @staticmethod
     def _introspect_dataclass(cls) -> dict:
@@ -95,25 +94,53 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return "str"
 
+    def _ensure_bucket(self, s3_client, bucket: str):
+        from botocore.exceptions import ClientError
+        try:
+            s3_client.head_bucket(Bucket=bucket)
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('404', 'NoSuchBucket', '403'):
+                s3_client.create_bucket(Bucket=bucket)
+
     def _handle_dataset_nodes(self, objects):
-        """Write DataFrame from any Dataset or StatsResult nodes to Parquet, update file_reference."""
+        """Upload DataFrame from any Dataset or StatsResult nodes to MinIO as Parquet, update file_reference."""
         from src.models.pounce.dataset import Dataset
         from src.models.pounce.stats_result import StatsResult
 
+        if not self.minio_creds:
+            return
+
+        import io
+        import boto3
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from botocore.client import Config
+
+        creds = self.minio_creds
+        endpoint = creds.url
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=creds.user,
+            aws_secret_access_key=creds.password,
+            config=Config(signature_version="s3v4"),
+        )
+        self._ensure_bucket(s3, creds.schema)
+
         for obj in objects:
             if isinstance(obj, (Dataset, StatsResult)) and obj._data_frame is not None:
-                os.makedirs(self.parquet_output_dir, exist_ok=True)
                 safe_id = self.safe_key(obj.id).replace(':', '_')
-                parquet_path = os.path.join(self.parquet_output_dir, f"{safe_id}.parquet")
+                key = f"parquet/{safe_id}.parquet"
 
-                import pyarrow as pa
-                import pyarrow.parquet as pq
-
+                buf = io.BytesIO()
                 table = pa.Table.from_pandas(obj._data_frame)
-                pq.write_table(table, parquet_path)
-                print(f"Wrote Parquet: {parquet_path} ({obj.row_count} rows x {obj.column_count} cols)")
+                pq.write_table(table, buf)
+                buf.seek(0)
 
-                obj.file_reference = parquet_path
+                s3.put_object(Bucket=creds.schema, Key=key, Body=buf)
+                print(f"Uploaded Parquet to MinIO: s3://{creds.schema}/{key} ({obj.row_count} rows x {obj.column_count} cols)")
+
+                obj.file_reference = f"s3://{creds.schema}/{key}"
                 obj._data_frame = None
 
     def create_indexes(self, cls: Type, collection):

@@ -1,0 +1,30 @@
+services:
+  qa-browser:
+    build:
+      context: ..
+      dockerfile: qa-browser-container/Dockerfile
+    container_name: qa_browser
+    ports:
+      - "8050:8050"
+    volumes:
+      - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
+    command:
+      - python
+      - -m
+      - src.qa_browser.app
+      - --host
+      - "0.0.0.0"
+      - -c
+      - src/use_cases/secrets/local_arangodb.yaml
+      - -m
+      - src/use_cases/secrets/galeradev_write.yaml
+      - -s
+      - src/use_cases/secrets/local_minio.yaml
+    networks:
+      - dashboard_network
+    restart: unless-stopped
+
+networks:
+  dashboard_network:
+    external: true
+    name: shared_dashboard_network

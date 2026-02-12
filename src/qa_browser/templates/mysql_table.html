@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ table_name }} - {{ db_name }} - QA Browser{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>{{ table_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem">
+    <h1 style="margin:0">{{ table_name }}</h1>
+    <span class="badge badge-mysql">MySQL</span>
+    <span style="color:var(--text-muted)">{{ "{:,}".format(total) }} rows</span>
+</div>
+
+<details class="card">
+    <summary>Column Coverage Stats</summary>
+    <div hx-get="/mysql/{{ db_name }}/table/{{ table_name }}/stats"
+         hx-trigger="toggle once from:closest details"
+         hx-swap="innerHTML">
+        <span class="htmx-indicator">Loading stats...</span>
+    </div>
+</details>
+
+<div class="card" style="overflow-x:auto">
+    <div id="table-container">
+        {% include "mysql_table_rows.html" %}
+    </div>
+</div>
+{% endblock %}

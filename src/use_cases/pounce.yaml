@@ -1,4 +1,5 @@
 destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
+minio_credentials: &minio_credentials ./src/use_cases/secrets/local_minio.yaml
 
 input_adapters:
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
@@ -46,5 +47,5 @@ output_adapters:
     class: ArangoOutputAdapter
     kwargs:
       database_name: pounce
-      parquet_output_dir: ./output/parquet/pounce
+      minio_credentials: *minio_credentials
     credentials: *destination_credentials
