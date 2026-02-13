@@ -916,7 +916,7 @@ def main():
             print(f"Warning: MinIO credentials file {minio_path} not found")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, root_path="/odin-qa")
 
 
 if __name__ == "__main__":
