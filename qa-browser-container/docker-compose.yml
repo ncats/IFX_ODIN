@@ -5,7 +5,7 @@ services:
       dockerfile: qa-browser-container/Dockerfile
     container_name: qa_browser
     ports:
-      - "8050:8050"
+      - "8046:8050"
     volumes:
       - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
     command:
