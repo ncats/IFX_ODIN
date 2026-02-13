@@ -5,7 +5,6 @@ Reads collection_schemas metadata from an ArangoDB metadata_store,
 dynamically generates MySQL tables via SQLAlchemy, and copies all data over.
 Works with any Arango DB that was built by ArangoOutputAdapter.
 """
-import os
 import re
 
 from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index
@@ -48,11 +47,11 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
     def __init__(self, arango_credentials: DBCredentials, arango_db_name: str,
                  mysql_credentials: DBCredentials, mysql_db_name: str,
-                 parquet_dir: str = None):
+                 minio_credentials: DBCredentials = None):
         super().__init__(credentials=arango_credentials, database_name=arango_db_name)
         self.mysql = MySqlAdapter(mysql_credentials)
         self.mysql_db_name = mysql_db_name
-        self.parquet_dir = parquet_dir
+        self.minio_credentials = minio_credentials
         self.sa_metadata = MetaData()
 
     def convert(self, batch_size: int = 10000):
@@ -378,6 +377,34 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
         print(f"  {collection_name}: {total} edges")
 
+    # --- MinIO / parquet helpers ---
+
+    def _get_parquet_buffer(self, file_ref: str):
+        """Fetch a parquet file from MinIO and return a BytesIO buffer."""
+        import io
+        import boto3
+        from botocore.client import Config
+
+        if not file_ref.startswith("s3://"):
+            raise ValueError(f"Expected s3:// URI, got: {file_ref}")
+        if not self.minio_credentials:
+            raise RuntimeError("minio_credentials required to read parquet files")
+
+        without_prefix = file_ref[len("s3://"):]
+        bucket, key = without_prefix.split("/", 1)
+        creds = self.minio_credentials
+        endpoint = creds.url
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=creds.user,
+            aws_secret_access_key=creds.password,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            verify=False,
+        )
+        response = s3.get_object(Bucket=bucket, Key=key)
+        return io.BytesIO(response["Body"].read())
+
     # --- Parquet data melting ---
 
     def _melt_parquet_data(self, engine, data_tables: dict):
@@ -420,16 +447,18 @@ class ArangoToMySqlConverter(ArangoAdapter):
                     print(f"  Warning: no analyte edges found for {doc_id}, skipping")
                     continue
 
-                if not os.path.exists(file_ref):
-                    print(f"  Warning: parquet file not found: {file_ref}")
-                    continue
-
                 table, config = doc_to_config[doc_id]
                 parent_table = config["parent_table"]
                 analyte_table = config["analyte"]["table"]
                 sample = config["sample"]
 
-                df = pq.read_table(file_ref).to_pandas()
+                try:
+                    buf = self._get_parquet_buffer(file_ref)
+                except Exception as e:
+                    print(f"  Warning: could not fetch parquet for {doc_id}: {e}")
+                    continue
+
+                df = pq.read_table(buf).to_pandas()
                 index_name = df.index.name or "index"
 
                 melted = df.reset_index().melt(

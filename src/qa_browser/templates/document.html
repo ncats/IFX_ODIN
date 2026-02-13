@@ -85,7 +85,7 @@
 {% endif %}
 
 {# ── Properties ──────────────────────────────────────────── #}
-{% if scalar_fields %}
+{% if scalar_fields or list_fields %}
 <div class="card">
     <h2>Properties</h2>
     <div class="field-list">
@@ -94,6 +94,14 @@
             <span class="field-key">{{ key }}</span>
             <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
                 {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+            </span>
+        </div>
+        {% endfor %}
+        {% for key, val in list_fields %}
+        <div class="field-row {% if key == 'resolved_ids' %}nerd-only{% endif %}">
+            <span class="field-key">{{ key }}</span>
+            <span class="field-val">
+                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
             </span>
         </div>
         {% endfor %}
@@ -133,31 +141,15 @@
 {# ── Parquet Data Preview ────────────────────────────────── #}
 {% if doc.get("file_reference") and doc.get("file_reference", "").endswith(".parquet") %}
 <div class="card">
-    <h2>Parquet Data</h2>
+    <h2>Dataset Preview</h2>
     <div hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc_key }}/parquet-stats"
          hx-trigger="load"
          hx-swap="innerHTML">
-        <span class="loading">Loading parquet stats...</span>
+        <span class="loading">Loading dataset stats...</span>
     </div>
 </div>
 {% endif %}
 
-{# ── Lists ───────────────────────────────────────────────── #}
-{% if list_fields %}
-<div class="card">
-    <h2>Lists</h2>
-    <div class="field-list">
-        {% for key, val in list_fields %}
-        <div class="field-row">
-            <span class="field-key">{{ key }}</span>
-            <span class="field-val">
-                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
-            </span>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
 {# ── Nested Objects ──────────────────────────────────────── #}
 {% for key, val in nested_fields %}
@@ -205,7 +197,7 @@
 {% endif %}
 
 {# ── Raw JSON ────────────────────────────────────────────── #}
-<details class="card">
+<details class="card nerd-only">
     <summary>Raw Document</summary>
     <pre class="raw-json">{{ doc | json_pretty }}</pre>
 </details>

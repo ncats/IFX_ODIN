@@ -2,7 +2,7 @@
     <thead>
         <tr>
             {% for col in columns %}
-            <th>{{ col }}</th>
+            <th {% if col in ("_key", "resolved_ids") %}class="nerd-only"{% endif %}>{{ col }}</th>
             {% endfor %}
         </tr>
     </thead>
@@ -10,7 +10,7 @@
         {% for doc in docs %}
         <tr>
             {% for col in columns %}
-            <td class="mono">
+            <td class="mono {% if col in ('_key', 'resolved_ids') %}nerd-only{% endif %}">
                 {% if col == "_key" %}
                 <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc._key }}">{{ doc.get(col, "") | truncate_val }}</a>
                 {% elif col in ("_from", "_to") and doc.get(col) %}
