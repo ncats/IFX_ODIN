@@ -3,7 +3,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/mysql/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <span>SQL</span>
 {% endblock %}
@@ -12,7 +12,7 @@
 <h1>SQL Console</h1>
 
 <div class="card">
-    <form hx-post="/mysql/{{ db_name }}/sql"
+    <form hx-post="{{ root_path }}/mysql/{{ db_name }}/sql"
           hx-target="#sql-results"
           hx-swap="innerHTML"
           hx-indicator="#sql-spinner">

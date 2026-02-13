@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}QA Browser{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{ root_path }}/static/style.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     {% block head %}{% endblock %}
 </head>
@@ -12,7 +12,7 @@
     <nav>
         <span class="brand">QA Browser</span>
         <div class="breadcrumb">
-            <a href="/">Databases</a>
+            <a href="{{ root_path }}/">Databases</a>
             {% block breadcrumb %}{% endblock %}
         </div>
         <div class="mode-switch" onclick="toggleMode()">

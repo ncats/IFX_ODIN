@@ -20,6 +20,8 @@ services:
       - src/use_cases/secrets/galeradev_write.yaml
       - -s
       - src/use_cases/secrets/ifxdev_minio.yaml
+      - --root-path
+      - /odin-qa
     networks:
       - dashboard_network
     restart: unless-stopped

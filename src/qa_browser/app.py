@@ -26,6 +26,7 @@ STATIC_DIR = BASE_DIR / "static"
 app = FastAPI(title="QA Browser")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["root_path"] = ""
 
 # -- Global state set at startup --
 _client: Optional[ArangoClient] = None
@@ -730,7 +731,7 @@ async def mysql_row_detail(request: Request, db_name: str, table_name: str, pk_v
                         "table": fk["referred_table"],
                         "column": ref_col,
                         "value": val,
-                        "url": f"/mysql/{db_name}/table/{fk['referred_table']}/row/{val}",
+                        "url": f"{templates.env.globals['root_path']}/mysql/{db_name}/table/{fk['referred_table']}/row/{val}",
                     }
 
     # Get column metadata
@@ -784,7 +785,7 @@ async def mysql_refresh_schema(request: Request, db_name: str):
     """Bust the schema cache for a database and redirect to dashboard."""
     from fastapi.responses import RedirectResponse
     invalidate_mysql_inspector(db_name)
-    return RedirectResponse(url=f"/mysql/{db_name}", status_code=303)
+    return RedirectResponse(url=f"{templates.env.globals['root_path']}/mysql/{db_name}", status_code=303)
 
 
 @app.get("/mysql/{db_name}/sql", response_class=HTMLResponse)
@@ -885,9 +886,11 @@ def main():
                         help="Path to MinIO credentials YAML file (url, user, password, schema, internal_url)")
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--root-path", default="", help="ASGI root path for running behind a sub-path proxy (e.g. /odin-qa)")
     args = parser.parse_args()
 
     global _credentials, _mysql_credentials, _minio_credentials
+    templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
         with open(cred_path) as f:
@@ -916,7 +919,7 @@ def main():
             print(f"Warning: MinIO credentials file {minio_path} not found")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port, root_path="/odin-qa")
+    uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
 
 
 if __name__ == "__main__":

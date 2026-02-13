@@ -12,12 +12,12 @@
             {% for col in columns %}
             <td class="mono">
                 {% if col == "_key" %}
-                <a href="/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc._key }}">{{ doc.get(col, "") | truncate_val }}</a>
+                <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc._key }}">{{ doc.get(col, "") | truncate_val }}</a>
                 {% elif col in ("_from", "_to") and doc.get(col) %}
                 {% set parts = doc[col].split("/") %}
-                <a href="/db/{{ db_name }}/collection/{{ parts[0] }}/doc/{{ parts[1] }}">{{ doc[col] | truncate_val }}</a>
+                <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ parts[0] }}/doc/{{ parts[1] }}">{{ doc[col] | truncate_val }}</a>
                 {% elif col == "id" %}
-                <a href="/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc._key }}">{{ doc.get(col, "") | truncate_val }}</a>
+                <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc._key }}">{{ doc.get(col, "") | truncate_val }}</a>
                 {% else %}
                 {{ doc.get(col, "") | truncate_val }}
                 {% endif %}
@@ -30,8 +30,8 @@
 
 <div class="pagination">
     {% if page > 1 %}
-    <a href="/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
-       hx-get="/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+       hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Prev</a>
@@ -44,8 +44,8 @@
     <span>of {{ "{:,}".format(total_pages) }}</span>
 
     {% if page < total_pages %}
-    <a href="/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
-       hx-get="/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+       hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Next</a>

@@ -3,9 +3,9 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
-<a href="/db/{{ db_name }}/collection/{{ coll_name }}">{{ coll_name }}</a>
+<a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}">{{ coll_name }}</a>
 <span class="sep">/</span>
 <span>{{ doc_key }}</span>
 {% endblock %}
@@ -74,12 +74,12 @@
     {% set to_parts = doc["_to"].split("/") %}
     <div class="edge-endpoint">
         <span class="edge-label">from</span>
-        <a href="/db/{{ db_name }}/collection/{{ from_parts[0] }}/doc/{{ from_parts[1] }}">{{ doc["_from"] }}</a>
+        <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ from_parts[0] }}/doc/{{ from_parts[1] }}">{{ doc["_from"] }}</a>
     </div>
     <span class="edge-arrow">&rarr;</span>
     <div class="edge-endpoint">
         <span class="edge-label">to</span>
-        <a href="/db/{{ db_name }}/collection/{{ to_parts[0] }}/doc/{{ to_parts[1] }}">{{ doc["_to"] }}</a>
+        <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ to_parts[0] }}/doc/{{ to_parts[1] }}">{{ doc["_to"] }}</a>
     </div>
 </div>
 {% endif %}
@@ -114,7 +114,7 @@
         </div>
         <div class="linked-nodes">
             {% for node in group.nodes %}
-            <a href="/db/{{ db_name }}/collection/{{ group.collection }}/doc/{{ node.key }}" class="linked-node">{{ node.label }}</a>
+            <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ group.collection }}/doc/{{ node.key }}" class="linked-node">{{ node.label }}</a>
             {% endfor %}
         </div>
     </div>
@@ -134,7 +134,7 @@
 {% if doc.get("file_reference") and doc.get("file_reference", "").endswith(".parquet") %}
 <div class="card">
     <h2>Parquet Data</h2>
-    <div hx-get="/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc_key }}/parquet-stats"
+    <div hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ doc_key }}/parquet-stats"
          hx-trigger="load"
          hx-swap="innerHTML">
         <span class="loading">Loading parquet stats...</span>

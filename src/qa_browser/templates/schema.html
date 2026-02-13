@@ -17,7 +17,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <span>Schema</span>
 {% endblock %}
@@ -43,15 +43,15 @@
         <tbody>
             {% for ed in edge_defs %}
             <tr>
-                <td><a href="/db/{{ db_name }}/collection/{{ ed.edge_collection }}">{{ ed.edge_collection }}</a></td>
+                <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ ed.edge_collection }}">{{ ed.edge_collection }}</a></td>
                 <td>
                     {% for fc in ed.from_vertex_collections %}
-                    <a href="/db/{{ db_name }}/collection/{{ fc }}">{{ fc }}</a>{% if not loop.last %}, {% endif %}
+                    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ fc }}">{{ fc }}</a>{% if not loop.last %}, {% endif %}
                     {% endfor %}
                 </td>
                 <td>
                     {% for tc in ed.to_vertex_collections %}
-                    <a href="/db/{{ db_name }}/collection/{{ tc }}">{{ tc }}</a>{% if not loop.last %}, {% endif %}
+                    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ tc }}">{{ tc }}</a>{% if not loop.last %}, {% endif %}
                     {% endfor %}
                 </td>
             </tr>

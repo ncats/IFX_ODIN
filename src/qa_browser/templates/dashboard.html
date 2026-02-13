@@ -39,7 +39,7 @@
                 <tbody>
                     {% for coll in collections %}
                     <tr class="{{ 'nerd-only' if coll.type == 'edge' }}">
-                        <td><a href="/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
+                        <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
                         <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
                         <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>
                     </tr>
@@ -67,7 +67,7 @@
                     {% endfor %}
                 </tbody>
             </table>
-            <p style="margin-top:0.75rem"><a href="/db/{{ db_name }}/schema">Full schema diagram</a></p>
+            <p style="margin-top:0.75rem"><a href="{{ root_path }}/db/{{ db_name }}/schema">Full schema diagram</a></p>
         </div>
         {% endif %}
 
@@ -87,8 +87,8 @@
 
         <div class="card">
             <h2>Tools</h2>
-            <p><a href="/db/{{ db_name }}/aql">AQL Console</a></p>
-            <p class="nerd-only"><a href="/db/{{ db_name }}/schema">Schema Diagram</a></p>
+            <p><a href="{{ root_path }}/db/{{ db_name }}/aql">AQL Console</a></p>
+            <p class="nerd-only"><a href="{{ root_path }}/db/{{ db_name }}/schema">Schema Diagram</a></p>
         </div>
     </div>
 </div>

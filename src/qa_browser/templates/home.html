@@ -50,7 +50,7 @@
     </div>
     <div class="db-grid">
         {% for db in databases %}
-        <a href="/db/{{ db }}" class="db-card db-card-arango">
+        <a href="{{ root_path }}/db/{{ db }}" class="db-card db-card-arango">
             <div class="db-name">{{ db }}</div>
             <div class="db-card-footer">graph · document</div>
         </a>
@@ -68,7 +68,7 @@
     </div>
     <div class="db-grid">
         {% for db in mysql_databases %}
-        <a href="/mysql/{{ db }}" class="db-card db-card-mysql">
+        <a href="{{ root_path }}/mysql/{{ db }}" class="db-card db-card-mysql">
             <div class="db-name">{{ db }}</div>
             <div class="db-card-footer">relational · sql</div>
         </a>

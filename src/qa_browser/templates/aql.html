@@ -3,7 +3,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <span>AQL</span>
 {% endblock %}
@@ -12,7 +12,7 @@
 <h1>AQL Console</h1>
 
 <div class="card">
-    <form hx-post="/db/{{ db_name }}/aql"
+    <form hx-post="{{ root_path }}/db/{{ db_name }}/aql"
           hx-target="#aql-results"
           hx-swap="innerHTML"
           hx-indicator="#aql-spinner">
