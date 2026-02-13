@@ -3,7 +3,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/mysql/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <span>{{ table_name }}</span>
 {% endblock %}
@@ -17,7 +17,7 @@
 
 <details class="card">
     <summary>Column Coverage Stats</summary>
-    <div hx-get="/mysql/{{ db_name }}/table/{{ table_name }}/stats"
+    <div hx-get="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}/stats"
          hx-trigger="toggle once from:closest details"
          hx-swap="innerHTML">
         <span class="htmx-indicator">Loading stats...</span>

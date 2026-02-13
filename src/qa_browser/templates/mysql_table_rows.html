@@ -12,7 +12,7 @@
             {% for col in columns %}
             <td class="mono">
                 {% if col in pk_cols and row.get(col) is not none %}
-                <a href="/mysql/{{ db_name }}/table/{{ table_name }}/row/{{ row[col] }}">{{ row.get(col, "") | truncate_val }}</a>
+                <a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}/row/{{ row[col] }}">{{ row.get(col, "") | truncate_val }}</a>
                 {% else %}
                 {{ row.get(col, "") | truncate_val }}
                 {% endif %}
@@ -25,8 +25,8 @@
 
 <div class="pagination">
     {% if page > 1 %}
-    <a href="/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
-       hx-get="/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+    <a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+       hx-get="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Prev</a>
@@ -39,8 +39,8 @@
     <span>of {{ "{:,}".format(total_pages) }}</span>
 
     {% if page < total_pages %}
-    <a href="/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
-       hx-get="/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+    <a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+       hx-get="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Next</a>

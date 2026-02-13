@@ -3,9 +3,9 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/mysql/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/mysql/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
-<a href="/mysql/{{ db_name }}/table/{{ table_name }}">{{ table_name }}</a>
+<a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ table_name }}">{{ table_name }}</a>
 <span class="sep">/</span>
 <span>{{ pk_value }}</span>
 {% endblock %}

@@ -3,7 +3,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="/db/{{ db_name }}">{{ db_name }}</a>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <span>{{ coll_name }}</span>
 {% endblock %}
@@ -17,7 +17,7 @@
 
 <details class="card">
     <summary>Field Coverage Stats</summary>
-    <div hx-get="/db/{{ db_name }}/collection/{{ coll_name }}/stats"
+    <div hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/stats"
          hx-trigger="toggle once from:closest details"
          hx-swap="innerHTML">
         <span class="htmx-indicator">Loading stats...</span>

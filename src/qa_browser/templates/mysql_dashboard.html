@@ -40,7 +40,7 @@
                 <tbody>
                     {% for tbl in tables %}
                     <tr>
-                        <td><a href="/mysql/{{ db_name }}/table/{{ tbl.name }}">{{ tbl.name }}</a></td>
+                        <td><a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ tbl.name }}">{{ tbl.name }}</a></td>
                         <td class="mono" style="text-align:right">{{ "{:,}".format(tbl.count) }}</td>
                         <td class="mono" style="text-align:right">{{ tbl.fk_count }}</td>
                     </tr>
@@ -61,23 +61,23 @@
                 <tbody>
                     {% for fk in fk_defs %}
                     <tr>
-                        <td><a href="/mysql/{{ db_name }}/table/{{ fk.from_table }}">{{ fk.from_table }}</a></td>
+                        <td><a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ fk.from_table }}">{{ fk.from_table }}</a></td>
                         <td>{{ fk.from_columns }}</td>
-                        <td><a href="/mysql/{{ db_name }}/table/{{ fk.to_table }}">{{ fk.to_table }}</a></td>
+                        <td><a href="{{ root_path }}/mysql/{{ db_name }}/table/{{ fk.to_table }}">{{ fk.to_table }}</a></td>
                         <td>{{ fk.to_columns }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <p style="margin-top:0.75rem"><a href="/mysql/{{ db_name }}/schema">Full schema diagram</a></p>
+            <p style="margin-top:0.75rem"><a href="{{ root_path }}/mysql/{{ db_name }}/schema">Full schema diagram</a></p>
         </div>
         {% endif %}
 
         <div class="card">
             <h2>Tools</h2>
-            <p><a href="/mysql/{{ db_name }}/sql">SQL Console</a></p>
-            <p><a href="/mysql/{{ db_name }}/schema">Schema Diagram</a></p>
-            <form method="post" action="/mysql/{{ db_name }}/refresh-schema" style="margin-top:0.75rem">
+            <p><a href="{{ root_path }}/mysql/{{ db_name }}/sql">SQL Console</a></p>
+            <p><a href="{{ root_path }}/mysql/{{ db_name }}/schema">Schema Diagram</a></p>
+            <form method="post" action="{{ root_path }}/mysql/{{ db_name }}/refresh-schema" style="margin-top:0.75rem">
                 <button type="submit" class="btn btn-sm" style="background:var(--bg); border:1px solid var(--border); color:var(--text-muted)">Refresh Schema Cache</button>
             </form>
         </div>
