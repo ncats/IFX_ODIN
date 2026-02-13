@@ -15,11 +15,11 @@ services:
       - --host
       - "0.0.0.0"
       - -c
-      - src/use_cases/secrets/local_arangodb.yaml
+      - src/use_cases/secrets/ifxdev_arangodb.yaml
       - -m
       - src/use_cases/secrets/galeradev_write.yaml
       - -s
-      - src/use_cases/secrets/local_minio.yaml
+      - src/use_cases/secrets/ifxdev_minio.yaml
     networks:
       - dashboard_network
     restart: unless-stopped

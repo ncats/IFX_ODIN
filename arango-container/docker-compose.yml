@@ -19,6 +19,8 @@ services:
     command: server /data --console-address ":9001"
     env_file:
       - secrets.env
+    environment:
+      MINIO_BROWSER_REDIRECT_URL: "https://ifxdev.ncats.nih.gov/minio"
     ports:
       - "8043:9000"
       - "8044:9001"
