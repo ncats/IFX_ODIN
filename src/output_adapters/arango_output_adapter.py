@@ -123,7 +123,11 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             endpoint_url=endpoint,
             aws_access_key_id=creds.user,
             aws_secret_access_key=creds.password,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                s3={'addressing_style': 'path'}
+            ),
+            verify=False,
         )
         self._ensure_bucket(s3, creds.schema)
 

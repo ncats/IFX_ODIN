@@ -1,5 +1,8 @@
-destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
-minio_credentials: &minio_credentials ./src/use_cases/secrets/local_minio.yaml
+#destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
+#minio_credentials: &minio_credentials ./src/use_cases/secrets/local_minio.yaml
+
+destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
 
 input_adapters:
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py

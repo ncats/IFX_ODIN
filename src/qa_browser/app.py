@@ -57,7 +57,8 @@ def _get_parquet_buffer(file_ref: str):
             endpoint_url=endpoint,
             aws_access_key_id=_minio_credentials.get("user"),
             aws_secret_access_key=_minio_credentials.get("password"),
-            config=Config(signature_version="s3v4"),
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            verify=False,
         )
         response = s3.get_object(Bucket=bucket, Key=key)
         data = response["Body"].read()
