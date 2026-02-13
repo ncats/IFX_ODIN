@@ -198,11 +198,12 @@ class BiosampleConfig(ColumnConfig):
         biospecimen_id = self.get_row_value(row, biospecimen_config.id_column, True)
         biosample_type = self.get_row_value(row, self.type_column, True)
         demographics_config = DemographicsConfig(self.biosample_map)
+        full_id = f"{self.project_id}-{biosample_id}-{biospecimen_id}"
         return Biosample(
-                id=f"{self.project_id}-{biosample_id}-{biospecimen_id}",
+                id=full_id,
                 original_id=biosample_id,
                 type=biosample_type,
-                demographics=demographics_config.get_data(row)
+                demographics=demographics_config.get_data(row, full_id)
             )
 
 
@@ -230,7 +231,7 @@ class DemographicsConfig(ColumnConfig):
         self.demographic_category_columns = get_list_of_column_names(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.demographic_category)
         self.phenotype_category_columns = get_list_of_column_names(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.phenotype_category)
 
-    def get_data(self, row):
+    def get_data(self, row, parent_id: str = None):
         age = self.get_row_value(row, self.age_column)
         race = self.get_row_value(row, self.race_column)
         ethnicity = self.get_row_value(row, self.ethnicity_column)
@@ -241,7 +242,7 @@ class DemographicsConfig(ColumnConfig):
         if all(v is None for v in [age, race, ethnicity, sex, categories, phenotype_categories]):
             return None
         return Demographics(
-            id='ignored',
+            id=f"{parent_id}::demographics" if parent_id else None,
             age=age, race=race, ethnicity=ethnicity, sex=sex, categories=categories,
             phenotype_categories=phenotype_categories
         )
