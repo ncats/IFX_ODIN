@@ -15,5 +15,4 @@ class Biospecimen(Node):
     organism: str = None
     organism_category: Optional[CategoryValue] = None
     disease_category: Optional[CategoryValue] = None
-    phenotype_category: Optional[CategoryValue] = None
     diseases: Optional[List[str]] = field(default_factory=list)

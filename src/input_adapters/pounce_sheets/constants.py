@@ -146,13 +146,13 @@ class ProjectWorkbook:
             organism_category = 'organism_category'
             disease_names = 'disease_names'
             disease_category = 'disease_category'
-            phenotype_category = 'phenotype_category'
 
             age = 'age'
             race = 'race'
             ethnicity = 'ethnicity'
             sex = 'sex'
-            demographic_category = 'demographic_category'
+            phenotype_category = 'phenotype{}_category'
+            demographic_category = 'demographic{}_category'
 
             exposure_names = 'exposure{}_names'
             exposure_type = 'exposure{}_type'

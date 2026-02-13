@@ -1,5 +1,5 @@
-from dataclasses import dataclass, asdict
-from typing import Optional, Dict
+from dataclasses import dataclass, asdict, field
+from typing import Optional, Dict, List
 
 from src.core.decorators import facets
 from src.models.node import Node
@@ -13,7 +13,8 @@ class Demographics(Node):
     race: str = None
     ethnicity: str = None
     sex: str = None
-    category: Optional[CategoryValue] = None
+    categories: List[CategoryValue] = field(default_factory=list)
+    phenotype_categories: List[CategoryValue] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
