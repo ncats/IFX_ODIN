@@ -4,18 +4,16 @@ from typing import Optional
 from src.core.decorators import facets
 from src.models.analyte import Analyte
 from src.models.metabolite_chem_props import MetaboliteChemProps
-from src.models.node import Relationship
+from src.models.node import Relationship, Node
 from src.models.protein import Protein
 from src.models.reaction import Reaction
 
 
 @dataclass
-@facets(category_fields=['type', 'identfication_level'])
+@facets(category_fields=['type'])
 class Metabolite(Analyte):
     name: Optional[str] = None
     type: Optional[str] = None
-    identification_level: Optional[int] = None
-
 
 @dataclass
 class MetaboliteProteinRelationship(Relationship):
@@ -35,3 +33,15 @@ class MetaboliteReactionRelationship(Relationship):
 class MetaboliteChemPropsRelationship(Relationship):
     start_node: Metabolite
     end_node: MetaboliteChemProps
+
+@dataclass
+@facets(category_fields=['type','identification_level'])
+class MeasuredMetabolite(Node):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    identification_level: Optional[int] = None
+
+@dataclass
+class MeasuredMetaboliteRelationship(Relationship):
+    start_node: MeasuredMetabolite
+    end_node: Metabolite

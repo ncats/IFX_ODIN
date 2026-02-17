@@ -7,8 +7,8 @@ from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.input_adapters.pounce_sheets.constants import ProjectWorkbook, ExperimentWorkbook, StatsResultsWorkbook
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.gene import Gene
-from src.models.metabolite import Metabolite
+from src.models.gene import MeasuredGene
+from src.models.metabolite import MeasuredMetabolite
 from src.models.node import Node, Relationship
 from src.models.pounce.biosample import BiosampleBiospecimenEdge
 from src.models.pounce.config_classes import ExposureConfig, BiosampleConfig, BiospecimenConfig, RunBiosampleConfig
@@ -297,7 +297,7 @@ class PounceInputAdapter(InputAdapter):
             if not gene_id:
                 continue
 
-            gene_obj = Gene(
+            gene_obj = MeasuredGene(
                 id=gene_id,
                 symbol=row.get(symbol_col) if symbol_col else None,
                 biotype=row.get(biotype_col) if biotype_col else None
@@ -325,7 +325,7 @@ class PounceInputAdapter(InputAdapter):
             if not metab_id:
                 continue
 
-            metab_obj = Metabolite(
+            metab_obj = MeasuredMetabolite(
                 id=f"{experiment_obj.id}-{metab_id}",
                 name=row.get(metab_name_col) if metab_name_col else None,
                 type=row.get(metab_type_col) if metab_type_col else None,
