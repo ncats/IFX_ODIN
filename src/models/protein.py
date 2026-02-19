@@ -6,7 +6,7 @@ from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
 from src.models.gene import Audited
-from src.models.node import Relationship
+from src.models.node import Relationship, Node
 from src.models.reaction import Reaction
 
 
@@ -122,3 +122,16 @@ class ProteinReactionRelationship(Relationship):
     start_node: Protein
     end_node: Reaction
     is_reviewed: bool = None
+
+
+@dataclass
+@facets(category_fields=['type'])
+class MeasuredProtein(Node):
+    name: Optional[str] = None
+    type: Optional[str] = None
+
+
+@dataclass
+class MeasuredProteinEdge(Relationship):
+    start_node: MeasuredProtein
+    end_node: Protein

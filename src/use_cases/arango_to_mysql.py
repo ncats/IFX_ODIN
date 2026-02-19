@@ -5,6 +5,7 @@ Reads collection_schemas metadata from an ArangoDB metadata_store,
 dynamically generates MySQL tables via SQLAlchemy, and copies all data over.
 Works with any Arango DB that was built by ArangoOutputAdapter.
 """
+import json
 import re
 
 from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index
@@ -72,8 +73,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
         for collection_name, schema in schemas.items():
             if schema["type"] == "document":
-                table, child_tables = self._create_document_table(collection_name, schema["fields"])
-                document_collections[collection_name] = (table, child_tables, schema)
+                table, child_tables, object_tables = self._create_document_table(collection_name, schema["fields"])
+                document_collections[collection_name] = (table, child_tables, object_tables, schema)
             elif collection_name not in data_implicit_edges:
                 table = self._create_edge_table(collection_name, schema)
                 edge_collections[collection_name] = (table, schema)
@@ -86,8 +87,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
         self.sa_metadata.create_all(engine)
 
         # Pass 2: copy documents and edges
-        for collection_name, (table, child_tables, schema) in document_collections.items():
-            self._copy_document_collection(engine, collection_name, table, child_tables, schema, batch_size)
+        for collection_name, (table, child_tables, object_tables, schema) in document_collections.items():
+            self._copy_document_collection(engine, collection_name, table, child_tables, object_tables, schema, batch_size)
 
         for collection_name, (table, schema) in edge_collections.items():
             self._copy_edge_collection(engine, collection_name, table, schema, batch_size)
@@ -137,14 +138,22 @@ class ArangoToMySqlConverter(ArangoAdapter):
             for edge_name, edge_schema in edge_schemas.items():
                 if parent_coll not in edge_schema.get("from_collections", []):
                     continue
-                data_implicit_edges.add(edge_name)
 
                 target_coll = edge_schema["to_collections"][0]
                 target_table = _camel_to_snake(target_coll)
 
-                if self._is_sample_target(target_coll, edge_schemas, file_ref_collections):
+                non_file_ref_count = self._non_file_ref_source_count(target_coll, edge_schemas, file_ref_collections)
+                if non_file_ref_count > 1:
+                    # Metadata entity (e.g. Person) — keep as a regular edge table
+                    continue
+
+                data_implicit_edges.add(edge_name)
+
+                if non_file_ref_count == 1:
+                    # Sample dimension (e.g. RunBiosample) — becomes column FK in data tables
                     sample_target = {"collection": target_coll, "table": target_table, "edge": edge_name}
                 else:
+                    # Pure analyte (e.g. Gene, Metabolite) — becomes row FK in data tables
                     analyte_targets.append({"collection": target_coll, "table": target_table, "edge": edge_name})
 
             for analyte in analyte_targets:
@@ -160,27 +169,36 @@ class ArangoToMySqlConverter(ArangoAdapter):
         return data_implicit_edges, data_table_configs
 
     @staticmethod
-    def _is_sample_target(target_coll: str, edge_schemas: dict, file_ref_collections: set) -> bool:
-        """A target is a sample type if some non-file-reference collection also points to it.
+    def _non_file_ref_source_count(target_coll: str, edge_schemas: dict, file_ref_collections: set) -> int:
+        """Count distinct non-file-reference collections that have edges pointing to target_coll.
 
-        e.g. Biosample → RunBiosample exists, so RunBiosample is a sample target.
-        Gene/Metabolite are only pointed to by file_reference collections, so they're analyte targets.
+        0 → pure analyte (Gene, Metabolite): only ever targeted by data collections.
+        1 → sample dimension (RunBiosample): linked from exactly one non-data collection (Biosample).
+        2+ → metadata entity (Person): referenced by multiple high-level collections (Project, Experiment).
+             These should remain as regular edge tables, not be folded into data tables.
         """
+        sources = set()
         for edge_schema in edge_schemas.values():
             if target_coll not in edge_schema.get("to_collections", []):
                 continue
             from_coll = edge_schema["from_collections"][0]
             if from_coll not in file_ref_collections:
-                return True
-        return False
+                sources.add(from_coll)
+        return len(sources)
 
     # --- Table creation ---
 
     def _create_document_table(self, name: str, fields: dict) -> tuple:
-        """Create a SQLAlchemy Table for a document collection. Returns (table, child_tables_dict)."""
+        """Create a SQLAlchemy Table for a document collection.
+
+        Returns (table, child_tables, object_tables) where:
+          child_tables:  {field_name: (Table, {sub_field_name: Table})}  — for list fields
+          object_tables: {field_name: (Table, {sub_field_name: Table})}  — for object fields
+        """
         table_name = _camel_to_snake(name)
         columns = []
         child_tables = {}
+        object_tables = {}
 
         for field_name, field_schema in fields.items():
             if field_name in _SKIP_FIELDS:
@@ -188,11 +206,12 @@ class ArangoToMySqlConverter(ArangoAdapter):
             if isinstance(field_schema, dict):
                 field_type = field_schema.get("type")
                 if field_type == "list":
-                    child_table = self._create_child_table(table_name, field_name, field_schema)
-                    child_tables[field_name] = child_table
+                    child_table, child_gc_tables = self._create_child_table(table_name, field_name, field_schema)
+                    child_tables[field_name] = (child_table, child_gc_tables)
                     continue
                 elif field_type == "object":
-                    columns.append(Column(field_name, Text))
+                    obj_table, grandchild_tables = self._create_object_table(table_name, field_name, field_schema)
+                    object_tables[field_name] = (obj_table, grandchild_tables)
                     continue
             col_type = _SQL_TYPE_MAP.get(field_schema, Text)
             if field_name == "id":
@@ -201,32 +220,115 @@ class ArangoToMySqlConverter(ArangoAdapter):
                 columns.append(Column(field_name, col_type, nullable=True))
 
         table = Table(table_name, self.sa_metadata, *columns)
-        return table, child_tables
+        return table, child_tables, object_tables
 
-    def _create_child_table(self, parent_name: str, field_name: str, field_schema: dict) -> Table:
-        """Create a child table for a list field."""
-        table_name = f"{parent_name}__{field_name}"
+    def _create_object_table(self, parent_table_name: str, field_name: str, field_schema: dict) -> tuple:
+        """Create a linked table for an embedded object field.
+
+        Named {parent}__{field} (e.g. 'exposure__category', 'biosample__demographics').
+        The parent FK is used as the primary key since this is always a 1:1 relationship,
+        avoiding duplicate key errors from object ids that are only locally unique.
+        Grandchild list tables reference back via that same FK column.
+
+        Returns (table, grandchild_tables) where grandchild_tables is
+        {sub_field_name: Table} for any list sub-fields.
+        """
+        obj_table_name = f"{parent_table_name}__{_camel_to_snake(field_name)}"
+        parent_fk_col = f"{parent_table_name}_id"
+        sub_fields = field_schema.get("fields", {})
+
+        # Parent FK doubles as PK — uniqueness is guaranteed by the 1:1 relationship
+        columns = [
+            Column(parent_fk_col, String(255), ForeignKey(f"{parent_table_name}.id"), primary_key=True),
+        ]
+
+        grandchild_tables = {}
+
+        for sub_name, sub_schema in sub_fields.items():
+            if sub_name in _SKIP_FIELDS:
+                continue
+            if isinstance(sub_schema, dict):
+                sub_type = sub_schema.get("type")
+                if sub_type == "list":
+                    # Grandchild table references this table via parent_fk_col (its PK)
+                    gc_table, _ = self._create_child_table(obj_table_name, sub_name, sub_schema,
+                                                           parent_pk_col=parent_fk_col)
+                    grandchild_tables[sub_name] = gc_table
+                else:
+                    # Nested object-within-object: store as JSON blob
+                    columns.append(Column(sub_name, Text, nullable=True))
+            else:
+                col_type = _SQL_TYPE_MAP.get(sub_schema, Text)
+                columns.append(Column(sub_name, col_type, nullable=True))
+
+        table = Table(obj_table_name, self.sa_metadata, *columns)
+        return table, grandchild_tables
+
+    @staticmethod
+    def _list_item_object_fields(field_schema: dict) -> dict | None:
+        """Return the object fields dict if this list schema describes a list of objects, else None.
+
+        Handles two formats produced by ArangoOutputAdapter._type_hint_to_schema:
+          - item_type == "object" with fields at the top level  (List[dataclass] case)
+          - item_type == {"type": "object", "fields": {...}}      (defensive)
+        """
         item_type = field_schema.get("item_type")
-
-        fk = ForeignKey(f"{parent_name}.id")
-
+        if item_type == "object":
+            return field_schema.get("fields", {})
         if isinstance(item_type, dict) and item_type.get("type") == "object":
-            columns = [
-                Column("parent_id", String(255), fk, nullable=False),
-            ]
-            for sub_name, sub_schema in item_type.get("fields", {}).items():
+            return item_type.get("fields", {})
+        return None
+
+    def _create_child_table(self, parent_name: str, field_name: str, field_schema: dict,
+                            parent_pk_col: str = "id", parent_pk_type=None) -> tuple:
+        """Create a child table for a list field.
+
+        Returns (table, grandchild_tables) where grandchild_tables is
+        {sub_field_name: Table} for any nested list sub-fields (list-of-object case).
+        When grandchild tables exist, the child table gets an auto-increment 'id' PK
+        so grandchild rows can reference it.
+        """
+        table_name = f"{parent_name}__{field_name}"
+        fk = ForeignKey(f"{parent_name}.{parent_pk_col}")
+        pk_col_type = parent_pk_type if parent_pk_type is not None else String(255)
+
+        obj_fields = self._list_item_object_fields(field_schema)
+        grandchild_tables = {}
+
+        if obj_fields is not None:
+            # Detect nested list sub-fields that need their own grandchild tables
+            nested_list_subs = {
+                k for k, v in obj_fields.items()
+                if k not in _SKIP_FIELDS and isinstance(v, dict) and v.get("type") == "list"
+            }
+
+            columns = []
+            if nested_list_subs:
+                # Auto-increment PK so grandchild rows can reference this table
+                columns.append(Column("id", Integer, primary_key=True))
+            columns.append(Column("parent_id", pk_col_type, fk, nullable=False))
+
+            for sub_name, sub_schema in obj_fields.items():
+                if sub_name in _SKIP_FIELDS:
+                    continue
+                if sub_name in nested_list_subs:
+                    gc_table, _ = self._create_child_table(table_name, sub_name, sub_schema,
+                                                           parent_pk_col="id", parent_pk_type=Integer)
+                    grandchild_tables[sub_name] = gc_table
+                    continue
                 col_type = _SQL_TYPE_MAP.get(sub_schema, Text) if isinstance(sub_schema, str) else Text
                 columns.append(Column(sub_name, col_type, nullable=True))
             columns.append(Index(f"ix_{table_name}_parent", "parent_id"))
         else:
+            item_type = field_schema.get("item_type")
             col_type = _SQL_TYPE_MAP.get(item_type, Text) if isinstance(item_type, str) else Text
             columns = [
-                Column("parent_id", String(255), fk, nullable=False),
+                Column("parent_id", pk_col_type, fk, nullable=False),
                 Column("value", col_type, nullable=True),
                 Index(f"ix_{table_name}_parent", "parent_id"),
             ]
 
-        return Table(table_name, self.sa_metadata, *columns)
+        return Table(table_name, self.sa_metadata, *columns), grandchild_tables
 
     def _create_edge_table(self, name: str, schema: dict) -> Table:
         """Create a SQLAlchemy Table for an edge collection."""
@@ -303,47 +405,151 @@ class ArangoToMySqlConverter(ArangoAdapter):
                 break
 
     def _copy_document_collection(self, engine, collection_name: str, table: Table,
-                                  child_tables: dict, schema: dict, batch_size: int):
+                                  child_tables: dict, object_tables: dict, schema: dict, batch_size: int):
         """Copy a document collection from Arango to MySQL."""
         fields = {k: v for k, v in schema["fields"].items() if k not in _SKIP_FIELDS}
         list_fields = {k for k, v in fields.items() if isinstance(v, dict) and v.get("type") == "list"}
-        scalar_fields = set(fields.keys()) - list_fields
+        object_fields = set(object_tables.keys())
+        scalar_fields = set(fields.keys()) - list_fields - object_fields
         total = 0
+
+        # Separate list fields: those whose child table has nested grandchild tables vs flat
+        child_fields_with_gc = {f for f in list_fields if f in child_tables and child_tables[f][1]}
+        child_fields_flat = list_fields - child_fields_with_gc
 
         for docs in self._read_collection_paginated(collection_name, batch_size):
             rows = []
-            child_rows = {field: [] for field in list_fields}
+            child_rows_flat = {field: [] for field in child_fields_flat}
+            # Each entry is (child_row_dict, {sub_name: [scalar_values]})
+            child_rows_with_gc = {field: [] for field in child_fields_with_gc}
+            object_rows = {field: [] for field in object_fields}
+            grandchild_rows = {
+                field: {sub: [] for sub in grandchild_tables}
+                for field, (_, grandchild_tables) in object_tables.items()
+            }
+
+            parent_table_name = _camel_to_snake(collection_name)
 
             for doc in docs:
                 row = {}
                 for field in scalar_fields:
                     val = doc.get(field)
-                    if isinstance(val, dict):
-                        import json
+                    if isinstance(val, (dict, list)):
                         val = json.dumps(val)
                     row[field] = val
                 rows.append(row)
 
                 doc_id = doc.get("id")
+
+                # List fields
                 for list_field in list_fields:
                     values = doc.get(list_field)
                     if not values or not isinstance(values, list):
                         continue
-                    item_schema = fields[list_field].get("item_type")
-                    if isinstance(item_schema, dict) and item_schema.get("type") == "object":
-                        for item in values:
-                            if isinstance(item, dict):
-                                child_rows[list_field].append({"parent_id": doc_id, **item})
+                    obj_fields_map = self._list_item_object_fields(fields[list_field])
+                    if obj_fields_map is not None:
+                        if list_field in child_fields_with_gc:
+                            _, child_gc_tables = child_tables[list_field]
+                            for item in values:
+                                if isinstance(item, dict):
+                                    child_row = {"parent_id": doc_id}
+                                    gc_data = {sub_name: [] for sub_name in child_gc_tables}
+                                    for k, v in item.items():
+                                        if k in _SKIP_FIELDS:
+                                            continue
+                                        if k in child_gc_tables and isinstance(v, list):
+                                            gc_data[k] = v
+                                        elif isinstance(v, (dict, list)):
+                                            child_row[k] = json.dumps(v)
+                                        else:
+                                            child_row[k] = v
+                                    child_rows_with_gc[list_field].append((child_row, gc_data))
+                        else:
+                            for item in values:
+                                if isinstance(item, dict):
+                                    child_rows_flat[list_field].append({"parent_id": doc_id, **{
+                                        k: json.dumps(v) if isinstance(v, (dict, list)) else v
+                                        for k, v in item.items() if k not in _SKIP_FIELDS
+                                    }})
                     else:
                         for item in values:
-                            child_rows[list_field].append({"parent_id": doc_id, "value": item})
+                            child_rows_flat[list_field].append({"parent_id": doc_id, "value": item})
+
+                # Object fields: extract nested dicts into linked tables
+                for obj_field in object_fields:
+                    nested = doc.get(obj_field)
+                    if not nested or not isinstance(nested, dict):
+                        continue
+
+                    obj_schema = fields[obj_field]
+                    parent_fk_col = f"{parent_table_name}_id"
+
+                    # PK of the object table is parent_fk_col = doc_id
+                    obj_row = {parent_fk_col: doc_id}
+
+                    for sub_name, sub_schema in obj_schema.get("fields", {}).items():
+                        if sub_name in _SKIP_FIELDS:
+                            continue
+                        val = nested.get(sub_name)
+                        if isinstance(sub_schema, dict):
+                            sub_type = sub_schema.get("type")
+                            if sub_type == "list":
+                                # Populate grandchild rows; parent_id references doc_id
+                                # (the object table's PK is the parent FK, not an object id)
+                                list_vals = val if isinstance(val, list) else []
+                                item_obj_fields = self._list_item_object_fields(sub_schema)
+                                for item in list_vals:
+                                    if item_obj_fields is not None:
+                                        if isinstance(item, dict):
+                                            gc_row = {"parent_id": doc_id}
+                                            for k, v in item.items():
+                                                if k not in _SKIP_FIELDS:
+                                                    gc_row[k] = json.dumps(v) if isinstance(v, (dict, list)) else v
+                                            grandchild_rows[obj_field][sub_name].append(gc_row)
+                                    else:
+                                        grandchild_rows[obj_field][sub_name].append(
+                                            {"parent_id": doc_id, "value": item}
+                                        )
+                                continue
+                            else:
+                                val = json.dumps(val) if val is not None else None
+                        elif isinstance(val, (dict, list)):
+                            val = json.dumps(val)
+                        obj_row[sub_name] = val
+
+                    object_rows[obj_field].append(obj_row)
 
             with engine.connect() as conn:
                 if rows:
                     conn.execute(table.insert(), rows)
-                for field, c_rows in child_rows.items():
+
+                # Bulk insert flat child rows (no nested grandchild tables)
+                for field, c_rows in child_rows_flat.items():
                     if c_rows and field in child_tables:
-                        conn.execute(child_tables[field].insert(), c_rows)
+                        child_table, _ = child_tables[field]
+                        conn.execute(child_table.insert(), c_rows)
+
+                # Row-by-row insert for child rows that have nested grandchild tables,
+                # capturing the auto-increment PK to use as parent_id for grandchild rows
+                for field, rows_with_gc in child_rows_with_gc.items():
+                    child_table, child_gc_tables = child_tables[field]
+                    for child_row, gc_data in rows_with_gc:
+                        result = conn.execute(child_table.insert().values(**child_row))
+                        child_id = result.inserted_primary_key[0]
+                        for sub_name, gc_values in gc_data.items():
+                            if gc_values and sub_name in child_gc_tables:
+                                gc_table = child_gc_tables[sub_name]
+                                gc_rows = [{"parent_id": child_id, "value": v} for v in gc_values]
+                                conn.execute(gc_table.insert(), gc_rows)
+
+                for obj_field, o_rows in object_rows.items():
+                    if o_rows:
+                        obj_table, grandchild_tables = object_tables[obj_field]
+                        conn.execute(obj_table.insert(), o_rows)
+                    for sub_name, gc_rows in grandchild_rows[obj_field].items():
+                        _, grandchild_tables = object_tables[obj_field]
+                        if gc_rows and sub_name in grandchild_tables:
+                            conn.execute(grandchild_tables[sub_name].insert(), gc_rows)
                 conn.commit()
 
             total += len(docs)

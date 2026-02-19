@@ -4,7 +4,8 @@ from typing import Dict, List, Optional
 
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
-from src.models.node import Node
+from src.models.node import Node, Relationship
+
 
 class Strand(SimpleEnum):
     plus1 = "+1"
@@ -77,3 +78,14 @@ class Gene(Audited, Node):
     NCBI_ID_Provenance: Optional[str] = None
     HGNC_ID_Provenance: Optional[str] = None
     Symbol_Provenance: Optional[str] = None
+
+@dataclass
+@facets(category_fields=['type'])
+class MeasuredGene(Node):
+    symbol: Optional[str] = None
+    biotype: Optional[str] = None
+
+@dataclass
+class MeasuredGeneEdge(Relationship):
+    start_node: MeasuredGene
+    end_node: Gene

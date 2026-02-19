@@ -1,4 +1,5 @@
 from abc import abstractmethod, ABC
+from typing import List
 
 from src.input_adapters.pounce_sheets.constants import ProjectWorkbook, ExperimentWorkbook
 from src.models.pounce.biosample import Biosample
@@ -18,6 +19,20 @@ def get_column_name(map_name, key, index=None):
             return None
         return val
     return None
+
+def get_list_of_column_names(map_name, key):
+    """Returns a list of column names starting at 1"""
+    column_names = []
+    index = 1
+    while True:
+        column_name = get_column_name(map_name, key, index)
+        if column_name is None or column_name == '':
+            break
+        column_names.append(column_name)
+        index += 1
+    if len(column_names) == 0:
+        return None
+    return column_names
 
 class ColumnConfig(ABC):
     biosample_map: dict
@@ -146,7 +161,6 @@ class BiospecimenConfig(ColumnConfig):
     organism_category_column: str
     disease_names_column: str
     disease_category_column: str
-    phenotype_category_column: str
     project_id: str
 
     def get_data(self, row):
@@ -159,7 +173,6 @@ class BiospecimenConfig(ColumnConfig):
                 organism=self.get_row_value(row, self.organism_names_column, True),
                 organism_category=self.get_category_value(row, self.organism_category_column),
                 disease_category=self.get_category_value(row, self.disease_category_column),
-                phenotype_category=self.get_category_value(row, self.phenotype_category_column),
                 diseases=self.get_row_value(row, self.disease_names_column, True, True)
             )
 
@@ -173,7 +186,6 @@ class BiospecimenConfig(ColumnConfig):
         self.organism_category_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.organism_category)
         self.disease_names_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.disease_names)
         self.disease_category_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.disease_category)
-        self.phenotype_category_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.phenotype_category)
 
 class BiosampleConfig(ColumnConfig):
     id_column: str
@@ -186,11 +198,12 @@ class BiosampleConfig(ColumnConfig):
         biospecimen_id = self.get_row_value(row, biospecimen_config.id_column, True)
         biosample_type = self.get_row_value(row, self.type_column, True)
         demographics_config = DemographicsConfig(self.biosample_map)
+        full_id = f"{self.project_id}-{biosample_id}-{biospecimen_id}"
         return Biosample(
-                id=f"{self.project_id}-{biosample_id}-{biospecimen_id}",
+                id=full_id,
                 original_id=biosample_id,
                 type=biosample_type,
-                demographics=demographics_config.get_data(row)
+                demographics=demographics_config.get_data(row, full_id)
             )
 
 
@@ -206,7 +219,8 @@ class DemographicsConfig(ColumnConfig):
     race_column: str
     ethnicity_column: str
     sex_column: str
-    demographic_category_column: str
+    demographic_category_columns: List[str]
+    phenotype_category_columns: List[str]
 
     def __init__(self, biosample_map):
         super().__init__(biosample_map)
@@ -214,19 +228,23 @@ class DemographicsConfig(ColumnConfig):
         self.race_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.race)
         self.ethnicity_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.ethnicity)
         self.sex_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.sex)
-        self.demographic_category_column = get_column_name(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.demographic_category)
+        self.demographic_category_columns = get_list_of_column_names(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.demographic_category)
+        self.phenotype_category_columns = get_list_of_column_names(biosample_map, ProjectWorkbook.BiosampleMapSheet.Key.phenotype_category)
 
-    def get_data(self, row):
+    def get_data(self, row, parent_id: str = None):
         age = self.get_row_value(row, self.age_column)
         race = self.get_row_value(row, self.race_column)
         ethnicity = self.get_row_value(row, self.ethnicity_column)
         sex = self.get_row_value(row, self.sex_column)
-        category = self.get_category_value(row, self.demographic_category_column)
-        if all(v is None for v in [age, race, ethnicity, sex, category]):
+        categories = None if self.demographic_category_columns is None else [self.get_category_value(row, col) for col in self.demographic_category_columns]
+        phenotype_categories = None if self.phenotype_category_columns is None else [self.get_category_value(row, col) for col in self.phenotype_category_columns]
+
+        if all(v is None for v in [age, race, ethnicity, sex, categories, phenotype_categories]):
             return None
         return Demographics(
-            id='ignored',
-            age=age, race=race, ethnicity=ethnicity, sex=sex, category=category
+            id=f"{parent_id}::demographics" if parent_id else None,
+            age=age, race=race, ethnicity=ethnicity, sex=sex, categories=categories,
+            phenotype_categories=phenotype_categories
         )
 
     @staticmethod

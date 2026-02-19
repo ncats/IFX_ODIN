@@ -20,7 +20,15 @@ class ExcelsheetParser:
 
     def _read_all_sheets(self) -> Dict[str, pd.DataFrame]:
         xls = pd.ExcelFile(self.file_path)
-        return {sheet: xls.parse(sheet, keep_default_na=False) for sheet in xls.sheet_names}
+        sheets = {}
+        for sheet in xls.sheet_names:
+            df = xls.parse(sheet, keep_default_na=False)
+            df.columns = [c.strip() if isinstance(c, str) else c for c in df.columns]
+            df = df.apply(lambda col: col.map(
+                lambda x: x.replace('\xa0', ' ').strip() if isinstance(x, str) else x
+            ))
+            sheets[sheet] = df
+        return sheets
 
     def _get_one_value(self, sheet_df: pd.DataFrame, data_key: str) -> Any:
         matches = sheet_df[sheet_df[self.KEY_COLUMN] == data_key][self.VALUE_COLUMN]
@@ -63,6 +71,13 @@ class ExcelsheetParser:
 
         self._parameter_map_cache[sheet_name] = result
         return result
+
+    def safe_get_string(self, sheet_name: str, data_key: str) -> Optional[str]:
+        """Like get_one_string, but returns None instead of raising if the key is missing."""
+        try:
+            return self.get_one_string(sheet_name, data_key)
+        except (LookupError, KeyError):
+            return None
 
     def get_mapped_value(self, sheet_name: str, key: str) -> str:
         param_map = self.get_parameter_map(sheet_name=sheet_name)
