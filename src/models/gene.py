@@ -86,6 +86,6 @@ class MeasuredGene(Node):
     biotype: Optional[str] = None
 
 @dataclass
-class MeasuredGeneRelationship(Relationship):
+class MeasuredGeneEdge(Relationship):
     start_node: MeasuredGene
     end_node: Gene

@@ -138,14 +138,22 @@ class ArangoToMySqlConverter(ArangoAdapter):
             for edge_name, edge_schema in edge_schemas.items():
                 if parent_coll not in edge_schema.get("from_collections", []):
                     continue
-                data_implicit_edges.add(edge_name)
 
                 target_coll = edge_schema["to_collections"][0]
                 target_table = _camel_to_snake(target_coll)
 
-                if self._is_sample_target(target_coll, edge_schemas, file_ref_collections):
+                non_file_ref_count = self._non_file_ref_source_count(target_coll, edge_schemas, file_ref_collections)
+                if non_file_ref_count > 1:
+                    # Metadata entity (e.g. Person) — keep as a regular edge table
+                    continue
+
+                data_implicit_edges.add(edge_name)
+
+                if non_file_ref_count == 1:
+                    # Sample dimension (e.g. RunBiosample) — becomes column FK in data tables
                     sample_target = {"collection": target_coll, "table": target_table, "edge": edge_name}
                 else:
+                    # Pure analyte (e.g. Gene, Metabolite) — becomes row FK in data tables
                     analyte_targets.append({"collection": target_coll, "table": target_table, "edge": edge_name})
 
             for analyte in analyte_targets:
@@ -161,19 +169,22 @@ class ArangoToMySqlConverter(ArangoAdapter):
         return data_implicit_edges, data_table_configs
 
     @staticmethod
-    def _is_sample_target(target_coll: str, edge_schemas: dict, file_ref_collections: set) -> bool:
-        """A target is a sample type if some non-file-reference collection also points to it.
+    def _non_file_ref_source_count(target_coll: str, edge_schemas: dict, file_ref_collections: set) -> int:
+        """Count distinct non-file-reference collections that have edges pointing to target_coll.
 
-        e.g. Biosample → RunBiosample exists, so RunBiosample is a sample target.
-        Gene/Metabolite are only pointed to by file_reference collections, so they're analyte targets.
+        0 → pure analyte (Gene, Metabolite): only ever targeted by data collections.
+        1 → sample dimension (RunBiosample): linked from exactly one non-data collection (Biosample).
+        2+ → metadata entity (Person): referenced by multiple high-level collections (Project, Experiment).
+             These should remain as regular edge tables, not be folded into data tables.
         """
+        sources = set()
         for edge_schema in edge_schemas.values():
             if target_coll not in edge_schema.get("to_collections", []):
                 continue
             from_coll = edge_schema["from_collections"][0]
             if from_coll not in file_ref_collections:
-                return True
-        return False
+                sources.add(from_coll)
+        return len(sources)
 
     # --- Table creation ---
 
@@ -181,7 +192,7 @@ class ArangoToMySqlConverter(ArangoAdapter):
         """Create a SQLAlchemy Table for a document collection.
 
         Returns (table, child_tables, object_tables) where:
-          child_tables:  {field_name: Table}  — for list fields
+          child_tables:  {field_name: (Table, {sub_field_name: Table})}  — for list fields
           object_tables: {field_name: (Table, {sub_field_name: Table})}  — for object fields
         """
         table_name = _camel_to_snake(name)
@@ -195,8 +206,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
             if isinstance(field_schema, dict):
                 field_type = field_schema.get("type")
                 if field_type == "list":
-                    child_table = self._create_child_table(table_name, field_name, field_schema)
-                    child_tables[field_name] = child_table
+                    child_table, child_gc_tables = self._create_child_table(table_name, field_name, field_schema)
+                    child_tables[field_name] = (child_table, child_gc_tables)
                     continue
                 elif field_type == "object":
                     obj_table, grandchild_tables = self._create_object_table(table_name, field_name, field_schema)
@@ -240,8 +251,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
                 sub_type = sub_schema.get("type")
                 if sub_type == "list":
                     # Grandchild table references this table via parent_fk_col (its PK)
-                    gc_table = self._create_child_table(obj_table_name, sub_name, sub_schema,
-                                                        parent_pk_col=parent_fk_col)
+                    gc_table, _ = self._create_child_table(obj_table_name, sub_name, sub_schema,
+                                                           parent_pk_col=parent_fk_col)
                     grandchild_tables[sub_name] = gc_table
                 else:
                     # Nested object-within-object: store as JSON blob
@@ -269,16 +280,41 @@ class ArangoToMySqlConverter(ArangoAdapter):
         return None
 
     def _create_child_table(self, parent_name: str, field_name: str, field_schema: dict,
-                            parent_pk_col: str = "id") -> Table:
-        """Create a child table for a list field."""
+                            parent_pk_col: str = "id", parent_pk_type=None) -> tuple:
+        """Create a child table for a list field.
+
+        Returns (table, grandchild_tables) where grandchild_tables is
+        {sub_field_name: Table} for any nested list sub-fields (list-of-object case).
+        When grandchild tables exist, the child table gets an auto-increment 'id' PK
+        so grandchild rows can reference it.
+        """
         table_name = f"{parent_name}__{field_name}"
         fk = ForeignKey(f"{parent_name}.{parent_pk_col}")
+        pk_col_type = parent_pk_type if parent_pk_type is not None else String(255)
 
         obj_fields = self._list_item_object_fields(field_schema)
+        grandchild_tables = {}
+
         if obj_fields is not None:
-            columns = [Column("parent_id", String(255), fk, nullable=False)]
+            # Detect nested list sub-fields that need their own grandchild tables
+            nested_list_subs = {
+                k for k, v in obj_fields.items()
+                if k not in _SKIP_FIELDS and isinstance(v, dict) and v.get("type") == "list"
+            }
+
+            columns = []
+            if nested_list_subs:
+                # Auto-increment PK so grandchild rows can reference this table
+                columns.append(Column("id", Integer, primary_key=True))
+            columns.append(Column("parent_id", pk_col_type, fk, nullable=False))
+
             for sub_name, sub_schema in obj_fields.items():
                 if sub_name in _SKIP_FIELDS:
+                    continue
+                if sub_name in nested_list_subs:
+                    gc_table, _ = self._create_child_table(table_name, sub_name, sub_schema,
+                                                           parent_pk_col="id", parent_pk_type=Integer)
+                    grandchild_tables[sub_name] = gc_table
                     continue
                 col_type = _SQL_TYPE_MAP.get(sub_schema, Text) if isinstance(sub_schema, str) else Text
                 columns.append(Column(sub_name, col_type, nullable=True))
@@ -287,12 +323,12 @@ class ArangoToMySqlConverter(ArangoAdapter):
             item_type = field_schema.get("item_type")
             col_type = _SQL_TYPE_MAP.get(item_type, Text) if isinstance(item_type, str) else Text
             columns = [
-                Column("parent_id", String(255), fk, nullable=False),
+                Column("parent_id", pk_col_type, fk, nullable=False),
                 Column("value", col_type, nullable=True),
                 Index(f"ix_{table_name}_parent", "parent_id"),
             ]
 
-        return Table(table_name, self.sa_metadata, *columns)
+        return Table(table_name, self.sa_metadata, *columns), grandchild_tables
 
     def _create_edge_table(self, name: str, schema: dict) -> Table:
         """Create a SQLAlchemy Table for an edge collection."""
@@ -377,9 +413,15 @@ class ArangoToMySqlConverter(ArangoAdapter):
         scalar_fields = set(fields.keys()) - list_fields - object_fields
         total = 0
 
+        # Separate list fields: those whose child table has nested grandchild tables vs flat
+        child_fields_with_gc = {f for f in list_fields if f in child_tables and child_tables[f][1]}
+        child_fields_flat = list_fields - child_fields_with_gc
+
         for docs in self._read_collection_paginated(collection_name, batch_size):
             rows = []
-            child_rows = {field: [] for field in list_fields}
+            child_rows_flat = {field: [] for field in child_fields_flat}
+            # Each entry is (child_row_dict, {sub_name: [scalar_values]})
+            child_rows_with_gc = {field: [] for field in child_fields_with_gc}
             object_rows = {field: [] for field in object_fields}
             grandchild_rows = {
                 field: {sub: [] for sub in grandchild_tables}
@@ -399,22 +441,39 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
                 doc_id = doc.get("id")
 
-                # List fields (existing logic)
+                # List fields
                 for list_field in list_fields:
                     values = doc.get(list_field)
                     if not values or not isinstance(values, list):
                         continue
-                    obj_fields = self._list_item_object_fields(fields[list_field])
-                    if obj_fields is not None:
-                        for item in values:
-                            if isinstance(item, dict):
-                                child_rows[list_field].append({"parent_id": doc_id, **{
-                                    k: json.dumps(v) if isinstance(v, (dict, list)) else v
-                                    for k, v in item.items() if k not in _SKIP_FIELDS
-                                }})
+                    obj_fields_map = self._list_item_object_fields(fields[list_field])
+                    if obj_fields_map is not None:
+                        if list_field in child_fields_with_gc:
+                            _, child_gc_tables = child_tables[list_field]
+                            for item in values:
+                                if isinstance(item, dict):
+                                    child_row = {"parent_id": doc_id}
+                                    gc_data = {sub_name: [] for sub_name in child_gc_tables}
+                                    for k, v in item.items():
+                                        if k in _SKIP_FIELDS:
+                                            continue
+                                        if k in child_gc_tables and isinstance(v, list):
+                                            gc_data[k] = v
+                                        elif isinstance(v, (dict, list)):
+                                            child_row[k] = json.dumps(v)
+                                        else:
+                                            child_row[k] = v
+                                    child_rows_with_gc[list_field].append((child_row, gc_data))
+                        else:
+                            for item in values:
+                                if isinstance(item, dict):
+                                    child_rows_flat[list_field].append({"parent_id": doc_id, **{
+                                        k: json.dumps(v) if isinstance(v, (dict, list)) else v
+                                        for k, v in item.items() if k not in _SKIP_FIELDS
+                                    }})
                     else:
                         for item in values:
-                            child_rows[list_field].append({"parent_id": doc_id, "value": item})
+                            child_rows_flat[list_field].append({"parent_id": doc_id, "value": item})
 
                 # Object fields: extract nested dicts into linked tables
                 for obj_field in object_fields:
@@ -463,9 +522,26 @@ class ArangoToMySqlConverter(ArangoAdapter):
             with engine.connect() as conn:
                 if rows:
                     conn.execute(table.insert(), rows)
-                for field, c_rows in child_rows.items():
+
+                # Bulk insert flat child rows (no nested grandchild tables)
+                for field, c_rows in child_rows_flat.items():
                     if c_rows and field in child_tables:
-                        conn.execute(child_tables[field].insert(), c_rows)
+                        child_table, _ = child_tables[field]
+                        conn.execute(child_table.insert(), c_rows)
+
+                # Row-by-row insert for child rows that have nested grandchild tables,
+                # capturing the auto-increment PK to use as parent_id for grandchild rows
+                for field, rows_with_gc in child_rows_with_gc.items():
+                    child_table, child_gc_tables = child_tables[field]
+                    for child_row, gc_data in rows_with_gc:
+                        result = conn.execute(child_table.insert().values(**child_row))
+                        child_id = result.inserted_primary_key[0]
+                        for sub_name, gc_values in gc_data.items():
+                            if gc_values and sub_name in child_gc_tables:
+                                gc_table = child_gc_tables[sub_name]
+                                gc_rows = [{"parent_id": child_id, "value": v} for v in gc_values]
+                                conn.execute(gc_table.insert(), gc_rows)
+
                 for obj_field, o_rows in object_rows.items():
                     if o_rows:
                         obj_table, grandchild_tables = object_tables[obj_field]

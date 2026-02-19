@@ -132,6 +132,6 @@ class MeasuredProtein(Node):
 
 
 @dataclass
-class MeasuredProteinRelationship(Relationship):
+class MeasuredProteinEdge(Relationship):
     start_node: MeasuredProtein
     end_node: Protein

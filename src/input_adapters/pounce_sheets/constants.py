@@ -50,6 +50,7 @@ class ExperimentWorkbook:
             alternate_metab_id = "alternate_metab_id"
             alternate_metab_symbol = "alternate_metab_symbol"
             pathway_ids = "pathway_ids"
+            category = "category {}"
 
     class MetabMetaSheet:
         name = "MetabMeta"
@@ -97,9 +98,18 @@ class StatsResultsWorkbook:
 
         class Key:
             statsresults_name = "statsresults_name"
+            stats_description = "stats_description"
             experiment_name = "experiment_name"
             experiment_id = "experiment_id"
             lead_informatician = "lead_informatician"
+            lead_informatician_email = "lead_informatician_email"
+            pre_processing_description = "pre_processing_description"
+            peri_processing_description = "peri_processing_description"
+            effect_size = "ES"
+            effect_size_pval = "ESPval"
+            effect_size_adj_pval = "ESadjPval"
+            effect_size_2 = "ES2"
+            data_analysis_code_link = "DataAnalysisCode_Link"
 
     class StatsReadyDataSheet:
         name = "StatsReadyData"

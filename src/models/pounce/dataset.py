@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class Dataset(Node):
     data_type: Optional[str] = None
     pre_processing_description: Optional[str] = None
+    peri_processing_description: Optional[str] = None
     file_reference: Optional[str] = None
     row_count: Optional[int] = None
     column_count: Optional[int] = None

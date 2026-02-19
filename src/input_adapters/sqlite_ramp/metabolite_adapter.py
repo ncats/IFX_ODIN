@@ -22,6 +22,4 @@ class MetaboliteAdapter(AnalyteAdapter):
             ) for row in results
         ]
 
-        self.add_equivalent_ids(metabolites)
-
         yield metabolites

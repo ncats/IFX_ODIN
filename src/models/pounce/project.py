@@ -24,6 +24,11 @@ class Person(Node):
     def from_dict(cls, data: dict):
         return cls(**data)
 
+    @classmethod
+    def make(cls, name: str, email: str = None) -> 'Person':
+        person_id = email if email else name.replace(' ', '_')
+        return cls(id=person_id.lower(), name=name, email=email)
+
 
 @dataclass
 class Project(Node):

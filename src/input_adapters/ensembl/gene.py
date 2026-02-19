@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Generator, List
 import gffutils
 
-from src.constants import DataSourceName
+from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene, GeneticLocation, Strand
+from src.models.node import EquivalentId
 
 
 class GeneAdapter(InputAdapter):
@@ -70,7 +71,7 @@ class GeneAdapter(InputAdapter):
             if gene.chrom.find('.') >= 0:
                 continue
             genes.append(Gene(
-                id=gene.id,
+                id=EquivalentId(id = gene.id, type=Prefix.ENSEMBL).id_str(),
                 location=GeneticLocation(
                     chromosome=gene.chrom,
                     start=gene.start,
