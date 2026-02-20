@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ gene.symbol or gene.id }} – Gene{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/genes">Genes</a>
+<span class="sep">/</span><span>{{ gene.symbol or gene.id }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem; flex-wrap:wrap">
+    <h1 style="margin:0">{{ gene.symbol or gene.id }}</h1>
+    {% if gene.biotype %}<span class="badge badge-mysql">{{ gene.biotype }}</span>{% endif %}
+</div>
+
+<div style="display:grid; grid-template-columns:2fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
+    <div class="card">
+        <h2>Reference Information</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">ID</dt>
+            <dd class="mono" style="margin:0">{{ gene.id }}</dd>
+            {% if gene.symbol %}
+            <dt style="color:var(--text-muted)">Symbol</dt>
+            <dd style="margin:0">{{ gene.symbol }}</dd>
+            {% endif %}
+            {% if gene.biotype %}
+            <dt style="color:var(--text-muted)">Biotype</dt>
+            <dd style="margin:0">{{ gene.biotype }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+    <div class="card">
+        <h2>Coverage Summary</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">Experiments with data</dt>
+            <dd style="margin:0; font-size:1.1rem; font-weight:600; color:var(--accent)">
+                {{ experiments | map(attribute='exp_id') | list | unique | list | length }}
+            </dd>
+            <dt style="color:var(--text-muted)">Experiments with stats</dt>
+            <dd style="margin:0; font-size:1.1rem; font-weight:600; color:var(--accent)">
+                {{ stats | map(attribute='exp_id') | list | unique | list | length }}
+            </dd>
+        </dl>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Experiments with Raw Data ({{ experiments | length }} datasets)</h2>
+    {% if experiments %}
+    <table>
+        <thead>
+            <tr><th>Project</th><th>Experiment</th><th>Type</th><th>Dataset Type</th><th style="text-align:right">Analytes</th></tr>
+        </thead>
+        <tbody>
+        {% for e in experiments %}
+        <tr>
+            <td><a href="{{ root_path }}/demo/projects/{{ e.proj_id | urlencode }}">{{ e.proj_name }}</a></td>
+            <td><a href="{{ root_path }}/demo/experiments/{{ e.exp_id | urlencode }}">{{ e.exp_name }}</a></td>
+            <td><span class="badge">{{ e.experiment_type or "—" }}</span></td>
+            <td><span class="badge">{{ e.data_type or "—" }}</span></td>
+            <td class="mono" style="text-align:right">{{ e.row_count or "—" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">This gene has not been measured in any experiment.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Statistical Results ({{ stats | length }})</h2>
+    {% if stats %}
+    <table>
+        <thead>
+            <tr><th>Project</th><th>Experiment</th><th>Stats Result</th></tr>
+        </thead>
+        <tbody>
+        {% for s in stats %}
+        <tr>
+            <td>{{ s.proj_name }}</td>
+            <td><a href="{{ root_path }}/demo/experiments/{{ s.exp_id | urlencode }}">{{ s.exp_name }}</a></td>
+            <td><a href="{{ root_path }}/mysql/{{ db_name }}/table/stats_result/row/{{ s.sr_id | urlencode }}">{{ s.sr_name or s.sr_id }}</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">No statistical results for this gene.</p>
+    {% endif %}
+</div>
+{% endblock %}

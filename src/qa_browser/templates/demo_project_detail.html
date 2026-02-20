@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} – Projects{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/projects">Projects</a>
+<span class="sep">/</span><span>{{ project.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem; flex-wrap:wrap">
+    <h1 style="margin:0">{{ project.name }}</h1>
+    <span class="badge badge-mysql">{{ project.access or "private" }}</span>
+    {% if project.rare_disease_focus %}<span class="badge">rare disease</span>{% endif %}
+    {% for t in project_types %}<span class="badge">{{ t }}</span>{% endfor %}
+</div>
+
+<div style="display:grid; grid-template-columns:2fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
+    {# Left: description + people #}
+    <div>
+        <div class="card">
+            <h2>About</h2>
+            <p style="margin:0 0 0.75rem; line-height:1.6">{{ project.description or "No description." }}</p>
+            {% if project.sample_preparation %}
+            <p style="margin:0; color:var(--text-muted); font-size:0.875rem; line-height:1.5">
+                <strong>Sample preparation:</strong> {{ project.sample_preparation }}
+            </p>
+            {% endif %}
+        </div>
+        {% if people %}
+        <div class="card" style="margin-top:1.25rem">
+            <h2>People</h2>
+            <table>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+                <tbody>
+                {% for p in people %}
+                <tr>
+                    <td>{{ p.name or "" }}</td>
+                    <td class="mono" style="font-size:0.85rem">{{ p.email or "" }}</td>
+                    <td><span class="badge">{{ p.role or "" }}</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Right: metadata #}
+    <div class="card">
+        <h2>Details</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">ID</dt>
+            <dd class="mono" style="margin:0">{{ project.id }}</dd>
+            <dt style="color:var(--text-muted)">Date</dt>
+            <dd style="margin:0">{{ project.date or "—" }}</dd>
+            <dt style="color:var(--text-muted)">Experiments</dt>
+            <dd style="margin:0">{{ experiments | length }}</dd>
+            <dt style="color:var(--text-muted)">Biosamples</dt>
+            <dd style="margin:0">
+                <a href="{{ root_path }}/mysql/{{ db_name }}/table/project_to_biosample">{{ biosample_count }}</a>
+            </dd>
+        </dl>
+        {% if lab_groups %}
+        <div style="margin-top:0.75rem">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.35rem">Lab Groups</div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.35rem">
+                {% for lg in lab_groups %}<span class="badge">{{ lg }}</span>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% if keywords %}
+        <div style="margin-top:0.75rem">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.35rem">Keywords</div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.35rem">
+                {% for kw in keywords %}<span class="badge">{{ kw }}</span>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{# Experiments #}
+<div class="card">
+    <h2>Experiments ({{ experiments | length }})</h2>
+    {% if experiments %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Platform</th>
+                <th>Date</th>
+                <th style="text-align:right">Datasets</th>
+                <th style="text-align:right">Stats</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for e in experiments %}
+        <tr>
+            <td><a href="{{ root_path }}/demo/experiments/{{ e.id | urlencode }}">{{ e.name or e.id }}</a></td>
+            <td><span class="badge">{{ e.experiment_type or "—" }}</span></td>
+            <td style="color:var(--text-muted); font-size:0.875rem">{{ e.platform_type or "—" }}</td>
+            <td class="mono" style="white-space:nowrap">{{ e.date or "—" }}</td>
+            <td class="mono" style="text-align:right">{{ e.dataset_count }}</td>
+            <td class="mono" style="text-align:right">
+                {% if e.stats_count > 0 %}<span style="color:var(--accent)">{{ e.stats_count }}</span>
+                {% else %}0{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">No experiments found.</p>
+    {% endif %}
+</div>
+{% endblock %}

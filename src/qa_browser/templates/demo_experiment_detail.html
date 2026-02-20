@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ experiment.name or experiment.id }} – Experiment{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/projects">Projects</a>
+{% if project %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/projects/{{ project.id | urlencode }}">{{ project.name }}</a>
+{% endif %}
+<span class="sep">/</span><span>{{ experiment.name or experiment.id }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem; flex-wrap:wrap">
+    <h1 style="margin:0">{{ experiment.name or experiment.id }}</h1>
+    {% if experiment.experiment_type %}<span class="badge badge-mysql">{{ experiment.experiment_type }}</span>{% endif %}
+    {% if experiment.platform_type %}<span class="badge">{{ experiment.platform_type }}</span>{% endif %}
+</div>
+
+<div style="display:grid; grid-template-columns:2fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
+    <div>
+        <div class="card">
+            <h2>Description</h2>
+            <p style="margin:0 0 0.75rem; line-height:1.6">{{ experiment.description or "No description." }}</p>
+            {% if experiment.design %}
+            <p style="margin:0; color:var(--text-muted); font-size:0.875rem"><strong>Design:</strong> {{ experiment.design }}</p>
+            {% endif %}
+        </div>
+        {% if people %}
+        <div class="card" style="margin-top:1.25rem">
+            <h2>People</h2>
+            <table>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+                <tbody>
+                {% for p in people %}
+                <tr>
+                    <td>{{ p.name or "" }}</td>
+                    <td class="mono" style="font-size:0.85rem">{{ p.email or "" }}</td>
+                    <td><span class="badge">{{ p.role or "" }}</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Details</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">ID</dt>
+            <dd class="mono" style="margin:0; font-size:0.8rem; word-break:break-all">{{ experiment.id }}</dd>
+            <dt style="color:var(--text-muted)">Date</dt>
+            <dd style="margin:0">{{ experiment.date or "—" }}</dd>
+            {% if experiment.platform_name %}
+            <dt style="color:var(--text-muted)">Platform</dt>
+            <dd style="margin:0">{{ experiment.platform_name }}</dd>
+            {% endif %}
+            {% if experiment.platform_provider %}
+            <dt style="color:var(--text-muted)">Provider</dt>
+            <dd style="margin:0">{{ experiment.platform_provider }}</dd>
+            {% endif %}
+            {% if experiment.public_repo_id %}
+            <dt style="color:var(--text-muted)">Repo ID</dt>
+            <dd style="margin:0">
+                {% if experiment.repo_url %}
+                <a href="{{ experiment.repo_url }}" target="_blank">{{ experiment.public_repo_id }}</a>
+                {% else %}{{ experiment.public_repo_id }}{% endif %}
+            </dd>
+            {% endif %}
+            {% if experiment.extraction_protocol %}
+            <dt style="color:var(--text-muted)">Extraction</dt>
+            <dd style="margin:0">{{ experiment.extraction_protocol }}</dd>
+            {% endif %}
+            {% if experiment.acquisition_method %}
+            <dt style="color:var(--text-muted)">Acquisition</dt>
+            <dd style="margin:0">{{ experiment.acquisition_method }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+{# Datasets #}
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Datasets ({{ datasets | length }})</h2>
+    {% if datasets %}
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Type</th><th style="text-align:right">Analytes</th><th style="text-align:right">Samples</th><th>Data</th></tr>
+        </thead>
+        <tbody>
+        {% for d in datasets %}
+        <tr>
+            <td class="mono" style="font-size:0.8rem">
+                <a href="{{ root_path }}/mysql/{{ db_name }}/table/dataset/row/{{ d.id | urlencode }}">{{ d.id }}</a>
+            </td>
+            <td><span class="badge">{{ d.data_type or "—" }}</span></td>
+            <td class="mono" style="text-align:right">{{ d.row_count or "—" }}</td>
+            <td class="mono" style="text-align:right">{{ d.column_count or "—" }}</td>
+            <td>
+                {% if d.file_reference %}
+                <a href="{{ root_path }}/mysql/{{ db_name }}/table/dataset/row/{{ d.id | urlencode }}"
+                   style="font-size:0.8rem">view parquet stats</a>
+                {% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}<p style="color:var(--text-muted)">No datasets.</p>{% endif %}
+</div>
+
+{# Stats Results #}
+<div class="card">
+    <h2>Statistical Results ({{ stats_results | length }})</h2>
+    {% if stats_results %}
+    <table>
+        <thead>
+            <tr><th>Name</th><th>Type</th><th style="text-align:right">Analytes</th><th style="text-align:right">Comparisons</th></tr>
+        </thead>
+        <tbody>
+        {% for sr in stats_results %}
+        <tr>
+            <td>
+                <a href="{{ root_path }}/mysql/{{ db_name }}/table/stats_result/row/{{ sr.id | urlencode }}">
+                    {{ sr.name or sr.id }}
+                </a>
+            </td>
+            <td><span class="badge">{{ sr.data_type or "—" }}</span></td>
+            <td class="mono" style="text-align:right">{{ sr.row_count or "—" }}</td>
+            <td class="mono" style="text-align:right">{{ sr.column_count or "—" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}<p style="color:var(--text-muted)">No statistical results.</p>{% endif %}
+</div>
+{% endblock %}

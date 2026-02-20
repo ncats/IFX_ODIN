@@ -871,6 +871,13 @@ def _truncate(value, max_len=80):
 templates.env.filters["truncate_val"] = _truncate
 
 
+# ── Demo routes ──────────────────────────────────────────────────────────────
+
+import src.qa_browser.demo_routes as _demo_module  # noqa: E402
+app.include_router(_demo_module.router)
+_demo_module.set_templates(templates)
+
+
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
 def main():
@@ -908,6 +915,7 @@ def main():
             print(f"Loaded MySQL credentials from {mysql_path}")
         else:
             print(f"Warning: MySQL credentials file {mysql_path} not found")
+    _demo_module.set_mysql_credentials(_mysql_credentials)
 
     if args.minio_credentials:
         minio_path = Path(args.minio_credentials)

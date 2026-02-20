@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}{{ pathway.name or pathway.id }} – Pathway{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/pathways">Pathways</a>
+<span class="sep">/</span><span>{{ pathway.name or pathway.id }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem; flex-wrap:wrap">
+    <h1 style="margin:0">{{ pathway.name or pathway.id }}</h1>
+    {% if pathway.type %}<span class="badge badge-mysql">{{ pathway.type }}</span>{% endif %}
+    {% if pathway.category %}<span class="badge">{{ pathway.category }}</span>{% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1.25rem">
+    <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+        <dt style="color:var(--text-muted)">ID</dt>
+        <dd class="mono" style="margin:0">{{ pathway.id }}</dd>
+        {% if pathway.source_id %}
+        <dt style="color:var(--text-muted)">Source ID</dt>
+        <dd class="mono" style="margin:0">{{ pathway.source_id }}</dd>
+        {% endif %}
+        <dt style="color:var(--text-muted)">Metabolites in pathway</dt>
+        <dd style="margin:0; font-weight:600">{{ coverage | length }}</dd>
+        <dt style="color:var(--text-muted)">Metabolites with experiment data</dt>
+        <dd style="margin:0; font-weight:600; color:var(--accent)">
+            {{ coverage | selectattr('experiment_count', 'gt', 0) | list | length }}
+            of {{ coverage | length }}
+        </dd>
+        <dt style="color:var(--text-muted)">Metabolites with stats</dt>
+        <dd style="margin:0; font-weight:600; color:var(--accent)">
+            {{ coverage | selectattr('stats_count', 'gt', 0) | list | length }}
+            of {{ coverage | length }}
+        </dd>
+        {% if gene_coverage %}
+        <dt style="color:var(--text-muted)">Genes in pathway</dt>
+        <dd style="margin:0; font-weight:600">{{ gene_coverage | length }}</dd>
+        <dt style="color:var(--text-muted)">Genes with experiment data</dt>
+        <dd style="margin:0; font-weight:600; color:var(--accent)">
+            {{ gene_coverage | selectattr('experiment_count', 'gt', 0) | list | length }}
+            of {{ gene_coverage | length }}
+        </dd>
+        <dt style="color:var(--text-muted)">Genes with stats</dt>
+        <dd style="margin:0; font-weight:600; color:var(--accent)">
+            {{ gene_coverage | selectattr('stats_count', 'gt', 0) | list | length }}
+            of {{ gene_coverage | length }}
+        </dd>
+        {% endif %}
+    </dl>
+</div>
+
+{% set measured = coverage | selectattr('experiment_count', 'gt', 0) | list %}
+{% set unmeasured = coverage | selectattr('experiment_count', 'equalto', 0) | list %}
+
+{% macro metabolite_table(rows) %}
+<table>
+    <thead>
+        <tr>
+            <th>Metabolite</th>
+            <th style="text-align:right">Experiments (raw)</th>
+            <th style="text-align:right">Experiments (stats)</th>
+            <th>Measured in</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for met in rows %}
+    <tr>
+        <td>
+            <a href="{{ root_path }}/demo/metabolites/{{ met.id | urlencode }}">{{ met.name or met.id }}</a>
+            <div class="mono" style="font-size:0.75rem; color:var(--text-muted)">{{ met.id }}</div>
+        </td>
+        <td class="mono" style="text-align:right">
+            {% if met.experiment_count > 0 %}
+            <span style="color:var(--accent); font-weight:600">{{ met.experiment_count }}</span>
+            {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+        </td>
+        <td class="mono" style="text-align:right">
+            {% if met.stats_count > 0 %}
+            <span style="color:var(--accent); font-weight:600">{{ met.stats_count }}</span>
+            {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+        </td>
+        <td style="font-size:0.8rem; color:var(--text-muted); max-width:300px">
+            {{ met.experiment_names or "—" }}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Metabolite Coverage</h2>
+    {% if coverage %}
+
+    {% if measured %}
+    {{ metabolite_table(measured) }}
+    {% else %}
+    <p style="color:var(--text-muted)">No metabolites in this pathway have been measured yet.</p>
+    {% endif %}
+
+    {% if unmeasured %}
+    <details style="margin-top:1rem">
+        <summary style="cursor:pointer; font-size:0.875rem; color:var(--text-muted);
+                        padding:0.4rem 0; user-select:none; list-style:none; display:flex; align-items:center; gap:0.4rem">
+            <span style="font-size:0.7rem">▶</span>
+            <span>{{ unmeasured | length }} unmeasured metabolite{{ 's' if unmeasured | length != 1 }} (not yet in any experiment)</span>
+        </summary>
+        <div style="margin-top:0.75rem">
+            {{ metabolite_table(unmeasured) }}
+        </div>
+    </details>
+    <style>details[open] > summary span:first-child { content: '▼'; transform: rotate(90deg); display:inline-block }</style>
+    {% endif %}
+
+    {% else %}
+    <p style="color:var(--text-muted)">No metabolites linked to this pathway.</p>
+    {% endif %}
+</div>
+
+{% macro experiment_data_card(title, experiments, preview_url_prefix, stats_url_prefix, id_prefix, empty_msg) %}
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>{{ title }}</h2>
+    {% if experiments %}
+    {% for exp in experiments %}
+    {% set ei = loop.index %}
+    <div style="margin-bottom:1.5rem">
+        <h3 style="margin:0 0 0.5rem">{{ exp.exp_name }}
+            <span class="badge">{{ exp.proj_name }}</span>
+            {% if exp.experiment_type %}<span class="badge badge-mysql">{{ exp.experiment_type }}</span>{% endif %}
+        </h3>
+        {% if exp.datasets %}
+        <div style="margin-bottom:1rem">
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em">Datasets</div>
+            {% for ds in exp.datasets %}
+            {% set di = loop.index %}
+            <div style="padding:0.75rem; margin-bottom:0.75rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg)">
+                <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.5rem">
+                    <span class="badge">{{ ds.data_type }}</span>
+                    <span style="font-size:0.8rem; color:var(--text-muted)">{{ ds.row_count }} total rows in dataset</span>
+                    <button hx-get="{{ root_path }}/demo/{{ preview_url_prefix }}?dataset_id={{ ds.dataset_id | urlencode }}&amp;pathway_id={{ pathway.id | urlencode }}"
+                            hx-target="#{{ id_prefix }}-ds-{{ ei }}-{{ di }}"
+                            hx-swap="innerHTML"
+                            hx-indicator="#{{ id_prefix }}-ds-{{ ei }}-{{ di }}"
+                            style="margin-left:auto">
+                        Preview data
+                    </button>
+                </div>
+                <div id="{{ id_prefix }}-ds-{{ ei }}-{{ di }}" style="overflow-x:auto"></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if exp.stats_results %}
+        <div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em">Statistical Results</div>
+            {% for sr in exp.stats_results %}
+            {% set si = loop.index %}
+            <div style="padding:0.75rem; margin-bottom:0.75rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg)">
+                <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.5rem">
+                    <span class="badge badge-mysql">{{ sr.sr_name }}</span>
+                    <button hx-get="{{ root_path }}/demo/{{ stats_url_prefix }}?stats_result_id={{ sr.sr_id | urlencode }}&amp;pathway_id={{ pathway.id | urlencode }}"
+                            hx-target="#{{ id_prefix }}-sr-{{ ei }}-{{ si }}"
+                            hx-swap="innerHTML"
+                            style="margin-left:auto">
+                        Preview stats
+                    </button>
+                </div>
+                <div id="{{ id_prefix }}-sr-{{ ei }}-{{ si }}" style="overflow-x:auto"></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="color:var(--text-muted)">{{ empty_msg }}</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{{ experiment_data_card("Metabolite Experiment Data", experiments, "dataset-preview", "stats-preview", "met", "No experiment data linked to metabolites in this pathway.") }}
+
+{% if gene_coverage %}
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Gene Coverage</h2>
+
+    {% set gene_measured = gene_coverage | selectattr('experiment_count', 'gt', 0) | list %}
+    {% set gene_unmeasured = gene_coverage | selectattr('experiment_count', 'equalto', 0) | list %}
+
+    {% macro gene_table(rows) %}
+    <table>
+        <thead>
+            <tr>
+                <th>Gene</th>
+                <th style="text-align:right">Experiments (raw)</th>
+                <th style="text-align:right">Experiments (stats)</th>
+                <th>Measured in</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for g in rows %}
+        <tr>
+            <td>
+                <a href="{{ root_path }}/demo/genes/{{ g.id | urlencode }}">{{ g.name or g.id }}</a>
+                <div class="mono" style="font-size:0.75rem; color:var(--text-muted)">{{ g.id }}</div>
+            </td>
+            <td class="mono" style="text-align:right">
+                {% if g.experiment_count > 0 %}
+                <span style="color:var(--accent); font-weight:600">{{ g.experiment_count }}</span>
+                {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+            </td>
+            <td class="mono" style="text-align:right">
+                {% if g.stats_count > 0 %}
+                <span style="color:var(--accent); font-weight:600">{{ g.stats_count }}</span>
+                {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+            </td>
+            <td style="font-size:0.8rem; color:var(--text-muted); max-width:300px">
+                {{ g.experiment_names or "—" }}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endmacro %}
+
+    {% if gene_measured %}
+    {{ gene_table(gene_measured) }}
+    {% else %}
+    <p style="color:var(--text-muted)">No genes in this pathway have been measured yet.</p>
+    {% endif %}
+
+    {% if gene_unmeasured %}
+    <details style="margin-top:1rem">
+        <summary style="cursor:pointer; font-size:0.875rem; color:var(--text-muted);
+                        padding:0.4rem 0; user-select:none; list-style:none; display:flex; align-items:center; gap:0.4rem">
+            <span style="font-size:0.7rem">▶</span>
+            <span>{{ gene_unmeasured | length }} unmeasured gene{{ 's' if gene_unmeasured | length != 1 }} (not yet in any experiment)</span>
+        </summary>
+        <div style="margin-top:0.75rem">
+            {{ gene_table(gene_unmeasured) }}
+        </div>
+    </details>
+    {% endif %}
+</div>
+
+{{ experiment_data_card("Gene Experiment Data", gene_experiments, "gene-dataset-preview", "gene-stats-preview", "gene", "No experiment data linked to genes in this pathway.") }}
+{% endif %}
+
+{% endblock %}

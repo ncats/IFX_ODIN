@@ -1,0 +1,43 @@
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Date</th>
+            <th>Access</th>
+            <th style="text-align:right">Experiments</th>
+            <th style="text-align:right">Biosamples</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for proj in projects %}
+        <tr>
+            <td>
+                <a href="{{ root_path }}/demo/projects/{{ proj.id | urlencode }}">{{ proj.name }}</a>
+                {% if proj.rare_disease_focus %}<span class="badge" style="margin-left:0.4rem; font-size:0.7rem">rare disease</span>{% endif %}
+                <div style="color:var(--text-muted); font-size:0.8rem; margin-top:0.15rem">{{ proj.description | truncate_val }}</div>
+            </td>
+            <td class="mono" style="white-space:nowrap">{{ proj.date or "" }}</td>
+            <td><span class="badge">{{ proj.access or "" }}</span></td>
+            <td class="mono" style="text-align:right">{{ proj.experiment_count }}</td>
+            <td class="mono" style="text-align:right">{{ proj.biosample_count }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="color:var(--text-muted); text-align:center">No projects found.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ root_path }}/demo/projects?page={{ page - 1 }}&search={{ search | urlencode }}"
+       hx-get="{{ root_path }}/demo/projects?page={{ page - 1 }}&search={{ search | urlencode }}"
+       hx-target="#proj-results" hx-swap="innerHTML" hx-push-url="true">Prev</a>
+    {% else %}<span class="disabled">Prev</span>{% endif %}
+    <span>Page</span><span class="current">{{ page }}</span><span>of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="{{ root_path }}/demo/projects?page={{ page + 1 }}&search={{ search | urlencode }}"
+       hx-get="{{ root_path }}/demo/projects?page={{ page + 1 }}&search={{ search | urlencode }}"
+       hx-target="#proj-results" hx-swap="innerHTML" hx-push-url="true">Next</a>
+    {% else %}<span class="disabled">Next</span>{% endif %}
+    <span style="margin-left:auto; color:var(--text-muted)">{{ total }} total</span>
+</div>

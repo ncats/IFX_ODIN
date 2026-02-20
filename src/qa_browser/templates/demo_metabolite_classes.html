@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Metabolite Class Browser – {{ db_name }}{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span><span>Metabolite Classes</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1.25rem">
+    <h1 style="margin:0">Metabolite Class Browser</h1>
+    <span class="badge badge-mysql">{{ db_name }}</span>
+    <span style="color:var(--text-muted)">{{ "{:,}".format(total) }} classes</span>
+</div>
+
+<div style="display:flex; gap:1.25rem; align-items:flex-start">
+
+    {% if levels | length > 1 %}
+    <div class="card" style="min-width:160px; max-width:200px; flex-shrink:0; padding:0.75rem 0">
+        <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700;
+                    letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted);
+                    border-bottom:1px solid var(--border); margin-bottom:0.25rem">
+            Level
+        </div>
+        <ul style="list-style:none; margin:0; padding:0">
+            {% for l in levels %}
+            <li>
+                <a href="{{ root_path }}/demo/metabolite-classes?level={{ l.level | urlencode }}&search={{ search | urlencode }}"
+                   style="display:flex; justify-content:space-between; align-items:center;
+                          padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none;
+                          color:{% if level == l.level %}var(--accent){% else %}var(--text){% endif %};
+                          background:{% if level == l.level %}var(--accent-light){% else %}transparent{% endif %};
+                          font-weight:{% if level == l.level %}600{% else %}400{% endif %}">
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0">{{ l.level }}</span>
+                    <span style="color:var(--text-muted); font-size:0.8rem; flex-shrink:0; padding-left:0.4rem">{{ "{:,}".format(l.count) }}</span>
+                </a>
+            </li>
+            {% endfor %}
+            {% if level %}
+            <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
+                <a href="{{ root_path }}/demo/metabolite-classes?search={{ search | urlencode }}"
+                   style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">✕ clear filter</a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <div style="flex:1; min-width:0">
+        <form method="get" action="{{ root_path }}/demo/metabolite-classes"
+              hx-get="{{ root_path }}/demo/metabolite-classes" hx-target="#mc-results"
+              hx-swap="innerHTML" hx-push-url="true"
+              style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center">
+            <input type="hidden" name="level" value="{{ level }}">
+            <input type="text" name="search" value="{{ search }}" placeholder="Search by class name…"
+                   style="padding:0.4rem 0.75rem; border:1px solid var(--border); border-radius:4px;
+                          background:var(--bg-card); color:var(--text); width:300px; font-size:0.9rem">
+            <button type="submit" style="padding:0.4rem 1rem; background:var(--accent); color:#fff;
+                    border:none; border-radius:4px; cursor:pointer; font-size:0.9rem">Search</button>
+            {% if search %}
+            <a href="{{ root_path }}/demo/metabolite-classes?level={{ level | urlencode }}"
+               style="color:var(--text-muted); font-size:0.9rem; text-decoration:none">✕ clear</a>
+            {% endif %}
+        </form>
+
+        <div class="card" style="overflow-x:auto">
+            <div id="mc-results">{% include "demo_metabolite_classes_rows.html" %}</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

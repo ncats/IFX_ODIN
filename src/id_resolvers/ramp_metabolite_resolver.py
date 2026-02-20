@@ -12,7 +12,7 @@ class RampMetaboliteIdResolver(IdResolver, SqliteAdapter):
 
     @staticmethod
     def _normalize_id(input_id: str) -> str:
-        if ':' in input_id:
+        if isinstance(input_id, str) and ':' in input_id:
             prefix, id_part = input_id.split(':', 1)
             return f"{prefix.lower()}:{id_part}"
         return input_id

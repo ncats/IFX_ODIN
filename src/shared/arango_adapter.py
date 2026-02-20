@@ -38,6 +38,7 @@ class ArangoAdapter:
 
     @staticmethod
     def safe_key(key: str) -> str:
+        key = str(key)
         key = key.strip()
 
         # Apply manual replacements

@@ -1,0 +1,51 @@
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Category</th>
+            <th style="text-align:right">Metabolites</th>
+            <th style="text-align:right">Genes</th>
+            <th style="text-align:right">Met. w/ data</th>
+            <th style="text-align:right">Genes w/ data</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for pw in pathways %}
+        <tr>
+            <td><a href="{{ root_path }}/demo/pathways/{{ pw.id | urlencode }}">{{ pw.name or pw.id }}</a></td>
+            <td style="color:var(--text-muted)">{{ pw.type or "—" }}</td>
+            <td style="color:var(--text-muted)">{{ pw.category or "—" }}</td>
+            <td class="mono" style="text-align:right">{{ pw.metabolite_count }}</td>
+            <td class="mono" style="text-align:right">{{ pw.gene_count }}</td>
+            <td class="mono" style="text-align:right">
+                {% if pw.metabolites_with_data %}
+                <span style="color:var(--accent); font-weight:600">{{ pw.metabolites_with_data }}</span>
+                {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+            </td>
+            <td class="mono" style="text-align:right">
+                {% if pw.genes_with_data %}
+                <span style="color:var(--accent); font-weight:600">{{ pw.genes_with_data }}</span>
+                {% else %}<span style="color:var(--text-muted)">0</span>{% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="color:var(--text-muted); text-align:center">No pathways found.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ root_path }}/demo/pathways?page={{ page - 1 }}&page_size={{ page_size }}&search={{ search | urlencode }}&pw_type={{ pw_type | urlencode }}"
+       hx-get="{{ root_path }}/demo/pathways?page={{ page - 1 }}&page_size={{ page_size }}&search={{ search | urlencode }}&pw_type={{ pw_type | urlencode }}"
+       hx-target="#pw-results" hx-swap="innerHTML" hx-push-url="true">Prev</a>
+    {% else %}<span class="disabled">Prev</span>{% endif %}
+    <span>Page</span><span class="current">{{ page }}</span><span>of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="{{ root_path }}/demo/pathways?page={{ page + 1 }}&page_size={{ page_size }}&search={{ search | urlencode }}&pw_type={{ pw_type | urlencode }}"
+       hx-get="{{ root_path }}/demo/pathways?page={{ page + 1 }}&page_size={{ page_size }}&search={{ search | urlencode }}&pw_type={{ pw_type | urlencode }}"
+       hx-target="#pw-results" hx-swap="innerHTML" hx-push-url="true">Next</a>
+    {% else %}<span class="disabled">Next</span>{% endif %}
+    <span style="margin-left:auto; color:var(--text-muted)">{{ total }} total</span>
+</div>

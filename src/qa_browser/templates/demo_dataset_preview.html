@@ -1,0 +1,127 @@
+{% if rows %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem; gap:1rem">
+    <span style="font-size:0.75rem; color:var(--text-muted)">
+        Showing <strong>{{ pathway_analyte_count }}</strong> pathway {{ analyte_label | lower }}{{ 's' if pathway_analyte_count != 1 }}
+        &nbsp;·&nbsp; {{ total_row_count }} total rows in dataset
+    </span>
+    <button onclick="this.parentElement.parentElement.innerHTML=''; return false;"
+            style="flex-shrink:0; padding:0.15rem 0.5rem; font-size:0.75rem; cursor:pointer; border:1px solid var(--border); border-radius:3px; background:var(--bg-alt); color:var(--text-muted)">
+        ✕ Close
+    </button>
+</div>
+<div style="overflow-x:auto">
+<table style="font-size:0.8rem; border-collapse:collapse; min-width:100%">
+    <thead>
+        <!-- Top row: condition groups -->
+        <tr>
+            <th rowspan="2" style="position:sticky; left:0; z-index:2; text-align:left; padding:0.3rem 0.75rem;
+                       border-bottom:2px solid var(--border); white-space:nowrap;
+                       background:var(--bg-alt); box-shadow:2px 0 4px rgba(0,0,0,0.08)">{{ analyte_label }}</th>
+            {% for g in condition_groups %}
+            <th colspan="{{ g.cols|length }}"
+                style="text-align:center; padding:0.3rem 0.75rem; border-bottom:1px solid var(--border); white-space:nowrap;
+                       {% if not loop.first %}border-left:2px solid var(--border);{% endif %}">
+                {{ g.label }}
+            </th>
+            {% endfor %}
+        </tr>
+        <!-- Bottom row: replicate labels -->
+        <tr>
+            {% for g in condition_groups %}
+            {% for col in g.cols %}
+            <th style="text-align:right; padding:0.3rem 0.75rem; border-bottom:2px solid var(--border);
+                       white-space:nowrap; font-family:monospace; font-size:0.72rem;
+                       {% if loop.first %}border-left:2px solid var(--border);{% endif %}"
+                title="{{ col.rb_id }}">{{ col.label }}</th>
+            {% endfor %}
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+    {% for met_id, met_name, vals in rows %}
+    <tr>
+        <td style="position:sticky; left:0; z-index:1; padding:0.3rem 0.75rem; border-bottom:1px solid var(--border);
+                   white-space:nowrap; background:var(--bg-alt); box-shadow:2px 0 4px rgba(0,0,0,0.08)">
+            <a href="{{ request.scope.get('root_path', '') }}{{ analyte_url_prefix }}{{ met_id | urlencode }}" style="font-size:0.8rem">{{ met_name }}</a>
+            <div class="mono" style="font-size:0.7rem; color:var(--text-muted)">{{ met_id }}</div>
+        </td>
+        {% for g in condition_groups %}
+        {% for col in g.cols %}
+        <td class="mono" style="text-align:right; padding:0.3rem 0.75rem; border-bottom:1px solid var(--border); white-space:nowrap; font-size:0.75rem;
+                   {% if loop.first %}border-left:2px solid var(--border);{% endif %}">
+            {% if vals.get(col.rb_id) is not none %}{{ vals[col.rb_id] }}{% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+        </td>
+        {% endfor %}
+        {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% if meta_panel_rows %}
+<details style="margin-top:0.75rem">
+    <summary style="cursor:pointer; font-size:0.78rem; color:var(--text-muted); user-select:none; padding:0.2rem 0">
+        Sample details
+    </summary>
+    <div style="overflow-x:auto; margin-top:0.5rem">
+        <table style="font-size:0.75rem; border-collapse:collapse; min-width:100%">
+            <thead>
+                <tr>
+                    <th style="position:sticky; left:0; z-index:2; background:var(--bg-alt);
+                               box-shadow:2px 0 4px rgba(0,0,0,0.08); padding:0.25rem 0.6rem;
+                               border-bottom:2px solid var(--border); white-space:nowrap; text-align:left"></th>
+                    {% for g in condition_groups %}
+                    <th colspan="{{ g.cols|length }}"
+                        style="text-align:center; padding:0.25rem 0.6rem; border-bottom:1px solid var(--border); white-space:nowrap;
+                               {% if not loop.first %}border-left:2px solid var(--border);{% endif %}">
+                        {{ g.label }}
+                    </th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <th style="position:sticky; left:0; z-index:2; background:var(--bg-alt);
+                               box-shadow:2px 0 4px rgba(0,0,0,0.08); padding:0.25rem 0.6rem;
+                               border-bottom:2px solid var(--border); white-space:nowrap; text-align:left">Field</th>
+                    {% for g in condition_groups %}
+                    {% for col in g.cols %}
+                    <th style="text-align:right; padding:0.25rem 0.6rem; border-bottom:2px solid var(--border);
+                               white-space:nowrap; font-family:monospace; font-size:0.7rem;
+                               {% if loop.first %}border-left:2px solid var(--border);{% endif %}"
+                        title="{{ col.rb_id }}">{{ col.label }}</th>
+                    {% endfor %}
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+            {% for panel_row in meta_panel_rows %}
+            <tr>
+                <td style="position:sticky; left:0; z-index:1; background:var(--bg-alt);
+                           box-shadow:2px 0 4px rgba(0,0,0,0.08); padding:0.25rem 0.6rem;
+                           border-bottom:1px solid var(--border); white-space:nowrap;
+                           font-weight:500; color:var(--text-muted)">{{ panel_row.label }}</td>
+                {% for g in condition_groups %}
+                {% for col in g.cols %}
+                <td style="text-align:right; padding:0.25rem 0.6rem; border-bottom:1px solid var(--border); white-space:nowrap;
+                           {% if loop.first %}border-left:2px solid var(--border);{% endif %}">
+                    {{ panel_row.vals.get(col.rb_id) or "—" }}
+                </td>
+                {% endfor %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</details>
+{% endif %}
+
+{% else %}
+<div style="display:flex; justify-content:space-between; align-items:center">
+    <p style="color:var(--text-muted); font-size:0.875rem; margin:0">No data found for pathway {{ analyte_label | lower }}s in this dataset.</p>
+    <button onclick="this.parentElement.parentElement.innerHTML=''; return false;"
+            style="flex-shrink:0; padding:0.15rem 0.5rem; font-size:0.75rem; cursor:pointer; border:1px solid var(--border); border-radius:3px; background:var(--bg-alt); color:var(--text-muted)">
+        ✕ Close
+    </button>
+</div>
+{% endif %}

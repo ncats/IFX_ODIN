@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Measured Metabolite Browser – {{ db_name }}{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/mysql/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>Measured Metabolite Browser</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1.25rem">
+    <h1 style="margin:0">Measured Metabolite Browser</h1>
+    <span class="badge badge-mysql">{{ db_name }}</span>
+    <span style="color:var(--text-muted)">{{ "{:,}".format(total) }} measured metabolites</span>
+</div>
+
+<div style="display:flex; gap:1.25rem; align-items:flex-start">
+
+    {# ── Left: Identification Level facet panel ── #}
+    {% if id_levels | length > 1 %}
+    <div class="card" style="min-width:180px; max-width:210px; flex-shrink:0; padding:0.75rem 0;">
+        <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700;
+                    letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted);
+                    border-bottom:1px solid var(--border); margin-bottom:0.25rem">
+            ID Level
+        </div>
+        <ul style="list-style:none; margin:0; padding:0">
+            {% for lvl in id_levels %}
+            <li>
+                <a href="{{ root_path }}/demo/measured-metabolites?id_level={{ lvl.level | urlencode }}&search={{ search | urlencode }}"
+                   style="display:flex; justify-content:space-between; align-items:center;
+                          padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none;
+                          color:{% if id_level == lvl.level %}var(--accent){% else %}var(--text){% endif %};
+                          background:{% if id_level == lvl.level %}var(--accent-light){% else %}transparent{% endif %};
+                          font-weight:{% if id_level == lvl.level %}600{% else %}400{% endif %}">
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0">
+                        {% if lvl.level == "null" %}unclassified{% else %}Level {{ lvl.level }}{% endif %}
+                    </span>
+                    <span style="color:var(--text-muted); font-size:0.8rem; flex-shrink:0; padding-left:0.4rem">
+                        {{ "{:,}".format(lvl.count) }}
+                    </span>
+                </a>
+            </li>
+            {% endfor %}
+            {% if id_level %}
+            <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
+                <a href="{{ root_path }}/demo/measured-metabolites?search={{ search | urlencode }}"
+                   style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
+                    ✕ clear filter
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {# ── Right: Search + results ── #}
+    <div style="flex:1; min-width:0">
+        <form method="get" action="{{ root_path }}/demo/measured-metabolites"
+              hx-get="{{ root_path }}/demo/measured-metabolites"
+              hx-target="#mmet-results"
+              hx-swap="innerHTML"
+              hx-push-url="true"
+              style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center">
+            <input type="hidden" name="id_level" value="{{ id_level }}">
+            <input type="text" name="search" value="{{ search }}"
+                   placeholder="Search by name…"
+                   style="padding:0.4rem 0.75rem; border:1px solid var(--border); border-radius:4px;
+                          background:var(--bg-card); color:var(--text); width:300px; font-size:0.9rem">
+            <button type="submit"
+                    style="padding:0.4rem 1rem; background:var(--accent); color:#fff;
+                           border:none; border-radius:4px; cursor:pointer; font-size:0.9rem">
+                Search
+            </button>
+            {% if search %}
+            <a href="{{ root_path }}/demo/measured-metabolites?id_level={{ id_level | urlencode }}"
+               style="color:var(--text-muted); font-size:0.9rem; text-decoration:none">✕ clear</a>
+            {% endif %}
+        </form>
+
+        <div class="card" style="overflow-x:auto">
+            <div id="mmet-results">
+                {% include "demo_measured_metabolites_rows.html" %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
