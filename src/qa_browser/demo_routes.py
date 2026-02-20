@@ -678,43 +678,59 @@ async def demo_pathways(
             )).mappings().all()
         ])
 
-        offset = (page - 1) * page_size
-        rows = conn.execute(text(f"""
-            SELECT pw.id, pw.name, pw.type, pw.category, pw.source_id,
-                   COALESCE(mc.metabolite_count, 0)      AS metabolite_count,
-                   COALESCE(mc.metabolites_with_data, 0) AS metabolites_with_data,
-                   COALESCE(gc.gene_count, 0)            AS gene_count,
-                   COALESCE(gc.genes_with_data, 0)       AS genes_with_data
-            FROM pathway pw
-            LEFT JOIN (
+        # Cache expensive full-table aggregations — counts are stable between ETL runs.
+        metabolite_counts: dict = _cached("pw_metabolite_counts", lambda: {
+            r["pw_id"]: (r["metabolite_count"], r["metabolites_with_data"])
+            for r in conn.execute(text("""
                 SELECT m2p.to_id AS pw_id,
                        COUNT(DISTINCT m2p.from_id) AS metabolite_count,
-                       COUNT(DISTINCT CASE WHEN mm2m.from_id IS NOT NULL THEN m2p.from_id END)
-                           AS metabolites_with_data
+                       COUNT(DISTINCT CASE WHEN mm2m.from_id IS NOT NULL
+                                          THEN m2p.from_id END) AS metabolites_with_data
                 FROM metabolite_to_pathway m2p
                 LEFT JOIN measured_metabolite_to_metabolite mm2m ON mm2m.to_id = m2p.from_id
                 GROUP BY m2p.to_id
-            ) mc ON mc.pw_id = pw.id
-            LEFT JOIN (
+            """)).mappings().all()
+        })
+
+        gene_counts: dict = _cached("pw_gene_counts", lambda: {
+            r["pw_id"]: (r["gene_count"], r["genes_with_data"])
+            for r in conn.execute(text("""
                 SELECT g2p.to_id AS pw_id,
                        COUNT(DISTINCT g2p.from_id) AS gene_count,
-                       COUNT(DISTINCT CASE WHEN mg2g.from_id IS NOT NULL THEN g2p.from_id END)
-                           AS genes_with_data
+                       COUNT(DISTINCT CASE WHEN mg2g.from_id IS NOT NULL
+                                          THEN g2p.from_id END) AS genes_with_data
                 FROM gene_to_pathway g2p
                 LEFT JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g2p.from_id
                 GROUP BY g2p.to_id
-            ) gc ON gc.pw_id = pw.id
+            """)).mappings().all()
+        })
+
+        offset = (page - 1) * page_size
+        raw_rows = conn.execute(text(f"""
+            SELECT pw.id, pw.name, pw.type, pw.category, pw.source_id
+            FROM pathway pw
             {where_sql}
             ORDER BY pw.name
             LIMIT :limit OFFSET :offset
         """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+
+    rows = []
+    for pw in raw_rows:
+        r = dict(pw)
+        mc = metabolite_counts.get(r["id"], (0, 0))
+        gc = gene_counts.get(r["id"], (0, 0))
+        r["metabolite_count"] = mc[0]
+        r["metabolites_with_data"] = mc[1]
+        r["gene_count"] = gc[0]
+        r["genes_with_data"] = gc[1]
+        rows.append(r)
 
     total_pages = max(1, (total + page_size - 1) // page_size)
     htmx = request.headers.get("HX-Request") == "true"
     template_name = "demo_pathways_rows.html" if htmx else "demo_pathways.html"
     ctx = {
         "request": request,
-        "pathways": [dict(r) for r in rows],
+        "pathways": rows,
         "total": total, "page": page, "page_size": page_size,
         "total_pages": total_pages, "search": search,
         "pw_type": pw_type, "pw_types": pw_types, "db_name": DB_NAME,
@@ -1299,32 +1315,43 @@ async def demo_metabolite_classes(
             )).mappings().all()
         ])
 
-        offset = (page - 1) * page_size
-        rows = conn.execute(text(f"""
-            SELECT mc.id, mc.name, mc.level, mc.source,
-                   COALESCE(mm.metabolite_count, 0)      AS metabolite_count,
-                   COALESCE(mm.metabolites_with_data, 0) AS metabolites_with_data
-            FROM metabolite_class mc
-            LEFT JOIN (
+        # Cache expensive full-table aggregation — counts are stable between ETL runs.
+        mc_counts: dict = _cached("mc_metabolite_counts", lambda: {
+            r["class_id"]: (r["metabolite_count"], r["metabolites_with_data"])
+            for r in conn.execute(text("""
                 SELECT m2mc.to_id AS class_id,
                        COUNT(DISTINCT m2mc.from_id) AS metabolite_count,
-                       COUNT(DISTINCT CASE WHEN mm2m.from_id IS NOT NULL THEN m2mc.from_id END)
-                           AS metabolites_with_data
+                       COUNT(DISTINCT CASE WHEN mm2m.from_id IS NOT NULL
+                                          THEN m2mc.from_id END) AS metabolites_with_data
                 FROM metabolite_to_metabolite_class m2mc
                 LEFT JOIN measured_metabolite_to_metabolite mm2m ON mm2m.to_id = m2mc.from_id
                 GROUP BY m2mc.to_id
-            ) mm ON mm.class_id = mc.id
+            """)).mappings().all()
+        })
+
+        offset = (page - 1) * page_size
+        raw_rows = conn.execute(text(f"""
+            SELECT mc.id, mc.name, mc.level, mc.source
+            FROM metabolite_class mc
             {where_sql}
             ORDER BY mc.name
             LIMIT :limit OFFSET :offset
         """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+
+    rows = []
+    for mc_row in raw_rows:
+        r = dict(mc_row)
+        counts = mc_counts.get(r["id"], (0, 0))
+        r["metabolite_count"] = counts[0]
+        r["metabolites_with_data"] = counts[1]
+        rows.append(r)
 
     total_pages = max(1, (total + page_size - 1) // page_size)
     htmx = request.headers.get("HX-Request") == "true"
     template_name = "demo_metabolite_classes_rows.html" if htmx else "demo_metabolite_classes.html"
     ctx = {
         "request": request,
-        "classes": [dict(r) for r in rows],
+        "classes": rows,
         "total": total, "page": page, "page_size": page_size,
         "total_pages": total_pages, "search": search,
         "level": level, "levels": levels, "db_name": DB_NAME,
