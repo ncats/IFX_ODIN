@@ -5,6 +5,7 @@ Wired into app.py via app.include_router(demo_router).
 Credentials are pushed in at startup by app.py calling set_mysql_credentials(),
 which avoids the __main__ vs module-import double-instance problem.
 """
+import asyncio
 import time as _time
 from urllib.parse import quote as url_quote
 
@@ -756,23 +757,46 @@ async def demo_pathways(
 @router.get("/pathways/{pathway_id:path}", response_class=HTMLResponse)
 async def demo_pathway_detail(request: Request, pathway_id: str):
     engine = _get_engine()
-    with engine.connect() as conn:
-        pathway = conn.execute(
-            text("SELECT * FROM pathway WHERE id = :id"), {"id": pathway_id}
-        ).mappings().first()
-        if not pathway:
-            return _templates.TemplateResponse("demo_not_found.html",
-                {"request": request, "entity": "Pathway", "id": pathway_id})
+    loop = asyncio.get_running_loop()
 
-        _met_rows = conn.execute(text("""
+    def _q(sql, params=None):
+        with engine.connect() as conn:
+            return conn.execute(text(sql), params or {}).mappings().all()
+
+    def _q_safe(sql, params=None):
+        try:
+            return _q(sql, params)
+        except Exception:
+            return []
+
+    # Check pathway exists first.
+    pw_rows = await loop.run_in_executor(None, _q, "SELECT * FROM pathway WHERE id = :id", {"id": pathway_id})
+    if not pw_rows:
+        return _templates.TemplateResponse("demo_not_found.html",
+            {"request": request, "entity": "Pathway", "id": pathway_id})
+    pathway = pw_rows[0]
+
+    # Run all remaining queries in parallel — each gets its own connection.
+    (
+        _met_rows,
+        _exp_agg,
+        _sr_agg,
+        dataset_rows,
+        stats_rows,
+        _gene_rows,
+        _g_exp_agg,
+        _g_sr_agg,
+        gene_dataset_rows,
+        gene_stats_rows,
+    ) = await asyncio.gather(
+        loop.run_in_executor(None, _q, """
             SELECT met.id, met.name
             FROM metabolite_to_pathway m2p
             JOIN metabolite met ON met.id = m2p.from_id
             WHERE m2p.to_id = :pid
             ORDER BY met.name
-        """), {"pid": pathway_id}).mappings().all()
-
-        _exp_agg = conn.execute(text("""
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q, """
             SELECT mm2m.to_id AS met_id,
                    COUNT(DISTINCT ed.from_id) AS experiment_count,
                    GROUP_CONCAT(DISTINCT e.name ORDER BY e.name SEPARATOR ' · ') AS experiment_names
@@ -783,9 +807,8 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
             JOIN experiment e ON e.id = ed.from_id
             WHERE m2p.to_id = :pid
             GROUP BY mm2m.to_id
-        """), {"pid": pathway_id}).mappings().all()
-
-        _sr_agg = conn.execute(text("""
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q, """
             SELECT mm2m.to_id AS met_id,
                    COUNT(DISTINCT mmsr.stats_result_id) AS stats_count
             FROM metabolite_to_pathway m2p
@@ -793,23 +816,8 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
             JOIN measured_metabolite_stats_result__data mmsr ON mmsr.measured_metabolite_id = mm2m.from_id
             WHERE m2p.to_id = :pid
             GROUP BY mm2m.to_id
-        """), {"pid": pathway_id}).mappings().all()
-
-        _exp_map = {r["met_id"]: r for r in _exp_agg}
-        _sr_map  = {r["met_id"]: r for r in _sr_agg}
-        coverage = sorted([
-            {
-                "id":               r["id"],
-                "name":             r["name"],
-                "experiment_count": _exp_map.get(r["id"], {}).get("experiment_count", 0),
-                "experiment_names": _exp_map.get(r["id"], {}).get("experiment_names", ""),
-                "stats_count":      _sr_map.get(r["id"],  {}).get("stats_count", 0),
-            }
-            for r in _met_rows
-        ], key=lambda x: (-x["experiment_count"], x["name"] or ""))
-
-        # Query A: datasets linked to metabolites in this pathway
-        dataset_rows = conn.execute(text("""
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q, """
             SELECT DISTINCT
                 p.id AS proj_id, p.name AS proj_name,
                 e.id AS exp_id, e.name AS exp_name, e.experiment_type,
@@ -825,10 +833,8 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
             JOIN project p ON p.id = pe.from_id
             WHERE m2p.to_id = :pid
             ORDER BY p.name, e.name, d.data_type
-        """), {"pid": pathway_id}).mappings().all()
-
-        # Query B: stats results linked to metabolites in this pathway
-        stats_rows = conn.execute(text("""
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q, """
             SELECT DISTINCT
                 p.id AS proj_id, p.name AS proj_name,
                 e.id AS exp_id, e.name AS exp_name,
@@ -844,99 +850,96 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
             JOIN project p ON p.id = pe.from_id
             WHERE m2p.to_id = :pid
             ORDER BY p.name, e.name, sr.name
-        """), {"pid": pathway_id}).mappings().all()
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q_safe, """
+            SELECT g.id, COALESCE(g.symbol, g.id) AS name
+            FROM gene_to_pathway g2p
+            JOIN gene g ON g.id = g2p.from_id
+            WHERE g2p.to_id = :pid
+            ORDER BY name
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q_safe, """
+            SELECT mg2g.to_id AS gene_id,
+                   COUNT(DISTINCT ed.from_id) AS experiment_count,
+                   GROUP_CONCAT(DISTINCT e.name ORDER BY e.name SEPARATOR ' · ') AS experiment_names
+            FROM gene_to_pathway g2p
+            JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g2p.from_id
+            JOIN measured_gene_dataset__data mgd ON mgd.measured_gene_id = mg2g.from_id
+            JOIN experiment_to_dataset ed ON ed.to_id = mgd.dataset_id
+            JOIN experiment e ON e.id = ed.from_id
+            WHERE g2p.to_id = :pid
+            GROUP BY mg2g.to_id
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q_safe, """
+            SELECT mg2g.to_id AS gene_id,
+                   COUNT(DISTINCT mgsr.stats_result_id) AS stats_count
+            FROM gene_to_pathway g2p
+            JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g2p.from_id
+            JOIN measured_gene_stats_result__data mgsr ON mgsr.measured_gene_id = mg2g.from_id
+            WHERE g2p.to_id = :pid
+            GROUP BY mg2g.to_id
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q_safe, """
+            SELECT DISTINCT
+                p.id AS proj_id, p.name AS proj_name,
+                e.id AS exp_id, e.name AS exp_name, e.experiment_type,
+                d.id AS dataset_id, d.data_type, d.row_count
+            FROM gene_to_pathway g2p
+            JOIN gene g ON g.id = g2p.from_id
+            JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g.id
+            JOIN measured_gene_dataset__data mgd ON mgd.measured_gene_id = mg2g.from_id
+            JOIN dataset d ON d.id = mgd.dataset_id
+            JOIN experiment_to_dataset ed ON ed.to_id = d.id
+            JOIN experiment e ON e.id = ed.from_id
+            JOIN project_to_experiment pe ON pe.to_id = e.id
+            JOIN project p ON p.id = pe.from_id
+            WHERE g2p.to_id = :pid
+            ORDER BY p.name, e.name, d.data_type
+        """, {"pid": pathway_id}),
+        loop.run_in_executor(None, _q_safe, """
+            SELECT DISTINCT
+                p.id AS proj_id, p.name AS proj_name,
+                e.id AS exp_id, e.name AS exp_name,
+                sr.id AS sr_id, sr.name AS sr_name, sr.data_type
+            FROM gene_to_pathway g2p
+            JOIN gene g ON g.id = g2p.from_id
+            JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g.id
+            JOIN measured_gene_stats_result__data mgsr ON mgsr.measured_gene_id = mg2g.from_id
+            JOIN stats_result sr ON sr.id = mgsr.stats_result_id
+            JOIN experiment_to_stats_result es ON es.to_id = sr.id
+            JOIN experiment e ON e.id = es.from_id
+            JOIN project_to_experiment pe ON pe.to_id = e.id
+            JOIN project p ON p.id = pe.from_id
+            WHERE g2p.to_id = :pid
+            ORDER BY p.name, e.name, sr.name
+        """, {"pid": pathway_id}),
+    )
 
-        # Query C: gene coverage for this pathway
-        try:
-            _gene_rows = conn.execute(text("""
-                SELECT g.id, COALESCE(g.symbol, g.id) AS name
-                FROM gene_to_pathway g2p
-                JOIN gene g ON g.id = g2p.from_id
-                WHERE g2p.to_id = :pid
-                ORDER BY name
-            """), {"pid": pathway_id}).mappings().all()
+    _exp_map = {r["met_id"]: r for r in _exp_agg}
+    _sr_map  = {r["met_id"]: r for r in _sr_agg}
+    coverage = sorted([
+        {
+            "id":               r["id"],
+            "name":             r["name"],
+            "experiment_count": _exp_map.get(r["id"], {}).get("experiment_count", 0),
+            "experiment_names": _exp_map.get(r["id"], {}).get("experiment_names", ""),
+            "stats_count":      _sr_map.get(r["id"],  {}).get("stats_count", 0),
+        }
+        for r in _met_rows
+    ], key=lambda x: (-x["experiment_count"], x["name"] or ""))
 
-            _g_exp_agg = conn.execute(text("""
-                SELECT mg2g.to_id AS gene_id,
-                       COUNT(DISTINCT ed.from_id) AS experiment_count,
-                       GROUP_CONCAT(DISTINCT e.name ORDER BY e.name SEPARATOR ' · ') AS experiment_names
-                FROM gene_to_pathway g2p
-                JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g2p.from_id
-                JOIN measured_gene_dataset__data mgd ON mgd.measured_gene_id = mg2g.from_id
-                JOIN experiment_to_dataset ed ON ed.to_id = mgd.dataset_id
-                JOIN experiment e ON e.id = ed.from_id
-                WHERE g2p.to_id = :pid
-                GROUP BY mg2g.to_id
-            """), {"pid": pathway_id}).mappings().all()
-
-            _g_sr_agg = conn.execute(text("""
-                SELECT mg2g.to_id AS gene_id,
-                       COUNT(DISTINCT mgsr.stats_result_id) AS stats_count
-                FROM gene_to_pathway g2p
-                JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g2p.from_id
-                JOIN measured_gene_stats_result__data mgsr ON mgsr.measured_gene_id = mg2g.from_id
-                WHERE g2p.to_id = :pid
-                GROUP BY mg2g.to_id
-            """), {"pid": pathway_id}).mappings().all()
-
-            _g_exp_map = {r["gene_id"]: r for r in _g_exp_agg}
-            _g_sr_map  = {r["gene_id"]: r for r in _g_sr_agg}
-            gene_coverage = sorted([
-                {
-                    "id":               r["id"],
-                    "name":             r["name"],
-                    "experiment_count": _g_exp_map.get(r["id"], {}).get("experiment_count", 0),
-                    "experiment_names": _g_exp_map.get(r["id"], {}).get("experiment_names", ""),
-                    "stats_count":      _g_sr_map.get(r["id"],  {}).get("stats_count", 0),
-                }
-                for r in _gene_rows
-            ], key=lambda x: (-x["experiment_count"], x["name"] or ""))
-        except Exception:
-            gene_coverage = []
-
-        # Query D: datasets linked to genes in this pathway
-        try:
-            gene_dataset_rows = conn.execute(text("""
-                SELECT DISTINCT
-                    p.id AS proj_id, p.name AS proj_name,
-                    e.id AS exp_id, e.name AS exp_name, e.experiment_type,
-                    d.id AS dataset_id, d.data_type, d.row_count
-                FROM gene_to_pathway g2p
-                JOIN gene g ON g.id = g2p.from_id
-                JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g.id
-                JOIN measured_gene_dataset__data mgd ON mgd.measured_gene_id = mg2g.from_id
-                JOIN dataset d ON d.id = mgd.dataset_id
-                JOIN experiment_to_dataset ed ON ed.to_id = d.id
-                JOIN experiment e ON e.id = ed.from_id
-                JOIN project_to_experiment pe ON pe.to_id = e.id
-                JOIN project p ON p.id = pe.from_id
-                WHERE g2p.to_id = :pid
-                ORDER BY p.name, e.name, d.data_type
-            """), {"pid": pathway_id}).mappings().all()
-        except Exception:
-            gene_dataset_rows = []
-
-        # Query E: stats results linked to genes in this pathway
-        try:
-            gene_stats_rows = conn.execute(text("""
-                SELECT DISTINCT
-                    p.id AS proj_id, p.name AS proj_name,
-                    e.id AS exp_id, e.name AS exp_name,
-                    sr.id AS sr_id, sr.name AS sr_name, sr.data_type
-                FROM gene_to_pathway g2p
-                JOIN gene g ON g.id = g2p.from_id
-                JOIN measured_gene_to_gene mg2g ON mg2g.to_id = g.id
-                JOIN measured_gene_stats_result__data mgsr ON mgsr.measured_gene_id = mg2g.from_id
-                JOIN stats_result sr ON sr.id = mgsr.stats_result_id
-                JOIN experiment_to_stats_result es ON es.to_id = sr.id
-                JOIN experiment e ON e.id = es.from_id
-                JOIN project_to_experiment pe ON pe.to_id = e.id
-                JOIN project p ON p.id = pe.from_id
-                WHERE g2p.to_id = :pid
-                ORDER BY p.name, e.name, sr.name
-            """), {"pid": pathway_id}).mappings().all()
-        except Exception:
-            gene_stats_rows = []
+    _g_exp_map = {r["gene_id"]: r for r in _g_exp_agg}
+    _g_sr_map  = {r["gene_id"]: r for r in _g_sr_agg}
+    gene_coverage = sorted([
+        {
+            "id":               r["id"],
+            "name":             r["name"],
+            "experiment_count": _g_exp_map.get(r["id"], {}).get("experiment_count", 0),
+            "experiment_names": _g_exp_map.get(r["id"], {}).get("experiment_names", ""),
+            "stats_count":      _g_sr_map.get(r["id"],  {}).get("stats_count", 0),
+        }
+        for r in _gene_rows
+    ], key=lambda x: (-x["experiment_count"], x["name"] or ""))
 
     # Merge datasets and stats_results into experiments list keyed by exp_id
     experiments_map: dict = {}
