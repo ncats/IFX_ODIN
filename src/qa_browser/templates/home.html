@@ -81,4 +81,32 @@
 <div class="card"><p>No databases found. Check your credentials.</p></div>
 {% endif %}
 
+<div class="engine-section">
+    <div class="engine-header">
+        <span style="font-weight:600">POUNCE DEMO QUERIES</span>
+    </div>
+    <div class="db-grid">
+        <a href="{{ root_path }}/demo/projects" class="db-card db-card-mysql">
+            <div class="db-name">Projects</div>
+            <div class="db-card-footer">omicsdb_dev2 · top-down</div>
+        </a>
+        <a href="{{ root_path }}/demo/genes" class="db-card db-card-mysql">
+            <div class="db-name">Gene Explorer</div>
+            <div class="db-card-footer">omicsdb_dev2 · bottom-up</div>
+        </a>
+        <a href="{{ root_path }}/demo/metabolites" class="db-card db-card-mysql">
+            <div class="db-name">Metabolite Browser</div>
+            <div class="db-card-footer">omicsdb_dev2 · bottom-up</div>
+        </a>
+        <a href="{{ root_path }}/demo/pathways" class="db-card db-card-mysql">
+            <div class="db-name">Pathway Browser</div>
+            <div class="db-card-footer">omicsdb_dev2 · bottom-up</div>
+        </a>
+        <a href="{{ root_path }}/demo/metabolite-classes" class="db-card db-card-mysql">
+            <div class="db-name">Metabolite Class Browser</div>
+            <div class="db-card-footer">omicsdb_dev2 · bottom-up</div>
+        </a>
+    </div>
+</div>
+
 {% endblock %}

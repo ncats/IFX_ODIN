@@ -459,8 +459,8 @@ class PounceInputAdapter(InputAdapter):
             gene_id_column=analyte_id_col, sample_columns=list(raw_df.columns)
         )
         run_biosample_edges = [
-            DatasetRunBiosampleEdge(start_node=placeholder, end_node=self._run_biosample_by_original_id[col])
-            for col in raw_df.columns if col in self._run_biosample_by_original_id
+            DatasetRunBiosampleEdge(start_node=placeholder, end_node=self._run_biosample_by_original_id[str(col)])
+            for col in raw_df.columns if str(col) in self._run_biosample_by_original_id
         ]
         analyte_edges = self._build_analyte_edges(placeholder, raw_df, DatasetGeneEdge, DatasetMetaboliteEdge)
 

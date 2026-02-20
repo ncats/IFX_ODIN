@@ -46,6 +46,11 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
+    class: EnsemblGenePathwayRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:

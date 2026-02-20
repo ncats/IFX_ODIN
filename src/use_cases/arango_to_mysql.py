@@ -457,8 +457,10 @@ class ArangoToMySqlConverter(ArangoAdapter):
                                     for k, v in item.items():
                                         if k in _SKIP_FIELDS:
                                             continue
-                                        if k in child_gc_tables and isinstance(v, list):
-                                            gc_data[k] = v
+                                        if k in child_gc_tables:
+                                            if isinstance(v, list):
+                                                gc_data[k] = v
+                                            # else: null/empty — no column for this in child_table
                                         elif isinstance(v, (dict, list)):
                                             child_row[k] = json.dumps(v)
                                         else:
@@ -576,7 +578,27 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
             with engine.connect() as conn:
                 if rows:
-                    conn.execute(table.insert(), rows)
+                    try:
+                        conn.execute(table.insert(), rows)
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"  Batch insert failed for {collection_name}: {e}")
+                        print(f"  Retrying row-by-row to identify bad rows...")
+                        bad_rows = []
+                        for row in rows:
+                            try:
+                                conn.execute(table.insert(), [row])
+                            except Exception:
+                                bad_rows.append(row)
+                                print(bad_rows)
+                                print('that row was bad, stopping here so you can figure it out')
+                                raise Exception(bad_rows)
+                        if bad_rows:
+                            print(f"  {len(bad_rows)} bad rows in {collection_name}:")
+                            for r in bad_rows[:20]:
+                                print(f"    from_id={r.get('from_id')}  to_id={r.get('to_id')}")
+                            if len(bad_rows) > 20:
+                                print(f"    ... and {len(bad_rows) - 20} more")
                 conn.commit()
 
             total += len(docs)

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Not Found – QA Browser{% endblock %}
+{% block content %}
+<div class="card" style="text-align:center; padding:2rem">
+    <h2>{{ entity }} not found</h2>
+    <p style="color:var(--text-muted)">No record found for ID: <code>{{ id }}</code></p>
+    <a href="{{ root_path }}/">← Back to home</a>
+</div>
+{% endblock %}

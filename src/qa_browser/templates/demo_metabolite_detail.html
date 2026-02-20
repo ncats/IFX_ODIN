@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ metabolite.name or metabolite.id }} – Metabolite{% endblock %}
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/demo/metabolites">Metabolites</a>
+<span class="sep">/</span><span>{{ metabolite.name or metabolite.id }}</span>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem; flex-wrap:wrap">
+    <h1 style="margin:0">{{ metabolite.name or metabolite.id }}</h1>
+    {% if metabolite.type %}<span class="badge badge-mysql">{{ metabolite.type }}</span>{% endif %}
+</div>
+
+{# Reference info #}
+<div style="display:grid; grid-template-columns:2fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
+    <div class="card">
+        <h2>Reference Information</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">ID</dt>
+            <dd class="mono" style="margin:0">{{ metabolite.id }}</dd>
+            {% if metabolite.name %}
+            <dt style="color:var(--text-muted)">Name</dt>
+            <dd style="margin:0">{{ metabolite.name }}</dd>
+            {% endif %}
+            {% if metabolite.type %}
+            <dt style="color:var(--text-muted)">Type</dt>
+            <dd style="margin:0">{{ metabolite.type }}</dd>
+            {% endif %}
+        </dl>
+        {% if synonyms %}
+        <div style="margin-top:0.75rem">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.35rem">Also known as</div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.35rem">
+                {% for s in synonyms %}<span class="badge">{{ s }}</span>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="card">
+        <h2>Coverage Summary</h2>
+        <dl style="display:grid; grid-template-columns:auto 1fr; gap:0.35rem 1rem; font-size:0.875rem; margin:0">
+            <dt style="color:var(--text-muted)">Experiments with data</dt>
+            <dd style="margin:0; font-size:1.1rem; font-weight:600; color:var(--accent)">
+                {{ experiments | map(attribute='exp_id') | list | unique | list | length }}
+            </dd>
+            <dt style="color:var(--text-muted)">Experiments with stats</dt>
+            <dd style="margin:0; font-size:1.1rem; font-weight:600; color:var(--accent)">
+                {{ stats | map(attribute='exp_id') | list | unique | list | length }}
+            </dd>
+            <dt style="color:var(--text-muted)">Pathways</dt>
+            <dd style="margin:0; font-size:1.1rem; font-weight:600">{{ pathways | length }}</dd>
+        </dl>
+    </div>
+</div>
+
+{# Experiment coverage #}
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Experiments with Raw Data ({{ experiments | length }} datasets)</h2>
+    {% if experiments %}
+    <table>
+        <thead>
+            <tr><th>Project</th><th>Experiment</th><th>Type</th><th>Dataset Type</th><th style="text-align:right">Analytes</th></tr>
+        </thead>
+        <tbody>
+        {% for e in experiments %}
+        <tr>
+            <td><a href="{{ root_path }}/demo/projects/{{ e.proj_id | urlencode }}">{{ e.proj_name }}</a></td>
+            <td><a href="{{ root_path }}/demo/experiments/{{ e.exp_id | urlencode }}">{{ e.exp_name }}</a></td>
+            <td><span class="badge">{{ e.experiment_type or "—" }}</span></td>
+            <td><span class="badge">{{ e.data_type or "—" }}</span></td>
+            <td class="mono" style="text-align:right">{{ e.row_count or "—" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">This metabolite has not been measured in any experiment.</p>
+    {% endif %}
+</div>
+
+{# Stats coverage #}
+<div class="card" style="margin-bottom:1.25rem">
+    <h2>Statistical Results ({{ stats | length }})</h2>
+    {% if stats %}
+    <table>
+        <thead>
+            <tr><th>Project</th><th>Experiment</th><th>Stats Result</th><th>Type</th></tr>
+        </thead>
+        <tbody>
+        {% for s in stats %}
+        <tr>
+            <td>{{ s.proj_name }}</td>
+            <td><a href="{{ root_path }}/demo/experiments/{{ s.exp_id | urlencode }}">{{ s.exp_name }}</a></td>
+            <td><a href="{{ root_path }}/mysql/{{ db_name }}/table/stats_result/row/{{ s.sr_id | urlencode }}">{{ s.sr_name or s.sr_id }}</a></td>
+            <td><span class="badge">{{ s.data_type or "—" }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">No statistical results for this metabolite.</p>
+    {% endif %}
+</div>
+
+{# Pathways #}
+<div class="card">
+    <h2>Pathways ({{ pathways | length }})</h2>
+    {% if pathways %}
+    <table>
+        <thead>
+            <tr><th>Pathway</th><th>Type</th><th>Category</th><th>Source</th></tr>
+        </thead>
+        <tbody>
+        {% for pw in pathways %}
+        <tr>
+            <td><a href="{{ root_path }}/demo/pathways/{{ pw.id | urlencode }}">{{ pw.name or pw.id }}</a></td>
+            <td style="color:var(--text-muted)">{{ pw.type or "—" }}</td>
+            <td style="color:var(--text-muted)">{{ pw.category or "—" }}</td>
+            <td class="mono" style="font-size:0.8rem">{{ pw.source or pw.source_id or "—" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">This metabolite is not linked to any pathways.</p>
+    {% endif %}
+</div>
+{% endblock %}
