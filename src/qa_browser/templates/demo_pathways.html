@@ -24,7 +24,7 @@
         <ul style="list-style:none; margin:0; padding:0">
             {% for t in pw_types %}
             <li>
-                <a href="{{ root_path }}/demo/pathways?pw_type={{ t.type | urlencode }}&search={{ search | urlencode }}"
+                <a href="{{ root_path }}/demo/pathways?pw_type={{ t.type | urlencode }}&search={{ search | urlencode }}&sort_by={{ sort_by }}"
                    style="display:flex; justify-content:space-between; align-items:center;
                           padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none;
                           color:{% if pw_type == t.type %}var(--accent){% else %}var(--text){% endif %};
@@ -37,7 +37,7 @@
             {% endfor %}
             {% if pw_type %}
             <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
-                <a href="{{ root_path }}/demo/pathways?search={{ search | urlencode }}"
+                <a href="{{ root_path }}/demo/pathways?search={{ search | urlencode }}&sort_by={{ sort_by }}"
                    style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">✕ clear filter</a>
             </li>
             {% endif %}
@@ -51,13 +51,14 @@
               hx-swap="innerHTML" hx-push-url="true"
               style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center">
             <input type="hidden" name="pw_type" value="{{ pw_type }}">
+            <input type="hidden" name="sort_by" value="{{ sort_by }}">
             <input type="text" name="search" value="{{ search }}" placeholder="Search by pathway name…"
                    style="padding:0.4rem 0.75rem; border:1px solid var(--border); border-radius:4px;
                           background:var(--bg-card); color:var(--text); width:300px; font-size:0.9rem">
             <button type="submit" style="padding:0.4rem 1rem; background:var(--accent); color:#fff;
                     border:none; border-radius:4px; cursor:pointer; font-size:0.9rem">Search</button>
             {% if search %}
-            <a href="{{ root_path }}/demo/pathways?pw_type={{ pw_type | urlencode }}"
+            <a href="{{ root_path }}/demo/pathways?pw_type={{ pw_type | urlencode }}&sort_by={{ sort_by }}"
                style="color:var(--text-muted); font-size:0.9rem; text-decoration:none">✕ clear</a>
             {% endif %}
         </form>

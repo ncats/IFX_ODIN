@@ -654,6 +654,7 @@ async def demo_pathways(
     page_size: int = 50,
     search: str = "",
     pw_type: str = "",
+    sort_by: str = "measured",   # "name" | "measured"
 ):
     engine = _get_engine()
     where_parts = []
@@ -705,14 +706,23 @@ async def demo_pathways(
             """)).mappings().all()
         })
 
-        offset = (page - 1) * page_size
-        raw_rows = conn.execute(text(f"""
-            SELECT pw.id, pw.name, pw.type, pw.category, pw.source_id
-            FROM pathway pw
-            {where_sql}
-            ORDER BY pw.name
-            LIMIT :limit OFFSET :offset
-        """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+        if sort_by == "name":
+            offset = (page - 1) * page_size
+            raw_rows = conn.execute(text(f"""
+                SELECT pw.id, pw.name, pw.type, pw.category, pw.source_id
+                FROM pathway pw
+                {where_sql}
+                ORDER BY pw.name
+                LIMIT :limit OFFSET :offset
+            """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+        else:
+            # Fetch all matching rows; sort by count in Python after merging cache.
+            raw_rows = conn.execute(text(f"""
+                SELECT pw.id, pw.name, pw.type, pw.category, pw.source_id
+                FROM pathway pw
+                {where_sql}
+                ORDER BY pw.name
+            """), params).mappings().all()
 
     rows = []
     for pw in raw_rows:
@@ -725,6 +735,11 @@ async def demo_pathways(
         r["genes_with_data"] = gc[1]
         rows.append(r)
 
+    if sort_by != "name":
+        rows.sort(key=lambda r: (-r["metabolites_with_data"], r["name"] or ""))
+        offset = (page - 1) * page_size
+        rows = rows[offset: offset + page_size]
+
     total_pages = max(1, (total + page_size - 1) // page_size)
     htmx = request.headers.get("HX-Request") == "true"
     template_name = "demo_pathways_rows.html" if htmx else "demo_pathways.html"
@@ -733,7 +748,7 @@ async def demo_pathways(
         "pathways": rows,
         "total": total, "page": page, "page_size": page_size,
         "total_pages": total_pages, "search": search,
-        "pw_type": pw_type, "pw_types": pw_types, "db_name": DB_NAME,
+        "pw_type": pw_type, "pw_types": pw_types, "sort_by": sort_by, "db_name": DB_NAME,
     }
     return _templates.TemplateResponse(template_name, ctx)
 
@@ -1290,6 +1305,7 @@ async def demo_metabolite_classes(
     page_size: int = 50,
     search: str = "",
     level: str = "",
+    sort_by: str = "measured",   # "name" | "measured"
 ):
     engine = _get_engine()
     where_parts = []
@@ -1329,14 +1345,22 @@ async def demo_metabolite_classes(
             """)).mappings().all()
         })
 
-        offset = (page - 1) * page_size
-        raw_rows = conn.execute(text(f"""
-            SELECT mc.id, mc.name, mc.level, mc.source
-            FROM metabolite_class mc
-            {where_sql}
-            ORDER BY mc.name
-            LIMIT :limit OFFSET :offset
-        """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+        if sort_by == "name":
+            offset = (page - 1) * page_size
+            raw_rows = conn.execute(text(f"""
+                SELECT mc.id, mc.name, mc.level, mc.source
+                FROM metabolite_class mc
+                {where_sql}
+                ORDER BY mc.name
+                LIMIT :limit OFFSET :offset
+            """), {**params, "limit": page_size, "offset": offset}).mappings().all()
+        else:
+            raw_rows = conn.execute(text(f"""
+                SELECT mc.id, mc.name, mc.level, mc.source
+                FROM metabolite_class mc
+                {where_sql}
+                ORDER BY mc.name
+            """), params).mappings().all()
 
     rows = []
     for mc_row in raw_rows:
@@ -1346,6 +1370,11 @@ async def demo_metabolite_classes(
         r["metabolites_with_data"] = counts[1]
         rows.append(r)
 
+    if sort_by != "name":
+        rows.sort(key=lambda r: (-r["metabolites_with_data"], r["name"] or ""))
+        offset = (page - 1) * page_size
+        rows = rows[offset: offset + page_size]
+
     total_pages = max(1, (total + page_size - 1) // page_size)
     htmx = request.headers.get("HX-Request") == "true"
     template_name = "demo_metabolite_classes_rows.html" if htmx else "demo_metabolite_classes.html"
@@ -1354,7 +1383,7 @@ async def demo_metabolite_classes(
         "classes": rows,
         "total": total, "page": page, "page_size": page_size,
         "total_pages": total_pages, "search": search,
-        "level": level, "levels": levels, "db_name": DB_NAME,
+        "level": level, "levels": levels, "sort_by": sort_by, "db_name": DB_NAME,
     }
     return _templates.TemplateResponse(template_name, ctx)
 
