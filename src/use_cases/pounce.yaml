@@ -6,7 +6,7 @@ minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
 ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.12.sqlite
 
 resolvers:
-  - label: translator_nn
+  - label: ramp_resolver
     import: ./src/id_resolvers/ramp_metabolite_resolver.py
     class: RampMetaboliteIdResolver
     kwargs:
