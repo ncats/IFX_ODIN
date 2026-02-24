@@ -1,96 +1,40 @@
-project:
-  project_id:
-    - rule: required
-      message: "Required field 'project_id' is missing"
-      sheet: ProjectMeta
-      column: project_id
-  project_name:
-    - rule: required
-      message: "Required field 'project_name' is missing"
-      sheet: ProjectMeta
-      column: project_name
-  date:
-    - rule: required
-      message: "Required field 'date' is missing"
-      sheet: ProjectMeta
-      column: date
-  owner_names:
-    - rule: required
-      message: "Required field 'owner_names' is missing"
-      sheet: ProjectMeta
-      column: owner_name
-  privacy_type:
-    - rule: allowed_values
-      message: "Field 'privacy_type' must be one of: private, ncats, public"
-      values: [private, ncats, public]
-      sheet: ProjectMeta
-      column: privacy_type
+ProjectMeta:
+  required:
+    - project_name
+    - description
+    - date
+    - owner_name
+    - owner_email
+    - keywords
+    - collaborator_name
+    - collaborator_email
+    - privacy_type
+    - lab_groups
+    - project_type
+    - RD_tag
+    - biosample_preparation
+  allowed_values:
+    privacy_type: [private, ncats, public]
+    lab_groups: [CGB, ETB, TDB, ACC, ADME, RSC, IFX]
 
-biosamples:
-  biosample_id:
-    - rule: required
-      message: "Required field 'biosample_id' is missing"
-      sheet: BioSampleMeta
-      column: biosample_id
-  biosample_type:
-    - rule: required
-      message: "Required field 'biosample_type' is missing"
-      sheet: BioSampleMeta
-      column: biosample_type
+BioSampleMap:
+  required:
+    - biosample_id
+    - biosample_type
+    - biospecimen_id
+    - biospecimen_type
+    - organism_names
+#
+#ExperimentMeta:
+#  required:
+#    - experiment_name
+#    - experiment_type
 
-biospecimens:
-  biospecimen_id:
-    - rule: required
-      message: "Required field 'biospecimen_id' is missing"
-      sheet: BioSampleMeta
-      column: biospecimen_id
-  biospecimen_type:
-    - rule: required
-      message: "Required field 'biospecimen_type' is missing"
-      sheet: BioSampleMeta
-      column: biospecimen_type
-  organism_names:
-    - rule: required
-      message: "Required field 'organism_names' is missing"
-      sheet: BioSampleMeta
-      column: organism_names
+#RunSampleMeta:
+#  required:
+#    - run_biosample_id
+#    - biosample_id
 
-exposures:
-  names:
-    - rule: required
-      message: "Required field 'names' is missing"
-      sheet: BioSampleMeta
-      column: "exposure{}_names"
-  type:
-    - rule: required
-      message: "Required field 'type' is missing"
-      sheet: BioSampleMeta
-      column: "exposure{}_type"
-
-experiments:
-  experiment_name:
-    - rule: required
-      message: "Required field 'experiment_name' is missing"
-      sheet: ExperimentMeta
-      column: experiment_name
-  experiment_type:
-    - rule: required
-      message: "Required field 'experiment_type' is missing"
-      sheet: ExperimentMeta
-      column: experiment_type
-
-run_biosamples:
-  run_biosample_id:
-    - rule: required
-      message: "Required field 'run_biosample_id' is missing"
-      sheet: RunSampleMeta
-      column: run_biosample_id
-  biosample_id:
-    - rule: required
-      message: "Required field 'biosample_id' is missing"
-      sheet: RunSampleMeta
-      column: biosample_id
-
-cross_entity:
-  - import: ./src/input_adapters/pounce_sheets/pounce_validators.py
-    class: RunBiosampleReferenceValidator
+#cross_entity:
+#  - import: ./src/input_adapters/pounce_sheets/pounce_validators.py
+#    class: RunBiosampleReferenceValidator

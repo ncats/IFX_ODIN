@@ -5,8 +5,11 @@ drive Excel extraction.  It is shared by both the validation workflow (metadata
 only, no DB) and the ETL pipeline (which additionally processes data matrices).
 """
 
-from typing import List, Optional, Type
+import re
+from collections import defaultdict
+from typing import Dict, List, Optional, Set, Type
 
+from src.core.validator import ValidationError
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedBiosample,
@@ -19,8 +22,52 @@ from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedRunBiosample,
     ParsedStatsResultsMeta,
 )
+from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook, StatsResultsWorkbook
 from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 from src.input_adapters.pounce_sheets.sheet_field import get_sheet_fields
+
+# Sheet sets for structural validation, derived from constants.
+_PROJECT_REQUIRED_SHEETS: Set[str] = {
+    ProjectWorkbook.ProjectSheet.name,
+    ProjectWorkbook.BiosampleMapSheet.name,
+    ProjectWorkbook.BiosampleMetaSheet.name,
+}
+
+_EXPERIMENT_REQUIRED_SHEETS: Set[str] = {
+    ExperimentWorkbook.ExperimentSheet.name,
+    ExperimentWorkbook.RunSampleMapSheet.name,
+    ExperimentWorkbook.RunSampleMetaSheet.name,
+}
+_EXPERIMENT_RECOGNIZED_SHEETS: Set[str] = _EXPERIMENT_REQUIRED_SHEETS | {
+    ExperimentWorkbook.GeneMapSheet.name,
+    ExperimentWorkbook.GeneMetaSheet.name,
+    ExperimentWorkbook.MetabMapSheet.name,
+    ExperimentWorkbook.MetabMetaSheet.name,
+    ExperimentWorkbook.RawDataMetaSheet.name,
+    ExperimentWorkbook.RawDataSheet.name,
+    ExperimentWorkbook.PeakDataMetaSheet.name,
+    ExperimentWorkbook.PeakDataSheet.name,
+}
+
+_STATS_REQUIRED_SHEETS: Set[str] = {
+    StatsResultsWorkbook.StatsResultsMetaSheet.name,
+}
+_STATS_RECOGNIZED_SHEETS: Set[str] = _STATS_REQUIRED_SHEETS | {
+    StatsResultsWorkbook.StatsReadyDataSheet.name,
+    StatsResultsWorkbook.EffectSizeMapSheet.name,
+    StatsResultsWorkbook.EffectSizeSheet.name,
+}
+
+# Build a mapping of sheet_name -> set of known NCATSDPI keys (including indexed templates).
+# Used to warn when a submitted file contains unrecognized variable names.
+_KNOWN_KEYS_BY_SHEET: Dict[str, Set[str]] = defaultdict(set)
+for _cls in [
+    ParsedProject, ParsedBiosample, ParsedBiospecimen, ParsedDemographics,
+    ParsedExposure, ParsedExperiment, ParsedRunBiosample, ParsedStatsResultsMeta,
+]:
+    for _f, _meta in get_sheet_fields(_cls):
+        if _meta["sheet"]:
+            _KNOWN_KEYS_BY_SHEET[_meta["sheet"]].add(_meta["key"])
 
 
 class PounceParser:
@@ -165,11 +212,18 @@ class PounceParser:
     # High-level workbook parsers
     # ------------------------------------------------------------------
 
-    def parse_project(self, parser: ExcelsheetParser) -> ParsedPounceData:
-        """Parse the project workbook (metadata only)."""
+    def parse_project(self, parser: ExcelsheetParser):
+        """Parse the project workbook (metadata only).
+
+        Returns ``(ParsedPounceData, List[ValidationError])``.
+        """
         data = ParsedPounceData()
+        issues: List[ValidationError] = []
+
+        issues.extend(self._check_sheets(parser, _PROJECT_REQUIRED_SHEETS, _PROJECT_REQUIRED_SHEETS))
 
         # --- ProjectMeta (meta sheet) ---
+        issues.extend(self._check_unknown_keys(parser, "ProjectMeta", "ProjectMeta"))
         data.project = self.parse_meta_sheet(parser, ParsedProject)
 
         # --- People (from project meta sheet) ---
@@ -182,6 +236,7 @@ class PounceParser:
 
         # --- BioSampleMeta via BioSampleMap (mapped sheet) ---
         if "BioSampleMap" in parser.sheet_dfs and "BioSampleMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "BioSampleMap", "BioSampleMeta"))
             biosample_map = parser.get_parameter_map("BioSampleMap")
             sheet_df = parser.sheet_dfs["BioSampleMeta"]
 
@@ -202,62 +257,141 @@ class PounceParser:
                     parsed_exp.exposure_index = exp_idx
                     data.exposures.append(parsed_exp)
 
-            data.biosample_param_map = biosample_map
+            data.param_maps[ProjectWorkbook.BiosampleMapSheet.name] = biosample_map
 
-        return data
+        return data, issues
 
-    def parse_experiment(self, parser: ExcelsheetParser) -> ParsedPounceData:
-        """Parse an experiment workbook (metadata only, skips data matrices)."""
+    def parse_experiment(self, parser: ExcelsheetParser):
+        """Parse an experiment workbook (metadata only, skips data matrices).
+
+        Returns ``(ParsedPounceData, List[ValidationError])``.
+        """
         data = ParsedPounceData()
+        issues: List[ValidationError] = []
+
+        issues.extend(self._check_sheets(parser, _EXPERIMENT_REQUIRED_SHEETS, _EXPERIMENT_RECOGNIZED_SHEETS))
 
         # --- ExperimentMeta (meta sheet) ---
+        issues.extend(self._check_unknown_keys(parser, "ExperimentMeta", "ExperimentMeta"))
         data.experiments.append(self.parse_meta_sheet(parser, ParsedExperiment))
 
         # --- RunSampleMeta via RunSampleMap (mapped sheet) ---
         if "RunSampleMap" in parser.sheet_dfs and "RunSampleMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "RunSampleMap", "RunSampleMeta"))
             run_sample_map = parser.get_parameter_map("RunSampleMap")
+            data.param_maps[ExperimentWorkbook.RunSampleMapSheet.name] = run_sample_map
             for _, row in parser.sheet_dfs["RunSampleMeta"].iterrows():
                 data.run_biosamples.append(
                     self._parse_mapped_row(row, run_sample_map, ParsedRunBiosample))
 
-        return data
+        return data, issues
 
-    def parse_stats_results(self, parser: ExcelsheetParser) -> ParsedPounceData:
-        """Parse a stats results workbook (metadata only)."""
+    def parse_stats_results(self, parser: ExcelsheetParser):
+        """Parse a stats results workbook (metadata only).
+
+        Returns ``(ParsedPounceData, List[ValidationError])``.
+        """
         data = ParsedPounceData()
+        issues: List[ValidationError] = []
+
+        issues.extend(self._check_sheets(parser, _STATS_REQUIRED_SHEETS, _STATS_RECOGNIZED_SHEETS))
 
         if "StatsResultsMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "StatsResultsMeta", "StatsResultsMeta"))
             data.stats_results.append(
                 self.parse_meta_sheet(parser, ParsedStatsResultsMeta))
 
-        return data
+        return data, issues
 
     def parse_all(self, project_file: str,
                   experiment_files: List[str] = None,
-                  stats_files: List[str] = None) -> ParsedPounceData:
-        """Parse all workbooks into a single :class:`ParsedPounceData`."""
+                  stats_files: List[str] = None):
+        """Parse all workbooks into a single :class:`ParsedPounceData`.
+
+        Returns ``(ParsedPounceData, List[ValidationError])``.
+        """
         experiment_files = experiment_files or []
         stats_files = stats_files or []
 
         project_parser = ExcelsheetParser(file_path=project_file)
-        combined = self.parse_project(project_parser)
+        combined, issues = self.parse_project(project_parser)
 
         for exp_file in experiment_files:
             exp_parser = ExcelsheetParser(file_path=exp_file)
-            exp_data = self.parse_experiment(exp_parser)
+            exp_data, exp_issues = self.parse_experiment(exp_parser)
             combined.experiments.extend(exp_data.experiments)
             combined.run_biosamples.extend(exp_data.run_biosamples)
+            issues.extend(exp_issues)
 
         for stats_file in stats_files:
             stats_parser = ExcelsheetParser(file_path=stats_file)
-            stats_data = self.parse_stats_results(stats_parser)
+            stats_data, stats_issues = self.parse_stats_results(stats_parser)
             combined.stats_results.extend(stats_data.stats_results)
+            issues.extend(stats_issues)
 
-        return combined
+        return combined, issues
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_sheets(parser: ExcelsheetParser, required: Set[str],
+                      recognized: Set[str]) -> List[ValidationError]:
+        """Return errors for missing required sheets and warnings for unrecognized extra sheets."""
+        issues: List[ValidationError] = []
+        actual = set(parser.sheet_dfs.keys())
+        for sheet in sorted(required - actual):
+            issues.append(ValidationError(
+                severity="error",
+                entity="parse",
+                field=sheet,
+                message=f"Required sheet '{sheet}' is missing from the workbook",
+                source_file=parser.file_path,
+            ))
+        for sheet in sorted(actual - recognized):
+            issues.append(ValidationError(
+                severity="warning",
+                entity="parse",
+                field=sheet,
+                message=f"Unrecognized sheet '{sheet}' — it will not be imported",
+                sheet=sheet,
+                source_file=parser.file_path,
+            ))
+        return issues
+
+    @staticmethod
+    def _check_unknown_keys(parser: ExcelsheetParser, sheet_name: str,
+                             data_sheet_name: str) -> List[ValidationError]:
+        """Return warnings for unrecognized NCATSDPI keys present in a sheet.
+
+        *sheet_name* is the sheet to inspect (e.g. ``"BioSampleMap"``).
+        *data_sheet_name* is the sheet whose known keys apply (e.g. ``"BioSampleMeta"``).
+        """
+        issues: List[ValidationError] = []
+        if sheet_name not in parser.sheet_dfs:
+            return issues
+        df = parser.sheet_dfs[sheet_name]
+        key_col = ExcelsheetParser.KEY_COLUMN
+        if key_col not in df.columns:
+            return issues
+        known = _KNOWN_KEYS_BY_SHEET.get(data_sheet_name, set())
+        for raw_key in df[key_col].dropna():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            normalized = re.sub(r'\d+', '{}', key)
+            if key not in known and normalized not in known:
+                issues.append(ValidationError(
+                    severity="warning",
+                    entity="parse",
+                    field=key,
+                    message=f"Unrecognized NCATSDPI_Variable_Name: '{key}' — this field will not be used",
+                    sheet=sheet_name,
+                    column=key,
+                    source_file=parser.file_path,
+                ))
+        return issues
 
     @staticmethod
     def _build_persons(names: List[str], emails: List[str], role: str) -> List[ParsedPerson]:

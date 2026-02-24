@@ -1,0 +1,34 @@
+#destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
+#minio_credentials: &minio_credentials ./src/use_cases/secrets/local_minio.yaml
+
+destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
+ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.12.sqlite
+
+
+input_adapters:
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/test_sheets/Project_Metabo_Template.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/test_sheets/Experiment_Metabo_Template.xlsx
+        - ./input_files/manual/pounce/test_sheets/Experiment_Transcriptomics_Template.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/test_sheets/StatsResults_Metabo_Template.xlsx
+        - ./input_files/manual/pounce/test_sheets/StatsResults_Transcriptomics_Template.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: Project_Transcriptomics_Template.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: pounce
+      minio_credentials: *minio_credentials
+    credentials: *destination_credentials

@@ -25,7 +25,7 @@ from src.input_adapters.pounce_sheets.parsed_classes import (
 class ParsedPounceData:
     project: Optional[ParsedProject] = None
     people: List[ParsedPerson] = field(default_factory=list)
-    biosample_param_map: Optional[Dict[str, str]] = None
+    param_maps: Dict[str, Dict[str, str]] = field(default_factory=dict)
     biosamples: List[ParsedBiosample] = field(default_factory=list)
     biospecimens: List[ParsedBiospecimen] = field(default_factory=list)
     demographics: List[ParsedDemographics] = field(default_factory=list)
