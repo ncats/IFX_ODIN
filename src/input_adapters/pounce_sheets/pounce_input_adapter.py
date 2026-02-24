@@ -5,43 +5,53 @@ from typing import Dict, Generator, List, Union, Optional, Tuple, Type
 
 from src.constants import DataSourceName, Prefix
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
-from src.input_adapters.pounce_sheets.constants import ProjectWorkbook, ExperimentWorkbook, StatsResultsWorkbook
+from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, StatsResultsWorkbook
+from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson, ParsedProject
+from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
+from src.input_adapters.pounce_sheets.pounce_parser import PounceParser
+from src.core.validator_loader import load_validators
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import MeasuredGene, MeasuredGeneEdge, Gene
 from src.models.metabolite import MeasuredMetabolite, MeasuredMetaboliteEdge, Metabolite
 from src.models.node import Node, Relationship, EquivalentId
-from src.models.pounce.biosample import BiosampleBiospecimenEdge
+from src.models.pounce.biosample import Biosample, BiosampleBiospecimenEdge
+from src.models.pounce.biospecimen import Biospecimen
 from src.models.pounce.category_value import CategoryValue
-from src.models.pounce.config_classes import ExposureConfig, BiosampleConfig, BiospecimenConfig, RunBiosampleConfig
 from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRunBiosampleEdge, DatasetGeneEdge, DatasetMetaboliteEdge
+from src.models.pounce.demographics import Demographics
+from src.models.pounce.exposure import Exposure
 from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge
-from src.models.pounce.experiment import Experiment, ProjectExperimentEdge, ExperimentPersonEdge, BiosampleRunBiosampleEdge
+from src.models.pounce.experiment import Experiment, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
 from src.models.pounce.project import Project, AccessLevel, Person, ProjectPersonEdge, ProjectBiosampleEdge
 
 
 class PounceInputAdapter(InputAdapter):
     project_file: str
-    project_parser: ExcelsheetParser
     experiment_files: List[str]
     stats_results_files: List[str]
+    _cached_project_data: Optional[ParsedPounceData]
     _biosample_by_original_id: dict
     _run_biosample_by_original_id: dict
     _gene_by_raw_id: dict
     _metabolite_by_raw_id: dict
     _experiment_counter: int
+    _pounce_parser: PounceParser
 
-    def __init__(self, project_file: str, experiment_files: List[str] = None, stats_results_files: List[str] = None):
+    def __init__(self, project_file: str, experiment_files: List[str] = None,
+                 stats_results_files: List[str] = None, validators_config: str = None):
         self.project_file = project_file
-        self.project_parser = ExcelsheetParser(file_path=project_file)
         self.experiment_files = experiment_files or []
         self.stats_results_files = stats_results_files or []
+        self.validators_config = validators_config
+        self._cached_project_data = None
         self._biosample_by_original_id = {}
         self._run_biosample_by_original_id = {}
         self._gene_by_raw_id = {}
         self._metabolite_by_raw_id = {}
         self._experiment_counter = 0
+        self._pounce_parser = PounceParser()
 
     # --- Interface methods ---
 
@@ -49,63 +59,83 @@ class PounceInputAdapter(InputAdapter):
         return DataSourceName.NCATSPounce
 
     def get_version(self) -> DatasourceVersionInfo:
-        sheet = ProjectWorkbook.ProjectSheet
+        data = self._get_project_data()
         return DatasourceVersionInfo(
-            version_date=self.project_parser.get_one_date(sheet.name, sheet.Key.date).date(),
+            version_date=data.project.date,
             download_date=datetime.fromtimestamp(os.path.getmtime(self.project_file)).date()
+        )
+
+    def get_validators(self) -> list:
+        if self.validators_config:
+            return load_validators(self.validators_config)
+        return []
+
+    def get_validation_data(self):
+        return self._pounce_parser.parse_all(
+            self.project_file, self.experiment_files, self.stats_results_files
         )
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         print(f"reading: {self.project_file}")
 
-        proj_obj = self._create_project()
-        p, sheet = self.project_parser, ProjectWorkbook.ProjectSheet
+        project_data = self._get_project_data()
+        proj_obj = self._project_node(project_data.project)
+        person_nodes, person_edges = self._person_nodes_and_edges(proj_obj, project_data.people)
+        yield [proj_obj, *person_nodes, *person_edges]
 
-        owners = self._get_persons_from_lists(
-            p.get_one_string_list(sheet.name, sheet.Key.owner_name),
-            p.get_one_string_list(sheet.name, sheet.Key.owner_email)
-        )
-        collaborators = self._get_persons_from_lists(
-            p.get_one_string_list(sheet.name, sheet.Key.collaborator_name),
-            p.get_one_string_list(sheet.name, sheet.Key.collaborator_email)
-        )
-        proj_owner_edges = [ProjectPersonEdge(start_node=proj_obj, end_node=o, role="Owner") for o in owners]
-        proj_collab_edges = [ProjectPersonEdge(start_node=proj_obj, end_node=c, role="Collaborator") for c in collaborators]
-
-        yield [proj_obj, *owners, *proj_owner_edges, *collaborators, *proj_collab_edges]
-
-        yield from self._get_biosample_data(proj_obj)
+        yield from self._biosample_nodes(proj_obj, project_data)
 
         for i, exp_file in enumerate(self.experiment_files):
             exp_parser = ExcelsheetParser(file_path=exp_file)
-            stats_parser = ExcelsheetParser(file_path=self.stats_results_files[i]) if i < len(self.stats_results_files) else None
-            yield from self._get_experiment_data(proj_obj, exp_parser, stats_parser)
+            exp_data = self._pounce_parser.parse_experiment(exp_parser)
+            stats_parser = ExcelsheetParser(file_path=self.stats_results_files[i]) \
+                if i < len(self.stats_results_files) else None
+            stats_data = self._pounce_parser.parse_stats_results(stats_parser) if stats_parser else None
+            yield from self._get_experiment_data(proj_obj, exp_data, exp_parser, stats_data, stats_parser)
+
+    # --- Lazy project parse cache ---
+
+    def _get_project_data(self) -> ParsedPounceData:
+        if self._cached_project_data is None:
+            self._cached_project_data = self._pounce_parser.parse_project(
+                ExcelsheetParser(file_path=self.project_file)
+            )
+        return self._cached_project_data
 
     # --- Project workbook ---
 
-    def _create_project(self) -> Project:
-        p, sheet = self.project_parser, ProjectWorkbook.ProjectSheet
-        rd_tag = p.safe_get_string(sheet.name, sheet.Key.RD_tag)
+    @staticmethod
+    def _project_node(parsed_project: ParsedProject) -> Project:
         return Project(
-            id=p.safe_get_string(sheet.name, sheet.Key.project_id),
-            name=p.safe_get_string(sheet.name, sheet.Key.project_name),
-            description=p.safe_get_string(sheet.name, sheet.Key.description),
-            date=p.get_one_date(sheet.name, sheet.Key.date).date(),
-            lab_groups=p.get_one_string_list(sheet.name, sheet.Key.lab_groups),
-            access=AccessLevel.parse(p.safe_get_string(sheet.name, sheet.Key.privacy_type)),
-            keywords=p.get_one_string_list(sheet.name, sheet.Key.keywords),
-            project_type=p.get_one_string_list(sheet.name, sheet.Key.project_type),
-            rare_disease_focus=rd_tag is not None and rd_tag.lower() in ("true", "yes", "1"),
-            sample_preparation=p.safe_get_string(sheet.name, sheet.Key.biosample_preparation)
+            id=parsed_project.project_id,
+            name=parsed_project.project_name,
+            description=parsed_project.description,
+            date=parsed_project.date,
+            lab_groups=parsed_project.lab_groups or [],
+            access=AccessLevel.parse(parsed_project.privacy_type) if parsed_project.privacy_type else None,
+            keywords=parsed_project.keywords or [],
+            project_type=parsed_project.project_type or [],
+            rare_disease_focus=parsed_project.rd_tag if parsed_project.rd_tag is not None else False,
+            sample_preparation=parsed_project.biosample_preparation
         )
 
-    def _get_biosample_data(self, proj_obj: Project) -> Generator[List[Union[Node, Relationship]], None, None]:
-        biosample_map = self.project_parser.get_parameter_map(ProjectWorkbook.BiosampleMapSheet.name)
-        biosample_config = BiosampleConfig(biosample_map, proj_obj.id)
-        biospecimen_config = BiospecimenConfig(biosample_map, proj_obj.id)
-        exposure_configs = ExposureConfig.get_valid_configs(biosample_map)
+    @staticmethod
+    def _person_nodes_and_edges(
+        proj_obj: Project, people: List[ParsedPerson]
+    ) -> Tuple[List[Person], List[ProjectPersonEdge]]:
+        nodes = []
+        edges = []
+        for parsed_person in people:
+            person_node = Person.make(parsed_person.name, parsed_person.email)
+            nodes.append(person_node)
+            edges.append(ProjectPersonEdge(start_node=proj_obj, end_node=person_node, role=parsed_person.role))
+        return nodes, edges
 
-        sheet_df = self.project_parser.sheet_dfs[ProjectWorkbook.BiosampleMetaSheet.name]
+    def _biosample_nodes(
+        self, proj_obj: Project, project_data: ParsedPounceData
+    ) -> Generator[List[Union[Node, Relationship]], None, None]:
+        biosample_param_map = project_data.biosample_param_map or {}
+        num_exposure_slots = len(PounceParser._detect_exposure_indices(biosample_param_map))
 
         biospecimens = {}
         biosamples = []
@@ -114,25 +144,56 @@ class PounceInputAdapter(InputAdapter):
         project_biosample_edges: List[ProjectBiosampleEdge] = []
         biosample_biospecimen_edges: List[BiosampleBiospecimenEdge] = []
 
-        for _, row in sheet_df.iterrows():
-            biospecimen_obj = biospecimen_config.get_data(row)
-            if biospecimen_obj.id not in biospecimens:
-                biospecimens[biospecimen_obj.id] = biospecimen_obj
+        for i, parsed_bs in enumerate(project_data.biosamples):
+            parsed_spec = project_data.biospecimens[i]
 
-            biosample_obj = biosample_config.get_data(row)
+            biospecimen_id = parsed_spec.biospecimen_id
+            full_biospecimen_id = f"{proj_obj.id}-{biospecimen_id}"
+            if full_biospecimen_id not in biospecimens:
+                organism_category = self._make_category_value(
+                    parsed_spec.organism_category,
+                    biosample_param_map.get("organism_category")) if parsed_spec.organism_category else None
+                disease_category = self._make_category_value(
+                    parsed_spec.disease_category,
+                    biosample_param_map.get("disease_category")) if parsed_spec.disease_category else None
+
+                biospecimens[full_biospecimen_id] = Biospecimen(
+                    id=full_biospecimen_id,
+                    original_id=biospecimen_id,
+                    type=parsed_spec.biospecimen_type,
+                    description=parsed_spec.biospecimen_description,
+                    organism=parsed_spec.organism_names,
+                    organism_category=organism_category,
+                    disease_category=disease_category,
+                    diseases=parsed_spec.disease_names or []
+                )
+
+            full_biosample_id = f"{proj_obj.id}-{parsed_bs.biosample_id}-{biospecimen_id}"
+
+            parsed_demo = project_data.demographics[i] if i < len(project_data.demographics) else None
+            demographics = self._convert_demographics(parsed_demo, full_biosample_id) if parsed_demo else None
+
+            biosample_obj = Biosample(
+                id=full_biosample_id,
+                original_id=parsed_bs.biosample_id,
+                type=parsed_bs.biosample_type,
+                demographics=demographics
+            )
             biosamples.append(biosample_obj)
-            self._biosample_by_original_id[str(biosample_obj.original_id)] = biosample_obj
+            self._biosample_by_original_id[str(parsed_bs.biosample_id)] = biosample_obj
 
             project_biosample_edges.append(ProjectBiosampleEdge(start_node=proj_obj, end_node=biosample_obj))
             biosample_biospecimen_edges.append(
-                BiosampleBiospecimenEdge(start_node=biosample_obj, end_node=biospecimens[biospecimen_obj.id])
+                BiosampleBiospecimenEdge(start_node=biosample_obj, end_node=biospecimens[full_biospecimen_id])
             )
 
-            for exposure_config in exposure_configs:
-                exposure_obj = exposure_config.get_data(row)
-                sample_exposure_edges.append(BiosampleExposureEdge(start_node=biosample_obj, end_node=exposure_obj))
-                if exposure_obj.id not in exposures:
-                    exposures[exposure_obj.id] = exposure_obj
+            if num_exposure_slots > 0:
+                row_exposures = project_data.exposures[i * num_exposure_slots:(i + 1) * num_exposure_slots]
+                for parsed_exp in row_exposures:
+                    exposure_obj = self._convert_exposure(parsed_exp)
+                    sample_exposure_edges.append(BiosampleExposureEdge(start_node=biosample_obj, end_node=exposure_obj))
+                    if exposure_obj.id not in exposures:
+                        exposures[exposure_obj.id] = exposure_obj
 
         yield list(biospecimens.values())
         yield biosamples
@@ -143,22 +204,55 @@ class PounceInputAdapter(InputAdapter):
 
     # --- Experiment workbook ---
 
-    def _get_experiment_data(self, proj_obj: Project, exp_parser: ExcelsheetParser,
-                             stats_parser: Optional[ExcelsheetParser] = None
-                             ) -> Generator[List[Union[Node, Relationship]], None, None]:
+    def _get_experiment_data(
+        self,
+        proj_obj: Project,
+        exp_data: ParsedPounceData,
+        exp_parser: ExcelsheetParser,
+        stats_data: Optional[ParsedPounceData] = None,
+        stats_parser: Optional[ExcelsheetParser] = None,
+    ) -> Generator[List[Union[Node, Relationship]], None, None]:
         print(f"reading: {exp_parser.file_path}")
 
-        experiment_obj = self._create_experiment(proj_obj.id, exp_parser)
-        sheet = ExperimentWorkbook.ExperimentSheet
+        parsed = exp_data.experiments[0]
 
-        data_generator = self._get_person(
-            exp_parser, sheet.name,
-            sheet.Key.lead_data_generator, sheet.Key.lead_data_generator_email
+        exp_id = parsed.experiment_id
+        if not exp_id:
+            self._experiment_counter += 1
+            exp_id = f"{proj_obj.id}-exp-{self._experiment_counter}"
+
+        exp_date = None
+        if parsed.date:
+            try:
+                exp_date = datetime.strptime(str(parsed.date), "%Y%m%d").date()
+            except ValueError:
+                pass
+
+        experiment_obj = Experiment(
+            id=exp_id,
+            name=parsed.experiment_name,
+            description=parsed.experiment_description,
+            design=parsed.experiment_design,
+            experiment_type=parsed.experiment_type,
+            date=exp_date,
+            platform_type=parsed.platform_type,
+            platform_name=parsed.platform_name,
+            platform_provider=parsed.platform_provider,
+            platform_output_type=parsed.platform_output_type,
+            public_repo_id=parsed.public_repo_id,
+            repo_url=parsed.repo_url,
+            raw_file_archive_dir=parsed.raw_file_archive_dir or [],
+            extraction_protocol=parsed.extraction_protocol,
+            acquisition_method=parsed.acquisition_method,
+            metabolite_identification_description=parsed.metabolite_identification_description,
+            experiment_data_file=parsed.experiment_data_file,
+            attached_files=parsed.attached_files or []
         )
-        informatician = self._get_person(
-            exp_parser, sheet.name,
-            sheet.Key.lead_informatician, sheet.Key.lead_informatician_email
-        )
+
+        data_generator = Person.make(parsed.lead_data_generator, parsed.lead_data_generator_email) \
+            if parsed.lead_data_generator else None
+        informatician = Person.make(parsed.lead_informatician, parsed.lead_informatician_email) \
+            if parsed.lead_informatician else None
 
         persons = [p for p in [data_generator, informatician] if p is not None]
         person_edges = []
@@ -169,7 +263,31 @@ class PounceInputAdapter(InputAdapter):
 
         yield [experiment_obj, *persons, ProjectExperimentEdge(start_node=proj_obj, end_node=experiment_obj), *person_edges]
 
-        yield from self._get_run_biosample_data(proj_obj.id, exp_parser)
+        # Run biosamples
+        run_biosamples = []
+        rb_edges: List[BiosampleRunBiosampleEdge] = []
+        for parsed_rb in exp_data.run_biosamples:
+            run_biosample_id = parsed_rb.run_biosample_id
+            run_biosample_obj = RunBiosample(
+                id=f"{proj_obj.id}-{run_biosample_id}",
+                biological_replicate_number=self._parse_int(parsed_rb.biological_replicate_number),
+                technical_replicate_number=self._parse_int(parsed_rb.technical_replicate_number),
+                run_order=self._parse_int(parsed_rb.biosample_run_order)
+            )
+            run_biosamples.append(run_biosample_obj)
+            self._run_biosample_by_original_id[str(run_biosample_id)] = run_biosample_obj
+
+            biosample_id = str(parsed_rb.biosample_id)
+            if biosample_id in self._biosample_by_original_id:
+                rb_edges.append(BiosampleRunBiosampleEdge(
+                    start_node=self._biosample_by_original_id[biosample_id],
+                    end_node=run_biosample_obj
+                ))
+            else:
+                print(f"Warning: RunBiosample references unknown biosample_id: {biosample_id}")
+
+        yield run_biosamples
+        yield rb_edges
 
         sheet_names = exp_parser.sheet_dfs.keys()
         if ExperimentWorkbook.GeneMetaSheet.name in sheet_names:
@@ -198,57 +316,7 @@ class PounceInputAdapter(InputAdapter):
             )
 
         if stats_parser:
-            yield from self._get_stats_results_data(experiment_obj, stats_parser)
-
-    def _create_experiment(self, project_id: str, parser: ExcelsheetParser) -> Experiment:
-        sheet = ExperimentWorkbook.ExperimentSheet
-
-        exp_id = parser.safe_get_string(sheet.name, sheet.Key.experiment_id)
-        if not exp_id:
-            self._experiment_counter += 1
-            exp_id = f"{project_id}-exp-{self._experiment_counter}"
-
-        exp_date = None
-        date_str = parser.safe_get_string(sheet.name, sheet.Key.date)
-        if date_str:
-            try:
-                exp_date = datetime.strptime(str(date_str), "%Y%m%d").date()
-            except ValueError:
-                pass
-
-        return Experiment(
-            id=exp_id,
-            name=parser.safe_get_string(sheet.name, sheet.Key.experiment_name),
-            description=parser.safe_get_string(sheet.name, sheet.Key.experiment_description),
-            design=parser.safe_get_string(sheet.name, sheet.Key.experiment_design),
-            experiment_type=parser.safe_get_string(sheet.name, sheet.Key.experiment_type),
-            date=exp_date,
-            platform_type=parser.safe_get_string(sheet.name, sheet.Key.platform_type),
-            platform_name=parser.safe_get_string(sheet.name, sheet.Key.platform_name),
-            platform_provider=parser.safe_get_string(sheet.name, sheet.Key.platform_provider),
-            platform_output_type=parser.safe_get_string(sheet.name, sheet.Key.platform_output_type),
-            public_repo_id=parser.safe_get_string(sheet.name, sheet.Key.public_repo_id),
-            repo_url=parser.safe_get_string(sheet.name, sheet.Key.repo_url),
-            raw_file_archive_dir=parser.get_one_string_list(sheet.name, sheet.Key.raw_file_archive_dir),
-            extraction_protocol=parser.safe_get_string(sheet.name, sheet.Key.extraction_protocol),
-            acquisition_method=parser.safe_get_string(sheet.name, sheet.Key.acquisition_method),
-            metabolite_identification_description=parser.safe_get_string(sheet.name, sheet.Key.metabolite_identification_description),
-            experiment_data_file=parser.safe_get_string(sheet.name, sheet.Key.experiment_data_file),
-            attached_files=self._get_attached_files(parser)
-        )
-
-    def _get_attached_files(self, parser: ExcelsheetParser) -> List[str]:
-        """Collect attached_file_1, attached_file_2, etc. until one is empty/missing."""
-        sheet = ExperimentWorkbook.ExperimentSheet
-        attached_files = []
-        file_num = 1
-        while True:
-            value = parser.safe_get_string(sheet.name, sheet.Key.attached_file.format(file_num))
-            if not value:
-                break
-            attached_files.append(value)
-            file_num += 1
-        return attached_files
+            yield from self._get_stats_results_data(experiment_obj, stats_parser, stats_data)
 
     def _get_metabolite_categories(self, row, column_map: dict) -> List[CategoryValue]:
         categories = []
@@ -266,34 +334,6 @@ class PounceInputAdapter(InputAdapter):
                 )
             cat_num += 1
         return categories
-
-    def _get_run_biosample_data(self, project_id: str, parser: ExcelsheetParser
-                                ) -> Generator[List[Union[Node, Relationship]], None, None]:
-        """Parse RunSampleMeta sheet and create RunBiosamples with edges to Biosamples."""
-        run_sample_map = parser.get_parameter_map(ExperimentWorkbook.RunSampleMapSheet.name)
-        run_biosample_config = RunBiosampleConfig(run_sample_map, project_id)
-
-        run_biosamples = []
-        edges: List[BiosampleRunBiosampleEdge] = []
-
-        for _, row in parser.sheet_dfs[ExperimentWorkbook.RunSampleMetaSheet.name].iterrows():
-            run_biosample_obj = run_biosample_config.get_data(row)
-            run_biosamples.append(run_biosample_obj)
-
-            raw_run_id = str(run_biosample_config.get_row_value(row, run_biosample_config.run_biosample_id_column, True))
-            self._run_biosample_by_original_id[raw_run_id] = run_biosample_obj
-
-            biosample_id = str(run_biosample_config.get_biosample_id(row))
-            if biosample_id in self._biosample_by_original_id:
-                edges.append(BiosampleRunBiosampleEdge(
-                    start_node=self._biosample_by_original_id[biosample_id],
-                    end_node=run_biosample_obj
-                ))
-            else:
-                print(f"Warning: RunBiosample references unknown biosample_id: {biosample_id}")
-
-        yield run_biosamples
-        yield edges
 
     # --- Analyte parsing ---
 
@@ -401,11 +441,7 @@ class PounceInputAdapter(InputAdapter):
         return edges
 
     def _qualify_data_frame_ids(self, df):
-        """Rename DataFrame index and columns to use qualified entity IDs.
-
-        This ensures parquet files store IDs that match the node IDs in the database,
-        so foreign keys work correctly in downstream MySQL tables.
-        """
+        """Rename DataFrame index and columns to use qualified entity IDs."""
         index_rename = {}
         for raw_id in df.index:
             raw_id_str = str(raw_id)
@@ -450,8 +486,6 @@ class PounceInputAdapter(InputAdapter):
 
         self._coerce_numeric_columns(raw_df)
 
-        # Build edges using raw IDs before qualifying the DataFrame.
-        # (placeholder dataset needed for edge construction)
         placeholder = Dataset(
             id=dataset_id, data_type=data_type,
             pre_processing_description=pre_processing, peri_processing_description=peri_processing,
@@ -482,7 +516,8 @@ class PounceInputAdapter(InputAdapter):
         if analyte_edges:
             yield analyte_edges
 
-    def _get_stats_results_data(self, experiment_obj: Experiment, stats_parser: ExcelsheetParser
+    def _get_stats_results_data(self, experiment_obj: Experiment, stats_parser: ExcelsheetParser,
+                                stats_data: Optional[ParsedPounceData] = None
                                 ) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse StatsReadyData and EffectSize from the stats results workbook."""
         stats_sheet_names = stats_parser.sheet_dfs.keys()
@@ -503,12 +538,13 @@ class PounceInputAdapter(InputAdapter):
             )
 
         if StatsResultsWorkbook.EffectSizeSheet.name in stats_sheet_names:
-            yield from self._parse_effect_size(experiment_obj, analyte_id_col, es_column_map, stats_parser)
+            yield from self._parse_effect_size(experiment_obj, analyte_id_col, es_column_map, stats_parser, stats_data)
 
     def _parse_effect_size(self, experiment_obj: Experiment,
                            analyte_id_col: str = None,
                            es_column_map: Dict[str, ComparisonColumn] = None,
-                           parser: ExcelsheetParser = None
+                           parser: ExcelsheetParser = None,
+                           stats_data: Optional[ParsedPounceData] = None
                            ) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse EffectSize sheet into a StatsResult node with edges to analytes."""
         if es_column_map is None:
@@ -528,10 +564,10 @@ class PounceInputAdapter(InputAdapter):
             effect_size_2_description=parser.safe_get_string(meta_sheet.name, meta_sheet.Key.effect_size_2),
             data_analysis_code_link=parser.safe_get_string(meta_sheet.name, meta_sheet.Key.data_analysis_code_link),
         )
-        informatician = self._get_person(
-            parser, meta_sheet.name,
-            meta_sheet.Key.lead_informatician, meta_sheet.Key.lead_informatician_email
-        )
+
+        parsed_stats = stats_data.stats_results[0] if stats_data and stats_data.stats_results else None
+        informatician = Person.make(parsed_stats.lead_informatician, parsed_stats.lead_informatician_email) \
+            if parsed_stats and parsed_stats.lead_informatician else None
 
         raw_df = self._prepare_data_frame(parser, StatsResultsWorkbook.EffectSizeSheet.name, analyte_id_col)
 
@@ -550,16 +586,12 @@ class PounceInputAdapter(InputAdapter):
 
         self._coerce_numeric_columns(raw_df)
 
-        # Build analyte edges using raw index IDs before qualifying.
         placeholder = StatsResult(id=stats_result_id, data_type="effect_size",
                                   row_count=0, column_count=0, analyte_id_column=analyte_id_col)
         analyte_edges = self._build_analyte_edges(placeholder, raw_df, StatsResultGeneEdge, StatsResultMetaboliteEdge)
 
-        # Qualify DataFrame IDs (index only — effect size columns are comparison labels, not sample IDs)
         qualified_df = self._qualify_data_frame_ids(raw_df)
 
-        # Build enriched ComparisonColumn objects from actual sheet columns.
-        # Use map metadata where available; fall back to parsing the column name directly.
         comparison_columns = [
             es_column_map.get(str(col), ComparisonColumn.from_column_name(str(col)))
             for col in qualified_df.columns
@@ -581,19 +613,78 @@ class PounceInputAdapter(InputAdapter):
         if analyte_edges:
             yield analyte_edges
 
+    # --- Conversion helpers (ParsedX -> Node) ---
+
+    @staticmethod
+    def _make_category_value(value: str, column_name: str = None) -> Optional[CategoryValue]:
+        if value is None:
+            return None
+        col = column_name or "unknown"
+        return CategoryValue(id=f"{col}-{value}", name=col, value=value)
+
+    @staticmethod
+    def _convert_demographics(parsed, parent_id: str) -> Optional[Demographics]:
+        if parsed is None:
+            return None
+        age = parsed.age
+        race = parsed.race
+        ethnicity = parsed.ethnicity
+        sex = parsed.sex
+        categories_raw = parsed.demographic_categories or []
+        phenotype_raw = parsed.phenotype_categories or []
+
+        # Parse "column:value" strings into CategoryValue objects
+        categories = []
+        for cat_str in categories_raw:
+            if ":" in cat_str:
+                col, val = cat_str.split(":", 1)
+                categories.append(CategoryValue(id=f"{col}-{val}", name=col, value=val))
+
+        phenotype_categories = []
+        for cat_str in phenotype_raw:
+            if ":" in cat_str:
+                col, val = cat_str.split(":", 1)
+                phenotype_categories.append(CategoryValue(id=f"{col}-{val}", name=col, value=val))
+
+        if all(v is None for v in [age, race, ethnicity, sex]) and not categories and not phenotype_categories:
+            return None
+
+        return Demographics(
+            id=f"{parent_id}::demographics" if parent_id else None,
+            age=age, race=race, ethnicity=ethnicity, sex=sex,
+            categories=categories or None,
+            phenotype_categories=phenotype_categories or None
+        )
+
+    @staticmethod
+    def _convert_exposure(parsed) -> Exposure:
+        """Convert a ParsedExposure into an Exposure Node."""
+        return Exposure(
+            id='calculate',
+            names=parsed.names or [],
+            type=parsed.type,
+            category=CategoryValue(
+                id=f"exposure_category-{parsed.category}",
+                name="exposure_category", value=parsed.category
+            ) if parsed.category else None,
+            concentration=parsed.concentration,
+            concentration_unit=parsed.concentration_unit,
+            duration=parsed.duration,
+            duration_unit=parsed.duration_unit,
+            start_time=parsed.start_time,
+            end_time=parsed.end_time,
+            growth_media=parsed.growth_media,
+            condition=CategoryValue(
+                id=f"condition_category-{parsed.condition_category}",
+                name="condition_category", value=parsed.condition_category
+            ) if parsed.condition_category else None,
+        )
+
     # --- Utilities ---
 
     @staticmethod
     def _parse_effect_size_map(parser: ExcelsheetParser) -> Tuple[Optional[str], Dict[str, ComparisonColumn]]:
-        """Parse EffectSize_Map sheet into (analyte_id_col, {col_name: ComparisonColumn}).
-
-        The map sheet has two kinds of rows:
-          - Analyte ID row: NCATSDPI key is 'metabolite_id' or 'gene_id'; value is the
-            actual column name in the EffectSize sheet that holds analyte identifiers.
-          - Comparison rows: NCATSDPI key is 'NA ...' or empty; Submitter_Variable_Name
-            is pipe-encoded as 'col_name | biosample_field1 | biosample_field2 | ...';
-            Submitter_Notes holds a human-readable description.
-        """
+        """Parse EffectSize_Map sheet into (analyte_id_col, {col_name: ComparisonColumn})."""
         sheet_name = StatsResultsWorkbook.EffectSizeMapSheet.name
         df = parser.sheet_dfs.get(sheet_name)
         if df is None or df.empty:
@@ -645,13 +736,6 @@ class PounceInputAdapter(InputAdapter):
         return analyte_id_col, column_map
 
     @staticmethod
-    def _get_person(parser: ExcelsheetParser, sheet_name: str, name_key: str, email_key: str) -> Optional[Person]:
-        name = parser.safe_get_string(sheet_name, name_key)
-        if not name:
-            return None
-        return Person.make(name, parser.safe_get_string(sheet_name, email_key))
-
-    @staticmethod
     def _coerce_numeric_columns(df) -> None:
         """Convert all DataFrame columns to numeric in-place, coercing non-numeric values to NaN."""
         for col in df.columns:
@@ -673,11 +757,3 @@ class PounceInputAdapter(InputAdapter):
             return int(float(value))
         except (ValueError, TypeError):
             return None
-
-    @staticmethod
-    def _get_persons_from_lists(names: List[str], emails: List[str]) -> List[Person]:
-        if len(emails) == 0:
-            return [Person.make(name) for name in names]
-        if len(names) != len(emails):
-            raise LookupError(f"Names and emails must have the same length: {names} vs {emails}")
-        return [Person.make(name, email) for name, email in zip(names, emails)]

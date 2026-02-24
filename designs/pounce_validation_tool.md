@@ -1,4 +1,4 @@
-lo# POUNCE Validation Tool
+# ok,POUNCE Validation Tool
 
 ## Background
 
@@ -31,100 +31,120 @@ the categories of validators described here.
 
 ---
 
-## Proposed Architecture
+## Architecture
 
-### 1. Validator Configuration (`pounce_validators.yaml`)
+### Validator framework (`src/core/`)
 
-A dedicated YAML file defines all validation rules, organized by entity and field.
-Simple rules use built-in rule types. Complex rules (cross-sheet checks, etc.) point to a
-Python class, following the same `import`/`class` pattern used for input adapters in the ETL
-YAML.
+`ValidationError` carries: `severity`, `entity`, `field`, `message`, and optional `sheet`,
+`column`, `row` hints so error messages can point users to the exact location in their
+spreadsheet.
 
-```yaml
-project:
-  date:
-    - rule: date_format
-      format: "%Y%m%d"
-      message: "Date must be in YYYYMMDD format (e.g. 20240215)"
-  owner_name:
-    - rule: list_length_match
-      match_field: owner_email
-      message: "Owner names and emails must have the same count"
-
-cross_sheet:
-  - import: ./src/validators/pounce/reference_validators.py
-    class: BiosampleRunReferenceValidator
-    message: "RunBiosample references a biosample_id not found in BioSampleMeta"
+All validators implement:
+```python
+class Validator(ABC):
+    def validate(self, data: Any) -> List[ValidationError]: ...
 ```
 
-The ETL YAML references it:
-```yaml
-# pounce_v2.yaml
-validators_config: ./src/validators/pounce_validators.yaml
-```
+Built-in rule types (`required`, `allowed_values`, etc.) are implementations of this interface.
+Complex validators (cross-sheet reference checks, etc.) are custom Python classes.
 
-Adding a new validation is either one YAML entry (built-in rule) or one Python class plus one
-YAML entry (custom logic). Messages are defined per-rule and easy to update.
+### Validators are tied to input adapters
 
-### 2. Validator Interface
-
-All validators implement a simple interface:
+The `InputAdapter` base class gets two new default methods:
 
 ```python
-class Validator:
-    def validate(self, parsed_data: ParsedPounceData) -> List[ValidationError]:
-        ...
+def get_validators(self) -> list:       return []
+def get_validation_data(self):          return None
 ```
 
-Built-in rule types (`required`, `date_format`, `list_length_match`, `allowed_values`, etc.)
-are implementations of this interface, instantiated automatically from YAML parameters.
+Each adapter overrides these when it supports validation. `validators_config` is passed as a
+kwarg so the config path can be set per YAML entry:
 
-`ValidationError` carries: `severity` (error/warning), `entity`, `field`, `row` (if applicable),
-and `message`.
-
-### 3. Standalone Validation Workflow
-
-Validation runs independently of the ETL — no database write, no output adapter. The parser
-runs, the validators run against the result, and a structured report is returned:
-
-```json
-{
-  "errors": [...],
-  "warnings": [...],
-  "parsed": { "project": {...}, "biosamples": [...], "experiments": [...] }
-}
+```yaml
+input_adapters:
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ...
+      validators_config: ./src/input_adapters/pounce_sheets/pounce_validators.py
 ```
 
-The `parsed` block represents the data model as the system understood it, even with errors
-present, so submitters can see what did and didn't parse correctly.
+### Validation is a separate workflow from ETL
 
-### 4. Web UI
+Validation has a different contract than ETL: no database writes, collects all errors rather
+than stopping on the first, and must be fast. A `validate_only` flag on the ETL would
+conflate two different concerns. Instead, a standalone script and later a web UI call
+`get_validation_data()` + `get_validators()` directly.
+
+### `get_validation_data()` returns metadata only
+
+Data matrices (RawData, PeakData, StatsReadyData) can be 100k+ rows and are not needed for
+validation. `get_validation_data()` parses only the metadata sheets — Project, Biosample,
+Experiment, RunBiosample — and returns a lightweight container. This keeps validation fast
+regardless of data volume.
+
+### Validator config is a Python file (for now)
+
+Validators are configured in a Python file, not YAML, so they can reference the constants
+classes directly:
+
+```python
+from src.input_adapters.pounce_sheets.constants import ProjectWorkbook
+
+VALIDATORS = [
+    RequiredValidator(
+        sheet=ProjectWorkbook.ProjectSheet.name,
+        column=ProjectWorkbook.ProjectSheet.Key.project_name,
+        message="ProjectMeta: 'project_name' is required"
+    ),
+]
+```
+
+If a sheet or field name changes in `constants.py`, the validator breaks loudly (not silently).
+IDE autocomplete works. Adding a new rule is one entry in the list.
+
+### Web UI
 
 A simple web tool where submitters upload their workbooks (one Project, one or more paired
-Experiment + StatsResults), the validation runs, and
-results are displayed — parsed data shown in green/yellow/red depending on validation status.
-
-Admins can view and update the built-in validation rules through the UI. The UI reads and
-writes `pounce_validators.yaml` as its backing store. Custom Python validators remain in
-version control.
-
----
-
-## Future Direction
-
-Once the validation tool is working and trusted, the parsed JSON output from validation can
-be loaded directly into the database, bypassing the Excel parsing step in the ETL pipeline.
-
-Further out: the web tool's data entry form could be driven by an LLM that asks submitters
-questions to fill out the same data model, replacing the Excel workbooks as the input mechanism
-entirely. The data model and validator layer remain unchanged.
+Experiment + StatsResults), the validation runs, and results are displayed — parsed data shown
+in green/yellow/red depending on validation status.
 
 ---
 
 ## Build Order
 
-1. Validator interface + built-in rule implementations
-2. Validator loader (reads YAML, instantiates validators)
-3. Standalone validation script (wraps existing parser, runs validators, outputs report)
-4. Web UI (upload → validate → display)
-5. Admin UI for managing built-in validators
+1. `src/core/validator.py` — `ValidationError`, `Validator` ABC, built-in rules
+2. Add `get_validators()` / `get_validation_data()` to `InputAdapter` interface
+3. Implement both in `PounceInputAdapter` (metadata-only parse, load validators from config)
+4. `pounce_validators.py` — first few validators using constants references
+5. `src/use_cases/validate_pounce.py` — standalone script
+6. Unit tests
+7. Web UI (upload → validate → display)
+
+---
+
+## Future Considerations
+
+**Migrate validator config to YAML when the web UI needs it.**
+When admins need to edit validators through a UI, export the Python config to YAML as a
+one-time migration. From that point YAML is the source of truth. The validator interface
+is unchanged — only the loader changes.
+
+**Other input adapters should get constants classes.**
+TSV/CSV adapters currently have column names scattered as raw strings. If a source file
+changes format, things break silently. The same pattern (constants class + validator config)
+should be applied to other adapters, especially frequently-updated ones like target_graph.
+
+**Schema consistency validation.**
+If submitters fill out sheets inconsistently (e.g., a field that exists in one project's
+BioSampleMap but not another's), we should flag that and suggest they align their column
+naming. This is separate from field-level validation and would be a cross-submission check.
+
+**Direct JSON loading.**
+Once the validation tool is trusted, the parsed output from `get_validation_data()` can
+be loaded directly into the database, bypassing the Excel parse step in the ETL entirely.
+
+**LLM-driven data entry.**
+Longer term: the web tool asks submitters questions to fill out the same data model,
+replacing Excel workbooks as the input mechanism. The validator layer is unchanged —
+same rules, different front door.
