@@ -8,8 +8,8 @@ from typing import Any, List
 from src.core.validator import ValidationError, Validator
 from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook
 
-_RUN_MAP = ExperimentWorkbook.RunSampleMapSheet
-_RUN_META = ExperimentWorkbook.RunSampleMetaSheet
+_RUN_MAP = ExperimentWorkbook.RunBioSampleMapSheet
+_RUN_META = ExperimentWorkbook.RunBioSampleMetaSheet
 
 
 # ---------------------------------------------------------------------------

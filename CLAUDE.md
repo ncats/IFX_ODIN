@@ -119,7 +119,7 @@ Parses three Excel workbooks per project (all configured via `pounce_v2.yaml`):
 | Workbook | Sheets | Purpose |
 |----------|--------|---------|
 | **Project** | ProjectMeta, BioSampleMap, BioSampleMeta | Project metadata, biosamples, biospecimens, exposures |
-| **Experiment** | ExperimentMeta, RunSampleMap/Meta, GeneMap/Meta or MetabMap/Meta, RawData/Meta or PeakData/Meta | Experiment metadata, run-level samples, analytes, raw data matrix |
+| **Experiment** | ExperimentMeta, RunBioSampleMap/Meta, GeneMap/Meta or MetabMap/Meta, RawData/Meta or PeakData/Meta | Experiment metadata, run-level samples, analytes, raw data matrix |
 | **StatsResults** | StatsResultsMeta, StatsReadyData, EffectSize_Map, EffectSize | Statistical analysis results (normalized data, effect sizes) |
 
 Sheet constants are in `constants.py` (`ProjectWorkbook`, `ExperimentWorkbook`, `StatsResultsWorkbook`). Map sheets define column name mappings from NCATS standard names to submitter names. Meta sheets contain the actual data rows.

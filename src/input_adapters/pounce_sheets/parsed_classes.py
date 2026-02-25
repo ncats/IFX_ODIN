@@ -199,21 +199,95 @@ class ParsedExperiment:
 
 
 # ---------------------------------------------------------------------------
-# Experiment workbook — RunSampleMeta via RunSampleMap (mapped sheet, multi-row)
+# Experiment workbook — GeneMeta via GeneMap (mapped sheet, multi-row)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedGene:
+    gene_id: Optional[str] = sheet_field(
+        key="gene_id", sheet="GeneMeta")
+    hgnc_gene_symbol: Optional[str] = sheet_field(
+        key="hgnc_gene_symbol", sheet="GeneMeta")
+    gene_biotype: Optional[str] = sheet_field(
+        key="gene_biotype", sheet="GeneMeta")
+    alternate_id: Optional[str] = sheet_field(
+        key="alternate_id", sheet="GeneMeta")
+    chromosome_location: Optional[str] = sheet_field(
+        key="chromosome_location", sheet="GeneMeta")
+    strand: Optional[str] = sheet_field(
+        key="strand", sheet="GeneMeta")
+    pathway_ids: Optional[str] = sheet_field(
+        key="pathway_ids", sheet="GeneMeta")
+    categories: Optional[List[str]] = sheet_field(
+        key="category {}", sheet="GeneMeta", indexed=True, default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Experiment workbook — MetabMeta via MetabMap (mapped sheet, multi-row)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedMetab:
+    metab_id: Optional[str] = sheet_field(
+        key="metab_id", sheet="MetabMeta")
+    metab_name: Optional[str] = sheet_field(
+        key="metab_name", sheet="MetabMeta")
+    metab_chemclass: Optional[str] = sheet_field(
+        key="metab_chemclass", sheet="MetabMeta")
+    identification_level: Optional[int] = sheet_field(
+        key="identification_level", sheet="MetabMeta", parse="int")
+    alternate_metab_id: Optional[str] = sheet_field(
+        key="alternate_metab_id", sheet="MetabMeta")
+    alternate_metab_symbol: Optional[str] = sheet_field(
+        key="alternate_metab_symbol", sheet="MetabMeta")
+    pathway_ids: Optional[str] = sheet_field(
+        key="pathway_ids", sheet="MetabMeta")
+    categories: Optional[List[str]] = sheet_field(
+        key="category {}", sheet="MetabMeta", indexed=True, default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Experiment workbook — PeakDataMeta (meta sheet, single-row key-value)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedPeakDataMeta:
+    pre_processing_description: Optional[str] = sheet_field(
+        key="pre_processing_description", sheet="PeakDataMeta")
+    peri_processing_description: Optional[str] = sheet_field(
+        key="peri_processing_description", sheet="PeakDataMeta")
+    peakdata_tag: Optional[str] = sheet_field(
+        key="peakdata_tag", sheet="PeakDataMeta")
+
+
+# ---------------------------------------------------------------------------
+# Experiment workbook — RawDataMeta (meta sheet, single-row key-value)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedRawDataMeta:
+    pre_processing_description: Optional[str] = sheet_field(
+        key="pre_processing_description", sheet="RawDataMeta")
+    peakdata_tag: Optional[str] = sheet_field(
+        key="peakdata_tag", sheet="RawDataMeta")
+
+
+# ---------------------------------------------------------------------------
+# Experiment workbook — RunBioSampleMeta via RunBioSampleMap (mapped sheet, multi-row)
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ParsedRunBiosample:
     run_biosample_id: Optional[str] = sheet_field(
-        key="run_biosample_id", sheet="RunSampleMeta")
+        key="run_biosample_id", sheet="RunBioSampleMeta")
     biosample_id: Optional[str] = sheet_field(
-        key="biosample_id", sheet="RunSampleMeta")
+        key="biosample_id", sheet="RunBioSampleMeta")
     biological_replicate_number: Optional[str] = sheet_field(
-        key="biological_replicate_number", sheet="RunSampleMeta", parse="int")
+        key="biological_replicate_number", sheet="RunBioSampleMeta", parse="int")
     technical_replicate_number: Optional[str] = sheet_field(
-        key="technical_replicate_number", sheet="RunSampleMeta", parse="int")
+        key="technical_replicate_number", sheet="RunBioSampleMeta", parse="int")
     biosample_run_order: Optional[str] = sheet_field(
-        key="biosample_run_order", sheet="RunSampleMeta", parse="int")
+        key="biosample_run_order", sheet="RunBioSampleMeta", parse="int")
 
 
 # ---------------------------------------------------------------------------
@@ -226,10 +300,6 @@ class ParsedStatsResultsMeta:
         key="statsresults_name", sheet="StatsResultsMeta")
     stats_description: Optional[str] = sheet_field(
         key="stats_description", sheet="StatsResultsMeta")
-    experiment_name: Optional[str] = sheet_field(
-        key="experiment_name", sheet="StatsResultsMeta")
-    experiment_id: Optional[str] = sheet_field(
-        key="experiment_id", sheet="StatsResultsMeta")
     lead_informatician: Optional[str] = sheet_field(
         key="lead_informatician", sheet="StatsResultsMeta")
     lead_informatician_email: Optional[str] = sheet_field(

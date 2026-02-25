@@ -13,16 +13,62 @@ input_adapters:
       project_file: ./input_files/manual/pounce/test_sheets/Project_Metabo_Template.xlsx
       experiment_files:
         - ./input_files/manual/pounce/test_sheets/Experiment_Metabo_Template.xlsx
-        - ./input_files/manual/pounce/test_sheets/Experiment_Transcriptomics_Template.xlsx
       stats_results_files:
         - ./input_files/manual/pounce/test_sheets/StatsResults_Metabo_Template.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/test_sheets/Project_Transcriptomics_Template.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/test_sheets/Experiment_Transcriptomics_Template.xlsx
+      stats_results_files:
         - ./input_files/manual/pounce/test_sheets/StatsResults_Transcriptomics_Template.xlsx
       validators_config: ./src/use_cases/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
-      project_file: Project_Transcriptomics_Template.xlsx
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Metabo_Template_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_Template_v2.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_Template_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_Template_v2.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/POUNCE_Project _Metabo_FDA_Flavivirus.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_ACUTE.xlsx
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_LTI_Lipidomics.xlsx
+        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_FDA_Flavivirus_LTI_Metabolomics.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_ACUTE.xlsx
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Lipidomics.xlsx
+        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Metabolomics.xlsx
       validators_config: ./src/use_cases/pounce_validators.yaml
 
 output_adapters:

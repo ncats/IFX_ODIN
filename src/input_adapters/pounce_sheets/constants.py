@@ -26,8 +26,8 @@ class ExperimentWorkbook:
             experiment_data_file = "experiment_data_file"
             attached_file = "attached_file_{}"
 
-    class RunSampleMapSheet:
-        name = "RunSampleMap"
+    class RunBioSampleMapSheet:
+        name = "RunBioSampleMap"
 
         class Key:
             run_biosample_id = "run_biosample_id"
@@ -36,8 +36,8 @@ class ExperimentWorkbook:
             technical_replicate_number = "technical_replicate_number"
             biosample_run_order = "biosample_run_order"
 
-    class RunSampleMetaSheet:
-        name = "RunSampleMeta"
+    class RunBioSampleMetaSheet:
+        name = "RunBioSampleMeta"
 
     class MetabMapSheet:
         name = "MetabMap"
@@ -77,6 +77,7 @@ class ExperimentWorkbook:
             chromosome_location = "chromosome_location"
             strand = "strand"
             pathway_ids = "pathway_ids"
+            category = "category {}"
 
     class GeneMetaSheet:
         name = "GeneMeta"

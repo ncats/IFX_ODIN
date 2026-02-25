@@ -7,6 +7,7 @@ only, no DB) and the ETL pipeline (which additionally processes data matrices).
 
 import re
 from collections import defaultdict
+import pandas as pd
 from typing import Dict, List, Optional, Set, Type
 
 from src.core.validator import ValidationError
@@ -17,8 +18,12 @@ from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedDemographics,
     ParsedExperiment,
     ParsedExposure,
+    ParsedGene,
+    ParsedMetab,
+    ParsedPeakDataMeta,
     ParsedPerson,
     ParsedProject,
+    ParsedRawDataMeta,
     ParsedRunBiosample,
     ParsedStatsResultsMeta,
 )
@@ -35,8 +40,8 @@ _PROJECT_REQUIRED_SHEETS: Set[str] = {
 
 _EXPERIMENT_REQUIRED_SHEETS: Set[str] = {
     ExperimentWorkbook.ExperimentSheet.name,
-    ExperimentWorkbook.RunSampleMapSheet.name,
-    ExperimentWorkbook.RunSampleMetaSheet.name,
+    ExperimentWorkbook.RunBioSampleMapSheet.name,
+    ExperimentWorkbook.RunBioSampleMetaSheet.name,
 }
 _EXPERIMENT_RECOGNIZED_SHEETS: Set[str] = _EXPERIMENT_REQUIRED_SHEETS | {
     ExperimentWorkbook.GeneMapSheet.name,
@@ -63,11 +68,23 @@ _STATS_RECOGNIZED_SHEETS: Set[str] = _STATS_REQUIRED_SHEETS | {
 _KNOWN_KEYS_BY_SHEET: Dict[str, Set[str]] = defaultdict(set)
 for _cls in [
     ParsedProject, ParsedBiosample, ParsedBiospecimen, ParsedDemographics,
-    ParsedExposure, ParsedExperiment, ParsedRunBiosample, ParsedStatsResultsMeta,
+    ParsedExposure, ParsedExperiment, ParsedGene, ParsedMetab,
+    ParsedPeakDataMeta, ParsedRawDataMeta,
+    ParsedRunBiosample, ParsedStatsResultsMeta,
 ]:
     for _f, _meta in get_sheet_fields(_cls):
         if _meta["sheet"]:
             _KNOWN_KEYS_BY_SHEET[_meta["sheet"]].add(_meta["key"])
+
+# EffectSize_Map has no parsed dataclass (parsing not yet implemented); seed manually.
+_KNOWN_KEYS_BY_SHEET[StatsResultsWorkbook.EffectSizeMapSheet.name] = {
+    StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id,
+    StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id,
+}
+
+# Placeholder key used in EffectSize_Map rows that don't yet have an NCATSDPI name.
+# Treated as NA: silently skipped in unknown-key checks and column-existence checks.
+_PLACEHOLDER_KEY = "NA (submitter creates new values)"
 
 
 class PounceParser:
@@ -164,7 +181,7 @@ class PounceParser:
         if column_name is None or column_name == "":
             return None
         val = row.get(column_name)
-        if val is None or val == "" or val == "NA" or val == "N/A":
+        if pd.isna(val) or val == "" or val == "NA" or val == "N/A":
             return None
         if is_list:
             return [v.strip() for v in str(val).split("|") if v.strip()]
@@ -235,9 +252,11 @@ class PounceParser:
         data.people = owners + collaborators
 
         # --- BioSampleMeta via BioSampleMap (mapped sheet) ---
-        if "BioSampleMap" in parser.sheet_dfs and "BioSampleMeta" in parser.sheet_dfs:
+        if "BioSampleMap" in parser.sheet_dfs:
             issues.extend(self._check_unknown_keys(parser, "BioSampleMap", "BioSampleMeta"))
+        if "BioSampleMap" in parser.sheet_dfs and "BioSampleMeta" in parser.sheet_dfs:
             biosample_map = parser.get_parameter_map("BioSampleMap")
+            issues.extend(self._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", biosample_map))
             sheet_df = parser.sheet_dfs["BioSampleMeta"]
 
             # Determine how many exposure slots exist
@@ -275,14 +294,48 @@ class PounceParser:
         issues.extend(self._check_unknown_keys(parser, "ExperimentMeta", "ExperimentMeta"))
         data.experiments.append(self.parse_meta_sheet(parser, ParsedExperiment))
 
-        # --- RunSampleMeta via RunSampleMap (mapped sheet) ---
-        if "RunSampleMap" in parser.sheet_dfs and "RunSampleMeta" in parser.sheet_dfs:
-            issues.extend(self._check_unknown_keys(parser, "RunSampleMap", "RunSampleMeta"))
-            run_sample_map = parser.get_parameter_map("RunSampleMap")
-            data.param_maps[ExperimentWorkbook.RunSampleMapSheet.name] = run_sample_map
-            for _, row in parser.sheet_dfs["RunSampleMeta"].iterrows():
+        # --- RunBioSampleMeta via RunBioSampleMap (mapped sheet) ---
+        if "RunBioSampleMap" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "RunBioSampleMap", "RunBioSampleMeta"))
+            run_sample_map = parser.get_parameter_map("RunBioSampleMap")
+            data.param_maps[ExperimentWorkbook.RunBioSampleMapSheet.name] = run_sample_map
+        if "RunBioSampleMap" in parser.sheet_dfs and "RunBioSampleMeta" in parser.sheet_dfs:
+            issues.extend(self._check_mapped_columns(parser, "RunBioSampleMap", "RunBioSampleMeta", run_sample_map))
+            for _, row in parser.sheet_dfs["RunBioSampleMeta"].iterrows():
                 data.run_biosamples.append(
                     self._parse_mapped_row(row, run_sample_map, ParsedRunBiosample))
+
+        # --- GeneMeta via GeneMap (mapped sheet) ---
+        if "GeneMap" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "GeneMap", "GeneMeta"))
+            gene_map = parser.get_parameter_map("GeneMap")
+            data.param_maps[ExperimentWorkbook.GeneMapSheet.name] = gene_map
+        if "GeneMap" in parser.sheet_dfs and "GeneMeta" in parser.sheet_dfs:
+            issues.extend(self._check_mapped_columns(parser, "GeneMap", "GeneMeta", gene_map))
+            for _, row in parser.sheet_dfs["GeneMeta"].iterrows():
+                data.genes.append(
+                    self._parse_mapped_row(row, gene_map, ParsedGene))
+
+        # --- MetabMeta via MetabMap (mapped sheet) ---
+        if "MetabMap" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "MetabMap", "MetabMeta"))
+            metab_map = parser.get_parameter_map("MetabMap")
+            data.param_maps[ExperimentWorkbook.MetabMapSheet.name] = metab_map
+        if "MetabMap" in parser.sheet_dfs and "MetabMeta" in parser.sheet_dfs:
+            issues.extend(self._check_mapped_columns(parser, "MetabMap", "MetabMeta", metab_map))
+            for _, row in parser.sheet_dfs["MetabMeta"].iterrows():
+                data.metabolites.append(
+                    self._parse_mapped_row(row, metab_map, ParsedMetab))
+
+        # --- PeakDataMeta (meta sheet) ---
+        if "PeakDataMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "PeakDataMeta", "PeakDataMeta"))
+            data.peak_data_meta.append(self.parse_meta_sheet(parser, ParsedPeakDataMeta))
+
+        # --- RawDataMeta (meta sheet) ---
+        if "RawDataMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "RawDataMeta", "RawDataMeta"))
+            data.raw_data_meta.append(self.parse_meta_sheet(parser, ParsedRawDataMeta))
 
         return data, issues
 
@@ -300,6 +353,18 @@ class PounceParser:
             issues.extend(self._check_unknown_keys(parser, "StatsResultsMeta", "StatsResultsMeta"))
             data.stats_results.append(
                 self.parse_meta_sheet(parser, ParsedStatsResultsMeta))
+
+        # --- EffectSize_Map (map sheet) ---
+        if "EffectSize_Map" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "EffectSize_Map", "EffectSize_Map"))
+            effect_size_map = parser.get_parameter_map("EffectSize_Map")
+            data.param_maps[StatsResultsWorkbook.EffectSizeMapSheet.name] = effect_size_map
+            # Validate that every mapped column name exists in the EffectSize sheet.
+            # EffectSize_Map values may be pipe-delimited ("col_name | property");
+            # only the first segment is the actual column name.
+            # We read the raw DataFrame (not param_map) because duplicate placeholder
+            # keys collapse in to_dict(), losing most rows.
+            issues.extend(self._check_effect_size_columns(parser))
 
         return data, issues
 
@@ -320,13 +385,19 @@ class PounceParser:
             exp_parser = ExcelsheetParser(file_path=exp_file)
             exp_data, exp_issues = self.parse_experiment(exp_parser)
             combined.experiments.extend(exp_data.experiments)
+            combined.genes.extend(exp_data.genes)
+            combined.metabolites.extend(exp_data.metabolites)
+            combined.peak_data_meta.extend(exp_data.peak_data_meta)
+            combined.raw_data_meta.extend(exp_data.raw_data_meta)
             combined.run_biosamples.extend(exp_data.run_biosamples)
+            combined.param_maps.update(exp_data.param_maps)
             issues.extend(exp_issues)
 
         for stats_file in stats_files:
             stats_parser = ExcelsheetParser(file_path=stats_file)
             stats_data, stats_issues = self.parse_stats_results(stats_parser)
             combined.stats_results.extend(stats_data.stats_results)
+            combined.param_maps.update(stats_data.param_maps)
             issues.extend(stats_issues)
 
         return combined, issues
@@ -378,7 +449,7 @@ class PounceParser:
         known = _KNOWN_KEYS_BY_SHEET.get(data_sheet_name, set())
         for raw_key in df[key_col].dropna():
             key = str(raw_key).strip()
-            if not key:
+            if not key or key == _PLACEHOLDER_KEY:
                 continue
             normalized = re.sub(r'\d+', '{}', key)
             if key not in known and normalized not in known:
@@ -389,6 +460,83 @@ class PounceParser:
                     message=f"Unrecognized NCATSDPI_Variable_Name: '{key}' — this field will not be used",
                     sheet=sheet_name,
                     column=key,
+                    source_file=parser.file_path,
+                ))
+        return issues
+
+    @staticmethod
+    def _check_mapped_columns(
+        parser: ExcelsheetParser,
+        map_sheet: str,
+        meta_sheet: str,
+        param_map: dict,
+    ) -> List[ValidationError]:
+        """Return errors for column names configured in a map sheet that do not
+        exist as headers in the corresponding meta sheet.
+
+        A missing mapped column means every row silently yields ``None`` for
+        that field, which is almost always a submitter typo.
+        """
+        issues: List[ValidationError] = []
+        if meta_sheet not in parser.sheet_dfs:
+            return issues
+        meta_columns = set(parser.sheet_dfs[meta_sheet].columns)
+        for ncatsdpi_key, column_name in param_map.items():
+            if not column_name or column_name in ("NA", "N/A", ""):
+                continue
+            if column_name not in meta_columns:
+                issues.append(ValidationError(
+                    severity="error",
+                    entity="parse",
+                    field=ncatsdpi_key,
+                    message=(
+                        f"'{map_sheet}' maps '{ncatsdpi_key}' → '{column_name}', "
+                        f"but column '{column_name}' does not exist in '{meta_sheet}'"
+                    ),
+                    sheet=map_sheet,
+                    column=ncatsdpi_key,
+                    source_file=parser.file_path,
+                ))
+        return issues
+
+    @staticmethod
+    def _check_effect_size_columns(parser: ExcelsheetParser) -> List[ValidationError]:
+        """Check that every column name configured in EffectSize_Map exists in EffectSize.
+
+        Reads the raw DataFrame (not the param_map dict) because multiple rows
+        share the placeholder key and would collapse to one entry in to_dict().
+        Values may be pipe-delimited ("col_name | property"); only the first
+        segment is the actual column name.
+        """
+        if "EffectSize_Map" not in parser.sheet_dfs or "EffectSize" not in parser.sheet_dfs:
+            return []
+        issues: List[ValidationError] = []
+        es_columns = set(parser.sheet_dfs["EffectSize"].columns)
+        es_map_df = parser.sheet_dfs["EffectSize_Map"]
+        key_col = ExcelsheetParser.KEY_COLUMN
+        val_col = ExcelsheetParser.MAPPED_VALUE_COLUMN
+        if val_col not in es_map_df.columns:
+            return []
+        for _, row in es_map_df.iterrows():
+            raw_key = row.get(key_col)
+            raw_val = row.get(val_col)
+            if pd.isna(raw_val):
+                continue
+            col_name = str(raw_val).split("|")[0].strip()
+            if not col_name or col_name in ("NA", "N/A", ""):
+                continue
+            if col_name not in es_columns:
+                ncatsdpi_key = str(raw_key).strip() if raw_key and not pd.isna(raw_key) else _PLACEHOLDER_KEY
+                issues.append(ValidationError(
+                    severity="error",
+                    entity="parse",
+                    field=ncatsdpi_key,
+                    message=(
+                        f"'EffectSize_Map' maps '{ncatsdpi_key}' → '{col_name}', "
+                        f"but column '{col_name}' does not exist in 'EffectSize'"
+                    ),
+                    sheet="EffectSize_Map",
+                    column=ncatsdpi_key,
                     source_file=parser.file_path,
                 ))
         return issues

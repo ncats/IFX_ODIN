@@ -541,9 +541,9 @@ def _make_experiment_parser(meta: dict = None, run_map: dict = None, run_rows: l
     param_maps = {}
 
     if run_map is not None and run_rows is not None:
-        sheet_dfs["RunSampleMap"] = pd.DataFrame()
-        sheet_dfs["RunSampleMeta"] = pd.DataFrame(run_rows)
-        param_maps["RunSampleMap"] = run_map
+        sheet_dfs["RunBioSampleMap"] = pd.DataFrame()
+        sheet_dfs["RunBioSampleMeta"] = pd.DataFrame(run_rows)
+        param_maps["RunBioSampleMap"] = run_map
 
     return make_mock_parser(
         meta_data={"ExperimentMeta": meta},
@@ -714,6 +714,69 @@ class TestParseDemographicsRow:
 # ---------------------------------------------------------------------------
 # parse_all (integration)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _check_mapped_columns
+# ---------------------------------------------------------------------------
+
+class TestCheckMappedColumns:
+
+    def _make_parser(self, meta_columns, param_map):
+        mock = MagicMock(spec=ExcelsheetParser)
+        mock.file_path = "test.xlsx"
+        mock.sheet_dfs = {
+            "BioSampleMeta": pd.DataFrame(columns=meta_columns)
+        }
+        mock.get_parameter_map = MagicMock(return_value=param_map)
+        return mock
+
+    def test_all_columns_present_returns_no_errors(self):
+        parser = self._make_parser(["SampleID", "SampleType"], {"biosample_id": "SampleID", "biosample_type": "SampleType"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": "SampleID", "biosample_type": "SampleType"})
+        assert issues == []
+
+    def test_missing_column_returns_error(self):
+        parser = self._make_parser(["SampleID"], {"biosample_id": "SampleID", "biosample_type": "WrongColumn"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": "SampleID", "biosample_type": "WrongColumn"})
+        assert len(issues) == 1
+        assert "WrongColumn" in issues[0].message
+        assert issues[0].severity == "error"
+
+    def test_error_references_ncatsdpi_key_and_column(self):
+        parser = self._make_parser([], {"biosample_id": "Typo"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": "Typo"})
+        assert issues[0].field == "biosample_id"
+        assert issues[0].column == "biosample_id"
+        assert "Typo" in issues[0].message
+
+    def test_na_value_is_skipped(self):
+        parser = self._make_parser([], {"biosample_id": "NA"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": "NA"})
+        assert issues == []
+
+    def test_empty_value_is_skipped(self):
+        parser = self._make_parser([], {"biosample_id": ""})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": ""})
+        assert issues == []
+
+    def test_meta_sheet_absent_returns_no_errors(self):
+        mock = MagicMock(spec=ExcelsheetParser)
+        mock.file_path = "test.xlsx"
+        mock.sheet_dfs = {}  # meta sheet not present
+        issues = PounceParser._check_mapped_columns(mock, "BioSampleMap", "BioSampleMeta", {"biosample_id": "SampleID"})
+        assert issues == []
+
+    def test_multiple_missing_columns_all_reported(self):
+        parser = self._make_parser([], {"biosample_id": "Col1", "biosample_type": "Col2"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_id": "Col1", "biosample_type": "Col2"})
+        assert len(issues) == 2
+
+    def test_error_includes_both_sheet_names_in_message(self):
+        parser = self._make_parser(["SampleID"], {"biosample_type": "BadCol"})
+        issues = PounceParser._check_mapped_columns(parser, "BioSampleMap", "BioSampleMeta", {"biosample_type": "BadCol"})
+        assert "BioSampleMap" in issues[0].message
+        assert "BioSampleMeta" in issues[0].message
+
 
 class TestParseAll:
 

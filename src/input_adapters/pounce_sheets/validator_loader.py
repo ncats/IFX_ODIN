@@ -3,11 +3,12 @@ from typing import List
 import yaml
 
 from src.core.config import create_object_from_config
-from src.core.validator import AllowedValuesValidator, RequiredMapKeyValidator, RequiredValidator, Validator
-from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook
+from src.core.validator import AllowedValuesValidator, ConditionalRequiredMapKeyValidator, ConditionalRequiredValidator, IndexedGroupValidator, ParallelListsValidator, RequiredMapKeyValidator, RequiredValidator, Validator
+from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook, StatsResultsWorkbook
 from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedBiosample, ParsedBiospecimen, ParsedExperiment, ParsedExposure,
-    ParsedProject, ParsedRunBiosample, ParsedStatsResultsMeta,
+    ParsedGene, ParsedMetab, ParsedPeakDataMeta, ParsedProject, ParsedRawDataMeta,
+    ParsedRunBiosample, ParsedStatsResultsMeta,
 )
 from src.input_adapters.pounce_sheets.sheet_field import get_sheet_fields
 
@@ -19,6 +20,10 @@ _ENTITY_CLASSES = [
     ("biospecimens", ParsedBiospecimen),
     ("exposures", ParsedExposure),
     ("experiments", ParsedExperiment),
+    ("genes", ParsedGene),
+    ("metabolites", ParsedMetab),
+    ("peak_data_meta", ParsedPeakDataMeta),
+    ("raw_data_meta", ParsedRawDataMeta),
     ("run_biosamples", ParsedRunBiosample),
     ("stats_results", ParsedStatsResultsMeta),
 ]
@@ -33,7 +38,10 @@ _SHEET_KEY_MAP = {
 # Derived from constants so it stays in sync automatically.
 _MAP_SHEETS: set = {
     ProjectWorkbook.BiosampleMapSheet.name,
-    ExperimentWorkbook.RunSampleMapSheet.name,
+    ExperimentWorkbook.RunBioSampleMapSheet.name,
+    ExperimentWorkbook.MetabMapSheet.name,
+    ExperimentWorkbook.GeneMapSheet.name,
+    StatsResultsWorkbook.EffectSizeMapSheet.name,
 }
 
 _DEFAULT_REQUIRED_MESSAGE = "Sheet {sheet} is missing required field: {field}"
@@ -59,8 +67,12 @@ def load_validators(yaml_file_or_dict) -> List[Validator]:
                     validators.append(create_object_from_config(entry))
             continue
 
-        # Sheet-based format: top_key is a sheet name, value has "required" / "allowed_values"
-        if isinstance(top_value, dict) and ("required" in top_value or "allowed_values" in top_value):
+        # Sheet-based format: top_key is a sheet name
+        if isinstance(top_value, dict) and (
+            "required" in top_value or "allowed_values" in top_value
+            or "parallel_lists" in top_value or "indexed_group" in top_value
+            or "required_if" in top_value
+        ):
             sheet = top_key
 
             for ncatsdpi_key in top_value.get("required", []):
@@ -102,10 +114,106 @@ def load_validators(yaml_file_or_dict) -> List[Validator]:
                 validators.append(AllowedValuesValidator(
                     entity=entity,
                     field=field,
-                    message=f"Field '{ncatsdpi_key}' in {sheet} must be one of: {', '.join(values)}",
+                    message=f"Field '{ncatsdpi_key}' in {sheet} must be one of: {', '.join(str(v) for v in values)}",
                     values=values,
                     sheet=sheet,
                     column=ncatsdpi_key,
                 ))
+
+            for group in top_value.get("parallel_lists", []):
+                # group is a list of ncatsdpi keys, e.g. ["owner_name", "owner_email"]
+                resolved = []
+                for ncatsdpi_key in group:
+                    if (sheet, ncatsdpi_key) not in _SHEET_KEY_MAP:
+                        known_sheets = sorted({s for s, _ in _SHEET_KEY_MAP})
+                        raise KeyError(
+                            f"No parsed field for sheet='{sheet}', key='{ncatsdpi_key}'. "
+                            f"Known data sheets: {known_sheets}. "
+                            f"Note: use the *Meta sheet name (e.g. BioSampleMeta), not the Map sheet."
+                        )
+                    entity, python_field = _SHEET_KEY_MAP[(sheet, ncatsdpi_key)]
+                    resolved.append((entity, python_field, ncatsdpi_key))
+
+                entities = {r[0] for r in resolved}
+                if len(entities) != 1:
+                    raise ValueError(
+                        f"All fields in a parallel_lists group must belong to the same entity. "
+                        f"Sheet '{sheet}', group {group} resolved to entities: {entities}"
+                    )
+
+                validators.append(ParallelListsValidator(
+                    entity=resolved[0][0],
+                    fields=[r[1] for r in resolved],
+                    columns=[r[2] for r in resolved],
+                    sheet=sheet,
+                ))
+
+            for group in top_value.get("indexed_group", []):
+                # group is a list of key templates with {}, e.g.
+                # ["exposure{}_names", "exposure{}_type", "exposure{}_category"]
+                prefixes = {t.split("{}")[0] for t in group}
+                if len(prefixes) != 1:
+                    raise ValueError(
+                        f"All templates in an indexed_group must share the same prefix before '{{}}'. "
+                        f"Sheet '{sheet}', group {group} has prefixes: {prefixes}"
+                    )
+                validators.append(IndexedGroupValidator(
+                    sheet=sheet,
+                    required_templates=group,
+                ))
+
+            for ncatsdpi_key, condition in top_value.get("required_if", {}).items():
+                when_field_key = condition["when_field"]
+                when_values = condition["when_values"]
+
+                if sheet in _MAP_SHEETS:
+                    # Map sheet: check the param_map config, condition on a different entity.
+                    # Search all parsed fields for when_field_key to find its entity.
+                    when_matches = [
+                        (e, f) for (s, k), (e, f) in _SHEET_KEY_MAP.items()
+                        if k == when_field_key
+                    ]
+                    if not when_matches:
+                        raise KeyError(
+                            f"No parsed field found for when_field='{when_field_key}' "
+                            f"(used in required_if on map sheet '{sheet}')."
+                        )
+                    when_entity, when_python_field = when_matches[0]
+                    validators.append(ConditionalRequiredMapKeyValidator(
+                        sheet=sheet,
+                        field=ncatsdpi_key,
+                        when_entity=when_entity,
+                        when_field=when_python_field,
+                        when_values=when_values,
+                        message=_DEFAULT_MAP_REQUIRED_MESSAGE.format(sheet=sheet, field=ncatsdpi_key),
+                        column=ncatsdpi_key,
+                    ))
+                else:
+                    if (sheet, ncatsdpi_key) not in _SHEET_KEY_MAP:
+                        known_sheets = sorted({s for s, _ in _SHEET_KEY_MAP})
+                        raise KeyError(
+                            f"No parsed field for sheet='{sheet}', key='{ncatsdpi_key}'. "
+                            f"Known data sheets: {known_sheets}. "
+                            f"Note: use the *Meta sheet name (e.g. BioSampleMeta), not the Map sheet."
+                        )
+                    entity, field = _SHEET_KEY_MAP[(sheet, ncatsdpi_key)]
+
+                    if (sheet, when_field_key) not in _SHEET_KEY_MAP:
+                        known_sheets = sorted({s for s, _ in _SHEET_KEY_MAP})
+                        raise KeyError(
+                            f"No parsed field for sheet='{sheet}', key='{when_field_key}' (used in required_if.when_field). "
+                            f"Known data sheets: {known_sheets}."
+                        )
+                    _, when_python_field = _SHEET_KEY_MAP[(sheet, when_field_key)]
+
+                    validators.append(ConditionalRequiredValidator(
+                        entity=entity,
+                        field=field,
+                        when_field=when_python_field,
+                        when_values=when_values,
+                        message=required_message.format(sheet=sheet, field=ncatsdpi_key),
+                        sheet=sheet,
+                        column=ncatsdpi_key,
+                    ))
 
     return validators
