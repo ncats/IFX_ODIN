@@ -280,8 +280,13 @@ class PounceParser:
 
         return data, issues
 
-    def parse_experiment(self, parser: ExcelsheetParser):
+    def parse_experiment(self, parser: ExcelsheetParser,
+                          valid_biosample_ids: Optional[Set[str]] = None):
         """Parse an experiment workbook (metadata only, skips data matrices).
+
+        ``valid_biosample_ids`` is the set of biosample IDs from the project's
+        BioSampleMeta.  When provided, every biosample_id in RunBioSampleMeta
+        is checked against that set.
 
         Returns ``(ParsedPounceData, List[ValidationError])``.
         """
@@ -305,6 +310,16 @@ class PounceParser:
                 data.run_biosamples.append(
                     self._parse_mapped_row(row, run_sample_map, ParsedRunBiosample))
 
+        # Cross-reference: every biosample_id in RunBioSampleMeta must exist in BioSampleMeta.
+        if valid_biosample_ids is not None and "RunBioSampleMap" in parser.sheet_dfs:
+            biosample_id_col = run_sample_map.get(ProjectWorkbook.BiosampleMapSheet.Key.biosample_id)
+            if biosample_id_col and biosample_id_col not in ("NA", "N/A", ""):
+                issues.extend(self._check_data_matrix_references(
+                    parser, ExperimentWorkbook.RunBioSampleMetaSheet.name,
+                    biosample_id_col, valid_biosample_ids,
+                    "biosample_id '{value}' in RunBioSampleMeta does not exist in BioSampleMeta",
+                ))
+
         # --- GeneMeta via GeneMap (mapped sheet) ---
         if "GeneMap" in parser.sheet_dfs:
             issues.extend(self._check_unknown_keys(parser, "GeneMap", "GeneMeta"))
@@ -327,6 +342,50 @@ class PounceParser:
                 data.metabolites.append(
                     self._parse_mapped_row(row, metab_map, ParsedMetab))
 
+        # --- Data matrix ID cross-references (per-experiment, before merging) ---
+        # Check that every gene/metabolite ID in the data matrix exists in the meta sheet.
+        if "GeneMap" in parser.sheet_dfs and data.genes:
+            gene_id_col = gene_map.get(ExperimentWorkbook.GeneMapSheet.Key.gene_id)
+            if gene_id_col and gene_id_col not in ("NA", "N/A", ""):
+                valid_gene_ids = {g.gene_id for g in data.genes if g.gene_id}
+                issues.extend(self._check_data_matrix_references(
+                    parser, ExperimentWorkbook.RawDataSheet.name,
+                    gene_id_col, valid_gene_ids,
+                    f"gene_id '{{value}}' in RawData does not exist in GeneMeta",
+                ))
+
+        if "MetabMap" in parser.sheet_dfs and data.metabolites:
+            metab_id_col = metab_map.get(ExperimentWorkbook.MetabMapSheet.Key.metab_id)
+            if metab_id_col and metab_id_col not in ("NA", "N/A", ""):
+                valid_metab_ids = {m.metab_id for m in data.metabolites if m.metab_id}
+                issues.extend(self._check_data_matrix_references(
+                    parser, ExperimentWorkbook.PeakDataSheet.name,
+                    metab_id_col, valid_metab_ids,
+                    f"metab_id '{{value}}' in PeakData does not exist in MetabMeta",
+                ))
+
+        # Check that data matrix sample column names match run_biosample_ids in RunBioSampleMeta.
+        valid_run_ids = {rb.run_biosample_id for rb in data.run_biosamples if rb.run_biosample_id}
+        if valid_run_ids:
+            if "GeneMap" in parser.sheet_dfs:
+                gene_id_col = gene_map.get(ExperimentWorkbook.GeneMapSheet.Key.gene_id)
+                if gene_id_col and gene_id_col not in ("NA", "N/A", ""):
+                    issues.extend(self._check_matrix_sample_columns(
+                        parser, ExperimentWorkbook.RawDataSheet.name,
+                        exclude_columns={gene_id_col},
+                        valid_sample_ids=valid_run_ids,
+                        message_template="column '{value}' in RawData does not match any run_biosample_id in RunBioSampleMeta",
+                    ))
+            if "MetabMap" in parser.sheet_dfs:
+                metab_id_col = metab_map.get(ExperimentWorkbook.MetabMapSheet.Key.metab_id)
+                if metab_id_col and metab_id_col not in ("NA", "N/A", ""):
+                    issues.extend(self._check_matrix_sample_columns(
+                        parser, ExperimentWorkbook.PeakDataSheet.name,
+                        exclude_columns={metab_id_col},
+                        valid_sample_ids=valid_run_ids,
+                        message_template="column '{value}' in PeakData does not match any run_biosample_id in RunBioSampleMeta",
+                    ))
+
         # --- PeakDataMeta (meta sheet) ---
         if "PeakDataMeta" in parser.sheet_dfs:
             issues.extend(self._check_unknown_keys(parser, "PeakDataMeta", "PeakDataMeta"))
@@ -339,8 +398,16 @@ class PounceParser:
 
         return data, issues
 
-    def parse_stats_results(self, parser: ExcelsheetParser):
+    def parse_stats_results(self, parser: ExcelsheetParser,
+                             valid_gene_ids: Optional[Set[str]] = None,
+                             valid_metab_ids: Optional[Set[str]] = None,
+                             valid_run_biosample_ids: Optional[Set[str]] = None):
         """Parse a stats results workbook (metadata only).
+
+        ``valid_gene_ids``, ``valid_metab_ids``, and ``valid_run_biosample_ids``
+        are ID sets from the paired experiment.  When provided, ID values in
+        StatsReadyData and EffectSize are checked against them, and StatsReadyData
+        sample column names are checked against run_biosample_ids.
 
         Returns ``(ParsedPounceData, List[ValidationError])``.
         """
@@ -366,6 +433,48 @@ class PounceParser:
             # keys collapse in to_dict(), losing most rows.
             issues.extend(self._check_effect_size_columns(parser))
 
+            # Cross-reference IDs in StatsReadyData and EffectSize against the
+            # paired experiment's meta sheets.  The analyte ID column names come
+            # from EffectSize_Map (same map applies to both stats sheets).
+            _stats_data_sheets = [
+                StatsResultsWorkbook.StatsReadyDataSheet.name,
+                StatsResultsWorkbook.EffectSizeSheet.name,
+            ]
+            if valid_gene_ids:
+                gene_id_col = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id)
+                if gene_id_col and gene_id_col not in ("NA", "N/A", ""):
+                    for sheet in _stats_data_sheets:
+                        issues.extend(self._check_data_matrix_references(
+                            parser, sheet, gene_id_col, valid_gene_ids,
+                            f"gene_id '{{value}}' in {sheet} does not exist in paired experiment's GeneMeta",
+                        ))
+
+            if valid_metab_ids:
+                metab_id_col = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id)
+                if metab_id_col and metab_id_col not in ("NA", "N/A", ""):
+                    for sheet in _stats_data_sheets:
+                        issues.extend(self._check_data_matrix_references(
+                            parser, sheet, metab_id_col, valid_metab_ids,
+                            f"metab_id '{{value}}' in {sheet} does not exist in paired experiment's MetabMeta",
+                        ))
+
+            # Check StatsReadyData sample column names against paired run_biosample_ids.
+            # Exclude whichever analyte ID column(s) are configured in EffectSize_Map.
+            if valid_run_biosample_ids:
+                analyte_cols = set()
+                _g = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id)
+                if _g and _g not in ("NA", "N/A", ""):
+                    analyte_cols.add(_g)
+                _m = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id)
+                if _m and _m not in ("NA", "N/A", ""):
+                    analyte_cols.add(_m)
+                issues.extend(self._check_matrix_sample_columns(
+                    parser, StatsResultsWorkbook.StatsReadyDataSheet.name,
+                    exclude_columns=analyte_cols,
+                    valid_sample_ids=valid_run_biosample_ids,
+                    message_template="column '{value}' in StatsReadyData does not match any run_biosample_id in RunBioSampleMeta",
+                ))
+
         return data, issues
 
     def parse_all(self, project_file: str,
@@ -381,9 +490,13 @@ class PounceParser:
         project_parser = ExcelsheetParser(file_path=project_file)
         combined, issues = self.parse_project(project_parser)
 
-        for exp_file in experiment_files:
+        # Build the valid biosample ID set from the project (available for all experiments).
+        valid_biosample_ids = {b.biosample_id for b in combined.biosamples if b.biosample_id} or None
+
+        for i, exp_file in enumerate(experiment_files):
             exp_parser = ExcelsheetParser(file_path=exp_file)
-            exp_data, exp_issues = self.parse_experiment(exp_parser)
+            exp_data, exp_issues = self.parse_experiment(
+                exp_parser, valid_biosample_ids=valid_biosample_ids)
             combined.experiments.extend(exp_data.experiments)
             combined.genes.extend(exp_data.genes)
             combined.metabolites.extend(exp_data.metabolites)
@@ -393,7 +506,26 @@ class PounceParser:
             combined.param_maps.update(exp_data.param_maps)
             issues.extend(exp_issues)
 
-        for stats_file in stats_files:
+            # Process the paired stats file (if any) immediately after its experiment
+            # so we can pass the experiment's gene/metabolite ID sets for cross-referencing.
+            if i < len(stats_files):
+                valid_gene_ids = {g.gene_id for g in exp_data.genes if g.gene_id} or None
+                valid_metab_ids = {m.metab_id for m in exp_data.metabolites if m.metab_id} or None
+                valid_run_biosample_ids = {rb.run_biosample_id for rb in exp_data.run_biosamples if rb.run_biosample_id} or None
+                stats_parser = ExcelsheetParser(file_path=stats_files[i])
+                stats_data, stats_issues = self.parse_stats_results(
+                    stats_parser,
+                    valid_gene_ids=valid_gene_ids,
+                    valid_metab_ids=valid_metab_ids,
+                    valid_run_biosample_ids=valid_run_biosample_ids,
+                )
+                combined.stats_results.extend(stats_data.stats_results)
+                combined.param_maps.update(stats_data.param_maps)
+                issues.extend(stats_issues)
+
+        # Any stats files beyond the number of experiment files (unusual) get
+        # parsed without ID cross-reference checks.
+        for stats_file in stats_files[len(experiment_files):]:
             stats_parser = ExcelsheetParser(file_path=stats_file)
             stats_data, stats_issues = self.parse_stats_results(stats_parser)
             combined.stats_results.extend(stats_data.stats_results)
@@ -495,6 +627,79 @@ class PounceParser:
                     ),
                     sheet=map_sheet,
                     column=ncatsdpi_key,
+                    source_file=parser.file_path,
+                ))
+        return issues
+
+    @staticmethod
+    def _check_matrix_sample_columns(
+        parser: ExcelsheetParser,
+        data_sheet: str,
+        exclude_columns: Set[str],
+        valid_sample_ids: Set[str],
+        message_template: str,
+    ) -> List[ValidationError]:
+        """Check that every column header in a data matrix (excluding analyte ID columns)
+        exists as a run_biosample_id in the paired experiment's RunBioSampleMeta.
+
+        ``exclude_columns`` is the set of analyte ID column names to skip.
+        ``message_template`` may contain ``{value}`` for the offending column name.
+        """
+        if data_sheet not in parser.sheet_dfs:
+            return []
+        issues = []
+        for col in parser.sheet_dfs[data_sheet].columns:
+            str_col = str(col).strip()
+            if not str_col or str_col in exclude_columns or str_col in ("NA", "N/A"):
+                continue
+            if str_col not in valid_sample_ids:
+                issues.append(ValidationError(
+                    severity="error",
+                    entity="parse",
+                    field=str_col,
+                    message=message_template.format(value=str_col),
+                    sheet=data_sheet,
+                    column=str_col,
+                    source_file=parser.file_path,
+                ))
+        return issues
+
+    @staticmethod
+    def _check_data_matrix_references(
+        parser: ExcelsheetParser,
+        data_sheet: str,
+        id_column: str,
+        valid_ids: set,
+        message_template: str,
+    ) -> List[ValidationError]:
+        """Check that every ID value in a data matrix column exists in a known-good set.
+
+        Run per-experiment (before merging) so each file's data matrix is checked
+        against only its own meta sheet — not the union of all experiments.
+        ``id_column`` is the resolved column name (from the map sheet param_map).
+        ``message_template`` may contain ``{value}`` for the offending value.
+        """
+        if data_sheet not in parser.sheet_dfs:
+            return []
+        df = parser.sheet_dfs[data_sheet]
+        if id_column not in df.columns:
+            return []  # _check_mapped_columns already reported this
+        issues = []
+        for i, val in enumerate(df[id_column]):
+            if pd.isna(val):
+                continue
+            str_val = str(val).strip()
+            if not str_val or str_val in ("NA", "N/A"):
+                continue
+            if str_val not in valid_ids:
+                issues.append(ValidationError(
+                    severity="error",
+                    entity="parse",
+                    field=id_column,
+                    message=message_template.format(value=str_val),
+                    sheet=data_sheet,
+                    column=id_column,
+                    row=i,
                     source_file=parser.file_path,
                 ))
         return issues

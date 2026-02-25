@@ -130,6 +130,21 @@ EffectSize_Map:
       when_field: platform_type
       when_values: [transcriptomics]
 
+# Cross-sheet ID reference checks are all handled as structural checks at parse time,
+# not here.  This gives each error a source_file and respects per-file pairing.
+# Row value checks (_check_data_matrix_references):
+#   - RunBioSampleMeta.biosample_id → BioSampleMeta.biosample_id  (parse_experiment)
+#   - RawData.gene_id              → GeneMeta.gene_id              (parse_experiment)
+#   - PeakData.metab_id            → MetabMeta.metab_id            (parse_experiment)
+#   - StatsReadyData.gene_id       → GeneMeta.gene_id              (parse_stats_results)
+#   - EffectSize.gene_id           → GeneMeta.gene_id              (parse_stats_results)
+#   - StatsReadyData.metab_id      → MetabMeta.metab_id            (parse_stats_results)
+#   - EffectSize.metab_id          → MetabMeta.metab_id            (parse_stats_results)
+# Column header checks (_check_matrix_sample_columns):
+#   - RawData column names         → RunBioSampleMeta.run_biosample_id  (parse_experiment)
+#   - PeakData column names        → RunBioSampleMeta.run_biosample_id  (parse_experiment)
+#   - StatsReadyData column names  → RunBioSampleMeta.run_biosample_id  (parse_stats_results)
+
 #cross_entity:
 #  - import: ./src/input_adapters/pounce_sheets/pounce_validators.py
 #    class: RunBiosampleReferenceValidator
