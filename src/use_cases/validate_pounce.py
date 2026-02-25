@@ -1,12 +1,17 @@
 import os
-from src.core.config import create_object_from_config, Config
+from src.core.config import ETL_Config, create_object_from_config
+from src.input_adapters.pounce_sheets.mapping_coverage import (
+    check_metabolite_coverage, check_gene_coverage,
+)
 from src.input_adapters.pounce_sheets.pounce_parser import (
     _PROJECT_REQUIRED_SHEETS, _EXPERIMENT_RECOGNIZED_SHEETS, _STATS_RECOGNIZED_SHEETS,
 )
 
 yaml_file = "./src/use_cases/test_pounce_validation.yaml"
 
-config = Config(yaml_file)
+config = ETL_Config(yaml_file)
+resolver_map = {t: r for r in config.resolvers.values() for t in r.types}
+
 pounce_configs = [
     c for c in config.config_dict.get("input_adapters", [])
     if c.get("class") == "PounceInputAdapter"
@@ -87,3 +92,31 @@ for chosen in pounce_configs:
     print(f"  RunBiosamples: {len(parsed_data.run_biosamples)}")
     print(f"  StatsResults: {len(parsed_data.stats_results)}")
     print(f"  People: {len(parsed_data.people)}")
+
+    has_metabolites = bool(parsed_data.metabolites)
+    has_genes = bool(parsed_data.genes)
+
+    if has_metabolites or has_genes:
+        print(f"\nMapping Coverage:")
+
+        if has_metabolites:
+            metab_resolver = resolver_map.get("Metabolite")
+            if metab_resolver:
+                cov = check_metabolite_coverage(parsed_data.metabolites, metab_resolver)
+                print(f"  MetabMeta — {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
+                      f" metabolites will resolve to canonical Metabolite nodes")
+                if cov.unmapped_ids:
+                    print(f"    Unmapped: {', '.join(cov.unmapped_ids)}")
+            else:
+                print(f"  MetabMeta — no Metabolite resolver configured")
+
+        if has_genes:
+            gene_resolver = resolver_map.get("Gene")
+            cov = check_gene_coverage(parsed_data.genes, gene_resolver)
+            if cov:
+                print(f"  GeneMeta — {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
+                      f" genes will resolve to canonical Gene nodes")
+                if cov.unmapped_ids:
+                    print(f"    Unmapped: {', '.join(cov.unmapped_ids)}")
+            else:
+                print(f"  GeneMeta — no Gene resolver configured")
