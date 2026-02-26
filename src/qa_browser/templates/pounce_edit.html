@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Edit Submission{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/pounce/validate">POUNCE Validate</a>
+<span class="sep">/</span>
+<span>Edit Files</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Edit Files</h1>
+        <p class="hero-subtitle">Drop a replacement for any file that needs changes. Leave a slot empty to keep the current file.</p>
+    </div>
+</div>
+
+<form method="post" action="{{ root_path }}/pounce/edit/{{ session_id }}"
+      enctype="multipart/form-data" id="edit-form" style="max-width: 1000px;">
+
+    {# ── Project workbook ──────────────────────────────────────────────── #}
+    <div class="card" style="margin-bottom: 1rem;">
+        <div class="upload-field-label">Project workbook</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            Current: <span class="mono">{{ project_basename }}</span>
+        </div>
+        <div class="drop-zone">
+            <div class="dz-empty">
+                <div class="dz-icon">↑</div>
+                <div class="dz-hint">Drop replacement or <span class="dz-link">browse</span> — leave empty to keep current</div>
+            </div>
+            <div class="dz-filled">
+                <div class="dz-filename"></div>
+                <div class="dz-change">Click or drop to replace</div>
+            </div>
+            <input type="file" name="project_file" accept=".xlsx" class="drop-zone-input">
+        </div>
+    </div>
+
+    {# ── Experiment / StatsResults pairs ───────────────────────────────── #}
+    <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="upload-field-label" style="margin-bottom: 0.25rem;">Experiments</div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
+            Leave a slot empty to keep the current file.
+        </p>
+
+        {% for i in range(exp_basenames|length) %}
+        <div class="pair-row" style="{{ '' if not loop.last else 'margin-bottom: 0;' }}">
+            <div class="pair-cell">
+                <div class="pair-cell-label">Experiment {{ i + 1 }}</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    Current: <span class="mono">{{ exp_basenames[i] }}</span>
+                </div>
+                <div class="drop-zone">
+                    <div class="dz-empty">
+                        <div class="dz-icon">↑</div>
+                        <div class="dz-hint">Drop replacement or <span class="dz-link">browse</span></div>
+                    </div>
+                    <div class="dz-filled">
+                        <div class="dz-filename"></div>
+                        <div class="dz-change">Click or drop to replace</div>
+                    </div>
+                    <input type="file" name="experiment_files" accept=".xlsx" class="drop-zone-input">
+                </div>
+            </div>
+            <div class="pair-cell">
+                <div class="pair-cell-label">Stats Results {{ i + 1 }}</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    Current: <span class="mono">{{ stats_basenames[i] }}</span>
+                </div>
+                <div class="drop-zone">
+                    <div class="dz-empty">
+                        <div class="dz-icon">↑</div>
+                        <div class="dz-hint">Drop replacement or <span class="dz-link">browse</span></div>
+                    </div>
+                    <div class="dz-filled">
+                        <div class="dz-filename"></div>
+                        <div class="dz-change">Click or drop to replace</div>
+                    </div>
+                    <input type="file" name="stats_files" accept=".xlsx" class="drop-zone-input">
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="revalidate-btn">Revalidate</button>
+    <a href="javascript:history.back()"
+       style="margin-left: 1rem; font-size: 13px; color: var(--text-muted);">Cancel</a>
+
+</form>
+
+<script>
+// ── Drop zone ─────────────────────────────────────────────────────────────────
+
+function initDropZone(zone) {
+    const input = zone.querySelector('.drop-zone-input');
+
+    zone.addEventListener('click', () => input.click());
+    input.addEventListener('click', e => e.stopPropagation());
+
+    input.addEventListener('change', () => {
+        if (input.files.length > 0) setFile(zone, input.files[0].name);
+    });
+
+    zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', e => {
+        if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+    });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        setFile(zone, file.name);
+    });
+}
+
+function setFile(zone, name) {
+    zone.querySelector('.dz-filename').textContent = name;
+    zone.classList.add('has-file');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.drop-zone').forEach(dz => initDropZone(dz));
+
+document.getElementById('edit-form').addEventListener('submit', function() {
+    const btn = document.getElementById('revalidate-btn');
+    btn.disabled = true;
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+    btn.style.gap = '0.5rem';
+    btn.innerHTML = '<span class="spinner"></span> Validating…';
+});
+</script>
+
+{% endblock %}

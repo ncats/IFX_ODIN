@@ -877,6 +877,13 @@ import src.qa_browser.demo_routes as _demo_module  # noqa: E402
 app.include_router(_demo_module.router)
 _demo_module.set_templates(templates)
 
+# ── POUNCE validation routes ─────────────────────────────────────────────────
+
+import src.qa_browser.pounce_routes as _pounce_module  # noqa: E402
+app.include_router(_pounce_module.router)
+_pounce_module.set_templates(templates)
+# set_pounce_config is called in main() after args are parsed
+
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
@@ -894,6 +901,11 @@ def main():
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--root-path", default="", help="ASGI root path for running behind a sub-path proxy (e.g. /odin-qa)")
+    parser.add_argument("--pounce-config", "-P", default="./src/use_cases/pounce.yaml",
+                        help="Path to pounce.yaml — used to load resolvers for mapping coverage checks")
+    parser.add_argument("--smtp-credentials", "-e",
+                        default=None,
+                        help="Path to SMTP credentials YAML (host, port, user, password, from_address, to_address, use_tls)")
     args = parser.parse_args()
 
     global _credentials, _mysql_credentials, _minio_credentials
@@ -925,6 +937,9 @@ def main():
             print(f"Loaded MinIO credentials from {minio_path}")
         else:
             print(f"Warning: MinIO credentials file {minio_path} not found")
+
+    _pounce_module.set_pounce_config(args.pounce_config)
+    _pounce_module.set_smtp_config(args.smtp_credentials)
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
