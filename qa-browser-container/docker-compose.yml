@@ -27,6 +27,8 @@ services:
       - src/use_cases/pounce.yaml
       - -e
       - src/use_cases/secrets/smtp.yaml
+      - -f
+      - input_files/feedback.json
     networks:
       - dashboard_network
     restart: unless-stopped
