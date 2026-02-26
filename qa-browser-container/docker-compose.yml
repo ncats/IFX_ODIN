@@ -8,6 +8,7 @@ services:
       - "8046:8050"
     volumes:
       - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
+      - ../input_files:/app/input_files
     command:
       - python
       - -m
@@ -22,6 +23,10 @@ services:
       - src/use_cases/secrets/ifxdev_minio.yaml
       - --root-path
       - /odin-qa
+      - -P
+      - src/use_cases/pounce.yaml
+      - -e
+      - src/use_cases/secrets/smtp.yaml
     networks:
       - dashboard_network
     restart: unless-stopped
