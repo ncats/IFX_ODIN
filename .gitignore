@@ -13,3 +13,4 @@ recombination_report.html
 coverage.xml
 .coverage
 lib
+.pybiomart.sqlite
