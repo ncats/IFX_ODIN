@@ -38,5 +38,106 @@
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+
+    {# ── Feedback drawer ──────────────────────────────────────────────────── #}
+    <div id="fb-wrap">
+        <div id="fb-drawer">
+            <div class="fb-header">
+                <span class="fb-header-title">Feedback</span>
+                <button class="fb-close" onclick="closeFeedbackDrawer()" aria-label="Close">✕</button>
+            </div>
+
+            <div class="fb-body">
+                {# ── Submit form ── #}
+                <form id="fb-form"
+                      hx-post="{{ root_path }}/feedback/comment"
+                      hx-target="#fb-comments"
+                      hx-swap="innerHTML">
+                    <input type="hidden" name="page" id="fb-page-input">
+                    <div class="fb-field">
+                        <input type="text" name="name" placeholder="Your name (optional)"
+                               class="fb-input" autocomplete="name">
+                    </div>
+                    <div class="fb-field">
+                        <textarea name="comment" placeholder="What do you think of this page?" required
+                                  class="fb-textarea" rows="3"></textarea>
+                    </div>
+                    <div class="fb-page-tag">
+                        On page: <span id="fb-page-display" class="fb-page-tag-path"></span>
+                    </div>
+                    <button type="submit" class="btn btn-primary fb-submit-btn">Send</button>
+                </form>
+
+                <div class="fb-divider"></div>
+
+                {# ── Recent comments ── #}
+                <div class="fb-recent-header">
+                    <span class="fb-recent-label">Recent</span>
+                    <button class="fb-refresh"
+                            hx-get="{{ root_path }}/feedback/comments"
+                            hx-target="#fb-comments"
+                            hx-swap="innerHTML"
+                            title="Refresh">↻</button>
+                </div>
+                <div id="fb-comments">
+                    <p class="fb-empty">Loading…</p>
+                </div>
+            </div>
+
+            <div class="fb-footer nerd-only">
+                <a href="{{ root_path }}/feedback/admin" target="_blank">Manage →</a>
+            </div>
+        </div>
+
+        <button id="fb-tab" onclick="toggleFeedbackDrawer()" aria-label="Feedback">
+            <span>Feedback</span>
+        </button>
+    </div>
+
+    <script>
+    (function () {
+        var wrap = document.getElementById('fb-wrap');
+        var loaded = false;
+
+        function openFeedbackDrawer() {
+            wrap.classList.add('open');
+            var path = window.location.pathname + ' — ' + document.title;
+            document.getElementById('fb-page-input').value = path;
+            document.getElementById('fb-page-display').textContent = path;
+            if (!loaded) {
+                loaded = true;
+                htmx.ajax('GET', wrap.querySelector('[hx-get]').getAttribute('hx-get'), {
+                    target: '#fb-comments', swap: 'innerHTML'
+                });
+            }
+        }
+
+        function closeFeedbackDrawer() {
+            wrap.classList.remove('open');
+        }
+
+        window.toggleFeedbackDrawer = function () {
+            if (wrap.classList.contains('open')) closeFeedbackDrawer();
+            else openFeedbackDrawer();
+        };
+
+        window.closeFeedbackDrawer = closeFeedbackDrawer;
+
+        // Reset form after successful submit and re-populate page field
+        document.getElementById('fb-form').addEventListener('htmx:afterRequest', function (e) {
+            if (e.detail.successful) {
+                this.reset();
+                var path = window.location.pathname + ' — ' + document.title;
+                document.getElementById('fb-page-input').value = path;
+                document.getElementById('fb-page-display').textContent = path;
+            }
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && wrap.classList.contains('open')) closeFeedbackDrawer();
+        });
+    })();
+    </script>
 </body>
 </html>

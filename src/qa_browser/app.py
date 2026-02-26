@@ -884,6 +884,13 @@ app.include_router(_pounce_module.router)
 _pounce_module.set_templates(templates)
 # set_pounce_config is called in main() after args are parsed
 
+# ── Feedback routes ───────────────────────────────────────────────────────────
+
+import src.qa_browser.feedback_routes as _feedback_module  # noqa: E402
+app.include_router(_feedback_module.router)
+_feedback_module.set_templates(templates)
+# set_feedback_file is called in main() after args are parsed
+
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
@@ -906,6 +913,9 @@ def main():
     parser.add_argument("--smtp-credentials", "-e",
                         default=None,
                         help="Path to SMTP credentials YAML (host, port, user, password, from_address, to_address, use_tls)")
+    parser.add_argument("--feedback-file", "-f",
+                        default=None,
+                        help="Path to JSON file for storing feedback comments (created if missing)")
     args = parser.parse_args()
 
     global _credentials, _mysql_credentials, _minio_credentials
@@ -940,6 +950,7 @@ def main():
 
     _pounce_module.set_pounce_config(args.pounce_config)
     _pounce_module.set_smtp_config(args.smtp_credentials)
+    _feedback_module.set_feedback_file(args.feedback_file)
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

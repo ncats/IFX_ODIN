@@ -1,0 +1,16 @@
+{% if entries %}
+<div class="fb-list">
+    {% for e in entries %}
+    <div class="fb-entry">
+        <div class="fb-entry-meta">
+            <span class="fb-entry-name">{{ e.name or "Anonymous" }}</span>
+            <span class="fb-entry-page">{{ e.page }}</span>
+            <span class="fb-entry-time">{{ e.timestamp[:10] }}</span>
+        </div>
+        <div class="fb-entry-comment">{{ e.comment }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="fb-empty">No comments yet.</p>
+{% endif %}

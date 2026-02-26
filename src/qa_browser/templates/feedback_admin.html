@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Feedback — Admin{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>Feedback</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Feedback</h1>
+        <p class="hero-subtitle">
+            {{ entries | selectattr("resolved", "equalto", false) | list | length }} open
+            &nbsp;·&nbsp;
+            {{ entries | selectattr("resolved") | list | length }} resolved
+        </p>
+    </div>
+</div>
+
+{% if entries %}
+<div style="max-width: 800px;">
+    {% for e in entries %}
+    <div class="card" style="margin-bottom: 0.6rem; {% if e.resolved %}opacity: 0.45;{% endif %}">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+            <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem; flex-wrap: wrap;">
+                    {% if e.resolved %}
+                    <span class="badge" style="background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0;">Resolved</span>
+                    {% endif %}
+                    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">{{ e.page }}</span>
+                    <span style="font-size: 11px; color: var(--text-muted);">{{ e.timestamp[:16].replace("T", " ") }} UTC</span>
+                    {% if e.name %}
+                    <span style="font-size: 12px; font-weight: 600;">{{ e.name }}</span>
+                    {% endif %}
+                </div>
+                <div style="font-size: 13px; line-height: 1.5;">{{ e.comment }}</div>
+            </div>
+            <div style="display: flex; gap: 0.4rem; flex-shrink: 0;">
+                <form method="post" action="{{ root_path }}/feedback/admin/{{ e.id }}/resolve">
+                    <button type="submit" class="btn btn-sm"
+                            style="background: {% if e.resolved %}var(--bg-hover){% else %}var(--success){% endif %}; color: {% if e.resolved %}var(--text){% else %}#fff{% endif %};">
+                        {% if e.resolved %}Unresolve{% else %}Resolve{% endif %}
+                    </button>
+                </form>
+                <form method="post" action="{{ root_path }}/feedback/admin/{{ e.id }}/delete"
+                      onsubmit="return confirm('Delete this comment?');">
+                    <button type="submit" class="btn btn-sm"
+                            style="background: var(--danger); color: #fff;">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p style="color: var(--text-muted);">No feedback entries yet.</p>
+{% endif %}
+
+{% endblock %}
