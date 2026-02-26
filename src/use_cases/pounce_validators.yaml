@@ -1,0 +1,150 @@
+ProjectMeta:
+  required:
+    - project_name
+    - description
+    - date
+    - owner_name
+    - owner_email
+    - keywords
+    - collaborator_name
+    - collaborator_email
+    - privacy_type
+    - lab_groups
+    - project_type
+    - RD_tag
+    - biosample_preparation
+  allowed_values:
+    privacy_type: [private, ncats, public]
+    lab_groups: [CGB, ETB, TDB, ACC, ADME, RSC, IFX, SCTL]
+    project_type: [Drug Screening, Molecular Epidemiology, Toxicology, Disease Development/Characterization, Drug Mechanism, KO/KD screening]
+    RD_tag: [Yes, No]
+  parallel_lists:
+    - [owner_name, owner_email]
+    - [collaborator_name, collaborator_email]
+
+BioSampleMap:
+  required:
+    - biosample_id
+    - biosample_type
+    - biospecimen_id
+    - biospecimen_type
+    - organism_names
+    - disease_names
+  indexed_group:
+    - ["exposure{}_names", "exposure{}_type", "exposure{}_category"]
+
+BioSampleMeta:
+  required:
+    - biosample_id
+    - biosample_type
+    - biospecimen_id
+    - biospecimen_type
+
+ExperimentMeta:
+  required:
+    - experiment_name
+    - experiment_description
+    - experiment_design
+    - experiment_type
+    - experiment_data_file
+    - date
+    - lead_data_generator
+    - lead_data_generator_email
+    - lead_informatician
+    - lead_informatician_email
+    - platform_type
+    - platform_name
+    - platform_provider
+    - platform_output_type
+    - raw_file_archive_dir
+    - public_repo_id
+    - repo_url
+  allowed_values:
+    experiment_type: [in vitro, in vivo, clinical cohort, assay development, other]
+    platform_type: [bulk_rnaseq, sc_rnaseq, atac_seq, rasl_seq, qpcr, chip_seq, metabolomics, lipidomics, proteomics]
+    platform_output_type: [targeted, untargeted]
+  required_if:
+    metabolite_identification_description:
+      when_field: platform_type
+      when_values: [metabolomics, lipidomics]
+
+RunBioSampleMap:
+  required:
+    - run_biosample_id
+    - biosample_id
+
+RunBioSampleMeta:
+  required:
+    - run_biosample_id
+    - biosample_id
+
+MetabMap:
+  required:
+    - metab_id
+    - metab_name
+    - metab_chemclass
+    - identification_level
+
+MetabMeta:
+  required:
+    - metab_id
+  allowed_values:
+    identification_level: [1, 2, 3, 4, 5]
+
+GeneMap:
+  required:
+    - gene_id
+
+GeneMeta:
+  required:
+    - gene_id
+
+RawDataMeta:
+  required:
+    - pre_processing_description
+    - peakdata_tag
+
+PeakDataMeta:
+  required:
+    - pre_processing_description
+
+StatsResultsMeta:
+  required:
+    - statsresults_name
+    - stats_description
+    - lead_informatician
+    - lead_informatician_email
+    - pre_processing_description
+    - peri_processing_description
+    - ES
+    - ESadjPval
+    - ESPval
+
+
+EffectSize_Map:
+  required_if:
+    metabolite_id:
+      when_field: platform_type
+      when_values: [metabolomics, lipidomics]
+    gene_id:
+      when_field: platform_type
+      when_values: [transcriptomics]
+
+# Cross-sheet ID reference checks are all handled as structural checks at parse time,
+# not here.  This gives each error a source_file and respects per-file pairing.
+# Row value checks (_check_data_matrix_references):
+#   - RunBioSampleMeta.biosample_id → BioSampleMeta.biosample_id  (parse_experiment)
+#   - RawData.gene_id              → GeneMeta.gene_id              (parse_experiment)
+#   - PeakData.metab_id            → MetabMeta.metab_id            (parse_experiment)
+#   - StatsReadyData.gene_id       → GeneMeta.gene_id              (parse_stats_results)
+#   - EffectSize.gene_id           → GeneMeta.gene_id              (parse_stats_results)
+#   - StatsReadyData.metab_id      → MetabMeta.metab_id            (parse_stats_results)
+#   - EffectSize.metab_id          → MetabMeta.metab_id            (parse_stats_results)
+# Column header checks (_check_matrix_sample_columns):
+#   - RawData column names         → RunBioSampleMeta.run_biosample_id  (parse_experiment)
+#   - PeakData column names        → RunBioSampleMeta.run_biosample_id  (parse_experiment)
+#   - StatsReadyData column names  → RunBioSampleMeta.run_biosample_id  (parse_stats_results)
+
+#cross_entity:
+#  - import: ./src/input_adapters/pounce_sheets/pounce_validators.py
+#    class: RunBiosampleReferenceValidator

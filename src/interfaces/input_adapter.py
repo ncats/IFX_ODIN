@@ -26,6 +26,12 @@ class InputAdapter(ABC):
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         raise NotImplementedError("derived classes must implement get_all")
 
+    def get_validators(self) -> list:
+        return []
+
+    def get_validation_data(self):
+        return None
+
     @abstractmethod
     def get_datasource_name(self) -> DataSourceName:
         raise NotImplementedError("derived classes must implement get_datasource_name")

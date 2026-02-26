@@ -21,42 +21,35 @@ resolvers:
       types:
         - Gene
 
+#  - label: tg_genes
+#    import: ./src/id_resolvers/target_graph_resolver.py
+#    class: TargetGraphGeneResolver
+#    kwargs:
+#      no_match_behavior: Skip
+#      file_path: ./input_files/manual/target_graph/gene_ids.csv
+#      types:
+#        - Gene
+
 input_adapters:
-  - import: ./src/input_adapters/ensembl/gene.py
-    class: GeneAdapter
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
     kwargs:
-      data_file_path: ./input_files/auto/ensembl/Homo_sapiens.current.gtf.gz
-      version_file_path: ./input_files/auto/ensembl/version.csv
+      project_file: ./input_files/manual/pounce/test_sheets/Project_Metabo_Template.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/test_sheets/Experiment_Metabo_Template.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/test_sheets/StatsResults_Metabo_Template.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_adapter.py
-    class: MetaboliteAdapter
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
     kwargs:
-      sqlite_file: *ramp_sqlite_file
-
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_adapter.py
-    class: MetaboliteClassAdapter
-    kwargs:
-      sqlite_file: *ramp_sqlite_file
-
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
-    class: MetaboliteClassRelationshipAdapter
-    kwargs:
-      sqlite_file: *ramp_sqlite_file
-
-  - import: ./src/input_adapters/sqlite_ramp/pathway_adapter.py
-    class: PathwayAdapter
-    kwargs:
-      sqlite_file: *ramp_sqlite_file
-
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: MetabolitePathwayRelationshipAdapter
-    kwargs:
-      sqlite_file: *ramp_sqlite_file
-
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: EnsemblGenePathwayRelationshipAdapter
-    kwargs:
-      sqlite_file: *ramp_sqlite_file
+      project_file: ./input_files/manual/pounce/test_sheets/Project_Transcriptomics_Template.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/test_sheets/Experiment_Transcriptomics_Template.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/test_sheets/StatsResults_Transcriptomics_Template.xlsx
+      validators_config: ./src/use_cases/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter

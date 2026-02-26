@@ -1,13 +1,12 @@
-import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
+from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson
 from src.input_adapters.pounce_sheets.pounce_input_adapter import PounceInputAdapter
+from src.input_adapters.pounce_sheets.pounce_node_builder import PounceNodeBuilder
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
-from src.models.pounce.project import Project, Person, ProjectPersonEdge, ProjectBiosampleEdge, AccessLevel
-from src.models.pounce.biosample import Biosample, BiosampleBiospecimenEdge
-from src.models.pounce.biospecimen import Biospecimen
+from src.models.pounce.project import Project
 from src.constants import DataSourceName
 
 
@@ -66,68 +65,52 @@ def create_adapter_with_mock(project_data: dict, biosample_map_data: dict = None
         adapter.project_parser = mock_parser
         adapter.experiment_files = []
         adapter.stats_results_files = []
-        adapter._biosample_by_original_id = {}
-        adapter._run_biosample_by_original_id = {}
-        adapter._gene_by_raw_id = {}
-        adapter._metabolite_by_raw_id = {}
 
     return adapter
 
 
-# --- _get_persons_from_lists tests ---
+# --- _person_nodes_and_edges tests ---
 
-def test_get_persons_from_lists_with_matching_names_and_emails():
-    # Arrange
-    names = ["Alice", "Bob"]
-    emails = ["alice@example.com", "bob@example.com"]
-
-    # Act
-    result = PounceInputAdapter._get_persons_from_lists(names, emails)
-
-    # Assert
-    assert len(result) == 2
-    assert result[0].id == "Alice"
-    assert result[0].email == "alice@example.com"
-    assert result[1].id == "Bob"
-    assert result[1].email == "bob@example.com"
+def test_person_nodes_and_edges_with_names_and_emails():
+    proj = Project(id="PROJ001", name="Test")
+    people = [
+        ParsedPerson(name="Alice", email="alice@example.com", role="Owner"),
+        ParsedPerson(name="Bob", email="bob@example.com", role="Owner"),
+    ]
+    nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
+    assert len(nodes) == 2
+    assert nodes[0].id == "alice@example.com"
+    assert nodes[0].email == "alice@example.com"
+    assert nodes[1].id == "bob@example.com"
+    assert nodes[1].email == "bob@example.com"
 
 
-def test_get_persons_from_lists_with_empty_emails():
-    # Arrange
-    names = ["Alice", "Bob"]
-    emails = []
-
-    # Act
-    result = PounceInputAdapter._get_persons_from_lists(names, emails)
-
-    # Assert
-    assert len(result) == 2
-    assert result[0].id == "Alice"
-    assert result[0].email is None
-    assert result[1].id == "Bob"
-    assert result[1].email is None
+def test_person_nodes_and_edges_with_no_email():
+    proj = Project(id="PROJ001", name="Test")
+    people = [ParsedPerson(name="Alice", role="Owner")]
+    nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
+    assert len(nodes) == 1
+    assert nodes[0].id == "alice"
+    assert nodes[0].email is None
 
 
-def test_get_persons_from_lists_with_mismatched_counts_raises():
-    # Arrange
-    names = ["Alice", "Bob"]
-    emails = ["alice@example.com"]  # Only one email for two names
-
-    # Act & Assert
-    with pytest.raises(LookupError):
-        PounceInputAdapter._get_persons_from_lists(names, emails)
+def test_person_nodes_and_edges_with_empty_people():
+    proj = Project(id="PROJ001", name="Test")
+    nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, [])
+    assert nodes == []
+    assert edges == []
 
 
-def test_get_persons_from_lists_with_empty_names():
-    # Arrange
-    names = []
-    emails = []
-
-    # Act
-    result = PounceInputAdapter._get_persons_from_lists(names, emails)
-
-    # Assert
-    assert result == []
+def test_person_nodes_and_edges_creates_correct_edges():
+    proj = Project(id="PROJ001", name="Test")
+    people = [
+        ParsedPerson(name="Alice", email="alice@example.com", role="Owner"),
+        ParsedPerson(name="Bob", email="bob@example.com", role="Collaborator"),
+    ]
+    nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
+    assert len(edges) == 2
+    assert edges[0].role == "Owner"
+    assert edges[1].role == "Collaborator"
 
 
 # --- get_datasource_name tests ---
@@ -141,285 +124,3 @@ def test_get_datasource_name_returns_ncats_pounce():
 
     # Assert
     assert result == DataSourceName.NCATSPounce
-
-
-# --- get_project_* tests ---
-
-def test_get_project_id():
-    # Arrange
-    adapter = create_adapter_with_mock({"project_id": "PROJ001"})
-
-    # Act
-    result = adapter.get_project_id()
-
-    # Assert
-    assert result == "PROJ001"
-
-
-def test_get_project_name():
-    # Arrange
-    adapter = create_adapter_with_mock({"project_name": "My Test Project"})
-
-    # Act
-    result = adapter.get_project_name()
-
-    # Assert
-    assert result == "My Test Project"
-
-
-def test_get_project_rd_tag_true():
-    # Arrange
-    adapter = create_adapter_with_mock({"RD_tag": "yes"})
-
-    # Act
-    result = adapter.get_project_rd_tag()
-
-    # Assert
-    assert result is True
-
-
-def test_get_project_rd_tag_false():
-    # Arrange
-    adapter = create_adapter_with_mock({"RD_tag": "no"})
-
-    # Act
-    result = adapter.get_project_rd_tag()
-
-    # Assert
-    assert result is False
-
-
-def test_get_project_rd_tag_none():
-    # Arrange
-    adapter = create_adapter_with_mock({})
-
-    # Act
-    result = adapter.get_project_rd_tag()
-
-    # Assert
-    assert result is False
-
-
-def test_get_project_privacy_level():
-    # Arrange
-    adapter = create_adapter_with_mock({"privacy_type": "public"})
-
-    # Act
-    result = adapter.get_project_privacy_level()
-
-    # Assert
-    assert result == AccessLevel.public
-
-
-def test_get_project_keywords():
-    # Arrange
-    adapter = create_adapter_with_mock({"keywords": ["cancer", "genomics", "biomarkers"]})
-
-    # Act
-    result = adapter.get_project_keywords()
-
-    # Assert
-    assert result == ["cancer", "genomics", "biomarkers"]
-
-
-# --- _create_project tests ---
-
-def test_create_project_creates_project_with_all_fields():
-    # Arrange
-    project_data = {
-        "project_id": "PROJ001",
-        "project_name": "Test Project",
-        "description": "A test project",
-        "lab_groups": ["Lab A", "Lab B"],
-        "privacy_type": "ncats",
-        "keywords": ["test", "example"],
-        "project_type": ["Metabolomics"],
-        "RD_tag": "true",
-        "biosample_preparation": "Standard prep"
-    }
-    adapter = create_adapter_with_mock(project_data)
-
-    # Act
-    result = adapter._create_project()
-
-    # Assert
-    assert isinstance(result, Project)
-    assert result.id == "PROJ001"
-    assert result.name == "Test Project"
-    assert result.description == "A test project"
-    assert result.lab_groups == ["Lab A", "Lab B"]
-    assert result.access == AccessLevel.ncats
-    assert result.keywords == ["test", "example"]
-    assert result.project_type == ["Metabolomics"]
-    assert result.rare_disease_focus is True
-    assert result.sample_preparation == "Standard prep"
-
-
-# --- get_all tests ---
-
-def test_get_all_yields_project_and_persons():
-    # Arrange
-    project_data = {
-        "project_id": "PROJ001",
-        "project_name": "Test Project",
-        "description": "A test",
-        "lab_groups": [],
-        "privacy_type": "public",
-        "keywords": [],
-        "project_type": [],
-        "RD_tag": "false",
-        "biosample_preparation": "",
-        "owner_name": ["Alice"],
-        "owner_email": ["alice@example.com"],
-        "collaborator_name": ["Bob"],
-        "collaborator_email": ["bob@example.com"]
-    }
-
-    # Empty biosample data
-    biosample_meta_df = pd.DataFrame(columns=["sample_id"])
-
-    adapter = create_adapter_with_mock(project_data, {}, biosample_meta_df)
-
-    # Act
-    batches = list(adapter.get_all())
-
-    # Assert - first batch should have project, owners, collaborators, and edges
-    first_batch = batches[0]
-
-    projects = [obj for obj in first_batch if isinstance(obj, Project)]
-    persons = [obj for obj in first_batch if isinstance(obj, Person)]
-    person_edges = [obj for obj in first_batch if isinstance(obj, ProjectPersonEdge)]
-
-    assert len(projects) == 1
-    assert projects[0].id == "PROJ001"
-
-    assert len(persons) == 2
-    assert persons[0].id == "Alice"
-    assert persons[1].id == "Bob"
-
-    assert len(person_edges) == 2
-    owner_edge = [e for e in person_edges if e.role == "Owner"][0]
-    collab_edge = [e for e in person_edges if e.role == "Collaborator"][0]
-    assert owner_edge.end_node.id == "Alice"
-    assert collab_edge.end_node.id == "Bob"
-
-
-def test_get_all_yields_biospecimens_and_biosamples():
-    # Arrange
-    project_data = {
-        "project_id": "PROJ001",
-        "project_name": "Test Project",
-        "description": "A test",
-        "lab_groups": [],
-        "privacy_type": "public",
-        "keywords": [],
-        "project_type": [],
-        "RD_tag": "false",
-        "biosample_preparation": "",
-        "owner_name": [],
-        "owner_email": [],
-        "collaborator_name": [],
-        "collaborator_email": []
-    }
-
-    biosample_map_data = {
-        "biosample_id": "SampleID",
-        "biosample_type": "SampleType",
-        "biospecimen_id": "SpecimenID",
-        "biospecimen_type": "SpecimenType",
-        "biospecimen_description": "Description",
-        "organism_names": "Organism",
-        "disease_names": "Disease"
-    }
-
-    biosample_meta_df = pd.DataFrame({
-        "SampleID": ["S1", "S2"],
-        "SampleType": ["blood", "tissue"],
-        "SpecimenID": ["SP1", "SP1"],  # Same specimen for both samples
-        "SpecimenType": ["human", "human"],
-        "Description": ["Desc 1", "Desc 1"],
-        "Organism": ["Homo sapiens", "Homo sapiens"],
-        "Disease": ["Cancer", "Cancer"]
-    })
-
-    adapter = create_adapter_with_mock(project_data, biosample_map_data, biosample_meta_df)
-
-    # Act
-    batches = list(adapter.get_all())
-
-    # Assert
-    # Batch 0: project, persons, edges
-    # Batch 1: biospecimens
-    # Batch 2: biosamples
-    # Batch 3: exposures
-    # Batch 4: sample_exposure_edges
-    # Batch 5: project_biosample_edges
-    # Batch 6: biosample_biospecimen_edges
-
-    assert len(batches) >= 2
-
-    # Check biospecimens (should be deduplicated - only 1 unique)
-    biospecimens = batches[1]
-    assert len(biospecimens) == 1
-    assert isinstance(biospecimens[0], Biospecimen)
-    assert biospecimens[0].original_id == "SP1"
-
-    # Check biosamples
-    biosamples = batches[2]
-    assert len(biosamples) == 2
-    assert all(isinstance(b, Biosample) for b in biosamples)
-
-
-def test_get_all_creates_correct_edges():
-    # Arrange
-    project_data = {
-        "project_id": "PROJ001",
-        "project_name": "Test Project",
-        "description": "A test",
-        "lab_groups": [],
-        "privacy_type": "public",
-        "keywords": [],
-        "project_type": [],
-        "RD_tag": "false",
-        "biosample_preparation": "",
-        "owner_name": [],
-        "owner_email": [],
-        "collaborator_name": [],
-        "collaborator_email": []
-    }
-
-    biosample_map_data = {
-        "biosample_id": "SampleID",
-        "biosample_type": "SampleType",
-        "biospecimen_id": "SpecimenID",
-        "biospecimen_type": "SpecimenType",
-        "biospecimen_description": "Description",
-        "organism_names": "Organism",
-        "disease_names": "Disease"
-    }
-
-    biosample_meta_df = pd.DataFrame({
-        "SampleID": ["S1"],
-        "SampleType": ["blood"],
-        "SpecimenID": ["SP1"],
-        "SpecimenType": ["human"],
-        "Description": ["Desc"],
-        "Organism": ["Homo sapiens"],
-        "Disease": ["Cancer"]
-    })
-
-    adapter = create_adapter_with_mock(project_data, biosample_map_data, biosample_meta_df)
-
-    # Act
-    batches = list(adapter.get_all())
-
-    # Assert - check project->biosample edges
-    project_biosample_edges = batches[5]
-    assert len(project_biosample_edges) == 1
-    assert isinstance(project_biosample_edges[0], ProjectBiosampleEdge)
-    assert project_biosample_edges[0].start_node.id == "PROJ001"
-
-    # Check biosample->biospecimen edges
-    biosample_biospecimen_edges = batches[6]
-    assert len(biosample_biospecimen_edges) == 1
-    assert isinstance(biosample_biospecimen_edges[0], BiosampleBiospecimenEdge)

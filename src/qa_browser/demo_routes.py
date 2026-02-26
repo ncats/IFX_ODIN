@@ -56,7 +56,8 @@ def _get_engine():
         _mysql_engines[DB_NAME] = create_engine(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{DB_NAME}",
             pool_pre_ping=True,
-            pool_size=5,
+            pool_size=10,
+            connect_args={"read_timeout": 300, "write_timeout": 300},
         )
     return _mysql_engines[DB_NAME]
 

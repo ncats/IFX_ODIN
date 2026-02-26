@@ -267,11 +267,11 @@ class RunBiosampleConfig(ColumnConfig):
     def __init__(self, run_sample_map: dict, project_id: str):
         super().__init__(run_sample_map)
         self.project_id = project_id
-        self.run_biosample_id_column = get_column_name(run_sample_map, ExperimentWorkbook.RunSampleMapSheet.Key.run_biosample_id)
-        self.biosample_id_column = get_column_name(run_sample_map, ExperimentWorkbook.RunSampleMapSheet.Key.biosample_id)
-        self.biological_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunSampleMapSheet.Key.biological_replicate_number)
-        self.technical_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunSampleMapSheet.Key.technical_replicate_number)
-        self.biosample_run_order_column = get_column_name(run_sample_map, ExperimentWorkbook.RunSampleMapSheet.Key.biosample_run_order)
+        self.run_biosample_id_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.run_biosample_id)
+        self.biosample_id_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_id)
+        self.biological_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biological_replicate_number)
+        self.technical_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.technical_replicate_number)
+        self.biosample_run_order_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_run_order)
 
     def get_data(self, row):
         run_biosample_id = self.get_row_value(row, self.run_biosample_id_column, True)
