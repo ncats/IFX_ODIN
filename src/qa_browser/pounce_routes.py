@@ -560,6 +560,7 @@ async def submit_pounce(
     msg["Subject"]  = f"POUNCE Submission: {session['project_name']}"
     msg["From"]     = _smtp_config["from_address"]
     msg["To"]       = _smtp_config["to_address"]
+    msg["Cc"]       = email
     msg["Reply-To"] = email
     msg.attach(MIMEText("\n".join(body_lines), "plain"))
 
@@ -591,7 +592,7 @@ async def submit_pounce(
             smtp.starttls()
         if user and password:
             smtp.login(user, password)
-        smtp.sendmail(_smtp_config["from_address"], _smtp_config["to_address"], msg.as_string())
+        smtp.sendmail(_smtp_config["from_address"], [_smtp_config["to_address"], email], msg.as_string())
         smtp.quit()
     except Exception as e:
         return _templates.TemplateResponse("pounce_submit_confirm.html", {
