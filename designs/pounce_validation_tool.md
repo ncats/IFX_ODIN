@@ -79,9 +79,9 @@ The parse result is cached on the adapter instance (`_cached_validation_result`)
 ```
 project, people, param_maps,
 biosamples, biospecimens, demographics, exposures,
-experiments, run_biosamples,
-genes, metabolites,
-peak_data_meta, raw_data_meta, stats_results
+experiments, genes, metabolites,
+peak_data_meta, raw_data_meta, run_biosamples,
+stats_results
 ```
 
 `param_maps` is a `Dict[str, Dict[str, str]]` keyed by sheet name (e.g. `"BioSampleMap"`),
@@ -265,8 +265,9 @@ The coverage functions receive `resolver_map.get("Metabolite")` and
 `resolver_map.get("Gene")` respectively. If a resolver for that type isn't configured,
 `None` is passed and the check is skipped with a "no resolver configured" message.
 
-`test_pounce_validation.yaml` declares the same `resolvers:` block as `pounce_v2.yaml`,
-using the existing `*ramp_sqlite_file` anchor — no new config keys were needed.
+Both `pounce.yaml` and `test_pounce_validation.yaml` declare a `resolvers:` block — no
+new config keys were needed. `validate_pounce.py` currently points at `pounce.yaml` by
+default (the test config is available but commented out).
 
 Coverage runs after the structural + content validation output:
 

@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+{% block title %}Validation Results{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/pounce/validate">POUNCE Validate</a>
+<span class="sep">/</span>
+<span>Results</span>
+{% endblock %}
+
+{% block content %}
+
+{% if parse_error %}
+
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Could Not Parse Files</h1>
+        <p class="hero-subtitle">{{ project_filename }}</p>
+    </div>
+</div>
+<div class="error-box">{{ parse_error }}</div>
+<div style="margin-top: 1.25rem;">
+    <a href="{{ root_path }}/pounce/validate" class="btn btn-primary">Try again</a>
+</div>
+
+{% else %}
+
+{% macro kv_row(label, value) %}{% if value is not none and value != "" and value != [] %}<div style="font-size: 12px; color: var(--text-muted); padding: 0.2rem 0; align-self: start; padding-top: 0.3rem;">{{ label }}</div><div style="font-size: 13px; padding: 0.2rem 0; word-break: break-word;">{% if value is iterable and value is not string %}{{ value | join(", ") }}{% else %}{{ value }}{% endif %}</div>{% endif %}{% endmacro %}
+{% set _detail_summary = "padding: 0.65rem 1rem; font-size: 13px; font-weight: 600; cursor: pointer; user-select: none; background: var(--bg-alt); border-radius: var(--radius); display: flex; align-items: baseline; gap: 0.5rem;" %}
+{% set _detail_box = "border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.65rem; overflow: hidden;" %}
+{% set _kv_grid = "padding: 0.85rem 1rem; display: grid; grid-template-columns: 185px 1fr; gap: 0 1rem; align-items: baseline; row-gap: 0.1rem;" %}
+
+{# ── Page header ─────────────────────────────────────────────────────────── #}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">
+            {{ parsed_data.project.project_name if parsed_data and parsed_data.project else project_filename }}
+        </h1>
+        <p class="hero-subtitle">
+            {%- if parsed_data and parsed_data.project -%}
+                {%- set proj = parsed_data.project -%}
+                {{ proj.project_id or "" }}
+                {%- if proj.project_type %} &middot; {{ proj.project_type | join(", ") }}{% endif %}
+                {%- if proj.date %} &middot; {{ proj.date }}{% endif %}
+            {%- else -%}
+                {{ project_filename }}
+            {%- endif -%}
+        </p>
+    </div>
+    {% if parsed_data %}
+    <div class="hero-stats">
+        <div class="hero-stat">
+            <span class="hero-stat-value" style="{{ 'color: var(--danger)' if errors else 'color: var(--success)' }}">
+                {{ errors|length }}
+            </span>
+            <span class="hero-stat-label">Error{{ "s" if errors|length != 1 }}</span>
+        </div>
+        <div class="hero-stat">
+            <span class="hero-stat-value" style="{{ 'color: #d97706' if warnings else '' }}">
+                {{ warnings|length }}
+            </span>
+            <span class="hero-stat-label">Warning{{ "s" if warnings|length != 1 }}</span>
+        </div>
+        {% if session_id %}
+        <div class="hero-stat">
+            <a href="{{ root_path }}/pounce/edit/{{ session_id }}"
+               class="btn" style="font-size: 12px; padding: 0.3rem 0.75rem;">Edit files</a>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{# ── Status banner ───────────────────────────────────────────────────────── #}
+{% if errors %}
+<div class="pounce-banner pounce-banner-error">
+    {{ errors|length }} error{{ "s" if errors|length != 1 }}
+    {%- if warnings %} and {{ warnings|length }} warning{{ "s" if warnings|length != 1 }}{% endif %}
+    found.
+</div>
+{% elif warnings %}
+<div class="pounce-banner pounce-banner-warning">
+    {{ warnings|length }} warning{{ "s" if warnings|length != 1 }} — review before submitting.
+</div>
+{% else %}
+<div class="pounce-banner pounce-banner-success">
+    Validation passed — no errors or warnings.
+</div>
+{% endif %}
+
+{# ── Summary counts ──────────────────────────────────────────────────────── #}
+{% if parsed_data %}
+<div class="stats-row">
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.experiments|length }}</div>
+        <div class="label">Experiments</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.biospecimens|length }}</div>
+        <div class="label">Biospecimens</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.biosamples|length }}</div>
+        <div class="label">Biosamples</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.run_biosamples|length }}</div>
+        <div class="label">Run Biosamples</div>
+    </div>
+    {% if parsed_data.genes %}
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.genes|length }}</div>
+        <div class="label">Genes</div>
+    </div>
+    {% endif %}
+    {% if parsed_data.metabolites %}
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.metabolites|length }}</div>
+        <div class="label">Metabolites</div>
+    </div>
+    {% endif %}
+    <div class="stat-box">
+        <div class="value">{{ parsed_data.stats_results|length }}</div>
+        <div class="label">Stats Datasets</div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Project card ────────────────────────────────────────────────────────── #}
+{% if parsed_data and parsed_data.project %}{% set proj = parsed_data.project %}
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text-muted);
+                text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem;">Project</div>
+    <div style="display: grid; grid-template-columns: 185px 1fr; gap: 0 1rem; align-items: baseline; row-gap: 0.1rem;">
+        {{ kv_row("Project ID",          proj.project_id) }}
+        {{ kv_row("Description",         proj.description) }}
+        {{ kv_row("Date",                proj.date) }}
+        {{ kv_row("Owners",              proj.owner_names) }}
+        {{ kv_row("Owner emails",        proj.owner_emails) }}
+        {{ kv_row("Collaborators",       proj.collaborator_names) }}
+        {{ kv_row("Collaborator emails", proj.collaborator_emails) }}
+        {{ kv_row("Lab groups",          proj.lab_groups) }}
+        {{ kv_row("Keywords",            proj.keywords) }}
+        {{ kv_row("Privacy",             proj.privacy_type) }}
+        {{ kv_row("Project type",        proj.project_type) }}
+        {{ kv_row("Rare disease focus",  proj.rd_tag) }}
+        {{ kv_row("Sample preparation",  proj.biosample_preparation) }}
+    </div>
+</div>
+{% endif %}
+
+{# ── Issues ──────────────────────────────────────────────────────────────── #}
+{% if grouped %}
+<div style="margin-bottom: 2rem;">
+    {% for workbook, sheets in grouped %}
+    <div class="card" style="margin-bottom: 1rem;">
+        <div style="font-family: var(--mono); font-size: 12px; font-weight: 700;
+                    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+                    margin-bottom: 0.85rem;">
+            {{ workbook }}
+        </div>
+        {% for sheet, issues in sheets %}
+        <div style="margin-bottom: 0.9rem;">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 0.4rem;">{{ sheet }}</div>
+            <table>
+                <tbody>
+                {% for issue in issues %}
+                <tr>
+                    <td style="width: 58px; padding: 0.35rem 0.5rem; white-space: nowrap;">
+                        {% if issue.severity == "error" %}
+                        <span class="badge" style="background:#fef2f2; color:var(--danger);">ERROR</span>
+                        {% else %}
+                        <span class="badge" style="background:#fffbeb; color:#92400e;">WARN</span>
+                        {% endif %}
+                    </td>
+                    <td class="mono" style="width: 200px; white-space: nowrap;">{{ issue.field or "" }}</td>
+                    <td class="mono" style="width: 65px; color: var(--text-muted); white-space: nowrap;">
+                        {% if issue.row is not none %}row {{ issue.row }}{% endif %}
+                    </td>
+                    <td style="white-space: normal;">{{ issue.message }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ── Mapping coverage ────────────────────────────────────────────────────── #}
+{% if coverage or metab_resolver_missing or gene_resolver_missing %}
+<div class="card" style="margin-bottom: 2rem;">
+    <h2 style="margin-bottom: 0.85rem;">Mapping Coverage</h2>
+    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
+        Fraction of submitted analyte IDs that will resolve to canonical nodes in the graph after ETL.
+    </p>
+    {% for cov in coverage %}
+    <div style="margin-bottom: 1rem;">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 0.4rem;">{{ cov.sheet }}</div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.35rem;">
+            <div style="flex: 1; height: 14px; background: var(--bg); border: 1px solid var(--border);
+                        border-radius: 3px; overflow: hidden; max-width: 300px;">
+                <div style="height: 100%; width: {{ cov.mapped_pct }}%;
+                             background: {{ 'var(--success)' if cov.mapped_pct >= 90 else ('#d97706' if cov.mapped_pct >= 50 else 'var(--danger)') }};
+                             border-radius: 3px 0 0 3px; transition: width 0.3s;"></div>
+            </div>
+            <span style="font-family: var(--mono); font-size: 13px; font-weight: 600;">
+                {{ cov.mapped }}/{{ cov.total }} ({{ "%.1f"|format(cov.mapped_pct) }}%)
+            </span>
+            <span style="font-size: 12px; color: var(--text-muted);">
+                {{ cov.analyte_type|lower }}s will resolve to canonical nodes
+            </span>
+        </div>
+        {% if cov.unmapped_ids %}
+        <details style="margin-top: 0.35rem;">
+            <summary style="font-size: 12px; color: var(--text-muted); padding: 0.2rem 0;">
+                {{ cov.unmapped_ids|length }} unmapped ID{{ "s" if cov.unmapped_ids|length != 1 }}
+            </summary>
+            <div style="font-family: var(--mono); font-size: 12px; margin-top: 0.4rem;
+                        padding: 0.5rem 0.75rem; background: var(--bg-alt);
+                        border: 1px solid var(--border); border-radius: var(--radius);
+                        line-height: 1.8;">
+                {{ cov.unmapped_ids | join(", ") }}
+            </div>
+        </details>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    {% if metab_resolver_missing %}
+    <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 0.5rem;">
+        <strong>MetabMeta</strong> — resolver not configured, coverage check skipped
+    </div>
+    {% endif %}
+    {% if gene_resolver_missing %}
+    <div style="font-size: 13px; color: var(--text-muted);">
+        <strong>GeneMeta</strong> — resolver not configured, coverage check skipped
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Parsed data ─────────────────────────────────────────────────────────── #}
+{% if parsed_data %}
+
+<div style="margin-bottom: 2rem;">
+<h2 style="margin-bottom: 0.85rem;">Parsed Data</h2>
+
+{# -- Experiment metadata (one per experiment) -- #}
+{% for exp in parsed_data.experiments %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Experiment {{ loop.index }}{% if exp.experiment_name %}: {{ exp.experiment_name }}{% endif %}
+    </summary>
+    <div style="{{ _kv_grid }}">
+        {{ kv_row("Experiment ID",              exp.experiment_id) }}
+        {{ kv_row("Name",                       exp.experiment_name) }}
+        {{ kv_row("Description",                exp.experiment_description) }}
+        {{ kv_row("Design",                     exp.experiment_design) }}
+        {{ kv_row("Type",                       exp.experiment_type) }}
+        {{ kv_row("Date",                       exp.date) }}
+        {{ kv_row("Lead data generator",        exp.lead_data_generator) }}
+        {{ kv_row("Lead data generator email",  exp.lead_data_generator_email) }}
+        {{ kv_row("Lead informatician",         exp.lead_informatician) }}
+        {{ kv_row("Lead informatician email",   exp.lead_informatician_email) }}
+        {{ kv_row("Platform type",              exp.platform_type) }}
+        {{ kv_row("Platform name",              exp.platform_name) }}
+        {{ kv_row("Platform provider",          exp.platform_provider) }}
+        {{ kv_row("Platform output type",       exp.platform_output_type) }}
+        {{ kv_row("Public repo ID",             exp.public_repo_id) }}
+        {{ kv_row("Repo URL",                   exp.repo_url) }}
+        {{ kv_row("Extraction protocol",        exp.extraction_protocol) }}
+        {{ kv_row("Acquisition method",         exp.acquisition_method) }}
+    </div>
+</details>
+{% endfor %}
+
+{# -- Biosamples -- #}
+{% if parsed_data.biosamples %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Biosamples <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.biosamples|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Biosample ID</th><th>Type</th>
+        </tr></thead><tbody>
+        {% for bs in parsed_data.biosamples[:25] %}
+        <tr>
+            <td class="mono">{{ bs.biosample_id or "" }}</td>
+            <td>{{ bs.biosample_type or "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.biosamples|length > 25 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.biosamples|length - 25 }} more</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Biospecimens -- #}
+{% if parsed_data.biospecimens %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Biospecimens <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.biospecimens|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Biospecimen ID</th><th>Type</th><th>Organism</th><th>Diseases</th>
+        </tr></thead><tbody>
+        {% for bs in parsed_data.biospecimens[:25] %}
+        <tr>
+            <td class="mono">{{ bs.biospecimen_id or "" }}</td>
+            <td>{{ bs.biospecimen_type or "" }}</td>
+            <td>{{ bs.organism_names or "" }}</td>
+            <td>{{ bs.disease_names | join(", ") if bs.disease_names else "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.biospecimens|length > 25 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.biospecimens|length - 25 }} more</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Exposures -- #}
+{% if parsed_data.exposures %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Exposures <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.exposures|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Name(s)</th><th>Type</th><th>Concentration</th><th>Duration</th>
+        </tr></thead><tbody>
+        {% for ex in parsed_data.exposures[:25] %}
+        <tr>
+            <td>{{ ex.names | join(", ") if ex.names else "" }}</td>
+            <td>{{ ex.type or "" }}</td>
+            <td>{{ ex.concentration or "" }}{% if ex.concentration and ex.concentration_unit %} {{ ex.concentration_unit }}{% endif %}</td>
+            <td>{{ ex.duration or "" }}{% if ex.duration and ex.duration_unit %} {{ ex.duration_unit }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.exposures|length > 25 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.exposures|length - 25 }} more</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Run Biosamples -- #}
+{% if parsed_data.run_biosamples %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Run Biosamples <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.run_biosamples|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Run Biosample ID</th><th>Biosample ID</th><th>Bio rep</th><th>Tech rep</th><th>Run order</th>
+        </tr></thead><tbody>
+        {% for rb in parsed_data.run_biosamples[:25] %}
+        <tr>
+            <td class="mono">{{ rb.run_biosample_id or "" }}</td>
+            <td class="mono">{{ rb.biosample_id or "" }}</td>
+            <td>{{ rb.biological_replicate_number or "" }}</td>
+            <td>{{ rb.technical_replicate_number or "" }}</td>
+            <td>{{ rb.biosample_run_order or "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.run_biosamples|length > 25 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.run_biosamples|length - 25 }} more</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Genes (first 20) -- #}
+{% if parsed_data.genes %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Genes <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.genes|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Gene ID</th><th>Symbol</th><th>Biotype</th>
+        </tr></thead><tbody>
+        {% for g in parsed_data.genes[:20] %}
+        <tr>
+            <td class="mono">{{ g.gene_id or "" }}</td>
+            <td class="mono">{{ g.hgnc_gene_symbol or "" }}</td>
+            <td>{{ g.gene_biotype or "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.genes|length > 20 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.genes|length - 20 }} more ({{ parsed_data.genes|length }} total)</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Metabolites (first 20) -- #}
+{% if parsed_data.metabolites %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Metabolites <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.metabolites|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Metabolite ID</th><th>Name</th><th>Chem class</th><th>ID level</th>
+        </tr></thead><tbody>
+        {% for m in parsed_data.metabolites[:20] %}
+        <tr>
+            <td class="mono">{{ m.metab_id or "" }}</td>
+            <td>{{ m.metab_name or "" }}</td>
+            <td>{{ m.metab_chemclass or "" }}</td>
+            <td>{{ m.identification_level if m.identification_level is not none else "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.metabolites|length > 20 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.metabolites|length - 20 }} more ({{ parsed_data.metabolites|length }} total)</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+{# -- Stats Results metadata -- #}
+{% if parsed_data.stats_results %}
+<details style="{{ _detail_box }}">
+    <summary style="{{ _detail_summary }}">
+        Stats Results <span style="font-weight: 400; color: var(--text-muted);">({{ parsed_data.stats_results|length }})</span>
+    </summary>
+    <div style="padding: 0.6rem 1rem 0.85rem;">
+        <table><thead><tr>
+            <th>Name</th><th>Description</th><th>Lead informatician</th><th>Effect size</th><th>P-value col</th>
+        </tr></thead><tbody>
+        {% for sr in parsed_data.stats_results[:25] %}
+        <tr>
+            <td>{{ sr.statsresults_name or "" }}</td>
+            <td>{{ sr.stats_description or "" }}</td>
+            <td>{{ sr.lead_informatician or "" }}</td>
+            <td>{{ sr.effect_size or "" }}</td>
+            <td>{{ sr.effect_size_pval or "" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% if parsed_data.stats_results|length > 25 %}
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 0.4rem;">… {{ parsed_data.stats_results|length - 25 }} more</div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
+</div>
+{% endif %}{# end parsed_data #}
+
+{# ── Submit to POUNCE ────────────────────────────────────────────────────────── #}
+{% if session_id %}
+<div class="card" style="margin-bottom: 2rem;">
+    <h2 style="margin-bottom: 1rem;">Submit to POUNCE</h2>
+    {% if smtp_configured %}
+    <form method="post" action="{{ root_path }}/pounce/submit/{{ session_id }}">
+        <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.6rem 1rem;
+                    align-items: center; max-width: 480px; margin-bottom: 1rem;">
+            <label style="font-size: 13px; font-weight: 600;">Your name</label>
+            <input type="text" name="name" required
+                   style="padding: 0.4rem 0.6rem; border: 1px solid var(--border);
+                          border-radius: var(--radius); font-size: 13px;">
+            <label style="font-size: 13px; font-weight: 600;">Your email</label>
+            <input type="email" name="email" required
+                   style="padding: 0.4rem 0.6rem; border: 1px solid var(--border);
+                          border-radius: var(--radius); font-size: 13px;">
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Attached: {{ session_filenames | join(", ") }}&ensp;&bull;&ensp;
+            Validation summary ({{ errors|length }} error{{ "s" if errors|length != 1 }},
+            {{ warnings|length }} warning{{ "s" if warnings|length != 1 }}) will be included.
+        </p>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Submit to POUNCE</button>
+    </form>
+    <script>
+    document.querySelector('form[action*="/pounce/submit/"]').addEventListener('submit', function() {
+        const btn = document.getElementById('submit-btn');
+        btn.disabled = true;
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.style.gap = '0.5rem';
+        btn.innerHTML = '<span class="spinner"></span> Sending…';
+    });
+    </script>
+    {% else %}
+    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 0.75rem;">
+        Email delivery is not configured on this server. To enable submissions, start the app
+        with <code>--smtp-credentials &lt;path&gt;</code>.
+    </p>
+    <button class="btn btn-primary" disabled
+            style="opacity: 0.45; cursor: not-allowed;">Submit to POUNCE</button>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endif %}{# end parse_error #}
+
+<a href="{{ root_path }}/pounce/validate" class="btn btn-primary">Validate another submission</a>
+
+{% endblock %}

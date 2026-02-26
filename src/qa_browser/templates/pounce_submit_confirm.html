@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{% if error %}Submission Failed{% else %}Submission Sent{% endif %}{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/pounce/validate">POUNCE Validate</a>
+<span class="sep">/</span>
+<span>{% if error %}Submission Failed{% else %}Sent{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+
+{% if error %}
+
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Submission Failed</h1>
+        {% if project_name %}
+        <p class="hero-subtitle">{{ project_name }}</p>
+        {% endif %}
+    </div>
+</div>
+<div class="error-box">{{ error }}</div>
+<div style="margin-top: 1.25rem;">
+    <a href="{{ root_path }}/pounce/validate" class="btn btn-primary">Upload files again</a>
+</div>
+
+{% else %}
+
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Sent!</h1>
+        <p class="hero-subtitle">{{ project_name }}</p>
+    </div>
+</div>
+<div class="pounce-banner pounce-banner-success">
+    Your submission has been sent to the NCATS team. They will follow up at <strong>{{ email }}</strong>.
+</div>
+<div style="margin-top: 1.5rem;">
+    <a href="{{ root_path }}/pounce/validate" class="btn btn-primary">Upload another submission</a>
+</div>
+
+{% endif %}
+
+{% endblock %}

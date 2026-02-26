@@ -95,6 +95,10 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 - Memgraph Lab: http://localhost:3000
 - Memgraph query: localhost:7687
 
+## Workflow Conventions
+
+- **After creating any new file**, run `git add <path>` so it is staged for the next commit. Do not wait to be asked.
+
 ## Key Files
 
 | File | Purpose |

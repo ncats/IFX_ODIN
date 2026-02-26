@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}POUNCE Validate{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>POUNCE Validate</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">POUNCE Submission Validator</h1>
+        <p class="hero-subtitle">Upload your Excel workbooks to check for errors before sending them to NCATS.</p>
+    </div>
+</div>
+
+<form method="post" action="{{ root_path }}/pounce/validate"
+      enctype="multipart/form-data" id="validate-form" style="max-width: 1000px;">
+
+    {# ── Project workbook ─────────────────────────────────────────────────── #}
+    <div class="card" style="margin-bottom: 1rem;">
+        <div class="upload-field-label">
+            Project workbook <span style="color: var(--danger);">*</span>
+        </div>
+        <div class="drop-zone" id="project-drop-zone">
+            <div class="dz-empty">
+                <div class="dz-icon">↑</div>
+                <div class="dz-hint">Drop <code>.xlsx</code> here or <span class="dz-link">browse</span></div>
+            </div>
+            <div class="dz-filled">
+                <div class="dz-filename"></div>
+                <div class="dz-change">Click or drop to replace</div>
+            </div>
+            <input type="file" name="project_file" accept=".xlsx" required class="drop-zone-input">
+        </div>
+    </div>
+
+    {# ── Experiment / StatsResults pairs ──────────────────────────────────── #}
+    <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="upload-field-label" style="margin-bottom: 0.25rem;">
+            Experiments <span style="color: var(--danger);">*</span>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
+            Each experiment workbook must be paired with its StatsResults workbook.
+            Add a row for each experiment in the submission.
+        </p>
+
+        <div id="experiment-pairs">
+            {# First pair — cloned by JS for subsequent pairs #}
+            <div class="pair-row">
+                <div class="pair-cell">
+                    <div class="pair-cell-label">Experiment 1</div>
+                    <div class="drop-zone">
+                        <div class="dz-empty">
+                            <div class="dz-icon">↑</div>
+                            <div class="dz-hint">Drop <code>.xlsx</code> or <span class="dz-link">browse</span></div>
+                        </div>
+                        <div class="dz-filled">
+                            <div class="dz-filename"></div>
+                            <div class="dz-change">Click or drop to replace</div>
+                        </div>
+                        <input type="file" name="experiment_files" accept=".xlsx" required class="drop-zone-input">
+                    </div>
+                </div>
+                <div class="pair-cell">
+                    <div class="pair-cell-label">Stats Results 1</div>
+                    <div class="drop-zone">
+                        <div class="dz-empty">
+                            <div class="dz-icon">↑</div>
+                            <div class="dz-hint">Drop <code>.xlsx</code> or <span class="dz-link">browse</span></div>
+                        </div>
+                        <div class="dz-filled">
+                            <div class="dz-filename"></div>
+                            <div class="dz-change">Click or drop to replace</div>
+                        </div>
+                        <input type="file" name="stats_files" accept=".xlsx" required class="drop-zone-input">
+                    </div>
+                </div>
+                <button type="button" class="pair-remove-btn" onclick="removePair(this)"
+                        title="Remove" style="display:none;">✕</button>
+            </div>
+        </div>
+
+        <button type="button" class="btn btn-sm" onclick="addPair()"
+                style="margin-top: 0.85rem;">+ Add experiment</button>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Validate</button>
+
+</form>
+
+<script>
+// ── Drop zone ────────────────────────────────────────────────────────────────
+
+function initDropZone(zone) {
+    const input = zone.querySelector('.drop-zone-input');
+
+    zone.addEventListener('click', () => input.click());
+    input.addEventListener('click', e => e.stopPropagation());
+
+    input.addEventListener('change', () => {
+        if (input.files.length > 0) setFile(zone, input.files[0].name);
+    });
+
+    zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', e => {
+        if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+    });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        setFile(zone, file.name);
+    });
+}
+
+function setFile(zone, name) {
+    zone.querySelector('.dz-filename').textContent = name;
+    zone.classList.add('has-file');
+}
+
+// ── Pair management ──────────────────────────────────────────────────────────
+
+function addPair() {
+    const container = document.getElementById('experiment-pairs');
+    const existing  = container.querySelectorAll('.pair-row');
+    const clone     = existing[0].cloneNode(true);
+
+    // Reset cloned inputs and state
+    clone.querySelectorAll('.drop-zone-input').forEach(inp => { inp.value = ''; });
+    clone.querySelectorAll('.dz-filename').forEach(el  => { el.textContent = ''; });
+    clone.querySelectorAll('.drop-zone').forEach(dz    => {
+        dz.classList.remove('has-file', 'drag-over');
+    });
+
+    container.appendChild(clone);
+    updateLabels();
+    clone.querySelectorAll('.drop-zone').forEach(dz => initDropZone(dz));
+}
+
+function removePair(btn) {
+    btn.closest('.pair-row').remove();
+    updateLabels();
+}
+
+function updateLabels() {
+    const rows = document.querySelectorAll('#experiment-pairs .pair-row');
+    rows.forEach((row, i) => {
+        const labels = row.querySelectorAll('.pair-cell-label');
+        if (labels[0]) labels[0].textContent = `Experiment ${i + 1}`;
+        if (labels[1]) labels[1].textContent = `Stats Results ${i + 1}`;
+        const rmBtn = row.querySelector('.pair-remove-btn');
+        if (rmBtn) rmBtn.style.display = rows.length > 1 ? 'flex' : 'none';
+    });
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.drop-zone').forEach(dz => initDropZone(dz));
+
+document.getElementById('validate-form').addEventListener('submit', function() {
+    const btn = this.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+    btn.style.gap = '0.5rem';
+    btn.innerHTML = '<span class="spinner"></span> Validating…';
+});
+</script>
+
+{% endblock %}
