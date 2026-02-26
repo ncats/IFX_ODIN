@@ -14,42 +14,49 @@ resolvers:
         - Metabolite
       sqlite_file: *ramp_sqlite_file
 
+  - label: ensembl_resolver
+    import: ./src/id_resolvers/ensembl_gene_resolver.py
+    class: EnsemblGeneResolver
+    kwargs:
+      types:
+        - Gene
+
 input_adapters:
-#  - import: ./src/input_adapters/ensembl/gene.py
-#    class: GeneAdapter
-#    kwargs:
-#      data_file_path: ./input_files/auto/ensembl/Homo_sapiens.current.gtf.gz
-#      version_file_path: ./input_files/auto/ensembl/version.csv
-#
-#  - import: ./src/input_adapters/sqlite_ramp/metabolite_adapter.py
-#    class: MetaboliteAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_adapter.py
-#    class: MetaboliteClassAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
-#    class: MetaboliteClassRelationshipAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - import: ./src/input_adapters/sqlite_ramp/pathway_adapter.py
-#    class: PathwayAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-#    class: MetabolitePathwayRelationshipAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-#    class: EnsemblGenePathwayRelationshipAdapter
-#    kwargs:
-#      sqlite_file: *ramp_sqlite_file
+  - import: ./src/input_adapters/ensembl/gene.py
+    class: GeneAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/ensembl/Homo_sapiens.current.gtf.gz
+      version_file_path: ./input_files/auto/ensembl/version.csv
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_adapter.py
+    class: MetaboliteAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_adapter.py
+    class: MetaboliteClassAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
+    class: MetaboliteClassRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/pathway_adapter.py
+    class: PathwayAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
+    class: MetabolitePathwayRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
+
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
+    class: EnsemblGenePathwayRelationshipAdapter
+    kwargs:
+      sqlite_file: *ramp_sqlite_file
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter

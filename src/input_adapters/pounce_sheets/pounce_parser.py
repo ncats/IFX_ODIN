@@ -185,7 +185,7 @@ class PounceParser:
             return None
         if is_list:
             return [v.strip() for v in str(val).split("|") if v.strip()]
-        return str(val).strip() if isinstance(val, str) else val
+        return str(val).strip()
 
     @classmethod
     def _parse_mapped_row(cls, row, param_map: dict, dataclass_type: Type, index: int = None):
@@ -491,7 +491,7 @@ class PounceParser:
         combined, issues = self.parse_project(project_parser)
 
         # Build the valid biosample ID set from the project (available for all experiments).
-        valid_biosample_ids = {b.biosample_id for b in combined.biosamples if b.biosample_id} or None
+        valid_biosample_ids = {str(b.biosample_id).strip() for b in combined.biosamples if b.biosample_id} or None
 
         for i, exp_file in enumerate(experiment_files):
             exp_parser = ExcelsheetParser(file_path=exp_file)
@@ -509,9 +509,9 @@ class PounceParser:
             # Process the paired stats file (if any) immediately after its experiment
             # so we can pass the experiment's gene/metabolite ID sets for cross-referencing.
             if i < len(stats_files):
-                valid_gene_ids = {g.gene_id for g in exp_data.genes if g.gene_id} or None
-                valid_metab_ids = {m.metab_id for m in exp_data.metabolites if m.metab_id} or None
-                valid_run_biosample_ids = {rb.run_biosample_id for rb in exp_data.run_biosamples if rb.run_biosample_id} or None
+                valid_gene_ids = {str(g.gene_id).strip() for g in exp_data.genes if g.gene_id} or None
+                valid_metab_ids = {str(m.metab_id).strip() for m in exp_data.metabolites if m.metab_id} or None
+                valid_run_biosample_ids = {str(rb.run_biosample_id).strip() for rb in exp_data.run_biosamples if rb.run_biosample_id} or None
                 stats_parser = ExcelsheetParser(file_path=stats_files[i])
                 stats_data, stats_issues = self.parse_stats_results(
                     stats_parser,
