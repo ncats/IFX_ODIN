@@ -11,6 +11,9 @@ rule all:
         "../input_files/auto/uniprot/uniprot-human.json.gz",
         "../input_files/auto/iuphar/ligands.csv",
         "../input_files/auto/iuphar/interactions.csv",
+        "../input_files/auto/reactome/ReactomePathways.gmt.zip",
+        "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
+        "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
 
 rule download_iuphar:
     output:
@@ -52,3 +55,15 @@ rule download_go_from_go:
         "../input_files/auto/go/goa_human-go.gaf.gz"
     shell:
         "curl -o {output} https://current.geneontology.org/annotations/goa_human.gaf.gz"
+
+rule download_reactome:
+    output:
+        "../input_files/auto/reactome/ReactomePathways.gmt.zip",
+        "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
+        "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt"
+    shell:
+        """
+        curl -o {output[0]} https://reactome.org/download/current/ReactomePathways.gmt.zip
+        curl -o {output[1]} https://reactome.org/download/current/ReactomePathwaysRelation.txt
+        curl -o {output[2]} https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt
+        """
