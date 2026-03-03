@@ -14,6 +14,7 @@ rule all:
         "../input_files/auto/reactome/ReactomePathways.gmt.zip",
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
+        "../input_files/auto/reactome/reactome_version.tsv",
 
 rule download_iuphar:
     output:
@@ -60,10 +61,14 @@ rule download_reactome:
     output:
         "../input_files/auto/reactome/ReactomePathways.gmt.zip",
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
-        "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt"
+        "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
+        "../input_files/auto/reactome/reactome_version.tsv"
     shell:
         """
         curl -o {output[0]} https://reactome.org/download/current/ReactomePathways.gmt.zip
         curl -o {output[1]} https://reactome.org/download/current/ReactomePathwaysRelation.txt
         curl -o {output[2]} https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt
+        last_modified=$(curl -fsI https://reactome.org/download/current/ReactomePathways.gmt.zip | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        version=$(curl -fs https://reactome.org/ContentService/data/database/version)
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[3]}
         """
