@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+import re
 
 from src.constants import Prefix
 from src.models.go_term import GoTerm, GoType, ProteinGoTermRelationship, GoEvidence
+from src.models.keyword import Keyword
+from src.models.pathway import Pathway
 from src.models.protein import Protein
 
 
@@ -12,6 +15,7 @@ class Alias:
 
 
 class UniProtParser:
+    PATHWAY_STEP_SUFFIX_PATTERN = re.compile(r'\s*:\s*step\s+\d+\s*/\s*\d+\.?\s*$', re.IGNORECASE)
     @staticmethod
     def find_matches(uniprot_obj, list_field, data_field, match_string):
         if list_field in uniprot_obj:
@@ -38,22 +42,6 @@ class UniProtParser:
         return uniprot_obj['primaryAccession']
 
     @staticmethod
-    def get_isoforms(uniprot_obj):
-        ap_comments = UniProtParser.find_comments(uniprot_obj, 'ALTERNATIVE PRODUCTS')
-        isoforms = []
-        for alternative_product in ap_comments:
-            for isoform in alternative_product.get('isoforms', []):
-                if isoform['isoformSequenceStatus'] != 'Described':
-                    continue
-                isoforms.append({
-                    'id': isoform['isoformIds'][0],
-                    'name': isoform['name']['value'],
-                })
-        if len(isoforms) > 0:
-            return isoforms
-        return None
-
-    @staticmethod
     def get_primary_accession(uniprot_obj):
         return f"{Prefix.UniProtKB}:" + UniProtParser.get_uniprot_id(uniprot_obj)
 
@@ -68,6 +56,30 @@ class UniProtParser:
     @staticmethod
     def get_description(uniprot_obj):
         return UniProtParser.find_first_comment(uniprot_obj, "FUNCTION")
+
+    @staticmethod
+    def get_similarity(uniprot_obj):
+        return UniProtParser.find_first_comment(uniprot_obj, "SIMILARITY")
+
+    @staticmethod
+    def get_uniprot_entry_type(uniprot_obj):
+        return uniprot_obj.get('entryType')
+
+    @staticmethod
+    def get_uniprot_reviewed(uniprot_obj):
+        entry_type = UniProtParser.get_uniprot_entry_type(uniprot_obj)
+        if entry_type is None:
+            return None
+        return entry_type == 'UniProtKB reviewed (Swiss-Prot)'
+
+    @staticmethod
+    def get_uniprot_annotation_score(uniprot_obj):
+        score = uniprot_obj.get('annotationScore')
+        if score is None:
+            return None
+        if isinstance(score, dict):
+            return score.get('value')
+        return score
 
     @staticmethod
     def get_symbols(uniprot_obj):
@@ -90,6 +102,47 @@ class UniProtParser:
         if 'secondaryAccessions' in uniprot_obj:
             return uniprot_obj['secondaryAccessions']
         return None
+
+    @staticmethod
+    def get_keywords(uniprot_obj):
+        keywords = {}
+        for keyword_obj in uniprot_obj.get('keywords', []):
+            value = keyword_obj.get('name')
+            if not value:
+                continue
+            category = keyword_obj.get('category')
+            keyword_id = f"keyword:uniprot:{(category or 'unknown').strip().lower()}:{value.strip().lower()}"
+            if keyword_id not in keywords:
+                keywords[keyword_id] = Keyword(id=keyword_id, category=category, source='UniProt', value=value)
+        if len(keywords) == 0:
+            return None
+        return keywords
+
+    @staticmethod
+    def normalize_pathway_name(pathway_text):
+        if pathway_text is None:
+            return None
+        normalized = UniProtParser.PATHWAY_STEP_SUFFIX_PATTERN.sub('', pathway_text).strip()
+        if normalized.endswith('.'):
+            normalized = normalized[:-1].strip()
+        return normalized or None
+
+    @staticmethod
+    def get_pathways(uniprot_obj):
+        pathways = {}
+        for comment in UniProtParser.find_comments(uniprot_obj, 'PATHWAY'):
+            for text_obj in comment.get('texts', []):
+                pathway_text = text_obj.get('value')
+                normalized_text = UniProtParser.normalize_pathway_name(pathway_text)
+                if normalized_text is None:
+                    continue
+                for pathway_name in [piece.strip() for piece in normalized_text.split(';') if piece.strip()]:
+                    pathway_id = f"Pathway:uniprot:{pathway_name.lower()}"
+                    if pathway_id not in pathways:
+                        pathways[pathway_id] = Pathway(id=pathway_id, source_id=pathway_name, type='UniProt', name=pathway_name)
+        if len(pathways) == 0:
+            return None
+        return pathways
 
     @staticmethod
     def parse_aliases(uniprot_obj):

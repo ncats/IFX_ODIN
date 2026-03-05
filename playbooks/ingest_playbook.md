@@ -46,3 +46,15 @@ Provide a repeatable checklist for adding a new data source to the target graph 
 ## Notes
 - Start in `working.yaml` for iteration; copy configuration into `target_graph.yaml` once stable.
 - Prefer deriving metadata (version, version_date) during download so adapters stay simple.
+
+## Lessons Learned (UniProt)
+
+- Prefer graph-native modeling for reusable annotations:
+  - emit `Keyword` nodes + `ProteinKeywordEdge` edges,
+  - avoid nested keyword arrays on `Protein`.
+- When extracting repeated entities in one ingest pass, use in-memory maps keyed by deterministic IDs to dedupe nodes before yielding.
+- Yield output in separate batches by type (`Protein`, then related nodes, then edges) instead of concatenating mixed lists.
+- UniProt `PATHWAY` comments are free text; do not infer parent-child hierarchy from semicolon-separated text.
+- For UniProt pathways, split semicolon-delimited text for linkability if needed, but treat each emitted link as direct evidence only.
+- Keep literal annotation text when parsing would be lossy or speculative (e.g., store `SIMILARITY` text on `Protein.similarity`).
+- Validate assumptions against the actual dump before modeling changes (field presence, cardinality, and shape can differ from expectations).

@@ -9,6 +9,8 @@ rule all:
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
         "../input_files/auto/go/goa_human-go.gaf.gz",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
+        "../input_files/auto/uniprot/uniprot-human-reviewed.json.gz",
+        "../input_files/auto/uniprot/uniprot_version.tsv",
         "../input_files/auto/iuphar/ligands.csv",
         "../input_files/auto/iuphar/interactions.csv",
         "../input_files/auto/reactome/ReactomePathways.gmt.zip",
@@ -28,9 +30,18 @@ rule download_iuphar:
 
 rule download_uniprot:
     output:
-        "../input_files/auto/uniprot/uniprot-human.json.gz"
+        "../input_files/auto/uniprot/uniprot-human.json.gz",
+        "../input_files/auto/uniprot/uniprot-human-reviewed.json.gz",
+        "../input_files/auto/uniprot/uniprot_version.tsv"
     shell:
-        "curl -o {output} 'https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=(*)+AND+(model_organism:9606)'"
+        """
+        curl -o {output[0]} 'https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=(*)+AND+(model_organism:9606)'
+        curl -o {output[1]} 'https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=(*)+AND+(reviewed:true)+AND+(model_organism:9606)'
+        headers=$(curl -fsSI 'https://rest.uniprot.org/uniprotkb/stream?compressed=false&format=json&size=1&query=accession:P04637')
+        release=$(printf '%s' "$headers" | awk -F': ' 'tolower($1)=="x-uniprot-release"{{gsub(/\r/,"",$2); print $2}}')
+        release_date=$(printf '%s' "$headers" | awk -F': ' 'tolower($1)=="x-uniprot-release-date"{{gsub(/\r/,"",$2); print $2}}')
+        printf 'version\tversion_date\n%s\t%s\n' "$release" "$release_date" > {output[2]}
+        """
 
 
 rule download_go:
