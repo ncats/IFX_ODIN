@@ -6,6 +6,8 @@ from src.models.go_term import GoTerm, GoType, ProteinGoTermRelationship, GoEvid
 from src.models.keyword import Keyword
 from src.models.pathway import Pathway
 from src.models.protein import Protein
+from src.models.disease import Disease
+from src.models.node import EquivalentId
 
 
 @dataclass
@@ -143,6 +145,34 @@ class UniProtParser:
         if len(pathways) == 0:
             return None
         return pathways
+
+    @staticmethod
+    def get_diseases(uniprot_obj):
+        diseases = {}
+        for comment in UniProtParser.find_comments(uniprot_obj, 'DISEASE'):
+            disease_obj = comment.get('disease')
+            if disease_obj is None:
+                continue
+
+            cross_ref = disease_obj.get('diseaseCrossReference') or {}
+            database = cross_ref.get('database')
+            identifier = cross_ref.get('id')
+            if not database or not identifier:
+                continue
+
+            prefix = Prefix.parse(database)
+            if prefix is None:
+                disease_id = f"{database}:{identifier}"
+            else:
+                disease_id = EquivalentId(id=identifier, type=prefix).id_str()
+
+            disease_name = disease_obj.get('diseaseId')
+            if disease_id not in diseases:
+                diseases[disease_id] = Disease(id=disease_id, name=disease_name)
+
+        if len(diseases) == 0:
+            return None
+        return diseases
 
     @staticmethod
     def parse_aliases(uniprot_obj):

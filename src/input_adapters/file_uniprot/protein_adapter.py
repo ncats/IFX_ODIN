@@ -11,6 +11,7 @@ from src.models.pathway import ProteinPathwayRelationship
 from src.models.protein import Protein
 from src.shared.uniprot_file_reader import UniProtFileReader
 from src.shared.uniprot_parser import UniProtParser
+from src.models.disease import Disease, ProteinDiseaseEdge
 
 
 class ProteinAdapter(InputAdapter, UniProtFileReader):
@@ -78,3 +79,50 @@ class ProteinAdapter(InputAdapter, UniProtFileReader):
 
         yield list(pathways_by_id.values())
         yield pathway_edges
+
+class ProteinDiseaseEdgeAdapter(InputAdapter, UniProtFileReader):
+    version_info: DatasourceVersionInfo
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.UniProt
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
+
+    def __init__(self, file_path: str, version_file_path: str):
+        UniProtFileReader.__init__(self, file_path=file_path)
+        with open(version_file_path, 'r', encoding='utf-8') as vf:
+            reader = csv.DictReader(vf, delimiter='\t')
+            first_row = next(reader)
+            version = first_row.get('version')
+            version_date = first_row.get('version_date')
+        self.version_info = DatasourceVersionInfo(
+            version=version,
+            version_date=datetime.strptime(version_date, '%d-%B-%Y').date(),
+            download_date=self.download_date
+        )
+
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
+        self.read_uniprot_file()
+        diseases_by_id = {}
+        protein_disease_edges = []
+
+        for row in self.raw_entries:
+            protein = Protein(id=UniProtParser.get_primary_accession(row))
+            protein_diseases = UniProtParser.get_diseases(row)
+            if protein_diseases is None:
+                continue
+
+            for disease_id, disease in protein_diseases.items():
+                if disease_id not in diseases_by_id:
+                    diseases_by_id[disease_id] = disease
+                protein_disease_edges.append(
+                    ProteinDiseaseEdge(
+                        start_node=protein,
+                        end_node=Disease(id=disease_id),
+                        source='UniProt'
+                    )
+                )
+
+        yield list(diseases_by_id.values())
+        yield protein_disease_edges

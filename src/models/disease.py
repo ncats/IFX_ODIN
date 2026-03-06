@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from src.models.gene import Gene
+from src.models.protein import Protein
 from src.models.node import Node, Relationship
 
 
@@ -32,3 +33,10 @@ class GeneDiseaseRelationship(Relationship):
     references: List[str] = None
     dates: List[datetime] = None
     sources: List[str] = None
+
+
+@dataclass
+class ProteinDiseaseEdge(Relationship):
+    start_node: Protein = None
+    end_node: Disease = None
+    source: str = None
