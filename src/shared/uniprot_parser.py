@@ -160,9 +160,10 @@ class UniProtParser:
             if not database or not identifier:
                 continue
 
-            prefix = Prefix.parse(database)
+            normalized_database = 'OMIM' if str(database).upper() == 'MIM' else database
+            prefix = Prefix.parse(normalized_database)
             if prefix is None:
-                disease_id = f"{database}:{identifier}"
+                disease_id = f"{normalized_database}:{identifier}"
             else:
                 disease_id = EquivalentId(id=identifier, type=prefix).id_str()
 
