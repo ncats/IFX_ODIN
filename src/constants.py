@@ -33,6 +33,7 @@ class DataSourceName(SimpleEnum):
     PostProcessing = "ETL Post Processing"
     RaMP = "RaMP"
     ManualUpdate = "Manual Update"
+    Mondo = "Mondo"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN

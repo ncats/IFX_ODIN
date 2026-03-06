@@ -17,6 +17,7 @@ rule all:
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
         "../input_files/auto/reactome/reactome_version.tsv",
+        "../input_files/auto/mondo/mondo.json",
 
 rule download_iuphar:
     output:
@@ -83,3 +84,9 @@ rule download_reactome:
         version=$(curl -fs https://reactome.org/ContentService/data/database/version)
         python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[3]}
         """
+
+rule download_mondo:
+    output:
+        "../input_files/auto/mondo/mondo.json"
+    shell:
+        "curl -L -o {output} https://purl.obolibrary.org/obo/mondo.json"
