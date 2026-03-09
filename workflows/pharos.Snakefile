@@ -18,6 +18,13 @@ rule all:
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
         "../input_files/auto/reactome/reactome_version.tsv",
         "../input_files/auto/mondo/mondo.json",
+        "../input_files/auto/uberon/uberon.obo"
+
+rule download_uberon:
+    output:
+        "../input_files/auto/uberon/uberon.obo"
+    shell:
+        "curl -L -o {output} http://purl.obolibrary.org/obo/uberon.obo"
 
 rule download_iuphar:
     output:
