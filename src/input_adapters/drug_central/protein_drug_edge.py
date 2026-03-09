@@ -12,7 +12,7 @@ from src.models.protein import Protein
 
 
 class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
-
+    batch_size = 10000
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.DrugCentral
 

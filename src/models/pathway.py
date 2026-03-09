@@ -16,6 +16,7 @@ class Pathway(Node):
     type: str = None
     category: Optional[str] = None
     name: str = None
+    url: Optional[str] = None
 
 
 @dataclass
@@ -42,5 +43,12 @@ class MetabolitePathwayRelationship(Relationship):
 @dataclass
 class ProteinPathwayRelationship(Relationship):
     start_node: "Protein" = None
+    end_node: Pathway = None
+    source: str = None
+
+
+@dataclass
+class PathwayParentEdge(Relationship):
+    start_node: Pathway = None
     end_node: Pathway = None
     source: str = None

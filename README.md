@@ -7,6 +7,9 @@ Rather than a single database or user-facing tool, ODIN functions as the infrast
 
 For more information or to explore collaboration opportunities, please contact Jessica Maine or Keith Kelleher.
 
+Playbooks:
+* `playbooks/ingest_playbook.md` — repeatable checklist for adding new data sources
+
 make virtual environment
 * `python -m venv .venv`
 * `source .venv/bin/activate`

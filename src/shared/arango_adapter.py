@@ -55,7 +55,8 @@ class ArangoAdapter:
 
     def initialize(self):
         url = self.credentials.url
-        print(f"Connecting to ArangoDB at {url}")
+        schema = self.credentials.schema
+        print(f"Connecting to ArangoDB at {url}: {schema}")
         self.client = ArangoClient(hosts=url, request_timeout=600, verify_override=False)
 
     def get_db(self):

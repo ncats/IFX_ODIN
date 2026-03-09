@@ -104,6 +104,7 @@ class Protein(Audited, Analyte):
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None
     uniprot_function: Optional[str] = None
+    similarity: Optional[str] = None
     Ensembl_ID_Provenance: Optional[str] = None
     RefSeq_ID_Provenance: Optional[str] = None
     Uniprot_ID_Provenance: Optional[str] = None
@@ -114,7 +115,6 @@ class Protein(Audited, Analyte):
     protein_name_score: Optional[str] = None
     protein_name_method: Optional[str] = None
     uniprot_isoform: Optional[str] = None
-    isoforms: Optional[List[{'id': str, 'name': str}]] = None
 
 
 @dataclass

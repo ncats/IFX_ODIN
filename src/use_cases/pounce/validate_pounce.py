@@ -7,7 +7,7 @@ from src.input_adapters.pounce_sheets.pounce_parser import (
     _PROJECT_REQUIRED_SHEETS, _EXPERIMENT_RECOGNIZED_SHEETS, _STATS_RECOGNIZED_SHEETS,
 )
 
-# yaml_file = "./src/use_cases/test_pounce_validation.yaml"
+# yaml_file = "./src/use_cases/pounce/test_pounce_validation.yaml"
 yaml_file = "./src/use_cases/pounce.yaml"
 
 config = ETL_Config(yaml_file)

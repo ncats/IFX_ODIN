@@ -16,6 +16,7 @@ class DataSourceName(SimpleEnum):
     ChEMBL = "ChEMBL"
     CCLE = "Cancer Cell Line Encyclopedia (CCLE)"
     Cellosaurus = "Cellosaurus"
+    Reactome = "Reactome"
     CLO = "Cell Line Ontology (CLO)"
     CURE = "CURE-ID"
     ENSEMBL = "Ensembl"
@@ -32,6 +33,7 @@ class DataSourceName(SimpleEnum):
     PostProcessing = "ETL Post Processing"
     RaMP = "RaMP"
     ManualUpdate = "Manual Update"
+    Mondo = "Mondo"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
