@@ -5,6 +5,7 @@ Reads collection_schemas metadata from an ArangoDB metadata_store,
 dynamically generates MySQL tables via SQLAlchemy, and copies all data over.
 Works with any Arango DB that was built by ArangoOutputAdapter.
 """
+import importlib
 import json
 import re
 
@@ -54,6 +55,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
         self.mysql_db_name = mysql_db_name
         self.minio_credentials = minio_credentials
         self.sa_metadata = MetaData()
+        # enum_class_path -> (Table, enum_class) for LabeledIntEnum lookup tables
+        self._enum_lookup_tables: dict = {}
 
     def convert(self, batch_size: int = 10000):
         """Run the full conversion from Arango to MySQL."""
@@ -85,6 +88,7 @@ class ArangoToMySqlConverter(ArangoAdapter):
             data_tables[config["table_name"]] = (table, config)
 
         self.sa_metadata.create_all(engine)
+        self._populate_enum_lookup_tables(engine)
 
         # Pass 2: copy documents and edges
         for collection_name, (table, child_tables, object_tables, schema) in document_collections.items():
@@ -185,6 +189,32 @@ class ArangoToMySqlConverter(ArangoAdapter):
             if from_coll not in file_ref_collections:
                 sources.add(from_coll)
         return len(sources)
+
+    # --- Enum lookup tables ---
+
+    def _get_or_create_enum_lookup_table(self, enum_path: str) -> tuple:
+        """Return (Table, enum_class) for a LabeledIntEnum, creating the SA Table if needed."""
+        if enum_path in self._enum_lookup_tables:
+            return self._enum_lookup_tables[enum_path]
+        module_path, class_name = enum_path.rsplit(".", 1)
+        cls = getattr(importlib.import_module(module_path), class_name)
+        table_name = _camel_to_snake(class_name)
+        table = Table(
+            table_name, self.sa_metadata,
+            Column("id", Integer, primary_key=True, autoincrement=False),
+            Column("label", String(255), nullable=False),
+        )
+        self._enum_lookup_tables[enum_path] = (table, cls)
+        return table, cls
+
+    def _populate_enum_lookup_tables(self, engine):
+        """Insert enum members into every lookup table created during schema planning."""
+        for table, cls in self._enum_lookup_tables.values():
+            rows = [{"id": m.value, "label": m.label} for m in cls]
+            with engine.connect() as conn:
+                conn.execute(table.insert(), rows)
+                conn.commit()
+            print(f"  {table.name}: {len(rows)} enum values")
 
     # --- Table creation ---
 
@@ -321,10 +351,17 @@ class ArangoToMySqlConverter(ArangoAdapter):
             columns.append(Index(f"ix_{table_name}_parent", "parent_id"))
         else:
             item_type = field_schema.get("item_type")
-            col_type = _SQL_TYPE_MAP.get(item_type, Text) if isinstance(item_type, str) else Text
+            enum_path = field_schema.get("enum")
+            if enum_path:
+                # LabeledIntEnum: child FK column named {lookup_table}_id
+                lookup_table, _ = self._get_or_create_enum_lookup_table(enum_path)
+                value_col = Column(f"{lookup_table.name}_id", Integer, ForeignKey(f"{lookup_table.name}.id"), nullable=True)
+            else:
+                col_type = _SQL_TYPE_MAP.get(item_type, Text) if isinstance(item_type, str) else Text
+                value_col = Column("value", col_type, nullable=True)
             columns = [
                 Column("parent_id", pk_col_type, fk, nullable=False),
-                Column("value", col_type, nullable=True),
+                value_col,
                 Index(f"ix_{table_name}_parent", "parent_id"),
             ]
 
@@ -474,8 +511,18 @@ class ArangoToMySqlConverter(ArangoAdapter):
                                         for k, v in item.items() if k not in _SKIP_FIELDS
                                     }})
                     else:
-                        for item in values:
-                            child_rows_flat[list_field].append({"parent_id": doc_id, "value": item})
+                        enum_path = fields[list_field].get("enum") if isinstance(fields[list_field], dict) else None
+                        if enum_path and enum_path in self._enum_lookup_tables:
+                            lookup_table, enum_cls = self._enum_lookup_tables[enum_path]
+                            col_name = f"{lookup_table.name}_id"
+                            label_to_id = {m.label: m.value for m in enum_cls}
+                            for item in values:
+                                int_id = label_to_id.get(item)
+                                if int_id is not None:
+                                    child_rows_flat[list_field].append({"parent_id": doc_id, col_name: int_id})
+                        else:
+                            for item in values:
+                                child_rows_flat[list_field].append({"parent_id": doc_id, "value": item})
 
                 # Object fields: extract nested dicts into linked tables
                 for obj_field in object_fields:

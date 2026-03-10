@@ -57,13 +57,16 @@ class OutputAdapter(ABC):
             if isinstance(obj, Relationship) and key == 'start_node' or key == 'end_node':
                 continue
             if isinstance(value, Enum) or isinstance(value, Label):
-                ret_dict[key] = value.value
+                ret_dict[key] = value.label if hasattr(value, 'label') else value.value
             if isinstance(value, list):
                 ret_dict[key] = self.remove_none_values_from_list(value)
                 if ret_dict[key] is not None:
                     if hasattr(value[0], 'to_dict') and callable(getattr(value[0], 'to_dict')):
                         ret_dict[key] = [l.to_dict() for l in value]
-                    ret_dict[key] = [l.value if isinstance(l, Enum) or isinstance(l, Label) else l for l in ret_dict[key]]
+                    ret_dict[key] = [
+                        (l.label if hasattr(l, 'label') else l.value) if isinstance(l, Enum) or isinstance(l, Label) else l
+                        for l in ret_dict[key]
+                    ]
             if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
                 ret_dict[key] = value.to_dict()
         if isinstance(obj, Node):

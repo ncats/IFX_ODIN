@@ -21,7 +21,8 @@ from src.models.pounce.exposure import Exposure
 from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge
 from src.models.pounce.experiment import Experiment, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
-from src.models.pounce.project import Project, AccessLevel, Person, ProjectPersonEdge, ProjectBiosampleEdge
+from src.models.pounce.project import Project, AccessLevel, ProjectType, Person, ProjectPersonEdge, \
+    ProjectBiosampleEdge, LabGroup
 
 
 @dataclass
@@ -69,10 +70,10 @@ class PounceNodeBuilder:
             name=parsed_project.project_name,
             description=parsed_project.description,
             date=parsed_project.date,
-            lab_groups=parsed_project.lab_groups or [],
+            lab_groups=[group for raw in (parsed_project.lab_groups or []) if (group := LabGroup.parse(raw)) is not None],
             access=AccessLevel.parse(parsed_project.privacy_type) if parsed_project.privacy_type else None,
             keywords=parsed_project.keywords or [],
-            project_type=parsed_project.project_type or [],
+            project_type=[pt for raw in (parsed_project.project_type or []) if (pt := ProjectType.parse(raw)) is not None],
             rare_disease_focus=parsed_project.rd_tag if parsed_project.rd_tag is not None else False,
             sample_preparation=parsed_project.biosample_preparation
         )

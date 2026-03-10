@@ -1,3 +1,4 @@
+import importlib
 from typing import List
 
 import yaml
@@ -46,6 +47,24 @@ _MAP_SHEETS: set = {
 
 _DEFAULT_REQUIRED_MESSAGE = "Sheet {sheet} is missing required field: {field}"
 _DEFAULT_MAP_REQUIRED_MESSAGE = "Map sheet {sheet} is missing configuration for: {field}"
+
+
+def _resolve_allowed_values(values) -> List:
+    """If values is a dict with an 'enum' key, import that class and return its display labels.
+
+    YAML form::
+
+        project_type:
+          enum: src.models.pounce.project.ProjectType
+
+    Works for both LabeledIntEnum (uses .label) and SimpleEnum (uses .value).
+    """
+    if isinstance(values, dict) and "enum" in values:
+        module_path, class_name = values["enum"].rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+        return [m.label if hasattr(m, "label") else m.value for m in cls]
+    return values
 
 
 def load_validators(yaml_file_or_dict) -> List[Validator]:
@@ -103,6 +122,7 @@ def load_validators(yaml_file_or_dict) -> List[Validator]:
                     ))
 
             for ncatsdpi_key, values in top_value.get("allowed_values", {}).items():
+                values = _resolve_allowed_values(values)
                 if (sheet, ncatsdpi_key) not in _SHEET_KEY_MAP:
                     known_sheets = sorted({s for s, _ in _SHEET_KEY_MAP})
                     raise KeyError(

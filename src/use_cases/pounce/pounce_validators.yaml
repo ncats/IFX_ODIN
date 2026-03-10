@@ -15,8 +15,10 @@ ProjectMeta:
     - biosample_preparation
   allowed_values:
     privacy_type: [private, ncats, public]
-    lab_groups: [CGB, ETB, TDB, ACC, ADME, RSC, IFX, SCTL]
-    project_type: [Drug Screening, Molecular Epidemiology, Toxicology, Disease Development/Characterization, Drug Mechanism, KO/KD screening]
+    lab_groups:
+      enum: src.models.pounce.project.LabGroup
+    project_type:
+      enum: src.models.pounce.project.ProjectType
     RD_tag: [Yes, No]
   parallel_lists:
     - [owner_name, owner_email]
