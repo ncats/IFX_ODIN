@@ -40,7 +40,7 @@ normalised tissue rank.
 ## Inputs
 
 ### Files (V11)
-- `GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz`
+- `GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz`
 - `GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt`
 - `GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt`
 - `gtex_version.tsv` with:
@@ -49,7 +49,7 @@ normalised tissue rank.
 
 ### Download locations
 - `https://storage.googleapis.com/adult-gtex/bulk-gex/v11/rna-seq/
-  GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz`
+  GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz`
 - `https://storage.googleapis.com/adult-gtex/annotations/v11/
   metadata-files/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt`
 - `https://storage.googleapis.com/adult-gtex/annotations/v11/

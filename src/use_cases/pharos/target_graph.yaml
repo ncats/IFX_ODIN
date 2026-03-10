@@ -196,7 +196,7 @@ input_adapters:
   - import: ./src/input_adapters/target_graph/gtex_v11_expression.py
     class: GTExExpressionAdapter
     kwargs:
-      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
       sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
       subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
       version_file_path: ./input_files/auto/gtex/gtex_version.tsv
