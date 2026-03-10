@@ -1,10 +1,6 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 database_name: &database_name pharos
 
-labeler:
-  import: ./src/interfaces/labeler.py
-  class: BiolinkLabeler
-
 resolvers:
   - label: tg_proteins
     import: ./src/id_resolvers/target_graph_resolver.py

@@ -1,8 +1,4 @@
 
-labeler:
-  import: ./src/interfaces/labeler.py
-  class: BiolinkLabeler
-
 api_adapter:
   - import: ./src/api_adapters/arango_api_adapter.py
     class: ArangoPharosAPIAdapter

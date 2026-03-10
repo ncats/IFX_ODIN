@@ -5,7 +5,6 @@ from typing import List
 from neo4j import Driver, GraphDatabase, Session
 from gqlalchemy import Memgraph
 
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.shared.db_credentials import DBCredentials
 from src.shared.record_merger import FieldConflictBehavior, RecordMerger
 
@@ -39,7 +38,7 @@ class GraphDBDataLoader(ABC):
 
     def generate_node_insert_query(self,
                                    records: List[dict],
-                                   labels: List[NodeLabel]):
+                                   labels: List[str]):
 
         example_record = self.merger.get_example_record(records)
 
@@ -105,9 +104,9 @@ class GraphDBDataLoader(ABC):
 
     def generate_relationship_insert_query(self,
                                            records: List[dict],
-                                           start_labels: List[NodeLabel],
-                                           rel_labels: List[RelationshipLabel],
-                                           end_labels: List[NodeLabel]
+                                           start_labels: List[str],
+                                           rel_labels: List[str],
+                                           end_labels: List[str]
                                            ):
         example_record = self.merger.get_example_record(records)
 
@@ -164,9 +163,9 @@ class GraphDBDataLoader(ABC):
 
         self.load_to_graph(query, records)
 
-    def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
-                                  rel_labels: List[RelationshipLabel],
-                                  end_labels: List[NodeLabel], skip_merge = False):
+    def load_relationship_records(self, records: List[dict], start_labels: List[str],
+                                  rel_labels: List[str],
+                                  end_labels: List[str], skip_merge = False):
         rel_labels = self.ensure_list(rel_labels)
         query = self.generate_relationship_insert_query(records, start_labels, rel_labels, end_labels)
         print(records[0])
@@ -220,9 +219,9 @@ class MemgraphDataLoader(GraphDBDataLoader):
         labels = self.ensure_list(labels)
         return "`:`".join(labels)
 
-    def load_relationship_records(self, records: List[dict], start_labels: List[NodeLabel],
-                                  rel_labels: List[RelationshipLabel],
-                                  end_labels: List[NodeLabel], skip_merge = False):
+    def load_relationship_records(self, records: List[dict], start_labels: List[str],
+                                  rel_labels: List[str],
+                                  end_labels: List[str], skip_merge = False):
         rel_labels = self.ensure_list(rel_labels)
 
         conjugate_start_label_str = self.get_conjugate_label_str(start_labels)

@@ -23,12 +23,9 @@ from src.models.pounce.experiment import Experiment as ExperimentBase
 from src.models.gene import Gene as GeneBase, GeneticLocation
 from src.models.metabolite import Metabolite as MetaboliteBase
 
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.models.analyte import Synonym
 
 # base classes
-NodeLabel = strawberry.type(NodeLabel)
-RelationshipLabel = strawberry.type(RelationshipLabel)
 EquivalentId = strawberry.type(EquivalentId)
 Synonym = strawberry.type(Synonym)
 GeneticLocation = strawberry.type(GeneticLocation)

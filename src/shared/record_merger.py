@@ -1,7 +1,7 @@
 import json
 from typing import List
 
-from src.interfaces.simple_enum import SimpleEnum, Label
+from src.interfaces.simple_enum import SimpleEnum
 
 
 class FieldConflictBehavior(SimpleEnum):
@@ -79,11 +79,11 @@ class RecordMerger:
                         continue
 
                     new_value = getattr(obj, col.name)
-                    if isinstance(new_value, SimpleEnum) or isinstance(new_value, Label):
+                    if isinstance(new_value, SimpleEnum):
                         new_value = new_value.value
 
                     existing_value = getattr(existing_obj, col.name)
-                    if isinstance(existing_value, SimpleEnum) or isinstance(existing_value, Label):
+                    if isinstance(existing_value, SimpleEnum):
                         existing_value = existing_value.value
 
                     if new_value is None or (isinstance(new_value, str) and new_value.strip() == ''):
