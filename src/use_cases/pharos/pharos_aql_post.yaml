@@ -47,5 +47,5 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: target_graph
+      database_name: pharos
     credentials: *source_credentials
