@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Union, TYPE_CHECKING
-from src.interfaces.simple_enum import SimpleEnum
+from src.interfaces.simple_enum import SimpleEnum, LabeledIntEnum
 from src.models.node import Node, Relationship
 from datetime import date
 
@@ -11,6 +11,24 @@ class AccessLevel(SimpleEnum):
     private = "private"
     ncats = "ncats"
     public = "public"
+
+class LabGroup(LabeledIntEnum):
+    CGB = (1, "CGB")
+    ETB = (2, "ETB")
+    TDB = (3, "TDB")
+    ACC = (4, "ACC")
+    ADME = (5, "ADME")
+    RSC = (6, "RSC")
+    IFX = (7, "IFX")
+    SCTL = (8, "SCTL")
+
+class ProjectType(LabeledIntEnum):
+    DRUG_SCREENING                   = (1, "Drug Screening")
+    MOLECULAR_EPIDEMIOLOGY           = (2, "Molecular Epidemiology")
+    TOXICOLOGY                       = (3, "Toxicology")
+    DISEASE_DEVELOPMENT              = (4, "Disease Development/Characterization")
+    DRUG_MECHANISM                   = (5, "Drug Mechanism")
+    KO_KD_SCREENING                  = (6, "KO/KD screening")
 
 @dataclass
 class Person(Node):
@@ -35,10 +53,10 @@ class Project(Node):
     name: str = None
     description: str = None
     date: date = None
-    lab_groups: List[str] = field(default_factory=list)
+    lab_groups: List[LabGroup] = field(default_factory=list)
     keywords: List[str] = field(default_factory=list)
     access: AccessLevel = None
-    project_type: List[str] = field(default_factory=list)
+    project_type: List[ProjectType] = field(default_factory=list)
     rare_disease_focus: bool = None
     sample_preparation: str = None
 

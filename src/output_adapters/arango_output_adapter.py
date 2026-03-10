@@ -65,7 +65,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         if type_hint is datetime:
             return "datetime"
 
-        # Enums → "str"
+        # Enums → "str" (LabeledIntEnum stores its .label, a string, in Arango)
         if isinstance(type_hint, type) and issubclass(type_hint, Enum):
             return "str"
 
@@ -80,6 +80,14 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                         "type": "list",
                         "item_type": "object",
                         "fields": ArangoOutputAdapter._introspect_dataclass(item_type)
+                    }
+                # List of LabeledIntEnum → labels stored as strings, but record enum class
+                # path so the MySQL converter can build a proper integer lookup table
+                if isinstance(item_type, type) and issubclass(item_type, int) and issubclass(item_type, Enum):
+                    return {
+                        "type": "list",
+                        "item_type": "str",
+                        "enum": f"{item_type.__module__}.{item_type.__qualname__}",
                     }
                 inner = ArangoOutputAdapter._type_hint_to_schema(item_type)
                 return {"type": "list", "item_type": inner}

@@ -8,7 +8,7 @@ from src.input_adapters.pounce_sheets.pounce_parser import (
 )
 
 # yaml_file = "./src/use_cases/pounce/test_pounce_validation.yaml"
-yaml_file = "./src/use_cases/pounce.yaml"
+yaml_file = "./src/use_cases/pounce/pounce.yaml"
 
 config = ETL_Config(yaml_file)
 resolver_map = {t: r for r in config.resolvers.values() for t in r.types}

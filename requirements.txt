@@ -32,3 +32,4 @@ jinja2
 python-multipart
 boto3
 pybiomart
+obonet

@@ -15,6 +15,12 @@
 - In adapters, dedupe repeated entities in-memory using deterministic IDs.
 - Emit ingest output in type-grouped batches (for example: primary nodes, related nodes, then edges).
 
+## Lessons Learned
+
+- Keep adapters focused on source parsing and structural graph emission; move cross-ontology ID normalization to resolvers.
+- For ontology xrefs, maintain an explicit allowlist and perform case-insensitive prefix checks.
+- When adding new datasource version handling, use named parameters for `DatasourceVersionInfo` to avoid argument-order regressions.
+
 ## Workflow References
 
 - For ingest procedures and execution checklists, use `playbooks/ingest_playbook.md`.

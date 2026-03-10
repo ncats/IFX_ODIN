@@ -66,7 +66,7 @@ input_adapters:
         - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
       stats_results_files:
         - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_Template_v2.xlsx
-      validators_config: ./src/use_cases/pounce_validators.yaml
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
@@ -76,7 +76,7 @@ input_adapters:
         - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_Template_v2.xlsx
       stats_results_files:
         - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_Template_v2.xlsx
-      validators_config: ./src/use_cases/pounce_validators.yaml
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
@@ -86,7 +86,7 @@ input_adapters:
         - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
       stats_results_files:
         - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
-      validators_config: ./src/use_cases/pounce_validators.yaml
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
@@ -100,7 +100,7 @@ input_adapters:
         - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_ACUTE.xlsx
         - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Lipidomics.xlsx
         - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_FDA_Flavivirus_LTI_Metabolomics.xlsx
-      validators_config: ./src/use_cases/pounce_validators.yaml
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
