@@ -34,7 +34,7 @@ def setup_logging(log_file):
 class NodeNormDiseaseTransformer:
     def __init__(self, full_config):
         self.cfg = full_config["nodenorm"]
-        self.input_url = self.cfg["url_base"].rstrip("/") + "/2025jan23/compendia/Disease.txt"
+        self.input_url = self.cfg["url_base"].rstrip("/") + "/Disease.txt"
         self.output_file = Path(self.cfg["cleaned_output"])
         self.metadata_file = Path(self.cfg["transform_metadata_file"])
         self.log_file = Path(self.cfg["log_file"])

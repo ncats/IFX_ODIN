@@ -10,6 +10,7 @@ import hashlib
 import difflib
 import shutil
 import requests
+import email.utils
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +39,13 @@ class JensenDiseaseDownloader:
 
         os.makedirs(self.tsv_file.parent, exist_ok=True)
         os.makedirs(self.metadata_file.parent, exist_ok=True)
+        # Load old metadata for skip checks
+        self.old_meta = {}
+        if self.metadata_file.exists():
+            try:
+                self.old_meta = json.loads(self.metadata_file.read_text())
+            except Exception:
+                pass
 
     def compute_hash(self, file_path):
         h = hashlib.md5()
@@ -47,6 +55,22 @@ class JensenDiseaseDownloader:
         return h.hexdigest()
 
     def run(self):
+        # HEAD check: skip if Last-Modified unchanged
+        try:
+            head = requests.head(self.download_url, allow_redirects=True, timeout=30)
+            lm = head.headers.get("Last-Modified")
+            old_lm = self.old_meta.get("remote_headers", {}).get("Last-Modified")
+            if lm and old_lm and lm == old_lm and self.tsv_file.exists():
+                logging.info(f"Skipping Jensen download — file unchanged (Last-Modified: {lm})")
+                meta = dict(self.old_meta)
+                meta["timestamp"] = datetime.now().isoformat()
+                meta["status"] = "no_change"
+                with open(self.metadata_file, "w") as f:
+                    json.dump(meta, f, indent=2)
+                return
+        except Exception:
+            pass  # fall through to download
+
         logging.info(f"⬇️  Downloading Jensen Disease TSV from {self.download_url}")
         response = requests.get(self.download_url, stream=True)
         response.raise_for_status()
@@ -89,10 +113,22 @@ class JensenDiseaseDownloader:
         else:
             os.replace(temp_file, self.tsv_file)
 
+        # Capture remote headers for future skip checks
+        remote_headers = {}
+        try:
+            h = requests.head(self.download_url, allow_redirects=True, timeout=30)
+            remote_headers = {
+                "Last-Modified": h.headers.get("Last-Modified"),
+                "Content-Length": h.headers.get("Content-Length"),
+                "ETag": h.headers.get("ETag"),
+            }
+        except Exception:
+            pass
         meta = {
             "timestamp": datetime.now().isoformat(),
             "download_url": self.download_url,
             "tsv_file": str(self.tsv_file),
+            "remote_headers": remote_headers,
             "diff_file_text": str(diff_txt) if diff_txt.exists() else None,
             "diff_file_html": str(diff_html) if diff_html.exists() else None
         }

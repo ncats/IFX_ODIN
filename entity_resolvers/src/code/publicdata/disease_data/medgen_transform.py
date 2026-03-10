@@ -83,6 +83,16 @@ class MedGenTransformer:
             if col in df_pivoted:
                 df_pivoted[col] = df_pivoted[col].apply(lambda x: self.apply_prefix(x, prefix))
 
+        # Clean "medgen_OMIM Phenotypic Series": PS101800 → OMIMPS:101800
+        omimps_col = "medgen_OMIM Phenotypic Series"
+        if omimps_col in df_pivoted.columns:
+            df_pivoted[omimps_col] = df_pivoted[omimps_col].apply(
+                lambda x: "|".join(
+                    "OMIMPS:" + v.lstrip("PS") if isinstance(v, str) and v.startswith("PS") else v
+                    for v in str(x).split("|") if v.strip()
+                ) if pd.notna(x) else x
+            )
+
         df_pivoted.to_csv(output_file, index=False)
         logging.info(f"✅ Saved pivoted data → {output_file}")
 

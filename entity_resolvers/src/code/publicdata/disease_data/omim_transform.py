@@ -105,9 +105,12 @@ class OMIMTransformer:
         choice = input("🔁 Resume OMIM API querying now? (Y/n): ").strip().lower()
         return not (choice == "n")
 
-    def fetch_omim_entry(self, mim_number):
+    def fetch_omim_entry(self, mim_number_prefixed: str):
+        # Accepts "OMIM:100050" or "100050"
+        mim_numeric = str(mim_number_prefixed).strip().replace("OMIM:", "")
+
         params = {
-            "mimNumber": mim_number,
+            "mimNumber": mim_numeric,
             "include": (
                 "titles,"
                 "clinicalSynopsis,"
@@ -133,22 +136,38 @@ class OMIMTransformer:
                     return response.json()
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", retry_delay))
-                    logging.warning(f"Rate limit hit for {mim_number}. Waiting {wait_time} sec...")
+                    logging.warning(f"Rate limit hit for {mim_numeric}. Waiting {wait_time} sec...")
                     time.sleep(wait_time)
                 else:
-                    logging.error(f"Failed to fetch {mim_number}: HTTP {response.status_code}")
+                    logging.error(f"Failed to fetch {mim_numeric}: HTTP {response.status_code}")
                     break
             except requests.exceptions.RequestException as e:
-                logging.warning(f"Error fetching {mim_number}: {e}")
+                logging.warning(f"Error fetching {mim_numeric}: {e}")
                 time.sleep(retry_delay)
 
         return None
 
-    def extract_fields(self, mim_number, entry_json):
+
+    def extract_fields(self, mim_number_prefixed: str, entry_json: dict):
+        # Ensure we always write "OMIM:xxxxx"
+        mim_pref = str(mim_number_prefixed).strip()
+        if not mim_pref.startswith("OMIM:"):
+            mim_pref = "OMIM:" + mim_pref.replace("OMIM:", "")
+
         try:
-            entry = entry_json["omim"]["entryList"][0]["entry"]
+            omim_block = entry_json.get("omim", {})
+            entry_list = omim_block.get("entryList", [])
+
+            if not entry_list:
+                # capture error payload if present
+                err = omim_block.get("error", {})
+                err_msg = err.get("errorMessage") or err.get("errorCode") or "No entryList returned"
+                logging.warning(f"⚠️ OMIM API returned no entryList for {mim_pref}: {err_msg}")
+                return None
+
+            entry = entry_list[0].get("entry", {})
             return {
-                "MIM_Number": mim_number,
+                "MIM_Number": mim_pref,
                 "Preferred_Title": entry.get("titles", {}).get("preferredTitle", ""),
                 "Clinical_Synopsis": json.dumps(entry.get("clinicalSynopsis", {})),
                 "Phenotype_Maps": json.dumps(entry.get("phenotypeMapList", [])),
@@ -164,7 +183,7 @@ class OMIMTransformer:
                 "Phenotypic_Series_Exists": entry.get("phenotypicSeriesExists", False),
             }
         except Exception as e:
-            logging.warning(f"⚠️ Failed to extract for {mim_number}: {e}")
+            logging.warning(f"⚠️ Failed to extract for {mim_pref}: {e}")
             return None
 
     def process_mims(self, mim_list, already_processed, resume_records):

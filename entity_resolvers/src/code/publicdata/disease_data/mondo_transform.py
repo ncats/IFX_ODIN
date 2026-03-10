@@ -7,10 +7,13 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import yaml
+from rdflib import Graph, URIRef
+import re
+
 
 class MondoTransformer:
     def __init__(self, config):
-        self.input_file = Path(config["mondo"]["mondo_file"])
+        self.input_file = Path(config["mondo"]["json_file"])
         self.cleaned_output = Path(config["mondo"]["cleaned_output"])
         self.metadata_output = Path(config["mondo"]["transform_metadata"])
         self.obsolete_output = Path(config["mondo"]["obsolete_output"])
@@ -43,6 +46,43 @@ class MondoTransformer:
             })
 
         return pd.DataFrame(records)
+
+    def parse_mondo_owl_relationships(self, owl_path, output_dir):
+        logging.info(f"📖 Parsing MONDO OWL for parent-child relationships: {owl_path}")
+        g = Graph()
+        g.parse(owl_path)
+
+        mondo_ns = "http://purl.obolibrary.org/obo/MONDO_"
+        subClassOf = URIRef("http://www.w3.org/2000/01/rdf-schema#subClassOf")
+
+        parent_to_children = {}
+        child_to_parents = {}
+
+        for subj, _, obj in g.triples((None, subClassOf, None)):
+            subj_id = re.sub(r".*MONDO_", "MONDO:", str(subj)).replace("_", ":")
+            obj_id = re.sub(r".*MONDO_", "MONDO:", str(obj)).replace("_", ":")
+
+            if subj_id.startswith("MONDO:") and obj_id.startswith("MONDO:"):
+                parent_to_children.setdefault(obj_id, set()).add(subj_id)
+                child_to_parents.setdefault(subj_id, set()).add(obj_id)
+
+        # Build sibling mappings
+        sibling_terms = {}
+        for parent, children in parent_to_children.items():
+            for child in children:
+                sibling_terms[child] = list(children - {child})
+
+        # Convert sets to lists and write to disk
+        def save_json(obj, filename):
+            with open(output_dir / filename, 'w') as f:
+                json.dump({k: list(v) for k, v in obj.items()}, f, indent=2)
+
+        save_json(parent_to_children, "parent_to_children.json")
+        save_json(child_to_parents, "child_to_parents.json")
+        with open(output_dir / "sibling_terms.json", 'w') as f:
+            json.dump(sibling_terms, f, indent=2)
+
+        logging.info(f"💾 Saved MONDO OWL relationships to: {output_dir}")
 
     def explode_and_pivot(self, df, id_col, cross_ref_col):
         df[cross_ref_col] = df[cross_ref_col].fillna("").astype(str)
@@ -91,6 +131,12 @@ class MondoTransformer:
 
         if "mondo_meddra" in df.columns:
             df["mondo_meddra"] = df["mondo_meddra"].str.replace("MedDRA:", "MEDDRA:", regex=False)
+        # If OWL file exists, extract hierarchy structure
+        mondo_owl = self.input_file.parent / "mondo.owl"
+        if mondo_owl.exists():
+            self.parse_mondo_owl_relationships(mondo_owl, self.cleaned_output.parent)
+        else:
+            logging.warning(f"⚠️ MONDO OWL file not found at: {mondo_owl}")
 
         self.cleaned_output.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.cleaned_output, index=False)
