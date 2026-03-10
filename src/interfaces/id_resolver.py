@@ -39,18 +39,15 @@ class IdResolver(ABC):
     name: str
     no_match_behavior: NoMatchBehavior
     multi_match_behavior: MultiMatchBehavior
-    add_labels_for_resolver_events: bool
     resolve_cache: Dict[str, List[IdMatch]]
     types: List[str]
 
     def __init__(self,
                  types: List[str],
-                 add_labels_for_resolver_events = False,
                  no_match_behavior = NoMatchBehavior.Allow,
                  multi_match_behavior = MultiMatchBehavior.All):
         print(f'creating ID resolver: {self.__class__.__name__}')
         self.types = types
-        self.add_labels_for_resolver_events = add_labels_for_resolver_events
         self.no_match_behavior = NoMatchBehavior.parse(no_match_behavior)
         self.multi_match_behavior = MultiMatchBehavior.parse(multi_match_behavior)
         self.resolve_cache = {}
@@ -109,12 +106,8 @@ class IdResolver(ABC):
                             if new_id != old_id:
                                 first_entry.old_id = old_id
                                 updated_count += 1
-                                if self.add_labels_for_resolver_events:
-                                    first_entry.add_label("Updated_ID")
                             else:
                                 validated_count += 1
-                                if self.add_labels_for_resolver_events:
-                                    first_entry.add_label("Validated_ID")
 
                             entity_map[IdResolver.MatchKeys.matched][old_id] = first_entry
 
@@ -128,8 +121,6 @@ class IdResolver(ABC):
                                     new_entry.id = new_id
                                     new_entry.xref = full_xref_list
                                     new_entry.old_id = old_id
-                                    if self.add_labels_for_resolver_events:
-                                        new_entry.add_label("Unmerged_ID")
                                     if new_entry.id not in [node.id for node in
                                                             entity_map[IdResolver.MatchKeys.newborns][old_id]]:
                                         entity_map[IdResolver.MatchKeys.newborns][old_id].append(new_entry)
@@ -137,9 +128,6 @@ class IdResolver(ABC):
                 if entry.id not in entity_map[IdResolver.MatchKeys.unmatched]:
                     new_entry = copy.deepcopy(entry)
                     new_entry.old_id = entry.id
-                    if self.add_labels_for_resolver_events:
-                        new_entry.add_label("Unmatched_ID")
-
                     entity_map[IdResolver.MatchKeys.unmatched][entry.id] = new_entry
         print(f"updated {updated_count} ids, validated {validated_count} ids")
         return entity_map

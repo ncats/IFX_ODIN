@@ -9,12 +9,9 @@ from src.api_adapters.strawberry_models.shared_query_models import Provenance, g
 from src.interfaces.result_types import LinkedListQueryContext
 from src.models.node import EquivalentId
 from src.models.cure.models import CureNode, CureEdge
-from src.interfaces.simple_enum import NodeLabel, RelationshipLabel
 from src.models.analyte import Synonym
 
 # base classes
-NodeLabel = strawberry.type(NodeLabel)
-RelationshipLabel = strawberry.type(RelationshipLabel)
 EquivalentId = strawberry.type(EquivalentId)
 Synonym = strawberry.type(Synonym)
 

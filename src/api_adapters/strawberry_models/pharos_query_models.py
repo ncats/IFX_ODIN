@@ -18,11 +18,8 @@ from src.models.protein import Protein as ProteinBase, TDLMetadata
 from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship as IsoformProteinRelationshipBase, \
     GeneProteinRelationship as GeneProteinRelationshipBase, \
     TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
-from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
 
 
-NodeLabel = strawberry.type(NodeLabel)
-RelationshipLabel = strawberry.type(RelationshipLabel)
 Node = strawberry.type(Node)
 EquivalentId = strawberry.type(EquivalentId)
 Synonym = strawberry.type(Synonym)

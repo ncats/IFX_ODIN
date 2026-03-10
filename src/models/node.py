@@ -4,7 +4,6 @@ from typing import List, Union, get_origin, get_args, Optional
 
 from src.constants import Prefix
 from src.core.decorators import facets
-from src.interfaces.simple_enum import RelationshipLabel, NodeLabel
 
 
 def is_atypeof_field(type_hint, cls):
@@ -132,14 +131,9 @@ class EquivalentId:
 @facets(category_fields=['id', 'xref', 'sources'])
 class Node:
     id: str
-    labels: List[NodeLabel] = field(default_factory=list)
     xref: Optional[List[EquivalentId]] = field(default_factory=list)
     provenance: Optional[str] = None
     sources: List[str] = field(default_factory=list)
-
-    def add_label(self, new_label: NodeLabel):
-        if new_label not in self.labels:
-            self.labels.append(new_label)
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -152,11 +146,7 @@ class Relationship:
     end_node: Node
     provenance: Optional[str] = None
     sources: List[str] = field(default_factory=list)
-    labels: List[RelationshipLabel] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict):
-        obj = generate_class_from_dict(cls, data)
-        obj.start_node.labels = obj.start_node.labels or []
-        obj.end_node.labels = obj.end_node.labels or []
-        return obj
+        return generate_class_from_dict(cls, data)

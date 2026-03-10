@@ -5,7 +5,6 @@ import importlib.util
 import networkx as nx
 
 from src.core.decorators import collect_facets
-from src.interfaces.labeler import Labeler
 from src.interfaces.metadata import DatabaseMetadata
 from src.interfaces.result_types import FacetQueryResult, ListQueryResult, DetailsQueryResult, \
     ResolveResult, LinkedListQueryResult, LinkedListQueryContext, LinkDetails, ListQueryContext, \
@@ -14,7 +13,6 @@ from src.models.node import Node, Relationship
 
 
 class APIAdapter(ABC):
-    labeler: Labeler
     label: str
     modules: List
     class_map = {}

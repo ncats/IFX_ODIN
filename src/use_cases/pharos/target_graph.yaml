@@ -2,10 +2,6 @@ source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.
 
 pchembl_cutoff: &pchembl_cutoff 5
 
-labeler:
-  import: ./src/interfaces/labeler.py
-  class: BiolinkLabeler
-
 resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py

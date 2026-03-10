@@ -67,7 +67,7 @@ cd memgraph-container && docker compose up -d
 
 1. **InputAdapters** - Extract from data sources via `get_all()` generator
 2. **OutputAdapters** - Write to databases via `store()`
-3. **ETL Engine** - Orchestrates pipeline with resolver_map and labeler
+3. **ETL Engine** - Orchestrates pipeline with resolver_map
 4. **Id Resolvers** - Entity normalization with configurable match behavior
 
 ```python

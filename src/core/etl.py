@@ -6,7 +6,6 @@ import humanize
 
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
-from src.interfaces.labeler import Labeler
 from src.interfaces.output_adapter import OutputAdapter
 
 
@@ -15,11 +14,6 @@ class ETL:
     input_adapters: List[InputAdapter]
     output_adapters: List[OutputAdapter]
     resolver_map: Dict[str, IdResolver] = field(default_factory=dict)
-    labeler: Labeler = Labeler()
-
-    def set_labeler(self, labeler: Labeler):
-        self.labeler = labeler
-        return self
 
     def create_or_truncate_datastores(self):
         for output_adapter in self.output_adapters:
@@ -40,7 +34,6 @@ class ETL:
                 count += len(resolved_list)
                 for output_adapter in self.output_adapters:
                     resolved_list = output_adapter.preprocess_objects(resolved_list)
-                    self.labeler.assign_all_labels(resolved_list)
                     output_adapter.store(resolved_list, single_source=input_adapter.is_single_source())
 
             end_time = time.time()

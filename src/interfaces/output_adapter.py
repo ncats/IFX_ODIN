@@ -5,7 +5,6 @@ from enum import Enum
 from typing import List, Union
 
 from src.interfaces.metadata import DatabaseMetadata
-from src.interfaces.simple_enum import Label
 from src.models.node import Node, Relationship
 
 
@@ -56,7 +55,7 @@ class OutputAdapter(ABC):
         for key, value in vars(obj).items():
             if isinstance(obj, Relationship) and key == 'start_node' or key == 'end_node':
                 continue
-            if isinstance(value, Enum) or isinstance(value, Label):
+            if isinstance(value, Enum):
                 ret_dict[key] = value.label if hasattr(value, 'label') else value.value
             if isinstance(value, list):
                 ret_dict[key] = self.remove_none_values_from_list(value)
@@ -64,7 +63,7 @@ class OutputAdapter(ABC):
                     if hasattr(value[0], 'to_dict') and callable(getattr(value[0], 'to_dict')):
                         ret_dict[key] = [l.to_dict() for l in value]
                     ret_dict[key] = [
-                        (l.label if hasattr(l, 'label') else l.value) if isinstance(l, Enum) or isinstance(l, Label) else l
+                        (l.label if hasattr(l, 'label') else l.value) if isinstance(l, Enum) else l
                         for l in ret_dict[key]
                     ]
             if hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
@@ -77,7 +76,7 @@ class OutputAdapter(ABC):
 
     def clean_dict(self, obj, convert_dates: bool):
         def _clean_dict(obj):
-            forbidden_keys = ['labels']
+            forbidden_keys = []
             if isinstance(obj, Relationship):
                 forbidden_keys.extend(['start_node', 'end_node'])
             forbidden_keys.extend([k for k in obj.__dict__ if k.startswith('_')])
@@ -106,11 +105,11 @@ class OutputAdapter(ABC):
         object_lists = {}
         for obj in objects:
             obj_type = type(obj).__name__
-            obj_labels = [l.value for l in obj.labels]
-            obj_key = f"{obj_type}:{obj_labels}"
+            obj_labels = [obj_type]
+            obj_key = obj_type
             if isinstance(obj, Relationship):
-                start_labels = [l.value for l in obj.start_node.labels]
-                end_labels = [l.value for l in obj.end_node.labels]
+                start_labels = [type(obj.start_node).__name__]
+                end_labels = [type(obj.end_node).__name__]
                 obj_key = f"{start_labels}:{obj_labels}:{end_labels}"
 
             if obj_key in object_lists:

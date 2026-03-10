@@ -37,26 +37,13 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         node_collections = [collection for collection in collections if
                             not collection['name'].startswith("_") and collection['type'] == 'document' and collection[
                                 'status'] == 'loaded']
-        if unLabel:
-            for collection in node_collections:
-                for cls in self.labeler.get_classes(collection['name']):
-                    g.add_node(cls)
-        else:
-            g.add_nodes_from([collection['name'] for collection in node_collections])
+        g.add_nodes_from([collection['name'] for collection in node_collections])
 
         for edge_def in graph.edge_definitions():
             for from_node in edge_def['from_vertex_collections']:
                 for to_node in edge_def['to_vertex_collections']:
                     edge_label = edge_def['edge_collection']
-                    if unLabel:
-                        for from_class in self.labeler.get_classes(from_node):
-                            for to_class in self.labeler.get_classes(to_node):
-                                for edge_class in self.labeler.get_classes(edge_label, True):
-                                    edge_class_name = edge_class.__name__ if hasattr(edge_class,
-                                                                                     '__name__') else edge_class
-                                    g.add_edge(from_class, to_class, label=edge_class_name)
-                    else:
-                        g.add_edge(from_node, to_node, label=edge_label)
+                    g.add_edge(from_node, to_node, label=edge_label)
 
         return g
 
@@ -70,10 +57,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             models = [collection for collection in collections if
                       not collection['name'].startswith("_") and not collection['type'] == 'document' and collection[
                           'status'] == 'loaded']
-        model_set = set()
-        for model in models:
-            model_set.update(self.labeler.get_classes(model['name']))
-        return list(model_set)
+        return [model['name'] for model in models]
 
     def list_edges(self):
         return self._list_models('edges')
@@ -123,7 +107,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                 RETURN {{ value, count }}"""
 
     def get_count(self, context: ListQueryContext = None) -> int:
-        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        label = context.source_data_model
         filter = context.filter.to_dict() if context and context.filter else None
         query = f"""
             FOR doc IN `{label}`
@@ -136,7 +120,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         return result[0] if result else 0
 
     def get_upset(self, context: ListQueryContext, facet_context: UpsetQueryContext) -> List[UpsetResult]:
-        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        label = context.source_data_model
         filter = context.filter.to_dict() if context and context.filter else None
         field = facet_context.name
         other_filter = {k: v for k, v in filter.items() if k != field} if filter else None
@@ -158,7 +142,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         return [UpsetResult(values=row['combination'].split('|'), count=row['count']) for row in results]
 
     def get_facets(self, context: ListQueryContext, facets: List[str], top: int) -> List[FacetQueryResult]:
-        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        label = context.source_data_model
         filter = context.filter.to_dict() if context and context.filter else None
         full_results = []
         if facets == None or len(facets) == 0:
@@ -180,13 +164,13 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         return full_results
 
     def get_query(self, context: ListQueryContext, top: int, skip: int) -> str:
-        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        label = context.source_data_model
         filter = context.filter.to_dict() if context and context.filter else None
         query = self.get_list_query(filter, label, skip, top)
         return query
 
     def get_list(self, context: ListQueryContext, top: int, skip: int) -> List[Node]:
-        label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
+        label = context.source_data_model
         filter = context.filter.to_dict() if context and context.filter else None
         query = self.get_list_query(filter, label, skip, top)
         result = self.runQuery(query)
@@ -286,8 +270,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                                   context: Union[LinkedListQueryContext, NetworkedListQueryContext],
                                   ignore_var: str = None,
                                   ignore_field: str = None) -> (str, str):
-        source_label = self.labeler.get_labels_for_class_name(context.source_data_model)[0]
-        dest_label = self.labeler.get_labels_for_class_name(context.dest_data_model)[0]
+        source_label = context.source_data_model
+        dest_label = context.dest_data_model
         if context.source_id is not None:
             id = self.safe_key(context.source_id)
             anchor_label = source_label
@@ -302,9 +286,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             direction = 'INBOUND'
 
         if isinstance(context, NetworkedListQueryContext):
-            edge_labels = [self.labeler.get_labels_for_class_name(edge_model)[0] for edge_model in context.edge_models]
-            query_labels = [query_label] + [self.labeler.get_labels_for_class_name(model)[0] for model in
-                                            context.intermediate_data_models]
+            edge_labels = list(context.edge_models)
+            query_labels = [query_label] + list(context.intermediate_data_models)
             collection_clause = f"""
                 FOR v, e IN 1..{len(query_labels)} {direction} '{anchor_label}/{id}' GRAPH 'graph'
                     OPTIONS {{ edgeCollections: {edge_labels}, vertexCollections: {query_labels} }}
@@ -312,7 +295,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
                     """
             return query_model, collection_clause
 
-        edge_label = self.labeler.get_labels_for_class_name(context.edge_model)[0]
+        edge_label = context.edge_model
         collection_clause = f"""
             FOR v, e IN 1..1 {direction} '{anchor_label}/{id}' GRAPH 'graph'
                 OPTIONS {{ edgeCollections: ['{edge_label}'], vertexCollections: ['{query_label}'] }}
@@ -392,7 +375,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         return full_results
 
     def resolve_id(self, data_model: str, id: str, sortby: dict = {}) -> ResolveResult:
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
+        label = data_model
 
         query = f"""
             FOR doc IN `{label}`
@@ -412,7 +395,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
         )
 
     def get_details(self, data_model: str, id: str) -> DetailsQueryResult:
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
+        label = data_model
         query = f"""
             FOR doc IN `{label}`
                 FILTER doc.id == '{id}'
@@ -426,7 +409,7 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
             else DetailsQueryResult(query=query, details=None)
 
     def get_edge_types(self, data_model: str):
-        label = self.labeler.get_labels_for_class_name(data_model)[0]
+        label = data_model
         graph = self.get_graph()
         collections = graph.edge_definitions()
 
@@ -440,8 +423,8 @@ class ArangoAPIAdapter(APIAdapter, ArangoAdapter):
 
     def get_edge_list(self, data_model: str, edge_data_model: str, start_id: str = None, end_id: str = None,
                       top: int = 10, skip: int = 0):
-        edge_label = self.labeler.get_labels_for_class_name(edge_data_model)[0]
-        node_label = self.labeler.get_labels_for_class_name(data_model)[0]
+        edge_label = edge_data_model
+        node_label = data_model
 
         if start_id is not None:
             id = self.safe_key(start_id)

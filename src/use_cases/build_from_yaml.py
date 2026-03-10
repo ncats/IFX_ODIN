@@ -13,7 +13,6 @@ class HostDashboardFromYaml:
     def load_yaml(self, yaml_file: str):
         self.configuration = Dashboard_Config(yaml_file)
         self.api_adapter = self.configuration.create_object_list('api_adapter')[0]
-        self.api_adapter.labeler = self.configuration.create_labeler()
 
 
 class BuildGraphFromYaml:
@@ -35,9 +34,6 @@ class BuildGraphFromYaml:
                 resolver_map[type] = resolver
 
         self.etl = ETL(input_adapters=input_adapters, output_adapters=output_adapters, resolver_map=resolver_map)
-        labeler = self.configuration.create_labeler()
-        if labeler is not None:
-            self.etl.set_labeler(labeler)
 
     def truncate_datastore(self):
         self.etl.create_or_truncate_datastores()
