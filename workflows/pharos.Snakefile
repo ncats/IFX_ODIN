@@ -17,6 +17,10 @@ rule all:
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
         "../input_files/auto/reactome/reactome_version.tsv",
+        "../input_files/auto/gtex/GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz",
+        "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt",
+        "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt",
+        "../input_files/auto/gtex/gtex_version.tsv",
         "../input_files/auto/mondo/mondo.json",
         "../input_files/auto/uberon/uberon.obo"
 
@@ -90,6 +94,25 @@ rule download_reactome:
         last_modified=$(curl -fsI https://reactome.org/download/current/ReactomePathways.gmt.zip | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
         version=$(curl -fs https://reactome.org/ContentService/data/database/version)
         python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[3]}
+        """
+
+rule download_gtex:
+    output:
+        "../input_files/auto/gtex/GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz",
+        "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt",
+        "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt",
+        "../input_files/auto/gtex/gtex_version.tsv"
+    shell:
+        """
+        expr_url='https://storage.googleapis.com/adult-gtex/bulk-gex/v11/rna-seq/GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz'
+        sample_url='https://storage.googleapis.com/adult-gtex/annotations/v11/metadata-files/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt'
+        subject_url='https://storage.googleapis.com/adult-gtex/annotations/v11/metadata-files/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt'
+
+        curl -fL -o {output[0]} "$expr_url"
+        curl -fL -o {output[1]} "$sample_url"
+        curl -fL -o {output[2]} "$subject_url"
+
+        printf 'version\tversion_date\nGTEx Analysis Version 11\t2025-08-22\n' > {output[3]}
         """
 
 rule download_mondo:
