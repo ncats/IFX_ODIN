@@ -189,7 +189,7 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-  - import: ./src/input_adapters/target_graph/gtex_v11_expression.py
+  - import: ./src/input_adapters/target_graph/gtex_expression.py
     class: GTExExpressionAdapter
     kwargs:
       matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz

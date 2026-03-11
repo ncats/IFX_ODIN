@@ -8,7 +8,7 @@ These are *parsed input objects* — NOT Node subclasses.  The
 ``PounceInputAdapter`` converts them into Nodes/Relationships for the ETL.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import List, Optional
 
@@ -62,7 +62,7 @@ class ParsedProject:
 class ParsedPerson:
     name: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = None
+    roles: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
