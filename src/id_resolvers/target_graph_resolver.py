@@ -1,4 +1,4 @@
-from typing import List, Any, Generator
+from typing import List, Any, Generator, Optional
 
 from src.constants import Prefix
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
@@ -6,6 +6,20 @@ from src.interfaces.id_resolver import IdMatch
 from src.models.node import EquivalentId
 from src.shared.targetgraph_parser import TargetGraphGeneParser, TargetGraphTranscriptParser, TargetGraphProteinParser, \
     TargetGraphParser
+
+def _resolve_canonical_class(type_name: Optional[str]):
+    if type_name is None:
+        return None
+    from src.models.protein import Protein
+    from src.models.gene import Gene
+    registry = {
+        "Protein": Protein,
+        "Gene": Gene,
+    }
+    cls = registry.get(type_name)
+    if cls is None:
+        raise ValueError(f"Unknown canonical_type '{type_name}'. Known types: {list(registry.keys())}")
+    return cls
 
 scores = {
     "exact": 0,
@@ -98,7 +112,7 @@ class TCRDTargetResolver(TargetGraphResolver):
             version_info.append(parser.get_version_info())
         return '\t'.join(version_info)
 
-    def __init__(self, gene_file_path: str, transcript_file_path: str, protein_file_paths: List[str], additional_ids: str, reviewed_only: bool, **kwargs):
+    def __init__(self, gene_file_path: str, transcript_file_path: str, protein_file_paths: List[str], additional_ids: str, reviewed_only: bool, canonical_type: Optional[str] = None, **kwargs):
 
         self.parsers = []
         self.protein_parsers = [
@@ -108,7 +122,7 @@ class TCRDTargetResolver(TargetGraphResolver):
         self.transcript_parser = TargetGraphTranscriptParser(file_path=transcript_file_path)
         self.reviewed_only = reviewed_only
 
-        TargetGraphResolver.__init__(self, **kwargs)
+        TargetGraphResolver.__init__(self, canonical_class=_resolve_canonical_class(canonical_type), **kwargs)
 
     def matching_ids(self) -> Generator[MatchingPair, Any, None]:
         transcript_ids, transcript_id_idx, transcript_gene_map = self.get_transcript_ids()

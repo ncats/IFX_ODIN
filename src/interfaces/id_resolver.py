@@ -1,7 +1,7 @@
 import copy
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Dict
+from typing import List, Dict, Optional, Type
 from dataclasses import dataclass, asdict, field
 
 from src.interfaces.simple_enum import SimpleEnum
@@ -45,12 +45,14 @@ class IdResolver(ABC):
     def __init__(self,
                  types: List[str],
                  no_match_behavior = NoMatchBehavior.Allow,
-                 multi_match_behavior = MultiMatchBehavior.All):
+                 multi_match_behavior = MultiMatchBehavior.All,
+                 canonical_class: Optional[Type[Node]] = None):
         print(f'creating ID resolver: {self.__class__.__name__}')
         self.types = types
         self.no_match_behavior = NoMatchBehavior.parse(no_match_behavior)
         self.multi_match_behavior = MultiMatchBehavior.parse(multi_match_behavior)
         self.resolve_cache = {}
+        self.canonical_class = canonical_class
 
 
     def _resolve_internal(self, input_nodes: List[Node]) -> (Dict[str, List[IdMatch]], set):
@@ -73,11 +75,11 @@ class IdResolver(ABC):
 
         return output_dict
 
-    def resolve_nodes(self, entries: List):
+    def resolve_nodes(self, entries: List, allow_retype: bool = False):
         id_map = self._resolve_internal(entries)
-        return self.get_merged_map(entries, id_map)
+        return self.get_merged_map(entries, id_map, allow_retype=allow_retype)
 
-    def get_merged_map(self, entries, id_map):
+    def get_merged_map(self, entries, id_map, allow_retype: bool = False):
         updated_count, validated_count = 0, 0
         entity_map = {
             IdResolver.MatchKeys.matched: {},
@@ -97,11 +99,28 @@ class IdResolver(ABC):
                         full_xref_list = list(set([
                             EquivalentId.parse(equiv_id) for m in matches for equiv_id in m.equivalent_ids
                         ]))
+
+                        is_cross_type = self.canonical_class is not None and not isinstance(entry, self.canonical_class)
+                        if is_cross_type and not allow_retype:
+                            print(f"WARNING: {type(entry).__name__} '{old_id}' resolves cross-type to "
+                                  f"{self.canonical_class.__name__} '{new_id}'. Treating as unmatched — "
+                                  f"use a {self.canonical_class.__name__} adapter for node data, or "
+                                  f"canonical_type is only applied for edge endpoint resolution.")
+                            if old_id not in entity_map[IdResolver.MatchKeys.unmatched]:
+                                new_entry = copy.deepcopy(entry)
+                                new_entry.old_id = old_id
+                                entity_map[IdResolver.MatchKeys.unmatched][old_id] = new_entry
+                            continue
+
                         if old_id not in entity_map[IdResolver.MatchKeys.matched]:
 
-                            first_entry = copy.deepcopy(entry)
-                            first_entry.id = new_id
-                            first_entry.xref = full_xref_list
+                            if is_cross_type and allow_retype:
+                                first_entry = self.canonical_class(id=new_id)
+                                first_entry.xref = full_xref_list
+                            else:
+                                first_entry = copy.deepcopy(entry)
+                                first_entry.id = new_id
+                                first_entry.xref = full_xref_list
 
                             if new_id != old_id:
                                 first_entry.old_id = old_id
@@ -117,9 +136,13 @@ class IdResolver(ABC):
                                 entity_map[IdResolver.MatchKeys.newborns][old_id] = []
                                 for subsequent_match in matches[1:]:
                                     new_id = subsequent_match.match
-                                    new_entry = copy.deepcopy(entry)
-                                    new_entry.id = new_id
-                                    new_entry.xref = full_xref_list
+                                    if is_cross_type and allow_retype:
+                                        new_entry = self.canonical_class(id=new_id)
+                                        new_entry.xref = full_xref_list
+                                    else:
+                                        new_entry = copy.deepcopy(entry)
+                                        new_entry.id = new_id
+                                        new_entry.xref = full_xref_list
                                     new_entry.old_id = old_id
                                     if new_entry.id not in [node.id for node in
                                                             entity_map[IdResolver.MatchKeys.newborns][old_id]]:

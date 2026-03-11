@@ -105,7 +105,7 @@ class InputAdapter(ABC):
                 for type in type_map:
                     if type in resolver_map:
                         resolver = resolver_map[type]
-                        temp_node_map = resolver.resolve_nodes(type_map[type])
+                        temp_node_map = resolver.resolve_nodes(type_map[type], allow_retype=True)
                         node_map.update(resolver.parse_entity_map(temp_node_map))
 
                 return_relationships = []
@@ -130,8 +130,14 @@ class InputAdapter(ABC):
                     for start_node in start_nodes:
                         for end_node in end_nodes:
                             rel_copy = copy.deepcopy(entry)
-                            rel_copy.start_node.id = start_node.id
-                            rel_copy.end_node.id = end_node.id
+                            if start_node.__class__ is not rel_copy.start_node.__class__:
+                                rel_copy.start_node = copy.deepcopy(start_node)
+                            else:
+                                rel_copy.start_node.id = start_node.id
+                            if end_node.__class__ is not rel_copy.end_node.__class__:
+                                rel_copy.end_node = copy.deepcopy(end_node)
+                            else:
+                                rel_copy.end_node.id = end_node.id
                             return_relationships.append(rel_copy)
 
                     if len(return_relationships) >= self.batch_size:

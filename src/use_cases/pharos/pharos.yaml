@@ -14,6 +14,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
+      canonical_type: Protein
       reviewed_only: True
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
