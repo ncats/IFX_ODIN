@@ -42,7 +42,7 @@ class ProjectExperimentEdge(Relationship):
 class ExperimentPersonEdge(Relationship):
     start_node: "Experiment" = None
     end_node: "Person" = None
-    role: str = None
+    roles: List[str] = field(default_factory=list)
 
 
 @dataclass

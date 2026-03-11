@@ -247,6 +247,9 @@ class PounceParser:
         project = data.project
         owners = self._build_persons(
             project.owner_names or [], project.owner_emails or [], "Owner")
+        if len(owners) > 0:
+            owners[0].roles.append("Contact")
+
         collaborators = self._build_persons(
             project.collaborator_names or [], project.collaborator_emails or [], "Collaborator")
         data.people = owners + collaborators
@@ -751,8 +754,8 @@ class PounceParser:
         if not names:
             return []
         if emails and len(names) == len(emails):
-            return [ParsedPerson(name=n, email=e, role=role) for n, e in zip(names, emails)]
-        return [ParsedPerson(name=n, role=role) for n in names]
+            return [ParsedPerson(name=n, email=e, roles=[role]) for n, e in zip(names, emails)]
+        return [ParsedPerson(name=n, roles=[role]) for n in names]
 
     @classmethod
     def _detect_exposure_indices(cls, param_map: dict) -> List[int]:

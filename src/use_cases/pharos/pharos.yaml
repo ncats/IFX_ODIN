@@ -1,7 +1,7 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 pchembl_cutoff: &pchembl_cutoff 5
 
-id_resolvers:
+resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
@@ -136,36 +136,6 @@ input_adapters:
       file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
       version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
 
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: IsoformProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
-
-  - import: ./src/input_adapters/target_graph/gene_node.py
-    class: GeneNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.csv
-
-  - import: ./src/input_adapters/target_graph/transcript_node.py
-    class: TranscriptNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.csv
-
-  - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
-    class: GeneTranscriptEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.csv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: TranscriptProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: GeneProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
-
   - import: ./src/input_adapters/target_graph/generif_node.py
     class: GeneRifNodeAdapter
     kwargs:
@@ -176,7 +146,7 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-  - import: ./src/input_adapters/target_graph/gtex_v11_expression.py
+  - import: ./src/input_adapters/gtex/gtex_expression.py
     class: GTExExpressionAdapter
     kwargs:
       matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz

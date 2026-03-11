@@ -8,6 +8,7 @@ Works with any Arango DB that was built by ArangoOutputAdapter.
 import importlib
 import json
 import re
+from itertools import product
 
 from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index
 
@@ -381,6 +382,12 @@ class ArangoToMySqlConverter(ArangoAdapter):
             if field_name in _SKIP_FIELDS:
                 continue
             if isinstance(field_schema, dict):
+                if (field_schema.get("type") == "list"
+                        and isinstance(field_schema.get("item_type"), str)
+                        and field_schema.get("item_type") != "object"):
+                    col_name = field_name[:-1] if field_name.endswith("s") else field_name
+                    col_type = _SQL_TYPE_MAP.get(field_schema["item_type"], Text)
+                    columns.append(Column(col_name, col_type, nullable=True))
                 continue
             col_type = _SQL_TYPE_MAP.get(field_schema, Text)
             columns.append(Column(field_name, col_type, nullable=True))
@@ -608,20 +615,36 @@ class ArangoToMySqlConverter(ArangoAdapter):
     def _copy_edge_collection(self, engine, collection_name: str, table: Table,
                               schema: dict, batch_size: int):
         """Copy an edge collection from Arango to MySQL."""
-        edge_fields = {k for k, v in schema.get("fields", {}).items()
-                       if isinstance(v, str) and k not in _SKIP_FIELDS}
+        fields = schema.get("fields", {})
+        scalar_fields = {k for k, v in fields.items()
+                         if isinstance(v, str) and k not in _SKIP_FIELDS}
+        list_expand_fields = {
+            k: k[:-1] if k.endswith("s") else k
+            for k, v in fields.items()
+            if isinstance(v, dict) and v.get("type") == "list"
+            and isinstance(v.get("item_type"), str) and v.get("item_type") != "object"
+            and k not in _SKIP_FIELDS
+        }
         total = 0
 
         for docs in self._read_collection_paginated(collection_name, batch_size):
             rows = []
             for doc in docs:
-                row = {
+                base = {
                     "from_id": doc.get("start_id"),
                     "to_id": doc.get("end_id"),
                 }
-                for field in edge_fields:
-                    row[field] = doc.get(field)
-                rows.append(row)
+                for field in scalar_fields:
+                    base[field] = doc.get(field)
+
+                if not list_expand_fields:
+                    rows.append(base)
+                    continue
+
+                lists = [doc.get(field) or [None] for field in list_expand_fields]
+                col_names = list(list_expand_fields.values())
+                for combo in product(*lists):
+                    rows.append({**base, **dict(zip(col_names, combo))})
 
             with engine.connect() as conn:
                 if rows:

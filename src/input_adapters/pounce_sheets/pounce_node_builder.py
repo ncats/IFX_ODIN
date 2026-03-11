@@ -87,7 +87,7 @@ class PounceNodeBuilder:
         for parsed_person in people:
             person_node = Person.make(parsed_person.name, parsed_person.email)
             nodes.append(person_node)
-            edges.append(ProjectPersonEdge(start_node=proj_obj, end_node=person_node, role=parsed_person.role))
+            edges.append(ProjectPersonEdge(start_node=proj_obj, end_node=person_node, roles=parsed_person.roles))
         return nodes, edges
 
     def _biosample_nodes(
@@ -216,9 +216,9 @@ class PounceNodeBuilder:
         persons = [p for p in [data_generator, informatician] if p is not None]
         person_edges = []
         if data_generator:
-            person_edges.append(ExperimentPersonEdge(start_node=experiment_obj, end_node=data_generator, role="DataGenerator"))
+            person_edges.append(ExperimentPersonEdge(start_node=experiment_obj, end_node=data_generator, roles=["DataGenerator"]))
         if informatician:
-            person_edges.append(ExperimentPersonEdge(start_node=experiment_obj, end_node=informatician, role="Informatician"))
+            person_edges.append(ExperimentPersonEdge(start_node=experiment_obj, end_node=informatician, roles=["Informatician"]))
 
         yield [experiment_obj, *persons, ProjectExperimentEdge(start_node=proj_obj, end_node=experiment_obj), *person_edges]
 
@@ -540,7 +540,7 @@ class PounceNodeBuilder:
             )
             nodes = [stats_result, ExperimentStatsResultEdge(start_node=experiment_obj, end_node=stats_result)]
             if informatician:
-                nodes += [informatician, StatsResultPersonEdge(start_node=stats_result, end_node=informatician, role="Informatician")]
+                nodes += [informatician, StatsResultPersonEdge(start_node=stats_result, end_node=informatician, roles=["Informatician"])]
             yield nodes
             return
 
@@ -568,7 +568,7 @@ class PounceNodeBuilder:
 
         nodes = [stats_result, ExperimentStatsResultEdge(start_node=experiment_obj, end_node=stats_result)]
         if informatician:
-            nodes += [informatician, StatsResultPersonEdge(start_node=stats_result, end_node=informatician, role="Informatician")]
+            nodes += [informatician, StatsResultPersonEdge(start_node=stats_result, end_node=informatician, roles=["Informatician"])]
         yield nodes
         if analyte_edges:
             yield analyte_edges
