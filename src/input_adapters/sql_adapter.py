@@ -12,7 +12,7 @@ class SqlAdapter:
 
     def get_engine(self):
         if not hasattr(self, '_engine'):
-            self._engine = create_engine(self.connection_string)
+            self._engine = create_engine(self.connection_string, pool_pre_ping=True)
         return self._engine
 
     def get_session(self) -> Session:
