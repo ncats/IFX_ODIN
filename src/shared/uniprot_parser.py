@@ -53,7 +53,24 @@ class UniProtParser:
 
     @staticmethod
     def get_full_name(uniprot_obj):
-        return uniprot_obj['proteinDescription']['recommendedName']['fullName']['value']
+        protein_description = uniprot_obj.get('proteinDescription') or {}
+
+        recommended_name = protein_description.get('recommendedName') or {}
+        recommended_full_name = ((recommended_name.get('fullName') or {}).get('value'))
+        if recommended_full_name:
+            return recommended_full_name
+
+        for submission_name in protein_description.get('submissionNames', []):
+            submission_full_name = (submission_name.get('fullName') or {}).get('value')
+            if submission_full_name:
+                return submission_full_name
+
+        for alternative_name in protein_description.get('alternativeNames', []):
+            alternative_full_name = (alternative_name.get('fullName') or {}).get('value')
+            if alternative_full_name:
+                return alternative_full_name
+
+        return None
 
     @staticmethod
     def get_description(uniprot_obj):
@@ -183,11 +200,13 @@ class UniProtParser:
             for id_val in uniprot_obj['secondaryAccessions']:
                 UniProtParser.append_to_list(aliases, Alias('secondary accession', f"{Prefix.UniProtKB}:" + id_val))
         UniProtParser.append_to_list(aliases, Alias('uniprot kb', uniprot_obj['uniProtkbId']))
-        UniProtParser.append_to_list(aliases,
-                                     Alias('full name',
-                                            uniprot_obj['proteinDescription']['recommendedName']['fullName']['value']))
-        if 'shortNames' in uniprot_obj['proteinDescription']['recommendedName']:
-            for obj in uniprot_obj['proteinDescription']['recommendedName']['shortNames']:
+        full_name = UniProtParser.get_full_name(uniprot_obj)
+        if full_name:
+            UniProtParser.append_to_list(aliases, Alias('full name', full_name))
+
+        recommended_name = (uniprot_obj.get('proteinDescription') or {}).get('recommendedName') or {}
+        if 'shortNames' in recommended_name:
+            for obj in recommended_name['shortNames']:
                 UniProtParser.append_to_list(aliases, Alias('short name', obj['value']))
         if 'genes' in uniprot_obj and len(uniprot_obj['genes']) > 0:
             for gene in uniprot_obj['genes']:
