@@ -159,8 +159,22 @@ input_adapters:
     class: HPMExpressionAdapter
     kwargs:
       data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
-      uberon_map_file_path: ./input_files/manual/hpm/manual_uberon_map.tsv
+      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
       version_file_path: ./input_files/manual/hpm/version.csv
+
+  - import: ./src/input_adapters/hpa/hpa_expression.py
+    class: HPAProteinExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
+      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+
+  - import: ./src/input_adapters/hpa/hpa_expression.py
+    class: HPARnaExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
+      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter

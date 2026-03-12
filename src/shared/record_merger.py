@@ -157,6 +157,13 @@ class RecordMerger:
                         continue
                     if record[prop] is None or (isinstance(record[prop], list) and len(record[prop]) == 0):
                         continue
+                    if isinstance(record[prop], dict):
+                        existing_dict = existing_node.get(prop) or {}
+                        if self.field_conflict_behavior == FieldConflictBehavior.KeepFirst:
+                            existing_node[prop] = {**record[prop], **existing_dict}
+                        else:
+                            existing_node[prop] = {**existing_dict, **record[prop]}
+                        continue
                     existing_prop_value = existing_node.get(prop)
                     if prop in field_keys:
                         if existing_prop_value is None:
