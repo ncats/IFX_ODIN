@@ -1,0 +1,195 @@
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+#source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
+
+resolvers:
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
+    kwargs:
+      types:
+        - Ligand
+        - Disease
+
+  - label: tcrd_targets
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TCRDTargetResolver
+    kwargs:
+      reviewed_only: True
+      no_match_behavior: Skip
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      protein_file_paths:
+        - ./input_files/manual/target_graph/protein_ids.csv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+      types:
+        - Protein
+        - Gene
+        - Transcript
+
+  - label: tissue_ids
+    import: ./src/id_resolvers/tissue_resolver.py
+    class: TissueResolver
+    kwargs:
+      file_path: ./input_files/auto/uberon/uberon.obo
+      valid_ontologies:
+        - FMA
+        - EMAPA
+        - MA
+        - UMLS
+        - NCIT
+        - ZFA
+        - BTO
+        - EHDAA2
+        - BAMS
+        - neuronames
+        - VHOG
+        - MESH
+        - BIRNLEX
+        - TAO
+        - EHDAA
+        - GAID
+        - DHBA
+        - CALOHA
+        - EFO
+        - XAO
+        - HBA
+        - OpenCyc
+        - MBA
+        - galen
+        - FBbt
+        - GC_ID
+        - EV
+        - DMBA
+        - BM
+        - MAT
+        - MIAA
+        - NLXANAT
+        - VSAO
+        - AEO
+        - RETIRED_EHDAA2
+        - KUPO
+        - Wikipedia
+        - NLX
+        - ZFS
+        - UBERONTEMP
+        - UBERON
+        - TGMA
+        - TE
+        - TADS
+        - STID
+        - SPD
+        - SCTID
+        - SAO
+        - PHENOSCAPE
+        - PBA
+        - OGES
+        - OGEM
+        - NOID
+        - NIFSTD
+        - MURDOCH
+        - MPATH
+        - MP
+        - MFMO
+        - MAP
+        - ISBN
+        - HAO
+        - GOC
+        - GO
+        - FMAID
+        - FAO
+        - EVM
+        - ENVO
+        - EMAPS
+        - EHDA
+        - CP
+        - CL
+        - CARO
+        - BSA
+        - BILS
+        - BILA
+        - ANISEED
+        - ABA
+        - AAO
+      types:
+        - Tissue
+
+input_adapters:
+  - import: ./src/input_adapters/uberon_adapter.py
+    class: UberonAdapter
+    kwargs:
+      file_path: ./input_files/auto/uberon/uberon.obo
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      reviewed_only: True
+
+#  - import: ./src/input_adapters/target_graph/gtex_expression.py
+#    class: GTExExpressionAdapter
+#    kwargs:
+#      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+#      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
+#      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
+#      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
+#
+#  - import: ./src/input_adapters/hpm/hpm_expression.py
+#    class: HPMExpressionAdapter
+#    kwargs:
+#      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
+#      uberon_map_file_path: ./input_files/manual/hpm/manual_uberon_map.tsv
+#      version_file_path: ./input_files/manual/hpm/version.csv
+#
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+#    class: ProteinDiseaseEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+#      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+#  - import: ./src/input_adapters/reactome/reactome_pathways.py
+#    class: ReactomePathwayAdapter
+#    kwargs:
+#      gmt_file_path: ./input_files/auto/reactome/ReactomePathways.gmt.zip
+#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+#
+#  - import: ./src/input_adapters/reactome/reactome_pathways.py
+#    class: ReactomePathwayParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/reactome/ReactomePathwaysRelation.txt
+#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+#
+#  - import: ./src/input_adapters/reactome/reactome_pathways.py
+#    class: ReactomeProteinPathwayEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
+#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+
+  - import: ./src/input_adapters/hpa/hpa_expression.py
+    class: HPAProteinExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
+      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+
+  - import: ./src/input_adapters/hpa/hpa_expression.py
+    class: HPARnaExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
+      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: test_pharos
+    credentials: *source_credentials

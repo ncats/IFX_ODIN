@@ -20,6 +20,7 @@ class ExpressionDetail:
     source_rank: Optional[float] = None   # normalised rank within source (0.0–1.0)
     evidence: Optional[str] = None        # HPA Protein, HPM
     oid: Optional[str] = None             # JensenLab tissue ID
+    cell_type: Optional[str] = None       # HPA Protein IHC cell type
 
     def to_dict(self):
         return asdict(self)

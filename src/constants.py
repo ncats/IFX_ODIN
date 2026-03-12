@@ -25,6 +25,7 @@ class DataSourceName(SimpleEnum):
     DrugCentral = "DrugCentral"
     JensenLabPM = "JensenLab PubMed Score"
     HPM = "Human Protein Map"
+    HPA = "Human Protein Atlas"
     Antibodypedia = "Antibodypedia.com"
     IUPHAR = "IUPHAR/BPS Guide to PHARMACOLOGY"
     NCBI = "NCBI"

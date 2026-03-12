@@ -22,7 +22,10 @@ rule all:
         "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt",
         "../input_files/auto/gtex/gtex_version.tsv",
         "../input_files/auto/mondo/mondo.json",
-        "../input_files/auto/uberon/uberon.obo"
+        "../input_files/auto/uberon/uberon.obo",
+        "../input_files/auto/hpa/normal_ihc_data.tsv.zip",
+        "../input_files/auto/hpa/rna_tissue_hpa.tsv.zip",
+        "../input_files/auto/hpa/hpa_version.tsv"
 
 rule download_uberon:
     output:
@@ -113,6 +116,20 @@ rule download_gtex:
         curl -fL -o {output[2]} "$subject_url"
 
         printf 'version\tversion_date\nGTEx Analysis Version 11\t2025-08-22\n' > {output[3]}
+        """
+
+rule download_hpa:
+    output:
+        "../input_files/auto/hpa/normal_ihc_data.tsv.zip",
+        "../input_files/auto/hpa/rna_tissue_hpa.tsv.zip",
+        "../input_files/auto/hpa/hpa_version.tsv"
+    shell:
+        """
+        curl -fL -o {output[0]} https://www.proteinatlas.org/download/tsv/normal_ihc_data.tsv.zip
+        curl -fL -o {output[1]} https://www.proteinatlas.org/download/tsv/rna_tissue_hpa.tsv.zip
+        last_modified=$(curl -fsI https://www.proteinatlas.org/download/tsv/rna_tissue_hpa.tsv.zip | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        version=$(curl -fs https://www.proteinatlas.org/about/download | python3 -c "import sys,re; m=re.search(r'version ([\d.]+)', sys.stdin.read()); print(m.group(1) if m else '')")
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2]; out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[2]}
         """
 
 rule download_mondo:
