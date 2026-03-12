@@ -189,13 +189,20 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-  - import: ./src/input_adapters/target_graph/gtex_expression.py
+  - import: ./src/input_adapters/gtex/gtex_expression.py
     class: GTExExpressionAdapter
     kwargs:
       matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
       sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
       subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
       version_file_path: ./input_files/auto/gtex/gtex_version.tsv
+
+  - import: ./src/input_adapters/hpm/hpm_expression.py
+    class: HPMExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
+      uberon_map_file_path: ./input_files/manual/hpm/manual_uberon_map.tsv
+      version_file_path: ./input_files/manual/hpm/version.csv
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
@@ -270,6 +277,7 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
       version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomePathwayAdapter
     kwargs:
