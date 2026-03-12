@@ -2,23 +2,24 @@ source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.
 database_name: &database_name pharos
 
 resolvers:
-  - label: tg_proteins
+  - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
-    class: TargetGraphProteinResolver
+    class: TCRDTargetResolver
     kwargs:
+      canonical_type: Protein
+      reviewed_only: True
       no_match_behavior: Skip
-      file_paths:
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      protein_file_paths:
         - ./input_files/manual/target_graph/protein_ids.csv
       additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
       types:
         - Protein
+        - Gene
+        - Transcript
 
 input_adapters:
-  - import: ./src/input_adapters/pharos_arango/expand_IDG_families.py
-    class: ExpandIDGFamilies
-    kwargs:
-      database_name: *database_name
-    credentials: *source_credentials
 
   - import: ./src/input_adapters/pharos_arango/set_ligand_activity_flag.py
     class: SetLigandActivityFlagAdapter
@@ -36,6 +37,7 @@ input_adapters:
     class: TDLInputAdapter
     kwargs:
       database_name: *database_name
+      use_pharos_queries: True
     credentials: *source_credentials
 
   - import: ./src/input_adapters/manual/tdl_override.py
@@ -47,5 +49,5 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: pharos
+      database_name: *database_name
     credentials: *source_credentials

@@ -181,7 +181,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         def generate_edge_key(from_node, to_node, edge_type):
             return f"{self.safe_key(edge_type)}__{self.safe_key(from_node)}__{self.safe_key(to_node)}"
 
-        merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepFirst)
+        merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
 
         if not isinstance(objects, list):
             objects = [objects]

@@ -24,6 +24,7 @@ class DataSourceName(SimpleEnum):
     GO = "Gene Ontology (GO)"
     DrugCentral = "DrugCentral"
     JensenLabPM = "JensenLab PubMed Score"
+    HPM = "Human Protein Map"
     Antibodypedia = "Antibodypedia.com"
     IUPHAR = "IUPHAR/BPS Guide to PHARMACOLOGY"
     NCBI = "NCBI"
