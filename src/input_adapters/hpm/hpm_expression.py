@@ -140,10 +140,12 @@ class HPMExpressionAdapter(InputAdapter):
 
     @staticmethod
     def _compute_tau(values: List[float]) -> float:
-        max_val = max(values) if values else 0.0
+        n = len(values)
+        if n <= 1:
+            return 0.0
+        max_val = max(values)
         if max_val == 0.0:
             return 0.0
-        n = len(values)
         return sum(1 - (v / max_val) for v in values) / (n - 1)
 
     @staticmethod
