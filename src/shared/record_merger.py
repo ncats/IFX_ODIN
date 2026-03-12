@@ -12,7 +12,7 @@ class FieldConflictBehavior(SimpleEnum):
 class RecordMerger:
     field_conflict_behavior: FieldConflictBehavior
 
-    def __init__(self, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst):
+    def __init__(self, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast):
         self.field_conflict_behavior = field_conflict_behavior
 
     def parse_list_and_field_keys(self, example_record):

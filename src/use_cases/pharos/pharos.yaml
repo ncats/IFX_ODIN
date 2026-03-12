@@ -155,6 +155,13 @@ input_adapters:
       subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
       version_file_path: ./input_files/auto/gtex/gtex_version.tsv
 
+  - import: ./src/input_adapters/hpm/hpm_expression.py
+    class: HPMExpressionAdapter
+    kwargs:
+      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
+      uberon_map_file_path: ./input_files/manual/hpm/manual_uberon_map.tsv
+      version_file_path: ./input_files/manual/hpm/version.csv
+
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:

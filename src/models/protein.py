@@ -115,6 +115,7 @@ class Protein(Audited, Analyte):
     protein_name_score: Optional[str] = None
     protein_name_method: Optional[str] = None
     uniprot_isoform: Optional[str] = None
+    calculated_properties: Optional[Dict[str, float]] = None
 
 
 @dataclass

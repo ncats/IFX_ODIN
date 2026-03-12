@@ -5,9 +5,14 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.protein import TDL, Protein, TDLMetadata
 from src.shared.arango_adapter import ArangoAdapter
+from src.shared.db_credentials import DBCredentials
 
 
 class TDLInputAdapter(InputAdapter, ArangoAdapter):
+    use_pharos_queries: bool
+    def __init__(self, credentials: DBCredentials, database_name: str, use_pharos_queries: bool = False):
+        ArangoAdapter.__init__(self, credentials=credentials, database_name=database_name)
+        self.use_pharos_queries = use_pharos_queries
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PostProcessing
@@ -24,7 +29,7 @@ class TDLInputAdapter(InputAdapter, ArangoAdapter):
         go_term_counts = self.runQuery(experimental_f_or_p_go_term_count)
         pm_score_values = self.runQuery(pm_scores)
         ab_count_values = self.runQuery(ab_counts)
-        generif_counts = self.runQuery(gene_rif_count)
+        generif_counts = self.runQuery(pharos_gene_rif_count if self.use_pharos_queries else gene_rif_count)
 
         ligand_counts_dict = make_dict(ligand_counts)
         drug_counts_dict = make_dict(drug_counts)
@@ -86,14 +91,14 @@ def make_dict(list_query_result: list):
     return {row['protein_id']: row['value'] for row in list_query_result}
 
 all_proteins = """
-FOR n IN `biolink:Protein`
+FOR n IN `Protein`
   RETURN n.id
 """
 
 ligand_activity_count = """
-FOR n IN `biolink:Protein`
+FOR n IN `Protein`
   LET distinct_ligands = UNIQUE(
-    FOR l, r IN OUTBOUND n `biolink:interacts_with`
+    FOR l, r IN OUTBOUND n `ProteinLigandRelationship`
       FILTER r.meets_idg_cutoff == true
       RETURN l._id
   )
@@ -104,9 +109,9 @@ FOR n IN `biolink:Protein`
 """
 
 moa_drug_count = """
-FOR pro IN `biolink:Protein`
+FOR pro IN `Protein`
   LET moa_drugs = UNIQUE(
-    FOR lig, act IN OUTBOUND pro `biolink:interacts_with`
+    FOR lig, act IN OUTBOUND pro `ProteinLigandRelationship`
       FILTER lig.isDrug == TRUE
       FILTER LENGTH(
         act.details[* FILTER CURRENT.has_moa == TRUE]
@@ -120,7 +125,7 @@ FOR pro IN `biolink:Protein`
 """
 
 experimental_f_or_p_go_term_count = """
-FOR p IN `biolink:Protein`
+FOR p IN `Protein`
   LET go_terms = UNIQUE(
     FOR g, r IN OUTBOUND p `ProteinGoTermRelationship`
       FILTER g.is_leaf == true
@@ -136,7 +141,7 @@ FOR p IN `biolink:Protein`
 """
 
 pm_scores = """
-FOR p IN `biolink:Protein`
+FOR p IN `Protein`
   RETURN {
     protein_id: p.id,
     value: MAX(p.pm_score)
@@ -144,27 +149,39 @@ FOR p IN `biolink:Protein`
 """
 
 ab_counts = """
-FOR n IN `biolink:Protein`
+FOR n IN `Protein`
   RETURN {
     protein_id: n.id,
     value: MAX(n.antibody_count)
   }
 """
 
+pharos_gene_rif_count = """
+FOR p IN `Protein`
+  LET rif_ids = UNIQUE(
+      FOR rif IN OUTBOUND p `GeneGeneRifRelationship`
+        RETURN rif._id
+  )
+  RETURN {
+    protein_id: p.id,
+    value: LENGTH(rif_ids)
+  }
+"""
+
 gene_rif_count = """
-FOR p IN `biolink:Protein`
+FOR p IN `Protein`
 
   LET genes = (
-    FOR g IN INBOUND p `biolink:translates_to`
-      FILTER IS_SAME_COLLECTION("biolink:Gene", g)
+    FOR g IN INBOUND p `GeneProteinRelationship`
+      FILTER IS_SAME_COLLECTION("Gene", g)
       RETURN g
   )
 
   LET more_genes = (
-    FOR t IN INBOUND p `biolink:translates_to`
-      FILTER IS_SAME_COLLECTION("biolink:Transcript", t)
-      FOR g IN INBOUND t `biolink:transcribed_to`
-        FILTER IS_SAME_COLLECTION("biolink:Gene", g)
+    FOR t IN INBOUND p `TranscriptProteinRelationship`
+      FILTER IS_SAME_COLLECTION("Transcript", t)
+      FOR g IN INBOUND t `GeneTranscriptRelationship`
+        FILTER IS_SAME_COLLECTION("Gene", g)
         RETURN g
   )
 

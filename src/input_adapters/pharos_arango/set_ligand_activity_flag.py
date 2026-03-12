@@ -26,8 +26,8 @@ class SetLigandActivityFlagAdapter(InputAdapter, ArangoAdapter):
         ) for row in passing_activities]
 
 
-passing_activities_query = """FOR pro IN `biolink:Protein`
-  FOR chem, rel IN OUTBOUND pro `biolink:interacts_with`
+passing_activities_query = """FOR pro IN `Protein`
+  FOR chem, rel IN OUTBOUND pro `ProteinLigandRelationship`
     LET act_values = rel.details[* FILTER CURRENT.act_value >= (
       pro.idg_family == "Kinase" ? 7.52288 :
       pro.idg_family == "Ion Channel" ? 5 :

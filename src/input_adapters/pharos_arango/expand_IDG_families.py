@@ -43,10 +43,10 @@ def set_fam(protein_id, fam_to_set, fam_map):
         raise Exception(f"ID {protein_id} has conflicting families {existing_fam_to_set} and {fam_to_set}")
 
 
-unmatched_fam_query = """FOR pro IN `biolink:Protein`
+unmatched_fam_query = """FOR pro IN `Protein`
     FOR rel IN Has_Canonical_Isoform
         FILTER rel._from == pro._id
-        FOR canpro IN `biolink:Protein`
+        FOR canpro IN `Protein`
             FILTER rel._to == canpro._id
             FILTER (IS_NULL(pro.idg_family) AND !IS_NULL(canpro.idg_family)) 
                 OR (IS_NULL(canpro.idg_family) AND !IS_NULL(pro.idg_family))
