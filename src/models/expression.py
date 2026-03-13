@@ -12,14 +12,14 @@ from src.models.tissue import Tissue
 class ExpressionDetail:
     source: str
     tissue: Optional[str] = None
-    uberon_id: Optional[str] = None
+    source_id: Optional[str] = None       # gene/protein ID as it appears in the source
+    source_tissue_id: Optional[str] = None  # tissue/cell-line ontology ID from source (UBERON, BTO, CLDB, etc.)
     sex: Optional[str] = None             # None = all sexes combined; "male" / "female"
     number_value: Optional[float] = None  # TPM, nTPM, spectral count, confidence score, etc.
     qual_value: Optional[str] = None      # HPA protein: "High" / "Medium" / "Low" / "Not detected"
     expressed: Optional[bool] = None      # HPA RNA, HPM, JensenLab
     source_rank: Optional[float] = None   # normalised rank within source (0.0–1.0)
     evidence: Optional[str] = None        # HPA Protein, HPM
-    oid: Optional[str] = None             # JensenLab tissue ID
     cell_type: Optional[str] = None       # HPA Protein IHC cell type
 
     def to_dict(self):

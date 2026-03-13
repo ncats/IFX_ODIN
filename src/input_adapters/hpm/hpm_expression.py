@@ -71,7 +71,8 @@ class HPMExpressionAdapter(ExpressionAdapterBase):
                     detail = ExpressionDetail(
                         source="HPM Protein",
                         tissue=col,
-                        uberon_id=uberon_id,
+                        source_id=refseq_id,
+                        source_tissue_id=uberon_id,
                         number_value=value,
                         expressed=(value > 0),
                         source_rank=rank_map.get(col),

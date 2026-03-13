@@ -77,7 +77,8 @@ Both adapters emit:
   - `qual_value` = Level string (stored as-is including non-ordinal values)
   - `evidence` = Reliability
   - `cell_type` = Cell type string
-  - `uberon_id` = map lookup by `"tissue - cell_type"` first, then `"tissue"`
+  - `source_id` = ENSG gene ID
+  - `source_tissue_id` = map lookup by `"tissue - cell_type"` first, then `"tissue"`
   - `expressed` = `level != "Not detected"` (only ordinal-level rows are kept)
   - `source_rank` = tissue-level normalized rank (same value for all cell types on a tissue)
 - `Protein.calculated_properties["hpa_ihc_tau"]` = tau across tissues
@@ -88,7 +89,8 @@ Both adapters emit:
 - One edge per gene/tissue, one `ExpressionDetail`:
   - `source = "HPA RNA"`
   - `number_value` = nTPM
-  - `uberon_id` = map lookup by tissue name
+  - `source_id` = ENSG gene ID
+  - `source_tissue_id` = map lookup by tissue name
   - `expressed` = `nTPM > 0`
   - `source_rank` = normalized rank
 - `Protein.calculated_properties["hpa_rna_tau"]` = tau across tissues

@@ -123,7 +123,8 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
                     details.append(ExpressionDetail(
                         source="HPA Protein",
                         tissue=tissue,
-                        uberon_id=uberon_id,
+                        source_id=gene_id,
+                        source_tissue_id=uberon_id,
                         cell_type=cell_type,
                         qual_value=level,
                         evidence=reliability,
@@ -214,7 +215,8 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
                 detail = ExpressionDetail(
                     source="HPA RNA",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=gene_id,
+                    source_tissue_id=uberon_id,
                     number_value=ntpm,
                     expressed=(ntpm > 0),
                     source_rank=rank_map.get(tissue),

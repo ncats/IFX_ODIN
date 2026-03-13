@@ -39,6 +39,7 @@ resolvers:
         - NCIT
         - ZFA
         - BTO
+        - CLDB
         - EHDAA2
         - BAMS
         - neuronames
@@ -114,18 +115,25 @@ resolvers:
         - Tissue
 
 input_adapters:
-  - import: ./src/input_adapters/uberon_adapter.py
-    class: UberonAdapter
-    kwargs:
-      file_path: ./input_files/auto/uberon/uberon.obo
+#  - import: ./src/input_adapters/uberon_adapter.py
+#    class: UberonAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/uberon/uberon.obo
+#
+#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#    class: ProteinNodeAdapter
+#    kwargs:
+#      file_path: ./input_files/manual/target_graph/protein_ids.csv
+#      reviewed_only: True
 
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
+  - import: ./src/input_adapters/jensenlab/tissues_expression.py
+    class: JensenLabTissuesExpressionAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
-      reviewed_only: True
+      data_file_path: ./input_files/auto/jensenlab/human_tissue_integrated_full.tsv
+      version_file_path: ./input_files/auto/jensenlab/tissues_version.tsv
+      obo_file_path: ./input_files/auto/uberon/uberon.obo
 
-#  - import: ./src/input_adapters/target_graph/gtex_expression.py
+#  - import: ./src/input_adapters/gtex/gtex_expression.py
 #    class: GTExExpressionAdapter
 #    kwargs:
 #      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
@@ -173,19 +181,19 @@ input_adapters:
 #      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
 #      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
 
-  - import: ./src/input_adapters/hpa/hpa_expression.py
-    class: HPAProteinExpressionAdapter
-    kwargs:
-      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
-      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
-      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
-
-  - import: ./src/input_adapters/hpa/hpa_expression.py
-    class: HPARnaExpressionAdapter
-    kwargs:
-      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
-      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
-      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+#  - import: ./src/input_adapters/hpa/hpa_expression.py
+#    class: HPAProteinExpressionAdapter
+#    kwargs:
+#      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
+#      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+#
+#  - import: ./src/input_adapters/hpa/hpa_expression.py
+#    class: HPARnaExpressionAdapter
+#    kwargs:
+#      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
+#      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

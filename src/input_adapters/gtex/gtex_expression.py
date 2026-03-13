@@ -283,7 +283,8 @@ class GTExExpressionAdapter(InputAdapter):
                 ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex=None,
                     number_value=values.get("tpm"),
                     source_rank=all_rank_map.get(tissue),
@@ -293,7 +294,8 @@ class GTExExpressionAdapter(InputAdapter):
                 details.append(ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex="male",
                     number_value=values.get("tpm_male"),
                     source_rank=male_rank_map.get(tissue),
@@ -302,7 +304,8 @@ class GTExExpressionAdapter(InputAdapter):
                 details.append(ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex="female",
                     number_value=values.get("tpm_female"),
                     source_rank=female_rank_map.get(tissue),
