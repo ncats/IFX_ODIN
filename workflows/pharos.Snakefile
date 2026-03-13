@@ -25,7 +25,21 @@ rule all:
         "../input_files/auto/uberon/uberon.obo",
         "../input_files/auto/hpa/normal_ihc_data.tsv.zip",
         "../input_files/auto/hpa/rna_tissue_hpa.tsv.zip",
-        "../input_files/auto/hpa/hpa_version.tsv"
+        "../input_files/auto/hpa/hpa_version.tsv",
+        "../input_files/auto/jensenlab/human_tissue_integrated_full.tsv",
+        "../input_files/auto/jensenlab/tissues_version.tsv"
+
+rule download_jensenlab_tissues:
+    output:
+        "../input_files/auto/jensenlab/human_tissue_integrated_full.tsv",
+        "../input_files/auto/jensenlab/tissues_version.tsv"
+    shell:
+        """
+        url='https://download.jensenlab.org/human_tissue_integrated_full.tsv'
+        curl -fL -o {output[0]} "$url"
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version_date\\n'+dt+'\\n')" "$last_modified" {output[1]}
+        """
 
 rule download_uberon:
     output:

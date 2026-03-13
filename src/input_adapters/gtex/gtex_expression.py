@@ -10,6 +10,7 @@ from typing import Dict, Generator, List, Optional, Union
 
 from src.constants import DataSourceName, Prefix
 from src.models.node import EquivalentId
+from src.input_adapters.shared.expression_adapter_base import ExpressionAdapterBase
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import ExpressionDetail, ProteinTissueExpressionEdge
@@ -198,7 +199,7 @@ class GTExExpressionAdapter(InputAdapter):
                 if self.max_samples is not None:
                     values = values[: self.max_samples]
                 tissue_values = self._aggregate_gene_by_tissue(sample_ids, values, samples)
-                relationships = self._build_relationships_for_gene(ensembl_id, tissue_values)
+                relationships = self._build_records_for_gene(ensembl_id, tissue_values)
                 gene_count += 1
                 for relationship in relationships:
                     batch.append(relationship)
@@ -250,16 +251,30 @@ class GTExExpressionAdapter(InputAdapter):
             }
         return tissue_values
 
-    def _build_relationships_for_gene(
+    def _build_records_for_gene(
         self,
         ensembl_id: str,
         tissue_values: Dict[str, Dict[str, Optional[float]]],
-    ) -> List[ProteinTissueExpressionEdge]:
+    ) -> List[Union[Protein, ProteinTissueExpressionEdge]]:
         all_rank_map = self._normalized_rank({k: v["tpm"] for k, v in tissue_values.items()})
         male_rank_map = self._normalized_rank({k: v["tpm_male"] for k, v in tissue_values.items()})
         female_rank_map = self._normalized_rank({k: v["tpm_female"] for k, v in tissue_values.items()})
 
-        relationships: List[ProteinTissueExpressionEdge] = []
+        overall_tpm = [v["tpm"] for v in tissue_values.values() if v["tpm"] is not None]
+        male_tpm = [v["tpm_male"] for v in tissue_values.values() if v["tpm_male"] is not None]
+        female_tpm = [v["tpm_female"] for v in tissue_values.values() if v["tpm_female"] is not None]
+
+        records: List[Union[Protein, ProteinTissueExpressionEdge]] = [
+            Protein(
+                id=ensembl_id,
+                calculated_properties={
+                    "gtex_tau": ExpressionAdapterBase._compute_tau(overall_tpm),
+                    "gtex_male_tau": ExpressionAdapterBase._compute_tau(male_tpm),
+                    "gtex_female_tau": ExpressionAdapterBase._compute_tau(female_tpm),
+                },
+            )
+        ]
+
         for tissue, values in tissue_values.items():
             uberon_id = values.get("uberon_id")
             tissue_id = uberon_id if uberon_id else tissue
@@ -268,7 +283,8 @@ class GTExExpressionAdapter(InputAdapter):
                 ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex=None,
                     number_value=values.get("tpm"),
                     source_rank=all_rank_map.get(tissue),
@@ -278,7 +294,8 @@ class GTExExpressionAdapter(InputAdapter):
                 details.append(ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex="male",
                     number_value=values.get("tpm_male"),
                     source_rank=male_rank_map.get(tissue),
@@ -287,20 +304,21 @@ class GTExExpressionAdapter(InputAdapter):
                 details.append(ExpressionDetail(
                     source="GTEx",
                     tissue=tissue,
-                    uberon_id=uberon_id,
+                    source_id=ensembl_id,
+                    source_tissue_id=uberon_id,
                     sex="female",
                     number_value=values.get("tpm_female"),
                     source_rank=female_rank_map.get(tissue),
                 ))
 
-            relationships.append(
+            records.append(
                 ProteinTissueExpressionEdge(
                     start_node=Protein(id=ensembl_id),
                     end_node=Tissue(id=tissue_id),
                     details=details,
                 )
             )
-        return relationships
+        return records
 
     @staticmethod
     def _normalized_rank(values: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
