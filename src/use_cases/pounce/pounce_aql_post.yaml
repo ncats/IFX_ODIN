@@ -1,0 +1,17 @@
+source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
+database_name: &database_name pounce
+
+input_adapters:
+
+  - import: ./src/input_adapters/pounce_arango/analyte_summary_adapter.py
+    class: AnalyteSummaryAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials

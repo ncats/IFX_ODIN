@@ -93,6 +93,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 return {"type": "list", "item_type": inner}
             return {"type": "list", "item_type": "str"}
 
+        # Dict[K, V]
+        if origin is dict:
+            args = get_args(type_hint)
+            key_type = ArangoOutputAdapter._type_hint_to_schema(args[0]) if args else "str"
+            val_type = ArangoOutputAdapter._type_hint_to_schema(args[1]) if len(args) > 1 else "str"
+            return {"type": "dict", "key_type": key_type, "value_type": val_type}
+
         # Dataclass objects
         if isinstance(type_hint, type) and dataclasses.is_dataclass(type_hint):
             return {
@@ -309,7 +316,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
             source_count_query = f"""
                     FOR doc IN `{collection['name']}`
-                        LET values = UNIQUE(doc.sources)
+                        LET values = UNIQUE(doc.sources || [])
                         FOR item IN values
                             COLLECT value = item WITH COUNT INTO count
                         SORT count DESC
@@ -350,9 +357,19 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return DatabaseMetadata(collections=collections)
 
-    def do_post_processing(self) -> None:
-        self.clean_up_dangling_edges()
-        metadata_store = self.get_metadata_store(truncate = True)
+    def do_post_processing(self, clean_edges: bool = True) -> None:
+        if clean_edges:
+            self.clean_up_dangling_edges()
+
+        existing_store = self.get_metadata_store(truncate=False)
+        try:
+            existing_doc = existing_store.get("collection_schemas")
+            if existing_doc:
+                self._collection_schemas = {**existing_doc.get("collections", {}), **self._collection_schemas}
+        except Exception:
+            pass
+
+        metadata_store = self.get_metadata_store(truncate=True)
 
         db_metadata = self.get_metadata()
         metadata_store.insert({

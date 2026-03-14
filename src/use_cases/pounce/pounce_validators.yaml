@@ -63,7 +63,8 @@ ExperimentMeta:
     - repo_url
   allowed_values:
     experiment_type: [in vitro, in vivo, clinical cohort, assay development, other]
-    platform_type: [bulk_rnaseq, sc_rnaseq, atac_seq, rasl_seq, qpcr, chip_seq, metabolomics, lipidomics, proteomics]
+    platform_type:
+      enum: src.models.pounce.experiment.PlatformType
     platform_output_type: [targeted, untargeted]
   required_if:
     metabolite_identification_description:
@@ -130,7 +131,7 @@ EffectSize_Map:
       when_values: [metabolomics, lipidomics]
     gene_id:
       when_field: platform_type
-      when_values: [transcriptomics]
+      when_values: [bulk_rnaseq, sc_rnaseq, atac_seq, rasl_seq, qpcr, chip_seq]
 
 # Cross-sheet ID reference checks are all handled as structural checks at parse time,
 # not here.  This gives each error a source_file and respects per-file pairing.

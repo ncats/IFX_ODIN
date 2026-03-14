@@ -1,9 +1,22 @@
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional, List, TYPE_CHECKING
+from typing import Dict, Optional, List, TYPE_CHECKING
 
 from src.core.decorators import facets
+from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
+
+
+class PlatformType(SimpleEnum):
+    BULK_RNASEQ  = "bulk_rnaseq"
+    SC_RNASEQ    = "sc_rnaseq"
+    ATAC_SEQ     = "atac_seq"
+    RASL_SEQ     = "rasl_seq"
+    QPCR         = "qpcr"
+    CHIP_SEQ     = "chip_seq"
+    METABOLOMICS = "metabolomics"
+    LIPIDOMICS   = "lipidomics"
+    PROTEOMICS   = "proteomics"
 
 if TYPE_CHECKING:
     from src.models.pounce.project import Project, Person
@@ -18,7 +31,7 @@ class Experiment(Node):
     design: Optional[str] = None
     experiment_type: Optional[str] = None
     date: Optional[date] = None
-    platform_type: Optional[str] = None
+    platform_type: Optional[PlatformType] = None
     platform_name: Optional[str] = None
     platform_provider: Optional[str] = None
     platform_output_type: Optional[str] = None
@@ -30,6 +43,7 @@ class Experiment(Node):
     metabolite_identification_description: Optional[str] = None
     experiment_data_file: Optional[str] = None
     attached_files: List[str] = field(default_factory=list)
+    calculated_properties: Optional[Dict[str, float]] = None
 
 
 @dataclass
