@@ -20,7 +20,7 @@ class ETL:
             if not output_adapter.create_or_truncate_datastore():
                 raise Exception("operation cancelled")
 
-    def do_etl(self, do_post_processing = True):
+    def do_etl(self, do_post_processing = True, clean_edges: bool = True):
         total_start_time = time.time()
 
         for output_adapter in self.output_adapters:
@@ -42,7 +42,7 @@ class ETL:
 
         if do_post_processing:
             for output_adapter in self.output_adapters:
-                output_adapter.do_post_processing()
+                output_adapter.do_post_processing(clean_edges=clean_edges)
 
         total_elapsed_time = time.time() - total_start_time
         elapsed_timedelta = datetime.timedelta(seconds=total_elapsed_time)

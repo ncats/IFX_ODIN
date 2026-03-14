@@ -19,7 +19,7 @@ from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRun
 from src.models.pounce.demographics import Demographics
 from src.models.pounce.exposure import Exposure
 from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge
-from src.models.pounce.experiment import Experiment, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge
+from src.models.pounce.experiment import Experiment, PlatformType, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
 from src.models.pounce.project import Project, AccessLevel, ProjectType, Person, ProjectPersonEdge, \
     ProjectBiosampleEdge, LabGroup
@@ -187,6 +187,8 @@ class PounceNodeBuilder:
             except ValueError:
                 pass
 
+        analyte_count, biosample_count = self._compute_experiment_counts(exp_data, exp_parser, stats_parser)
+
         experiment_obj = Experiment(
             id=exp_id,
             name=parsed.experiment_name,
@@ -194,7 +196,7 @@ class PounceNodeBuilder:
             design=parsed.experiment_design,
             experiment_type=parsed.experiment_type,
             date=exp_date,
-            platform_type=parsed.platform_type,
+            platform_type=PlatformType.parse(parsed.platform_type),
             platform_name=parsed.platform_name,
             platform_provider=parsed.platform_provider,
             platform_output_type=parsed.platform_output_type,
@@ -205,7 +207,11 @@ class PounceNodeBuilder:
             acquisition_method=parsed.acquisition_method,
             metabolite_identification_description=parsed.metabolite_identification_description,
             experiment_data_file=parsed.experiment_data_file,
-            attached_files=parsed.attached_files or []
+            attached_files=parsed.attached_files or [],
+            calculated_properties={
+                "analyte_count": float(analyte_count),
+                "biosample_count": float(biosample_count),
+            }
         )
 
         data_generator = Person.make(parsed.lead_data_generator, parsed.lead_data_generator_email) \
@@ -276,6 +282,60 @@ class PounceNodeBuilder:
 
         if stats_parser:
             yield from self._stats_results_nodes(experiment_obj, stats_parser, stats_data)
+
+    def _compute_experiment_counts(
+        self, exp_data: ParsedPounceData, exp_parser: ExcelsheetParser,
+        stats_parser: Optional[ExcelsheetParser] = None
+    ) -> Tuple[int, int]:
+        """Return (analyte_count, biosample_count) from actual data matrix contents.
+
+        Counts unique analytes and biosamples across all data matrices (RawData,
+        PeakData, StatsReadyData), matching what the database reports after an
+        inner-join query.
+        """
+        analyte_ids: set = set()
+        run_biosample_ids: set = set()
+        sheet_names = exp_parser.sheet_dfs.keys()
+
+        if ExperimentWorkbook.RawDataSheet.name in sheet_names:
+            gene_map = exp_parser.get_parameter_map(ExperimentWorkbook.GeneMapSheet.name)
+            analyte_id_col = gene_map.get(ExperimentWorkbook.GeneMapSheet.Key.gene_id)
+            df = self._prepare_data_frame(exp_parser, ExperimentWorkbook.RawDataSheet.name, analyte_id_col)
+            if df is not None:
+                analyte_ids.update(str(i) for i in df.index)
+                run_biosample_ids.update(str(c) for c in df.columns)
+
+        if ExperimentWorkbook.PeakDataSheet.name in sheet_names:
+            metab_map = exp_parser.get_parameter_map(ExperimentWorkbook.MetabMapSheet.name)
+            analyte_id_col = metab_map.get(ExperimentWorkbook.MetabMapSheet.Key.metab_id)
+            df = self._prepare_data_frame(exp_parser, ExperimentWorkbook.PeakDataSheet.name, analyte_id_col)
+            if df is not None:
+                analyte_ids.update(str(i) for i in df.index)
+                run_biosample_ids.update(str(c) for c in df.columns)
+
+        if stats_parser:
+            analyte_id_col, _ = self._parse_effect_size_map(stats_parser)
+            if StatsResultsWorkbook.StatsReadyDataSheet.name in stats_parser.sheet_dfs:
+                df = self._prepare_data_frame(stats_parser, StatsResultsWorkbook.StatsReadyDataSheet.name, analyte_id_col)
+                if df is not None:
+                    analyte_ids.update(str(i) for i in df.index)
+                    run_biosample_ids.update(str(c) for c in df.columns)
+            if StatsResultsWorkbook.EffectSizeSheet.name in stats_parser.sheet_dfs:
+                df = self._prepare_data_frame(stats_parser, StatsResultsWorkbook.EffectSizeSheet.name, analyte_id_col)
+                if df is not None:
+                    analyte_ids.update(str(i) for i in df.index)
+
+        rb_to_bs = {
+            str(rb.run_biosample_id): str(rb.biosample_id)
+            for rb in exp_data.run_biosamples
+            if rb.run_biosample_id and rb.biosample_id
+        }
+        if run_biosample_ids:
+            biosample_ids = {rb_to_bs[rb_id] for rb_id in run_biosample_ids if rb_id in rb_to_bs}
+        else:
+            biosample_ids = set(rb_to_bs.values())
+
+        return len(analyte_ids), len(biosample_ids)
 
     def _get_metabolite_categories(self, row, column_map: dict) -> List[CategoryValue]:
         categories = []

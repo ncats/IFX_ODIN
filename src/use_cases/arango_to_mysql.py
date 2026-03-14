@@ -77,8 +77,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
         for collection_name, schema in schemas.items():
             if schema["type"] == "document":
-                table, child_tables, object_tables = self._create_document_table(collection_name, schema["fields"])
-                document_collections[collection_name] = (table, child_tables, object_tables, schema)
+                table, child_tables, object_tables, dict_tables = self._create_document_table(collection_name, schema["fields"])
+                document_collections[collection_name] = (table, child_tables, object_tables, dict_tables, schema)
             elif collection_name not in data_implicit_edges:
                 table = self._create_edge_table(collection_name, schema)
                 edge_collections[collection_name] = (table, schema)
@@ -92,8 +92,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
         self._populate_enum_lookup_tables(engine)
 
         # Pass 2: copy documents and edges
-        for collection_name, (table, child_tables, object_tables, schema) in document_collections.items():
-            self._copy_document_collection(engine, collection_name, table, child_tables, object_tables, schema, batch_size)
+        for collection_name, (table, child_tables, object_tables, dict_tables, schema) in document_collections.items():
+            self._copy_document_collection(engine, collection_name, table, child_tables, object_tables, dict_tables, schema, batch_size)
 
         for collection_name, (table, schema) in edge_collections.items():
             self._copy_edge_collection(engine, collection_name, table, schema, batch_size)
@@ -222,14 +222,16 @@ class ArangoToMySqlConverter(ArangoAdapter):
     def _create_document_table(self, name: str, fields: dict) -> tuple:
         """Create a SQLAlchemy Table for a document collection.
 
-        Returns (table, child_tables, object_tables) where:
+        Returns (table, child_tables, object_tables, dict_tables) where:
           child_tables:  {field_name: (Table, {sub_field_name: Table})}  — for list fields
           object_tables: {field_name: (Table, {sub_field_name: Table})}  — for object fields
+          dict_tables:   {field_name: Table}                             — for dict fields
         """
         table_name = _camel_to_snake(name)
         columns = []
         child_tables = {}
         object_tables = {}
+        dict_tables = {}
 
         for field_name, field_schema in fields.items():
             if field_name in _SKIP_FIELDS:
@@ -244,6 +246,10 @@ class ArangoToMySqlConverter(ArangoAdapter):
                     obj_table, grandchild_tables = self._create_object_table(table_name, field_name, field_schema)
                     object_tables[field_name] = (obj_table, grandchild_tables)
                     continue
+                elif field_type == "dict":
+                    dict_table = self._create_dict_table(table_name, field_name, field_schema)
+                    dict_tables[field_name] = dict_table
+                    continue
             col_type = _SQL_TYPE_MAP.get(field_schema, Text)
             if field_name == "id":
                 columns.append(Column("id", String(255), primary_key=True))
@@ -251,7 +257,7 @@ class ArangoToMySqlConverter(ArangoAdapter):
                 columns.append(Column(field_name, col_type, nullable=True))
 
         table = Table(table_name, self.sa_metadata, *columns)
-        return table, child_tables, object_tables
+        return table, child_tables, object_tables, dict_tables
 
     def _create_object_table(self, parent_table_name: str, field_name: str, field_schema: dict) -> tuple:
         """Create a linked table for an embedded object field.
@@ -368,6 +374,21 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
         return Table(table_name, self.sa_metadata, *columns), grandchild_tables
 
+    def _create_dict_table(self, parent_name: str, field_name: str, field_schema: dict) -> Table:
+        """Create a key-value child table for a Dict field.
+
+        Named {parent}__{field} with columns (parent_id FK, key, value).
+        """
+        table_name = f"{parent_name}__{field_name}"
+        val_type = _SQL_TYPE_MAP.get(field_schema.get("value_type"), Text)
+        return Table(
+            table_name, self.sa_metadata,
+            Column("parent_id", String(255), ForeignKey(f"{parent_name}.id"), nullable=False),
+            Column("key", String(255), nullable=False),
+            Column("value", val_type, nullable=True),
+            Index(f"ix_{table_name}_parent", "parent_id"),
+        )
+
     def _create_edge_table(self, name: str, schema: dict) -> Table:
         """Create a SQLAlchemy Table for an edge collection."""
         table_name = _edge_table_name(schema)
@@ -449,12 +470,14 @@ class ArangoToMySqlConverter(ArangoAdapter):
                 break
 
     def _copy_document_collection(self, engine, collection_name: str, table: Table,
-                                  child_tables: dict, object_tables: dict, schema: dict, batch_size: int):
+                                  child_tables: dict, object_tables: dict, dict_tables: dict,
+                                  schema: dict, batch_size: int):
         """Copy a document collection from Arango to MySQL."""
         fields = {k: v for k, v in schema["fields"].items() if k not in _SKIP_FIELDS}
         list_fields = {k for k, v in fields.items() if isinstance(v, dict) and v.get("type") == "list"}
         object_fields = set(object_tables.keys())
-        scalar_fields = set(fields.keys()) - list_fields - object_fields
+        dict_fields = set(dict_tables.keys())
+        scalar_fields = set(fields.keys()) - list_fields - object_fields - dict_fields
         total = 0
 
         # Separate list fields: those whose child table has nested grandchild tables vs flat
@@ -467,6 +490,7 @@ class ArangoToMySqlConverter(ArangoAdapter):
             # Each entry is (child_row_dict, {sub_name: [scalar_values]})
             child_rows_with_gc = {field: [] for field in child_fields_with_gc}
             object_rows = {field: [] for field in object_fields}
+            dict_rows = {field: [] for field in dict_fields}
             grandchild_rows = {
                 field: {sub: [] for sub in grandchild_tables}
                 for field, (_, grandchild_tables) in object_tables.items()
@@ -575,6 +599,13 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
                     object_rows[obj_field].append(obj_row)
 
+                # Dict fields: extract key-value pairs
+                for dict_field in dict_fields:
+                    val = doc.get(dict_field)
+                    if val and isinstance(val, dict):
+                        for k, v in val.items():
+                            dict_rows[dict_field].append({"parent_id": doc_id, "key": k, "value": v})
+
             with engine.connect() as conn:
                 if rows:
                     conn.execute(table.insert(), rows)
@@ -606,6 +637,11 @@ class ArangoToMySqlConverter(ArangoAdapter):
                         _, grandchild_tables = object_tables[obj_field]
                         if gc_rows and sub_name in grandchild_tables:
                             conn.execute(grandchild_tables[sub_name].insert(), gc_rows)
+
+                for dict_field, d_rows in dict_rows.items():
+                    if d_rows:
+                        conn.execute(dict_tables[dict_field].insert(), d_rows)
+
                 conn.commit()
 
             total += len(docs)

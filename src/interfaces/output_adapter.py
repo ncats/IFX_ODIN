@@ -15,7 +15,7 @@ class OutputAdapter(ABC):
     def store(self, objects, single_source=False) -> bool:
         pass
 
-    def do_post_processing(self) -> None:
+    def do_post_processing(self, clean_edges: bool = True) -> None:
         pass
 
     def do_pre_processing(self) -> None:
