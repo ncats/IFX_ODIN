@@ -11,6 +11,10 @@ Status: [ ] not started | [~] in progress | [x] done
 - [ ] `ProteinAdapter` (UniProt) yields `Pathway` nodes and `ProteinPathwayRelationship` edges in addition to `Protein` — consider splitting into separate adapters to make intent clear
 - [ ] `ProteinDiseaseEdgeAdapter` (UniProt) yields `Disease` nodes in addition to edges — name already implies edges only, consider making the Disease node creation explicit
 
+## POUNCE Code Style TODOs
+
+- [ ] Replace `CategoryValue` with `Dict[str, str]` — `CategoryValue` is a dataclass with only `name` and `value` fields (plus an `id` derived from them), used wherever a category label + value pair is stored (e.g. `demographics.categories`, `exposure.category`, `biospecimen.organism_category`). Plain dicts would be simpler, eliminate the class entirely, and map naturally to the `dict_table` pattern in `arango_to_mysql.py` (which already handles `Dict[str, str]` fields as linked key-value tables in MySQL).
+
 ---
 
 ## Pipeline Status Table
