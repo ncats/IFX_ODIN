@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 """
 uniprot_download.py - Download UniProt data with update detection,
- detailed metadata logging, MD5 hash checking, SPARQL isoform queries, diff generation,
- memory-efficient decompression, and UniProt idmapping download.
+SPARQL isoform queries, memory-efficient decompression, and idmapping download.
+
+NO raw-file diffs — version tracking happens on cleaned output in the transformer.
 """
 
 import os
@@ -14,11 +15,11 @@ import logging
 import argparse
 import subprocess
 import requests
-import difflib
 import yaml
 import pandas as pd
 from tqdm import tqdm
 from datetime import datetime
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -26,48 +27,49 @@ def setup_logging(log_file):
         logging.FileHandler(log_file, mode="a"),
         logging.StreamHandler(sys.stdout),
     ]
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=handlers,
-        force=True,
-    )
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s - %(levelname)s - %(message)s",
+                        handlers=handlers, force=True)
+
 
 class UniprotDownloader:
     def __init__(self, full_config):
         self.full_config = full_config
         self.cfg = full_config["uniprot_data"]
-        setup_logging(os.path.abspath(self.cfg["log_file"]))
+        setup_logging(os.path.abspath(
+            self.cfg.get("download_log_file") or self.cfg.get("log_file", "uniprot_download.log")
+        ))
 
-        # download & output paths
-        self.url               = self.cfg["download_url"]
-        self.output_path       = self.cfg["output_path"]
+        self.url = self.cfg["download_url"]
+        self.output_path = self.cfg["output_path"]
         self.decompressed_path = self.cfg["decompressed_path"]
-        self.metadata_file     = os.path.abspath(self.cfg["dl_metadata_file"])
-        self.base_diff_file    = self.cfg["diff_file"]
+        self.metadata_file = os.path.abspath(self.cfg["dl_metadata_file"])
 
         # SPARQL outputs
-        self.canonical_isoforms     = self.cfg["canonical_isoforms_output"]
+        self.canonical_isoforms = self.cfg["canonical_isoforms_output"]
         self.computational_isoforms = self.cfg["comp_isoforms_output"]
 
-        # UniProt idmapping download
-        self.idmap_dir    = self.cfg["idmap_dir"]
-        self.idmap_file   = self.cfg["idmap_file"]
-        self.idmap_url    = self.cfg["idmap_url"]
+        # UniProt idmapping
+        self.idmap_dir = self.cfg["idmap_dir"]
+        self.idmap_file = self.cfg["idmap_file"]
+        self.idmap_url = self.cfg["idmap_url"]
         self.idmap_output = self.cfg["idmap_output"]
 
-        # ensure directories
-        for p in [
-            self.output_path,
-            self.decompressed_path,
-            self.metadata_file,
-            self.canonical_isoforms,
-            self.computational_isoforms,
-            self.idmap_output,
-        ]:
+        # Ensure directories
+        for p in [self.output_path, self.decompressed_path, self.metadata_file,
+                  self.canonical_isoforms, self.computational_isoforms, self.idmap_output]:
             d = os.path.dirname(p)
             if d:
                 os.makedirs(d, exist_ok=True)
+
+        # Load previous metadata to compare versions
+        self.old_meta = {}
+        if os.path.exists(self.metadata_file):
+            try:
+                with open(self.metadata_file) as f:
+                    self.old_meta = json.load(f)
+            except Exception:
+                pass
 
     def compute_hash(self, path):
         h = hashlib.md5()
@@ -78,7 +80,7 @@ class UniprotDownloader:
 
     def _download(self, url, dest):
         tmp = dest + ".tmp"
-        logging.info(f"Downloading {url} → {tmp}")
+        logging.info(f"Downloading {url}")
         resp = requests.get(url, stream=True)
         resp.raise_for_status()
         total = int(resp.headers.get("content-length", 0))
@@ -88,122 +90,89 @@ class UniprotDownloader:
                 p.update(len(chunk))
         return tmp
 
+    def detect_uniprot_release(self, timeout=15):
+        import re
+        probe_urls = [
+            "https://rest.uniprot.org/uniprotkb/search?query=reviewed:true&size=1&fields=accession",
+            "https://rest.uniprot.org/uniprotkb/stream?compressed=false&format=fasta&query=reviewed:true&size=1",
+        ]
+        for url in probe_urls:
+            try:
+                resp = requests.get(url, timeout=timeout, stream=True)
+                resp.raise_for_status()
+                h = {k.lower(): v for k, v in resp.headers.items()}
+                rel = next((h[k] for k in ["x-release-number", "x-uniprot-release-number"] if k in h), None)
+                rdate = next((h[k] for k in ["x-uniprot-release-date", "x-release-date"] if k in h), None)
+                if rel:
+                    m = re.search(r"\b(\d{4}_\d{2})\b", rel)
+                    rel = m.group(1) if m else rel.strip()
+                if rdate:
+                    for fmt in ("%Y-%m-%d", "%d-%b-%Y", "%a, %d %b %Y %H:%M:%S %Z"):
+                        try:
+                            rdate = datetime.strptime(rdate, fmt).strftime("%Y-%m-%d")
+                            break
+                        except Exception:
+                            pass
+                if rel or rdate:
+                    return (rel or "unknown", rdate or "unknown")
+            except Exception:
+                continue
+        return ("unknown", "unknown")
+
     def _replace_if_changed(self, tmp, dest):
-        updated = False
         if os.path.exists(dest):
-            old_md5 = self.compute_hash(dest)
-            new_md5 = self.compute_hash(tmp)
-            if old_md5 != new_md5:
-                logging.info("Change detected, replacing archive")
-                shutil.copy2(dest, dest + ".backup")
-                os.replace(tmp, dest)
-                updated = True
-            else:
+            if self.compute_hash(dest) == self.compute_hash(tmp):
                 logging.info("No change; discarding temp")
                 os.remove(tmp)
+                return False
+            else:
+                logging.info("Change detected, replacing archive")
+                os.replace(tmp, dest)
+                return True
         else:
-            logging.info("First download; saving archive")
             os.replace(tmp, dest)
-            updated = True
-        return updated
+            return True
 
     def _download_idmapping(self):
         gz_path = os.path.join(self.idmap_dir, self.idmap_file)
-        # Prompt user before downloading
-        if input("Download UniProt ID mapping archive? [y/N]: ").strip().lower() == "y":
-            dl_start = datetime.now()
-            tmp = self._download(self.idmap_url, gz_path)
-            updated = self._replace_if_changed(tmp, gz_path)
-        else:
+        if input("Download UniProt ID mapping archive? [y/N]: ").strip().lower() != "y":
             logging.info("Skipping UniProt ID mapping download at user request.")
-            dl_start = datetime.now()
-            updated = False
+            return False
+
+        tmp = self._download(self.idmap_url, gz_path)
+        updated = self._replace_if_changed(tmp, gz_path)
         if updated:
             logging.info(f"Parsing idmapping dat → {self.idmap_output}")
-            # read and name columns
-            df = pd.read_csv(
-                gz_path,
-                sep="\t",
-                header=None,
-                dtype=str,
-                names=["uniprot_id", "db", "external_id"],
-                compression="gzip"
-            )
-            # pivot / collapse
-            df = (
-                df
-                .groupby(["uniprot_id", "db"])["external_id"]
-                .agg(lambda ids: "|".join(sorted(set(ids))))
-                .unstack(fill_value="")
-                .reset_index()
-            )
+            df = pd.read_csv(gz_path, sep="\t", header=None, dtype=str,
+                             names=["uniprot_id", "db", "external_id"], compression="gzip")
+            df = (df.groupby(["uniprot_id", "db"])["external_id"]
+                  .agg(lambda ids: "|".join(sorted(set(ids))))
+                  .unstack(fill_value="").reset_index())
             df.to_csv(self.idmap_output, index=False)
         return updated
 
     def _decompress(self):
-        if os.path.exists(self.decompressed_path):
-            bak = self.decompressed_path + ".backup"
-            shutil.copy2(self.decompressed_path, bak)
-            logging.info(f"Backed up old decompressed file to {bak}")
         logging.info(f"Decompressing via gzip → {self.decompressed_path}")
-        subprocess.run(
-            ["gzip","-cdf",self.output_path], check=True,
-            stdout=open(self.decompressed_path,"wb")
-        )
+        with open(self.decompressed_path, "wb") as out:
+            subprocess.run(["gzip", "-cdf", self.output_path], check=True, stdout=out)
         logging.info("Decompression complete")
 
-    def _make_diff(self, max_lines=200):
-        bak = self.decompressed_path + ".backup"
-        if not os.path.exists(bak):
-            return None, None, None
-
-        logging.info(f"Generating diff (max {max_lines} lines)")
-        try:
-            with open(bak, "r", encoding="utf-8", errors="ignore") as old_f, \
-                open(self.decompressed_path, "r", encoding="utf-8", errors="ignore") as new_f:
-                old_lines = old_f.readlines()
-                new_lines = new_f.readlines()
-
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base = os.path.splitext(self.base_diff_file)[0]
-            diff_txt = f"{base}_{ts}.txt"
-
-            # use ndiff (or unified diff)
-            diff = list(difflib.unified_diff(
-                old_lines, new_lines,
-                fromfile="old", tofile="new", n=2
-            ))
-
-            if len(diff) > max_lines:
-                diff = diff[:max_lines]
-                diff.append(f"\n... [Diff truncated at {max_lines} lines] ...\n")
-
-            with open(diff_txt, "w", encoding="utf-8") as dt:
-                dt.writelines(diff)
-
-            logging.info(f"Diff saved: {diff_txt}")
-            return diff_txt, None, "".join(diff[:10])  # no HTML anymore
-
-        except Exception as e:
-            logging.warning(f"Diff generation failed: {e}")
-            return None, None, None
-
     def execute_sparql_query(self, query):
-        logging.info("SPARQL query starting (POST)…")
+        logging.info("SPARQL query starting…")
         start = datetime.now()
         resp = requests.post(
             "https://sparql.uniprot.org/sparql",
-            data={"query":query},
-            headers={"Accept":"application/sparql-results+json"},
-            timeout=(10,300), stream=True
+            data={"query": query},
+            headers={"Accept": "application/sparql-results+json"},
+            timeout=(10, 300), stream=True,
         )
         resp.raise_for_status()
         buf = bytearray()
-        for chunk in resp.iter_content(16384): buf.extend(chunk)
+        for chunk in resp.iter_content(16384):
+            buf.extend(chunk)
         data = json.loads(buf.decode())
-        dur = (datetime.now()-start).total_seconds()
-        cnt = len(data.get("results",{}).get("bindings",[]))
-        logging.info(f"SPARQL complete in {dur:.1f}s, {cnt} rows")
+        cnt = len(data.get("results", {}).get("bindings", []))
+        logging.info(f"SPARQL complete in {(datetime.now()-start).total_seconds():.1f}s, {cnt} rows")
         return data
 
     def process_sparql_results(self, results, out_csv):
@@ -211,80 +180,80 @@ class UniprotDownloader:
         for b in results.get("results", {}).get("bindings", []):
             entry = b["entry"]["value"].rsplit("/", 1)[-1]
             seq_uri = b["sequence"]["value"].rsplit("/", 1)[-1]
-            seq_val = b.get("sequenceValue", {}).get("value", "")
-            iscan = b.get("isCanonical", {}).get("value", "0")
             rows.append({
-                "entry": entry,
-                "uniprot_id": seq_uri,
-                "isoform": seq_uri,
-                "uniprot_sequence": seq_val,
-                "isCanonical": iscan
+                "entry": entry, "uniprot_id": seq_uri, "isoform": seq_uri,
+                "uniprot_sequence": b.get("sequenceValue", {}).get("value", ""),
+                "isCanonical": b.get("isCanonical", {}).get("value", "0"),
             })
         df = pd.DataFrame(rows)
+        os.makedirs(os.path.dirname(out_csv), exist_ok=True)
         df.to_csv(out_csv, index=False)
         logging.info(f"Saved SPARQL isoforms → {out_csv} ({len(rows)} records)")
         return df
 
     def _retrieve_isoforms(self):
         stats = {}
-
-        # canonical
         sparql1 = """PREFIX taxon: <http://purl.uniprot.org/taxonomy/>
         PREFIX up: <http://purl.uniprot.org/core/>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
         SELECT ?entry ?sequence ?sequenceValue ?isCanonical
         WHERE {
         GRAPH <http://sparql.uniprot.org/uniprot> {
-            ?entry a up:Protein ;
-                up:organism taxon:9606 ;
-                up:sequence ?sequence .
+            ?entry a up:Protein ; up:organism taxon:9606 ; up:sequence ?sequence .
             ?sequence rdf:value ?sequenceValue .
-
             OPTIONAL { ?sequence a up:Simple_Sequence . BIND(true AS ?likelyIsCanonical) }
             OPTIONAL { FILTER(?likelyIsCanonical) ?sequence a up:External_Sequence . BIND(true AS ?isComplicated) }
-
             BIND(IF(?isComplicated, STRENDS(STR(?entry), STRBEFORE(STR(?sequence), '-')), ?likelyIsCanonical) AS ?isCanonical)
         }
         }"""
-        df1 = self.process_sparql_results(
-            self.execute_sparql_query(sparql1),
-            self.canonical_isoforms
-        )
+        df1 = self.process_sparql_results(self.execute_sparql_query(sparql1), self.canonical_isoforms)
         stats["canonical_count"] = len(df1)
 
-        # computational
         qc_mode = self.full_config.get("global", {}).get("qc_mode", True)
         if qc_mode:
             sparql2 = """PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX up:   <http://purl.uniprot.org/core/>
-        PREFIX taxon: <http://purl.uniprot.org/taxonomy/>
-        SELECT ?entry ?sequence ?isCanonical WHERE {
-          GRAPH <http://sparql.uniprot.org/uniprot> {
-            ?entry a up:Protein ; up:organism taxon:9606 ; up:potentialSequence ?sequence .
-            OPTIONAL { ?sequence a up:Simple_Sequence . BIND(true AS ?likelyIsCanonical) }
-            OPTIONAL { FILTER(?likelyIsCanonical) ?sequence a up:External_Sequence . BIND(true AS ?isComplicated) }
-            BIND(IF(?isComplicated, STRENDS(STR(?entry), STRBEFORE(STR(?sequence), '-')), ?likelyIsCanonical) AS ?isCanonical)
-          }
-        }"""
-            df2 = self.process_sparql_results(
-                self.execute_sparql_query(sparql2),
-                self.computational_isoforms
-            )
+            PREFIX up: <http://purl.uniprot.org/core/>
+            PREFIX taxon: <http://purl.uniprot.org/taxonomy/>
+            SELECT ?entry ?sequence ?isCanonical WHERE {
+              GRAPH <http://sparql.uniprot.org/uniprot> {
+                ?entry a up:Protein ; up:organism taxon:9606 ; up:potentialSequence ?sequence .
+                OPTIONAL { ?sequence a up:Simple_Sequence . BIND(true AS ?likelyIsCanonical) }
+                OPTIONAL { FILTER(?likelyIsCanonical) ?sequence a up:External_Sequence . BIND(true AS ?isComplicated) }
+                BIND(IF(?isComplicated, STRENDS(STR(?entry), STRBEFORE(STR(?sequence), '-')), ?likelyIsCanonical) AS ?isCanonical)
+              }
+            }"""
+            df2 = self.process_sparql_results(self.execute_sparql_query(sparql2), self.computational_isoforms)
             stats["computational_count"] = len(df2)
         else:
-            logging.info("QC mode disabled — skipping computational isoform SPARQL")
             stats["computational_count"] = 0
         return stats
 
-    def _write_metadata(self, meta):
-        with open(self.metadata_file, "w") as mf:
-            json.dump(meta, mf, indent=2)
-        logging.info(f"Metadata → {self.metadata_file}")
-
     def run(self):
         try:
-            # Prompt to optionally skip JSON download
+            # Version-based skip
+            release_num, release_date = self.detect_uniprot_release()
+            previous_version = self.old_meta.get("source_version") or self.old_meta.get("version")
+            if (release_num and release_num != "unknown"
+                    and previous_version == release_num
+                    and os.path.exists(self.decompressed_path)):
+                logging.info(
+                    f"UniProt release unchanged ({release_num}) and decompressed file present — skipping download."
+                )
+                meta = {
+                    "source_name": "UniProt",
+                    "source_version": release_num,
+                    "release_date": release_date,
+                    "url": self.url,
+                    "download_start": datetime.now().isoformat(),
+                    "download_end": datetime.now().isoformat(),
+                    "updated": False,
+                    "status": "no_change",
+                }
+                os.makedirs(os.path.dirname(self.metadata_file), exist_ok=True)
+                with open(self.metadata_file, "w") as mf:
+                    json.dump(meta, mf, indent=2)
+                return
+
             if input("Download UniProt JSON archive? [y/N]: ").strip().lower() == "y":
                 dl_start = datetime.now()
                 tmp = self._download(self.url, self.output_path)
@@ -294,51 +263,38 @@ class UniprotDownloader:
                 dl_start = datetime.now()
                 updated = False
 
-            # always download idmapping
             idmap_updated = self._download_idmapping()
 
-            dec_start = datetime.now()
             if updated:
                 self._decompress()
-                dec_end = datetime.now()
-                diff_txt, diff_html, diff_sum = self._make_diff()
-            else:
-                logging.info("No update to archive — skipping decompression and diff.")
-                dec_end = datetime.now()
-                diff_txt, diff_html, diff_sum = None, None, None
 
             sparql_stats = self._retrieve_isoforms()
+            release_num, release_date = self.detect_uniprot_release()
 
-            # build metadata
             meta = {
-                "download_url": self.url,
+                "source_name": "UniProt",
+                "source_version": release_num,
+                "release_date": release_date,
+                "url": self.url,
                 "download_start": dl_start.isoformat(),
                 "download_end": datetime.now().isoformat(),
-                "updated": updated,
-                "decompress_secs": (dec_end - dec_start).total_seconds(),
-                "archive_size": os.path.getsize(self.output_path),
-                "decompressed_path": self.decompressed_path,
-                "diff_txt": diff_txt,
-                "diff_html": diff_html,
-                "diff_summary": diff_sum,
+                "updated": updated or idmap_updated,
+                "status": "updated" if (updated or idmap_updated) else "no_change",
                 **{f"sparql_{k}": v for k, v in sparql_stats.items()},
-                "idmapping": {
-                    "path": self.idmap_output,
-                    "updated": idmap_updated
-                }
             }
-            self._write_metadata(meta)
+            os.makedirs(os.path.dirname(self.metadata_file), exist_ok=True)
+            with open(self.metadata_file, "w") as mf:
+                json.dump(meta, mf, indent=2)
+            logging.info(f"Metadata → {self.metadata_file}")
 
         except Exception as e:
             logging.error("Pipeline failed: %s", e, exc_info=True)
             sys.exit(1)
 
-if __name__=='__main__':
-    parser = argparse.ArgumentParser(description="Download & process UniProt data")
-    p.add_argument("--config", type=str,
-               default="config/targets_config.yaml",
-               help="YAML config (default: config/targets_config.yaml)")
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Download UniProt data")
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.config))
     UniprotDownloader(cfg).run()

@@ -1,26 +1,34 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-nodenorm_protein_download.py - Fetch and filter human protein records from NodeNorm dumps
+nodenorm_protein_download.py — Fetch and filter human protein records from NodeNorm dumps.
 
-This script:
-  1. Finds the latest version folder on the NodeNorm server.
-  2. HEAD‑checks each part (or auto‑discovers chunks) for Last-Modified to skip unchanged.
-  3. Streams each changed chunk, filters for "NCBITaxon:9606" into a raw JSONL.
-  4. Generates a unified‑diff of old vs new JSONL.
-  5. Logs to console + rotating file, and writes detailed metadata including version.
+The download URL is set manually in targets_config.yaml via url_base.
+Examples:
+  url_base: "https://stars.renci.org/var/babel_outputs/latest/compendia/"
+  url_base: "https://stars.renci.org/var/babel_outputs/2025nov19/compendia/"
+
+Skip logic:
+  1) Fetch the directory listing at url_base — parse date + size for Protein.txt files
+  2) Compare against stored metadata from last run
+  3) Only download files whose date or size changed
+  4) Filter for NCBITaxon:9606 and write JSONL
 """
-import os, re, json, yaml, argparse, difflib, requests
-from datetime import datetime
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-from logging.handlers import RotatingFileHandler
+
+import os
+import re
+import json
+import yaml
+import argparse
+import requests
 import logging
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     root = logging.getLogger()
     root.setLevel(logging.INFO)
-    # Prevent duplicate logs by clearing existing handlers
     if root.hasHandlers():
         root.handlers.clear()
     fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -31,162 +39,197 @@ def setup_logging(log_file):
     root.addHandler(fh)
     root.addHandler(sh)
 
-def get_latest_version(base_url):
-    logging.info(f"Checking for latest version at {base_url}")
+
+def parse_directory_listing(url, filename_prefix):
+    """
+    Parse an Apache/nginx directory listing page and extract file info.
+
+    Example line:
+      <a href="Protein.txt.00">Protein.txt.00</a>   03-Apr-2025 07:14   4261909198
+
+    Returns dict: {"Protein.txt.00": {"date": "...", "size": "..."}, ...}
+    """
+    logging.info(f"Fetching directory listing from {url}")
     try:
-        r = requests.get(base_url); r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        dirs = [a["href"].rstrip("/") for a in soup.select("a[href$='/']")]
-        vers = [d for d in dirs if re.match(r"^\d{4}[A-Za-z]{3}\d{2}$", d)]
-        if not vers:
-            logging.info("No version directories found.")
-            return None
-        latest = sorted(vers)[-1]
-        logging.info(f"Latest version detected: {latest}")
-        return latest
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+
+        file_info = {}
+        for line in r.text.splitlines():
+            m = re.search(
+                rf'href="({re.escape(filename_prefix)}[^"]*)"[^>]*>'
+                rf'[^<]*</a>\s+'
+                rf'(\d{{2}}-[A-Za-z]{{3}}-\d{{4}}\s+\d{{2}}:\d{{2}})\s+'
+                rf'(\d+)',
+                line
+            )
+            if m:
+                fname = m.group(1)
+                date_str = m.group(2)
+                size_str = m.group(3)
+                file_info[fname] = {"date": date_str, "size": size_str}
+
+        logging.info(f"Found {len(file_info)} {filename_prefix}* file(s) in listing")
+        return file_info
     except Exception as e:
-        logging.warning(f"Couldn't fetch versions from {base_url}: {e}")
-        return None
+        logging.warning(f"Could not parse directory listing: {e}")
+        return {}
+
+
+def extract_version_from_url(url):
+    """
+    Extract version string from url_base path.
+    e.g. ".../2025nov19/compendia/" → "2025nov19"
+         ".../latest/compendia/"   → "latest"
+    """
+    parts = [p for p in url.rstrip("/").split("/") if p]
+    for i, p in enumerate(parts):
+        if p == "compendia" and i > 0:
+            return parts[i - 1]
+    return "unknown"
+
 
 class NodeNormProteinDownloader:
     def __init__(self, cfg):
         c = cfg["nodenorm_proteins"]
-        logf = c.get("log_file", "nodenorm_protein_download.log")
-        setup_logging(logf)
+        setup_logging(c.get("download_log_file") or c.get("log_file", "nodenorm_protein_download.log"))
 
-        self.base_url_template = c["url_base"]     # e.g. https://stars.renci.org/var/babel_outputs/
-        self.parts             = c.get("file_range")# optional [start,end]
-        self.raw_jsonl         = c["raw_file"]      # e.g. .../nodenorm_proteins.jsonl
-        self.download_dir = c.get("download_dir", "src/data/publicdata/target_data/raw/nodenorm_chunks")
+        self.base_url = c["url_base"].rstrip("/") + "/"
+        self.version = extract_version_from_url(self.base_url)
+        self.raw_jsonl = c["raw_file"]
+        self.download_dir = c.get("download_dir",
+                                  "src/data/publicdata/target_data/raw/nodenorm_protein_chunks")
         os.makedirs(self.download_dir, exist_ok=True)
-        self.meta_file         = c["dl_metadata_file"]   # e.g. .../nodenorm_proteins_metadata.json
-        self.diff_base         = c["diff_file"]     # e.g. .../nodenorm_proteins_diff.txt
+        self.meta_file = c["dl_metadata_file"]
 
-        # load old metadata
+        # Load previous metadata
+        self.old_meta = {}
         if os.path.exists(self.meta_file):
             try:
-                self.old_meta = json.load(open(self.meta_file))
+                with open(self.meta_file) as f:
+                    self.old_meta = json.load(f)
             except Exception:
-                self.old_meta = {}
-        else:
-            self.old_meta = {}
+                pass
 
-        # we'll record version + files + diff
         self.new_meta = {
-            "downloaded_at": datetime.now().isoformat(),
-            "version": None,
+            "source_name": "NodeNorm Protein",
+            "source_version": self.version,
+            "url_base": self.base_url,
+            "download_start": datetime.now().isoformat(),
+            "download_end": None,
+            "status": "unknown",
+            "updated": False,
+            "url": None,
             "files": {},
-            "raw_jsonl": self.raw_jsonl,
-            "diff_txt": None
+            "outputs": [],
         }
 
-    def _head(self, url):
-        try:
-            h = requests.head(url); h.raise_for_status()
-            return {
-                "Last-Modified": h.headers.get("Last-Modified"),
-                "Content-Length": h.headers.get("Content-Length")
-            }
-        except Exception:
-            return {}
-
     def _download(self, url, dst):
-        with requests.get(url, stream=True) as r:
+        dst_dir = os.path.dirname(dst)
+        if dst_dir:
+            os.makedirs(dst_dir, exist_ok=True)
+        with requests.get(url, stream=True, timeout=600) as r:
             r.raise_for_status()
-            total = int(r.headers.get("content-length",0))
+            total = int(r.headers.get("content-length", 0))
             seen = 0
             with open(dst, "wb") as f:
-                for chunk in r.iter_content(8192):
+                for chunk in r.iter_content(65536):
+                    if not chunk:
+                        continue
                     f.write(chunk)
                     seen += len(chunk)
                     if total:
-                        pct = seen/total*100
-                        print(f"\r{dst}: {pct:.1f}% ", end="", flush=True)
+                        print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
+        if total:
             print()
 
-    def run(self):
-        # 1) determine version
-        ver = get_latest_version(self.base_url_template)
-        self.new_meta["version"] = ver
-        prev_ver = self.old_meta.get("version")
-
-        # if we already have this version and JSONL exists → skip entirely
-        if ver and prev_ver == ver and os.path.exists(self.raw_jsonl):
-            logging.info(f"Already at latest version {ver}, skipping download.")
-            return
-
-        # 2) build compendia URL
-        if ver:
-            comp_url = urljoin(self.base_url_template, f"{ver}/compendia/")
-        else:
-            comp_url = urljoin(self.base_url_template, "compendia/")
-        logging.info(f"Using compendia URL: {comp_url}")
-
-        # 3) pick parts
-        if self.parts:
-            indices = list(range(self.parts[0], self.parts[1] + 1))
-        else:
-            # auto‑discover Protein.txt.<NN>
-            resp = requests.get(comp_url); resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            indices = sorted(
-                int(a["href"].split("Protein.txt.")[-1].rstrip("/"))
-                for a in soup.select("a[href^='Protein.txt.']")
-            )
-            logging.info(f"Auto‑detected parts: {indices}")
-
-        # 4) download + filter
-        base_file = comp_url + "Protein.txt"
-        raw_lines = []
-        for i in indices:
-            url = f"{base_file}.{i:02d}"
-            hdr = self._head(url)
-            self.new_meta["files"][url] = hdr
-            if hdr.get("Last-Modified") == self.old_meta.get("files",{}).get(url,{}).get("Last-Modified"):
-                logging.info(f"Skipping unchanged {url}")
-                continue
-
-            fname = os.path.join(self.download_dir, os.path.basename(url))
-            logging.info(f"Downloading chunk {i:02d} → {fname}")
-            self._download(url, fname)
-            with open(fname) as f:
-                for line in f:
-                    if '"NCBITaxon:9606"' in line:
-                        raw_lines.append(line)
-            logging.info(f"Retained raw chunk file: {fname}")
-
-        if not raw_lines:
-            logging.info("No new lines; exiting.")
-            return
-
-        # 5) write JSONL + diff
-        os.makedirs(os.path.dirname(self.raw_jsonl), exist_ok=True)
-        prev = None
-        if os.path.exists(self.raw_jsonl):
-            prev = self.raw_jsonl + ".backup"
-            os.replace(self.raw_jsonl, prev)
-
-        with open(self.raw_jsonl, "w") as f:
-            f.write("".join(raw_lines))
-        logging.info(f"Wrote filtered JSONL: {self.raw_jsonl}")
-
-        if prev:
-            old = open(prev).readlines()
-            new = open(self.raw_jsonl).readlines()
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            diff_txt = f"{os.path.splitext(self.diff_base)[0]}_{ts}.txt"
-            with open(diff_txt, "w") as d:
-                d.write("".join(difflib.unified_diff(old, new)))
-            logging.info(f"JSONL diff → {diff_txt}")
-            self.new_meta["diff_txt"] = diff_txt
-
-        # 6) write metadata
+    def _write_meta_and_return(self, status):
+        self.new_meta["status"] = status
+        self.new_meta["download_end"] = datetime.now().isoformat()
+        os.makedirs(os.path.dirname(self.meta_file), exist_ok=True)
         with open(self.meta_file, "w") as m:
             json.dump(self.new_meta, m, indent=2)
         logging.info(f"Metadata → {self.meta_file}")
 
-if __name__=="__main__":
-    p = argparse.ArgumentParser(description="Download & filter NodeNorm Protein data")
+    def run(self):
+        logging.info(f"NodeNorm Protein — using url_base: {self.base_url} (version: {self.version})")
+        self.new_meta["url"] = self.base_url + "Protein.txt"
+        have_raw = os.path.exists(self.raw_jsonl)
+
+        # ── Step 1: Check if url_base changed since last run ─────────────
+        old_url_base = self.old_meta.get("url_base")
+        if old_url_base and old_url_base != self.base_url:
+            logging.info(f"url_base changed: {old_url_base} → {self.base_url} — will re-download.")
+
+        # ── Step 2: Parse directory listing for date/size ────────────────
+        remote_files = parse_directory_listing(self.base_url, "Protein.txt")
+        self.new_meta["files"] = remote_files
+
+        if not remote_files:
+            logging.error("No Protein.txt files found in directory listing. Aborting.")
+            self._write_meta_and_return("error")
+            return
+
+        # ── Step 3: Compare against previous listing ─────────────────────
+        old_files = self.old_meta.get("files", {})
+        files_to_download = []
+
+        for fname, info in remote_files.items():
+            old_info = old_files.get(fname, {})
+            same_date = info.get("date") == old_info.get("date")
+            same_size = info.get("size") == old_info.get("size")
+            same_base = (old_url_base == self.base_url) if old_url_base else True
+
+            if same_date and same_size and same_base:
+                logging.info(f"Unchanged: {fname} ({info['date']}, {info['size']} bytes)")
+            else:
+                if old_info and same_base:
+                    logging.info(f"Changed: {fname} — date: {old_info.get('date')} → {info.get('date')}, "
+                                 f"size: {old_info.get('size')} → {info.get('size')}")
+                else:
+                    logging.info(f"New/changed source: {fname} ({info['date']}, {info['size']} bytes)")
+                files_to_download.append(fname)
+
+        # If nothing changed AND we have the JSONL, skip
+        if not files_to_download and have_raw:
+            logging.info("All Protein.txt files unchanged and JSONL exists — skipping download.")
+            self._write_meta_and_return("no_change")
+            return
+
+        if not files_to_download and not have_raw:
+            logging.info(f"Files unchanged but JSONL missing at {self.raw_jsonl} — re-downloading all.")
+            files_to_download = list(remote_files.keys())
+
+        # ── Step 4: Download changed files, filter for human ─────────────
+        raw_lines = []
+        for fname in files_to_download:
+            url = self.base_url + fname
+            local_path = os.path.join(self.download_dir, fname)
+            logging.info(f"Downloading {url} ({remote_files[fname]['size']} bytes)")
+            self._download(url, local_path)
+
+            with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if '"NCBITaxon:9606"' in line:
+                        raw_lines.append(line)
+            logging.info(f"Retained chunk: {local_path}")
+
+        # ── Step 5: Write JSONL ──────────────────────────────────────────
+        if not raw_lines:
+            logging.info("No new human lines found.")
+            self._write_meta_and_return("no_change")
+        else:
+            os.makedirs(os.path.dirname(self.raw_jsonl), exist_ok=True)
+            with open(self.raw_jsonl, "w", encoding="utf-8") as f:
+                f.write("".join(raw_lines))
+            logging.info(f"Wrote filtered JSONL: {self.raw_jsonl} ({len(raw_lines)} human records)")
+            self.new_meta["updated"] = True
+            self.new_meta["outputs"].append({"path": self.raw_jsonl, "records": len(raw_lines)})
+            self._write_meta_and_return("updated")
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
     p.add_argument("--config", default="config/targets_config.yaml")
     args = p.parse_args()
     cfg = yaml.safe_load(open(args.config))

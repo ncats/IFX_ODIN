@@ -1,26 +1,29 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-nodenorm_gene_download.py - Fetch and filter human gene records from NodeNorm dumps
+nodenorm_gene_download.py — Fetch and filter human gene records from NodeNorm dumps.
 
-This script:
-  1. Finds the latest version folder on the NodeNorm server.
-  2. HEAD‑checks each part (or single file) for Last-Modified / Content-Length.
-  3. Downloads only if changed, streaming progress.
-  4. Filters for lines containing "NCBITaxon:9606" into a raw JSONL.
-  5. Writes detailed metadata and (optionally) a diff of the old vs new JSONL.
+The download URL is set manually in targets_config.yaml via url_base.
+Examples:
+  url_base: "https://stars.renci.org/var/babel_outputs/latest/compendia/"
+  url_base: "https://stars.renci.org/var/babel_outputs/2025nov19/compendia/"
+
+Skip logic:
+  1) Fetch the directory listing at url_base — parse date + size for Gene.txt files
+  2) Compare against stored metadata from last run
+  3) Only download files whose date or size changed
+  4) Filter for NCBITaxon:9606 and write JSONL
 """
+
 import os
 import re
 import json
 import yaml
 import argparse
-import hashlib
-import difflib
 import requests
 from datetime import datetime
-from bs4 import BeautifulSoup
 from logging.handlers import RotatingFileHandler
 import logging
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -36,140 +39,197 @@ def setup_logging(log_file):
     root.addHandler(fh)
     root.addHandler(sh)
 
-def get_latest_version(base_url):
-    logging.info(f"Checking for latest version at {base_url}")
+
+def parse_directory_listing(url, filename_prefix):
+    """
+    Parse an Apache/nginx directory listing page and extract file info.
+
+    Example line:
+      <a href="Gene.txt">Gene.txt</a>   03-Apr-2025 05:32   12976948673
+
+    Returns dict: {"Gene.txt": {"date": "03-Apr-2025 05:32", "size": "12976948673"}, ...}
+    """
+    logging.info(f"Fetching directory listing from {url}")
     try:
-        r = requests.get(base_url)
+        r = requests.get(url, timeout=15)
         r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        dirs = [a["href"].rstrip("/") for a in soup.select("a[href$='/']")]
-        vers = [d for d in dirs if re.match(r"^\d{4}[A-Za-z]{3}\d{2}$", d)]
-        if not vers:
-            logging.info("No version directories found.")
-            return None
-        latest = sorted(vers)[-1]
-        logging.info(f"Latest version detected: {latest}")
-        return latest
+
+        file_info = {}
+        for line in r.text.splitlines():
+            m = re.search(
+                rf'href="({re.escape(filename_prefix)}[^"]*)"[^>]*>'
+                rf'[^<]*</a>\s+'
+                rf'(\d{{2}}-[A-Za-z]{{3}}-\d{{4}}\s+\d{{2}}:\d{{2}})\s+'
+                rf'(\d+)',
+                line
+            )
+            if m:
+                fname = m.group(1)
+                date_str = m.group(2)
+                size_str = m.group(3)
+                file_info[fname] = {"date": date_str, "size": size_str}
+
+        logging.info(f"Found {len(file_info)} {filename_prefix}* file(s) in listing")
+        return file_info
     except Exception as e:
-        logging.warning(f"Couldn't fetch versions from {base_url}: {e}")
-        return None
+        logging.warning(f"Could not parse directory listing: {e}")
+        return {}
+
+
+def extract_version_from_url(url):
+    """
+    Extract version string from url_base path.
+    e.g. ".../2025nov19/compendia/" → "2025nov19"
+         ".../latest/compendia/"   → "latest"
+    """
+    parts = [p for p in url.rstrip("/").split("/") if p]
+    # Walk backwards to find "compendia", then the part before it is the version
+    for i, p in enumerate(parts):
+        if p == "compendia" and i > 0:
+            return parts[i - 1]
+    return "unknown"
+
 
 class NodeNormGeneDownloader:
     def __init__(self, cfg):
         c = cfg["nodenorm_genes"]
-        setup_logging(c["log_file"])
-        self.base_url_template = c["url_base"]
-        self.parts     = c.get("file_range")
+        setup_logging(c.get("download_log_file") or c.get("log_file", "nodenorm_gene_download.log"))
+
+        self.base_url = c["url_base"].rstrip("/") + "/"
+        self.version = extract_version_from_url(self.base_url)
         self.raw_jsonl = c["raw_file"]
         self.meta_file = c["dl_metadata_file"]
-        self.diff_base = c["diff_file"]
 
-        # load old metadata
+        # Load previous metadata
+        self.old_meta = {}
         if os.path.exists(self.meta_file):
-            with open(self.meta_file) as f:
-                self.old_meta = json.load(f)
-        else:
-            self.old_meta = {"files": {}}
+            try:
+                with open(self.meta_file) as f:
+                    self.old_meta = json.load(f)
+            except Exception:
+                pass
 
         self.new_meta = {
-            "downloaded_at": datetime.now().isoformat(),
+            "source_name": "NodeNorm Gene",
+            "source_version": self.version,
+            "url_base": self.base_url,
+            "download_start": datetime.now().isoformat(),
+            "download_end": None,
+            "status": "unknown",
+            "updated": False,
+            "url": None,
             "files": {},
-            "raw_jsonl": self.raw_jsonl,
-            "diff_txt": None
+            "outputs": [],
         }
 
-    def _head(self, url):
-        try:
-            h = requests.head(url)
-            h.raise_for_status()
-            return {
-                "Last-Modified": h.headers.get("Last-Modified"),
-                "Content-Length": h.headers.get("Content-Length")
-            }
-        except:
-            return {}
-
     def _download(self, url, dst):
-        with requests.get(url, stream=True) as r:
+        dst_dir = os.path.dirname(dst)
+        if dst_dir:
+            os.makedirs(dst_dir, exist_ok=True)
+        with requests.get(url, stream=True, timeout=600) as r:
             r.raise_for_status()
-            total = int(r.headers.get("content-length",0))
+            total = int(r.headers.get("content-length", 0))
             seen = 0
-            with open(dst,"wb") as f:
-                for chunk in r.iter_content(8192):
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(65536):
+                    if not chunk:
+                        continue
                     f.write(chunk)
                     seen += len(chunk)
                     if total:
-                        pct = seen/total*100
-                        print(f"\r{dst}: {pct:.1f}% ", end="", flush=True)
+                        print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
+        if total:
             print()
 
-    def run(self):
-        # 1) build URL (with version if available)
-        ver = get_latest_version(self.base_url_template)
-        if ver:
-            base = f"{self.base_url_template}{ver}/compendia/Gene.txt"
-            logging.info(f"Using versioned URL base: {ver}")
-        else:
-            base = f"{self.base_url_template}Gene.txt"
-            logging.info("Falling back to default URL base")
-
-        indices = [None]
-        if self.parts:
-            start,end = self.parts
-            indices = list(range(start, end+1))
-
-        raw_lines = []
-        # 2) for each part
-        for i in indices:
-            url = base + (f".{i:02d}" if i is not None else "")
-            hdr = self._head(url)
-            self.new_meta["files"][url] = hdr
-            old_hdr = self.old_meta.get("files",{}).get(url,{})
-            if hdr.get("Last-Modified") and hdr["Last-Modified"] == old_hdr.get("Last-Modified"):
-                logging.info(f"Skipping unchanged {url}")
-                continue
-
-            fname = os.path.basename(url)
-            logging.info(f"Downloading {url}")
-            self._download(url, fname)
-
-            # 3) filter JSONLines for human
-            with open(fname) as f:
-                for L in f:
-                    if '"NCBITaxon:9606"' in L:
-                        raw_lines.append(L)
-
-        if not raw_lines:
-            logging.info("No new human lines found, nothing to write.")
-            return
-
-        # 4) write raw JSONL (and diff old vs new)
-        os.makedirs(os.path.dirname(self.raw_jsonl), exist_ok=True)
-        prev = None
-        if os.path.exists(self.raw_jsonl):
-            prev = self.raw_jsonl + ".backup"
-            os.replace(self.raw_jsonl, prev)
-
-        with open(self.raw_jsonl, "w") as f:
-            f.write("".join(raw_lines))
-        logging.info(f"Wrote filtered JSONL to {self.raw_jsonl}")
-
-        if prev:
-            old = open(prev).readlines()
-            new = open(self.raw_jsonl).readlines()
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            diff_txt = f"{os.path.splitext(self.diff_base)[0]}_{ts}.txt"
-            with open(diff_txt,"w") as d:
-                d.write("".join(difflib.unified_diff(old, new)))
-            logging.info(f"Diff written to {diff_txt}")
-            self.new_meta["diff_txt"] = diff_txt
-
-        # 5) write metadata
+    def _write_meta_and_return(self, status):
+        self.new_meta["status"] = status
+        self.new_meta["download_end"] = datetime.now().isoformat()
+        os.makedirs(os.path.dirname(self.meta_file), exist_ok=True)
         with open(self.meta_file, "w") as m:
             json.dump(self.new_meta, m, indent=2)
-        logging.info(f"Metadata saved to {self.meta_file}")
+        logging.info(f"Metadata → {self.meta_file}")
 
-if __name__=="__main__":
+    def run(self):
+        logging.info(f"NodeNorm Gene — using url_base: {self.base_url} (version: {self.version})")
+        self.new_meta["url"] = self.base_url + "Gene.txt"
+        have_raw = os.path.exists(self.raw_jsonl)
+
+        # ── Step 1: Check if url_base changed since last run ─────────────
+        old_url_base = self.old_meta.get("url_base")
+        if old_url_base and old_url_base != self.base_url:
+            logging.info(f"url_base changed: {old_url_base} → {self.base_url} — will re-download.")
+
+        # ── Step 2: Parse directory listing for date/size ────────────────
+        remote_files = parse_directory_listing(self.base_url, "Gene.txt")
+        self.new_meta["files"] = remote_files
+
+        if not remote_files:
+            logging.error("No Gene.txt files found in directory listing. Aborting.")
+            self._write_meta_and_return("error")
+            return
+
+        # ── Step 3: Compare against previous listing ─────────────────────
+        old_files = self.old_meta.get("files", {})
+        files_to_download = []
+
+        for fname, info in remote_files.items():
+            old_info = old_files.get(fname, {})
+            same_date = info.get("date") == old_info.get("date")
+            same_size = info.get("size") == old_info.get("size")
+            same_base = (old_url_base == self.base_url) if old_url_base else True
+
+            if same_date and same_size and same_base:
+                logging.info(f"Unchanged: {fname} ({info['date']}, {info['size']} bytes)")
+            else:
+                if old_info and same_base:
+                    logging.info(f"Changed: {fname} — date: {old_info.get('date')} → {info.get('date')}, "
+                                 f"size: {old_info.get('size')} → {info.get('size')}")
+                else:
+                    logging.info(f"New/changed source: {fname} ({info['date']}, {info['size']} bytes)")
+                files_to_download.append(fname)
+
+        # If nothing changed AND we have the JSONL, skip
+        if not files_to_download and have_raw:
+            logging.info("All Gene.txt files unchanged and JSONL exists — skipping download.")
+            self._write_meta_and_return("no_change")
+            return
+
+        if not files_to_download and not have_raw:
+            logging.info(f"Files unchanged but JSONL missing at {self.raw_jsonl} — re-downloading all.")
+            files_to_download = list(remote_files.keys())
+
+        # ── Step 4: Download changed files, filter for human ─────────────
+        raw_lines = []
+        for fname in files_to_download:
+            url = self.base_url + fname
+            tmp_name = fname
+            logging.info(f"Downloading {url} ({remote_files[fname]['size']} bytes)")
+            self._download(url, tmp_name)
+
+            with open(tmp_name, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if '"NCBITaxon:9606"' in line:
+                        raw_lines.append(line)
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+        # ── Step 5: Write JSONL ──────────────────────────────────────────
+        if not raw_lines:
+            logging.info("No new human lines found.")
+            self._write_meta_and_return("no_change")
+        else:
+            os.makedirs(os.path.dirname(self.raw_jsonl), exist_ok=True)
+            with open(self.raw_jsonl, "w", encoding="utf-8") as f:
+                f.write("".join(raw_lines))
+            logging.info(f"Wrote filtered JSONL: {self.raw_jsonl} ({len(raw_lines)} human records)")
+            self.new_meta["updated"] = True
+            self.new_meta["outputs"].append({"path": self.raw_jsonl, "records": len(raw_lines)})
+            self._write_meta_and_return("updated")
+
+
+if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="config/targets_config.yaml")
     args = p.parse_args()

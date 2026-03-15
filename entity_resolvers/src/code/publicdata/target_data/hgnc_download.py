@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """
-hgnc_download.py - Download HGNC data with update detection, detailed metadata tracking,
-and log file creation for HGNC.
+hgnc_download.py - Download HGNC data with update detection.
+
+Uses the original working download logic.
+NO raw-file diffs — version tracking happens on cleaned output in the transformer.
 """
 
 import os
@@ -13,60 +15,105 @@ import requests
 from requests.exceptions import HTTPError
 from tqdm import tqdm
 import hashlib
-import difflib
 import json
 import shutil
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
 def setup_logging(config):
-    # Use a default log file name if not provided
-    log_file = config.get("log_file", "hgnc_download.log")
+    log_file = config.get("download_log_file") or config.get("log_file", "hgnc_download.log")
     handlers = [logging.StreamHandler()]
-    # Only try to create directories if log_file is non-empty and has a directory part.
     directory = os.path.dirname(log_file)
     if directory:
         os.makedirs(directory, exist_ok=True)
-    # Add a file handler only if log_file is provided (even if it's just a file name)
     if log_file:
         handlers.insert(0, logging.FileHandler(log_file))
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s - %(levelname)s - %(message)s",
-                        handlers=handlers)
+                        handlers=handlers, force=True)
+
 
 class HGNCDownloader:
     def __init__(self, full_config):
         self.config = full_config["hgnc_data"]
         setup_logging(self.config)
         self.url = self.config["download_url"]
-        self.output_path = self.config["output_path"]  # e.g., path to the downloaded file
+        self.output_path = self.config["output_path"]
         self.meta_file = self.config.get("dl_metadata_file", "dl_hgnc_metadata.json")
-        # diff_file key will be looked up here; if not present it uses "hgnc_diff.txt" by default
-        self.base_diff_file = self.config.get("diff_file", "hgnc_diff.txt")
-    
+
+        # Load previous metadata to compare versions
+        self.old_meta = {}
+        if os.path.exists(self.meta_file):
+            try:
+                with open(self.meta_file) as f:
+                    self.old_meta = json.load(f)
+            except Exception:
+                pass
+
     def compute_hash(self, file_path):
         hash_md5 = hashlib.md5()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
-    
+
+    def detect_hgnc_version(self):
+        try:
+            from email.utils import parsedate_to_datetime
+            logging.info("Checking Last-Modified header for HGNC file...")
+            response = requests.head(self.url, timeout=10)
+            last_modified = response.headers.get("Last-Modified")
+            if last_modified:
+                dt = parsedate_to_datetime(last_modified)
+                version = dt.strftime("%Y-%m-%d")
+                logging.info(f"HGNC version from Last-Modified: {version}")
+                return version
+        except Exception as e:
+            logging.warning(f"Failed to retrieve HGNC Last-Modified header: {e}")
+        return "unknown"
+
     def download(self):
+        # Version-based skip
+        current_version = self.detect_hgnc_version()
+        previous_version = self.old_meta.get("source_version")
+        if (current_version and current_version != "unknown"
+                and previous_version == current_version
+                and os.path.exists(self.output_path)):
+            logging.info(
+                f"HGNC version unchanged ({current_version}) and file present — skipping download."
+            )
+            metadata = {
+                "source_name": "HGNC",
+                "source_version": current_version,
+                "url": self.url,
+                "download_start": datetime.now().isoformat(),
+                "download_end": datetime.now().isoformat(),
+                "updated": False,
+                "status": "no_change",
+                "output_path": self.output_path,
+            }
+            os.makedirs(os.path.dirname(self.meta_file), exist_ok=True)
+            with open(self.meta_file, "w") as f:
+                json.dump(metadata, f, indent=2)
+            return True
+
         temp_file = self.output_path + ".temp"
         update_detected = False
         old_md5 = None
         new_md5 = None
         total_size = 0
 
+        os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
+
         try:
-            logging.info(f"Downloading HGNC data from {self.url} to {temp_file}...")
+            logging.info(f"Downloading HGNC data from {self.url}...")
             with requests.get(self.url, stream=True, verify=False) as response:
                 response.raise_for_status()
                 total_size = int(response.headers.get("content-length", 0))
-                block_size = 1024
                 tqdm_bar = tqdm(total=total_size, unit="iB", unit_scale=True)
                 with open(temp_file, "wb") as f:
-                    for chunk in response.iter_content(block_size):
+                    for chunk in response.iter_content(1024):
                         f.write(chunk)
                         tqdm_bar.update(len(chunk))
                 tqdm_bar.close()
@@ -75,74 +122,36 @@ class HGNCDownloader:
             return False
 
         if os.path.exists(self.output_path):
-            old_hash = self.compute_hash(self.output_path)
-            new_hash = self.compute_hash(temp_file)
-            if old_hash == new_hash:
+            old_md5 = self.compute_hash(self.output_path)
+            new_md5 = self.compute_hash(temp_file)
+            if old_md5 == new_md5:
                 logging.info("No updates detected for HGNC file. Removing temporary file.")
                 os.remove(temp_file)
             else:
                 logging.info("Update detected for HGNC file.")
-                backup_file = self.output_path + ".backup"
-                shutil.copy2(self.output_path, backup_file)
-                logging.info(f"Backed up old HGNC file to {backup_file}")
                 os.replace(temp_file, self.output_path)
                 update_detected = True
-                old_md5 = old_hash
-                new_md5 = new_hash
         else:
             logging.info("HGNC output file does not exist. Creating new file.")
             os.replace(temp_file, self.output_path)
             update_detected = True
             new_md5 = self.compute_hash(self.output_path)
 
-        # -------------------- Diff File Creation --------------------
-        diff_txt, diff_html = None, None
-        backup_file = self.output_path + ".backup"
-        if update_detected and os.path.exists(backup_file):
-            try:
-                with open(backup_file, "r", encoding="utf-8", errors="ignore") as old_f:
-                    old_lines = old_f.readlines()
-                with open(self.output_path, "r", encoding="utf-8", errors="ignore") as new_f:
-                    new_lines = new_f.readlines()
-                # Generate plain-text diff
-                diff = list(difflib.unified_diff(old_lines, new_lines,
-                                                 fromfile="old_version", tofile="new_version"))
-                diff_text = "".join(diff)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                base_name = os.path.splitext(os.path.basename(self.output_path))[0]
-                qc_dir = "src/data/publicdata/target_data/qc"
-                os.makedirs(qc_dir, exist_ok=True)
-                diff_txt = os.path.join(qc_dir, f"{base_name}_diff_{timestamp}.txt")
-                diff_html = os.path.join(qc_dir, f"{base_name}_diff_{timestamp}.html")
-                with open(diff_txt, "w", encoding="utf-8") as f:
-                    f.write(diff_text)
-                # Generate HTML diff with only changed rows (minimal context)
-                html_diff = difflib.HtmlDiff().make_file(
-                    old_lines, new_lines, fromdesc="Old Version", todesc="New Version",
-                    context=True, numlines=0
-                )
-                with open(diff_html, "w", encoding="utf-8") as f:
-                    f.write(html_diff)
-                logging.info(f"Diff generated: {diff_txt}, {diff_html}")
-            except Exception as e:
-                logging.error(f"Error generating diff for HGNC data: {e}")
-                diff_txt, diff_html = None, None
-        else:
-            logging.info("No previous file backup available for diff generation.")
-        # ------------------ End Diff File Creation ------------------
-
-        # Build and write detailed metadata
+        # Standardized metadata for version manifest
         metadata = {
-            "download_url": self.url,
-            "downloaded_at": datetime.now().isoformat(),
+            "source_name": "HGNC",
+            "source_version": current_version,
+            "url": self.url,
+            "download_start": datetime.now().isoformat(),
+            "download_end": datetime.now().isoformat(),
             "total_size_bytes": total_size,
             "output_path": self.output_path,
-            "update_detected": update_detected,
+            "updated": update_detected,
+            "status": "updated" if update_detected else "no_change",
             "old_md5": old_md5,
             "new_md5": new_md5,
-            "diff_file_text": diff_txt,
-            "diff_file_html": diff_html
         }
+        os.makedirs(os.path.dirname(self.meta_file), exist_ok=True)
         with open(self.meta_file, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
         logging.info(f"HGNC download metadata written to {self.meta_file}")
@@ -150,6 +159,7 @@ class HGNCDownloader:
 
     def run(self):
         self.download()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download and update HGNC data")

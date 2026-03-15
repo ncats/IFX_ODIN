@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 """
 hgnc_transform.py - Transform and clean HGNC data
-
-This script reads the raw HGNC file (downloaded by hgnc_download.py),
-applies the original cleaning steps (column subset, explode, type casts, etc.),
-and writes the cleaned CSV along with detailed metadata.
+with entity-level diff tracking, archive snapshots, and transform manifest metadata.
 """
 
 import os
@@ -15,26 +12,45 @@ import pandas as pd
 import logging
 import argparse
 from datetime import datetime
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    force=True,
+)
+
 
 class HGNCTransformer:
     def __init__(self, full_config):
-        self.config        = full_config.get("hgnc_data", {})
-        self.input_file    = self.config.get("output_path", "hgnc_complete_set.txt")
-        self.output_file   = self.config.get("parsed_output", "hgnc_complete_set.csv")
-        self.metadata_file = self.config.get("tf_metadata_file", "tf_hgnc_metadata.json")
+        self.config = full_config.get("hgnc_data", {})
+
+        self.input_file = self.config.get("output_path", "hgnc_complete_set.txt")
+        self.output_file = self.config.get(
+            "parsed_output",
+            "src/data/publicdata/target_data/cleaned/sources/hgnc_complete_set.csv"
+        )
+        self.metadata_file = self.config.get(
+            "tf_metadata_file",
+            "src/data/publicdata/target_data/metadata/tf_hgnc_metadata.json"
+        )
+        self.entity_diff_file = self.config.get(
+            "entity_diff_output",
+            "src/data/publicdata/target_data/qc/hgnc_entity_diff.qc.json"
+        )
+        self.transform_archive_dir = self.config.get(
+            "transform_archive_dir",
+            "src/data/publicdata/target_data/archive/cleaned/hgnc"
+        )
 
     def transform_and_clean_hgnc_data(self, df: pd.DataFrame):
         start_time = datetime.now()
         steps = []
 
-        # 1) Trim whitespace from column names
         orig_cols = df.columns.tolist()
         df.columns = [c.strip() for c in orig_cols]
         steps.append(f"Trimmed whitespace from columns: {orig_cols} → {df.columns.tolist()}")
 
-        # 2) Select and reorder the original set of columns
         cols = [
             'uniprot_ids', 'hgnc_id', 'symbol', 'entrez_id', 'ensembl_gene_id', 'name',
             'locus_group', 'locus_type', 'status', 'location', 'location_sortable',
@@ -49,32 +65,26 @@ class HGNCTransformer:
         df = df[cols].copy()
         steps.append(f"Selected and copied columns: {cols}")
 
-        # 3) Rename 'entrez_id' → 'hgnc_NCBI_id'
         df = df.rename(columns={'entrez_id': 'hgnc_NCBI_id'})
         steps.append("Renamed column 'entrez_id' → 'hgnc_NCBI_id'")
 
-        # 4) Split and explode the pipe-separated uniprot_ids safely
         df.loc[:, 'uniprot_ids'] = df['uniprot_ids'].str.split('|')
         steps.append("Split 'uniprot_ids' on '|'")
         df = df.explode('uniprot_ids').reset_index(drop=True)
         steps.append("Exploded 'uniprot_ids' list into rows")
 
-        # 5) Ensure those two ID columns are strings
-        df['uniprot_ids']    = df['uniprot_ids'].astype(str)
-        df['hgnc_NCBI_id']    = df['hgnc_NCBI_id' ].astype(str)
+        df['uniprot_ids'] = df['uniprot_ids'].astype(str)
+        df['hgnc_NCBI_id'] = df['hgnc_NCBI_id'].astype(str)
 
-        # 6) Cast any float64 → string before fillna
         float_cols = df.select_dtypes(include=['float64']).columns.tolist()
         for c in float_cols:
             df[c] = df[c].astype(str)
         steps.append(f"Casted float64 columns to str: {float_cols}")
 
-        # 7) Fill NaN → '' and clean orphanet
         df.fillna('', inplace=True)
         df['orphanet'] = df['orphanet'].replace('nan', '')
         steps.append("Filled NA with '' and cleaned 'orphanet'")
 
-        # 8) Rename everything to hgnc_*
         rename_map = {
             'uniprot_ids': 'hgnc_uniprot_ids',
             'hgnc_id': 'hgnc_hgnc_id',
@@ -104,7 +114,7 @@ class HGNCTransformer:
             'orphanet': 'hgnc_orphanet_id'
         }
         df = df.rename(columns=rename_map)
-        steps.append(f"Renamed columns to include 'hgnc_' prefix")
+        steps.append("Renamed columns to include 'hgnc_' prefix")
 
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -112,8 +122,72 @@ class HGNCTransformer:
 
         return df, start_time, end_time, steps
 
+    def compute_entity_diff(self, old_df, new_df):
+        old_df = old_df.fillna("").copy()
+        new_df = new_df.fillna("").copy()
+
+        old_ids = set(old_df["hgnc_hgnc_id"])
+        new_ids = set(new_df["hgnc_hgnc_id"])
+
+        old_ids.discard("")
+        new_ids.discard("")
+
+        added = sorted(list(new_ids - old_ids))
+        removed = sorted(list(old_ids - new_ids))
+
+        old_idx = old_df.set_index("hgnc_hgnc_id")
+        new_idx = new_df.set_index("hgnc_hgnc_id")
+
+        common_ids = sorted(list(old_ids & new_ids))
+        field_changes = []
+
+        compare_cols = [
+            "hgnc_symbol",
+            "hgnc_ensembl_gene_id",
+            "hgnc_uniprot_ids",
+            "hgnc_NCBI_id",
+            "hgnc_description",
+            "hgnc_gene_type",
+            "hgnc_status",
+            "hgnc_omim_id",
+            "hgnc_orphanet_id",
+        ]
+
+        for hgnc_id in common_ids:
+            for col in compare_cols:
+                if col not in old_idx.columns or col not in new_idx.columns:
+                    continue
+
+                old_val = str(old_idx.at[hgnc_id, col])
+                new_val = str(new_idx.at[hgnc_id, col])
+
+                if old_val != new_val:
+                    field_changes.append({
+                        "hgnc_hgnc_id": hgnc_id,
+                        "field": col,
+                        "old": old_val,
+                        "new": new_val
+                    })
+
+        return {
+            "added_ids": added,
+            "removed_ids": removed,
+            "field_changes": field_changes,
+            "n_added_ids": len(added),
+            "n_removed_ids": len(removed),
+            "n_field_changes": len(field_changes),
+        }
+
+    def archive_output(self, cleaned_df):
+        version = datetime.now().strftime("%Y%m%d")
+        archive_dir = Path(self.transform_archive_dir) / version
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        archive_path = archive_dir / Path(self.output_file).name
+        cleaned_df.to_csv(archive_path, index=False)
+        return str(archive_path)
+
     def run(self):
-        # 1) Read input
         try:
             df = pd.read_csv(self.input_file, sep="\t", dtype=str, low_memory=False)
             num_in = len(df)
@@ -122,7 +196,6 @@ class HGNCTransformer:
             logging.error(f"Failed to read {self.input_file}: {e}")
             sys.exit(1)
 
-        # 2) Transform & clean
         try:
             cleaned_df, t0, t1, steps = self.transform_and_clean_hgnc_data(df)
             num_out = len(cleaned_df)
@@ -131,78 +204,64 @@ class HGNCTransformer:
             logging.error(f"Transformation error: {e}")
             sys.exit(1)
 
-        # 3) Write output CSV
         os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
         cleaned_df.to_csv(self.output_file, index=False)
         logging.info(f"Wrote cleaned HGNC data to {self.output_file}")
 
-        # 4) Diff logic on cleaned output (simplified format)
         qc_dir = "src/data/publicdata/target_data/qc"
         os.makedirs(qc_dir, exist_ok=True)
         base = os.path.splitext(os.path.basename(self.output_file))[0]
         backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
-        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
 
+        diff_summary = None
         if os.path.exists(backup_path):
             try:
-                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
-                new_df = cleaned_df.fillna("")
+                old_df = pd.read_csv(backup_path, dtype=str)
+                diff_summary = self.compute_entity_diff(old_df, cleaned_df)
 
-                join_col = "hgnc_hgnc_id"
-                if join_col in new_df.columns and join_col in old_df.columns:
-                    old_df.set_index(join_col, inplace=True)
-                    new_df.set_index(join_col, inplace=True)
+                with open(self.entity_diff_file, "w") as f:
+                    json.dump(diff_summary, f, indent=2)
 
-                    common_cols = sorted(set(old_df.columns).intersection(new_df.columns))
-                    old_df = old_df[common_cols].sort_index()
-                    new_df = new_df[common_cols].sort_index()
-
-                    # Generate simplified diff
-                    records = []
-                    for col in common_cols:
-                        for idx in new_df.index.intersection(old_df.index):
-                            old_val = old_df.at[idx, col]
-                            new_val = new_df.at[idx, col]
-                            if pd.notna(old_val) and pd.notna(new_val) and old_val != new_val:
-                                records.append({
-                                    "hgnc_hgnc_id": idx,
-                                    "column_changed": col,
-                                    "old_value": old_val,
-                                    "new_value": new_val
-                                })
-
-                    if records:
-                        diff_df = pd.DataFrame(records)
-                        diff_df.to_csv(diff_csv_path, index=False)
-                        logging.info(f"✅ Simplified diff written to {diff_csv_path}")
-                    else:
-                        logging.info("✅ No differences found in cleaned HGNC output.")
+                logging.info(f"Entity diff written to {self.entity_diff_file}")
             except Exception as e:
-                logging.warning(f"⚠️ Could not generate diff on cleaned output: {e}")
+                logging.warning(f"⚠️ Could not generate entity diff on cleaned output: {e}")
 
-        # Always update backup for next run
         cleaned_df.to_csv(backup_path, index=False)
 
-        # 5) Write metadata JSON
+        archive_path = self.archive_output(cleaned_df)
+
         metadata = {
             "timestamp": {"start": t0.isoformat(), "end": t1.isoformat()},
             "input_file": self.input_file,
             "output_file": self.output_file,
+            "archived_output": archive_path,
             "num_records_input": num_in,
             "num_records_output": num_out,
             "transformation_duration_seconds": (t1 - t0).total_seconds(),
-            "processing_steps": steps
+            "processing_steps": steps,
+            "summary": {
+                "n_added_ids": diff_summary["n_added_ids"] if diff_summary else 0,
+                "n_removed_ids": diff_summary["n_removed_ids"] if diff_summary else 0,
+                "n_field_changes": diff_summary["n_field_changes"] if diff_summary else 0,
+                "entity_diff_file": self.entity_diff_file if diff_summary else None,
+            }
         }
+
         os.makedirs(os.path.dirname(self.metadata_file), exist_ok=True)
         with open(self.metadata_file, "w") as mf:
             json.dump(metadata, mf, indent=2)
+
         logging.info(f"HGNC transform metadata saved to {self.metadata_file}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform and clean HGNC data")
-    parser.add_argument("--config", type=str,
-                        default="config/targets_config.yaml",
-                        help="Path to YAML config file")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config/targets_config.yaml",
+        help="Path to YAML config file"
+    )
 
     args = parser.parse_args()
 

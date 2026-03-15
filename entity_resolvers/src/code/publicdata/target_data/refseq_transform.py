@@ -1,16 +1,11 @@
 #!/usr/bin/env python
 """
-refseq_transform.py - Transform, clean, and process RefSeq (and related) data
+refseq_transform.py — Transform, clean, and process RefSeq data.
 
-This script reads the decompressed RefSeq data file (produced by refseq_download.py),
-transforms and cleans the data (including renaming columns), and writes the cleaned CSV.
-It also saves detailed metadata about the transformation process including:
-  - input and output file paths,
-  - record counts before/after each step,
-  - transformation start time, end time, and duration,
-  - list of data sources,
-  - processing steps details,
-  - and outputs generated.
+Core transformation logic restored from the original working pipeline:
+  1) Rename columns
+  2) Generate concatenated RNA and protein files (grouped by gene)
+  3) Entity diff runs on the GENE-LEVEL concatenated data, not the 900k raw rows
 """
 
 import os
@@ -20,213 +15,204 @@ import pandas as pd
 import logging
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 logging.basicConfig(
-    level=logging.INFO, 
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    force=True,
 )
+
 
 class RefSeqTransformer:
     def __init__(self, full_config):
-        # Extract the refseq_data section from the full config.
         self.config = full_config["refseq_data"]
-        # Paths
         self.decompressed = self.config["refseq"]["decompressed"]
         self.transformed_data_path = self.config["transformed_data_path"]
-        # Metadata file
         self.metadata_file = self.config.get("tf_metadata_file", "tf_refseq_metadata.json")
-        # Initialize metadata container
+        self.entity_diff_file = self.config.get(
+            "entity_diff_output",
+            "src/data/publicdata/target_data/qc/refseq_entity_diff.qc.json",
+        )
+        self.archive_dir = self.config.get(
+            "transform_archive_dir",
+            "src/data/publicdata/target_data/archive/cleaned/refseq",
+        )
         self.metadata = {
             "timestamp": {"start": datetime.now().isoformat()},
-            "data_sources": [],
             "processing_steps": [],
-            "outputs": []
+            "outputs": [],
         }
-        # Record data source
-        self.metadata["data_sources"].append({
-            "name": "RefSeq gene2refseq",
-            "path": self.decompressed,
-            "timestamp": datetime.now().isoformat()
-        })
 
     def fetch_and_process_data(self):
-        # 1. Load data
+        """Load and rename columns (UNCHANGED from original)."""
         logging.info(f"Loading RefSeq data from {self.decompressed}...")
-        start_read = datetime.now()
-        try:
-            df = pd.read_csv(self.decompressed, sep="\t", dtype=str)
-        except Exception as e:
-            logging.error(f"Error reading RefSeq data: {e}")
-            return None
-        end_read = datetime.now()
+        df = pd.read_csv(self.decompressed, sep="\t", dtype=str)
         records_before = len(df)
-        self.metadata["processing_steps"].append({
-            "step": "read_tsv",
-            "records": records_before,
-            "duration_seconds": (end_read - start_read).total_seconds()
-        })
 
-        # 2. Rename columns
-        logging.info("Renaming columns for RefSeq data...")
         rename_map = {
-            '#tax_id': 'refseq_tax_id',
-            'GeneID': 'refseq_ncbi_id',
-            'Symbol': 'refseq_symbol',
-            'status': 'refseq_status',
-            'Synonyms': 'refseq_synonyms',
-            'dbXrefs': 'refseq_dbxrefs',
-            'chromosome': 'refseq_chromosome',
-            'map_location': 'refseq_location',
-            'description': 'refseq_description',
-            'type_of_gene': 'refseq_gene_type',
+            '#tax_id': 'refseq_tax_id', 'GeneID': 'refseq_ncbi_id',
+            'Symbol': 'refseq_symbol', 'status': 'refseq_status',
+            'Synonyms': 'refseq_synonyms', 'dbXrefs': 'refseq_dbxrefs',
+            'chromosome': 'refseq_chromosome', 'map_location': 'refseq_location',
+            'description': 'refseq_description', 'type_of_gene': 'refseq_gene_type',
             'Modification_date': 'refseq_Modification_date',
             'Feature_type': 'refseq_feature_type',
             'RNA_nucleotide_accession.version': 'refseq_rna_id',
-            'protein_accession.version': 'refseq_protein_id'
+            'protein_accession.version': 'refseq_protein_id',
         }
         df.rename(columns=rename_map, inplace=True)
-        self.metadata["processing_steps"].append({
-            "step": "rename_columns",
-            "renamed": list(rename_map.items()),
-            "columns_after": df.columns.tolist()
-        })
 
-        # 3. Save transformed data
-        logging.info(f"Saving transformed RefSeq data to {self.transformed_data_path}...")
         os.makedirs(os.path.dirname(self.transformed_data_path), exist_ok=True)
-        try:
-            df.to_csv(self.transformed_data_path, index=False)
-        except Exception as e:
-            logging.error(f"Error saving transformed RefSeq data: {e}")
-            return None
+        df.to_csv(self.transformed_data_path, index=False)
 
-        self.metadata["outputs"].append({
-            "name": "RefSeq Transformed Data",
-            "path": self.transformed_data_path,
-            "records": records_before,
-            "generated_at": datetime.now().isoformat()
+        self.metadata["processing_steps"].append({
+            "step": "rename_columns", "records": records_before,
         })
-
-        # === Column-wise diff logic ===
-        qc_dir = "src/data/publicdata/target_data/qc"
-        os.makedirs(qc_dir, exist_ok=True)
-        base = os.path.splitext(os.path.basename(self.transformed_data_path))[0]
-        backup_path = os.path.join(qc_dir, f"{base}.backup.csv")
-        diff_csv_path = os.path.join(qc_dir, f"{base}_diff.csv")
-
-        if os.path.exists(backup_path):
-            try:
-                old_df = pd.read_csv(backup_path, dtype=str).fillna("")
-                new_df = df.fillna("")
-
-                join_col = "refseq_ncbi_id" if "refseq_ncbi_id" in df.columns else None
-                if join_col:
-                    old_df.set_index(join_col, inplace=True)
-                    new_df.set_index(join_col, inplace=True)
-
-                # Align both index and columns
-                common_cols = sorted(set(old_df.columns).intersection(new_df.columns))
-                old_df = old_df[common_cols].sort_index()
-                new_df = new_df[common_cols].sort_index()
-
-                diff_df = old_df.compare(new_df, keep_shape=False, keep_equal=False)
-                if not diff_df.empty:
-                    diff_df.to_csv(diff_csv_path)
-                    logging.info(f"✅ Cleaned CSV diff written to {diff_csv_path}")
-                    self.metadata["outputs"].append({
-                        "name": "RefSeq Cleaned Column Diff",
-                        "path": diff_csv_path,
-                        "generated_at": datetime.now().isoformat()
-                    })
-                else:
-                    logging.info("✅ No differences found in cleaned RefSeq output.")
-            except Exception as e:
-                logging.warning(f"⚠️ Could not generate column-level diff: {e}")
-
-        # Always update backup
-        df.to_csv(backup_path, index=False)
-
         return df
 
     def generate_concatenated_files(self, df):
-        if not self.config.get('global', {}).get('qc_mode', True):
-            logging.info('QC mode disabled, skipping concatenated QC files.')
-            return
-        # 4. Concatenate RNA IDs
+        """Generate gene-level concatenated RNA and protein files (RESTORED from original)."""
+        # RNA
         logging.info("Generating concatenated RNA IDs file...")
-        step_start = datetime.now()
         df_rna = df[df['refseq_rna_id'] != '-']
-        count_rna_in = len(df_rna)
-        rna_grouped = df_rna.groupby('refseq_ncbi_id')['refseq_rna_id']\
+        rna_grouped = df_rna.groupby('refseq_ncbi_id')['refseq_rna_id'] \
             .agg(lambda x: '|'.join(x.dropna().unique())).reset_index()
-        rna_output_path = self.config['refseq']['rna_concatenated_path']
-        os.makedirs(os.path.dirname(rna_output_path), exist_ok=True)
-        rna_grouped.to_csv(rna_output_path, index=False)
-        step_end = datetime.now()
-        self.metadata["processing_steps"].append({
-            "step": "concat_rna",
-            "input_records": count_rna_in,
-            "output_records": len(rna_grouped),
-            "duration_seconds": (step_end - step_start).total_seconds(),
-            "output": rna_output_path
-        })
+        rna_path = self.config['refseq']['rna_concatenated_path']
+        os.makedirs(os.path.dirname(rna_path), exist_ok=True)
+        rna_grouped.to_csv(rna_path, index=False)
+        logging.info(f"RNA concatenated: {len(rna_grouped)} genes → {rna_path}")
+
         self.metadata["outputs"].append({
-            "name": "RefSeq RNA Concatenated",
-            "path": rna_output_path,
-            "generated_at": datetime.now().isoformat()
+            "name": "RefSeq RNA Concatenated", "path": rna_path, "records": len(rna_grouped),
         })
 
-        # 5. Concatenate protein IDs
+        # Protein
         logging.info("Generating concatenated protein IDs file...")
-        step_start = datetime.now()
         df_prot = df[df['refseq_protein_id'] != '-']
-        count_prot_in = len(df_prot)
-        prot_grouped = df_prot.groupby('refseq_ncbi_id')['refseq_protein_id']\
+        prot_grouped = df_prot.groupby('refseq_ncbi_id')['refseq_protein_id'] \
             .agg(lambda x: ';'.join(x.dropna().unique())).reset_index()
-        prot_output_path = self.config['refseq']['protein_concatenated_path']
-        os.makedirs(os.path.dirname(prot_output_path), exist_ok=True)
-        prot_grouped.to_csv(prot_output_path, index=False)
-        step_end = datetime.now()
-        self.metadata["processing_steps"].append({
-            "step": "concat_protein",
-            "input_records": count_prot_in,
-            "output_records": len(prot_grouped),
-            "duration_seconds": (step_end - step_start).total_seconds(),
-            "output": prot_output_path
-        })
+        prot_path = self.config['refseq']['protein_concatenated_path']
+        os.makedirs(os.path.dirname(prot_path), exist_ok=True)
+        prot_grouped.to_csv(prot_path, index=False)
+        logging.info(f"Protein concatenated: {len(prot_grouped)} genes → {prot_path}")
+
         self.metadata["outputs"].append({
-            "name": "RefSeq Protein Concatenated",
-            "path": prot_output_path,
-            "generated_at": datetime.now().isoformat()
+            "name": "RefSeq Protein Concatenated", "path": prot_path, "records": len(prot_grouped),
         })
+
+        return rna_grouped, prot_grouped
+
+    def compute_entity_diff(self, old_df, new_df):
+        """
+        Vectorized entity diff on gene-level data.
+        Operates on the concatenated RNA file (~20-40k rows), not the raw 900k rows.
+        """
+        old_df = old_df.fillna("").astype(str)
+        new_df = new_df.fillna("").astype(str)
+
+        id_col = "refseq_ncbi_id"
+        old_ids = set(old_df[id_col])
+        new_ids = set(new_df[id_col])
+
+        added = sorted(new_ids - old_ids)
+        removed = sorted(old_ids - new_ids)
+
+        # Vectorized field comparison on common IDs
+        common_ids = old_ids & new_ids
+        old_common = old_df[old_df[id_col].isin(common_ids)].drop_duplicates(subset=[id_col]).set_index(id_col).sort_index()
+        new_common = new_df[new_df[id_col].isin(common_ids)].drop_duplicates(subset=[id_col]).set_index(id_col).sort_index()
+
+        # Align indexes
+        shared_idx = old_common.index.intersection(new_common.index)
+        shared_cols = [c for c in old_common.columns if c in new_common.columns]
+
+        field_changes = []
+        if shared_idx.any() and shared_cols:
+            old_aligned = old_common.loc[shared_idx, shared_cols]
+            new_aligned = new_common.loc[shared_idx, shared_cols]
+            diff_mask = old_aligned != new_aligned
+
+            for col in shared_cols:
+                changed_ids = diff_mask.index[diff_mask[col]]
+                for gid in changed_ids:
+                    field_changes.append({
+                        id_col: gid,
+                        "field": col,
+                        "old": old_aligned.at[gid, col],
+                        "new": new_aligned.at[gid, col],
+                    })
+
+        return {
+            "added_ids": added,
+            "removed_ids": removed,
+            "field_changes": field_changes[:1000],  # cap to avoid giant JSON
+            "n_added_ids": len(added),
+            "n_removed_ids": len(removed),
+            "n_field_changes": len(field_changes),
+        }
+
+    def archive_output(self, df):
+        version = datetime.now().strftime("%Y%m%d")
+        archive_path = Path(self.archive_dir) / version
+        archive_path.mkdir(parents=True, exist_ok=True)
+        outfile = archive_path / Path(self.transformed_data_path).name
+        df.to_csv(outfile, index=False)
+        return str(outfile)
 
     def run(self):
-        overall_start = datetime.now()
         df = self.fetch_and_process_data()
         if df is None:
-            logging.error("Transformation failed; no data.")
+            logging.error("Transformation failed.")
             return
-        self.generate_concatenated_files(df)
-        overall_end = datetime.now()
 
-        # Record final counts
-        num_in = len(pd.read_csv(self.decompressed, sep="\t", dtype=str))
-        num_out = len(df)
-        duration = (overall_end - overall_start).total_seconds()
+        rna_grouped, prot_grouped = self.generate_concatenated_files(df)
 
-        # Finalize metadata
-        self.metadata['timestamp']['end'] = overall_end.isoformat()
-        self.metadata['timestamp']['duration_seconds'] = duration
-        self.metadata['num_records_input'] = num_in
-        self.metadata['num_records_output'] = num_out
+        # Entity diff on the gene-level RNA concatenated file (not the 900k raw rows)
+        qc_dir = "src/data/publicdata/target_data/qc"
+        os.makedirs(qc_dir, exist_ok=True)
+        backup_file = os.path.join(qc_dir, "refseq_rna_concatenated.backup.csv")
 
-        # Write metadata to file
+        diff_summary = None
+        if os.path.exists(backup_file):
+            try:
+                old_df = pd.read_csv(backup_file, dtype=str)
+                diff_summary = self.compute_entity_diff(old_df, rna_grouped)
+                os.makedirs(os.path.dirname(self.entity_diff_file), exist_ok=True)
+                with open(self.entity_diff_file, "w") as f:
+                    json.dump(diff_summary, f, indent=2)
+                logging.info(f"Entity diff written → {self.entity_diff_file}")
+            except Exception as e:
+                logging.warning(f"Could not generate entity diff: {e}")
+
+        # Update backup with current gene-level data
+        rna_grouped.to_csv(backup_file, index=False)
+
+        archive_path = self.archive_output(df)
+
+        self.metadata["timestamp"]["end"] = datetime.now().isoformat()
+        self.metadata["output_file"] = self.transformed_data_path
+        self.metadata["archived_output"] = archive_path
+        self.metadata["num_records_input"] = len(df)
+        self.metadata["num_records_output"] = len(df)
+        self.metadata["summary"] = {
+            "final_rows": len(df),
+            "gene_count_rna": len(rna_grouped),
+            "gene_count_protein": len(prot_grouped),
+            "n_added_ids": diff_summary["n_added_ids"] if diff_summary else 0,
+            "n_removed_ids": diff_summary["n_removed_ids"] if diff_summary else 0,
+            "n_field_changes": diff_summary["n_field_changes"] if diff_summary else 0,
+            "entity_diff_file": self.entity_diff_file if diff_summary else None,
+        }
+
+        os.makedirs(os.path.dirname(self.metadata_file), exist_ok=True)
         with open(self.metadata_file, 'w') as mf:
             json.dump(self.metadata, mf, indent=2)
-        logging.info(f"Metadata written to {self.metadata_file}")
+        logging.info("RefSeq transform metadata written")
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Transform and clean RefSeq data")
+    parser = argparse.ArgumentParser(description="Transform RefSeq data")
     parser.add_argument("--config", type=str, default="config/targets_config.yaml")
     args = parser.parse_args()
     with open(args.config) as f:
