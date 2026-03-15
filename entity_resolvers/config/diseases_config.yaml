@@ -3,8 +3,18 @@ global:
   qc_mode: true
 
 mondo:
-  download_url: https://purl.obolibrary.org/obo/mondo.json
-  mondo_file: src/data/publicdata/disease_data/raw/mondo.json
+  # download
+  download_url: https://purl.obolibrary.org/obo/mondo.owl
+  raw_file: src/data/publicdata/disease_data/raw/mondo.owl
+  diff_file: src/data/publicdata/disease_data/qc/mondo_raw.owl.diff.txt
+
+  # existing transform inputs
+  json_file: src/data/publicdata/disease_data/raw/mondo.json
+  owl_file: src/data/publicdata/disease_data/raw/mondo.owl
+  json_download_url: https://purl.obolibrary.org/obo/mondo.json
+  owl_download_url: https://purl.obolibrary.org/obo/mondo.owl
+
+  # outputs
   cleaned_output: src/data/publicdata/disease_data/cleaned/sources/mondo_ids.csv
   obsolete_output: src/data/publicdata/disease_data/cleaned/sources/mondo_obsolete_ids.csv
   transform_metadata: src/data/publicdata/disease_data/metadata/mondo_transform_metadata.json
@@ -15,9 +25,12 @@ doid:
   download_url: http://purl.obolibrary.org/obo/doid.obo
   raw_file: src/data/publicdata/disease_data/raw/HumanDO.obo
   cleaned_file: src/data/publicdata/disease_data/cleaned/sources/doid.csv
+  obsolete_output_file: src/data/publicdata/disease_data/cleaned/sources/doid_obsolete_ids.csv
+
   dl_metadata_file: src/data/publicdata/disease_data/metadata/doid_dl_metadata.json
   transform_metadata_file: src/data/publicdata/disease_data/metadata/doid_transform_metadata.json
-  log_file: src/data/publicdata/disease_data/metadata/doid.log
+  log_file: src/data/publicdata/disease_data/logs/doid.log
+  diff_file: src/data/publicdata/disease_data/qc/doid_raw.obo.diff.txt
 
 medgen:
   medgen_id_mappings:
@@ -40,52 +53,77 @@ medgen:
 
   dl_metadata_file: src/data/publicdata/disease_data/metadata/medgen_download_metadata.json
   transform_metadata: src/data/publicdata/disease_data/metadata/medgen_transform_metadata.json
-  log_file: src/data/publicdata/disease_data/metadata/medgen_transform.log
+  log_file: src/data/publicdata/disease_data/logs/medgen.log
 
 orphanet:
-  owl_url: https://www.orphadata.com/data/ontologies/ordo/last_version/ORDO_en_4.6.owl
-  owl_file: src/data/publicdata/disease_data/raw/ORDO_en_4.6.owl
-  gene_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_gene_ids.csv
-  disease_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
+  owl_url: https://www.orphadata.com/data/ontologies/ordo/last_version/ORDO_en_4.8.owl
+  owl_file: src/data/publicdata/disease_data/raw/ORDO_en_4.8.owl
   xml_url: https://www.orphadata.com/data/xml/en_product6.xml
   xml_file: src/data/publicdata/disease_data/raw/orphanet_gene_associations.xml
+
+  owl_diff_file: src/data/publicdata/disease_data/qc/orphanet_ordo.owl.diff.txt
+  xml_diff_file: src/data/publicdata/disease_data/qc/orphanet_gene_assoc.xml.diff.txt
+
+  gene_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_gene_ids.csv
+  orphanet_obsolete_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_obsolete_ids.csv
+  disease_ids_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
   xml_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_gene_associations.csv
-  dl_metadata_file: src/data/publicdata/disease_data/metadata/orphanet_download_metadata.json
-  log_file: src/data/publicdata/disease_data/metadata/orphanet_download.log
-  transform_metadata: src/data/publicdata/disease_data/metadata/orphanet_transform_metadata.json
   cleaned_output: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
+
+  dl_metadata_file: src/data/publicdata/disease_data/metadata/orphanet_download_metadata.json
+  transform_metadata: src/data/publicdata/disease_data/metadata/orphanet_transform_metadata.json
+  log_file: src/data/publicdata/disease_data/logs/orphanet.log
 
 omim:
   raw_dir: src/data/publicdata/disease_data/raw
   input_file: src/data/publicdata/disease_data/raw/mimTitles.txt
+
   cleaned_genes_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_genes.csv
   cleaned_diseases_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_diseases.csv
   cleaned_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_obsolete.csv
+
   output_file: src/data/publicdata/disease_data/cleaned/sources/omim_api_data.json
   transformed_file: src/data/publicdata/disease_data/cleaned/sources/omim_gene2disease.csv
+
   dl_metadata_file: src/data/publicdata/disease_data/metadata/omim_download_metadata.json
   transform_metadata_file: src/data/publicdata/disease_data/metadata/omim_transform_metadata.json
-  log_file: src/data/publicdata/disease_data/metadata/omim.log
+  log_file: src/data/publicdata/disease_data/logs/omim.log
 
-umls: 
+umls:
   download_url: https://uts-ws.nlm.nih.gov/rest/content/current/CUI/lookup?string=disease&includeChildren=true&includeRoot=true&returnIdType=code
   raw_file: src/data/publicdata/disease_data/raw/umls_diseases.json
   cleaned_file: src/data/publicdata/disease_data/cleaned/sources/umls_diseases.csv
   dl_metadata_file: src/data/publicdata/disease_data/metadata/umls_dl_metadata.json
   transform_metadata_file: src/data/publicdata/disease_data/metadata/umls_transform_metadata.json
   log_file: src/data/publicdata/disease_data/metadata/umls.log
-  
+
+  # optional knobs:
+  autosave_every: 1000
+  checkpoint_file: src/data/publicdata/disease_data/metadata/umls_resume.checkpoint.json
+  cuis_cache_file: src/data/publicdata/disease_data/metadata/umls_discovered_cuis.json
+  page_size: 100
+  politeness_sleep: 0.1
+  log_every_pages: 10
+  checkpoint_every_pages: 10
+  suppress_checkpoint_log: true
+  log_level: INFO
+  heartbeat_secs: 30
+  max_pages: 5000
+  max_empty_pages: 5
+  no_growth_patience_pages: 300
+
 jensen:
   download_url: https://download.jensenlab.org/human_disease_integrated_full.tsv
   raw_file: src/data/publicdata/disease_data/raw/jensen_disease_gene_associations.tsv
   cleaned_file: src/data/publicdata/disease_data/cleaned/final/jensen_disease_gene_associations.csv
   dl_metadata_file: src/data/publicdata/disease_data/metadata/jensen_dl_metadata.json
   transform_metadata_file: src/data/publicdata/disease_data/metadata/jensen_transform_metadata.json
-  log_file: src/data/publicdata/disease_data/metadata/jensen.log
+  log_file: src/data/publicdata/disease_data/logs/jensen.log
+  diff_file: src/data/publicdata/disease_data/qc/jensen_disease_gene_associations.tsv.diff.txt
   protein_id_file: src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.csv
 
 nodenorm:
-  url_base: https://stars.renci.org/var/babel_outputs/
+  url_base: https://stars.renci.org/var/babel_outputs/latest/compendia/
   raw_file: src/data/publicdata/disease_data/raw/nodenorm_disease.txt
   diff_file: src/data/publicdata/disease_data/metadata/nodenorm_disease.diff.txt
   cleaned_output: src/data/publicdata/disease_data/cleaned/sources/nodenorm_disease.csv
@@ -100,6 +138,11 @@ disease_merge:
   orphanet_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/orphanet_disease_ids.csv
   medgen_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/medgen_id_mappings.csv
   nodenorm_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/nodenorm_disease.csv
+  gard_cleaned_file: src/data/publicdata/disease_data/cleaned/sources/gard_cleaned.csv
+  mondo_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/mondo_obsolete_ids.csv
+  doid_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/doid_obsolete_ids.csv
+  omim_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_obsolete.csv
+  orphanet_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/orphanet_obsolete_ids.csv
   output_dir: src/data/publicdata/disease_data/cleaned/merged/
   merged_output: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_provenance.csv
   stats_output: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_stats.qc.csv
@@ -107,7 +150,171 @@ disease_merge:
   log_file: src/data/publicdata/disease_data/logs/disease_merge.log
   transform_metadata_file: src/data/publicdata/disease_data/metadata/disease_merge_metadata.json
 
-disease_name_cluster:
-  input_file: src/data/publicdata/disease_data/cleaned/sources/disease_mapping_provenance.csv
-  output_file: src/data/publicdata/disease_data/cleaned/sources/disease_name_clusters.tsv
-  metadata_file: src/data/publicdata/disease_data/metadata/disease_name_cluster_metadata.json
+disease_ids:
+  harmonization_file: src/data/publicdata/disease_data/harmonized/disease_harmonization.csv
+  cache_file: src/data/publicdata/disease_data/cleaned/nodes/disease_ids.tsv
+  output_file: src/data/publicdata/disease_data/cleaned/nodes/disease_ids.tsv
+  xref_file: src/data/publicdata/disease_data/cleaned/nodes/disease_xref.tsv
+  metadata_file: src/data/publicdata/disease_data/metadata/disease_ids_metadata.json
+  log_file: src/data/publicdata/disease_data/logs/disease_ids.log
+  skip_nodenorm: false
+
+obsolete_flag_analysis:
+  log_file: src/data/publicdata/disease_data/logs/obsolete_flag_analysis.log
+  mismatches_file: src/data/publicdata/disease_data/qc/mismatches.csv
+  cardinality_file: src/data/publicdata/disease_data/qc/cardinality.csv
+  mondo_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/mondo_obsolete_ids.csv
+  doid_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/doid_obsolete_ids.csv
+  omim_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/OMIM_obsolete.csv
+  orphanet_obsolete_file: src/data/publicdata/disease_data/cleaned/sources/orphanet_obsolete_ids.csv
+  output_dir: src/data/publicdata/disease_data/qc/obsolete_analysis
+  summary_file: src/data/publicdata/disease_data/qc/obsolete_analysis/obsolete_flag_summary.csv
+  metadata_file: src/data/publicdata/disease_data/qc/obsolete_analysis/obsolete_flag_analysis_metadata.json
+
+semantic_disease_resolver:
+  enforce_mondo_purity: true
+  model_path: src/data/publicdata/disease_data/index/sentence_model
+  names_file: src/data/publicdata/disease_data/cleaned/all_disease_names.tsv
+  faiss_index_path: src/data/publicdata/disease_data/index/layered_disease_index.faiss
+  metadata_file: src/data/publicdata/disease_data/index/layered_disease_index_metadata.csv
+  log_file: src/data/publicdata/disease_data/metadata/semantic_resolver.log
+
+  top_k: 15
+  min_score: 0.85
+  cluster_threshold: 0.96
+  score_min: 0.95
+  model_name: cambridgeltl/SapBERT-from-PubMedBERT-fulltext
+  batch_size: 1024
+
+  pivot_output: src/data/publicdata/disease_data/cleaned/resolved_clusters_pivot.tsv
+  embedding_output: "src/data/publicdata/disease_data/intermediate/embeddings.npy"
+  faiss_output: "src/data/publicdata/disease_data/intermediate/faiss_results.tsv"
+  child_to_parents: src/data/publicdata/disease_data/cleaned/sources/child_to_parents.json
+  parent_to_children: src/data/publicdata/disease_data/cleaned/sources/parent_to_children.json
+  mondo_siblings: src/data/publicdata/disease_data/cleaned/sources/sibling_terms.json
+  ontology_blocked_file: src/data/publicdata/disease_data/cleaned/ontology_blocked_pairs.tsv
+  output_clusters: src/data/publicdata/disease_data/cleaned/semantic_clusters.tsv
+  output_score_file: src/data/publicdata/disease_data/cleaned/semantic_cluster_scores.tsv
+  synonym_validation_output: src/data/publicdata/disease_data/qc/split_synonym_groups.tsv
+  flagged_output_file: src/data/publicdata/disease_data/cleaned/flagged_clusters.tsv
+  blocked_pairs_file: src/data/publicdata/disease_data/cleaned/distinctive_token_violations.tsv
+  output_representatives: src/data/publicdata/disease_data/cleaned/semantic_representatives.tsv
+  output_final: src/data/publicdata/disease_data/cleaned/final_disease_clusters.tsv
+  stats_output: src/data/publicdata/disease_data/cleaned/disease_mapping_stats.tsv
+
+  distinctive_tokens:
+    # Laterality / anatomical
+    - left
+    - right
+    - bilateral
+    - unilateral
+    - upper
+    - lower
+    - anterior
+    - posterior
+    - proximal
+    - distal
+    - large
+    - small
+    - central
+    - peripheral
+    - medial
+    - lateral
+    - dorsal
+    - ventral
+    - cranial
+    - caudal
+    - superior
+    - inferior
+    - apical
+    - basal
+    - frontal
+    - temporal
+    - occipital
+    - parietal
+    - occipital
+
+    # Age-related
+    - adult
+    - pediatric
+    - neonatal
+    - congenital
+    - juvenile
+    - infantile
+    - perinatal
+    - childhood
+    - late-onset
+    - early-onset
+
+    # Stage / severity / grade
+    - stage i
+    - stage ii
+    - stage iii
+    - stage iv
+    - mild
+    - moderate
+    - severe
+    - recurrent
+    - progressive
+    - acute
+    - chronic
+    - subacute
+    - first
+    - second
+    - third 
+    - fourth
+    - initial
+    - subsequent
+
+    # Type / subtype markers
+    - type 1
+    - type 2
+    - type i
+    - type ii
+    - variant
+    - form
+    - subtype
+    - class
+    - grade 1
+    - grade 2
+    - grade 3
+
+    # Etiology / inheritance / other
+    - familial
+    - sporadic
+    - idiopathic
+    - hereditary
+    - secondary
+    - primary
+    - inherited
+    - acquired
+    - non-neoplastic
+    - neoplastic
+    - localized
+    - systemic
+    - drug-induced
+    - autosomal dominant
+    - autosomal recessive
+    - dominant
+    - recessive  
+
+  # LLM post-validation
+  use_llm: true
+  llm_model: "Athena-v3-AWQ"
+  llm_min_score_for_review: 0.95
+  log_file: "logs/semantic_resolver.log"
+  llm_sample_size_per_cluster: 5
+  llm_max_clusters: 2000          
+  llm_max_workers: 8              
+
+disease_name_infer:
+  input_file: src/data/publicdata/disease_data/cleaned/sources/GARD_ids.csv
+  input_column: GARD_preferred_label
+  output_file: src/data/publicdata/disease_data/cleaned/inferred_gard_clusters.tsv
+  top_k: 5
+  score_threshold: 0.70
+
+lookup:
+  top_k: 5
+  min_score: 0.7
+  model_name: all-MiniLM-L6-v2

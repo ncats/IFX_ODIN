@@ -145,6 +145,14 @@ pathways:
         raw_path: src/data/publicdata/pathway_data/raw/wikipathways_human_pathways.json
         csv_path: src/data/publicdata/pathway_data/cleaned/sources/wikipathways_human_pathways.tsv
 
+nodenorm_pathway:
+  url_base: "https://stars.renci.org/var/babel_outputs/latest/compendia"
+  raw_file: "src/data/publicdata/pathway_data/raw/nodenorm_Pathway.txt"
+  cleaned_file: "src/data/publicdata/pathway_data/cleaned/sources/nodenorm_pathways.csv"
+  dl_metadata_file: "src/data/publicdata/pathway_data/metadata/nodenorm_pathway_download_metadata.json"
+  transform_metadata_file: "src/data/publicdata/pathway_data/metadata/nodenorm_pathway_transform_metadata.json"
+  log_file: "src/data/publicdata/pathway_data/metadata/nodenorm_pathway.log"
+  diff_file: "src/data/publicdata/pathway_data/qc/nodenorm_pathway.diff.txt"   # optional
 
 pathways_merge:
   reactome_file: src/data/publicdata/pathway_data/cleaned/sources/reactome_pathways.csv

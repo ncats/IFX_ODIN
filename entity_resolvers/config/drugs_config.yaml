@@ -2,10 +2,25 @@ global:
   qc_mode: true
 
 gsrs:
-  url: https://gsrs.ncats.nih.gov/downloads/dump-public-2024-08-29.gsrs
-  raw_file: src/data/publicdata/drug_data/raw/gsrs_public_2024_08_29.json.gz
+  url: https://gsrs.ncats.nih.gov/assets/downloads/dump-public-2025-08-21.gsrs
+  raw_file: src/data/publicdata/drug_data/raw/gsrs_public_2025_08_21.json.gz
   dl_metadata_file: src/data/publicdata/drug_data/metadata/gsrs_download_metadata.json
   log_file: src/data/publicdata/drug_data/logs/gsrs.log
   cleaned_file: src/data/publicdata/drug_data/cleaned/gsrs_drug_ids.tsv
   transform_metadata_file: src/data/publicdata/drug_data/metadata/gsrs_transform_metadata.json
+
+oopd:
+  url: https://www.accessdata.fda.gov/scripts/opdlisting/oopd/OOPD_Results_Public.cfm?Index_Number=&Generic_Name=&Trade_Name=&Sponsor_Company=&Indication=&Designation_Date=&Approval_Status=&Approval_Date=
+  raw_file: src/data/publicdata/drug_data/raw/oopd.xls
+  dl_metadata_file: src/data/publicdata/drug_data/metadata/oopd_download_metadata.json
+  log_file: src/data/publicdata/drug_data/logs/oopd.log
+  cleaned_file: src/data/publicdata/drug_data/cleaned/oopd_orphan_drugs.tsv
+  transform_metadata_file: src/data/publicdata/drug_data/metadata/oopd_transform_metadata.json
+
+drug_merge:
+  gsrs_file: src/data/publicdata/drug_data/cleaned/gsrs_drug_ids.tsv
+  oopd_file: src/data/publicdata/drug_data/cleaned/oopd_orphan_drugs.tsv
+  output_file: src/data/publicdata/drug_data/cleaned/drugs_merged.tsv
+  metadata_file: src/data/publicdata/drug_data/metadata/drug_merge_metadata.json
+  log_file: src/data/publicdata/drug_data/logs/drug_merge.log
 
