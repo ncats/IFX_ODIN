@@ -9,6 +9,11 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 import argparse
 
+try:
+    from publicdata.disease_data.transform_diff_utils import compute_dataframe_diff, write_diff_json
+except ImportError:
+    from transform_diff_utils import compute_dataframe_diff, write_diff_json
+
 
 def setup_logging(log_path):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -47,9 +52,6 @@ def explode_and_pivot(df, id_col, xref_col):
 
 
 def clean_pipe_column(series, replace_prefix=None, new_prefix=None, strip_prefix=False):
-    """
-    Generic cleaner for pipe-delimited CURIE columns.
-    """
     series = series.replace("nan", pd.NA).fillna("")
 
     def _clean(val):
@@ -114,33 +116,21 @@ class DOIDTransformer:
         }
 
     def _finalize_df(self, df):
-        """
-        Apply the same xref pivoting + column cleanup logic to either
-        the active or obsolete dataframe.
-        """
         if df.empty:
             return df
 
         df = df.copy()
         df = df[df["DOID"].str.startswith("DOID:")].drop_duplicates()
 
-        # Explode + Pivot xrefs into columns
         df = explode_and_pivot(df, "DOID", "database_cross_reference")
-
-        # Add doid_ prefix to all columns except DOID
         df.rename(columns={col: f"doid_{col}" for col in df.columns}, inplace=True)
 
         if "doid_database_cross_reference" in df.columns:
             df.drop(columns=["doid_database_cross_reference"], inplace=True)
 
-        # Clean UMLS_CUI: remove prefix
         if "doid_UMLS_CUI" in df.columns:
-            df["doid_UMLS_CUI"] = clean_pipe_column(
-                df["doid_UMLS_CUI"],
-                strip_prefix=True
-            )
+            df["doid_UMLS_CUI"] = clean_pipe_column(df["doid_UMLS_CUI"], strip_prefix=True)
 
-        # Clean SNOMEDCT_US_2023_03_01 -> SNOMEDCT
         if "doid_SNOMEDCT_US_2023_03_01" in df.columns:
             df["doid_SNOMEDCT_US_2023_03_01"] = clean_pipe_column(
                 df["doid_SNOMEDCT_US_2023_03_01"],
@@ -149,31 +139,15 @@ class DOIDTransformer:
             )
             df.rename(columns={"doid_SNOMEDCT_US_2023_03_01": "doid_SNOMEDCT"}, inplace=True)
 
-        # Clean MIM -> OMIM
         if "doid_MIM" in df.columns:
-            df["doid_MIM"] = clean_pipe_column(
-                df["doid_MIM"],
-                replace_prefix="MIM:",
-                new_prefix="OMIM:"
-            )
+            df["doid_MIM"] = clean_pipe_column(df["doid_MIM"], replace_prefix="MIM:", new_prefix="OMIM:")
 
-        # Clean ICD9CM -> ICD9
         if "doid_ICD9CM" in df.columns:
-            df["doid_ICD9CM"] = clean_pipe_column(
-                df["doid_ICD9CM"],
-                replace_prefix="ICD9CM:",
-                new_prefix="ICD9:"
-            )
+            df["doid_ICD9CM"] = clean_pipe_column(df["doid_ICD9CM"], replace_prefix="ICD9CM:", new_prefix="ICD9:")
 
-        # Clean NCI -> NCIT
         if "doid_NCI" in df.columns:
-            df["doid_NCI"] = clean_pipe_column(
-                df["doid_NCI"],
-                replace_prefix="NCI:",
-                new_prefix="NCIT:"
-            )
+            df["doid_NCI"] = clean_pipe_column(df["doid_NCI"], replace_prefix="NCI:", new_prefix="NCIT:")
 
-        # List of SNOMEDCT versioned columns to drop
         snomed_cols = [
             "doid_SNOMEDCT_US_2020_03_01", "doid_SNOMEDCT_US_2020_09_01",
             "doid_SNOMEDCT_US_2021_07_31", "doid_SNOMEDCT_US_2021_09_01",
@@ -191,7 +165,6 @@ class DOIDTransformer:
             logging.error(f"Missing file: {self.input_file}")
             return
 
-        logging.info(f"🔄 Parsing DOID: {self.input_file}")
         ontology = Ontology(self.input_file)
 
         active_records = []
@@ -208,24 +181,41 @@ class DOIDTransformer:
             else:
                 active_records.append(record)
 
-        active_df = pd.DataFrame(active_records)
-        obsolete_df = pd.DataFrame(obsolete_records)
+        active_df = self._finalize_df(pd.DataFrame(active_records))
+        obsolete_df = self._finalize_df(pd.DataFrame(obsolete_records))
 
-        logging.info(f"  Active DOID terms:   {len(active_df):,}")
-        logging.info(f"  Obsolete DOID terms: {len(obsolete_df):,}")
+        prev_active = self.output_file.with_suffix(".previous.csv")
+        prev_obsolete = self.obsolete_output_file.with_suffix(".previous.csv")
 
-        active_df = self._finalize_df(active_df)
-        obsolete_df = self._finalize_df(obsolete_df)
+        if prev_active.exists():
+            old_df = pd.read_csv(prev_active, dtype=str)
+            diff = compute_dataframe_diff(
+                old_df,
+                active_df,
+                id_col="doid_DOID",
+                label_col="doid_preferred_label",
+                compare_cols=[c for c in active_df.columns if c.startswith("doid_") and c not in ["doid_DOID", "doid_preferred_label"]]
+            )
+            write_diff_json(diff, self.output_file.with_name("doid_changes.qc.json"))
+
+        if prev_obsolete.exists():
+            old_obs = pd.read_csv(prev_obsolete, dtype=str)
+            obs_diff = compute_dataframe_diff(
+                old_obs,
+                obsolete_df,
+                id_col="doid_DOID",
+                label_col="doid_preferred_label"
+            )
+            write_diff_json(obs_diff, self.obsolete_output_file.with_name("doid_obsolete_changes.qc.json"))
 
         os.makedirs(self.output_file.parent, exist_ok=True)
         os.makedirs(self.obsolete_output_file.parent, exist_ok=True)
         os.makedirs(self.meta_file.parent, exist_ok=True)
 
         active_df.to_csv(self.output_file, index=False)
-        logging.info(f"✅ Cleaned DOID saved → {self.output_file}")
-
         obsolete_df.to_csv(self.obsolete_output_file, index=False)
-        logging.info(f"✅ Obsolete DOID saved → {self.obsolete_output_file}")
+        active_df.to_csv(prev_active, index=False)
+        obsolete_df.to_csv(prev_obsolete, index=False)
 
         metadata = {
             "timestamp": datetime.now().isoformat(),
@@ -237,8 +227,6 @@ class DOIDTransformer:
         }
         with open(self.meta_file, "w") as f:
             json.dump(metadata, f, indent=2)
-
-        logging.info(f"📜 Metadata written → {self.meta_file}")
 
     def run(self):
         self.transform()

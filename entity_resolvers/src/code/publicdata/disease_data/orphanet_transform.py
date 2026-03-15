@@ -1,9 +1,4 @@
-# orphanet_transform.py - Parses Orphanet OWL and XML files, transforms to CSV
-# Outputs:
-#   - active disease IDs CSV
-#   - gene-related rows CSV
-#   - gene association XML-derived CSV
-#   - orphanet_obsolete_ids.csv (new)
+# orphanet_transform.py - Parses Orphanet OWL and XML files, transforms to CSV with QC diffs
 
 import os
 import rdflib
@@ -15,22 +10,23 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from publicdata.disease_data.transform_diff_utils import compute_dataframe_diff, write_diff_json
+except ImportError:
+    from transform_diff_utils import compute_dataframe_diff, write_diff_json
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, mode="a"),
-            logging.StreamHandler()
-        ],
+        handlers=[logging.FileHandler(log_file, mode="a"), logging.StreamHandler()],
         force=True,
     )
 
 
 def normalize_mondo_id(mondo_str):
-    """Normalize MONDO IDs to have 7 digits with leading zeros."""
     if pd.isna(mondo_str) or str(mondo_str).strip() == "":
         return None
 
@@ -53,7 +49,6 @@ def normalize_mondo_id(mondo_str):
 
 
 def prefix_pipe_values(val, prefix):
-    """Prefix each pipe-delimited token with a CURIE prefix."""
     if pd.isna(val) or str(val).strip() == "":
         return None
     vals = [f"{prefix}{v.strip()}" for v in str(val).split("|") if v.strip()]
@@ -62,7 +57,6 @@ def prefix_pipe_values(val, prefix):
 
 
 def clean_obsolete_label(name):
-    """Remove leading OBSOLETE: from labels for the obsolete export."""
     if pd.isna(name):
         return name
     name = str(name).strip()
@@ -83,7 +77,6 @@ class OrphanetTransformer:
         self.xml_output = Path(self.cfg["xml_output"])
         self.metadata_file = Path(self.cfg["transform_metadata"])
 
-        # New: obsolete output path
         self.orphanet_obsolete_output = Path(
             self.cfg.get(
                 "orphanet_obsolete_output",
@@ -98,7 +91,6 @@ class OrphanetTransformer:
         os.makedirs(self.orphanet_obsolete_output.parent, exist_ok=True)
 
     def parse_owl(self):
-        logging.info(f"📖 Parsing OWL file: {self.owl_file}")
         g = rdflib.Graph()
         g.parse(self.owl_file, format="xml")
 
@@ -129,18 +121,14 @@ class OrphanetTransformer:
 
             records.append((orpha_id, str(name), str(definition), "|".join(xrefs)))
 
-        df = pd.DataFrame(
-            records,
-            columns=["Orphanet_ID", "Disease_Name", "Definition", "Mappings"]
-        )
+        df = pd.DataFrame(records, columns=["Orphanet_ID", "Disease_Name", "Definition", "Mappings"])
 
         if df.empty:
-            logging.warning("No Orphanet OWL disease rows parsed.")
             empty_df = pd.DataFrame()
             empty_df.to_csv(self.disease_ids_output, index=False)
             empty_df.to_csv(self.gene_ids_output, index=False)
             empty_df.to_csv(self.orphanet_obsolete_output, index=False)
-            return empty_df
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         detected_sources = sorted(sources)
 
@@ -154,10 +142,8 @@ class OrphanetTransformer:
         for source in detected_sources:
             df[source] = df["Mappings"].apply(lambda x: extract_mapping(x, source))
 
-        # Add base CURIE for Orphanet
         df["Orphanet_ID"] = "Orphanet:" + df["Orphanet_ID"].astype(str)
 
-        # Prefix selected xref columns
         prefix_dict = {
             "ICD-10": "ICD10CM:",
             "ICD-11": "ICD11:",
@@ -174,28 +160,22 @@ class OrphanetTransformer:
                 else:
                     df[col] = df[col].apply(lambda x: prefix_pipe_values(x, prefix))
 
-        # Flag obsolete BEFORE splitting
         df["is_obsolete"] = df["Disease_Name"].astype(str).str.startswith("OBSOLETE:", na=False)
 
-        # Save obsolete rows separately
         obsolete_df = df[df["is_obsolete"]].copy()
         if not obsolete_df.empty:
             obsolete_df["Disease_Name"] = obsolete_df["Disease_Name"].apply(clean_obsolete_label)
 
-        # Active rows only continue into disease/gene split
         active_df = df[~df["is_obsolete"]].copy()
 
-        # Drop raw mappings after extraction
         if "Mappings" in obsolete_df.columns:
             obsolete_df.drop(columns=["Mappings"], inplace=True)
         if "Mappings" in active_df.columns:
             active_df.drop(columns=["Mappings"], inplace=True)
 
-        # Rename columns to orphanet_* after split prep
         obsolete_df.rename(columns={col: f"orphanet_{col}" for col in obsolete_df.columns}, inplace=True)
         active_df.rename(columns={col: f"orphanet_{col}" for col in active_df.columns}, inplace=True)
 
-        # Split active rows into gene-related vs disease-only rows
         gene_cols = ["orphanet_Ensembl", "orphanet_Genatlas", "orphanet_HGNC"]
         for gc in gene_cols:
             if gc not in active_df.columns:
@@ -206,7 +186,6 @@ class OrphanetTransformer:
         gene_df = active_df[gene_mask].copy()
         disease_df = active_df[~gene_mask].copy()
 
-        # Drop unwanted gene-related columns from disease_df
         drop_cols = [
             "orphanet_ClinVar",
             "orphanet_Ensembl",
@@ -216,31 +195,11 @@ class OrphanetTransformer:
             "orphanet_Reactome",
             "orphanet_SwissProt"
         ]
-        disease_df.drop(
-            columns=[col for col in drop_cols if col in disease_df.columns],
-            inplace=True
-        )
+        disease_df.drop(columns=[col for col in drop_cols if col in disease_df.columns], inplace=True)
 
-        # Save outputs
-        logging.info(f"📂 Saving orphanet disease IDs to {self.disease_ids_output}")
-        disease_df.to_csv(self.disease_ids_output, index=False)
-
-        logging.info(f"📂 Saving orphanet gene-related rows to {self.gene_ids_output}")
-        gene_df.to_csv(self.gene_ids_output, index=False)
-
-        logging.info(f"📂 Saving orphanet obsolete IDs to {self.orphanet_obsolete_output}")
-        obsolete_df.to_csv(self.orphanet_obsolete_output, index=False)
-
-        logging.info(
-            f"  Active disease rows: {len(disease_df):,} | "
-            f"Gene-related rows: {len(gene_df):,} | "
-            f"Obsolete rows: {len(obsolete_df):,}"
-        )
-
-        return active_df
+        return disease_df, gene_df, obsolete_df
 
     def parse_xml(self):
-        logging.info(f"📖 Parsing XML file: {self.xml_file}")
         root = ET.parse(self.xml_file).getroot()
         records = []
         disorder_list = root.find("DisorderList")
@@ -280,43 +239,61 @@ class OrphanetTransformer:
 
         df = pd.DataFrame(records)
         df.rename(columns={col: f"orphanet_{col}" for col in df.columns}, inplace=True)
-
-        logging.info(f"📂 Saving gene associations to {self.xml_output}")
-        df.to_csv(self.xml_output, index=False)
         return df
 
     def run(self):
-        owl_df = self.parse_owl()
+        disease_df, gene_df, obsolete_df = self.parse_owl()
         xml_df = self.parse_xml()
 
-        # Read obsolete count back from file if present
-        obsolete_count = 0
-        if self.orphanet_obsolete_output.exists():
-            try:
-                obsolete_count = len(pd.read_csv(self.orphanet_obsolete_output, dtype=str))
-            except Exception:
-                obsolete_count = 0
+        prev_disease = self.disease_ids_output.with_suffix(".previous.csv")
+        prev_obsolete = self.orphanet_obsolete_output.with_suffix(".previous.csv")
+
+        if prev_disease.exists():
+            old_df = pd.read_csv(prev_disease, dtype=str)
+            diff = compute_dataframe_diff(
+                old_df,
+                disease_df,
+                id_col="orphanet_Orphanet_ID",
+                label_col="orphanet_Disease_Name",
+                compare_cols=[c for c in disease_df.columns if c.startswith("orphanet_") and c not in ["orphanet_Orphanet_ID", "orphanet_Disease_Name"]]
+            )
+            write_diff_json(diff, self.disease_ids_output.with_name("orphanet_changes.qc.json"))
+
+        if prev_obsolete.exists():
+            old_obs = pd.read_csv(prev_obsolete, dtype=str)
+            obs_diff = compute_dataframe_diff(
+                old_obs,
+                obsolete_df,
+                id_col="orphanet_Orphanet_ID",
+                label_col="orphanet_Disease_Name"
+            )
+            write_diff_json(obs_diff, self.orphanet_obsolete_output.with_name("orphanet_obsolete_changes.qc.json"))
+
+        disease_df.to_csv(self.disease_ids_output, index=False)
+        gene_df.to_csv(self.gene_ids_output, index=False)
+        obsolete_df.to_csv(self.orphanet_obsolete_output, index=False)
+        xml_df.to_csv(self.xml_output, index=False)
+
+        disease_df.to_csv(prev_disease, index=False)
+        obsolete_df.to_csv(prev_obsolete, index=False)
 
         meta = {
             "timestamp": datetime.now().isoformat(),
-            "owl_records_active": len(owl_df),
+            "disease_records": len(disease_df),
+            "gene_records": len(gene_df),
+            "obsolete_records": len(obsolete_df),
             "xml_records": len(xml_df),
             "disease_ids_output": str(self.disease_ids_output),
             "gene_ids_output": str(self.gene_ids_output),
             "xml_output": str(self.xml_output),
             "orphanet_obsolete_output": str(self.orphanet_obsolete_output),
-            "orphanet_obsolete_rows": obsolete_count,
         }
 
         with open(self.metadata_file, "w") as f:
             json.dump(meta, f, indent=2)
 
-        logging.info(f"🗜 Metadata saved → {self.metadata_file}")
-
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Transform Orphanet OWL + XML")
     parser.add_argument("--config", required=True, help="Path to YAML config")
     args = parser.parse_args()

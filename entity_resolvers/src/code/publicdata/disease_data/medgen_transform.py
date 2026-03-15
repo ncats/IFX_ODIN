@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-
-# medgen_transform.py - MedGen data parser and pivot transformer
+# medgen_transform.py - MedGen data parser and pivot transformer with QC diffs
 
 import os
 import pandas as pd
@@ -11,17 +10,21 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+try:
+    from publicdata.disease_data.transform_diff_utils import compute_dataframe_diff, write_diff_json
+except ImportError:
+    from transform_diff_utils import compute_dataframe_diff, write_diff_json
+
+
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, mode="a"),
-            logging.StreamHandler()
-        ],
+        handlers=[logging.FileHandler(log_file, mode="a"), logging.StreamHandler()],
         force=True
     )
+
 
 class MedGenTransformer:
     def __init__(self, config):
@@ -35,8 +38,7 @@ class MedGenTransformer:
         df.dropna(axis=1, how="all", inplace=True)
 
         if df.shape[1] != len(column_names):
-            logging.warning(f"Expected {len(column_names)} columns but found {df.shape[1]} in {file_path}")
-            raise ValueError("Column mismatch detected.")
+            raise ValueError(f"Expected {len(column_names)} columns but found {df.shape[1]} in {file_path}")
 
         df.columns = column_names
 
@@ -83,7 +85,6 @@ class MedGenTransformer:
             if col in df_pivoted:
                 df_pivoted[col] = df_pivoted[col].apply(lambda x: self.apply_prefix(x, prefix))
 
-        # Clean "medgen_OMIM Phenotypic Series": PS101800 → OMIMPS:101800
         omimps_col = "medgen_OMIM Phenotypic Series"
         if omimps_col in df_pivoted.columns:
             df_pivoted[omimps_col] = df_pivoted[omimps_col].apply(
@@ -93,12 +94,23 @@ class MedGenTransformer:
                 ) if pd.notna(x) else x
             )
 
+        prev = Path(output_file).with_suffix(".previous.csv")
+        if prev.exists():
+            old_df = pd.read_csv(prev, dtype=str)
+            diff = compute_dataframe_diff(
+                old_df,
+                df_pivoted,
+                id_col="medgen_UMLS",
+                label_col="medgen_Preferred_Name",
+                compare_cols=[c for c in df_pivoted.columns if c.startswith("medgen_") and c not in ["medgen_UMLS", "medgen_Preferred_Name"]]
+            )
+            write_diff_json(diff, Path(output_file).with_name("medgen_changes.qc.json"))
+
         df_pivoted.to_csv(output_file, index=False)
-        logging.info(f"✅ Saved pivoted data → {output_file}")
+        df_pivoted.to_csv(prev, index=False)
 
     def save_flat(self, df, output_file):
         df.to_csv(output_file, index=False)
-        logging.info(f"✅ Saved flat data → {output_file}")
 
     def run(self):
         metadata = {
@@ -117,7 +129,6 @@ class MedGenTransformer:
             column_names = entry["column_names"]
 
             try:
-                logging.info(f"Parsing: {input_path}")
                 df = self.parse_and_clean(input_path, column_names)
 
                 if "medgen_id_mappings.csv" in output_file:
@@ -132,7 +143,6 @@ class MedGenTransformer:
                     "records": len(df)
                 })
             except Exception as e:
-                logging.error(f"❌ Error processing {key}: {e}")
                 metadata["files"].append({
                     "label": key,
                     "input_file": str(input_path),
@@ -143,7 +153,7 @@ class MedGenTransformer:
 
         with open(self.metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        logging.info(f"📝 Metadata written → {self.metadata_path}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
