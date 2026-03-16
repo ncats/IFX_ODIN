@@ -1,6 +1,5 @@
 from abc import ABC
 from datetime import datetime
-from sqlalchemy import inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
@@ -53,9 +52,8 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
 
                     table_class = converted_objects[0].__class__
                     print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
-                    mapper = inspect(table_class)
                     rows = [
-                        {col.key: getattr(obj, col.key) for col in mapper.columns}
+                        {k: v for k, v in obj.__dict__.items() if k != '_sa_instance_state'}
                         for obj in converted_objects
                     ]
                     stmt = mysql_insert(table_class.__table__).prefix_with('IGNORE')
