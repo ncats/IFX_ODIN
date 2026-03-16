@@ -1,5 +1,7 @@
 rule all:
     input:
+        "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
+        "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv",
         "../input_files/manual/target_graph/gene_ids.csv",
         "../input_files/manual/target_graph/protein_ids.csv",
         "../input_files/manual/target_graph/transcript_ids.csv",
@@ -27,7 +29,9 @@ rule all:
         "../input_files/auto/hpa/rna_tissue_hpa.tsv.zip",
         "../input_files/auto/hpa/hpa_version.tsv",
         "../input_files/auto/jensenlab/human_tissue_integrated_full.tsv",
-        "../input_files/auto/jensenlab/tissues_version.tsv"
+        "../input_files/auto/jensenlab/tissues_version.tsv",
+        "../input_files/auto/wikipathways/wikipathways_human.gmt",
+        "../input_files/auto/wikipathways/wikipathways_version.tsv"
 
 rule download_jensenlab_tissues:
     output:
@@ -151,3 +155,40 @@ rule download_mondo:
         "../input_files/auto/mondo/mondo.json"
     shell:
         "curl -L -o {output} https://purl.obolibrary.org/obo/mondo.json"
+
+rule download_pathwaycommons:
+    output:
+        "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
+        "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/pathwaycommons
+        curl -fL -o {output[0]} https://download.baderlab.org/PathwayCommons/PC2/v14/pc-hgnc.gmt.gz
+        curl -fs https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt | python3 -c "import sys,re; from datetime import datetime; data=sys.stdin.read(); m=re.search(r'PC version (\d+) (\d+ \w+ \d+)',data); v=m.group(1); dt=datetime.strptime(m.group(2),'%d %b %Y').date().isoformat(); open('{output[1]}','w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')"
+        """
+
+rule download_wikipathways:
+    output:
+        "../input_files/auto/wikipathways/wikipathways_human.gmt",
+        "../input_files/auto/wikipathways/wikipathways_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/wikipathways
+        url=$(python3 -c "
+import re, urllib.request
+html = urllib.request.urlopen('https://data.wikipathways.org/current/gmt/').read().decode()
+match = re.search(r'(wikipathways-(\d{{8}})-gmt-Homo_sapiens\.gmt)', html)
+if not match: raise SystemExit('Could not find WikiPathways GMT file')
+print('https://data.wikipathways.org/current/gmt/' + match.group(1))
+")
+        date_str=$(python3 -c "
+import re, urllib.request
+html = urllib.request.urlopen('https://data.wikipathways.org/current/gmt/').read().decode()
+match = re.search(r'wikipathways-(\d{{4}})(\d{{2}})(\d{{2}})-gmt-Homo_sapiens\.gmt', html)
+if not match: raise SystemExit('Could not parse date')
+y,m,d = match.groups()
+print(f'{{y}}-{{m}}-{{d}}')
+")
+        curl -fL -o {output[0]} "$url"
+        printf 'version\tversion_date\n%s\t%s\n' "$date_str" "$date_str" > {output[1]}
+        """

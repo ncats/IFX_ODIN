@@ -25,17 +25,17 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 |---------|------------------------|-------------|------------------------------|
 | **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] Antibodypedia *(antibody_count)*<br>[x] JensenLab *(pm_score)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
 | **GeneRif** | [x] target_graph generif CSV | `GeneRif`<br>`GeneGeneRifRelationship` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
-| **Tissue** | [x] Uberon OBO<br>[x] GTEx<br>[x] HPA<br>[x] HPM<br>[x] JensenLab | `Tissue`<br>`TissueParentEdge` | [ ] TBD |
+| **Tissue** | [x] Uberon OBO<br>[x] GTEx<br>[x] HPA<br>[x] HPM<br>[x] JensenLab | `Tissue`<br>`TissueParentEdge` | [x] `uberon`<br>[x] `uberon_parent` |
 | **GoTerm** | [x] GO OBO | `GoTerm`<br>`GoTermHasParent` | [x] `go`<br>[x] `go_parent` |
 | **ProteinGoTermRelationship** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermRelationship` | [x] `goa` |
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandRelationship** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandRelationship` | [x] `ncats_ligand_activity` |
-| **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [ ] TBD |
-| **Disease** | [x] MONDO<br>[x] UniProt | `Disease`<br>`DiseaseParentEdge` | [ ] TBD |
-| **ProteinDiseaseEdge** | [x] UniProt curated | `ProteinDiseaseEdge` | [ ] TBD |
-| **Pathway** | [x] Reactome<br>[x] UniProt | `Pathway`<br>`PathwayParentEdge` | [ ] TBD |
-| **ProteinPathwayRelationship** | [x] Reactome<br>[x] UniProt | `ProteinPathwayRelationship` | [ ] TBD |
-| **Keyword** | [x] UniProt | `Keyword`<br>`ProteinKeywordEdge` | [ ] TBD |
+| **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex` |
+| **Disease** | [x] MONDO<br>[x] UniProt | `Disease`<br>`DiseaseParentEdge` | [x] `mondo`<br>[x] `mondo_parent` |
+| **ProteinDiseaseEdge** | [x] UniProt curated | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease` |
+| **Pathway** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway`<br>`PathwayParentEdge` | [ ] TBD |
+| **ProteinPathwayRelationship** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayRelationship` | [x] `pathway_type`<br>[x] `pathway` |
+| **Keyword** | [x] UniProt | `Keyword`<br>`ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandRelationship` | *(via ProteinLigandRelationship)* |
 | **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)* |
@@ -59,10 +59,6 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 
 ### Additional Disease Ontologies (Disease)
 - Disease Ontology (DO)
-
-### Additional Pathways (Pathway / ProteinPathwayRelationship)
-- WikiPathways
-- PathwayCommons
 
 ### New Concepts
 - Protein-Protein Interactions — STRING, BioPlex, Reactome PPI

@@ -17,6 +17,7 @@ class Pathway(Node):
     category: Optional[str] = None
     name: str = None
     url: Optional[str] = None
+    original_datasource: Optional[str] = None
 
 
 @dataclass

@@ -115,24 +115,48 @@ resolvers:
         - Tissue
 
 input_adapters:
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      reviewed_only: True
 #  - import: ./src/input_adapters/uberon_adapter.py
 #    class: UberonAdapter
 #    kwargs:
 #      file_path: ./input_files/auto/uberon/uberon.obo
-#
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: ProteinNodeAdapter
-#    kwargs:
-#      file_path: ./input_files/manual/target_graph/protein_ids.csv
-#      reviewed_only: True
 
-  - import: ./src/input_adapters/jensenlab/tissues_expression.py
-    class: JensenLabTissuesExpressionAdapter
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsPathwayAdapter
     kwargs:
-      data_file_path: ./input_files/auto/jensenlab/human_tissue_integrated_full.tsv
-      version_file_path: ./input_files/auto/jensenlab/tissues_version.tsv
-      obo_file_path: ./input_files/auto/uberon/uberon.obo
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
 
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsProteinPathwayEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+
+#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+#    class: WikiPathwaysPathwayAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+#
+#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+#    class: WikiPathwaysProteinPathwayEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+#
+#
+#  - import: ./src/input_adapters/jensenlab/tissues_expression.py
+#    class: JensenLabTissuesExpressionAdapter
+#    kwargs:
+#      data_file_path: ./input_files/auto/jensenlab/human_tissue_integrated_full.tsv
+#      version_file_path: ./input_files/auto/jensenlab/tissues_version.tsv
+#      obo_file_path: ./input_files/auto/uberon/uberon.obo
+#
 #  - import: ./src/input_adapters/gtex/gtex_expression.py
 #    class: GTExExpressionAdapter
 #    kwargs:
@@ -180,7 +204,7 @@ input_adapters:
 #    kwargs:
 #      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
 #      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
-
+#
 #  - import: ./src/input_adapters/hpa/hpa_expression.py
 #    class: HPAProteinExpressionAdapter
 #    kwargs:
