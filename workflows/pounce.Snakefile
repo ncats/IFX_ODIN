@@ -7,7 +7,14 @@ rule all:
         "../input_files/auto/cellosaurus/cellosaurus.xml",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
         "../input_files/auto/ensembl/version.csv",
-        "../input_files/auto/ensembl/Homo_sapiens.current.gtf.gz"
+        "../input_files/auto/ensembl/Homo_sapiens.current.gtf.gz",
+        "../input_files/auto/ramp/RaMP_SQLite_v3.0.12.sqlite"
+
+rule download_ramp_sqlite:
+    output:
+        "../input_files/auto/ramp/RaMP_SQLite_v3.0.12.sqlite"
+    shell:
+        "curl -L 'https://github.com/ncats/RaMP-DB/raw/ramp3.0-refmetfix/db/RaMP_SQLite_v3.0.12.sqlite.gz' | gunzip -c > {output}"
 
 rule download_cellosaurus:
     output:
