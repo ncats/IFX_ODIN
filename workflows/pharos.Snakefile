@@ -1,5 +1,7 @@
 rule all:
     input:
+        "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
+        "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv",
         "../input_files/manual/target_graph/gene_ids.csv",
         "../input_files/manual/target_graph/protein_ids.csv",
         "../input_files/manual/target_graph/transcript_ids.csv",
@@ -153,6 +155,17 @@ rule download_mondo:
         "../input_files/auto/mondo/mondo.json"
     shell:
         "curl -L -o {output} https://purl.obolibrary.org/obo/mondo.json"
+
+rule download_pathwaycommons:
+    output:
+        "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
+        "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/pathwaycommons
+        curl -fL -o {output[0]} https://download.baderlab.org/PathwayCommons/PC2/v14/pc-hgnc.gmt.gz
+        curl -fs https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt | python3 -c "import sys,re; from datetime import datetime; data=sys.stdin.read(); m=re.search(r'PC version (\d+) (\d+ \w+ \d+)',data); v=m.group(1); dt=datetime.strptime(m.group(2),'%d %b %Y').date().isoformat(); open('{output[1]}','w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')"
+        """
 
 rule download_wikipathways:
     output:

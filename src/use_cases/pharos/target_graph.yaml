@@ -330,6 +330,18 @@ input_adapters:
       file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
       version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
 
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsPathwayAdapter
+    kwargs:
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsProteinPathwayEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter

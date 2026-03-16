@@ -125,18 +125,30 @@ input_adapters:
 #    kwargs:
 #      file_path: ./input_files/auto/uberon/uberon.obo
 
-  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
-    class: WikiPathwaysPathwayAdapter
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsPathwayAdapter
     kwargs:
-      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
 
-  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
-    class: WikiPathwaysProteinPathwayEdgeAdapter
+  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
+    class: PathwayCommonsProteinPathwayEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
+      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
 
+#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+#    class: WikiPathwaysPathwayAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+#
+#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+#    class: WikiPathwaysProteinPathwayEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+#
 #
 #  - import: ./src/input_adapters/jensenlab/tissues_expression.py
 #    class: JensenLabTissuesExpressionAdapter
