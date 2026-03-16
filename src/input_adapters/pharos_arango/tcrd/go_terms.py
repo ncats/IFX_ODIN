@@ -11,16 +11,9 @@ def go_term_query() -> str:
         RETURN go
     """
 
-def go_assoc_query(reviewed_only: bool) -> str:
-    if not reviewed_only:
-        return f"""
-        FOR rel IN `ProteinGoTermRelationship`
-            RETURN rel
-        """
-    return f"""
+def go_assoc_query() -> str:
+    return """
     FOR rel IN `ProteinGoTermRelationship`
-        LET pro = DOCUMENT(rel._from)
-        FILTER pro.uniprot_reviewed == {reviewed_only}
         RETURN rel
     """
 
@@ -55,7 +48,7 @@ class GoTermAdapter(PharosArangoAdapter):
             ) for rel in go_rels
         ]
 
-        go_associations = self.runQuery(go_assoc_query(self.reviewed_only))
+        go_associations = self.runQuery(go_assoc_query())
         pro_go_rels = [
             ProteinGoTermRelationship(
                 start_node=Protein(id = assoc['start_id']),

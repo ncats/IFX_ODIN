@@ -2,7 +2,6 @@ destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 source_database: &source_database pharos
 
-reviewed_only: &reviewed_only true
 meets_idg_cutoff: &meets_idg_cutoff true
 
 resolvers:
@@ -10,7 +9,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      reviewed_only: *reviewed_only
+      reviewed_only: true
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
       transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
@@ -23,32 +22,23 @@ resolvers:
         - Transcript
 
 input_adapters:
-#  - import: ./src/input_adapters/uniprot/extra_protein_data_adapter.py
-#    class: UniprotAdapter
-#    kwargs:
-#      reviewed_only: *reviewed_only
-#      file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
-#
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      reviewed_only: *reviewed_only
 
   - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
     class: GeneRifAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      reviewed_only: *reviewed_only
 
   - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
     class: GoTermAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      reviewed_only: *reviewed_only
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
     class: LigandNodeAdapter
@@ -56,7 +46,6 @@ input_adapters:
     kwargs:
       database_name: *source_database
       meets_idg_cutoff: *meets_idg_cutoff
-      reviewed_only: *reviewed_only
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
     class: LigandEdgeAdapter
@@ -64,7 +53,42 @@ input_adapters:
     kwargs:
       database_name: *source_database
       meets_idg_cutoff: *meets_idg_cutoff
-      reviewed_only: *reviewed_only
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/tissue.py
+    class: TissueAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/tissue.py
+    class: ExpressionAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: DiseaseAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: ProteinDiseaseAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
+    class: ProteinPathwayAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/keyword.py
+    class: ProteinKeywordAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py

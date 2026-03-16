@@ -13,8 +13,7 @@ class SQLOutputConverter(ABC):
 
     @abstractmethod
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
-        raise NotImplementedError("Derived classes must implement convert")
-
+        raise NotImplementedError("Derived classes must implement get_object_converters")
 
     def get_preload_queries(self, session):
         return []
@@ -24,8 +23,7 @@ class SQLOutputConverter(ABC):
         for preload_obj in self.get_preload_queries(session):
             table = preload_obj['table']
             data = preload_obj['data']
-            id_format_function = preload_obj['id_format_function'] if 'id_format_function' in preload_obj else lambda x: x[1]
-
+            id_format_function = preload_obj.get('id_format_function', lambda x: x[1])
             try:
                 mapping = {}
                 for row in data:
@@ -36,7 +34,6 @@ class SQLOutputConverter(ABC):
                 self.id_mapping[table] = mapping
             except Exception as e:
                 print(f"Error preloading id mappings for table {table}: {e}")
-                # if preload fails (no DB/session available), leave mapping empty
                 self.id_mapping[table] = {}
 
     def resolve_id(self, table, id):

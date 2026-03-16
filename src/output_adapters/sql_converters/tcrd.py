@@ -1,20 +1,64 @@
 import hashlib
-from typing import Union, List
+from typing import Union, List, Optional
 from src.constants import Prefix
+from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge
+from src.models.expression import ProteinTissueExpressionEdge
 from src.models.generif import GeneGeneRifRelationship
-from src.models.ligand import Ligand, ProteinLigandRelationship
-from src.models.protein import Protein
-from src.shared.sqlalchemy_tables.pharos_tables_new import Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA, \
-    GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermRelationship
+from src.models.keyword import ProteinKeywordEdge
+from src.models.ligand import Ligand, ProteinLigandRelationship
 from src.models.node import EquivalentId
+from src.models.pathway import ProteinPathwayRelationship
+from src.models.protein import Protein
+from src.models.tissue import Tissue, TissueParentEdge
+from src.shared.sqlalchemy_tables.pharos_tables_new import (
+    Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
+    GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
+    Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
+    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType,
+    Pathway as mysqlPathway, PathwayType,
+)
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
+
 
 class TCRDOutputConverter(SQLOutputConverter):
 
     def __init__(self):
         super().__init__(sql_base=TCRDBase)
+        self._known_disease_types: set = set()
+        self._known_pathway_types: set = set()
+        self._converters = {
+            # Protein
+            Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
+                      self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter],
+            # GeneRif
+            GeneGeneRifRelationship: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
+            # GO
+            GoTerm: [self.goterm_converter],
+            GoTermHasParent: [self.goterm_parent_converter],
+            ProteinGoTermRelationship: [self.goa_converter],
+            # Ligand
+            Ligand: [self.ligand_converter],
+            ProteinLigandRelationship: [self.ligand_edge_converter],
+            # Tissue / Expression
+            Tissue: [self.uberon_converter],
+            TissueParentEdge: [self.uberon_parent_converter],
+            ProteinTissueExpressionEdge: [self.tissue_lookup_converter,
+                                          self.expression_converter,
+                                          self.gtex_converter],
+            # Disease
+            Disease: [self.mondo_converter],
+            DiseaseParentEdge: [self.mondo_parent_converter],
+            ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter],
+            # Pathway
+            ProteinPathwayRelationship: [self.pathway_type_converter, self.pathway_converter],
+            # Keyword
+            ProteinKeywordEdge: [self.keyword_xref_converter],
+        }
+
+    def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
+        return self._converters.get(obj_cls)
 
     def get_preload_queries(self, session):
         return [{
@@ -22,23 +66,122 @@ class TCRDOutputConverter(SQLOutputConverter):
             "data": session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
         }]
 
-    def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
-        if obj_cls == GoTerm:
-            return self.goterm_converter
-        if obj_cls == GoTermHasParent:
-            return self.goterm_parent_converter
-        if obj_cls == Protein:
-            return [self.protein_converter, self.target_converter, self.t2tc_converter,
-                    self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter]
-        if obj_cls == ProteinGoTermRelationship:
-            return self.goa_converter
-        if obj_cls == GeneGeneRifRelationship:
-            return [self.generif_converter, self.generif_assoc_converter, self.p2p_converter]
-        if obj_cls == Ligand:
-            return self.ligand_converter
-        if obj_cls == ProteinLigandRelationship:
-            return self.ligand_edge_converter
-        return None
+    # --- Protein ---
+
+    def protein_converter(self, obj: dict) -> mysqlProtein:
+        gene_ids = [p for p in obj['xref'] if p.startswith('NCBIGene:')]
+        gene_id = gene_ids[0].split(':')[-1] if gene_ids else None
+        ensembl_ids = [p for p in obj['xref'] if p.startswith('ENSEMBL:ENSP')]
+        string_id = ensembl_ids[0].split(':')[-1] if ensembl_ids and gene_id is None else None
+        return mysqlProtein(
+            id=self.resolve_id('protein', obj['id']),
+            ifx_id=obj['id'],
+            description=obj['name'],
+            uniprot=obj['uniprot_id'],
+            sym=obj['symbol'],
+            geneid=gene_id,
+            stringid=string_id,
+            seq=obj['sequence'],
+            provenance=obj['provenance'],
+            preferred_symbol=obj['preferred_symbol']
+        )
+
+    def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
+        tdl_infos = []
+        if obj.get('antibody_count') and len(obj['antibody_count']) > 0:
+            antibody_count = max([int(p) for p in obj['antibody_count']])
+            if antibody_count > 0:
+                tdl_infos.append(TDL_info(
+                    itype="Ab Count",
+                    protein_id=self.resolve_id('protein', obj['id']),
+                    integer_value=antibody_count
+                ))
+        if obj.get('pm_score') and len(obj['pm_score']) > 0:
+            pm_score = max([float(p) for p in obj['pm_score']])
+            tdl_infos.append(TDL_info(
+                itype="JensenLab PubMed Score",
+                protein_id=self.resolve_id('protein', obj['id']),
+                number_value=pm_score
+            ))
+        return tdl_infos
+
+    def protein_alias_converter(self, obj: dict) -> List[Alias]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        ids = [EquivalentId.parse(x) for x in obj['xref']]
+        aliases = []
+        for s in [x for x in ids if x.type in (Prefix.OldSymbol, Prefix.Symbol)]:
+            aliases.append(Alias(protein_id=protein_id, type='symbol', value=s.id))
+        for u in [x for x in ids if x.type == Prefix.UniProtKB]:
+            aliases.append(Alias(protein_id=protein_id, type='uniprot', value=u.id))
+        for n in [x for x in ids if x.type == Prefix.NCBIGene]:
+            aliases.append(Alias(protein_id=protein_id, type='NCBI Gene ID', value=n.id))
+        return aliases
+
+    def protein_xref_converter(self, obj: dict) -> List[Xref]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        ids = [EquivalentId.parse(x) for x in obj['xref']]
+        return [
+            Xref(
+                protein_id=protein_id,
+                xtype="Ensembl" if a.type == Prefix.ENSEMBL else a.type.value,
+                value=a.id
+            )
+            for a in ids
+        ]
+
+    def t2tc_converter(self, obj: dict) -> T2TC:
+        return T2TC(
+            target_id=self.resolve_id('protein', obj['id']),
+            protein_id=self.resolve_id('protein', obj['id']),
+            provenance=obj['provenance'])
+
+    def target_converter(self, obj: dict) -> Target:
+        return Target(
+            id=self.resolve_id("protein", obj['id']),
+            ifx_id=obj['id'],
+            name=obj['name'],
+            ttype='Single Protein',
+            fam=obj['idg_family'],
+            tdl=obj['tdl'],
+            provenance=obj['provenance']
+        )
+
+    # --- GeneRif ---
+
+    def _generif_hash(self, obj: dict) -> str:
+        data_to_hash = f"{obj['start_id']}-{obj['gene_id']}-{obj['date']}-{obj['end_node']['text']}"
+        return hashlib.sha256(data_to_hash.encode('utf-8')).hexdigest()
+
+    def generif_converter(self, obj: dict) -> GeneRif:
+        return GeneRif(
+            id=self._generif_hash(obj),
+            protein_id=self.resolve_id('protein', obj['start_id']),
+            gene_id=obj['gene_id'],
+            date=obj['date'],
+            text=obj['end_node']['text'],
+            provenance=obj['provenance']
+        )
+
+    def generif_assoc_converter(self, obj: dict) -> List[GeneRif2Pubmed]:
+        hashed_id = self._generif_hash(obj)
+        return [
+            GeneRif2Pubmed(generif_id=hashed_id, pubmed_id=pmid, provenance=obj['provenance'])
+            for pmid in obj['pmids']
+        ]
+
+    def p2p_converter(self, obj: dict) -> List[Protein2Pubmed]:
+        return [
+            Protein2Pubmed(
+                protein_id=self.resolve_id('protein', obj['start_id']),
+                pubmed_id=pmid,
+                gene_id=obj['gene_id'],
+                source='NCBI',
+                provenance=obj['provenance']
+            )
+            for pmid in obj['pmids']
+        ]
+
+    # --- GO ---
 
     def goterm_converter(self, obj: dict) -> GO:
         def get_namespace(obj: dict):
@@ -54,220 +197,237 @@ class TCRDOutputConverter(SQLOutputConverter):
             name=obj['term'],
             namespace=get_namespace(obj),
             def_=obj['definition'],
-            provenance = obj['provenance'])
-
+            provenance=obj['provenance'])
 
     def goterm_parent_converter(self, obj: dict) -> GOParent:
         return GOParent(
             go_id=obj['start_id'],
             parent_id=obj['end_id'],
-            provenance = obj['provenance'])
-
-
-    def protein_converter(self, obj: dict) -> mysqlProtein:
-        gene_ids = [p for p in obj['xref'] if p.startswith('NCBIGene:')]
-        if len(gene_ids) > 0:
-            gene_id = gene_ids[0].split(':')[-1]
-        else:
-            gene_id = None
-        ensembl_ids = [p for p in obj['xref'] if p.startswith('ENSEMBL:ENSP')]
-        if len(ensembl_ids) > 0 and gene_id is None:
-            string_id = ensembl_ids[0].split(':')[-1]
-        else:
-            string_id = None
-
-        return mysqlProtein(
-            id = self.resolve_id('protein', obj['id']),
-            ifx_id = obj['id'],
-            description = obj['name'],
-            uniprot = obj['uniprot_id'],
-            sym = obj['symbol'],
-            geneid = gene_id,
-            stringid = string_id,
-            seq = obj['sequence'],
-            provenance = obj['provenance'],
-            preferred_symbol = obj['preferred_symbol']
-        )
-
-    def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
-        tdl_infos = []
-        if 'antibody_count' in obj and obj['antibody_count'] is not None and len(obj['antibody_count']) > 0:
-            antibody_count = max([int(p) for p in obj['antibody_count']])
-            if antibody_count > 0:
-                tdl_infos.append(TDL_info(
-                    itype="Ab Count",
-                    protein_id=self.resolve_id('protein', obj['id']),
-                    integer_value=antibody_count
-                ))
-        if 'pm_score' in obj and obj['pm_score'] is not None and len(obj['pm_score']) > 0:
-            pm_score = max([float(p) for p in obj['pm_score']])
-            tdl_infos.append(TDL_info(
-                itype="JensenLab PubMed Score",
-                protein_id=self.resolve_id('protein', obj['id']),
-                number_value=pm_score
-            ))
-        return tdl_infos
-
-    def protein_alias_converter(self, obj: dict) -> List[Alias]:
-        aliases = []
-        protein_id = self.resolve_id('protein', obj['id'])
-
-        ids = [EquivalentId.parse(x) for x in obj['xref']]
-
-        symbols = [x for x in ids if x.type in (Prefix.OldSymbol, Prefix.Symbol)]
-        uniprot_ids = [x for x in ids if x.type == Prefix.UniProtKB]
-        ncbi_ids = [x for x in ids if x.type == Prefix.NCBIGene]
-
-        for s in symbols:
-            aliases.append(Alias(protein_id=protein_id, type='symbol', value=s.id))
-        for u in uniprot_ids:
-            aliases.append(Alias(protein_id=protein_id, type='uniprot', value=u.id))
-        for n in ncbi_ids:
-            aliases.append(Alias(protein_id=protein_id, type='NCBI Gene ID', value=n.id))
-        return aliases
-
-    def protein_xref_converter(self, obj: dict) -> List[Xref]:
-        aliases = []
-        protein_id = self.resolve_id('protein', obj['id'])
-
-        ids = [EquivalentId.parse(x) for x in obj['xref']]
-        for a in ids:
-            if a.type == Prefix.ENSEMBL:
-                typeText = "Ensembl"
-            else:
-                typeText = a.type.value
-            aliases.append(
-                Xref(protein_id=protein_id,
-                           xtype=typeText,
-                           value=a.id)
-            )
-        return aliases
-
-    def t2tc_converter(self, obj: dict) -> T2TC:
-        return T2TC(
-            target_id= self.resolve_id('protein', obj['id']),
-            protein_id=self.resolve_id('protein', obj['id']),
-            provenance = obj['provenance'])
-
-
-    def target_converter(self, obj: dict) -> Target:
-        return Target(
-            id = self.resolve_id("protein", obj['id']),
-            ifx_id = obj['id'],
-            name = obj['name'],
-            ttype = 'Single Protein',
-            fam = obj['idg_family'],
-            tdl = obj['tdl'],
-            provenance = obj['provenance']
-        )
+            provenance=obj['provenance'])
 
     def goa_converter(self, obj: dict) -> List[GoA]:
         return [
             GoA(
-                protein_id = self.resolve_id('protein', obj['start_id']),
-                go_id = obj['end_id'],
-                evidence = e['abbreviation'],
-                goeco = e['evidence'],
-                assigned_by = e['assigned_by'],
-                go_term = f"{obj['end_node']['type']}:{obj['end_node']['term']}",
-                go_type = {'C': 'Component', 'P': 'Process', 'F': 'Function'}.get(obj['end_node']['type'], obj['end_node']['type']),
-                go_term_text = obj['end_node']['term'],
-                provenance = obj['provenance']
+                protein_id=self.resolve_id('protein', obj['start_id']),
+                go_id=obj['end_id'],
+                evidence=e['abbreviation'],
+                goeco=e['evidence'],
+                assigned_by=e['assigned_by'],
+                go_term=f"{obj['end_node']['type']}:{obj['end_node']['term']}",
+                go_type={'C': 'Component', 'P': 'Process', 'F': 'Function'}.get(obj['end_node']['type'], obj['end_node']['type']),
+                go_term_text=obj['end_node']['term'],
+                provenance=obj['provenance']
             )
             for e in obj['evidence']]
 
-    def get_generif_hash(self, obj: dict) -> str:
-        data_to_hash = f"{obj['start_id']}-{obj['gene_id']}-{obj['date']}-{obj['end_node']['text']}"
-        hashed_id = hashlib.sha256(data_to_hash.encode('utf-8')).hexdigest()
-        return hashed_id
-
-    def generif_converter(self, obj: dict) -> GeneRif:
-        hashed_id = self.get_generif_hash(obj)
-
-        return GeneRif(
-            id=hashed_id,
-            protein_id=self.resolve_id('protein', obj['start_id']),
-            gene_id=obj['gene_id'],
-            date=obj['date'],
-            text=obj['end_node']['text'],
-            provenance=obj['provenance']
-        )
-    setattr(generif_converter, 'merge_anyway', True)
-    setattr(generif_converter, 'deduplicate', True)
-
-    def generif_assoc_converter(self, obj: dict) -> List[GeneRif2Pubmed]:
-        hashed_id = self.get_generif_hash(obj)
-        pubmed_links = []
-        for pmid in obj['pmids']:
-            pubmed_link = GeneRif2Pubmed(
-                generif_id=hashed_id,
-                pubmed_id=pmid,
-                provenance=obj['provenance']
-            )
-            pubmed_links.append(pubmed_link)
-
-        return pubmed_links
-    setattr(generif_assoc_converter, 'merge_anyway', True)
-
-    def p2p_converter(self, obj: dict) -> List[Protein2Pubmed]:
-        pubmed_links = []
-        for pmid in obj['pmids']:
-            pubmed_link = Protein2Pubmed(
-                protein_id=self.resolve_id('protein', obj['start_id']),
-                pubmed_id=pmid,
-                gene_id=obj['gene_id'],
-                source='NCBI',
-                provenance=obj['provenance']
-            )
-            pubmed_links.append(pubmed_link)
-        return pubmed_links
-
-    setattr(p2p_converter, 'merge_anyway', True)
-
+    # --- Ligand ---
 
     def ligand_converter(self, obj: dict) -> mysqlLigand:
-        xrefs = [
-            EquivalentId.parse(eq_id)
-            for eq_id in (obj.get('xref') or [])
-        ]
-        PubChemIDs = [x.id for x in xrefs if x.type == Prefix.PUBCHEM_COMPOUND]
-        ChemblIDs = [x.id for x in xrefs if x.type == Prefix.CHEMBL_COMPOUND]
-        IUPHARIDs = [x.id for x in xrefs if x.type == Prefix.GTOPDB]
-        DCIDs = [x.id for x in xrefs if x.type == Prefix.DrugCentral]
-        UNIIs = [x.id for x in xrefs if x.type == Prefix.UNII]
+        xrefs = [EquivalentId.parse(eq_id) for eq_id in (obj.get('xref') or [])]
         return mysqlLigand(
-            id = obj.get('id'),
+            id=obj.get('id'),
             identifier=obj.get('id'),
-            name = obj.get('name'),
-            isDrug = obj.get('isDrug', False),
+            name=obj.get('name'),
+            isDrug=obj.get('isDrug', False),
             smiles=obj.get('smiles'),
             description=obj.get('description'),
-            PubChem=",".join(PubChemIDs),
-            ChEMBL=",".join(ChemblIDs),
-            guide_to_pharmacology=",".join(IUPHARIDs),
-            DrugCentral=",".join(DCIDs),
-            unii=",".join(UNIIs),
+            PubChem=",".join(x.id for x in xrefs if x.type == Prefix.PUBCHEM_COMPOUND),
+            ChEMBL=",".join(x.id for x in xrefs if x.type == Prefix.CHEMBL_COMPOUND),
+            guide_to_pharmacology=",".join(x.id for x in xrefs if x.type == Prefix.GTOPDB),
+            DrugCentral=",".join(x.id for x in xrefs if x.type == Prefix.DrugCentral),
+            unii=",".join(x.id for x in xrefs if x.type == Prefix.UNII),
             provenance=obj['provenance']
         )
 
     def ligand_edge_converter(self, obj: dict) -> List[LigandActivity]:
         activity_objects = []
-
         for detail in obj.get('details', []):
-            pubmed_ids = detail.get('act_pmids') or []
+            pubmed_ids = list(detail.get('act_pmids') or [])
             if detail.get('moa_pmid'):
-                pubmed_ids.append(detail.get('moa_pmid'))
-            pubmed_ids = [str(i) for i in pubmed_ids]
-            activity_object = LigandActivity(
-                ncats_ligand_id = obj['end_id'],
-                target_id = self.resolve_id('protein', obj['start_id']),
+                pubmed_ids.append(detail['moa_pmid'])
+            activity_objects.append(LigandActivity(
+                ncats_ligand_id=obj['end_id'],
+                target_id=self.resolve_id('protein', obj['start_id']),
                 act_value=detail.get('act_value'),
                 act_type=detail.get('act_type'),
                 action_type=detail.get('action_type'),
                 reference=detail.get('reference'),
-                pubmed_ids="|".join(list(set(pubmed_ids))),
+                pubmed_ids="|".join(list(set(str(i) for i in pubmed_ids))),
                 provenance=obj['provenance']
-            )
-            activity_objects.append(activity_object)
-
+            ))
         return activity_objects
+
+    # --- Tissue / Uberon ---
+
+    def uberon_converter(self, obj: dict) -> Uberon:
+        return Uberon(
+            uid=obj['id'],
+            name=obj['name'],
+            def_=obj.get('definition'),
+            provenance=obj['provenance'],
+        )
+
+    def uberon_parent_converter(self, obj: dict) -> UberonParent:
+        return UberonParent(
+            uid=obj['start_id'],
+            parent_id=obj['end_id'],
+            provenance=obj['provenance'],
+        )
+
+    def tissue_lookup_converter(self, obj: dict) -> List[mysqlTissue]:
+        """Populates the tissue name→id lookup table; one row per new unique tissue name."""
+        rows = []
+        for detail in obj.get('details', []):
+            if detail.get('source') == 'GTEx':
+                continue
+            tissue_name = detail.get('tissue')
+            if not tissue_name:
+                continue
+            is_new = tissue_name not in self.id_mapping.get('tissue', {})
+            tissue_id = self.resolve_id('tissue', tissue_name)
+            if is_new:
+                rows.append(mysqlTissue(id=tissue_id, name=tissue_name))
+        return rows
+
+    def expression_converter(self, obj: dict) -> List[Expression]:
+        protein_id = self.resolve_id('protein', obj['start_id'])
+        rows = []
+        for detail in obj.get('details', []):
+            if detail.get('source') == 'GTEx':
+                continue
+            tissue_name = detail.get('tissue') or ''
+            tissue_id = self.resolve_id('tissue', tissue_name) if tissue_name else None
+            rows.append(Expression(
+                etype=detail['source'],
+                protein_id=protein_id,
+                source_id=detail.get('source_id') or '',
+                tissue=tissue_name,
+                tissue_id=tissue_id,
+                qual_value=detail.get('qual_value'),
+                number_value=detail.get('number_value'),
+                expressed=1 if detail.get('expressed') else 0,
+                source_rank=detail.get('source_rank'),
+                evidence=detail.get('evidence'),
+                uberon_id=detail.get('source_tissue_id'),
+                provenance=obj['provenance'],
+            ))
+        return rows
+
+    def gtex_converter(self, obj: dict) -> List[Gtex]:
+        """One Gtex row per protein-tissue pair, with tpm/tpm_male/tpm_female from sex-split details."""
+        protein_id = self.resolve_id('protein', obj['start_id'])
+        gtex_details = [d for d in obj.get('details', []) if d.get('source') == 'GTEx']
+        if not gtex_details:
+            return []
+
+        # Group by source_tissue_id (uberon id of the gtex tissue)
+        by_tissue: dict = {}
+        for detail in gtex_details:
+            tissue_id = detail.get('source_tissue_id') or detail.get('tissue') or ''
+            if tissue_id not in by_tissue:
+                by_tissue[tissue_id] = {
+                    'tissue': detail.get('tissue'),
+                    'uberon_id': detail.get('source_tissue_id'),
+                    'tpm': None, 'tpm_rank': None,
+                    'tpm_male': None, 'tpm_male_rank': None,
+                    'tpm_female': None, 'tpm_female_rank': None,
+                }
+            sex = detail.get('sex')
+            if sex == 'male':
+                by_tissue[tissue_id]['tpm_male'] = detail.get('number_value')
+                by_tissue[tissue_id]['tpm_male_rank'] = detail.get('source_rank')
+            elif sex == 'female':
+                by_tissue[tissue_id]['tpm_female'] = detail.get('number_value')
+                by_tissue[tissue_id]['tpm_female_rank'] = detail.get('source_rank')
+            else:
+                by_tissue[tissue_id]['tpm'] = detail.get('number_value')
+                by_tissue[tissue_id]['tpm_rank'] = detail.get('source_rank')
+
+        return [
+            Gtex(
+                protein_id=protein_id,
+                tissue=d['tissue'],
+                tpm=d['tpm'],
+                tpm_rank=d['tpm_rank'],
+                tpm_male=d['tpm_male'],
+                tpm_male_rank=d['tpm_male_rank'],
+                tpm_female=d['tpm_female'],
+                tpm_female_rank=d['tpm_female_rank'],
+                uberon_id=d['uberon_id'],
+                provenance=obj['provenance'],
+            )
+            for d in by_tissue.values()
+        ]
+
+    # --- Disease / MONDO ---
+
+    def mondo_converter(self, obj: dict) -> Mondo:
+        comments = obj.get('comments') or []
+        return Mondo(
+            mondoid=obj['id'],
+            name=obj['name'],
+            def_=obj.get('definition'),
+            comment=comments[0] if comments else None,
+            provenance=obj['provenance'],
+        )
+
+    def mondo_parent_converter(self, obj: dict) -> MondoParent:
+        return MondoParent(
+            mondoid=obj['start_id'],
+            parentid=obj['end_id'],
+            provenance=obj['provenance'],
+        )
+
+    def disease_type_converter(self, obj: dict) -> Optional[DiseaseType]:
+        """Seeds the disease_type lookup table; one row per new unique source."""
+        source = obj.get('source')
+        if not source or source in self._known_disease_types:
+            return None
+        self._known_disease_types.add(source)
+        return DiseaseType(name=source, provenance=obj['provenance'])
+
+    def disease_converter(self, obj: dict) -> mysqlDisease:
+        disease_id = obj['end_id']
+        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') else None
+        return mysqlDisease(
+            dtype=obj['source'],
+            protein_id=self.resolve_id('protein', obj['start_id']),
+            name=obj['end_node']['name'],
+            ncats_name=obj['end_node']['name'],
+            did=disease_id,
+            mondoid=mondoid,
+            provenance=obj['provenance'],
+        )
+
+    # --- Pathway ---
+
+    def pathway_type_converter(self, obj: dict) -> Optional[PathwayType]:
+        """Seeds the pathway_type lookup table; one row per new unique type."""
+        pwtype = obj['end_node'].get('type')
+        if not pwtype or pwtype in self._known_pathway_types:
+            return None
+        self._known_pathway_types.add(pwtype)
+        return PathwayType(name=pwtype, provenance=obj['provenance'])
+
+    def pathway_converter(self, obj: dict) -> mysqlPathway:
+        protein_id = self.resolve_id('protein', obj['start_id'])
+        end = obj['end_node']
+        return mysqlPathway(
+            target_id=protein_id,
+            protein_id=protein_id,
+            pwtype=end.get('type'),
+            id_in_source=end.get('source_id'),
+            name=end.get('name') or '',
+            url=end.get('url'),
+            provenance=obj['provenance'],
+        )
+
+    # --- Keyword ---
+
+    def keyword_xref_converter(self, obj: dict) -> Xref:
+        return Xref(
+            protein_id=self.resolve_id('protein', obj['start_id']),
+            xtype='UniProt Keyword',
+            value=obj['end_node'].get('value') or obj['end_node'].get('name') or '',
+            provenance=obj['provenance'],
+        )

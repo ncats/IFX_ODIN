@@ -9,30 +9,23 @@ from src.models.protein import Protein
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
-def protein_query(reviewed_only: bool) -> str:
-    if not reviewed_only:
-        return f"""FOR pro IN `biolink:Protein`
-        RETURN pro
-        """
-    return f"""FOR pro IN `biolink:Protein`
-    FILTER pro.uniprot_reviewed == {reviewed_only}
+def protein_query() -> str:
+    return """FOR pro IN `Protein`
     RETURN pro
     """
 
 def protein_version_query():
 
-    return f"""FOR pro IN `biolink:Protein`
+    return f"""FOR pro IN `Protein`
         limit 1
         RETURN pro.creation
         """
 
 class PharosArangoAdapter(InputAdapter, ArangoAdapter, ABC):
-    reviewed_only: bool
     name: DataSourceName
     version: DatasourceVersionInfo
 
-    def __init__(self, credentials: DBCredentials, database_name: str, reviewed_only = True):
-        self.reviewed_only = reviewed_only
+    def __init__(self, credentials: DBCredentials, database_name: str):
         ArangoAdapter.__init__(self, credentials, database_name)
         InputAdapter.__init__(self)
         dsd = self.get_version_info_query()
@@ -61,7 +54,7 @@ class ProteinAdapter(PharosArangoAdapter):
         return DataSourceDetails.parse_tsv(raw_version_info)
 
     def get_all(self) -> Generator[List[Node], None, None]:
-        proteins = self.runQuery(protein_query(self.reviewed_only))
+        proteins = self.runQuery(protein_query())
         symbol_count = {}
         for p in proteins:
             symbol = p.get('symbol', None)
