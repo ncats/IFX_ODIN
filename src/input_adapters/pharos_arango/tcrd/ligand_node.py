@@ -6,67 +6,42 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DataSourceDetails
 from src.models.ligand import Ligand, ProteinLigandRelationship
 
-def ligand_edge_query(reviewed_only: bool, meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
+def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER rel._key > "{last_key}"' if last_key else ""
-    pro_clause = f'FILTER pro.uniprot_reviewed == {reviewed_only}' if reviewed_only else ""
     cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
-    if not reviewed_only and not meets_idg_cutoff:
-        return f"""
-            FOR rel IN `biolink:interacts_with`
-                {pagination_filter}
-            SORT rel._key
-            LIMIT {limit}
-            RETURN rel
-        """
     return f"""
-    FOR rel IN `biolink:interacts_with`
+    FOR rel IN `ProteinLigandRelationship`
         {pagination_filter}
         {cutoff_clause}
         SORT rel._key
-        LIMIT {limit}   
-        LET pro = DOCUMENT(rel._from)
-        {pro_clause}
-        return rel
+        LIMIT {limit}
+        RETURN rel
     """
 
 
-def ligand_query(reviewed_only: bool, meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
+def ligand_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER lig._key > "{last_key}"' if last_key else ""
-    pro_clause = f'FILTER pro.uniprot_reviewed == {reviewed_only}' if reviewed_only else ""
     cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
-
-    if not reviewed_only and not meets_idg_cutoff:
-        return f"""
-            FOR lig IN `biolink:ChemicalEntity`
-                {pagination_filter}
-            SORT lig._key
-            LIMIT {limit}
-            RETURN lig
-        """
-
     return f"""
-    FOR lig IN `biolink:ChemicalEntity`
+    FOR lig IN `Ligand`
         {pagination_filter}
         SORT lig._key
         LIMIT {limit}
-        
         LET proteins = (
-            FOR rel IN `biolink:interacts_with`
+            FOR rel IN `ProteinLigandRelationship`
                 FILTER rel._to == lig._id
                 {cutoff_clause}
-                LET pro = DOCUMENT(rel._from)
-                {pro_clause}
-                RETURN pro
+                RETURN rel
         )
         FILTER LENGTH(proteins) > 0
         RETURN lig
-        """
+    """
 
 
 def ligand_version_query():
-    return f"""FOR pro IN `biolink:ChemicalEntity`
+    return f"""FOR lig IN `Ligand`
         limit 1
-        RETURN pro.creation
+        RETURN lig.creation
         """
 
 class LigandBaseAdapter(PharosArangoAdapter, InputAdapter, ABC):
@@ -76,8 +51,8 @@ class LigandBaseAdapter(PharosArangoAdapter, InputAdapter, ABC):
         raw_version_info = self.runQuery(ligand_version_query())[0]
         return DataSourceDetails.parse_tsv(raw_version_info)
 
-    def __init__(self, credentials, database_name: str, meets_idg_cutoff: bool = True, reviewed_only: bool = True):
-        PharosArangoAdapter.__init__(self, credentials, database_name, reviewed_only)
+    def __init__(self, credentials, database_name: str, meets_idg_cutoff: bool = True):
+        PharosArangoAdapter.__init__(self, credentials, database_name)
         InputAdapter.__init__(self)
         self.meets_idg_cutoff = meets_idg_cutoff
 
@@ -88,7 +63,7 @@ class LigandEdgeAdapter(LigandBaseAdapter):
         batch_size = self.batch_size
 
         while True:
-            query = ligand_edge_query(self.reviewed_only, self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
+            query = ligand_edge_query(self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
             start_time = time.time()
             rows = list(self.runQuery(query))
 
@@ -115,7 +90,7 @@ class LigandNodeAdapter(LigandBaseAdapter):
         batch_size = self.batch_size
 
         while True:
-            query = ligand_query(self.reviewed_only, self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
+            query = ligand_query(self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
             start_time = time.time()
             rows = list(self.runQuery(query))
 

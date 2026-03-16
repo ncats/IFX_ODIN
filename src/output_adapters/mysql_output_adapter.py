@@ -1,36 +1,32 @@
 from abc import ABC
 from datetime import datetime
-from sqlalchemy import inspect, tuple_
+from sqlalchemy import inspect
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.output_adapters.sql_converters.tcrd import TCRDOutputConverter
 from src.output_adapters.sql_converters.test import TestSQLOutputConverter
 from src.shared.db_credentials import DBCredentials
-from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 from src.shared.sqlalchemy_tables.test_tables import Base as TestBase
 
 
 class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     database_name: str
     truncate_tables: bool
-    no_merge: bool
     output_converter: SQLOutputConverter
 
-    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True, no_merge: bool = True):
+    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True):
         self.database_name = database_name
         self.truncate_tables = truncate_tables
-        self.no_merge = no_merge
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
 
     def store(self, objects, single_source=False) -> bool:
-        merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
-
         if not isinstance(objects, list):
             objects = [objects]
 
-        object_groups = self.sort_and_convert_objects(objects, keep_nested_objects = True)
+        object_groups = self.sort_and_convert_objects(objects, keep_nested_objects=True)
         session = self.get_session()
 
         try:
@@ -55,46 +51,17 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     if not converted_objects:
                         continue
 
-                    example = converted_objects[0]
-                    table_class = example.__class__
+                    table_class = converted_objects[0].__class__
+                    print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
                     mapper = inspect(table_class)
-                    pk_columns = mapper.primary_key
-                    merge_fields = getattr(converter, 'merge_fields', None)
-                    if merge_fields:
-                        pk_columns = tuple((c for c in mapper.columns if c.name in merge_fields))
-
-                    if not pk_columns:
-                        raise ValueError(f"No primary key defined for {table_class.__name__}")
-
-                    pk_values = [
-                        tuple(getattr(obj, col.name) for col in pk_columns)
+                    rows = [
+                        {col.key: getattr(obj, col.key) for col in mapper.columns}
                         for obj in converted_objects
-                        if not any(getattr(obj, col.name) is None for col in pk_columns)
                     ]
-
-                    if self.no_merge and not getattr(converter, 'merge_anyway', False):
-                        existing_rows = []
-                    else:
-                        existing_rows = session.query(table_class).filter(tuple_(*pk_columns).in_(pk_values)).all()
-
-                    existing_lookup = {
-                        tuple(str(getattr(row, col.name)) for col in pk_columns): row
-                        for row in existing_rows
-                    }
-                    to_insert, to_update = merger.merge_objects(converted_objects, existing_lookup, mapper, pk_columns, merge_anyway=getattr(converter, 'merge_anyway', False))
-
-                    if len(to_insert) > 0:
-                        if getattr(converter, 'deduplicate', False):
-                            to_insert = list({tuple(getattr(rr, col.name) for col in pk_columns): rr for rr in to_insert}.values())
-                        print(f"Inserting {len(to_insert)} objects of type {table_class.__name__} using converter {converter.__name__}")
-                        session.bulk_save_objects(to_insert)
-                    if len(to_update) > 0:
-                        print(f"Merging {len(to_update)} objects of type {table_class.__name__} using converter {converter.__name__}")
-                        session.bulk_save_objects(to_update, update_changed_only=True)
-
+                    stmt = mysql_insert(table_class.__table__).prefix_with('IGNORE')
+                    session.execute(stmt, rows)
                     session.commit()
-                    end_time = datetime.now()
-                    duration = (end_time - start_time).total_seconds()
+                    duration = (datetime.now() - start_time).total_seconds()
                     print(f"Processed {len(converted_objects)} objects in {duration:.2f} seconds.")
 
             return True
@@ -116,7 +83,7 @@ class TestOutputAdapter(MySQLOutputAdapter):
     output_converter: TestSQLOutputConverter
 
     def __init__(self, credentials: DBCredentials, database_name: str):
-        MySQLOutputAdapter.__init__(self, credentials, database_name, no_merge = False)
+        MySQLOutputAdapter.__init__(self, credentials, database_name)
         self.output_converter = TestSQLOutputConverter(sql_base=TestBase)
 
     def create_or_truncate_datastore(self) -> bool:
@@ -129,8 +96,7 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
     output_converter = TCRDOutputConverter
 
     def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool):
-        self.truncate_tables = truncate_tables
-        MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables = truncate_tables, no_merge = True)
+        MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables=truncate_tables)
         self.output_converter = TCRDOutputConverter()
 
     def create_or_truncate_datastore(self) -> bool:

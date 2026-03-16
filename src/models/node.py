@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, date
 from typing import List, Union, get_origin, get_args, Optional
 
@@ -72,7 +72,7 @@ def generate_class_from_dict(cls, data: dict):
             elif isinstance(value[0], dict):
                 value = [generate_class_from_dict(item_type, item) for item in value]
 
-        elif isinstance(value, dict):
+        elif isinstance(value, dict) and is_dataclass(type_hint):
             value = generate_class_from_dict(type_hint, value)
         elif isinstance(value, str) and hasattr(type_hint, 'parse'):
             value = type_hint.parse(value)

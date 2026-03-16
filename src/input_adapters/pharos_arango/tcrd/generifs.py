@@ -7,55 +7,14 @@ from src.models.generif import GeneGeneRifRelationship, GeneRif
 from src.models.node import Node, Relationship
 
 
-def generif_query(reviewed_only: bool, last_key: str = None, limit: int = 10000) -> str:
+def generif_query(last_key: str = None, limit: int = 10000) -> str:
     filter_clause = f'FILTER assoc._key > "{last_key}"' if last_key else ""
-
-    if not reviewed_only:
-        return f"""
-            FOR assoc IN GeneGeneRifRelationship
-                {filter_clause}
-            SORT assoc._key
-            LIMIT {limit}
-            RETURN {{
-                "_key": assoc._key,
-                "ifxgene_id": assoc.start_id,
-                "gene_id": assoc.gene_id,
-                "text": rif.text,
-                "date": assoc.date,
-                "pmids": assoc.pmids
-            }}
-        """
-
     return f"""
     FOR assoc IN GeneGeneRifRelationship
         {filter_clause}
         SORT assoc._key
         LIMIT {limit}
-
         LET rif = DOCUMENT(assoc._to)
-
-        // Path 1: Gene → Protein
-        LET gene_proteins = (
-            FOR gp IN `biolink:translates_to`
-                FILTER gp._from == assoc._from
-                LET prot = DOCUMENT(gp._to)
-                FILTER prot.uniprot_reviewed == {reviewed_only}
-                RETURN prot
-        )
-
-        // Path 2: Gene → Transcript → Protein
-        LET transcript_proteins = (
-            FOR gt IN `biolink:transcribed_to`
-                FILTER gt._from == assoc._from
-                FOR tp IN `biolink:translates_to`
-                    FILTER tp._from == gt._to
-                    LET prot = DOCUMENT(tp._to)
-                    FILTER prot.uniprot_reviewed == {reviewed_only}
-                    RETURN prot
-        )
-
-        FILTER LENGTH(gene_proteins) > 0 OR LENGTH(transcript_proteins) > 0
-
         RETURN {{
             "_key": assoc._key,
             "ifxgene_id": assoc.start_id,
@@ -84,7 +43,7 @@ class GeneRifAdapter(PharosArangoAdapter):
         batch_size = self.batch_size
 
         while True:
-            query = generif_query(self.reviewed_only, last_key=last_key, limit=batch_size)
+            query = generif_query(last_key=last_key, limit=batch_size)
 
             start_time = time.time()
             try:

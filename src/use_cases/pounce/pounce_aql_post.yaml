@@ -1,4 +1,4 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 database_name: &database_name pounce
 
 input_adapters:
