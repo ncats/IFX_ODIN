@@ -27,7 +27,9 @@ rule all:
         "../input_files/auto/hpa/rna_tissue_hpa.tsv.zip",
         "../input_files/auto/hpa/hpa_version.tsv",
         "../input_files/auto/jensenlab/human_tissue_integrated_full.tsv",
-        "../input_files/auto/jensenlab/tissues_version.tsv"
+        "../input_files/auto/jensenlab/tissues_version.tsv",
+        "../input_files/auto/wikipathways/wikipathways_human.gmt",
+        "../input_files/auto/wikipathways/wikipathways_version.tsv"
 
 rule download_jensenlab_tissues:
     output:
@@ -151,3 +153,29 @@ rule download_mondo:
         "../input_files/auto/mondo/mondo.json"
     shell:
         "curl -L -o {output} https://purl.obolibrary.org/obo/mondo.json"
+
+rule download_wikipathways:
+    output:
+        "../input_files/auto/wikipathways/wikipathways_human.gmt",
+        "../input_files/auto/wikipathways/wikipathways_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/wikipathways
+        url=$(python3 -c "
+import re, urllib.request
+html = urllib.request.urlopen('https://data.wikipathways.org/current/gmt/').read().decode()
+match = re.search(r'(wikipathways-(\d{{8}})-gmt-Homo_sapiens\.gmt)', html)
+if not match: raise SystemExit('Could not find WikiPathways GMT file')
+print('https://data.wikipathways.org/current/gmt/' + match.group(1))
+")
+        date_str=$(python3 -c "
+import re, urllib.request
+html = urllib.request.urlopen('https://data.wikipathways.org/current/gmt/').read().decode()
+match = re.search(r'wikipathways-(\d{{4}})(\d{{2}})(\d{{2}})-gmt-Homo_sapiens\.gmt', html)
+if not match: raise SystemExit('Could not parse date')
+y,m,d = match.groups()
+print(f'{{y}}-{{m}}-{{d}}')
+")
+        curl -fL -o {output[0]} "$url"
+        printf 'version\tversion_date\n%s\t%s\n' "$date_str" "$date_str" > {output[1]}
+        """

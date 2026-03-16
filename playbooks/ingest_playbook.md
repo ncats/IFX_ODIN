@@ -35,6 +35,8 @@ Provide a repeatable checklist for adding a new data source to the target graph 
 6) **Wire configuration into YAML**
    - Add the adapter to the YAML (`working.yaml` for trial; later `target_graph.yaml`).
    - Pass file paths and version metadata file paths via `kwargs`.
+   - For Pharos data sources: add to **both** `src/use_cases/pharos/pharos.yaml` and
+     `src/use_cases/pharos/target_graph.yaml`.
 
 7) **Run and validate**
    - Run the download rule(s) in Snakemake.

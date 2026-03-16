@@ -276,6 +276,18 @@ input_adapters:
       file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
       version_file_path: ./input_files/auto/reactome/reactome_version.tsv
 
+  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+    class: WikiPathwaysPathwayAdapter
+    kwargs:
+      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+
+  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
+    class: WikiPathwaysProteinPathwayEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
+      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
