@@ -5,7 +5,7 @@ from src.use_cases.arango_to_mysql import ArangoToMySqlConverter
 
 arango_credentials_file = "./src/use_cases/secrets/ifxdev_arangodb.yaml"
 mysql_credentials_file = "./src/use_cases/secrets/galeradev_write.yaml"
-minio_credentials_file = "./src/use_cases/secrets/ifxdev_minio.yacaml"
+minio_credentials_file = "./src/use_cases/secrets/ifxdev_minio.yaml"
 
 # arango_credentials_file = "./src/use_cases/secrets/local_arangodb.yaml"
 # mysql_credentials_file = "./src/use_cases/secrets/local_mysql.yaml"
