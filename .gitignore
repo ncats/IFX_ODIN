@@ -7,6 +7,7 @@ secrets.env
 .snakemake
 .idea
 .pytest_cache
+.claude
 orphans
 /htmlcov/
 recombination_report.html
