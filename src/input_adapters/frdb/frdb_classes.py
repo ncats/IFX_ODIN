@@ -56,17 +56,17 @@ class Vendor(Node):
     pass
 
 @dataclass
-class LigandSourceRelationship(Relationship):
+class LigandSourceEdge(Relationship):
     start_node: Ligand
     substance_id: str = None
     substance_url: Optional[str] = None
 
 @dataclass
-class LigandDatabaseRelationship(LigandSourceRelationship):
+class LigandDatabaseEdge(LigandSourceEdge):
     end_node: Database
 
 @dataclass
-class LigandVendorRelationship(LigandSourceRelationship):
+class LigandVendorEdge(LigandSourceEdge):
     end_node: Vendor
 
 
@@ -113,7 +113,7 @@ class LigandConditionDetails:
 
 
 @dataclass
-class LigandConditionRelationship(Relationship):
+class LigandConditionEdge(Relationship):
     start_node: Ligand
     end_node: Condition
     details: List[LigandConditionDetails] = field(default_factory=list)

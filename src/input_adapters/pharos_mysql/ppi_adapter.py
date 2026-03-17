@@ -8,8 +8,8 @@ from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Relationship
 
-from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, PPI as mysql_ppi
-from src.models.ppi import PPIRelationship
+from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, PPI as mysql_ppi
+from src.models.ppi import PPIEdge
 from src.models.protein import Protein
 
 class ProteinProteinInteractionAdapter(InputAdapter, MySqlAdapter):
@@ -41,7 +41,7 @@ class ProteinProteinInteractionAdapter(InputAdapter, MySqlAdapter):
         )
 
         return [
-            PPIRelationship(
+            PPIEdge(
                 start_node=Protein(id=f"{Prefix.UniProtKB}:{row[0]}"),
                 end_node=Protein(id=f"{Prefix.UniProtKB}:{row[1]}"),
                 sources=row[2].split(','),

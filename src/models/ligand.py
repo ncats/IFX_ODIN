@@ -43,7 +43,7 @@ class ActivityDetails:
 
 @dataclass
 @facets(category_fields=["meets_idg_cutoff"])
-class ProteinLigandRelationship(Relationship):
+class ProteinLigandEdge(Relationship):
     start_node: Protein
     end_node: Ligand
     meets_idg_cutoff: Optional[bool] = None

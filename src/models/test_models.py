@@ -10,7 +10,7 @@ class TestNode(Node):
     field_3: str = None
 
 @dataclass
-class TestRelationship(Relationship):
+class TestEdge(Relationship):
     start_node: TestNode
     end_node: TestNode
     field_1: str = None

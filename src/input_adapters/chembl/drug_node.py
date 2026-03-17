@@ -11,7 +11,7 @@ from src.input_adapters.chembl.tables import Activities, CompoundRecords, Compou
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
-from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
+from src.models.ligand import Ligand, ProteinLigandEdge, ActivityDetails
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 from src.shared.db_credentials import DBCredentials
@@ -134,10 +134,10 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
+    def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:
         activity_results = self.fetch_activity_data(self.pchembl_cutoff)
 
-        relationship_map: Dict[str, ProteinLigandRelationship] = {}
+        relationship_map: Dict[str, ProteinLigandEdge] = {}
 
         for row in activity_results:
             compound_id = EquivalentId(id=row.compound_id, type=Prefix.CHEMBL_COMPOUND)
@@ -156,7 +156,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
                     id=compound_id.id_str()
                 )
                 pro = Protein(id = pro_id.id_str())
-                pro_lig_edge = ProteinLigandRelationship(
+                pro_lig_edge = ProteinLigandEdge(
                     start_node=pro, end_node=lig
                 )
                 relationship_map[rel_id] = pro_lig_edge

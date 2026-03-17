@@ -8,7 +8,7 @@ from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
-from src.models.pathway import Pathway, ProteinPathwayRelationship
+from src.models.pathway import Pathway, ProteinPathwayEdge
 from src.models.protein import Protein
 
 EXCLUDED_SOURCES = {"reactome", "wikipathways"}
@@ -110,13 +110,13 @@ class PathwayCommonsPathwayAdapter(PathwayCommonsBaseAdapter):
 
 class PathwayCommonsProteinPathwayEdgeAdapter(PathwayCommonsBaseAdapter):
 
-    def get_all(self) -> Generator[List[ProteinPathwayRelationship], None, None]:
-        edges: List[ProteinPathwayRelationship] = []
+    def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
+        edges: List[ProteinPathwayEdge] = []
         for clean_id, _, _, _, _, genes in self._iter_parsed_lines():
             for gene in genes:
                 protein_id = EquivalentId(id=gene, type=Prefix.Symbol)
                 edges.append(
-                    ProteinPathwayRelationship(
+                    ProteinPathwayEdge(
                         start_node=Protein(id=protein_id.id_str()),
                         end_node=Pathway(id=clean_id),
                         source="PathwayCommons"

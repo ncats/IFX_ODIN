@@ -11,7 +11,7 @@ class GeneRif(Node):
 
 
 @dataclass
-class GeneGeneRifRelationship(Relationship):
+class GeneGeneRifEdge(Relationship):
     start_node = Gene
     end_node = GeneRif
     gene_id: int = None
@@ -25,7 +25,7 @@ class GeneGeneRifRelationship(Relationship):
         return (start_id, end_id, self.gene_id, self.date, pmids_key)
 
     def __eq__(self, other):
-        if not isinstance(other, GeneGeneRifRelationship):
+        if not isinstance(other, GeneGeneRifEdge):
             return NotImplemented
         return self._identity_tuple() == other._identity_tuple()
 

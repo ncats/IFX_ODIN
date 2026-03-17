@@ -38,8 +38,8 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
-    class: MetaboliteClassRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_edge_adapter.py
+    class: MetaboliteClassEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -48,13 +48,13 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: MetabolitePathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: MetabolitePathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: EnsemblGenePathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: EnsemblGenePathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 

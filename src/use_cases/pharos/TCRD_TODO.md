@@ -7,7 +7,7 @@ Status: [ ] not started | [~] in progress | [x] done
 
 ## Code Style TODOs
 
-- [ ] Standardize edge/relationship class names — pick one convention (e.g. always end with `Edge`, drop `Relationship`)
+- [x] Standardize edge/relationship class names — pick one convention (e.g. always end with `Edge`, drop `Relationship`)
 - [ ] `ProteinAdapter` (UniProt) yields `Pathway` nodes and `ProteinPathwayRelationship` edges in addition to `Protein` — consider splitting into separate adapters to make intent clear
 - [ ] `ProteinDiseaseEdgeAdapter` (UniProt) yields `Disease` nodes in addition to edges — name already implies edges only, consider making the Disease node creation explicit
 

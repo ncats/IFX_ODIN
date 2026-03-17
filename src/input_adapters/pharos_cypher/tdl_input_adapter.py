@@ -85,7 +85,7 @@ proteins_with_moa_drugs = """
 """
 
 proteins_with_experimental_f_or_p_go_terms = """
-    MATCH (p:`biolink:Protein`)-[r:ProteinGoTermRelationship]->(g:GoTerm) 
+    MATCH (p:`biolink:Protein`)-[r:ProteinGoTermEdge]->(g:GoTerm) 
     WHERE 
         g.is_leaf 
         AND g.type <> 'C'
@@ -111,8 +111,8 @@ proteins_with_three_or_fewer_generifs = """
         OPTIONAL MATCH (n)<-[:`biolink:translates_to`]-(:`biolink:Transcript`)<-[:`biolink:transcribed_to`]-(g2:`biolink:Gene`)
     WITH n, apoc.coll.toSet(collect(g1) + collect(g2)) AS genes
     UNWIND genes AS g
-        OPTIONAL MATCH (g)-[r:GeneGeneRifRelationship]-()
-    WITH n, collect(DISTINCT r) AS allRelationships
-        WHERE size(allRelationships) <= 3
+        OPTIONAL MATCH (g)-[r:GeneGeneRifEdge]-()
+    WITH n, collect(DISTINCT r) AS allEdges
+        WHERE size(allEdges) <= 3
     RETURN DISTINCT n.id
 """

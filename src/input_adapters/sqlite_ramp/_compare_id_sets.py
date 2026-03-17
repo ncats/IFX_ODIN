@@ -7,7 +7,6 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite import Metabolite
 from src.models.node import Relationship
-from src.models.version import DatabaseVersion
 
 # This adapter reads from two RaMP sqlite databases and defines relationships between metabolite nodes that share input IDs
 # It's used for comparing metabolites between versions of RaMP or changes in RaMP entity resolution code
@@ -17,7 +16,7 @@ class SharesMetaboliteIDrelationship(Relationship):
     count: int = 0
 
 
-class MetaboliteSetRelationshipAdapter(InputAdapter):
+class MetaboliteSetEdgeAdapter(InputAdapter):
     name: str = "Metabolite Set Relationship Adapter"
 
     def get_datasource_name(self) -> DataSourceName:

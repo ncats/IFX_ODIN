@@ -2,7 +2,7 @@ from typing import Generator, List
 
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import ReactionClass as SqliteReactionClass
-from src.models.reaction import ReactionClass, ReactionClassParentRelationship
+from src.models.reaction import ReactionClass, ReactionClassParentEdge
 
 
 def get_parent_ec(ec: str):
@@ -16,12 +16,12 @@ def get_parent_ec(ec: str):
     return f'{root}.{grand}.{parent}.-'
 
 
-class ReactionClassRelationshipAdapter(RaMPSqliteAdapter):
+class ReactionClassEdgeAdapter(RaMPSqliteAdapter):
 
     def __init__(self, sqlite_file):
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
-    def get_all(self) -> Generator[List[ReactionClassParentRelationship], None, None]:
+    def get_all(self) -> Generator[List[ReactionClassParentEdge], None, None]:
         results = self.get_session().query(
             SqliteReactionClass.rxn_class_ec
         ).filter(SqliteReactionClass.ec_level == 4).distinct().all()
@@ -36,8 +36,8 @@ class ReactionClassRelationshipAdapter(RaMPSqliteAdapter):
                 ec = parent
                 parent = get_parent_ec(ec)
 
-        relationships: List[ReactionClassParentRelationship] = [
-            ReactionClassParentRelationship(
+        relationships: List[ReactionClassParentEdge] = [
+            ReactionClassParentEdge(
                 start_node=ReactionClass(id=pair.split('|')[0]),
                 end_node=ReactionClass(id=pair.split('|')[1])
             ) for pair in relationship_set

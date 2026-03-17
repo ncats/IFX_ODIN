@@ -2,7 +2,7 @@ from typing import Generator, List, Union
 
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.models.datasource_version_info import DataSourceDetails
-from src.models.go_term import GoTerm, GoTermHasParent, ProteinGoTermRelationship, GoEvidence
+from src.models.go_term import GoTerm, GoTermHasParent, ProteinGoTermEdge, GoEvidence
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
@@ -13,7 +13,7 @@ def go_term_query() -> str:
 
 def go_assoc_query() -> str:
     return """
-    FOR rel IN `ProteinGoTermRelationship`
+    FOR rel IN `ProteinGoTermEdge`
         RETURN rel
     """
 
@@ -50,7 +50,7 @@ class GoTermAdapter(PharosArangoAdapter):
 
         go_associations = self.runQuery(go_assoc_query())
         pro_go_rels = [
-            ProteinGoTermRelationship(
+            ProteinGoTermEdge(
                 start_node=Protein(id = assoc['start_id']),
                 end_node=go_map[assoc['end_id']],
                 evidence=[GoEvidence.from_dict(e) for e in assoc.get('evidence', [])]

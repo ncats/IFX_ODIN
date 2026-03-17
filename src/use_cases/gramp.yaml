@@ -12,8 +12,8 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
-    class: MetaboliteClassRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_edge_adapter.py
+    class: MetaboliteClassEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -37,8 +37,8 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_protein_relationship_adapter.py
-    class: MetaboliteProteinRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_protein_edge_adapter.py
+    class: MetaboliteProteinEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -47,13 +47,13 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: MetabolitePathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: MetabolitePathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: ProteinPathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: ProteinPathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -62,8 +62,8 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_ontology_relationship_adapter.py
-    class: MetaboliteOntologyRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_ontology_edge_adapter.py
+    class: MetaboliteOntologyEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -77,23 +77,23 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/reaction_class_relationship_adapter.py
-    class: ReactionClassRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/reaction_class_edge_adapter.py
+    class: ReactionClassEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/reaction_reaction_class_relationship_adapter.py
-    class: ReactionReactionClassRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/reaction_reaction_class_edge_adapter.py
+    class: ReactionReactionClassEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_reaction_relationship_adapter.py
-    class: MetaboliteReactionRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_reaction_edge_adapter.py
+    class: MetaboliteReactionEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/protein_reaction_relationship_adapter.py
-    class: ProteinReactionRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/protein_reaction_edge_adapter.py
+    class: ProteinReactionEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 

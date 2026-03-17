@@ -4,7 +4,7 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import EquivalentId
-from src.models.transcript import GeneTranscriptRelationship, Transcript
+from src.models.transcript import GeneTranscriptEdge, Transcript
 from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
@@ -18,7 +18,7 @@ class GeneTranscriptEdgeAdapter(InputAdapter, TargetGraphTranscriptParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> Generator[List[GeneTranscriptRelationship], None, None]:
+    def get_all(self) -> Generator[List[GeneTranscriptEdge], None, None]:
         relationships = []
 
         for line in self.all_rows():
@@ -39,7 +39,7 @@ class GeneTranscriptEdgeAdapter(InputAdapter, TargetGraphTranscriptParser):
                 gene_id = EquivalentId(id=ncbi_id, type=Prefix.NCBIGene)
 
             relationships.append(
-                GeneTranscriptRelationship(
+                GeneTranscriptEdge(
                     start_node=Gene(id=gene_id.id_str()),
                     end_node=transcript_obj,
                     created=created,

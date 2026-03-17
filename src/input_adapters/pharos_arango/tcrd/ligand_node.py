@@ -4,13 +4,13 @@ from typing import Generator, List
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DataSourceDetails
-from src.models.ligand import Ligand, ProteinLigandRelationship
+from src.models.ligand import Ligand, ProteinLigandEdge
 
 def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER rel._key > "{last_key}"' if last_key else ""
     cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
     return f"""
-    FOR rel IN `ProteinLigandRelationship`
+    FOR rel IN `ProteinLigandEdge`
         {pagination_filter}
         {cutoff_clause}
         SORT rel._key
@@ -28,7 +28,7 @@ def ligand_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 1000
         SORT lig._key
         LIMIT {limit}
         LET proteins = (
-            FOR rel IN `ProteinLigandRelationship`
+            FOR rel IN `ProteinLigandEdge`
                 FILTER rel._to == lig._id
                 {cutoff_clause}
                 RETURN rel
@@ -58,7 +58,7 @@ class LigandBaseAdapter(PharosArangoAdapter, InputAdapter, ABC):
 
 
 class LigandEdgeAdapter(LigandBaseAdapter):
-    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
+    def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:
         last_key = None
         batch_size = self.batch_size
 
@@ -73,7 +73,7 @@ class LigandEdgeAdapter(LigandBaseAdapter):
             if not rows:
                 break
             relationships = [
-                ProteinLigandRelationship.from_dict(row)
+                ProteinLigandEdge.from_dict(row)
                 for row in rows
             ]
 

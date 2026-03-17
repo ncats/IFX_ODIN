@@ -9,7 +9,7 @@ from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
-from src.models.pathway import Pathway, ProteinPathwayRelationship, PathwayParentEdge
+from src.models.pathway import Pathway, ProteinPathwayEdge, PathwayParentEdge
 from src.models.protein import Protein
 
 
@@ -119,8 +119,8 @@ class ReactomeProteinPathwayEdgeAdapter(ReactomeBaseAdapter):
     def __init__(self, file_path: str, version_file_path: Optional[str] = None):
         ReactomeBaseAdapter.__init__(self, file_path=file_path, version_file_path=version_file_path)
 
-    def get_all(self) -> Generator[List[ProteinPathwayRelationship], None, None]:
-        edges: List[ProteinPathwayRelationship] = []
+    def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
+        edges: List[ProteinPathwayEdge] = []
         with open(self.file_path, "r") as handle:
             for line in handle:
                 parts = line.rstrip("\n").split("\t")
@@ -135,7 +135,7 @@ class ReactomeProteinPathwayEdgeAdapter(ReactomeBaseAdapter):
                     continue
                 protein_id = EquivalentId(id=uniprot_id, type=Prefix.UniProtKB)
                 edges.append(
-                    ProteinPathwayRelationship(
+                    ProteinPathwayEdge(
                         start_node=Protein(id=protein_id.id_str()),
                         end_node=Pathway(id=pathway_id),
                         source="Reactome"

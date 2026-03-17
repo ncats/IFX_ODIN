@@ -3,14 +3,14 @@ from typing import Generator, List, Union
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.models.datasource_version_info import DataSourceDetails
 from src.models.gene import Gene
-from src.models.generif import GeneGeneRifRelationship, GeneRif
+from src.models.generif import GeneGeneRifEdge, GeneRif
 from src.models.node import Node, Relationship
 
 
 def generif_query(last_key: str = None, limit: int = 10000) -> str:
     filter_clause = f'FILTER assoc._key > "{last_key}"' if last_key else ""
     return f"""
-    FOR assoc IN GeneGeneRifRelationship
+    FOR assoc IN GeneGeneRifEdge
         {filter_clause}
         SORT assoc._key
         LIMIT {limit}
@@ -28,7 +28,7 @@ def generif_query(last_key: str = None, limit: int = 10000) -> str:
 
 
 def generif_version_query():
-    return """FOR assoc IN `GeneGeneRifRelationship`
+    return """FOR assoc IN `GeneGeneRifEdge`
     LIMIT 1
     RETURN assoc.creation
     """
@@ -62,7 +62,7 @@ class GeneRifAdapter(PharosArangoAdapter):
                 break  # no more results
 
             yield list(set([
-                GeneGeneRifRelationship(
+                GeneGeneRifEdge(
                     start_node=Gene(id=row['ifxgene_id']),
                     end_node=GeneRif(text=row['text'], id=str(hash(row['text']))),
                     gene_id=row['gene_id'],

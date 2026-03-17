@@ -39,16 +39,16 @@ class Reaction(Node):
 
 
 @dataclass
-class ReactionClassRelationship(Relationship):
+class ReactionClassEdge(Relationship):
     start_node: Reaction
     end_node: ReactionClass
 
 @dataclass
-class ReactionClassParentRelationship(Relationship):
+class ReactionClassParentEdge(Relationship):
     start_node: ReactionClass
     end_node: ReactionClass
 
 @dataclass
-class ReactionReactionClassRelationship(Relationship):
+class ReactionReactionClassEdge(Relationship):
     start_node: Reaction
     end_node: ReactionClass

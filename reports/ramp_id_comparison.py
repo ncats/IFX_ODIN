@@ -297,34 +297,34 @@ with driver.session() as session:
     print(f"found {len(recombinations.get_recombinations())} recombinations")
 
     left_chem_props = session.run(
-        f"""match (node:released_ramp_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
+        f"""match (node:released_ramp_Metabolite)-[r:MetaboliteChemPropsEdge]->(prop)
         where node.id in {recombinations.get_all_left_ids()}
             return node.id as id, collect(prop) as props
             """)
     left_prop_dict = {rec['id']: rec['props'] for rec in left_chem_props}
 
     right_chem_props = session.run(
-        f"""match (node:ramp_with_refmet_Metabolite)-[r:MetaboliteChemPropsRelationship]->(prop)
+        f"""match (node:ramp_with_refmet_Metabolite)-[r:MetaboliteChemPropsEdge]->(prop)
         where node.id in {recombinations.get_all_right_ids()}
             return node.id as id, collect(prop) as props
             """)
     right_prop_dict = {rec['id']: rec['props'] for rec in right_chem_props}
 
     left_pathways = session.run(
-        f"""match (node)-[r:AnalytePathwayRelationship]->(path)
+        f"""match (node)-[r:AnalytePathwayEdge]->(path)
         where node.id in {recombinations.get_all_left_ids()}
             return node.id as id, collect(path.name) as pathways"""
     )
     left_path_dict = {rec['id']: list(set(rec['pathways'])) for rec in left_pathways}
     right_pathways = session.run(
-        f"""match (node)-[r:AnalytePathwayRelationship]->(path)
+        f"""match (node)-[r:AnalytePathwayEdge]->(path)
         where node.id in {recombinations.get_all_right_ids()}
             return node.id as id, collect(path.name) as pathways"""
     )
     right_path_dict = {rec['id']: list(set(rec['pathways'])) for rec in right_pathways}
 
     left_classes = session.run(
-        f"""match (node)-[r:MetaboliteClassRelationship]->(class)
+        f"""match (node)-[r:MetaboliteClassEdge]->(class)
         where node.id in {recombinations.get_all_left_ids()}
         and ( class.level = "ClassyFire_sub_class" or class.level = "LipidMaps_sub_class" )
             return node.id as id, collect(class.name) as classes"""
@@ -332,7 +332,7 @@ with driver.session() as session:
     left_class_dict = {rec['id']: list(set(rec['classes'])) for rec in left_classes}
 
     right_classes = session.run(
-        f"""match (node)-[r:MetaboliteClassRelationship]->(class)
+        f"""match (node)-[r:MetaboliteClassEdge]->(class)
         where node.id in {recombinations.get_all_right_ids()}
         and ( class.level = "ClassyFire_sub_class" or class.level = "LipidMaps_sub_class" )
             return node.id as id, collect(class.name) as classes"""

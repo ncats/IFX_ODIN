@@ -24,7 +24,7 @@ class DiseaseParentEdge(Relationship):
     source: str = None
 
 @dataclass
-class GeneDiseaseRelationship(Relationship):
+class GeneDiseaseEdge(Relationship):
     start_node: Gene = None
     end_node: Disease = None
     types: List[str] = None

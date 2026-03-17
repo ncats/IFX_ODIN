@@ -6,12 +6,12 @@ import GEOparse
 from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
 from src.models.pounce.data import Biospecimen, \
-    Sample, SampleFactorRelationship, ExperimentSampleRelationship, Factor, Treatment
-from src.models.pounce.experiment import Experiment, ExperimentPlatformRelationship
-from src.models.pounce.output import RNAProbe, SampleRNAProbeRelationship, GeneRNAProbeRelationship
+    Sample, SampleFactorEdge, ExperimentSampleEdge, Factor, Treatment
+from src.models.pounce.experiment import Experiment, ExperimentPlatformEdge
+from src.models.pounce.output import RNAProbe, SampleRNAProbeEdge, GeneRNAProbeEdge
 from src.models.pounce.platform import Platform
 from src.models.pounce.project import Project, ProjectPrivacy
-from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
+from src.models.pounce.project_experiment_relationship import ProjectExperimentEdge
 
 biospecimen_types = ['individual', 'cell line']
 treatment_types = ['agent']
@@ -106,7 +106,7 @@ class ParseGeo:
                 raise Exception(f"unknown factor type: {type}")
             for sample_id in sample_ids:
                 sample_obj = self.get_or_create_sample(sample_dict, sample_id, gse.columns.description[sample_id])
-                factor_rel = SampleFactorRelationship(
+                factor_rel = SampleFactorEdge(
                     start_node=sample_obj,
                     end_node=factor_obj
                 )
@@ -131,7 +131,7 @@ class ParseGeo:
                 gene_map[gene_symbol] = gene_obj
                 nodes.append(gene_obj)
             relationships.append(
-                GeneRNAProbeRelationship(
+                GeneRNAProbeEdge(
                     start_node=gene_obj,
                     end_node=platform_id_obj
                 )
@@ -140,7 +140,7 @@ class ParseGeo:
             for sample in samples:
                 val = row[sample.id]
                 if not math.isnan(val):
-                    rel = SampleRNAProbeRelationship(
+                    rel = SampleRNAProbeEdge(
                         start_node=sample,
                         end_node=platform_id_obj,
                         value=val
@@ -156,16 +156,16 @@ class GeoAdapter(InputAdapter, ParseGeo):
         print(self.accession)
         gse = GEOparse.get_GEO(geo=self.accession, destdir="./input_files/GEO")
         [project_obj, exp_obj] = self.parse_proj_and_exp(gse)
-        proj_exp_rel = ProjectExperimentRelationship(start_node=project_obj, end_node=exp_obj)
+        proj_exp_rel = ProjectExperimentEdge(start_node=project_obj, end_node=exp_obj)
         platform_obj = self.parse_platform(gse)
-        exp_plat_rel = ExperimentPlatformRelationship(start_node=exp_obj, end_node=platform_obj)
+        exp_plat_rel = ExperimentPlatformEdge(start_node=exp_obj, end_node=platform_obj)
 
         samples, factors, sample_factor_relationships = self.parse_samples(gse)
 
         experiment_sample_relationships = []
         for sample_obj in samples:
             experiment_sample_relationships.append(
-                ExperimentSampleRelationship(
+                ExperimentSampleEdge(
                     start_node=exp_obj,
                     end_node=sample_obj
                 )

@@ -3,16 +3,16 @@ tab_order:
   - Transcript
   - Gene
   - Ligand
-  - ProteinGoTermRelationship
-  - ProteinLigandRelationship
-  - IsoformProteinRelationship
-  - TranscriptProteinRelationship
-  - GeneTranscriptRelationship
-  - GeneProteinRelationship
-  - GeneGeneRifRelationship
-  - GoTermHasParentRelationship
+  - ProteinGoTermEdge
+  - ProteinLigandEdge
+  - IsoformProteinEdge
+  - TranscriptProteinEdge
+  - GeneTranscriptEdge
+  - GeneProteinEdge
+  - GeneGeneRifEdge
+  - GoTermHasParentEdge
 models:
-  - class: ProteinGoTermRelationship
+  - class: ProteinGoTermEdge
     column_order:
       - category
       - abbreviation
@@ -26,7 +26,7 @@ models:
       - assigned_by
       - start_id
       - end_id
-  - class: ProteinLigandRelationship
+  - class: ProteinLigandEdge
     column_order:
       - act_value
       - act_type
@@ -40,7 +40,7 @@ models:
       - act_type
       - assay_type
       - meets_idg_cutoff
-  - class: GeneGeneRifRelationship
+  - class: GeneGeneRifEdge
     column_order:
       - gene_id
   - class: Protein

@@ -10,6 +10,6 @@ class Ontology(Node):
 
 
 @dataclass
-class MetaboliteOntologyRelationship(Relationship):
+class MetaboliteOntologyEdge(Relationship):
     start_node: Metabolite
     end_node: Ontology

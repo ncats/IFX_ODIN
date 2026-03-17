@@ -7,7 +7,7 @@ from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
-from src.models.pathway import Pathway, ProteinPathwayRelationship
+from src.models.pathway import Pathway, ProteinPathwayEdge
 from src.models.protein import Protein
 
 
@@ -72,15 +72,15 @@ class WikiPathwaysPathwayAdapter(WikiPathwaysBaseAdapter):
 
 class WikiPathwaysProteinPathwayEdgeAdapter(WikiPathwaysBaseAdapter):
 
-    def get_all(self) -> Generator[List[ProteinPathwayRelationship], None, None]:
-        edges: List[ProteinPathwayRelationship] = []
+    def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
+        edges: List[ProteinPathwayEdge] = []
         for _, wpid, _, genes in self._iter_parsed_lines():
             for gene_id in genes:
                 if not gene_id.isdigit():
                     continue
                 protein_id = EquivalentId(id=gene_id, type=Prefix.NCBIGene)
                 edges.append(
-                    ProteinPathwayRelationship(
+                    ProteinPathwayEdge(
                         start_node=Protein(id=protein_id.id_str()),
                         end_node=Pathway(id=wpid),
                         source="WikiPathways"

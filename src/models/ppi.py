@@ -6,7 +6,7 @@ from src.models.protein import Protein
 
 
 @dataclass
-class PPIRelationship(Relationship):
+class PPIEdge(Relationship):
     start_node: Protein
     end_node: Protein
     sources: List[str] = field(default_factory=list)

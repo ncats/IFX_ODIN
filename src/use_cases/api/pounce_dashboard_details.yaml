@@ -8,25 +8,25 @@ tab_order:
   - Gene
   - Protein
   - Metabolite
-  - ProjectInvestigatorRelationship
-  - ProjectExperimentRelationship
-  - ExperimentSampleRelationship
-  - BiospecimenDiseaseRelationship
-  - SampleBiospecimenRelationship
+  - ProjectInvestigatorEdge
+  - ProjectExperimentEdge
+  - ExperimentSampleEdge
+  - BiospecimenDiseaseEdge
+  - SampleBiospecimenEdge
 models:
-  - class: SampleAnalyteRelationship
+  - class: SampleAnalyteEdge
     facets:
       - end_id
-  - class: ProjectTypeRelationship
+  - class: ProjectTypeEdge
     facets:
       - end_id
-  - class: SampleBiospecimenRelationship
+  - class: SampleBiospecimenEdge
     facets:
       - end_id
-  - class: ExperimentSampleRelationship
+  - class: ExperimentSampleEdge
     facets:
       - start_id
-  - class: ProjectInvestigatorRelationship
+  - class: ProjectInvestigatorEdge
     facets:
       - end_id
       - roles

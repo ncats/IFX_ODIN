@@ -7,7 +7,7 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.keyword import ProteinKeywordEdge
 from src.models.node import Node, Relationship
-from src.models.pathway import ProteinPathwayRelationship
+from src.models.pathway import ProteinPathwayEdge
 from src.models.protein import Protein
 from src.shared.uniprot_file_reader import UniProtFileReader
 from src.shared.uniprot_parser import UniProtParser
@@ -72,7 +72,7 @@ class ProteinAdapter(InputAdapter, UniProtFileReader):
                 for pathway_id, pathway in protein_pathways.items():
                     if pathway_id not in pathways_by_id:
                         pathways_by_id[pathway_id] = pathway
-                    pathway_edges.append(ProteinPathwayRelationship(start_node=protein, end_node=pathway, source='UniProt'))
+                    pathway_edges.append(ProteinPathwayEdge(start_node=protein, end_node=pathway, source='UniProt'))
         yield proteins
         yield list(keywords_by_id.values())
         yield keyword_edges

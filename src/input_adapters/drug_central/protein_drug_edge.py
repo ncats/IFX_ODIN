@@ -6,7 +6,7 @@ from src.input_adapters.drug_central.drug_node import DrugCentralAdapter
 from src.input_adapters.drug_central.tables import Structures, ActTableFull, Reference
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.ligand import Ligand, ProteinLigandRelationship, ActivityDetails
+from src.models.ligand import Ligand, ProteinLigandEdge, ActivityDetails
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
@@ -19,7 +19,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
+    def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:
         actReference = aliased(Reference)
         moaReference = aliased(Reference)
         query = (
@@ -42,7 +42,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
             .filter(ActTableFull.organism == 'Homo sapiens')).distinct()
 
         query_results = query.all()
-        protein_ligand_rels: Dict[str, ProteinLigandRelationship] = {}
+        protein_ligand_rels: Dict[str, ProteinLigandEdge] = {}
 
         for res in query_results:
             end_node=Ligand(id=EquivalentId(res.id, type=Prefix.DrugCentral).id_str())
@@ -66,7 +66,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
                 if rel_id in protein_ligand_rels:
                     protein_ligand_rels[rel_id].details.append(activityDetails)
                 else:
-                    pro_lig_rel = ProteinLigandRelationship(
+                    pro_lig_rel = ProteinLigandEdge(
                         start_node=start_node,
                         end_node=end_node,
                         details=[activityDetails]

@@ -4,7 +4,7 @@ from src.constants import Prefix
 from src.input_adapters.cellosaurus.cellosaurus import CellosaurusBaseAdapter
 from src.models.disease import Disease
 from src.models.node import Node, Relationship, EquivalentId
-from src.models.pounce.data import Biospecimen, BiospecimenDiseaseRelationship
+from src.models.pounce.data import Biospecimen, BiospecimenDiseaseEdge
 
 
 def parse_id(database: str, accession: str):
@@ -35,7 +35,7 @@ class DiseaseAdapter(CellosaurusBaseAdapter):
             disease_map[disease_id] = disease_obj
         yield list(disease_map.values())
 
-class DiseaseCellLineRelationshipAdapter(CellosaurusBaseAdapter):
+class DiseaseCellLineEdgeAdapter(CellosaurusBaseAdapter):
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         root_node = self.get_root_node()
         cell_line_disease_edges = []
@@ -55,7 +55,7 @@ class DiseaseCellLineRelationshipAdapter(CellosaurusBaseAdapter):
                     )
                 disease_obj = disease_map[disease_id]
                 cell_line_disease_edges.append(
-                    BiospecimenDiseaseRelationship(
+                    BiospecimenDiseaseEdge(
                         start_node=cell_line_obj,
                         end_node=disease_obj
                     )

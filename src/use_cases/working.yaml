@@ -120,10 +120,6 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.csv
       reviewed_only: True
-#  - import: ./src/input_adapters/uberon_adapter.py
-#    class: UberonAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/uberon/uberon.obo
 
   - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
     class: PathwayCommonsPathwayAdapter
@@ -136,88 +132,6 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
       version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
-
-#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
-#    class: WikiPathwaysPathwayAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
-#
-#  - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
-#    class: WikiPathwaysProteinPathwayEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-#      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
-#
-#
-#  - import: ./src/input_adapters/jensenlab/tissues_expression.py
-#    class: JensenLabTissuesExpressionAdapter
-#    kwargs:
-#      data_file_path: ./input_files/auto/jensenlab/human_tissue_integrated_full.tsv
-#      version_file_path: ./input_files/auto/jensenlab/tissues_version.tsv
-#      obo_file_path: ./input_files/auto/uberon/uberon.obo
-#
-#  - import: ./src/input_adapters/gtex/gtex_expression.py
-#    class: GTExExpressionAdapter
-#    kwargs:
-#      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
-#      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
-#      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
-#      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
-#
-#  - import: ./src/input_adapters/hpm/hpm_expression.py
-#    class: HPMExpressionAdapter
-#    kwargs:
-#      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
-#      uberon_map_file_path: ./input_files/manual/hpm/manual_uberon_map.tsv
-#      version_file_path: ./input_files/manual/hpm/version.csv
-#
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
-#    class: ProteinDiseaseEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
-#      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
-#  - import: ./src/input_adapters/reactome/reactome_pathways.py
-#    class: ReactomePathwayAdapter
-#    kwargs:
-#      gmt_file_path: ./input_files/auto/reactome/ReactomePathways.gmt.zip
-#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
-#
-#  - import: ./src/input_adapters/reactome/reactome_pathways.py
-#    class: ReactomePathwayParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/reactome/ReactomePathwaysRelation.txt
-#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
-#
-#  - import: ./src/input_adapters/reactome/reactome_pathways.py
-#    class: ReactomeProteinPathwayEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
-#      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
-#
-#  - import: ./src/input_adapters/hpa/hpa_expression.py
-#    class: HPAProteinExpressionAdapter
-#    kwargs:
-#      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
-#      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
-#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
-#
-#  - import: ./src/input_adapters/hpa/hpa_expression.py
-#    class: HPARnaExpressionAdapter
-#    kwargs:
-#      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
-#      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
-#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

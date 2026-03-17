@@ -30,7 +30,7 @@ input_adapters:
       file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 
   - import: ./src/input_adapters/cellosaurus/disease.py
-    class: DiseaseCellLineRelationshipAdapter
+    class: DiseaseCellLineEdgeAdapter
     kwargs:
       file_path: ./input_files/auto/cellosaurus/cellosaurus.xml
 

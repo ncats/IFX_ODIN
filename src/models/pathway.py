@@ -21,28 +21,28 @@ class Pathway(Node):
 
 
 @dataclass
-class AnalytePathwayRelationship(Relationship):
+class AnalytePathwayEdge(Relationship):
     start_node: Analyte = None
     end_node: Pathway = None
     source: str = None
 
 
 @dataclass
-class GenePathwayRelationship(Relationship):
+class GenePathwayEdge(Relationship):
     start_node: "Gene" = None
     end_node: Pathway = None
     source: str = None
 
 
 @dataclass
-class MetabolitePathwayRelationship(Relationship):
+class MetabolitePathwayEdge(Relationship):
     start_node: "Metabolite" = None
     end_node: Pathway = None
     source: str = None
 
 
 @dataclass
-class ProteinPathwayRelationship(Relationship):
+class ProteinPathwayEdge(Relationship):
     start_node: "Protein" = None
     end_node: Pathway = None
     source: str = None

@@ -3,7 +3,7 @@ from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
-from src.models.generif import GeneGeneRifRelationship, GeneRif
+from src.models.generif import GeneGeneRifEdge, GeneRif
 from src.models.node import EquivalentId
 from src.shared.targetgraph_parser import TargetGraphGeneRIFParser
 
@@ -18,8 +18,8 @@ class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
             download_date=self.download_date
         )
 
-    def get_all(self) -> Generator[List[GeneGeneRifRelationship], None, None]:
-        rif_edges: List[GeneGeneRifRelationship] = []
+    def get_all(self) -> Generator[List[GeneGeneRifEdge], None, None]:
+        rif_edges: List[GeneGeneRifEdge] = []
         for line in self.all_rows():
             rif_id = self.get_hash_id(line)
             rif_date = TargetGraphGeneRIFParser.get_generif_update_time(line)
@@ -28,7 +28,7 @@ class GeneGeneRifEdgeAdapter(InputAdapter, TargetGraphGeneRIFParser):
             pmids = TargetGraphGeneRIFParser.get_generif_pmids(line)
 
             rif_edges.append(
-                GeneGeneRifRelationship(
+                GeneGeneRifEdge(
                     start_node=Gene(id=gene_id.id_str()),
                     end_node=GeneRif(id=rif_id),
                     gene_id=int(gene_id.id),

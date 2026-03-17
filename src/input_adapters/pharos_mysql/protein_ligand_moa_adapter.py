@@ -3,9 +3,9 @@ from typing import List
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
-from src.models.ligand import ProteinLigandRelationship, Ligand
+from src.models.ligand import ProteinLigandEdge, Ligand
 from src.models.node import Relationship
-from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, DrugActivity as mysql_drug_activity, T2TC as mysql_t2tc
+from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, DrugActivity as mysql_drug_activity, T2TC as mysql_t2tc
 from src.models.protein import Protein
 
 
@@ -27,7 +27,7 @@ class ProteinLigandMOAAdapter(InputAdapter, MySqlAdapter):
             ligid = lychi_h4 or name
             key = f"{uniprot}-{ligid}"
             if key not in pl_rel_dict:
-                plr = ProteinLigandRelationship(
+                plr = ProteinLigandEdge(
                     start_node=Protein(id=f"{Prefix.UniProtKB}:{uniprot}"),
                     end_node=Ligand(id=ligid),
                 )

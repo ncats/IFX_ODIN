@@ -3,12 +3,12 @@ from typing import Union, List, Optional
 from src.constants import Prefix
 from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge
 from src.models.expression import ProteinTissueExpressionEdge
-from src.models.generif import GeneGeneRifRelationship
-from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermRelationship
+from src.models.generif import GeneGeneRifEdge
+from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
 from src.models.keyword import ProteinKeywordEdge
-from src.models.ligand import Ligand, ProteinLigandRelationship
+from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
-from src.models.pathway import ProteinPathwayRelationship
+from src.models.pathway import ProteinPathwayEdge
 from src.models.protein import Protein
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
@@ -33,14 +33,14 @@ class TCRDOutputConverter(SQLOutputConverter):
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
                       self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter],
             # GeneRif
-            GeneGeneRifRelationship: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
+            GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
             # GO
             GoTerm: [self.goterm_converter],
             GoTermHasParent: [self.goterm_parent_converter],
-            ProteinGoTermRelationship: [self.goa_converter],
+            ProteinGoTermEdge: [self.goa_converter],
             # Ligand
             Ligand: [self.ligand_converter],
-            ProteinLigandRelationship: [self.ligand_edge_converter],
+            ProteinLigandEdge: [self.ligand_edge_converter],
             # Tissue / Expression
             Tissue: [self.uberon_converter],
             TissueParentEdge: [self.uberon_parent_converter],
@@ -52,7 +52,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             DiseaseParentEdge: [self.mondo_parent_converter],
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter],
             # Pathway
-            ProteinPathwayRelationship: [self.pathway_type_converter, self.pathway_converter],
+            ProteinPathwayEdge: [self.pathway_type_converter, self.pathway_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
         }
