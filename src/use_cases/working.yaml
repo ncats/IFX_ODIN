@@ -115,23 +115,31 @@ resolvers:
         - Tissue
 
 input_adapters:
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
-      reviewed_only: True
+#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+#    class: ProteinNodeAdapter
+#    kwargs:
+#      file_path: ./input_files/manual/target_graph/protein_ids.csv
+#      reviewed_only: True
 
-  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
-    class: PathwayCommonsPathwayAdapter
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseAdapter
     kwargs:
-      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
-      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+      file_path: ./input_files/auto/mondo/mondo.json
 
-  - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
-    class: PathwayCommonsProteinPathwayEdgeAdapter
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
-      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

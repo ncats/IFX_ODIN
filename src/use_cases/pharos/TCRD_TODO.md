@@ -31,7 +31,8 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandRelationship** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandRelationship` | [x] `ncats_ligand_activity` |
 | **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex` |
-| **Disease** | [x] MONDO<br>[x] UniProt | `Disease`<br>`DiseaseParentEdge` | [x] `mondo`<br>[x] `mondo_parent` |
+| **Disease** | [x] MONDO<br>[x] UniProt<br>[x] Disease Ontology | `Disease`<br>`DiseaseParentEdge` | [x] `mondo`<br>[x] `mondo_parent`<br>[x] `do` |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent` *(tcrd/disease.py needs DODiseaseParentEdge query)* |
 | **ProteinDiseaseEdge** | [x] UniProt curated | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease` |
 | **Pathway** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway`<br>`PathwayParentEdge` | [ ] TBD |
 | **ProteinPathwayRelationship** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayRelationship` | [x] `pathway_type`<br>[x] `pathway` |

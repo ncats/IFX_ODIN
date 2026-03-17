@@ -31,7 +31,8 @@ rule all:
         "../input_files/auto/jensenlab/human_tissue_integrated_full.tsv",
         "../input_files/auto/jensenlab/tissues_version.tsv",
         "../input_files/auto/wikipathways/wikipathways_human.gmt",
-        "../input_files/auto/wikipathways/wikipathways_version.tsv"
+        "../input_files/auto/wikipathways/wikipathways_version.tsv",
+        "../input_files/auto/disease_ontology/doid.json"
 
 rule download_jensenlab_tissues:
     output:
@@ -155,6 +156,15 @@ rule download_mondo:
         "../input_files/auto/mondo/mondo.json"
     shell:
         "curl -L -o {output} https://purl.obolibrary.org/obo/mondo.json"
+
+rule download_disease_ontology:
+    output:
+        "../input_files/auto/disease_ontology/doid.json"
+    shell:
+        """
+        mkdir -p ../input_files/auto/disease_ontology
+        curl -L -o {output} https://purl.obolibrary.org/obo/doid.json
+        """
 
 rule download_pathwaycommons:
     output:

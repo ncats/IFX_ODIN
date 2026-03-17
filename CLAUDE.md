@@ -98,6 +98,7 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 ## Workflow Conventions
 
 - **After creating any new file**, run `git add <path>` so it is staged for the next commit. Do not wait to be asked.
+- **When adding a new data source**, follow the steps in `playbooks/ingest_playbook.md`. Always read it at the start of any ingest task.
 
 ## Key Files
 

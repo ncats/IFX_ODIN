@@ -1,7 +1,7 @@
 import hashlib
 from typing import Union, List, Optional
 from src.constants import Prefix
-from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge
+from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge
 from src.models.expression import ProteinTissueExpressionEdge
 from src.models.generif import GeneGeneRifEdge
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
@@ -15,7 +15,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
-    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType,
+    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     Pathway as mysqlPathway, PathwayType,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -48,8 +48,9 @@ class TCRDOutputConverter(SQLOutputConverter):
                                           self.expression_converter,
                                           self.gtex_converter],
             # Disease
-            Disease: [self.mondo_converter],
+            Disease: [self.mondo_converter, self.do_converter],
             DiseaseParentEdge: [self.mondo_parent_converter],
+            DODiseaseParentEdge: [self.do_parent_converter],
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_type_converter, self.pathway_converter],
@@ -361,14 +362,36 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     # --- Disease / MONDO ---
 
-    def mondo_converter(self, obj: dict) -> Mondo:
+    def mondo_converter(self, obj: dict) -> Optional[Mondo]:
+        if not (obj.get('id') or '').startswith('MONDO:'):
+            return None
         comments = obj.get('comments') or []
         return Mondo(
             mondoid=obj['id'],
             name=obj['name'],
-            def_=obj.get('definition'),
+            def_=obj.get('mondo_description'),
             comment=comments[0] if comments else None,
             provenance=obj['provenance'],
+        )
+
+    def do_converter(self, obj: dict) -> Optional[DO]:
+        doid = obj.get('id') or ''
+        if not doid.startswith('DOID:'):
+            return None
+        return DO(
+            doid=doid,
+            name=obj.get('name') or '',
+            def_=obj.get('do_description'),
+        )
+
+    def do_parent_converter(self, obj: dict) -> Optional[DOParent]:
+        child_id = obj.get('start_id') or ''
+        parent_id = obj.get('end_id') or ''
+        if not child_id.startswith('DOID:') or not parent_id.startswith('DOID:'):
+            return None
+        return DOParent(
+            doid=child_id,
+            parent_id=parent_id,
         )
 
     def mondo_parent_converter(self, obj: dict) -> MondoParent:

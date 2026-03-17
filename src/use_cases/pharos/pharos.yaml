@@ -252,6 +252,16 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/mondo/mondo.json
 
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
+
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinDiseaseEdgeAdapter
     kwargs:
