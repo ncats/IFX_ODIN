@@ -23,22 +23,28 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD) |
 |---------|------------------------|-------------|------------------------------|
-| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] Antibodypedia *(antibody_count)*<br>[x] JensenLab *(pm_score)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
-| **GeneRif** | [x] target_graph generif CSV | `GeneRif`<br>`GeneGeneRifRelationship` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
-| **Tissue** | [x] Uberon OBO<br>[x] GTEx<br>[x] HPA<br>[x] HPM<br>[x] JensenLab | `Tissue`<br>`TissueParentEdge` | [x] `uberon`<br>[x] `uberon_parent` |
-| **GoTerm** | [x] GO OBO | `GoTerm`<br>`GoTermHasParent` | [x] `go`<br>[x] `go_parent` |
-| **ProteinGoTermRelationship** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermRelationship` | [x] `goa` |
-| **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
-| **ProteinLigandRelationship** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandRelationship` | [x] `ncats_ligand_activity` |
+| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
+| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | - |
+| **GeneGeneRifEdge** | [x] target_graph generif CSV | `GeneGeneRifEdge` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
+| **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon` |
+| **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent` |
 | **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex` |
-| **Disease** | [x] MONDO<br>[x] UniProt<br>[x] Disease Ontology | `Disease`<br>`DiseaseParentEdge` | [x] `mondo`<br>[x] `mondo_parent`<br>[x] `do` |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent` *(tcrd/disease.py needs DODiseaseParentEdge query)* |
-| **ProteinDiseaseEdge** | [x] UniProt curated | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease` |
-| **Pathway** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway`<br>`PathwayParentEdge` | [ ] TBD |
-| **ProteinPathwayRelationship** | [x] Reactome<br>[x] UniProt<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayRelationship` | [x] `pathway_type`<br>[x] `pathway` |
-| **Keyword** | [x] UniProt | `Keyword`<br>`ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
+| **GoTerm** | [x] GO OBO | `GoTerm` | [x] `go` |
+| **GoTermHasParent** | [x] GO OBO | `GoTermHasParent` | [x] `go_parent` |
+| **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa` |
+| **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
+| **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD | `Disease` | [x] `mondo`<br>[x] `do`<br>[x] `ncats_disease` |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [x] `mondo_parent` |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent` |
+| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease` |
+| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | - |
+| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | - |
+| **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayEdge` | [x] `pathway_type`<br>[x] `pathway` |
+| **Keyword** | [x] UniProt | `Keyword` | - |
+| **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
-| **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandRelationship` | *(via ProteinLigandRelationship)* |
+| **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)* |
 | **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)* |
 | **TDLInputAdapter** | [x] computed from graph | updates `tdl`, `tdl_meta` on `Protein` | *(via Protein)* |
 | **TDLOverrideAdapter** | [x] manual CSV | updates `tdl` on `Protein` | *(via Protein)* |
