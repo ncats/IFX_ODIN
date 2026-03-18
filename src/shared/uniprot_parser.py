@@ -6,7 +6,7 @@ from src.models.go_term import GoTerm, GoType, ProteinGoTermEdge, GoEvidence
 from src.models.keyword import Keyword
 from src.models.pathway import Pathway
 from src.models.protein import Protein
-from src.models.disease import Disease
+from src.models.disease import Disease, DiseaseAssociationDetail
 from src.models.node import EquivalentId
 
 
@@ -185,8 +185,30 @@ class UniProtParser:
                 disease_id = EquivalentId(id=identifier, type=prefix).id_str()
 
             disease_name = disease_obj.get('diseaseId')
+            description = disease_obj.get('description')
+            evidences = disease_obj.get('evidences') or []
+            evidence_codes = []
+            pmids = []
+            for evidence_obj in evidences:
+                evidence_code = evidence_obj.get('evidenceCode')
+                if evidence_code:
+                    evidence_codes.append(evidence_code)
+                if evidence_obj.get('source') == 'PubMed' and evidence_obj.get('id'):
+                    pmids.append(str(evidence_obj['id']))
             if disease_id not in diseases:
-                diseases[disease_id] = Disease(id=disease_id, name=disease_name)
+                diseases[disease_id] = {
+                    'disease': Disease(
+                        id=disease_id,
+                        name=disease_name,
+                        uniprot_description=description,
+                    ),
+                    'detail': DiseaseAssociationDetail(
+                        source='UniProt',
+                        source_id=disease_id,
+                        pmids=list(dict.fromkeys(pmids)),
+                        evidence_codes=list(dict.fromkeys(evidence_codes)),
+                    )
+                }
 
         if len(diseases) == 0:
             return None

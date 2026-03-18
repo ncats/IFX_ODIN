@@ -403,7 +403,8 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def disease_type_converter(self, obj: dict) -> Optional[DiseaseType]:
         """Seeds the disease_type lookup table; one row per new unique source."""
-        source = obj.get('source')
+        details = obj.get('details') or []
+        source = obj.get('source') or (details[0].get('source') if details else None)
         if not source or source in self._known_disease_types:
             return None
         self._known_disease_types.add(source)
@@ -412,8 +413,10 @@ class TCRDOutputConverter(SQLOutputConverter):
     def disease_converter(self, obj: dict) -> mysqlDisease:
         disease_id = obj['end_id']
         mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') else None
+        details = obj.get('details') or []
+        source = obj.get('source') or (details[0].get('source') if details else None)
         return mysqlDisease(
-            dtype=obj['source'],
+            dtype=source,
             protein_id=self.resolve_id('protein', obj['start_id']),
             name=obj['end_node']['name'],
             ncats_name=obj['end_node']['name'],

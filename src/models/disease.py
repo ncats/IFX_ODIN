@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import List, Optional
 
@@ -45,7 +45,23 @@ class GeneDiseaseEdge(Relationship):
 
 
 @dataclass
+class DiseaseAssociationDetail:
+    source: str
+    source_id: Optional[str] = None
+    evidence: List[str] = field(default_factory=list)
+    pmids: List[str] = field(default_factory=list)
+    evidence_codes: List[str] = field(default_factory=list)
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
 class ProteinDiseaseEdge(Relationship):
     start_node: Protein = None
     end_node: Disease = None
-    source: str = None
+    details: List[DiseaseAssociationDetail] = field(default_factory=list)

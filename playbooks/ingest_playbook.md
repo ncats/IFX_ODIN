@@ -50,10 +50,10 @@ Provide a repeatable checklist for adding a new data source to the pharos graph.
    - Use stable IDs and consistent prefixes.
 
 9) **Wire configuration into YAML**
-   - Add the adapter to the YAML (`working.yaml` for trial; later `target_graph.yaml`).
+   - Add the adapter to `src/use_cases/working.yaml` first.
    - Pass file paths and version metadata file paths via `kwargs`.
-   - For Pharos data sources: add to **both** `src/use_cases/pharos/pharos.yaml` and
-     `src/use_cases/pharos/target_graph.yaml`.
+   - After the working ingest is validated, copy the finalized adapter configuration into
+     **both** `src/use_cases/pharos/pharos.yaml` and `src/use_cases/pharos/target_graph.yaml`.
 
 10) **Run and validate**
     - Run the ETL via the YAML entrypoint (e.g., `src/use_cases/working.py`).

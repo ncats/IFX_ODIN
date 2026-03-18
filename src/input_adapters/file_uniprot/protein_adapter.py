@@ -113,14 +113,14 @@ class ProteinDiseaseEdgeAdapter(InputAdapter, UniProtFileReader):
             if protein_diseases is None:
                 continue
 
-            for disease_id, disease in protein_diseases.items():
+            for disease_id, disease_payload in protein_diseases.items():
                 if disease_id not in diseases_by_id:
-                    diseases_by_id[disease_id] = disease
+                    diseases_by_id[disease_id] = disease_payload['disease']
                 protein_disease_edges.append(
                     ProteinDiseaseEdge(
                         start_node=protein,
                         end_node=Disease(id=disease_id),
-                        source='UniProt'
+                        details=[disease_payload['detail']]
                     )
                 )
 

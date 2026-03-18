@@ -115,31 +115,43 @@ resolvers:
         - Tissue
 
 input_adapters:
-#  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-#    class: ProteinNodeAdapter
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      reviewed_only: True
+
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseAdapter
 #    kwargs:
-#      file_path: ./input_files/manual/target_graph/protein_ids.csv
-#      reviewed_only: True
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+#    class: DODiseaseAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
+#
+#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+#    class: DODiseaseParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
 
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseAdapter
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinDiseaseEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
+      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
 
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseParentEdgeAdapter
+  - import: ./src/input_adapters/ctd/ctd_gene_disease.py
+    class: CTDGeneDiseaseAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-    class: DODiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-    class: DODiseaseParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+      file_path: ./input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz
+      version_file_path: ./input_files/auto/ctd/ctd_version.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
