@@ -40,22 +40,22 @@ class Transcript(Audited, Node):
     RefSeq_Provenance: Optional[str] = None
 
 @dataclass
-class GeneTranscriptRelationship(Relationship, Audited):
+class GeneTranscriptEdge(Relationship, Audited):
     start_node: Gene = None
     end_node: Transcript = None
 
 @dataclass
-class TranscriptProteinRelationship(Relationship, Audited):
+class TranscriptProteinEdge(Relationship, Audited):
     start_node: Transcript = None
     end_node: Protein = None
 
 @dataclass
-class GeneProteinRelationship(Relationship, Audited):
+class GeneProteinEdge(Relationship, Audited):
     start_node: Gene = None
     end_node: Protein = None
 
 @dataclass
-class IsoformProteinRelationship(Relationship, Audited):
+class IsoformProteinEdge(Relationship, Audited):
     start_node: Protein = None
     end_node: Protein = None
 

@@ -12,11 +12,11 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.metabolite import Metabolite
 from src.models.node import Node, Relationship, EquivalentId
-from src.models.pounce.data import Sample, ExperimentSampleRelationship, Biospecimen, SampleBiospecimenRelationship, \
-    SampleAnalyteRelationship
+from src.models.pounce.data import Sample, ExperimentSampleEdge, Biospecimen, SampleBiospecimenEdge, \
+    SampleAnalyteEdge
 from src.models.pounce.experiment import Experiment
-from src.models.pounce.project import Project, ProjectType, ProjectTypeRelationship
-from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
+from src.models.pounce.project import Project, ProjectType, ProjectTypeEdge
+from src.models.pounce.project_experiment_relationship import ProjectExperimentEdge
 
 
 @contextmanager
@@ -93,7 +93,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
             category="in vitro"
         )
 
-        proj_exp_edge = ProjectExperimentRelationship(
+        proj_exp_edge = ProjectExperimentEdge(
             start_node=proj_obj, end_node=experiment_obj
         )
 
@@ -101,7 +101,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
             id="Disease Characterization", name="Disease Characterization"
         )
 
-        proj_proj_type_edge = ProjectTypeRelationship(
+        proj_proj_type_edge = ProjectTypeEdge(
             start_node=proj_obj,
             end_node=proj_type
         )
@@ -114,7 +114,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
 
         exp_samp_edges = []
         for sample_obj in sample_dict.values():
-            exp_samp_edge = ExperimentSampleRelationship(
+            exp_samp_edge = ExperimentSampleEdge(
                 start_node=experiment_obj,
                 end_node=sample_obj
             )
@@ -123,7 +123,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
         yield exp_samp_edges
 
         biospecimens = []
-        samp_bio_edges: List[SampleBiospecimenRelationship] = []
+        samp_bio_edges: List[SampleBiospecimenEdge] = []
 
         with open(self.cell_line_annotation_file, 'r') as file:
             reader = csv.DictReader(file, delimiter='\t')
@@ -149,7 +149,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
 
                 sample_obj = sample_dict.get(ccle_id)
                 if sample_obj is not None:
-                    samp_bio_edges.append(SampleBiospecimenRelationship(
+                    samp_bio_edges.append(SampleBiospecimenEdge(
                         start_node=sample_obj,
                         end_node=biospecimen
                     ))
@@ -189,7 +189,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
                         # if measurement_value == 0:
                         #     continue
 
-                        samp_gene_edge = SampleAnalyteRelationship(
+                        samp_gene_edge = SampleAnalyteEdge(
                             start_node=sample_obj,
                             end_node=gene_obj
                         )
@@ -242,7 +242,7 @@ class CCLEInputAdapter(InputAdapter, ABC):
                     if metabolite_obj is None:
                         raise Exception(f"Metabolite {metabolite_name} not found in metabolites dictionary")
 
-                    samp_met_edge = SampleAnalyteRelationship(
+                    samp_met_edge = SampleAnalyteEdge(
                         start_node=sample_obj,
                         end_node=metabolite_obj,
                         stats_ready_data=line[metabolite_name]

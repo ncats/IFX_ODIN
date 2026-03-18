@@ -1,6 +1,6 @@
 from typing import List, Union, Generator
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
-from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsRelationship
+from src.models.metabolite import Metabolite, MetaboliteChemProps, MetaboliteChemPropsEdge
 from src.input_adapters.sqlite_ramp.tables import ChemProps as SqliteChemProps
 
 
@@ -9,7 +9,7 @@ class MetaboliteChemPropsAdapter(RaMPSqliteAdapter):
     def __init__(self, sqlite_file):
         RaMPSqliteAdapter.__init__(self, sqlite_file=sqlite_file)
 
-    def get_all(self) -> Generator[List[Union[MetaboliteChemProps, MetaboliteChemPropsRelationship]], None, None]:
+    def get_all(self) -> Generator[List[Union[MetaboliteChemProps, MetaboliteChemPropsEdge]], None, None]:
         results = self.get_session().query(
             SqliteChemProps.ramp_id,
             SqliteChemProps.chem_data_source,
@@ -41,7 +41,7 @@ class MetaboliteChemPropsAdapter(RaMPSqliteAdapter):
             )
             chem_prop_obj.set_id()
             nodes_and_relationships.append(chem_prop_obj)
-            nodes_and_relationships.append(MetaboliteChemPropsRelationship(
+            nodes_and_relationships.append(MetaboliteChemPropsEdge(
                 start_node=Metabolite(id=row[0]),
                 end_node=chem_prop_obj
             ))

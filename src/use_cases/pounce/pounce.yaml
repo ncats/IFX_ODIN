@@ -38,8 +38,8 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_relationship_adapter.py
-    class: MetaboliteClassRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/metabolite_class_edge_adapter.py
+    class: MetaboliteClassEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
@@ -48,24 +48,26 @@ input_adapters:
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: MetabolitePathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: MetabolitePathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
-  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_relationship_adapter.py
-    class: EnsemblGenePathwayRelationshipAdapter
+  - import: ./src/input_adapters/sqlite_ramp/analyte_pathway_edge_adapter.py
+    class: EnsemblGenePathwayEdgeAdapter
     kwargs:
       sqlite_file: *ramp_sqlite_file
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
-      project_file: ./input_files/manual/pounce/POUNCE_Project_Metabo_Template_v2.xlsx
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Metabo_DDLPS_v2.xlsx
       experiment_files:
-        - ./input_files/manual/pounce/POUNCE_Experiment_Metabo_Template_v2.xlsx
+        - ./input_files/manual/pounce/exp0_POUNCE_Experiment_Metabo_DDLPS_Metabolomics.xlsx
+        - ./input_files/manual/pounce/exp1_POUNCE_Experiment_Metabo_DDLPS_Lipidomics.xlsx
       stats_results_files:
-        - ./input_files/manual/pounce/POUNCE_StatsResults_Metabo_Template_v2.xlsx
+        - ./input_files/manual/pounce/stats0_POUNCE_StatsResults_Metabo_DDLPS_Metabolomics.xlsx
+        - ./input_files/manual/pounce/stats1_POUNCE_StatsResults_Metabo_DDLPS_Lipidomics.xlsx
       validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
@@ -81,11 +83,11 @@ input_adapters:
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
     class: PounceInputAdapter
     kwargs:
-      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2.xlsx
+      project_file: ./input_files/manual/pounce/POUNCE_Project_Transcriptomics_COVID_Motorneurons_v2[44].xlsx
       experiment_files:
-        - ./input_files/manual/pounce/POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
+        - ./input_files/manual/pounce/exp0_POUNCE_Experiment_Transcriptomics_COVID_Motorneuron_v2.xlsx
       stats_results_files:
-        - ./input_files/manual/pounce/POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
+        - ./input_files/manual/pounce/stats0_POUNCE_StatsResults_Transcriptomics_COVID_Motorneuron_v2.xlsx
       validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
   - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py

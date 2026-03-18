@@ -1,6 +1,6 @@
 from typing import Union, List
 
-from src.models.test_models import TestNode, TestRelationship, TwoKeyAutoIncNode, AutoIncNode
+from src.models.test_models import TestNode, TestEdge, TwoKeyAutoIncNode, AutoIncNode
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.test_tables import Node, AutoIncNode as mysqlAIN, Relationship, TwoKeyAutoInc
 
@@ -11,7 +11,7 @@ class TestSQLOutputConverter(SQLOutputConverter):
         super().__init__(sql_base=sql_base)
         self._converters = {
             TestNode: node_converter,
-            TestRelationship: rel_converter,
+            TestEdge: rel_converter,
             AutoIncNode: auto_inc_node_converter,
             TwoKeyAutoIncNode: two_key_auto_inc_node_converter,
         }

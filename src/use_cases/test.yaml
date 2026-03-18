@@ -8,10 +8,10 @@ input_adapters:
     class: TestNodeAdapter2
 
   - import: ./src/input_adapters/test_mysql/test.py
-    class: TestRelationshipAdapter
+    class: TestEdgeAdapter
 
   - import: ./src/input_adapters/test_mysql/test.py
-    class: TestRelationshipAdapter2
+    class: TestEdgeAdapter2
 
   - import: ./src/input_adapters/test_mysql/test.py
     class: TestAutoIncNode

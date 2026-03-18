@@ -9,15 +9,15 @@ from src.api_adapters.strawberry_models.shared_query_models import Provenance, g
 from src.interfaces.result_types import LinkedListQueryContext
 from src.models.analyte import Synonym
 from src.models.gene import Gene as GeneBase, GeneticLocation
-from src.models.generif import GeneGeneRifRelationship as GeneGeneRifRelationshipBase, GeneRif as GeneRifBase
-from src.models.go_term import GoTerm as GoTermBase, ProteinGoTermRelationship as ProteinGoTermRelationshipBase, \
+from src.models.generif import GeneGeneRifEdge as GeneGeneRifEdgeBase, GeneRif as GeneRifBase
+from src.models.go_term import GoTerm as GoTermBase, ProteinGoTermEdge as ProteinGoTermEdgeBase, \
     GoEvidence as GoEvidenceBase, GoTermHasParent as GoTermHasParentBase
-from src.models.ligand import Ligand as LigandBase, ProteinLigandRelationship as ProteinLigandRelationshipBase, ActivityDetails
+from src.models.ligand import Ligand as LigandBase, ProteinLigandEdge as ProteinLigandEdgeBase, ActivityDetails
 from src.models.node import Node, EquivalentId, Relationship
 from src.models.protein import Protein as ProteinBase, TDLMetadata
-from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinRelationship as IsoformProteinRelationshipBase, \
-    GeneProteinRelationship as GeneProteinRelationshipBase, \
-    TranscriptProteinRelationship as TranscriptProteinRelationshipBase, GeneTranscriptRelationship as GeneTranscriptRelationshipBase
+from src.models.transcript import Transcript as TranscriptBase, TranscriptLocation, IsoformProteinEdge as IsoformProteinEdgeBase, \
+    GeneProteinEdge as GeneProteinEdgeBase, \
+    TranscriptProteinEdge as TranscriptProteinEdgeBase, GeneTranscriptEdge as GeneTranscriptEdgeBase
 
 
 Node = strawberry.type(Node)
@@ -42,7 +42,7 @@ class GeneRif(GeneRifBase):
             source_data_model="Gene",
             source_id=None,
             dest_data_model="GeneRif",
-            edge_model="GeneGeneRifRelationship",
+            edge_model="GeneGeneRifEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -60,7 +60,7 @@ def go_terms(root, info: Info, type: Literal["P", "F", "C"], filter: Optional[
         source_data_model="Protein",
         source_id=root.id,
         dest_data_model="GoTerm",
-        edge_model="ProteinGoTermRelationship",
+        edge_model="ProteinGoTermEdge",
         dest_id=None,
         filter=filter
     )
@@ -81,7 +81,7 @@ class Protein(ProteinBase):
             source_data_model="Protein",
             source_id=None,
             dest_data_model="Protein",
-            edge_model="IsoformProteinRelationship",
+            edge_model="IsoformProteinEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -95,7 +95,7 @@ class Protein(ProteinBase):
             source_data_model="Protein",
             source_id=root.id,
             dest_data_model="Protein",
-            edge_model="IsoformProteinRelationship",
+            edge_model="IsoformProteinEdge",
             dest_id=None,
             filter=filter
         )
@@ -121,7 +121,7 @@ class Protein(ProteinBase):
             source_data_model="Gene",
             source_id=None,
             dest_data_model="Protein",
-            edge_model="GeneProteinRelationship",
+            edge_model="GeneProteinEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -135,7 +135,7 @@ class Protein(ProteinBase):
             source_data_model="Transcript",
             source_id=None,
             dest_data_model="Protein",
-            edge_model="TranscriptProteinRelationship",
+            edge_model="TranscriptProteinEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -149,7 +149,7 @@ class Protein(ProteinBase):
             source_data_model="Protein",
             source_id=root.id,
             dest_data_model="Ligand",
-            edge_model="ProteinLigandRelationship",
+            edge_model="ProteinLigandEdge",
             dest_id=None,
             filter=filter
         )
@@ -170,7 +170,7 @@ class Transcript(TranscriptBase):
             source_data_model="Transcript",
             source_id=root.id,
             dest_data_model="Protein",
-            edge_model="TranscriptProteinRelationship",
+            edge_model="TranscriptProteinEdge",
             dest_id=None,
             filter=filter
         )
@@ -184,7 +184,7 @@ class Transcript(TranscriptBase):
             source_data_model="Gene",
             source_id=None,
             dest_data_model="Transcript",
-            edge_model="GeneTranscriptRelationship",
+            edge_model="GeneTranscriptEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -204,7 +204,7 @@ class Gene(GeneBase):
             source_data_model="Gene",
             source_id=root.id,
             dest_data_model="Transcript",
-            edge_model="GeneTranscriptRelationship",
+            edge_model="GeneTranscriptEdge",
             dest_id=None,
             filter=filter
         )
@@ -218,7 +218,7 @@ class Gene(GeneBase):
             source_data_model="Gene",
             source_id=root.id,
             dest_data_model="Protein",
-            edge_model="GeneProteinRelationship",
+            edge_model="GeneProteinEdge",
             dest_id=None,
             filter=filter
         )
@@ -232,7 +232,7 @@ class Gene(GeneBase):
             source_data_model="Gene",
             source_id=root.id,
             dest_data_model="GeneRif",
-            edge_model="GeneGeneRifRelationship",
+            edge_model="GeneGeneRifEdge",
             dest_id=None,
             filter=filter
         )
@@ -252,7 +252,7 @@ class Ligand(LigandBase):
             source_data_model="Protein",
             source_id=None,
             dest_data_model="Ligand",
-            edge_model="ProteinLigandRelationship",
+            edge_model="ProteinLigandEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -272,7 +272,7 @@ class GoTerm(GoTermBase):
             source_data_model="Protein",
             source_id=None,
             dest_data_model="GoTerm",
-            edge_model="ProteinGoTermRelationship",
+            edge_model="ProteinGoTermEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -322,7 +322,7 @@ class GoEvidence(GoEvidenceBase):
         return GoEvidenceBase.text(self)
 
 @strawberry.type
-class ProteinGoTermRelationship(ProteinGoTermRelationshipBase):
+class ProteinGoTermEdge(ProteinGoTermEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -341,7 +341,7 @@ class GoTermHasParent(GoTermHasParentBase):
 
 
 @strawberry.type
-class IsoformProteinRelationship(IsoformProteinRelationshipBase):
+class IsoformProteinEdge(IsoformProteinEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -349,7 +349,7 @@ class IsoformProteinRelationship(IsoformProteinRelationshipBase):
     end_node: Protein
 
 @strawberry.type
-class GeneProteinRelationship(GeneProteinRelationshipBase):
+class GeneProteinEdge(GeneProteinEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -357,7 +357,7 @@ class GeneProteinRelationship(GeneProteinRelationshipBase):
     end_node: Protein
 
 @strawberry.type
-class TranscriptProteinRelationship(TranscriptProteinRelationshipBase):
+class TranscriptProteinEdge(TranscriptProteinEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -365,7 +365,7 @@ class TranscriptProteinRelationship(TranscriptProteinRelationshipBase):
     end_node: Protein
 
 @strawberry.type
-class GeneTranscriptRelationship(GeneTranscriptRelationshipBase):
+class GeneTranscriptEdge(GeneTranscriptEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -373,7 +373,7 @@ class GeneTranscriptRelationship(GeneTranscriptRelationshipBase):
     end_node: Transcript
 
 @strawberry.type
-class ProteinLigandRelationship(ProteinLigandRelationshipBase):
+class ProteinLigandEdge(ProteinLigandEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -381,7 +381,7 @@ class ProteinLigandRelationship(ProteinLigandRelationshipBase):
     end_node: Ligand
 
 @strawberry.type
-class GeneGeneRifRelationship(GeneGeneRifRelationshipBase):
+class GeneGeneRifEdge(GeneGeneRifEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -389,23 +389,23 @@ class GeneGeneRifRelationship(GeneGeneRifRelationshipBase):
     end_node: GeneRif
     pmids: List[str]
 
-ProteinGeneQueryResult = make_linked_list_result_type("ProteinGeneQueryResult", "ProteinGeneDetails", GeneProteinRelationship, Gene)
-ProteinTranscriptQueryResult = make_linked_list_result_type("ProteinTranscriptQueryResult", "ProteinTranscriptDetails", TranscriptProteinRelationship, Transcript)
-ProteinGoTermQueryResult = make_linked_list_result_type("ProteinGoTermQueryResult", "ProteinGoTermDetails", ProteinGoTermRelationship, GoTerm)
-ProteinIsoformQueryResult = make_linked_list_result_type("ProteinIsoformQueryResult", "ProteinIsoformDetails", IsoformProteinRelationship, Protein)
-ProteinLigandQueryResult = make_linked_list_result_type("ProteinLigandQueryResult", "ProteinLigandDetails", ProteinLigandRelationship, Ligand)
+ProteinGeneQueryResult = make_linked_list_result_type("ProteinGeneQueryResult", "ProteinGeneDetails", GeneProteinEdge, Gene)
+ProteinTranscriptQueryResult = make_linked_list_result_type("ProteinTranscriptQueryResult", "ProteinTranscriptDetails", TranscriptProteinEdge, Transcript)
+ProteinGoTermQueryResult = make_linked_list_result_type("ProteinGoTermQueryResult", "ProteinGoTermDetails", ProteinGoTermEdge, GoTerm)
+ProteinIsoformQueryResult = make_linked_list_result_type("ProteinIsoformQueryResult", "ProteinIsoformDetails", IsoformProteinEdge, Protein)
+ProteinLigandQueryResult = make_linked_list_result_type("ProteinLigandQueryResult", "ProteinLigandDetails", ProteinLigandEdge, Ligand)
 
-GoTermProteinQueryResult = make_linked_list_result_type("GoTermProteinQueryResult", "GoTermProteinDetails", ProteinGoTermRelationship, Protein)
+GoTermProteinQueryResult = make_linked_list_result_type("GoTermProteinQueryResult", "GoTermProteinDetails", ProteinGoTermEdge, Protein)
 GoTermGoTermQueryResult = make_linked_list_result_type("GoTermGoTermQueryResult", "GoTermGoTermDetails", GoTermHasParent, GoTerm)
-TranscriptProteinQueryResult = make_linked_list_result_type("TranscriptProteinQueryResult", "TranscriptProteinDetails", TranscriptProteinRelationship, Protein)
-TranscriptGeneQueryResult = make_linked_list_result_type("TranscriptGeneQueryResult", "TranscriptGeneDetails", GeneTranscriptRelationship, Gene)
+TranscriptProteinQueryResult = make_linked_list_result_type("TranscriptProteinQueryResult", "TranscriptProteinDetails", TranscriptProteinEdge, Protein)
+TranscriptGeneQueryResult = make_linked_list_result_type("TranscriptGeneQueryResult", "TranscriptGeneDetails", GeneTranscriptEdge, Gene)
 
-GeneProteinQueryResult = make_linked_list_result_type("GeneProteinQueryResult", "GeneProteinDetails", GeneProteinRelationship, Protein)
-GeneTranscriptQueryResult = make_linked_list_result_type("GeneTranscriptQueryResult", "GeneTranscriptDetails", GeneTranscriptRelationship, Transcript)
-GeneGeneRifQueryResult = make_linked_list_result_type("GeneGeneRifQueryResult", "GeneGeneRifDetails", GeneGeneRifRelationship, GeneRif)
-GeneRifGeneQueryResult = make_linked_list_result_type("GeneRifGeneQueryResult", "GeneRifGeneDetails", GeneGeneRifRelationship, Gene)
+GeneProteinQueryResult = make_linked_list_result_type("GeneProteinQueryResult", "GeneProteinDetails", GeneProteinEdge, Protein)
+GeneTranscriptQueryResult = make_linked_list_result_type("GeneTranscriptQueryResult", "GeneTranscriptDetails", GeneTranscriptEdge, Transcript)
+GeneGeneRifQueryResult = make_linked_list_result_type("GeneGeneRifQueryResult", "GeneGeneRifDetails", GeneGeneRifEdge, GeneRif)
+GeneRifGeneQueryResult = make_linked_list_result_type("GeneRifGeneQueryResult", "GeneRifGeneDetails", GeneGeneRifEdge, Gene)
 
-LigandProteinQueryResult = make_linked_list_result_type("LigandProteinQueryResult", "LigandProteinDetails", ProteinLigandRelationship, Protein)
+LigandProteinQueryResult = make_linked_list_result_type("LigandProteinQueryResult", "LigandProteinDetails", ProteinLigandEdge, Protein)
 
 ENDPOINTS: Dict[type, Dict[str, str]] = {
     Protein: {
@@ -438,13 +438,13 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
 }
 
 EDGES : Dict[type, str] = {
-    ProteinGoTermRelationship: "protein_go_term_edges",
-    IsoformProteinRelationship: "isoform_protein_edges",
-    GeneProteinRelationship: "gene_protein_edges",
-    TranscriptProteinRelationship: "transcript_protein_edges",
-    GeneTranscriptRelationship: "gene_transcript_edges",
-    ProteinLigandRelationship: "protein_ligand_edges",
-    GeneGeneRifRelationship: "gene_generif_edges"
+    ProteinGoTermEdge: "protein_go_term_edges",
+    IsoformProteinEdge: "isoform_protein_edges",
+    GeneProteinEdge: "gene_protein_edges",
+    TranscriptProteinEdge: "transcript_protein_edges",
+    GeneTranscriptEdge: "gene_transcript_edges",
+    ProteinLigandEdge: "protein_ligand_edges",
+    GeneGeneRifEdge: "gene_generif_edges"
 }
 
 def Query(url):

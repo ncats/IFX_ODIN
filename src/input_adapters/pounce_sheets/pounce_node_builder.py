@@ -6,6 +6,10 @@ from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
 from src.constants import Prefix
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook, StatsResultsWorkbook
+
+
+_NA_VALUES = {"NA", "N/A", ""}
+
 from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson, ParsedProject
 from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 from src.input_adapters.pounce_sheets.pounce_parser import PounceParser
@@ -42,6 +46,16 @@ def _iter_pairs(experiment_files, stats_files):
 
 
 class PounceNodeBuilder:
+    @staticmethod
+    def _to_null_if_na(value: Optional[str]) -> Optional[str]:
+        """Convert a value to None if it is missing, empty, or 'N/A' (case-insensitive)."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped or stripped.upper() in _NA_VALUES:
+            return None
+        return value
+
     def __init__(self):
         self._ctx = PounceContext()
 
@@ -200,8 +214,8 @@ class PounceNodeBuilder:
             platform_name=parsed.platform_name,
             platform_provider=parsed.platform_provider,
             platform_output_type=parsed.platform_output_type,
-            public_repo_id=parsed.public_repo_id,
-            repo_url=parsed.repo_url,
+            public_repo_id=PounceNodeBuilder._to_null_if_na(parsed.public_repo_id),
+            repo_url=PounceNodeBuilder._to_null_if_na(parsed.repo_url),
             raw_file_archive_dir=parsed.raw_file_archive_dir or [],
             extraction_protocol=parsed.extraction_protocol,
             acquisition_method=parsed.acquisition_method,

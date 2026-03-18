@@ -6,11 +6,11 @@ import re
 
 from src.interfaces.input_adapter import InputAdapter
 from src.models.node import Node
-from src.models.pounce.data import ExperimentSampleRelationship, Sample, Biospecimen, Factor, SampleFactorRelationship, \
-    Compound, Treatment, SampleMeasurementRelationship, MeasurementAnalyteRelationship, Measurement
+from src.models.pounce.data import ExperimentSampleEdge, Sample, Biospecimen, Factor, SampleFactorEdge, \
+    Compound, Treatment, SampleMeasurementEdge, MeasurementAnalyteEdge, Measurement
 from src.models.pounce.experiment import Experiment
 from src.models.pounce.project import Project, ProjectPrivacy
-from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship
+from src.models.pounce.project_experiment_relationship import ProjectExperimentEdge
 
 ch_sample_type = 'Characteristics[Sample type]'
 
@@ -136,7 +136,7 @@ class ParseMetabolights:
 
     def parse_samples(self):
         samples: List[Sample] = []
-        relationships: List[SampleFactorRelationship] = []
+        relationships: List[SampleFactorEdge] = []
         with open(self.sample_file) as csvfile:
             field_names = self.get_sfile_field_names(csvfile)
             reader: csv.DictReader = csv.DictReader(csvfile, delimiter='\t', fieldnames=field_names)
@@ -151,14 +151,14 @@ class ParseMetabolights:
                 samples.append(sample_obj)
                 biospecimen = self.get_or_create_biospecimen(row)
                 relationships.append(
-                    SampleFactorRelationship(
+                    SampleFactorEdge(
                         start_node=sample_obj,
                         end_node=biospecimen
                     )
                 )
 
                 for factor, properties in self.get_or_create_factors(row):
-                    factor_rel = SampleFactorRelationship(
+                    factor_rel = SampleFactorEdge(
                         start_node=sample_obj,
                         end_node=factor
                     )
@@ -183,7 +183,7 @@ class ParseMetabolights:
 
 
     def parse_data(self, samples: List[Sample]):
-        relationships: List[Union[SampleMeasurementRelationship, MeasurementAnalyteRelationship]] = []
+        relationships: List[Union[SampleMeasurementEdge, MeasurementAnalyteEdge]] = []
         measurements: List[Measurement] = []
         for m_file in self.matrix_files:
             with open(m_file) as csvfile:
@@ -198,13 +198,13 @@ class ParseMetabolights:
                                     id = str(uuid.uuid4()), value=value)
                                 measurements.append(measurement_obj)
                                 relationships.append(
-                                    SampleMeasurementRelationship(
+                                    SampleMeasurementEdge(
                                         start_node=sample,
                                         end_node=measurement_obj
                                     )
                                 )
                                 relationships.append(
-                                    MeasurementAnalyteRelationship(
+                                    MeasurementAnalyteEdge(
                                         start_node=measurement_obj,
                                         end_node=compound_obj
                                     )
@@ -231,13 +231,13 @@ class MetabolightsAdapter(InputAdapter, ParseMetabolights):
 
     def get_all(self) -> List[Node]:
         proj_obj, exp_obj = self.parse_proj_and_exp()
-        proj_exp_rel = ProjectExperimentRelationship(
+        proj_exp_rel = ProjectExperimentEdge(
             start_node=proj_obj, end_node=exp_obj
         )
 
         samples, factors, sample_factor_rels = self.parse_samples()
         exp_sample_rels = [
-            ExperimentSampleRelationship(
+            ExperimentSampleEdge(
                 start_node=exp_obj,
                 end_node=sample
             )

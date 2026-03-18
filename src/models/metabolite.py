@@ -17,13 +17,13 @@ class Metabolite(Analyte):
     type: Optional[str] = None
 
 @dataclass
-class MetaboliteProteinRelationship(Relationship):
+class MetaboliteProteinEdge(Relationship):
     start_node: Metabolite
     end_node: Protein
 
 
 @dataclass
-class MetaboliteReactionRelationship(Relationship):
+class MetaboliteReactionEdge(Relationship):
     start_node: Metabolite
     end_node: Reaction
     substrate_product: int = None
@@ -31,7 +31,7 @@ class MetaboliteReactionRelationship(Relationship):
 
 
 @dataclass
-class MetaboliteChemPropsRelationship(Relationship):
+class MetaboliteChemPropsEdge(Relationship):
     start_node: Metabolite
     end_node: MetaboliteChemProps
 

@@ -11,7 +11,9 @@ from src.models.node import Node, Relationship
 class Disease(Node):
     name: str = None
     type: Optional[str] = None
-    definition: Optional[str] = None
+    mondo_description: Optional[str] = None
+    do_description: Optional[str] = None
+    uniprot_description: Optional[str] = None
     subsets: Optional[List[str]] = None
     synonyms: Optional[List[str]] = None
     comments: Optional[List[str]] = None
@@ -23,8 +25,15 @@ class DiseaseParentEdge(Relationship):
     end_node: Disease = None
     source: str = None
 
+
 @dataclass
-class GeneDiseaseRelationship(Relationship):
+class DODiseaseParentEdge(Relationship):
+    start_node: Disease = None
+    end_node: Disease = None
+    source: str = None
+
+@dataclass
+class GeneDiseaseEdge(Relationship):
     start_node: Gene = None
     end_node: Disease = None
     types: List[str] = None

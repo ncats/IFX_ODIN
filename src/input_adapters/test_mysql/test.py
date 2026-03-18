@@ -5,7 +5,7 @@ from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node, Relationship
-from src.models.test_models import TestNode, TestRelationship, AutoIncNode, TwoKeyAutoIncNode
+from src.models.test_models import TestNode, TestEdge, AutoIncNode, TwoKeyAutoIncNode
 
 class TestAdapterBase(InputAdapter, ABC):
     def get_datasource_name(self) -> DataSourceName:
@@ -32,19 +32,19 @@ class TestNodeAdapter2(TestAdapterBase):
             TestNode(id="id_2", field_1="updated", field_3="first val")
         ]
 
-class TestRelationshipAdapter(TestAdapterBase):
+class TestEdgeAdapter(TestAdapterBase):
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         yield [
-            TestRelationship(start_node=TestNode(id="id_1"), end_node=TestNode(id="id_2"), field_1="rel_value1"),
-            TestRelationship(start_node=TestNode(id="id_2"), end_node=TestNode(id="id_3"), field_2="rel_value2")
+            TestEdge(start_node=TestNode(id="id_1"), end_node=TestNode(id="id_2"), field_1="rel_value1"),
+            TestEdge(start_node=TestNode(id="id_2"), end_node=TestNode(id="id_3"), field_2="rel_value2")
         ]
 
 
-class TestRelationshipAdapter2(TestAdapterBase):
+class TestEdgeAdapter2(TestAdapterBase):
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         yield [
-            TestRelationship(start_node=TestNode(id="id_1"), end_node=TestNode(id="id_3"), field_1="rel_value1"),
-            TestRelationship(start_node=TestNode(id="id_2"), end_node=TestNode(id="id_3"), field_1="new", field_2="new_rel_value2", field_3="new one also")
+            TestEdge(start_node=TestNode(id="id_1"), end_node=TestNode(id="id_3"), field_1="rel_value1"),
+            TestEdge(start_node=TestNode(id="id_2"), end_node=TestNode(id="id_3"), field_1="new", field_2="new_rel_value2", field_3="new one also")
         ]
 
 

@@ -25,7 +25,7 @@ class Pathway(Base):
     pathwayCategory = Column(String(length=30), nullable=True)
     pathwayName = Column(String(length=250), nullable=False)
 
-class AnalytePathwayRelationship(Base):
+class AnalytePathwayEdge(Base):
     __tablename__ = 'analytehaspathway'
     rampId = Column(String(length=30), nullable=False, primary_key=True)
     pathwayRampId = Column(String(length=30), nullable=False, primary_key=True)

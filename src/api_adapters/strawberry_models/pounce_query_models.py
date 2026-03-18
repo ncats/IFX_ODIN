@@ -11,14 +11,14 @@ from src.api_adapters.strawberry_models.shared_query_models import Provenance, g
 from src.interfaces.result_types import LinkedListQueryContext, NetworkedListQueryContext
 from src.models.node import EquivalentId
 from src.models.pounce.data import (Biospecimen as BiospecimenBase, Sample as SampleBase,
-                                    SampleBiospecimenRelationship as SampleBiospecimenRelationshipBase,
-                                    SampleAnalyteRelationship as SampleAnalyteRelationshipBase,
-                                    ExperimentSampleRelationship as ExperimentSampleRelationshipBase)
-from src.models.pounce.investigator import Investigator as InvestigatorBase, ProjectInvestigatorRelationship as ProjectInvestigatorRelationshipBase
-from src.models.pounce.project_experiment_relationship import ProjectExperimentRelationship as ProjectExperimentRelationshipBase
+                                    SampleBiospecimenEdge as SampleBiospecimenEdgeBase,
+                                    SampleAnalyteEdge as SampleAnalyteEdgeBase,
+                                    ExperimentSampleEdge as ExperimentSampleEdgeBase)
+from src.models.pounce.investigator import Investigator as InvestigatorBase, ProjectInvestigatorEdge as ProjectInvestigatorEdgeBase
+from src.models.pounce.project_experiment_relationship import ProjectExperimentEdge as ProjectExperimentEdgeBase
 from src.models.protein import Protein as ProteinBase
-from src.models.pounce.project import Project as ProjectBase, ProjectType as ProjectTypeBase, ProjectTypeRelationship as ProjectTypeRelationshipBase
-from src.models.pounce.experiment import Experiment as ExperimentBase, ExperimentInvestigatorRelationship as ExperimentInvestigatorRelationshipBase
+from src.models.pounce.project import Project as ProjectBase, ProjectType as ProjectTypeBase, ProjectTypeEdge as ProjectTypeEdgeBase
+from src.models.pounce.experiment import Experiment as ExperimentBase, ExperimentInvestigatorEdge as ExperimentInvestigatorEdgeBase
 from src.models.gene import Gene as GeneBase, GeneticLocation
 from src.models.metabolite import Metabolite as MetaboliteBase
 
@@ -44,7 +44,7 @@ class Biospecimen(BiospecimenBase):
             source_data_model="Sample",
             source_id=None,
             dest_data_model="Biospecimen",
-            edge_model="SampleBiospecimenRelationship",
+            edge_model="SampleBiospecimenEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -59,7 +59,7 @@ class Biospecimen(BiospecimenBase):
             source_id=None,
             dest_data_model="Biospecimen",
             intermediate_data_models=["Sample"],
-            edge_models=["ExperimentSampleRelationship", "SampleBiospecimenRelationship" ],
+            edge_models=["ExperimentSampleEdge", "SampleBiospecimenEdge" ],
             dest_id=root.id
             # filter=filter
         )
@@ -80,7 +80,7 @@ class Sample(SampleBase):
             source_data_model="Experiment",
             source_id=None,
             dest_data_model="Sample",
-            edge_model="ExperimentSampleRelationship",
+            edge_model="ExperimentSampleEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -94,7 +94,7 @@ class Sample(SampleBase):
             source_data_model="Sample",
             source_id=root.id,
             dest_data_model="Biospecimen",
-            edge_model="SampleBiospecimenRelationship",
+            edge_model="SampleBiospecimenEdge",
             dest_id=None,
             filter=filter
         )
@@ -108,7 +108,7 @@ class Sample(SampleBase):
             source_data_model="Sample",
             source_id=root.id,
             dest_data_model="Gene",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=None,
             filter=filter
         )
@@ -122,7 +122,7 @@ class Sample(SampleBase):
             source_data_model="Sample",
             source_id=root.id,
             dest_data_model="Protein",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=None,
             filter=filter
         )
@@ -136,7 +136,7 @@ class Sample(SampleBase):
             source_data_model="Sample",
             source_id=root.id,
             dest_data_model="Metabolite",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=None,
             filter=filter
         )
@@ -156,7 +156,7 @@ class Investigator(InvestigatorBase):
             source_data_model="Project",
             source_id=None,
             dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship",
+            edge_model="ProjectInvestigatorEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -170,7 +170,7 @@ class Investigator(InvestigatorBase):
             source_data_model="Experiment",
             source_id=None,
             dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship", # should be ExperimentInvestigatorRelationship, but the database is wrong right now
+            edge_model="ProjectInvestigatorEdge", # should be ExperimentInvestigatorEdge, but the database is wrong right now
             dest_id=root.id,
             filter=filter
         )
@@ -190,7 +190,7 @@ class Protein(ProteinBase):
             source_data_model="Sample",
             source_id=None,
             dest_data_model="Protein",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -210,7 +210,7 @@ class Project(ProjectBase):
             source_data_model="Project",
             source_id=root.id,
             dest_data_model="ProjectType",
-            edge_model="ProjectTypeRelationship",
+            edge_model="ProjectTypeEdge",
             dest_id=None,
             filter=filter
         )
@@ -224,7 +224,7 @@ class Project(ProjectBase):
             source_data_model="Project",
             source_id=root.id,
             dest_data_model="Experiment",
-            edge_model="ProjectExperimentRelationship",
+            edge_model="ProjectExperimentEdge",
             dest_id=None,
             filter=filter
         )
@@ -238,7 +238,7 @@ class Project(ProjectBase):
             source_data_model="Project",
             source_id=root.id,
             dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship",
+            edge_model="ProjectInvestigatorEdge",
             dest_id=None,
             filter=filter
         )
@@ -258,7 +258,7 @@ class ProjectType(ProjectTypeBase):
             source_data_model="Project",
             source_id=None,
             dest_data_model="ProjectType",
-            edge_model="ProjectTypeRelationship",
+            edge_model="ProjectTypeEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -277,11 +277,11 @@ class Experiment(ExperimentBase):
         return f"""FOR exp IN Experiment
           FILTER exp.id == "{root.id}"
           
-          FOR sample IN OUTBOUND exp ExperimentSampleRelationship
-            FOR biospecimen IN OUTBOUND sample SampleBiospecimenRelationship
+          FOR sample IN OUTBOUND exp ExperimentSampleEdge
+            FOR biospecimen IN OUTBOUND sample SampleBiospecimenEdge
               {"FILTER biospecimen.id == '" + biospecimen_id + "'" if biospecimen_id else ""} 
               
-              FOR analyte, edge IN OUTBOUND sample SampleAnalyteRelationship
+              FOR analyte, edge IN OUTBOUND sample SampleAnalyteEdge
                 LIMIT {skip}, {top}
                 FILTER IS_SAME_COLLECTION("{type_str}", analyte)
                 {"FILTER '" + analyte_id + "' in analyte.xref" if analyte_id else ""}
@@ -308,7 +308,7 @@ class Experiment(ExperimentBase):
                 sample=api.convert_to_class("Sample", row['sample']),
                 biospecimen=api.convert_to_class("Biospecimen", row['biospecimen']),
                 gene=api.convert_to_class("Gene", row['analyte']),
-                data_edge=api.convert_to_class("SampleAnalyteRelationship", row['data_edge'])
+                data_edge=api.convert_to_class("SampleAnalyteEdge", row['data_edge'])
             )
             for row in results
         ]
@@ -324,7 +324,7 @@ class Experiment(ExperimentBase):
                 sample=api.convert_to_class("Sample", row['sample']),
                 biospecimen=api.convert_to_class("Biospecimen", row['biospecimen']),
                 metabolite=api.convert_to_class("Metabolite", row['analyte']),
-                data_edge=api.convert_to_class("SampleAnalyteRelationship", row['data_edge'])
+                data_edge=api.convert_to_class("SampleAnalyteEdge", row['data_edge'])
             )
             for row in results
         ]
@@ -340,7 +340,7 @@ class Experiment(ExperimentBase):
                 sample=api.convert_to_class("Sample", row['sample']),
                 biospecimen=api.convert_to_class("Biospecimen", row['biospecimen']),
                 protein=api.convert_to_class("Protein", row['analyte']),
-                data_edge=api.convert_to_class("SampleAnalyteRelationship", row['data_edge'])
+                data_edge=api.convert_to_class("SampleAnalyteEdge", row['data_edge'])
             )
             for row in results
         ]
@@ -353,7 +353,7 @@ class Experiment(ExperimentBase):
             source_data_model="Project",
             source_id=None,
             dest_data_model="Experiment",
-            edge_model="ProjectExperimentRelationship",
+            edge_model="ProjectExperimentEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -368,7 +368,7 @@ class Experiment(ExperimentBase):
             source_data_model="Experiment",
             source_id=root.id,
             dest_data_model="Investigator",
-            edge_model="ProjectInvestigatorRelationship", # should be ExperimentInvestigatorRelationship, but the database is wrong right now
+            edge_model="ProjectInvestigatorEdge", # should be ExperimentInvestigatorEdge, but the database is wrong right now
             dest_id=None,
             filter=filter
         )
@@ -382,7 +382,7 @@ class Experiment(ExperimentBase):
             source_data_model="Experiment",
             source_id=root.id,
             dest_data_model="Sample",
-            edge_model="ExperimentSampleRelationship",
+            edge_model="ExperimentSampleEdge",
             dest_id=None,
             filter=filter
         )
@@ -397,7 +397,7 @@ class Experiment(ExperimentBase):
             source_id=root.id,
             dest_data_model="Biospecimen",
             intermediate_data_models=["Sample"],
-            edge_models=["ExperimentSampleRelationship", "SampleBiospecimenRelationship" ],
+            edge_models=["ExperimentSampleEdge", "SampleBiospecimenEdge" ],
             dest_id=None
         #     filter=filter
         )
@@ -417,7 +417,7 @@ class Gene(GeneBase):
             source_data_model="Sample",
             source_id=None,
             dest_data_model="Gene",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -437,7 +437,7 @@ class Metabolite(MetaboliteBase):
             source_data_model="Sample",
             source_id=None,
             dest_data_model="Metabolite",
-            edge_model="SampleAnalyteRelationship",
+            edge_model="SampleAnalyteEdge",
             dest_id=root.id,
             filter=filter
         )
@@ -446,7 +446,7 @@ class Metabolite(MetaboliteBase):
 
 # edge classes
 @strawberry.type
-class ExperimentSampleRelationship(ExperimentSampleRelationshipBase):
+class ExperimentSampleEdge(ExperimentSampleEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -454,7 +454,7 @@ class ExperimentSampleRelationship(ExperimentSampleRelationshipBase):
     end_node: Sample
 
 @strawberry.type
-class SampleBiospecimenRelationship(SampleBiospecimenRelationshipBase):
+class SampleBiospecimenEdge(SampleBiospecimenEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -462,7 +462,7 @@ class SampleBiospecimenRelationship(SampleBiospecimenRelationshipBase):
     end_node: Biospecimen
 
 @strawberry.type
-class ProjectExperimentRelationship(ProjectExperimentRelationshipBase):
+class ProjectExperimentEdge(ProjectExperimentEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -470,7 +470,7 @@ class ProjectExperimentRelationship(ProjectExperimentRelationshipBase):
     end_node: Experiment
 
 @strawberry.type
-class ProjectInvestigatorRelationship(ProjectInvestigatorRelationshipBase):
+class ProjectInvestigatorEdge(ProjectInvestigatorEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -478,7 +478,7 @@ class ProjectInvestigatorRelationship(ProjectInvestigatorRelationshipBase):
     end_node: Investigator
 
 @strawberry.type
-class ExperimentInvestigatorRelationship(ExperimentInvestigatorRelationshipBase):
+class ExperimentInvestigatorEdge(ExperimentInvestigatorEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -486,7 +486,7 @@ class ExperimentInvestigatorRelationship(ExperimentInvestigatorRelationshipBase)
     end_node: Investigator
 
 @strawberry.type
-class ProjectTypeRelationship(ProjectTypeRelationshipBase):
+class ProjectTypeEdge(ProjectTypeEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -494,7 +494,7 @@ class ProjectTypeRelationship(ProjectTypeRelationshipBase):
     end_node: ProjectType
 
 @strawberry.type
-class SampleAnalyteRelationship(SampleAnalyteRelationshipBase):
+class SampleAnalyteEdge(SampleAnalyteEdgeBase):
     @strawberry.field()
     def provenance(root) -> Provenance:
         return Provenance.parse_provenance_fields(root)
@@ -507,49 +507,49 @@ class GeneDataResults:
     sample: Sample
     biospecimen: Optional[Biospecimen]
     gene: Gene
-    data_edge: SampleAnalyteRelationship
+    data_edge: SampleAnalyteEdge
 
 @strawberry.type
 class ProteinDataResults:
     sample: Sample
     biospecimen: Optional[Biospecimen]
     protein: Protein
-    data_edge: SampleAnalyteRelationship
+    data_edge: SampleAnalyteEdge
 
 @strawberry.type
 class MetaboliteDataResults:
     sample: Sample
     biospecimen: Optional[Biospecimen]
     metabolite: Metabolite
-    data_edge: SampleAnalyteRelationship
+    data_edge: SampleAnalyteEdge
 
-ExperimentSampleQueryResult = make_linked_list_result_type("ExperimentSampleQueryResult", "ExperimentSampleDetails", ExperimentSampleRelationship, Sample)
-SampleExperimentQueryResult = make_linked_list_result_type("SampleExperimentQueryResult", "SampleExperimentDetails", ExperimentSampleRelationship, Experiment)
+ExperimentSampleQueryResult = make_linked_list_result_type("ExperimentSampleQueryResult", "ExperimentSampleDetails", ExperimentSampleEdge, Sample)
+SampleExperimentQueryResult = make_linked_list_result_type("SampleExperimentQueryResult", "SampleExperimentDetails", ExperimentSampleEdge, Experiment)
 
 ExperimentBiospecimenQueryResult = make_networked_list_result_type("ExperimentBiospecimenQueryResult", "ExperimentBiospecimenDetails", Biospecimen)
 BiospecimenExperimentQueryResult = make_networked_list_result_type("BiospecimenExperimentQueryResult", "BiospecimenExperimentDetails", Experiment)
 
-SampleGeneQueryResult = make_linked_list_result_type("SampleGeneQueryResult", "SampleGeneDetails", SampleAnalyteRelationship, Gene)
-SampleMetaboliteQueryResult = make_linked_list_result_type("SampleMetaboliteQueryResult", "SampleMetaboliteDetails", SampleAnalyteRelationship, Metabolite)
-SampleProteinQueryResult = make_linked_list_result_type("SampleProteinQueryResult", "SampleProteinDetails", SampleAnalyteRelationship, Protein)
-GeneSampleQueryResult = make_linked_list_result_type("GeneSampleQueryResult", "GeneSampleDetails", SampleAnalyteRelationship, Sample)
-MetaboliteSampleQueryResult = make_linked_list_result_type("MetaboliteSampleQueryResult", "MetaboliteSampleDetails", SampleAnalyteRelationship, Sample)
-ProteinSampleQueryResult = make_linked_list_result_type("ProteinSampleQueryResult", "ProteinSampleDetails", SampleAnalyteRelationship, Sample)
+SampleGeneQueryResult = make_linked_list_result_type("SampleGeneQueryResult", "SampleGeneDetails", SampleAnalyteEdge, Gene)
+SampleMetaboliteQueryResult = make_linked_list_result_type("SampleMetaboliteQueryResult", "SampleMetaboliteDetails", SampleAnalyteEdge, Metabolite)
+SampleProteinQueryResult = make_linked_list_result_type("SampleProteinQueryResult", "SampleProteinDetails", SampleAnalyteEdge, Protein)
+GeneSampleQueryResult = make_linked_list_result_type("GeneSampleQueryResult", "GeneSampleDetails", SampleAnalyteEdge, Sample)
+MetaboliteSampleQueryResult = make_linked_list_result_type("MetaboliteSampleQueryResult", "MetaboliteSampleDetails", SampleAnalyteEdge, Sample)
+ProteinSampleQueryResult = make_linked_list_result_type("ProteinSampleQueryResult", "ProteinSampleDetails", SampleAnalyteEdge, Sample)
 
-ProjectProjectTypeQueryResult = make_linked_list_result_type("ProjectProjectTypeQueryResult", "ProjectProjectTypeDetails", ProjectTypeRelationship, ProjectType)
-ProjectTypeProjectQueryResult = make_linked_list_result_type("ProjectTypeProjectQueryResult", "ProjectTypeProjectDetails", ProjectTypeRelationship, Project)
+ProjectProjectTypeQueryResult = make_linked_list_result_type("ProjectProjectTypeQueryResult", "ProjectProjectTypeDetails", ProjectTypeEdge, ProjectType)
+ProjectTypeProjectQueryResult = make_linked_list_result_type("ProjectTypeProjectQueryResult", "ProjectTypeProjectDetails", ProjectTypeEdge, Project)
 
-SampleBiospecimenQueryResult = make_linked_list_result_type("SampleBiospecimenQueryResult", "SampleBiospecimenDetails", SampleBiospecimenRelationship, Sample)
-BiospecimenSampleQueryResult = make_linked_list_result_type("BiospecimenSampleQueryResult", "BiospecimenSampleDetails", SampleBiospecimenRelationship, Biospecimen)
+SampleBiospecimenQueryResult = make_linked_list_result_type("SampleBiospecimenQueryResult", "SampleBiospecimenDetails", SampleBiospecimenEdge, Sample)
+BiospecimenSampleQueryResult = make_linked_list_result_type("BiospecimenSampleQueryResult", "BiospecimenSampleDetails", SampleBiospecimenEdge, Biospecimen)
 
-ProjectExperimentQueryResult = make_linked_list_result_type("ProjectExperimentQueryResult", "ProjectExperimentDetails", ProjectExperimentRelationship, Experiment)
-ExperimentProjectQueryResult = make_linked_list_result_type("ExperimentProjectQueryResult", "ExperimentProjectDetails", ProjectExperimentRelationship, Project)
+ProjectExperimentQueryResult = make_linked_list_result_type("ProjectExperimentQueryResult", "ProjectExperimentDetails", ProjectExperimentEdge, Experiment)
+ExperimentProjectQueryResult = make_linked_list_result_type("ExperimentProjectQueryResult", "ExperimentProjectDetails", ProjectExperimentEdge, Project)
 
-ProjectInvestigatorQueryResult = make_linked_list_result_type("ProjectInvestigatorQueryResult", "ProjectInvestigatorDetails", ProjectInvestigatorRelationship, Investigator)
-InvestigatorProjectQueryResult = make_linked_list_result_type("InvestigatorProjectQueryResult", "InvestigatorProjectDetails", ProjectInvestigatorRelationship, Project)
+ProjectInvestigatorQueryResult = make_linked_list_result_type("ProjectInvestigatorQueryResult", "ProjectInvestigatorDetails", ProjectInvestigatorEdge, Investigator)
+InvestigatorProjectQueryResult = make_linked_list_result_type("InvestigatorProjectQueryResult", "InvestigatorProjectDetails", ProjectInvestigatorEdge, Project)
 
-ExperimentInvestigatorQueryResult = make_linked_list_result_type("ExperimentInvestigatorQueryResult", "ExperimentInvestigatorDetails", ExperimentInvestigatorRelationship, Investigator)
-InvestigatorExperimentQueryResult = make_linked_list_result_type("InvestigatorExperimentQueryResult", "InvestigatorExperimentDetails", ExperimentInvestigatorRelationship, Experiment)
+ExperimentInvestigatorQueryResult = make_linked_list_result_type("ExperimentInvestigatorQueryResult", "ExperimentInvestigatorDetails", ExperimentInvestigatorEdge, Investigator)
+InvestigatorExperimentQueryResult = make_linked_list_result_type("InvestigatorExperimentQueryResult", "InvestigatorExperimentDetails", ExperimentInvestigatorEdge, Experiment)
 
 ENDPOINTS: Dict[type, Dict[str, str]] = {
     Project: {
@@ -591,13 +591,13 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
 }
 
 EDGES : Dict[type, str] = {
-    SampleAnalyteRelationship: "sample_analyte_edges",
-    ProjectTypeRelationship: "project_type_edges",
-    ExperimentInvestigatorRelationship: "experiment_investigator_edges",
-    ExperimentSampleRelationship: "experiment_sample_edges",
-    SampleBiospecimenRelationship: "sample_biospecimen_edges",
-    ProjectExperimentRelationship: "project_experiment_edges",
-    ProjectInvestigatorRelationship: "project_investigator_edges"
+    SampleAnalyteEdge: "sample_analyte_edges",
+    ProjectTypeEdge: "project_type_edges",
+    ExperimentInvestigatorEdge: "experiment_investigator_edges",
+    ExperimentSampleEdge: "experiment_sample_edges",
+    SampleBiospecimenEdge: "sample_biospecimen_edges",
+    ProjectExperimentEdge: "project_experiment_edges",
+    ProjectInvestigatorEdge: "project_investigator_edges"
 }
 
 

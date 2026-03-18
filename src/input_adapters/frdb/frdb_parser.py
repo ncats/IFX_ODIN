@@ -6,7 +6,7 @@ from typing import get_origin, get_args, Union, List
 
 from src.constants import Prefix
 from src.input_adapters.frdb.frdb_classes import Ligand, Database, Vendor, \
-    LigandDatabaseRelationship, LigandVendorRelationship, Condition, LigandConditionRelationship, LigandConditionDetails
+    LigandDatabaseEdge, LigandVendorEdge, Condition, LigandConditionEdge, LigandConditionDetails
 from src.models.node import EquivalentId
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ class FRDBParser:
                 continue
             if entry['sourcing_vendor_type'] == 'database':
                 source_obj = Database(id = name)
-                rel = LigandDatabaseRelationship(
+                rel = LigandDatabaseEdge(
                     start_node=ligand_obj,
                     end_node=source_obj,
                     substance_id=entry['sourcing_vendor_substance_id']
@@ -148,7 +148,7 @@ class FRDBParser:
                     rel.substance_url=entry['sourcing_vendor_substance_url']
             else:
                 source_obj = Vendor(id = name)
-                rel = LigandVendorRelationship(
+                rel = LigandVendorEdge(
                     start_node=ligand_obj,
                     end_node=source_obj,
                     substance_id=entry['sourcing_vendor_substance_id']
@@ -209,7 +209,7 @@ class FRDBParser:
 
             condition_obj = Condition(**condition)
             nodes.append(condition_obj)
-            edges.append(LigandConditionRelationship(
+            edges.append(LigandConditionEdge(
                 start_node = ligand_obj,
                 end_node = condition_obj,
                 details = [LigandConditionDetails(**condition_details)]))

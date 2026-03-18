@@ -1,13 +1,13 @@
 from typing import List
 import yaml
 from src.core.etl import ETL
-from src.input_adapters.sqlite_ramp._compare_id_sets import MetaboliteSetRelationshipAdapter
-from src.input_adapters.sqlite_ramp.analyte_pathway_relationship_adapter import MetabolitePathwayRelationshipAdapter
+from src.input_adapters.sqlite_ramp._compare_id_sets import MetaboliteSetEdgeAdapter
+from src.input_adapters.sqlite_ramp.analyte_pathway_edge_adapter import MetabolitePathwayEdgeAdapter
 from src.input_adapters.sqlite_ramp.analyte_synonym_adapter import MetaboliteSynonymAdapter
 from src.input_adapters.sqlite_ramp.metabolite_adapter import MetaboliteAdapter
 from src.input_adapters.sqlite_ramp.metabolite_chem_props_adapter import MetaboliteChemPropsAdapter
 from src.input_adapters.sqlite_ramp.metabolite_class_adapter import MetaboliteClassAdapter
-from src.input_adapters.sqlite_ramp.metabolite_class_relationship_adapter import MetaboliteClassRelationshipAdapter
+from src.input_adapters.sqlite_ramp.metabolite_class_edge_adapter import MetaboliteClassEdgeAdapter
 from src.input_adapters.sqlite_ramp.pathway_adapter import PathwayAdapter
 from src.interfaces.input_adapter import InputAdapter
 
@@ -66,8 +66,8 @@ class build_db_for_comparing_ramp_ids:
         left_met_adapter = MetaboliteAdapter(sqlite_file=self.left_db).set_single_source(True)
         left_metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=self.left_db)
         left_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.left_db).set_single_source(True)
-        left_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.left_db).set_single_source(True)
-        left_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.left_db).set_single_source(True)
+        left_metabolite_pathway_edge_adapter = MetabolitePathwayEdgeAdapter(sqlite_file=self.left_db).set_single_source(True)
+        left_metabolite_class_edge_adapter = MetaboliteClassEdgeAdapter(sqlite_file=self.left_db).set_single_source(True)
 
         left_labeler = AuxLabeler(self.left_label)
 
@@ -75,15 +75,15 @@ class build_db_for_comparing_ramp_ids:
             left_met_adapter,
             left_metabolite_synonym_list_adapter,
             left_met_chem_props_adapter,
-            left_metabolite_pathway_relationship_adapter,
-            left_metabolite_class_relationship_adapter
+            left_metabolite_pathway_edge_adapter,
+            left_metabolite_class_edge_adapter
         ], left_labeler)
         # raise Exception('Debug stop')
         right_met_adapter = MetaboliteAdapter(sqlite_file=self.right_db).set_single_source(True)
         right_metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=self.right_db)
         right_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.right_db).set_single_source(True)
-        right_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.right_db).set_single_source(True)
-        right_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.right_db).set_single_source(True)
+        right_metabolite_pathway_edge_adapter = MetabolitePathwayEdgeAdapter(sqlite_file=self.right_db).set_single_source(True)
+        right_metabolite_class_edge_adapter = MetaboliteClassEdgeAdapter(sqlite_file=self.right_db).set_single_source(True)
 
         right_labeler = AuxLabeler(self.right_label)
 
@@ -91,22 +91,22 @@ class build_db_for_comparing_ramp_ids:
             right_met_adapter,
             right_metabolite_synonym_list_adapter,
             right_met_chem_props_adapter,
-            right_metabolite_pathway_relationship_adapter,
-            right_metabolite_class_relationship_adapter
+            right_metabolite_pathway_edge_adapter,
+            right_metabolite_class_edge_adapter
         ], right_labeler)
 
-        metabolite_set_relationship_adapter = (MetaboliteSetRelationshipAdapter()
+        metabolite_set_edge_adapter = (MetaboliteSetEdgeAdapter()
                                                .set_left(self.left_db).set_right(self.right_db).set_single_source(True))
         self.do_etl_step([
-            metabolite_set_relationship_adapter
+            metabolite_set_edge_adapter
         ], ComparingLabeler().set_left_labeler(left_labeler).set_right_labeler(right_labeler))
 
         if self.third_db:
             third_met_adapter = MetaboliteAdapter(sqlite_file=self.third_db)
             third_metabolite_synonym_list_adapter = MetaboliteSynonymAdapter(sqlite_file=self.third_db)
             third_met_chem_props_adapter = MetaboliteChemPropsAdapter(sqlite_file=self.third_db)
-            third_metabolite_pathway_relationship_adapter = MetabolitePathwayRelationshipAdapter(sqlite_file=self.third_db)
-            third_metabolite_class_relationship_adapter = MetaboliteClassRelationshipAdapter(sqlite_file=self.third_db)
+            third_metabolite_pathway_edge_adapter = MetabolitePathwayEdgeAdapter(sqlite_file=self.third_db)
+            third_metabolite_class_edge_adapter = MetaboliteClassEdgeAdapter(sqlite_file=self.third_db)
 
             third_labeler = AuxLabeler(self.third_label)
 
@@ -114,19 +114,19 @@ class build_db_for_comparing_ramp_ids:
                 third_met_adapter,
                 third_metabolite_synonym_list_adapter,
                 third_met_chem_props_adapter,
-                third_metabolite_pathway_relationship_adapter,
-                third_metabolite_class_relationship_adapter
+                third_metabolite_pathway_edge_adapter,
+                third_metabolite_class_edge_adapter
             ], third_labeler)
 
-            metabolite_set_relationship_adapter = MetaboliteSetRelationshipAdapter().set_left(self.left_db).set_right(self.third_db)
+            metabolite_set_edge_adapter = MetaboliteSetEdgeAdapter().set_left(self.left_db).set_right(self.third_db)
             self.do_etl_step([
-                metabolite_set_relationship_adapter,
+                metabolite_set_edge_adapter,
             ], ComparingLabeler().set_left_labeler(left_labeler).set_right_labeler(third_labeler)
             )
 
-            metabolite_set_relationship_adapter = MetaboliteSetRelationshipAdapter().set_left(self.right_db).set_right(self.third_db)
+            metabolite_set_edge_adapter = MetaboliteSetEdgeAdapter().set_left(self.right_db).set_right(self.third_db)
             self.do_etl_step([
-                metabolite_set_relationship_adapter
+                metabolite_set_edge_adapter
             ], ComparingLabeler().set_left_labeler(right_labeler).set_right_labeler(third_labeler)
             )
 

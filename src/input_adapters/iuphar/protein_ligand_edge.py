@@ -2,7 +2,7 @@ import csv
 from typing import Generator, List
 from src.constants import Prefix
 from src.input_adapters.iuphar.ligand_node import IUPHARAdapter
-from src.models.ligand import ProteinLigandRelationship, Ligand, ActivityDetails
+from src.models.ligand import ProteinLigandEdge, Ligand, ActivityDetails
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
@@ -16,8 +16,8 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
         self.interaction_file_path = interaction_file_path
         self.pchembl_cutoff = pchembl_cutoff
 
-    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
-        edges: List[ProteinLigandRelationship] = []
+    def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:
+        edges: List[ProteinLigandEdge] = []
         with open(self.interaction_file_path, mode='r') as file:
             next(file)
             csv_reader = csv.DictReader(file)
@@ -77,7 +77,7 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
                     comment=comment
                 )
 
-                edges.append(ProteinLigandRelationship(
+                edges.append(ProteinLigandEdge(
                     start_node=protein_node,
                     end_node=ligand_node,
                     details=[activity_details]

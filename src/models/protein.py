@@ -119,7 +119,7 @@ class Protein(Audited, Analyte):
 
 
 @dataclass
-class ProteinReactionRelationship(Relationship):
+class ProteinReactionEdge(Relationship):
     start_node: Protein
     end_node: Reaction
     is_reviewed: bool = None

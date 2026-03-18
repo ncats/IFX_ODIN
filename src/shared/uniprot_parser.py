@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import re
 
 from src.constants import Prefix
-from src.models.go_term import GoTerm, GoType, ProteinGoTermRelationship, GoEvidence
+from src.models.go_term import GoTerm, GoType, ProteinGoTermEdge, GoEvidence
 from src.models.keyword import Keyword
 from src.models.pathway import Pathway
 from src.models.protein import Protein
@@ -267,7 +267,7 @@ class UniProtParser:
                 type= GoType.parse(go_type),
                 term= go_term)
             go_associations.append(
-                ProteinGoTermRelationship(
+                ProteinGoTermEdge(
                     start_node=protein,
                     end_node=go_term,
                     evidence=[GoEvidence(code=eco_term, assigned_by=eco_assigned_by)]

@@ -5,8 +5,8 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.node import Node, Relationship, EquivalentId
 from src.models.protein import Protein
-from src.models.transcript import TranscriptProteinRelationship, Transcript, GeneProteinRelationship, \
-    IsoformProteinRelationship
+from src.models.transcript import TranscriptProteinEdge, Transcript, GeneProteinEdge, \
+    IsoformProteinEdge
 
 from src.shared.targetgraph_parser import TargetGraphProteinParser
 
@@ -53,7 +53,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
                 transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
 
                 transcript_relationships.append(
-                    TranscriptProteinRelationship(
+                    TranscriptProteinEdge(
                         start_node=Transcript(id=transcript_id.id_str()),
                         end_node=protein_obj,
                         created=protein_obj.created,
@@ -65,7 +65,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
             gene_id = EquivalentId(id=gene_ncbi_id, type=Prefix.NCBIGene)
 
             gene_relationships.append(
-                GeneProteinRelationship(
+                GeneProteinEdge(
                     start_node=Gene(id=gene_id.id_str()),
                     end_node=protein_obj,
                     created=protein_obj.created,
@@ -78,7 +78,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
             if canonical_id is not None and canonical_id.startswith('IFXProtein:'):
                 canonical_protein = Protein(id=canonical_id)
                 isoform_relationships.append(
-                    IsoformProteinRelationship(
+                    IsoformProteinEdge(
                         start_node=protein_obj,
                         end_node=canonical_protein,
                         created=protein_obj.created,
@@ -110,7 +110,7 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
         yield protein_list
 
 
-class ProteinRelationshipAdapter(InputAdapter, TGProteinFileBase):
+class ProteinEdgeAdapter(InputAdapter, TGProteinFileBase):
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
@@ -123,21 +123,21 @@ class ProteinRelationshipAdapter(InputAdapter, TGProteinFileBase):
 
 
 
-class TranscriptProteinEdgeAdapter(ProteinRelationshipAdapter):
+class TranscriptProteinEdgeAdapter(ProteinEdgeAdapter):
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, transcript_relationships, _, _ = self.get_all_combined()
         yield transcript_relationships
 
 
-class GeneProteinEdgeAdapter(ProteinRelationshipAdapter):
+class GeneProteinEdgeAdapter(ProteinEdgeAdapter):
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, _, gene_relationships, _ = self.get_all_combined()
         yield gene_relationships
 
 
-class IsoformProteinEdgeAdapter(ProteinRelationshipAdapter):
+class IsoformProteinEdgeAdapter(ProteinEdgeAdapter):
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         _, _, _, isoform_relationships = self.get_all_combined()

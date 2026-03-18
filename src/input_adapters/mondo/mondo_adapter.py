@@ -178,7 +178,7 @@ class MondoDiseaseAdapter(MondoBaseAdapter):
             id=self._normalize_mondo_id(node.get("id")),
             name=node.get("lbl"),
             type=node.get("type"),
-            definition=definition.get("val") if isinstance(definition, dict) else None,
+            mondo_description=definition.get("val") if isinstance(definition, dict) else None,
             subsets=self._resolve_subset_labels(subset_values, subset_label_map),
             synonyms=self._extract_values(meta.get("synonyms")),
             comments=self._extract_values(meta.get("comments")),

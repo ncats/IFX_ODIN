@@ -1,21 +1,21 @@
 import hashlib
 from typing import Union, List, Optional
 from src.constants import Prefix
-from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge
+from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge
 from src.models.expression import ProteinTissueExpressionEdge
-from src.models.generif import GeneGeneRifRelationship
-from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermRelationship
+from src.models.generif import GeneGeneRifEdge
+from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
 from src.models.keyword import ProteinKeywordEdge
-from src.models.ligand import Ligand, ProteinLigandRelationship
+from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
-from src.models.pathway import ProteinPathwayRelationship
+from src.models.pathway import ProteinPathwayEdge
 from src.models.protein import Protein
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
-    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType,
+    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     Pathway as mysqlPathway, PathwayType,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -33,14 +33,14 @@ class TCRDOutputConverter(SQLOutputConverter):
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
                       self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter],
             # GeneRif
-            GeneGeneRifRelationship: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
+            GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
             # GO
             GoTerm: [self.goterm_converter],
             GoTermHasParent: [self.goterm_parent_converter],
-            ProteinGoTermRelationship: [self.goa_converter],
+            ProteinGoTermEdge: [self.goa_converter],
             # Ligand
             Ligand: [self.ligand_converter],
-            ProteinLigandRelationship: [self.ligand_edge_converter],
+            ProteinLigandEdge: [self.ligand_edge_converter],
             # Tissue / Expression
             Tissue: [self.uberon_converter],
             TissueParentEdge: [self.uberon_parent_converter],
@@ -48,11 +48,12 @@ class TCRDOutputConverter(SQLOutputConverter):
                                           self.expression_converter,
                                           self.gtex_converter],
             # Disease
-            Disease: [self.mondo_converter],
+            Disease: [self.mondo_converter, self.do_converter],
             DiseaseParentEdge: [self.mondo_parent_converter],
+            DODiseaseParentEdge: [self.do_parent_converter],
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter],
             # Pathway
-            ProteinPathwayRelationship: [self.pathway_type_converter, self.pathway_converter],
+            ProteinPathwayEdge: [self.pathway_type_converter, self.pathway_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
         }
@@ -361,14 +362,36 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     # --- Disease / MONDO ---
 
-    def mondo_converter(self, obj: dict) -> Mondo:
+    def mondo_converter(self, obj: dict) -> Optional[Mondo]:
+        if not (obj.get('id') or '').startswith('MONDO:'):
+            return None
         comments = obj.get('comments') or []
         return Mondo(
             mondoid=obj['id'],
             name=obj['name'],
-            def_=obj.get('definition'),
+            def_=obj.get('mondo_description'),
             comment=comments[0] if comments else None,
             provenance=obj['provenance'],
+        )
+
+    def do_converter(self, obj: dict) -> Optional[DO]:
+        doid = obj.get('id') or ''
+        if not doid.startswith('DOID:'):
+            return None
+        return DO(
+            doid=doid,
+            name=obj.get('name') or '',
+            def_=obj.get('do_description'),
+        )
+
+    def do_parent_converter(self, obj: dict) -> Optional[DOParent]:
+        child_id = obj.get('start_id') or ''
+        parent_id = obj.get('end_id') or ''
+        if not child_id.startswith('DOID:') or not parent_id.startswith('DOID:'):
+            return None
+        return DOParent(
+            doid=child_id,
+            parent_id=parent_id,
         )
 
     def mondo_parent_converter(self, obj: dict) -> MondoParent:

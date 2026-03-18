@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List
 
 from src.interfaces.input_adapter import InputAdapter
-from src.models.disease import Disease, GeneDiseaseRelationship
+from src.models.disease import Disease, GeneDiseaseEdge
 from src.models.gene import Gene
 from src.models.node import Node
 
@@ -43,7 +43,7 @@ class GeneDiseaseAssociationAdapter(InputAdapter):
                 if type == 'is_not_implicated_in':
                     continue
                 relationships.append(
-                    GeneDiseaseRelationship(
+                    GeneDiseaseEdge(
                         start_node=Gene(id=gene_id),
                         end_node=Disease(id=disease_id),
                         types=[type],

@@ -6,7 +6,7 @@ from typing import List, Generator
 from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.go_term import GoType, ProteinGoTermRelationship, GoTerm, GoEvidence
+from src.models.go_term import GoType, ProteinGoTermEdge, GoTerm, GoEvidence
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 
@@ -37,8 +37,8 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
     def get_go_object(self, id_obj: EquivalentId):
         return GoTerm(id = id_obj.id_str())
 
-    def get_all(self) -> Generator[List[ProteinGoTermRelationship], None, None]:
-        pro_go_edges: List[ProteinGoTermRelationship] = []
+    def get_all(self) -> Generator[List[ProteinGoTermEdge], None, None]:
+        pro_go_edges: List[ProteinGoTermEdge] = []
 
         with gzip.open(self.gaf_file_name, 'rt') as file:
             count = 0
@@ -63,7 +63,7 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                     abbreviation=parsed_line['evidence_code'],
                     assigned_by=parsed_line['assigned_by'])
 
-                pro_go_edges.append(ProteinGoTermRelationship(
+                pro_go_edges.append(ProteinGoTermEdge(
                     start_node=pro_obj,
                     end_node=go_obj,
                     evidence=[go_evidence]
@@ -71,7 +71,7 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
                 if count >= self.batch_size:
                     yield pro_go_edges
                     count = 0
-                    pro_go_edges: List[ProteinGoTermRelationship] = []
+                    pro_go_edges: List[ProteinGoTermEdge] = []
 
         yield pro_go_edges
 

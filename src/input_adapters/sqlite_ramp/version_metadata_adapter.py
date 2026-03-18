@@ -3,7 +3,7 @@ from typing import List, Generator
 from sqlalchemy import desc
 from src.input_adapters.sqlite_ramp.ramp_sqlite_adapter import RaMPSqliteAdapter
 from src.input_adapters.sqlite_ramp.tables import DBVersion as SqliteDBVersion, VersionInfo as SqliteVersionInfo
-from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionRelationship
+from src.models.version import DatabaseVersion, DataVersion, DatabaseDataVersionEdge
 
 
 class VersionMetaAdapter(RaMPSqliteAdapter):
@@ -40,8 +40,8 @@ class VersionMetaAdapter(RaMPSqliteAdapter):
             ) for row in results
         ]
 
-        relationships: List[DatabaseDataVersionRelationship] = [
-            DatabaseDataVersionRelationship(
+        relationships: List[DatabaseDataVersionEdge] = [
+            DatabaseDataVersionEdge(
                 start_node=db_version,
                 end_node=data_version
             ) for data_version in data_versions

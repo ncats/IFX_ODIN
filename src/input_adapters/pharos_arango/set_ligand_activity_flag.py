@@ -3,7 +3,7 @@ from typing import List, Generator
 from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.ligand import ProteinLigandRelationship, Ligand
+from src.models.ligand import ProteinLigandEdge, Ligand
 from src.models.protein import Protein
 from src.shared.arango_adapter import ArangoAdapter
 
@@ -16,10 +16,10 @@ class SetLigandActivityFlagAdapter(InputAdapter, ArangoAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo()
 
-    def get_all(self) -> Generator[List[ProteinLigandRelationship], None, None]:
+    def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:
         passing_activities = self.runQuery(passing_activities_query)
 
-        yield [ProteinLigandRelationship(
+        yield [ProteinLigandEdge(
             start_node=Protein(id=row['protein_id']),
             end_node=Ligand(id=row['chemical_entity_id']),
             meets_idg_cutoff=True
@@ -27,7 +27,7 @@ class SetLigandActivityFlagAdapter(InputAdapter, ArangoAdapter):
 
 
 passing_activities_query = """FOR pro IN `Protein`
-  FOR chem, rel IN OUTBOUND pro `ProteinLigandRelationship`
+  FOR chem, rel IN OUTBOUND pro `ProteinLigandEdge`
     LET act_values = rel.details[* FILTER CURRENT.act_value >= (
       pro.idg_family == "Kinase" ? 7.52288 :
       pro.idg_family == "Ion Channel" ? 5 :

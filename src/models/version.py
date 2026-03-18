@@ -18,6 +18,6 @@ class DataVersion(Node):
 
 
 @dataclass
-class DatabaseDataVersionRelationship(Relationship):
+class DatabaseDataVersionEdge(Relationship):
     start_node: DatabaseVersion
     end_node: DataVersion

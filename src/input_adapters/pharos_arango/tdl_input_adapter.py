@@ -98,7 +98,7 @@ FOR n IN `Protein`
 ligand_activity_count = """
 FOR n IN `Protein`
   LET distinct_ligands = UNIQUE(
-    FOR l, r IN OUTBOUND n `ProteinLigandRelationship`
+    FOR l, r IN OUTBOUND n `ProteinLigandEdge`
       FILTER r.meets_idg_cutoff == true
       RETURN l._id
   )
@@ -111,7 +111,7 @@ FOR n IN `Protein`
 moa_drug_count = """
 FOR pro IN `Protein`
   LET moa_drugs = UNIQUE(
-    FOR lig, act IN OUTBOUND pro `ProteinLigandRelationship`
+    FOR lig, act IN OUTBOUND pro `ProteinLigandEdge`
       FILTER lig.isDrug == TRUE
       FILTER LENGTH(
         act.details[* FILTER CURRENT.has_moa == TRUE]
@@ -127,7 +127,7 @@ FOR pro IN `Protein`
 experimental_f_or_p_go_term_count = """
 FOR p IN `Protein`
   LET go_terms = UNIQUE(
-    FOR g, r IN OUTBOUND p `ProteinGoTermRelationship`
+    FOR g, r IN OUTBOUND p `ProteinGoTermEdge`
       FILTER g.is_leaf == true
         AND g.type != 'C'
       LET evidence_categories = r.evidence[* RETURN CURRENT.category]
@@ -159,7 +159,7 @@ FOR n IN `Protein`
 pharos_gene_rif_count = """
 FOR p IN `Protein`
   LET rif_ids = UNIQUE(
-      FOR rif IN OUTBOUND p `GeneGeneRifRelationship`
+      FOR rif IN OUTBOUND p `GeneGeneRifEdge`
         RETURN rif._id
   )
   RETURN {
@@ -172,15 +172,15 @@ gene_rif_count = """
 FOR p IN `Protein`
 
   LET genes = (
-    FOR g IN INBOUND p `GeneProteinRelationship`
+    FOR g IN INBOUND p `GeneProteinEdge`
       FILTER IS_SAME_COLLECTION("Gene", g)
       RETURN g
   )
 
   LET more_genes = (
-    FOR t IN INBOUND p `TranscriptProteinRelationship`
+    FOR t IN INBOUND p `TranscriptProteinEdge`
       FILTER IS_SAME_COLLECTION("Transcript", t)
-      FOR g IN INBOUND t `GeneTranscriptRelationship`
+      FOR g IN INBOUND t `GeneTranscriptEdge`
         FILTER IS_SAME_COLLECTION("Gene", g)
         RETURN g
   )
@@ -189,7 +189,7 @@ FOR p IN `Protein`
 
   LET rif_ids = UNIQUE(
     FOR g IN all_genes
-      FOR rif IN OUTBOUND g `GeneGeneRifRelationship`
+      FOR rif IN OUTBOUND g `GeneGeneRifEdge`
         RETURN rif._id
   )
 

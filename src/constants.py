@@ -39,6 +39,7 @@ class DataSourceName(SimpleEnum):
     RaMP = "RaMP"
     ManualUpdate = "Manual Update"
     Mondo = "Mondo"
+    DiseaseOntology = "Disease Ontology"
     UBERON = 'UBERON'
 
 class Prefix(SimpleEnum):

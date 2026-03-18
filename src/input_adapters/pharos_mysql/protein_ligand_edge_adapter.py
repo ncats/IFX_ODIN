@@ -3,13 +3,13 @@ from typing import List
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
-from src.models.ligand import ProteinLigandRelationship, Ligand
+from src.models.ligand import ProteinLigandEdge, Ligand
 from src.models.node import Relationship
-from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, Ligand as mysql_ligand, LigandActivity as mysql_ligand_activity, T2TC as mysql_t2tc
+from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, Ligand as mysql_ligand, LigandActivity as mysql_ligand_activity, T2TC as mysql_t2tc
 from src.models.protein import Protein
 
 
-class ProteinLigandRelationshipAdapter(InputAdapter, MySqlAdapter):
+class ProteinLigandEdgeAdapter(InputAdapter, MySqlAdapter):
 
     def get_all(self) -> List[Relationship]:
         results = (self.get_session().query(
@@ -31,7 +31,7 @@ class ProteinLigandRelationshipAdapter(InputAdapter, MySqlAdapter):
             uniprot, ligid, act_value, act_type, action_type, reference, reference_source, pubmed_ids = row
             key = f"{uniprot}-{ligid}"
             if key not in pl_rel_dict:
-                plr = ProteinLigandRelationship(
+                plr = ProteinLigandEdge(
                     start_node=Protein(id=f"{Prefix.UniProtKB}:{uniprot}"),
                     end_node=Ligand(id=ligid),
                 )

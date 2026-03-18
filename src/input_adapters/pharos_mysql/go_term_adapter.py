@@ -1,10 +1,8 @@
-from typing import List, Union
-
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, GoA as mysql_Goa, TDL_info as mysql_tdlInfo
+from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, GoA as mysql_Goa, TDL_info as mysql_tdlInfo
 from src.interfaces.input_adapter import InputAdapter
-from src.models.go_term import GoTerm, ProteinGoTermRelationship, GoEvidence
+from src.models.go_term import GoTerm, ProteinGoTermEdge, GoEvidence
 from src.models.protein import Protein
 
 class GoTermAdapter(InputAdapter, MySqlAdapter):
@@ -32,7 +30,7 @@ class GoTermAdapter(InputAdapter, MySqlAdapter):
             else:
                 go_term_obj = go_dict[go_id]
 
-            relationships.append(ProteinGoTermRelationship(
+            relationships.append(ProteinGoTermEdge(
                 start_node=Protein(id=f"{Prefix.UniProtKB}:{uniprot}"),
                 end_node=go_term_obj,
                 evidence=[GoEvidence(eco, assigned_by=assigned_by)]

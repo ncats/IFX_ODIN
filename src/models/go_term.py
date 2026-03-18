@@ -119,7 +119,7 @@ class GoTermHasParent(Relationship):
 
 
 @dataclass
-class ProteinGoTermRelationship(Relationship):
+class ProteinGoTermEdge(Relationship):
     start_node: Protein
     end_node: GoTerm
     evidence: List[GoEvidence] = field(default_factory=list)

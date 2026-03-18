@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 from src.constants import Prefix
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.input_adapters.pharos_mysql.old_tables import Protein as mysql_Protein, TDL_info as mysql_tdl_info
+from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, TDL_info as mysql_tdl_info
 from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein
 

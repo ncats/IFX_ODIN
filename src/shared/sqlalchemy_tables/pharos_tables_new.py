@@ -778,7 +778,7 @@ class GeneAttributeType(Base):
 class DO(Base):
     __tablename__ = "do"
 
-    doid = Column(String(12), primary_key=True, nullable=False)
+    doid = Column(String(20), primary_key=True, nullable=False)
     name = Column(Text, nullable=False)
     def_ = Column("def", Text, nullable=True)  # 'def' is a reserved keyword in Python
 
@@ -786,8 +786,8 @@ class DO(Base):
 class DOParent(Base):
     __tablename__ = "do_parent"
 
-    doid = Column(String(12), ForeignKey("do.doid"), nullable=False, primary_key=True)
-    parent_id = Column(String(12), nullable=False)
+    doid = Column(String(20), ForeignKey("do.doid"), nullable=False, primary_key=True)
+    parent_id = Column(String(20), nullable=False)
 
     __table_args__ = (
         Index("fk_do_parent__do", "doid"),

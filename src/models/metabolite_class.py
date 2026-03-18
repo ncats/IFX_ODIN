@@ -15,7 +15,7 @@ class MetaboliteClass(Node):
 
 
 @dataclass
-class MetaboliteClassRelationship(Relationship):
+class MetaboliteClassEdge(Relationship):
     start_node: Metabolite
     end_node: MetaboliteClass
     source: str = None
