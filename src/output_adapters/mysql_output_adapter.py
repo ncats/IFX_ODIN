@@ -1,5 +1,6 @@
 from abc import ABC
 from datetime import datetime
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
@@ -20,6 +21,24 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         self.truncate_tables = truncate_tables
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
+
+    @staticmethod
+    def _serialize_rows(converted_objects):
+        raw_rows = []
+        for obj in converted_objects:
+            mapper = sqlalchemy_inspect(type(obj))
+            attr_to_column = {
+                attr.key: attr.columns[0].name
+                for attr in mapper.column_attrs
+                if len(attr.columns) == 1
+            }
+            raw_rows.append({
+                attr_to_column.get(k, k): v
+                for k, v in obj.__dict__.items()
+                if k != '_sa_instance_state'
+            })
+        all_keys = set().union(*(row.keys() for row in raw_rows))
+        return [{key: row.get(key) for key in all_keys} for row in raw_rows]
 
     def store(self, objects, single_source=False) -> bool:
         if not isinstance(objects, list):
@@ -52,10 +71,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
 
                     table_class = converted_objects[0].__class__
                     print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
-                    rows = [
-                        {k: v for k, v in obj.__dict__.items() if k != '_sa_instance_state'}
-                        for obj in converted_objects
-                    ]
+                    rows = self._serialize_rows(converted_objects)
                     stmt = mysql_insert(table_class.__table__).prefix_with('IGNORE')
                     session.execute(stmt, rows)
                     session.commit()

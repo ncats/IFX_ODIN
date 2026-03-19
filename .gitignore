@@ -7,6 +7,10 @@ secrets.env
 .snakemake
 .idea
 .pytest_cache
+.DS_Store
+__pycache__/
+*.py[cod]
+*.pyd
 .claude
 orphans
 /htmlcov/

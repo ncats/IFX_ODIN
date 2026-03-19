@@ -1,8 +1,6 @@
 destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-source_database: &source_database pharos
-
-meets_idg_cutoff: &meets_idg_cutoff true
+source_database: &source_database test_pharos
 
 resolvers:
   - label: tcrd_targets
@@ -48,44 +46,6 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/generifs.py
-    class: GeneRifAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/go_terms.py
-    class: GoTermAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-    class: LigandNodeAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
-    class: LigandEdgeAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/tissue.py
-    class: TissueAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/tissue.py
-    class: ExpressionAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
   - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
     class: DiseaseAdapter
     credentials: *source_credentials
@@ -99,22 +59,10 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
-    class: ProteinPathwayAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/keyword.py
-    class: ProteinKeywordAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TCRDOutputAdapter
     kwargs:
-      database_name: pharos400
+      database_name: pharos400_working
       truncate_tables: true
     credentials: *destination_credentials

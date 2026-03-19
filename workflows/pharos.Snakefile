@@ -1,5 +1,7 @@
 rule all:
     input:
+        "../input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz",
+        "../input_files/auto/ctd/ctd_version.tsv",
         "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
         "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv",
         "../input_files/manual/target_graph/gene_ids.csv",
@@ -33,6 +35,45 @@ rule all:
         "../input_files/auto/wikipathways/wikipathways_human.gmt",
         "../input_files/auto/wikipathways/wikipathways_version.tsv",
         "../input_files/auto/disease_ontology/doid.json"
+
+rule download_ctd:
+    output:
+        "../input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz",
+        "../input_files/auto/ctd/ctd_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/ctd
+        url='https://ctdbase.org/reports/CTD_curated_genes_diseases.tsv.gz'
+        curl -fL -o {output[0]} "$url"
+        python3 -c "
+import gzip
+import re
+import sys
+from datetime import datetime
+
+input_path, output_path = sys.argv[1], sys.argv[2]
+report_created = None
+with gzip.open(input_path, 'rt', encoding='utf-8', errors='replace') as handle:
+    for line in handle:
+        if line.startswith('# Report created:'):
+            report_created = line.split(':', 1)[1].strip()
+            break
+        if not line.startswith('#'):
+            break
+
+if not report_created:
+    raise SystemExit('Could not find CTD report creation date in header')
+
+match = re.search(r'([A-Z][a-z]{{2}} [A-Z][a-z]{{2}} \\d{{2}} \\d{{2}}:\\d{{2}}:\\d{{2}} [A-Z]{{3,4}} \\d{{4}})$', report_created)
+if match is None:
+    raise SystemExit(f'Could not parse CTD report creation date: {{report_created}}')
+
+version_date = datetime.strptime(match.group(1), '%a %b %d %H:%M:%S %Z %Y').date().isoformat()
+with open(output_path, 'w', encoding='utf-8') as out:
+    out.write('version\\tversion_date\\n')
+    out.write(version_date + '\\t' + version_date + '\\n')
+" {output[0]} {output[1]}
+        """
 
 rule download_jensenlab_tissues:
     output:
@@ -166,7 +207,7 @@ rule download_disease_ontology:
         curl -L -o {output} https://purl.obolibrary.org/obo/doid.json
         """
 
-rule download_pathwaycommons:
+rule download_pathwaycommons
     output:
         "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
         "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv"

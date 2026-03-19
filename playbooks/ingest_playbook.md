@@ -50,14 +50,20 @@ Provide a repeatable checklist for adding a new data source to the pharos graph.
    - Use stable IDs and consistent prefixes.
 
 9) **Wire configuration into YAML**
-   - Add the adapter to the YAML (`working.yaml` for trial; later `target_graph.yaml`).
+   - Add the adapter to `src/use_cases/working.yaml` first.
    - Pass file paths and version metadata file paths via `kwargs`.
-   - For Pharos data sources: add to **both** `src/use_cases/pharos/pharos.yaml` and
-     `src/use_cases/pharos/target_graph.yaml`.
+   - After the working ingest is validated, copy the finalized adapter configuration into
+     **both** `src/use_cases/pharos/pharos.yaml` and `src/use_cases/pharos/target_graph.yaml`.
 
 10) **Run and validate**
     - Run the ETL via the YAML entrypoint (e.g., `src/use_cases/working.py`).
     - Validate that counts and labels look correct.
+    - When there is a working MySQL validation path (for example `src/use_cases/working_mysql.yaml`),
+      compare the working MySQL tables against `pharos319` before promoting changes.
+    - Check both row counts and field population:
+      - Which destination tables received rows
+      - Which source-specific columns are populated in `pharos319` but still empty in the working MySQL output
+      - Whether graph data is present in the working Arango DB but not yet mapped into TCRD tables
 
 11) **Update the design document**
     - Revise the design doc to reflect what actually ended up in the code:

@@ -2,6 +2,7 @@
 
 - For new ingest work, start by downloading/profiling source files and validating real payload shape before implementing adapter/model changes.
 - For new ingest work, pause after discovery and propose a short implementation plan; get user confirmation before making code changes.
+- For Snakemake runs and ETL executions, let the user run those steps
 
 ## Ingest Standards
 
@@ -20,6 +21,9 @@
 - Keep adapters focused on source parsing and structural graph emission; move cross-ontology ID normalization to resolvers.
 - For ontology xrefs, maintain an explicit allowlist and perform case-insensitive prefix checks.
 - When adding new datasource version handling, use named parameters for `DatasourceVersionInfo` to avoid argument-order regressions.
+- When an edge can be emitted by multiple sources and later merged, keep source-specific payload in a `details` list instead of top-level edge fields.
+- Put disease descriptions on `Disease` nodes (for example `uniprot_description`), not on disease association edge details.
+- Prefer modern ontology-backed evidence codes from the source (for example ECO) over recreating legacy source-specific evidence encodings from older Pharos/TCRD tables.
 
 ## Workflow References
 
