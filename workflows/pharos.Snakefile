@@ -207,7 +207,7 @@ rule download_disease_ontology:
         curl -L -o {output} https://purl.obolibrary.org/obo/doid.json
         """
 
-rule download_pathwaycommons
+rule download_pathwaycommons:
     output:
         "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
         "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv"
