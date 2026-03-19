@@ -19,7 +19,7 @@ Status: [ ] not started | [~] in progress | [x] done
 
 ## Pipeline Status Table
 
-Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQL table checkboxes = converter written to TCRD.
+Each row is a concept. Data source checkboxes = ingested into the Pharos graph. MySQL table checkboxes = graph-derived converter output written to TCRD.
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD) |
 |---------|------------------------|-------------|------------------------------|
@@ -34,10 +34,10 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 | **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa` |
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
-| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD | `Disease` | [x] `mondo`<br>[x] `do`<br>[x] `ncats_disease` |
-| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [x] `mondo_parent` |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent` |
-| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease` |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD | `Disease` | [x] `ncats_disease` |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | - |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | - |
+| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
 | **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | - |
 | **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | - |
 | **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayEdge` | [x] `pathway_type`<br>[x] `pathway` |
@@ -48,6 +48,15 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 | **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)* |
 | **TDLInputAdapter** | [x] computed from graph | updates `tdl`, `tdl_meta` on `Protein` | *(via Protein)* |
 | **TDLOverrideAdapter** | [x] manual CSV | updates `tdl` on `Protein` | *(via Protein)* |
+
+### Source-File Ontology Tables
+
+These tables are populated directly from ontology source files during the TCRD build, not reconstructed from the merged graph disease hierarchy.
+
+| Source Concept | Source Files | TCRD Tables |
+|---------|------------------------|-------------|
+| **MONDO ontology** | [x] `input_files/auto/mondo/mondo.json` | [x] `mondo`<br>[x] `mondo_parent` |
+| **Disease Ontology** | [x] `input_files/auto/disease_ontology/doid.json` | [x] `do`<br>[x] `do_parent` |
 
 ---
 
@@ -96,3 +105,48 @@ Each row is a concept. Data source checkboxes = ingested into Pharos graph. MySQ
 ### Requires License
 - DisGeNET Disease Associations
 - KEGG Pathway
+
+---
+
+## Working Graph -> TCRD Gap TODOs
+
+Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to validate these gaps before promoting changes into the full Pharos configs.
+
+### Disease Ontology Tables
+
+- [x] Stop populating `mondo`, `mondo_parent`, `do`, and `do_parent` from merged graph `Disease` nodes
+  - These tables now come from source-file adapters instead of the canonicalized graph disease layer.
+- [x] Add source-file MONDO adapters to the working/full TCRD YAMLs
+  - `MondoTableAdapter` and `MondoTableParentEdgeAdapter` now feed `mondo` / `mondo_parent`.
+- [x] Add source-file Disease Ontology adapters to the working/full TCRD YAMLs
+  - `DOTableAdapter` and `DOTableParentEdgeAdapter` now feed `do` / `do_parent`.
+- [ ] Verify `mondo.def` is populated from source-file MONDO data
+- [ ] Verify `do.def` is populated from source-file Disease Ontology data
+- [ ] Compare `mondo.comment` population against `pharos319`
+  - Current source-file path preserves MONDO comments separately from the merged disease graph.
+
+### Disease Association Table
+
+- [x] Fix `disease.name` population in working MySQL
+- [x] Fix `disease.ncats_name` population in working MySQL
+- [x] Map `ProteinDiseaseEdge.details` into source-specific `disease` association rows
+  - Current converter emits one `disease` row per edge detail rather than one row per merged graph edge.
+- [x] Populate `disease.evidence` from disease association details
+- [ ] Decide whether any disease-detail text should populate `disease.description`
+  - `pharos319` has disease descriptions for some sources, but current working MySQL leaves `disease.description` empty.
+- [ ] Decide whether disease association detail metadata should populate `disease.source`
+  - `pharos319` uses `disease.source` for some sources; current working MySQL leaves it empty.
+- [ ] Document source-specific fields that remain intentionally unsupported in the working converter
+  - Examples from `pharos319`: `zscore`, `conf`, `drug_name`, `log2foldchange`, `pvalue`, `score`, `S2O`, `updated`.
+- [x] Add `ncats_d2da` links from `ncats_disease` to `disease` association rows
+  - Current converter emits one direct link per disease association row.
+
+### Disease Node Coverage
+
+- [x] Add `ncats_disease` output for canonical disease nodes from the graph
+- [x] Limit `ncats_disease` output to diseases that have target associations
+  - `DiseaseAdapter` now supports `associated_only: true` for the TCRD build path.
+- [ ] Decide how non-`MONDO:` / non-`DOID:` associated disease nodes should be represented downstream
+  - Current graph includes associated diseases with prefixes such as `UMLS`, `OMIM`, `HP`, `EFO`, `NCIT`, and `MESH`.
+- [ ] Compare disease ID normalization expectations against `pharos319`
+  - Especially for legacy `MIM:` / `OMIM:` / `UMLS:` disease identifiers that appear in association rows.

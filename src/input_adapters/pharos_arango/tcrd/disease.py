@@ -2,13 +2,20 @@ from typing import Generator, List, Union
 
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.models.datasource_version_info import DataSourceDetails
-from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge
+from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge, DiseaseAssociationDetail
 from src.models.protein import Protein
 
 
 def disease_query() -> str:
     return """FOR d IN `Disease`
     RETURN d
+    """
+
+
+def associated_disease_ids_query() -> str:
+    return """FOR rel IN `ProteinDiseaseEdge`
+    COLLECT disease_id = rel.end_id
+    RETURN disease_id
     """
 
 
@@ -34,13 +41,24 @@ def disease_version_query() -> str:
 
 
 class DiseaseAdapter(PharosArangoAdapter):
+    associated_only: bool
+
+    def __init__(self, credentials, database_name: str, associated_only: bool = False):
+        self.associated_only = associated_only
+        super().__init__(credentials=credentials, database_name=database_name)
 
     def get_all(self) -> Generator[List[Union[Disease, DiseaseParentEdge]], None, None]:
+        associated_ids = None
+        if self.associated_only:
+            associated_ids = set(self.runQuery(associated_disease_ids_query()))
+
         diseases = self.runQuery(disease_query())
         disease_map = {}
         rows = []
         for d in diseases:
             disease = Disease.from_dict(d)
+            if associated_ids is not None and disease.id not in associated_ids:
+                continue
             disease_map[disease.id] = disease
             rows.append(disease)
         yield rows
@@ -63,6 +81,11 @@ class DiseaseAdapter(PharosArangoAdapter):
 class ProteinDiseaseAdapter(PharosArangoAdapter):
     batch_size = 10_000
 
+    @staticmethod
+    def _build_details(row: dict) -> List[DiseaseAssociationDetail]:
+        details = row.get('details') or []
+        return [DiseaseAssociationDetail.from_dict(detail) for detail in details]
+
     def get_all(self) -> Generator[List[ProteinDiseaseEdge], None, None]:
         last_key = None
         while True:
@@ -74,7 +97,7 @@ class ProteinDiseaseAdapter(PharosArangoAdapter):
                 ProteinDiseaseEdge(
                     start_node=Protein(id=row['start_id']),
                     end_node=Disease(id=row['end_id'], name=row.get('end_node', {}).get('name', '')),
-                    source=row.get('source')
+                    details=self._build_details(row)
                 )
                 for row in rows
             ]

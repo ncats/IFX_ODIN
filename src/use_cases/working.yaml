@@ -121,25 +121,39 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.csv
       reviewed_only: True
 
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-#    class: DODiseaseAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/disease_ontology/doid.json
-#
-#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-#    class: DODiseaseParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/disease_ontology/doid.json
+  - import: ./src/input_adapters/jensenlab/total_pmscore.py
+    class: TotalPMScoreAdapter
+    kwargs:
+      file_path: ./input_files/auto/jensenlab/protein_counts.tsv
+
+  - import: ./src/input_adapters/antibodypedia/antibody_count.py
+    class: AntibodyCountAdapter
+    kwargs:
+      file_path: ./input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv
+
+  - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
+    class: IDGFamilyAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinDiseaseEdgeAdapter

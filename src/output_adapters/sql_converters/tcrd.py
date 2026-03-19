@@ -10,13 +10,14 @@ from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
 from src.models.pathway import ProteinPathwayEdge
 from src.models.protein import Protein
+from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, Disease as mysqlDisease, DiseaseType, DO, DOParent,
-    Pathway as mysqlPathway, PathwayType,
+    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PathwayType,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -28,6 +29,7 @@ class TCRDOutputConverter(SQLOutputConverter):
         super().__init__(sql_base=TCRDBase)
         self._known_disease_types: set = set()
         self._known_pathway_types: set = set()
+        self._disease_name_by_id: dict[str, str] = {}
         self._converters = {
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
@@ -47,11 +49,15 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinTissueExpressionEdge: [self.tissue_lookup_converter,
                                           self.expression_converter,
                                           self.gtex_converter],
+            MondoTerm: [self.mondo_table_converter],
+            MondoTermParentEdge: [self.mondo_parent_table_converter],
+            DOTerm: [self.do_table_converter],
+            DOTermParentEdge: [self.do_parent_table_converter],
             # Disease
-            Disease: [self.mondo_converter, self.do_converter],
-            DiseaseParentEdge: [self.mondo_parent_converter],
-            DODiseaseParentEdge: [self.do_parent_converter],
-            ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter],
+            Disease: [self.ncats_disease_converter],
+            DiseaseParentEdge: None,
+            DODiseaseParentEdge: None,
+            ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_type_converter, self.pathway_converter],
             # Keyword
@@ -362,6 +368,37 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     # --- Disease / MONDO ---
 
+    def mondo_table_converter(self, obj: dict) -> Mondo:
+        return Mondo(
+            mondoid=obj['id'],
+            name=obj.get('name') or obj['id'],
+            def_=obj.get('mondo_description'),
+            comment=obj.get('comment'),
+            provenance=obj['provenance'],
+        )
+
+    def mondo_parent_table_converter(self, obj: dict) -> MondoParent:
+        return MondoParent(
+            mondoid=obj['start_id'],
+            parentid=obj['end_id'],
+            provenance=obj['provenance'],
+        )
+
+    def do_table_converter(self, obj: dict) -> DO:
+        return DO(
+            doid=obj['id'],
+            name=obj.get('name') or obj['id'],
+            def_=obj.get('do_description'),
+            provenance=obj['provenance'],
+        )
+
+    def do_parent_table_converter(self, obj: dict) -> DOParent:
+        return DOParent(
+            doid=obj['start_id'],
+            parent_id=obj['end_id'],
+            provenance=obj['provenance'],
+        )
+
     def mondo_converter(self, obj: dict) -> Optional[Mondo]:
         if not (obj.get('id') or '').startswith('MONDO:'):
             return None
@@ -410,20 +447,89 @@ class TCRDOutputConverter(SQLOutputConverter):
         self._known_disease_types.add(source)
         return DiseaseType(name=source, provenance=obj['provenance'])
 
-    def disease_converter(self, obj: dict) -> mysqlDisease:
-        disease_id = obj['end_id']
-        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') else None
+    @staticmethod
+    def _disease_assoc_key(protein_id: str, disease_id: str, detail: dict, ordinal: int) -> str:
+        evidence = "|".join(sorted(detail.get('evidence') or []))
+        pmids = "|".join(sorted(str(p) for p in (detail.get('pmids') or [])))
+        evidence_codes = "|".join(sorted(detail.get('evidence_codes') or []))
+        return "\t".join([
+            protein_id or '',
+            disease_id or '',
+            detail.get('source') or '',
+            detail.get('source_id') or '',
+            evidence,
+            pmids,
+            evidence_codes,
+            str(ordinal),
+        ])
+
+    def _iter_disease_details(self, obj: dict):
         details = obj.get('details') or []
-        source = obj.get('source') or (details[0].get('source') if details else None)
-        return mysqlDisease(
-            dtype=source,
-            protein_id=self.resolve_id('protein', obj['start_id']),
-            name=obj['end_node']['name'],
-            ncats_name=obj['end_node']['name'],
-            did=disease_id,
+        if details:
+            return details
+        source = obj.get('source')
+        if source:
+            return [{
+                'source': source,
+                'source_id': obj.get('source_id'),
+                'evidence': obj.get('evidence') or [],
+                'pmids': obj.get('pmids') or [],
+                'evidence_codes': obj.get('evidence_codes') or [],
+            }]
+        return []
+
+    def _disease_name(self, obj: dict) -> str:
+        end_id = obj['end_id']
+        end_name = (obj.get('end_node') or {}).get('name')
+        return end_name or self._disease_name_by_id.get(end_id) or end_id
+
+    def ncats_disease_converter(self, obj: dict) -> NcatsDisease:
+        disease_id = obj['id']
+        self._disease_name_by_id[disease_id] = obj.get('name') or disease_id
+        mondoid = disease_id if disease_id.startswith('MONDO:') else None
+        return NcatsDisease(
+            id=self.resolve_id('ncats_disease', disease_id),
+            name=obj.get('name') or disease_id,
+            uniprot_description=obj.get('uniprot_description'),
+            do_description=obj.get('do_description'),
+            mondo_description=obj.get('mondo_description'),
             mondoid=mondoid,
             provenance=obj['provenance'],
         )
+
+    def disease_converter(self, obj: dict) -> List[mysqlDisease]:
+        disease_id = obj['end_id']
+        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') else None
+        disease_name = self._disease_name(obj)
+        rows = []
+        for ordinal, detail in enumerate(self._iter_disease_details(obj)):
+            assoc_key = self._disease_assoc_key(obj['start_id'], disease_id, detail, ordinal)
+            rows.append(mysqlDisease(
+                id=self.resolve_id('disease_assoc', assoc_key),
+                dtype=detail.get('source') or '',
+                protein_id=self.resolve_id('protein', obj['start_id']),
+                name=disease_name,
+                ncats_name=disease_name,
+                did=disease_id,
+                evidence="|".join(detail.get('evidence') or detail.get('evidence_codes') or []) or None,
+                mondoid=mondoid,
+                provenance=obj['provenance'],
+            ))
+        return rows
+
+    def ncats_d2da_converter(self, obj: dict) -> List[NcatsD2DA]:
+        disease_id = obj['end_id']
+        ncats_disease_id = self.resolve_id('ncats_disease', disease_id)
+        links = []
+        for ordinal, detail in enumerate(self._iter_disease_details(obj)):
+            assoc_key = self._disease_assoc_key(obj['start_id'], disease_id, detail, ordinal)
+            links.append(NcatsD2DA(
+                ncats_disease_id=ncats_disease_id,
+                disease_assoc_id=self.resolve_id('disease_assoc', assoc_key),
+                direct=1,
+                provenance=obj['provenance'],
+            ))
+        return links
 
     # --- Pathway ---
 
