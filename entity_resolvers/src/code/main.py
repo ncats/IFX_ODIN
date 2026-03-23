@@ -60,6 +60,7 @@ from publicdata.disease_data.nodenorm_disease_download import NodeNormDiseaseDow
 from publicdata.disease_data.nodenorm_disease_transform import NodeNormDiseaseTransformer
 from publicdata.disease_data.disease_name_cluster import DiseaseNameClusterer
 from publicdata.disease_data.disease_merge import DiseaseDataMerger
+from publicdata.disease_data.rdip_deliverable import RDIPDeliverable
 from publicdata.disease_data.jensen_download import JensenDiseaseDownloader
 from publicdata.disease_data.jensen_transform import JensenDiseaseTransformer
 from publicdata.disease_data.disease_id import DiseaseIDProcessor
@@ -142,6 +143,7 @@ PROCESSOR_MAP = {
     "jensen_download":             (JensenDiseaseDownloader,     None, "Download Jensen Lab disease associations"),
     "jensen_transform":            (JensenDiseaseTransformer,    None, "Transform Jensen disease data"),
     "disease_ids":                 (DiseaseIDProcessor,          None, "Mint/preserve stable NCATS disease IDs → disease_ids.tsv"),
+    "rdip_deliverable":            (RDIPDeliverable, None, "Generate RDIP rare disease harmonized xrefs"),
 
     "gsrs_download":  (GSRSDownloader,  None, "Download FDA GSRS substance registry"),
     "gsrs_transform": (GSRSTransformer, None, "Transform GSRS data"),
@@ -204,7 +206,7 @@ CATEGORY_PIPELINE = {
         "omim_download", "omim_transform",
         "nodenorm_disease_download", "nodenorm_disease_transform",
         "jensen_download", "jensen_transform",
-        "disease_merge",
+        "disease_merge", "rdip_deliverable",
     ],
     "DRUGS": ["gsrs_download", "gsrs_transform"],
     "GO": ["go_download", "go_transform"],
