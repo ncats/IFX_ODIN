@@ -282,7 +282,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         existing_nodes = collection.get_many(keys)
         return collection, existing_nodes
 
-    def create_or_truncate_datastore(self) -> bool:
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         sys_db = self.client.db('_system', username=self.credentials.user,
                             password=self.credentials.password)
 
@@ -480,4 +480,3 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     break
 
             print(f"Completed {collection_name}: {total_deleted} total edges deleted")
-

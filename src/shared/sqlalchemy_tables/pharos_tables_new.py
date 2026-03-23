@@ -400,7 +400,7 @@ class Pathway(Base):
         Index("pathway_idx2", "protein_id"),
         Index("pathway_idx3", "pwtype"),
         Index("pathway_idx4", "name", mysql_length={"name": 256}),
-        Index("pathway_text_idx", "name", "description", mysql_prefix="FULLTEXT")
+        Index("pathway_text_idx", "name", mysql_prefix="FULLTEXT")
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -409,7 +409,6 @@ class Pathway(Base):
     pwtype = Column(String(255), ForeignKey("pathway_type.name"), nullable=False)
     id_in_source = Column(String(255))
     name = Column(Text, nullable=False)
-    description = Column(Text)
     url = Column(Text)
 
 class PathwayType(Base):

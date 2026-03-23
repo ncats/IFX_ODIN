@@ -70,8 +70,17 @@ class TCRDOutputConverter(SQLOutputConverter):
     def get_preload_queries(self, session):
         return [{
             "table": 'protein',
-            "data": session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
+            "data": session.query(mysqlProtein.id, mysqlProtein.ifx_id).all()
         }]
+
+    def preload_id_mappings(self, session):
+        super().preload_id_mappings(session)
+        self._known_disease_types = {
+            row[0] for row in session.query(DiseaseType.name).all() if row[0]
+        }
+        self._known_pathway_types = {
+            row[0] for row in session.query(PathwayType.name).all() if row[0]
+        }
 
     # --- Protein ---
 

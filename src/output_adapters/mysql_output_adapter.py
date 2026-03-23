@@ -21,6 +21,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         self.truncate_tables = truncate_tables
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
+        self.update_database(database_name)
 
     @staticmethod
     def _serialize_rows(converted_objects):
@@ -72,7 +73,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     table_class = converted_objects[0].__class__
                     print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
                     rows = self._serialize_rows(converted_objects)
-                    stmt = mysql_insert(table_class.__table__).prefix_with('IGNORE')
+                    stmt = mysql_insert(table_class.__table__)
                     session.execute(stmt, rows)
                     session.commit()
                     duration = (datetime.now() - start_time).total_seconds()
@@ -88,8 +89,9 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         finally:
             session.close()
 
-    def create_or_truncate_datastore(self) -> bool:
-        self.recreate_mysql_db(self.database_name, self.truncate_tables)
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
+        effective_truncate = self.truncate_tables if truncate_tables is None else truncate_tables
+        self.recreate_mysql_db(self.database_name, effective_truncate)
         return True
 
 
@@ -100,8 +102,8 @@ class TestOutputAdapter(MySQLOutputAdapter):
         MySQLOutputAdapter.__init__(self, credentials, database_name)
         self.output_converter = TestSQLOutputConverter(sql_base=TestBase)
 
-    def create_or_truncate_datastore(self) -> bool:
-        super().create_or_truncate_datastore()
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
+        super().create_or_truncate_datastore(truncate_tables=truncate_tables)
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
         return True
 
@@ -113,8 +115,15 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables=truncate_tables)
         self.output_converter = TCRDOutputConverter()
 
-    def create_or_truncate_datastore(self) -> bool:
-        super().create_or_truncate_datastore()
+    def do_pre_processing(self) -> None:
+        session = self.get_session()
+        try:
+            self.output_converter.preload_id_mappings(session)
+        finally:
+            session.close()
+
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
+        super().create_or_truncate_datastore(truncate_tables=truncate_tables)
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
         self.output_converter.preload_id_mappings(self.get_session())
         return True

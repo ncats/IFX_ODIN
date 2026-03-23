@@ -35,10 +35,9 @@ class BuildGraphFromYaml:
 
         self.etl = ETL(input_adapters=input_adapters, output_adapters=output_adapters, resolver_map=resolver_map)
 
-    def truncate_datastore(self):
-        self.etl.create_or_truncate_datastores()
+    def prepare_datastore(self, truncate_tables: bool = True):
+        self.etl.create_or_truncate_datastores(truncate_tables=truncate_tables)
 
     def do_etl(self, do_post_processing = True, clean_edges: bool = True):
         self.etl.do_etl(do_post_processing, clean_edges)
-
 
