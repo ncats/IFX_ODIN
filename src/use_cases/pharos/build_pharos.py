@@ -1,7 +1,7 @@
 from src.use_cases.build_from_yaml import BuildGraphFromYaml
 
 etl_builder = BuildGraphFromYaml(yaml_file="./src/use_cases/pharos/pharos.yaml")
-etl_builder.truncate_datastore()
+etl_builder.prepare_datastore()
 etl_builder.do_etl(clean_edges=False)
 
 post_etl_builder = BuildGraphFromYaml(yaml_file="./src/use_cases/pharos/pharos_aql_post.yaml")

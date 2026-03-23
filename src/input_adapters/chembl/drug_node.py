@@ -163,6 +163,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, ChemblAdapter):
 
             activity_details = ActivityDetails(
                 ref_id=row.activity_id,
+                activity_source=DataSourceName.ChEMBL,
                 act_value=float(row.pchembl_value),
                 act_type=row.standard_type,
                 action_type=row.action_type,

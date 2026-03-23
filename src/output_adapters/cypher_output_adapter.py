@@ -15,7 +15,7 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
         super().__init__()
         self.post_processing = post_processing
 
-    def create_or_truncate_datastore(self) -> bool:
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         return self.loader.delete_all_data_and_indexes()
 
 

@@ -20,25 +20,25 @@ resolvers:
         - Transcript
 
 input_adapters:
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: MondoTableAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: MondoTableParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: DOTableAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: DOTableParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+#  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+#    class: MondoTableAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+#    class: MondoTableParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+#    class: DOTableAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
+#
+#  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+#    class: DOTableParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
 
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
@@ -46,18 +46,24 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: DiseaseAdapter
+  - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
+    class: ProteinPathwayAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      associated_only: true
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: ProteinDiseaseAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
+#  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+#    class: DiseaseAdapter
+#    credentials: *source_credentials
+#    kwargs:
+#      database_name: *source_database
+#      associated_only: true
+#
+#  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+#    class: ProteinDiseaseAdapter
+#    credentials: *source_credentials
+#    kwargs:
+#      database_name: *source_database
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py

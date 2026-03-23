@@ -15,9 +15,9 @@ class ETL:
     output_adapters: List[OutputAdapter]
     resolver_map: Dict[str, IdResolver] = field(default_factory=dict)
 
-    def create_or_truncate_datastores(self):
+    def create_or_truncate_datastores(self, truncate_tables: bool = None):
         for output_adapter in self.output_adapters:
-            if not output_adapter.create_or_truncate_datastore():
+            if not output_adapter.create_or_truncate_datastore(truncate_tables=truncate_tables):
                 raise Exception("operation cancelled")
 
     def do_etl(self, do_post_processing = True, clean_edges: bool = True):

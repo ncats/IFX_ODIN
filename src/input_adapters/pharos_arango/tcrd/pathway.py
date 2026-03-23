@@ -17,6 +17,10 @@ def protein_pathway_query(last_key: str = None, limit: int = 10000) -> str:
     """
 
 
+def pathway_query() -> str:
+    return """FOR p IN `Pathway` RETURN p"""
+
+
 def pathway_version_query() -> str:
     return """FOR p IN `Pathway` LIMIT 1 RETURN p.creation"""
 
@@ -24,7 +28,16 @@ def pathway_version_query() -> str:
 class ProteinPathwayAdapter(PharosArangoAdapter):
     batch_size = 10_000
 
+    def _get_pathway_map(self) -> dict:
+        pathways = self.runQuery(pathway_query())
+        return {
+            pathway['id']: Pathway.from_dict(pathway)
+            for pathway in pathways
+            if pathway.get('id')
+        }
+
     def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
+        pathway_map = self._get_pathway_map()
         last_key = None
         while True:
             rows = list(self.runQuery(protein_pathway_query(last_key=last_key, limit=self.batch_size)))
@@ -34,7 +47,7 @@ class ProteinPathwayAdapter(PharosArangoAdapter):
             yield [
                 ProteinPathwayEdge(
                     start_node=Protein(id=row['start_id']),
-                    end_node=Pathway.from_dict(row['end_node']),
+                    end_node=pathway_map.get(row['end_id'], Pathway(id=row['end_id'])),
                     source=row.get('source')
                 )
                 for row in rows

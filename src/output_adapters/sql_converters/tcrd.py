@@ -17,7 +17,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, Disease as mysqlDisease, DiseaseType, DO, DOParent,
-    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PathwayType,
+    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -28,7 +28,6 @@ class TCRDOutputConverter(SQLOutputConverter):
     def __init__(self):
         super().__init__(sql_base=TCRDBase)
         self._known_disease_types: set = set()
-        self._known_pathway_types: set = set()
         self._disease_name_by_id: dict[str, str] = {}
         self._converters = {
             # Protein
@@ -59,7 +58,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             DODiseaseParentEdge: None,
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
             # Pathway
-            ProteinPathwayEdge: [self.pathway_type_converter, self.pathway_converter],
+            ProteinPathwayEdge: [self.pathway_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
         }
@@ -70,8 +69,14 @@ class TCRDOutputConverter(SQLOutputConverter):
     def get_preload_queries(self, session):
         return [{
             "table": 'protein',
-            "data": session.query(mysqlProtein.ifx_id, mysqlProtein.id).all()
+            "data": session.query(mysqlProtein.id, mysqlProtein.ifx_id).all()
         }]
+
+    def preload_id_mappings(self, session):
+        super().preload_id_mappings(session)
+        self._known_disease_types = {
+            row[0] for row in session.query(DiseaseType.name).all() if row[0]
+        }
 
     # --- Protein ---
 
@@ -532,14 +537,6 @@ class TCRDOutputConverter(SQLOutputConverter):
         return links
 
     # --- Pathway ---
-
-    def pathway_type_converter(self, obj: dict) -> Optional[PathwayType]:
-        """Seeds the pathway_type lookup table; one row per new unique type."""
-        pwtype = obj['end_node'].get('type')
-        if not pwtype or pwtype in self._known_pathway_types:
-            return None
-        self._known_pathway_types.add(pwtype)
-        return PathwayType(name=pwtype, provenance=obj['provenance'])
 
     def pathway_converter(self, obj: dict) -> mysqlPathway:
         protein_id = self.resolve_id('protein', obj['start_id'])

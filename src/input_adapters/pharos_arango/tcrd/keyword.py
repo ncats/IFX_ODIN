@@ -17,6 +17,10 @@ def protein_keyword_query(last_key: str = None, limit: int = 10000) -> str:
     """
 
 
+def keyword_query() -> str:
+    return """FOR k IN `Keyword` RETURN k"""
+
+
 def keyword_version_query() -> str:
     return """FOR k IN `Keyword` LIMIT 1 RETURN k.creation"""
 
@@ -24,7 +28,16 @@ def keyword_version_query() -> str:
 class ProteinKeywordAdapter(PharosArangoAdapter):
     batch_size = 10_000
 
+    def _get_keyword_map(self) -> dict:
+        keywords = self.runQuery(keyword_query())
+        return {
+            keyword['id']: Keyword.from_dict(keyword)
+            for keyword in keywords
+            if keyword.get('id')
+        }
+
     def get_all(self) -> Generator[List[ProteinKeywordEdge], None, None]:
+        keyword_map = self._get_keyword_map()
         last_key = None
         while True:
             rows = list(self.runQuery(protein_keyword_query(last_key=last_key, limit=self.batch_size)))
@@ -34,7 +47,7 @@ class ProteinKeywordAdapter(PharosArangoAdapter):
             yield [
                 ProteinKeywordEdge(
                     start_node=Protein(id=row['start_id']),
-                    end_node=Keyword.from_dict(row['end_node']),
+                    end_node=keyword_map.get(row['end_id'], Keyword(id=row['end_id'])),
                 )
                 for row in rows
             ]

@@ -22,7 +22,7 @@ class OutputAdapter(ABC):
         pass
 
     @abstractmethod
-    def create_or_truncate_datastore(self) -> bool:
+    def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         pass
 
     def get_metadata(self) -> DatabaseMetadata:
