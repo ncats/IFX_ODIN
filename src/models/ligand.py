@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
+from src.constants import DataSourceName
 from src.core.decorators import facets
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
@@ -19,6 +20,7 @@ class Ligand(Node):
         numeric_fields=["act_value"])
 class ActivityDetails:
     ref_id: Optional[int] = None
+    activity_source: Optional[DataSourceName] = None
     act_value: Optional[float] = None
     act_type: Optional[str] = None
     action_type: Optional[str] = None

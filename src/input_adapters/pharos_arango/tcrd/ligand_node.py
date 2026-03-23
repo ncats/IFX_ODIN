@@ -1,6 +1,7 @@
 import time
 from abc import ABC
 from typing import Generator, List
+from src.constants import DataSourceName
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DataSourceDetails
@@ -9,13 +10,38 @@ from src.models.ligand import Ligand, ProteinLigandEdge
 def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER rel._key > "{last_key}"' if last_key else ""
     cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
+    trimmed_sources = [DataSourceName.ChEMBL.value, DataSourceName.IUPHAR.value]
+    if not meets_idg_cutoff:
+        return f"""
+        FOR rel IN `ProteinLigandEdge`
+            {pagination_filter}
+            {cutoff_clause}
+            SORT rel._key
+            LIMIT {limit}
+            RETURN rel
+        """
+
     return f"""
     FOR rel IN `ProteinLigandEdge`
         {pagination_filter}
         {cutoff_clause}
+        LET pro = DOCUMENT(rel._from)
+        LET cutoff = (
+            pro.idg_family == "Kinase" ? 7.52288 :
+            pro.idg_family == "Ion Channel" ? 5 :
+            pro.idg_family == "GPCR" ? 7 :
+            pro.idg_family == "Nuclear Receptor" ? 7 : 6
+        )
+        LET filtered_details = (
+            FOR detail IN (rel.details || [])
+                FILTER detail.activity_source NOT IN {trimmed_sources}
+                    OR (detail.act_value != null AND detail.act_value >= cutoff)
+                RETURN detail
+        )
+        FILTER LENGTH(filtered_details) > 0
         SORT rel._key
         LIMIT {limit}
-        RETURN rel
+        RETURN MERGE(rel, {{details: filtered_details}})
     """
 
 

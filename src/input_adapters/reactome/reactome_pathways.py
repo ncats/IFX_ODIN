@@ -1,6 +1,5 @@
 import csv
 import io
-import re
 import zipfile
 from datetime import date
 from typing import Generator, List, Optional
@@ -52,8 +51,8 @@ class ReactomePathwayAdapter(ReactomeBaseAdapter):
             if len(parts) < 2:
                 continue
             name = parts[0].strip()
-            reactome_id = self._extract_reactome_id(name)
-            if reactome_id is None or not reactome_id.startswith("R-HSA-"):
+            reactome_id = parts[1].strip()
+            if not reactome_id.startswith("R-HSA-"):
                 continue
             pathways.append(
                 Pathway(
@@ -79,14 +78,6 @@ class ReactomePathwayAdapter(ReactomeBaseAdapter):
             with open(self.file_path, "r") as handle:
                 for line in handle:
                     yield line
-
-    @staticmethod
-    def _extract_reactome_id(value: str) -> Optional[str]:
-        match = re.search(r"(R-HSA-\d+)", value)
-        if match:
-            return match.group(1)
-        return None
-
 
 class ReactomePathwayParentEdgeAdapter(ReactomeBaseAdapter):
 

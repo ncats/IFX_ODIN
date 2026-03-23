@@ -166,6 +166,7 @@ class Ligand(Base):
     pt = Column(String(128))
 
     __table_args__ = (
+        Index("ncats_ligands_identifier_index", "identifier"),
         Index(
             "text_search",
             "name","ChEMBL","PubChem","Guide to Pharmacology","DrugCentral",
@@ -406,14 +407,9 @@ class Pathway(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     target_id = Column(Integer, ForeignKey("target.id", ondelete="CASCADE"))
     protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"))
-    pwtype = Column(String(255), ForeignKey("pathway_type.name"), nullable=False)
+    pwtype = Column(String(255), nullable=False)
     id_in_source = Column(String(255))
     name = Column(Text, nullable=False)
-    url = Column(Text)
-
-class PathwayType(Base):
-    __tablename__ = "pathway_type"
-    name = Column(String(255), primary_key=True, nullable=False)
     url = Column(Text)
 
 class Phenotype(Base):

@@ -46,7 +46,7 @@ class ProteinDrugEdgeAdapter(InputAdapter, DrugCentralAdapter):
 
         for res in query_results:
             end_node=Ligand(id=EquivalentId(res.id, type=Prefix.DrugCentral).id_str())
-            activityDetails = ActivityDetails()
+            activityDetails = ActivityDetails(activity_source=DataSourceName.DrugCentral)
             for field in ['act_value', 'act_type', 'action_type', 'act_source', 'moa_source', 'act_pmid', 'moa_pmid', 'comment']:
                 val = getattr(res, field)
                 if val not in (None, '', [], {}):

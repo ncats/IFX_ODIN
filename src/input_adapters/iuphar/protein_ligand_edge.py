@@ -1,6 +1,6 @@
 import csv
 from typing import Generator, List
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.input_adapters.iuphar.ligand_node import IUPHARAdapter
 from src.models.ligand import ProteinLigandEdge, Ligand, ActivityDetails
 from src.models.node import EquivalentId
@@ -71,6 +71,7 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
                         protein_dict[uniprot_id_to_use] = protein_node
 
                 activity_details = ActivityDetails(
+                    activity_source=DataSourceName.IUPHAR,
                     act_value=act_value_float,
                     act_type=act_type,
                     act_pmids=pmids,
@@ -84,4 +85,3 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
                 ))
 
         yield edges
-
