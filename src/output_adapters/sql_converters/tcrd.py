@@ -29,6 +29,7 @@ class TCRDOutputConverter(SQLOutputConverter):
         super().__init__(sql_base=TCRDBase)
         self._known_disease_types: set = set()
         self._disease_name_by_id: dict[str, str] = {}
+        self._seen_protein2pubmed: set[tuple[int, str, int | None, str]] = set()
         self._converters = {
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
@@ -182,16 +183,23 @@ class TCRDOutputConverter(SQLOutputConverter):
         ]
 
     def p2p_converter(self, obj: dict) -> List[Protein2Pubmed]:
-        return [
-            Protein2Pubmed(
-                protein_id=self.resolve_id('protein', obj['start_id']),
-                pubmed_id=pmid,
-                gene_id=obj['gene_id'],
-                source='NCBI',
-                provenance=obj['provenance']
+        protein_id = self.resolve_id('protein', obj['start_id'])
+        rows = []
+        for pmid in obj['pmids']:
+            key = (protein_id, str(pmid), obj['gene_id'], 'NCBI')
+            if key in self._seen_protein2pubmed:
+                continue
+            self._seen_protein2pubmed.add(key)
+            rows.append(
+                Protein2Pubmed(
+                    protein_id=protein_id,
+                    pubmed_id=pmid,
+                    gene_id=obj['gene_id'],
+                    source='NCBI',
+                    provenance=obj['provenance']
+                )
             )
-            for pmid in obj['pmids']
-        ]
+        return rows
 
     # --- GO ---
 
