@@ -24,6 +24,7 @@
 - When an edge can be emitted by multiple sources and later merged, keep source-specific payload in a `details` list instead of top-level edge fields.
 - Put disease descriptions on `Disease` nodes (for example `uniprot_description`), not on disease association edge details.
 - Prefer modern ontology-backed evidence codes from the source (for example ECO) over recreating legacy source-specific evidence encodings from older Pharos/TCRD tables.
+- When debugging ingest or conversion failures, prefer understanding the root cause before landing a defensive fix that may hide the real issue; temporary guards are fine, but they should follow diagnosis, not replace it.
 
 ## Workflow References
 
