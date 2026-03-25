@@ -107,6 +107,8 @@ uniprot_data:
   tf_metadata_file: "src/data/publicdata/target_data/metadata/tf_uniprot_metadata.json"
   download_log_file: "src/data/publicdata/target_data/logs/uniprot_download.log"
   transform_log_file: "src/data/publicdata/target_data/logs/uniprot_transform.log"
+  download_json: true
+  download_idmap: true
 
   transform_archive_dir: "src/data/publicdata/target_data/archive/cleaned/uniprot"
   entity_diff_output: "src/data/publicdata/target_data/qc/uniprot_entity_diff.qc.json"

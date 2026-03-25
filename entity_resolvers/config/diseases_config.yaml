@@ -171,6 +171,12 @@ obsolete_flag_analysis:
   summary_file: src/data/publicdata/disease_data/qc/obsolete_analysis/obsolete_flag_summary.csv
   metadata_file: src/data/publicdata/disease_data/qc/obsolete_analysis/obsolete_flag_analysis_metadata.json
 
+rdip_deliverable:
+  harmonization_file: src/data/publicdata/disease_data/harmonized/disease_harmonization.csv
+  gard_file: src/data/publicdata/disease_data/cleaned/sources/gard_cleaned.csv
+  output_file: src/data/publicdata/disease_data/cleaned/rdip/rdip_rare_disease_xrefs.xlsx
+  log_file: src/data/publicdata/disease_data/logs/rdip_deliverable.log
+  
 semantic_disease_resolver:
   enforce_mondo_purity: true
   model_path: src/data/publicdata/disease_data/index/sentence_model
