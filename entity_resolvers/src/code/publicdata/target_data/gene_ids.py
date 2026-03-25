@@ -150,6 +150,7 @@ class GeneDataProcessor:
         for c in expected:
             if c not in self.df.columns:
                 self.df[c] = ""
+
         groups = [
             ('ensembl_gene_id','ncbi_ensembl_gene_id','hgnc_ensembl_gene_id','nodenorm_ensembl_gene_id','consolidated_gene_id'),
             ('ensembl_NCBI_id','ncbi_NCBI_id','hgnc_NCBI_id','nodenorm_NCBI_id','consolidated_NCBI_id'),
@@ -157,16 +158,18 @@ class GeneDataProcessor:
             ('ensembl_symbol','ncbi_symbol','hgnc_symbol','nodenorm_symbol','consolidated_symbol'),
             ('ensembl_description','ncbi_description','hgnc_description','consolidated_description'),
             ('ncbi_mim_id','hgnc_omim_id','nodenorm_OMIM','consolidated_mim_id'),
-            ('ensembl_location','ncbi_location','hgnc_location','consolidated_location'),          # ← add this
-            ('ensembl_gene_type','ncbi_gene_type','hgnc_gene_type','consolidated_gene_type')       # ← and this
+            ('ensembl_location','ncbi_location','hgnc_location','consolidated_location'),
+            ('ensembl_gene_type','ncbi_gene_type','hgnc_gene_type','consolidated_gene_type')
         ]
+
+        # generic consolidation
         for tup in groups:
-            if len(tup)==5:
-                a,b,c,d,e = tup
+            if len(tup) == 5:
+                a, b, c, d, e = tup
                 self.df[e] = (
-                    self.df[[a,b,c,d]].apply(
-                      lambda row: row[a] if (row[a]==row[b]==row[c]==row[d]) else None,
-                      axis=1
+                    self.df[[a, b, c, d]].apply(
+                        lambda row: row[a] if (row[a] == row[b] == row[c] == row[d]) else None,
+                        axis=1
                     )
                     .fillna(self.df[a])
                     .fillna(self.df[b])
@@ -174,9 +177,27 @@ class GeneDataProcessor:
                     .fillna(self.df[d])
                 )
             else:
-                a,b,c,e = tup
+                a, b, c, e = tup
                 self.df[e] = self.df[a].fillna(self.df[b]).fillna(self.df[c])
 
+        # >>> NCBI-trust override for consolidated_NCBI_id <<<
+        # If sources disagree, prefer ncbi_NCBI_id when present.
+        def _trust_ncbi(row):
+            a = str(row.get('ensembl_NCBI_id', '')).strip()
+            b = str(row.get('ncbi_NCBI_id', '')).strip()         # trusted
+            c = str(row.get('hgnc_NCBI_id', '')).strip()
+            d = str(row.get('nodenorm_NCBI_id', '')).strip()
+            vals = [v for v in (a, b, c, d) if v]
+
+            if not vals:
+                return ""
+            if len(set(vals)) == 1:
+                return vals[0]            # all agree
+            return b or a or c or d       # mismatch → prefer NCBI; else fall back
+
+        self.df['consolidated_NCBI_id'] = self.df.apply(_trust_ncbi, axis=1)
+
+        # drop raw columns after consolidation/override
         columns_to_drop = [
             'ensembl_gene_id','ncbi_ensembl_gene_id','hgnc_ensembl_gene_id','nodenorm_ensembl_gene_id',
             'ensembl_NCBI_id','ncbi_NCBI_id','hgnc_NCBI_id','nodenorm_NCBI_id',
@@ -191,14 +212,13 @@ class GeneDataProcessor:
         self.df.drop(columns=to_drop, inplace=True)
         logging.info("Dropped original cols: %s", to_drop)
 
-        self.add_metadata_step("Consolidate Gene IDs", "Built consolidated_* columns and dropped raw ones")
+        self.add_metadata_step("Consolidate Gene IDs", "Built consolidated_* columns and applied NCBI-trust rule")
         self.metadata["processing_steps"].append({
             "step": "consolidate_columns",
-            "duration_seconds": (datetime.now()-t0).total_seconds(),
+            "duration_seconds": (datetime.now() - t0).total_seconds(),
             "records": len(self.df)
         })
 
-    # ← corrected signature here:
     def _normalize_keys(self, df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
         for k in keys:
             df[k] = (
@@ -227,18 +247,24 @@ class GeneDataProcessor:
             return ",".join(sorted(seen)) if lowercase else delimiter.join(sorted(seen))
 
         # Split into two parts: those to merge, and those to leave untouched
-        merge_df = self.df[self.df[key_col].notna() & (self.df[key_col].str.strip() != "")]
-        untouched_df = self.df[self.df[key_col].isna() | (self.df[key_col].str.strip() == "")]
+        merge_df = self.df[self.df[key_col].notna() & (self.df[key_col].astype(str).str.strip() != "")]
+        untouched_df = self.df[self.df[key_col].isna() | (self.df[key_col].astype(str).str.strip() == "")]
         logging.info("Merging %d rows by symbol, skipping %d null/empty symbols", len(merge_df), len(untouched_df))
 
         concat_columns = [
-            'Ensembl_ID_Provenance', 'NCBI_ID_Provenance', 'HGNC_ID_Provenance', 'OMIM_ID_Provenance',
-            'nodenorm_UMLS', 'Symbol_Provenance', 'Description_Provenance', 'Location_Provenance',
-            'Total_Mapping_Ratio', 'ensembl_strand', 'ncbi_miR_id', 'ncbi_imgt_id',
-            'hgnc_prev_symbol', 'hgnc_vega_id', 'hgnc_ccds_id', 'hgnc_pubmed_id', 'hgnc_orphanet_id',
+            # CORE IDs
             'consolidated_gene_id', 'consolidated_NCBI_id', 'consolidated_hgnc_id',
-            'consolidated_description', 'consolidated_mim_id', 'consolidated_location',
-            'consolidated_gene_type'
+            'consolidated_mim_id', 'nodenorm_UMLS',
+            # ATTRIBUTES
+            'consolidated_description', 'consolidated_gene_type', 'consolidated_location',
+            'hgnc_prev_symbol', 'ensembl_strand',
+            # SOURCE META
+            'ncbi_miR_id', 'ncbi_imgt_id', 'hgnc_vega_id', 'hgnc_ccds_id',
+            'hgnc_pubmed_id', 'hgnc_orphanet_id',
+            # PROVENANCE
+            'Ensembl_ID_Provenance', 'NCBI_ID_Provenance', 'HGNC_ID_Provenance',
+            'OMIM_ID_Provenance', 'Symbol_Provenance', 'Description_Provenance',
+            'Location_Provenance',
         ]
 
         provenance_cols = {
@@ -252,11 +278,27 @@ class GeneDataProcessor:
 
         for symbol, group in grouped:
             row = {key_col: symbol}
+
             for col in concat_columns:
+                if col not in group.columns:
+                    row[col] = ""
+                    continue
+
                 is_provenance = col in provenance_cols
-                row[col] = merge_values(group[col],
-                                        lowercase=is_provenance,
-                                        delimiter="," if is_provenance else "|")
+                row[col] = merge_values(
+                    group[col],
+                    lowercase=is_provenance,
+                    delimiter="," if is_provenance else "|"
+                )
+
+            # Keep ONE numeric mapping ratio per consolidated symbol.
+            # Using max() preserves the strongest mapping support among grouped rows.
+            if 'Total_Mapping_Ratio' in group.columns:
+                ratio_vals = pd.to_numeric(group['Total_Mapping_Ratio'], errors='coerce').dropna()
+                row['Total_Mapping_Ratio'] = ratio_vals.max() if not ratio_vals.empty else None
+            else:
+                row['Total_Mapping_Ratio'] = None
+
             final_rows.append(row)
 
         merged = pd.DataFrame(final_rows)
@@ -265,7 +307,8 @@ class GeneDataProcessor:
         self.df = pd.concat([merged, untouched_df], ignore_index=True)
 
         # Ensure all expected columns exist
-        for col in concat_columns + [key_col]:
+        expected_cols = concat_columns + ['Total_Mapping_Ratio', key_col]
+        for col in expected_cols:
             if col not in self.df.columns:
                 self.df[col] = ""
 
@@ -315,10 +358,27 @@ class GeneDataProcessor:
             up.loc[up['createdAt'].isna(), 'createdAt'] = now
         up['updatedAt'] = now
 
-        # 5) save
-        cols = ['ncats_gene_id','createdAt','updatedAt'] + [c for c in up.columns
-                                                           if c not in ('ncats_gene_id','createdAt','updatedAt')]
-        final = up[cols]
+        # 5) save with explicit column ordering
+        GENE_IDS_COLUMN_ORDER = [
+            # CORE IDs
+            'ncats_gene_id', 'consolidated_gene_id', 'consolidated_NCBI_id',
+            'consolidated_hgnc_id', 'consolidated_symbol', 'consolidated_mim_id', 'nodenorm_UMLS',
+            # ATTRIBUTES
+            'consolidated_description', 'consolidated_gene_type', 'consolidated_location',
+            'hgnc_prev_symbol', 'ensembl_strand',
+            # SOURCE META
+            'ncbi_miR_id', 'ncbi_imgt_id', 'hgnc_vega_id', 'hgnc_ccds_id',
+            'hgnc_pubmed_id', 'hgnc_orphanet_id',
+            # PROVENANCE
+            'Ensembl_ID_Provenance', 'NCBI_ID_Provenance', 'HGNC_ID_Provenance',
+            'OMIM_ID_Provenance', 'Symbol_Provenance', 'Description_Provenance',
+            'Location_Provenance', 'Total_Mapping_Ratio',
+            # TIMESTAMPS
+            'createdAt', 'updatedAt',
+        ]
+        ordered = [c for c in GENE_IDS_COLUMN_ORDER if c in up.columns]
+        remaining = [c for c in up.columns if c not in ordered]
+        final = up[ordered + remaining]
         os.makedirs(os.path.dirname(self.gene_ids_path), exist_ok=True)
         final.to_csv(self.gene_ids_path, index=False, sep="\t")
         logging.info("Upserted IFXGene IDs to %s", self.gene_ids_path)
