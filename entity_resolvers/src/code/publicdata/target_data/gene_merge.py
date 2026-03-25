@@ -58,25 +58,54 @@ def generate_diff(old_path, new_path, base_name):
     return diff_txt, diff_html
 
 class GENEDataMerger:
-    def __init__(self, full_cfg):
+    def __init__(self, full_config):
+        self.qc_mode = full_config.get("global", {}).get("qc_mode", True)
+        self.cfg = full_config.get("gene_merge")
+        if not self.cfg:
+            raise KeyError("Missing 'gene_merge' section in config.")
+        # Setup logging
+        setup_logging(self.cfg.get("log_file"))
         logging.info("🚀 Initializing GENEDataMerger")
-        self.config = full_cfg["gene_merge"] 
-        self.qc_mode = full_cfg.get("global", {}).get("qc_mode", True) 
         logging.info(f"QC Mode: {self.qc_mode}")
+        # Store paths
+        self.ensembl_file = self.cfg["ensembl_file"]
+        self.ncbi_file = self.cfg["ncbi_file"]
+        self.hgnc_file = self.cfg["hgnc_file"]
+        self.nodenorm_file = self.cfg["nodenorm_file"]
+        self.output_file = self.cfg["output_file"]
+        self.metadata_file = self.cfg["metadata_file"]
+        self.diff_file = self.cfg["diff_file"]
+        self.sources_file = self.cfg["sources_file"]
+        self.stats_file = self.cfg["stats_file"]
+        self.qc_dir = self.cfg.get("qc_dir", "src/data/publicdata/target_data/qc")
         self.metadata = {
-            "timestamp": {"start": str(datetime.now())},
-            "data_sources": [],
-            "processing_steps": [],
-            "outputs": []
+                "timestamp": {
+                    "start": datetime.now().isoformat()
+                },
+            "qc_mode": self.qc_mode,
+            "input_files": {
+                "ensembl": self.ensembl_file,
+                "ncbi": self.ncbi_file,
+                "hgnc": self.hgnc_file,
+                "nodenorm": self.nodenorm_file,
+            },
+            "output_files": {
+                "merged": self.output_file,
+                "sources": self.sources_file,
+                "stats": self.stats_file,
+                "diff": self.diff_file
+            },
+            "outputs": [],
+            "processing_steps": []
         }
 
     def read_and_clean_files(self):
         logging.info("STEP 1: read_and_clean_files")
         print("🔄 Reading and cleaning source CSVs…")
-        ensembl_file = self.config['ensembl_file']
-        ncbi_file     = self.config['ncbi_file']
-        hgnc_file     = self.config['hgnc_file']
-        nodenorm_file = self.config.get('nodenorm_file', None)
+        ensembl_file = self.cfg['ensembl_file']
+        ncbi_file     = self.cfg['ncbi_file']
+        hgnc_file     = self.cfg['hgnc_file']
+        nodenorm_file = self.cfg.get('nodenorm_file', None)
 
         ensembl_df = pd.read_csv(ensembl_file, dtype=str)
         ncbi_df    = pd.read_csv(ncbi_file,    dtype=str)
@@ -112,7 +141,7 @@ class GENEDataMerger:
             df[col] = df[col].fillna('').str.strip()
             df[col] = df[col].apply(lambda x: str(int(float(x))) if x.replace('.', '', 1).isdigit() else x)
 
-        stats_csv = self.config['sources_file']
+        stats_csv = self.cfg['sources_file']
         if self.qc_mode:
             self.generate_cleaned_file_stats({
                 "Ensembl":  ensembl_df,
@@ -126,11 +155,11 @@ class GENEDataMerger:
             ensembl_file, ncbi_file, hgnc_file
         ] + ([nodenorm_file] if nodenorm_file else [])
         if self.qc_mode:
-            self.metadata["outputs"].append({
-                "name": "gene_source_stats",
+            self.metadata["output_files"]["gene_source_stats"] = {
                 "path": stats_csv,
                 "generated_at": str(datetime.now())
-            })
+            }
+
         self.metadata["processing_steps"].append({
             "step": "read_and_clean_files",
             "duration_seconds": (datetime.now() - datetime.fromisoformat(
@@ -180,10 +209,6 @@ class GENEDataMerger:
              'ensembl_location','ncbi_location',
              'ensembl_synonyms','ncbi_synonyms','ncbi_mim_id']
         ]
-       # out = "src/data/publicdata/target_data/qc/ncbi_ensembl_merge.csv"
-        #os.makedirs(os.path.dirname(out), exist_ok=True)
-        #merged.to_csv(out, index=False)
-        #logging.info(f"  ✅ Ensembl↔NCBI merge saved to {out}")
         self.metadata["processing_steps"].append({
             "step": "merge_ensembl_ncbi",
             "duration_seconds": 0,
@@ -252,8 +277,8 @@ class GENEDataMerger:
 
         # Save filtered QC file only if qc_mode is True
         if self.qc_mode:
-            qc_path = "src/data/publicdata/target_data/qc/unmapped_ensembl_ncbi_4qc.csv"
-            os.makedirs(os.path.dirname(qc_path), exist_ok=True)
+            qc_path = os.path.join(self.qc_dir, "unmapped_ensembl_ncbi_4qc.csv")
+            os.makedirs(self.qc_dir, exist_ok=True)
             filtered.to_csv(qc_path, index=False)
             print(f"  → QC unmapped saved to {qc_path}")
 
@@ -263,8 +288,8 @@ class GENEDataMerger:
 
         # Save final mapped .qc.csv file only if qc_mode is True
         if self.qc_mode:
-            out = "src/data/publicdata/target_data/qc/ensembl_ncbi_mapped.qc.csv"
-            os.makedirs(os.path.dirname(out), exist_ok=True)
+            out = os.path.join(self.qc_dir, "ensembl_ncbi_mapped.qc.csv")
+            os.makedirs(self.qc_dir, exist_ok=True)
             pd.concat([merged_minus, final_rows]).drop_duplicates().to_csv(out, index=False)
             print(f"  → Final Ensembl↔NCBI mapped saved to {out}")
 
@@ -280,16 +305,6 @@ class GENEDataMerger:
             how='outer', suffixes=('_e_n','_hgnc')
         )
         return merged
-
-    def unify_mapping_ids(self, df):
-        logging.info("STEP 6: unify_mapping_ids")
-        print("🔄 Unifying mapping IDs…")
-        cols = [
-            "ensembl_gene_id","ncbi_ensembl_gene_id","hgnc_ensembl_gene_id",
-            "ensembl_NCBI_id","ncbi_NCBI_id","hgnc_NCBI_id",
-            "ensembl_hgnc_id","ncbi_hgnc_id","hgnc_hgnc_id"
-        ]
-        return df.groupby(cols, dropna=False).first().reset_index()
 
     def merge_nodenorm(self, merged_df, nodenorm_df):
         logging.info("STEP 7: merge_nodenorm")
@@ -395,6 +410,7 @@ class GENEDataMerger:
             vals = [v for _,v in non_empty]
             return ", ".join(l for l,_ in non_empty) if len(set(vals))==1 else "error"
         df['Symbol_Provenance'] = df.apply(sym, axis=1)
+        return df
 
     def compare_location_mappings(self, df):
         logging.info("STEP 10: compare_location_mappings")
@@ -409,6 +425,7 @@ class GENEDataMerger:
             if h and not nc: return 'hgnc'
             return 'error'
         df['Location_Provenance'] = df.apply(loc, axis=1)
+        return df
 
     def compare_description_mappings(self, df):
         logging.info("STEP 11: compare_description_mappings")
@@ -451,7 +468,7 @@ class GENEDataMerger:
             df['Symbol_Mapping_Score']+
             df['Description_Mapping_Score']
         )
-        df['Total_Mapping_RATIO']     = df['Total_Mapping_Score']/24
+        df['Total_Mapping_Ratio']     = df['Total_Mapping_Score']/24
         return df
 
     def flag_for_review(self, merged_df, comparison_df):
@@ -468,8 +485,8 @@ class GENEDataMerger:
         flagged = pd.concat([dup, err]).drop_duplicates()
 
         if self.qc_mode:
-            path = "src/data/publicdata/target_data/qc/genes_flagged_for_review.qc.csv"
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            path = os.path.join(self.qc_dir, "genes_flagged_for_review.qc.csv")
+            os.makedirs(self.qc_dir, exist_ok=True)
             flagged.to_csv(path, index=False)
             print(f"  → Flagged rows saved to {path}")
 
@@ -528,67 +545,70 @@ class GENEDataMerger:
     def save_metadata(self):
         logging.info("STEP 16: save_metadata")
         self.metadata["timestamp"]["end"] = str(datetime.now())
-        mf = self.config['metadata_file']
+        mf = self.cfg['metadata_file']
         os.makedirs(os.path.dirname(mf), exist_ok=True)
         with open(mf,'w') as f:
             json.dump(self.metadata, f, indent=2)
         print(f"✨ Metadata written to {mf}")
-    
-def process_gene_merge(config):
-    print("🚀 Starting full GENEDataMerger pipeline\n")
-    gm_cfg = config["gene_merge"]  
-    merger = GENEDataMerger(config)
-    en, nc, hg, nn = merger.read_and_clean_files()
-    m1 = merger.merge_ensembl_ncbi(en, nc)
-    c1 = merger.clean_and_update_merged_df(m1)
-    m2 = merger.merge_hgnc(c1, hg)
-    u1 = merger.unify_mapping_ids(m2)
-    nnm = merger.merge_nodenorm(u1, nn) if nn is not None else u1
 
-    comp = merger.compare_ncbi_mappings(nnm)
-    merger.compare_symbol_mappings(comp)
-    merger.compare_location_mappings(comp)
-    merger.compare_description_mappings(comp)
+    def process_gene_merge(self):
+        gm_cfg = self.cfg
+        print("🚀 Starting full GENEDataMerger pipeline\n") 
+        logging.info("STEP 1: read_and_clean_files")
+        print("🔄 Reading and cleaning source CSVs…")
+        en, nc, hg, nn = self.read_and_clean_files()
+        m1 = self.merge_ensembl_ncbi(en, nc)
+        c1 = self.clean_and_update_merged_df(m1)
+        m2 = self.merge_hgnc(c1, hg)
+        u1 = self.unify_mapping_ids(m2)
+        nnm = self.merge_nodenorm(u1, nn) if nn is not None else u1
+        comp = self.compare_ncbi_mappings(nnm)
+        comp = self.compare_symbol_mappings(comp)
+        comp = self.compare_location_mappings(comp)
+        self.compare_description_mappings(comp)
+        scored = self.calculate_Mapping_scores(comp)
+        domain_defs = [
+            ("Ensembl", 'ensembl_gene_id', 'ncbi_ensembl_gene_id', 'hgnc_ensembl_gene_id', 'nodenorm_ensembl_gene_id'),
+            ("NCBI",    'ensembl_NCBI_id',    'ncbi_NCBI_id',    'hgnc_NCBI_id',       'nodenorm_NCBI_id'),
+            ("HGNC",    'ensembl_hgnc_id',    'ncbi_hgnc_id',    'hgnc_hgnc_id',       'nodenorm_HGNC'),
+            ("OMIM",    None,                 'ncbi_mim_id',     'hgnc_omim_id',       'nodenorm_OMIM'),
+            ("UMLS",    None,              None,               None,                  'nodenorm_UMLS'),
+            ("symbol",  'ensembl_symbol',     'ncbi_symbol',     'hgnc_symbol',        'nodenorm_symbol'),
+            ("gene_type","ensembl_gene_type","ncbi_gene_type","hgnc_gene_type"),
+            ("location","ensembl_location","ncbi_location","hgnc_location"),
+            ("description","ensembl_description","ncbi_description","hgnc_description"),
+            ("synonyms","ensembl_synonyms","ncbi_synonyms","hgnc_synonyms")
+        ]
 
-    scored = merger.calculate_Mapping_scores(comp)
-    domain_defs = [
-        ("Ensembl", 'ensembl_gene_id', 'ncbi_ensembl_gene_id', 'hgnc_ensembl_gene_id', 'nodenorm_ensembl_gene_id'),
-        ("NCBI",    'ensembl_NCBI_id',    'ncbi_NCBI_id',    'hgnc_NCBI_id',       'nodenorm_NCBI_id'),
-        ("HGNC",    'ensembl_hgnc_id',    'ncbi_hgnc_id',    'hgnc_hgnc_id',       'nodenorm_HGNC'),
-        ("OMIM",    None,                 'ncbi_mim_id',     'hgnc_omim_id',       'nodenorm_OMIM'),
-        ("UMLS",    None,              None,               None,                  'nodenorm_UMLS'),
-        ("symbol",  'ensembl_symbol',     'ncbi_symbol',     'hgnc_symbol',        'nodenorm_symbol'),
-        ("gene_type","ensembl_gene_type","ncbi_gene_type","hgnc_gene_type"),
-        ("location","ensembl_location","ncbi_location","hgnc_location"),
-        ("description","ensembl_description","ncbi_description","hgnc_description"),
-        ("synonyms","ensembl_synonyms","ncbi_synonyms","hgnc_synonyms")
-    ]
-    gm_cfg = config["gene_merge"]
-    mapping_stats_csv = gm_cfg.get('mapping_stats_file', gm_cfg['stats_file'])
+        mapping_stats_csv = gm_cfg.get('mapping_stats_file', gm_cfg['stats_file'])
 
-    if merger.qc_mode:
-        stats_df = merger.count_match_statuses_multi(scored, domain_defs, mapping_stats_csv)
-        print("\n📊 Mapping stats:\n", stats_df.to_string(index=False))
-    else:
-        stats_df = merger.count_match_statuses_multi(scored, domain_defs)
-    final = merger.flag_for_review(scored, scored)
-    gm_cfg = config["gene_merge"]
-    outp = gm_cfg['output_file']
-    os.makedirs(os.path.dirname(outp), exist_ok=True)
-    final.to_csv(outp, index=False)
-    print(f"\n🎯 Final merged file written to {outp}")
+        if self.qc_mode:
+            stats_df = self.count_match_statuses_multi(scored, domain_defs, mapping_stats_csv)
+            print("\n📊 Mapping stats:\n", stats_df.to_string(index=False))
+        else:
+            stats_df = self.count_match_statuses_multi(scored, domain_defs)
+
+        final = self.flag_for_review(scored, scored)
+
+        outp = gm_cfg['output_file']
+        os.makedirs(os.path.dirname(outp), exist_ok=True)
+        final.to_csv(outp, index=False)
+        print(f"\n🎯 Final merged file written to {outp}")
+
+    def run(self):
+        logging.info("🚀 Starting full GENEDataMerger pipeline")
+        self.process_gene_merge()
+        self.metadata["end_time"] = datetime.now().isoformat()
+        self.save_metadata()
+        logging.info("✅ Gene merge complete.")
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(
-        description="Merge gene ID sources with provenance and metadata"
-    )
-    p.add_argument("--config", type=str,
-               default="config/targets_config.yaml",
-               help="Path to YAML config file (default: config/targets_config.yaml)")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="config/targets_config.yaml")
+    args = parser.parse_args()
 
-    args = p.parse_args()
-
-    full_cfg = yaml.safe_load(open(args.config))
-    setup_logging(full_cfg.get('gene_merge', {}).get('log_file', ""))
-    process_gene_merge(full_cfg)  # Pass the full config so `global.qc_mode` is visible
-
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+    merger = GENEDataMerger(config)
+    merger.run()

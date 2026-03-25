@@ -809,7 +809,7 @@ class ProteinResolver:
 if __name__=='__main__':
     parser = argparse.ArgumentParser(
         description="Merge protein sources with provenance & metadata")
-    p.add_argument("--config", type=str,
+    parser.add_argument("--config", type=str,
                default="config/targets_config.yaml",
                help="YAML config (default: config/targets_config.yaml)")
 
