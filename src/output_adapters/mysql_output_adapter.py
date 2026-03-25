@@ -2,6 +2,7 @@ from abc import ABC
 from datetime import datetime
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.exc import IntegrityError
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -41,6 +42,43 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         all_keys = set().union(*(row.keys() for row in raw_rows))
         return [{key: row.get(key) for key in all_keys} for row in raw_rows]
 
+    @staticmethod
+    def _is_fk_integrity_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return isinstance(exc, IntegrityError) and (
+            "foreign key constraint fails" in message
+            or "cannot add or update a child row" in message
+        )
+
+    def _diagnose_fk_batch_failure(self, table_class, rows):
+        stmt = mysql_insert(table_class.__table__)
+        print(f"Batch insert failed for {table_class.__name__}; retrying row-by-row to isolate FK issue")
+        bad_rows = []
+
+        for index, row in enumerate(rows, start=1):
+            temp_session = self.get_session()
+            try:
+                temp_session.execute(stmt, [row])
+                temp_session.flush()
+            except Exception as row_exc:
+                temp_session.rollback()
+                bad_rows.append((index, row, row_exc))
+                print(f"Bad row {index} for {table_class.__name__}: {row}")
+                print(f"Row error: {row_exc}")
+                break
+            finally:
+                temp_session.rollback()
+                temp_session.close()
+
+        if bad_rows:
+            index, row, row_exc = bad_rows[0]
+            raise RuntimeError(
+                f"Foreign key insert failed for {table_class.__name__} at row {index}: {row}"
+            ) from row_exc
+        raise RuntimeError(
+            f"Foreign key insert failed for {table_class.__name__}, but row-by-row replay did not isolate a bad row"
+        )
+
     def store(self, objects, single_source=False) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
@@ -74,8 +112,14 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
                     rows = self._serialize_rows(converted_objects)
                     stmt = mysql_insert(table_class.__table__)
-                    session.execute(stmt, rows)
-                    session.commit()
+                    try:
+                        session.execute(stmt, rows)
+                        session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        if self._is_fk_integrity_error(e):
+                            self._diagnose_fk_batch_failure(table_class, rows)
+                        raise
                     duration = (datetime.now() - start_time).total_seconds()
                     print(f"Processed {len(converted_objects)} objects in {duration:.2f} seconds.")
 
