@@ -29,6 +29,7 @@ class TCRDOutputConverter(SQLOutputConverter):
         super().__init__(sql_base=TCRDBase)
         self._known_disease_types: set = set()
         self._disease_name_by_id: dict[str, str] = {}
+        self._known_mondo_ids: set[str] = set()
         self._seen_protein2pubmed: set[tuple[int, str, int | None, str]] = set()
         self._converters = {
             # Protein
@@ -77,6 +78,9 @@ class TCRDOutputConverter(SQLOutputConverter):
         super().preload_id_mappings(session)
         self._known_disease_types = {
             row[0] for row in session.query(DiseaseType.name).all() if row[0]
+        }
+        self._known_mondo_ids = {
+            row[0] for row in session.query(Mondo.mondoid).all() if row[0]
         }
 
     # --- Protein ---
@@ -382,9 +386,11 @@ class TCRDOutputConverter(SQLOutputConverter):
     # --- Disease / MONDO ---
 
     def mondo_table_converter(self, obj: dict) -> Mondo:
+        mondoid = obj['id']
+        self._known_mondo_ids.add(mondoid)
         return Mondo(
-            mondoid=obj['id'],
-            name=obj.get('name') or obj['id'],
+            mondoid=mondoid,
+            name=obj.get('name') or mondoid,
             def_=obj.get('mondo_description'),
             comment=obj.get('comment'),
             provenance=obj['provenance'],
@@ -416,8 +422,10 @@ class TCRDOutputConverter(SQLOutputConverter):
         if not (obj.get('id') or '').startswith('MONDO:'):
             return None
         comments = obj.get('comments') or []
+        mondoid = obj['id']
+        self._known_mondo_ids.add(mondoid)
         return Mondo(
-            mondoid=obj['id'],
+            mondoid=mondoid,
             name=obj['name'],
             def_=obj.get('mondo_description'),
             comment=comments[0] if comments else None,
@@ -499,7 +507,7 @@ class TCRDOutputConverter(SQLOutputConverter):
     def ncats_disease_converter(self, obj: dict) -> NcatsDisease:
         disease_id = obj['id']
         self._disease_name_by_id[disease_id] = obj.get('name') or disease_id
-        mondoid = disease_id if disease_id.startswith('MONDO:') else None
+        mondoid = disease_id if disease_id.startswith('MONDO:') and disease_id in self._known_mondo_ids else None
         return NcatsDisease(
             id=self.resolve_id('ncats_disease', disease_id),
             name=obj.get('name') or disease_id,
@@ -512,7 +520,7 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def disease_converter(self, obj: dict) -> List[mysqlDisease]:
         disease_id = obj['end_id']
-        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') else None
+        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') and disease_id in self._known_mondo_ids else None
         disease_name = self._disease_name(obj)
         rows = []
         for ordinal, detail in enumerate(self._iter_disease_details(obj)):

@@ -19,6 +19,8 @@ class _FakeSession:
             ])
         if key == ("name",):
             return _FakeQuery([])
+        if key == ("mondoid",):
+            return _FakeQuery([])
         raise AssertionError(f"Unexpected query columns: {key}")
 
 
@@ -77,3 +79,22 @@ def test_p2p_converter_dedupes_across_calls():
     assert str(first_rows[0].pubmed_id) == "20222955"
     assert first_rows[0].gene_id == 6857
     assert first_rows[0].source == "NCBI"
+
+
+def test_ncats_disease_converter_only_keeps_loaded_mondo_ids():
+    converter = TCRDOutputConverter()
+
+    missing = converter.ncats_disease_converter({
+        "id": "MONDO:0957221",
+        "name": "Spastic paraplegia 70, autosomal recessive",
+        "provenance": "Mondo\tv2026-03-03\t2026-03-03\t2026-03-10",
+    })
+    assert missing.mondoid is None
+
+    converter._known_mondo_ids.add("MONDO:0000001")
+    known = converter.ncats_disease_converter({
+        "id": "MONDO:0000001",
+        "name": "disease",
+        "provenance": "Mondo\tv2026-03-03\t2026-03-03\t2026-03-10",
+    })
+    assert known.mondoid == "MONDO:0000001"
