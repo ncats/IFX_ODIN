@@ -203,7 +203,10 @@ class UniprotDownloader:
             ?sequence rdf:value ?sequenceValue .
             OPTIONAL { ?sequence a up:Simple_Sequence . BIND(true AS ?likelyIsCanonical) }
             OPTIONAL { FILTER(?likelyIsCanonical) ?sequence a up:External_Sequence . BIND(true AS ?isComplicated) }
-            BIND(IF(?isComplicated, STRENDS(STR(?entry), STRBEFORE(STR(?sequence), '-')), ?likelyIsCanonical) AS ?isCanonical)
+            BIND(STRAFTER(STR(?entry), "/uniprot/") AS ?entryAcc)
+            BIND(STRAFTER(STR(?sequence), "/isoforms/") AS ?seqId)
+            BIND(IF(CONTAINS(?seqId, "-"), STRBEFORE(?seqId, "-"), ?seqId) AS ?seqBase)
+            BIND(IF(?isComplicated, ?entryAcc = ?seqBase, ?likelyIsCanonical) AS ?isCanonical)
         }
         }"""
         df1 = self.process_sparql_results(self.execute_sparql_query(sparql1), self.canonical_isoforms)
@@ -219,7 +222,10 @@ class UniprotDownloader:
                 ?entry a up:Protein ; up:organism taxon:9606 ; up:potentialSequence ?sequence .
                 OPTIONAL { ?sequence a up:Simple_Sequence . BIND(true AS ?likelyIsCanonical) }
                 OPTIONAL { FILTER(?likelyIsCanonical) ?sequence a up:External_Sequence . BIND(true AS ?isComplicated) }
-                BIND(IF(?isComplicated, STRENDS(STR(?entry), STRBEFORE(STR(?sequence), '-')), ?likelyIsCanonical) AS ?isCanonical)
+                BIND(STRAFTER(STR(?entry), "/uniprot/") AS ?entryAcc)
+                BIND(STRAFTER(STR(?sequence), "/isoforms/") AS ?seqId)
+                BIND(IF(CONTAINS(?seqId, "-"), STRBEFORE(?seqId, "-"), ?seqId) AS ?seqBase)
+                BIND(IF(?isComplicated, ?entryAcc = ?seqBase, ?likelyIsCanonical) AS ?isCanonical)
               }
             }"""
             df2 = self.process_sparql_results(self.execute_sparql_query(sparql2), self.computational_isoforms)
