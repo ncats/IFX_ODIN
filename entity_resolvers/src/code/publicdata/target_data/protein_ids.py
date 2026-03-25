@@ -456,7 +456,7 @@ class ProteinDataProcessor:
 
         # 4) Persist cache
         os.makedirs(os.path.dirname(self.protein_ids_path), exist_ok=True)
-        up.to_csv(self.protein_ids_path, index=False)
+        up.to_csv(self.protein_ids_path, index=False, sep='\t')
 
         # 5) Merge back into working DataFrame
         for k in keys:

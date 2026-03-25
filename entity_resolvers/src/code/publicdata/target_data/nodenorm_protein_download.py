@@ -124,24 +124,36 @@ class NodeNormProteinDownloader:
             "outputs": [],
         }
 
-    def _download(self, url, dst):
+    def _download(self, url, dst, retries=3):
         dst_dir = os.path.dirname(dst)
         if dst_dir:
             os.makedirs(dst_dir, exist_ok=True)
-        with requests.get(url, stream=True, timeout=600) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("content-length", 0))
-            seen = 0
-            with open(dst, "wb") as f:
-                for chunk in r.iter_content(65536):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    seen += len(chunk)
-                    if total:
-                        print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
-        if total:
-            print()
+        for attempt in range(1, retries + 1):
+            try:
+                with requests.get(url, stream=True, timeout=(15, 600)) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length", 0))
+                    seen = 0
+                    with open(dst, "wb") as f:
+                        for chunk in r.iter_content(65536):
+                            if not chunk:
+                                continue
+                            f.write(chunk)
+                            seen += len(chunk)
+                            if total:
+                                print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
+                if total:
+                    print()
+                return
+            except (requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
+                logging.warning(f"Download attempt {attempt}/{retries} failed for {url}: {e}")
+                if attempt == retries:
+                    raise
+                logging.info(f"Retrying in 10s...")
+                import time
+                time.sleep(10)
 
     def _write_meta_and_return(self, status):
         self.new_meta["status"] = status
@@ -201,6 +213,12 @@ class NodeNormProteinDownloader:
             files_to_download = list(remote_files.keys())
 
         # ── Step 4: Download changed files, filter for human ─────────────
+        # Prefer chunked files (Protein.txt.00, .01, ...) over monolithic
+        chunked = [f for f in files_to_download if re.match(r'^Protein\.txt\.\d+$', f)]
+        if chunked:
+            files_to_download = chunked
+            logging.info(f"Using {len(chunked)} chunked files (skipping monolithic Protein.txt)")
+
         raw_lines = []
         for fname in files_to_download:
             url = self.base_url + fname
@@ -208,6 +226,7 @@ class NodeNormProteinDownloader:
             logging.info(f"Downloading {url} ({remote_files[fname]['size']} bytes)")
             self._download(url, local_path)
 
+            logging.info(f"Filtering {fname} for human records...")
             with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     if '"NCBITaxon:9606"' in line:

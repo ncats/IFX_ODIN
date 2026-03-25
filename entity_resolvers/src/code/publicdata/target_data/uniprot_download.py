@@ -71,6 +71,14 @@ class UniprotDownloader:
             except Exception:
                 pass
 
+    @staticmethod
+    def _as_bool(value, default=True):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
     def compute_hash(self, path):
         h = hashlib.md5()
         with open(path, "rb") as f:
@@ -135,8 +143,8 @@ class UniprotDownloader:
 
     def _download_idmapping(self):
         gz_path = os.path.join(self.idmap_dir, self.idmap_file)
-        if input("Download UniProt ID mapping archive? [y/N]: ").strip().lower() != "y":
-            logging.info("Skipping UniProt ID mapping download at user request.")
+        if not self._as_bool(self.cfg.get("download_idmap"), default=True):
+            logging.info("Skipping UniProt ID mapping download per config.")
             return False
 
         tmp = self._download(self.idmap_url, gz_path)
@@ -260,12 +268,12 @@ class UniprotDownloader:
                     json.dump(meta, mf, indent=2)
                 return
 
-            if input("Download UniProt JSON archive? [y/N]: ").strip().lower() == "y":
+            if self._as_bool(self.cfg.get("download_json"), default=True):
                 dl_start = datetime.now()
                 tmp = self._download(self.url, self.output_path)
                 updated = self._replace_if_changed(tmp, self.output_path)
             else:
-                logging.info("Skipping JSON download at user request.")
+                logging.info("Skipping UniProt JSON download per config.")
                 dl_start = datetime.now()
                 updated = False
 
