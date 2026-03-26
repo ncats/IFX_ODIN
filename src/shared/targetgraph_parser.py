@@ -82,7 +82,10 @@ class TargetGraphParser(CSVParser, ABC):
     def get_mapping_ratio(prop_dict: Dict) -> Optional[float]:
         mapping_ratio = prop_dict.get('Total_Mapping_Ratio', None)
         if mapping_ratio is not None and len(mapping_ratio) > 0:
-            return float(mapping_ratio)
+            parts = split_and_trim_str(mapping_ratio, '|')
+            parsed = {float(part) for part in parts if part}
+            if len(parsed) == 1:
+                return next(iter(parsed))
         return None
 
     @staticmethod
@@ -130,8 +133,8 @@ class TargetGraphGeneParser(TargetGraphParser):
 
         ids = []
         try_append_id(ids, prop_dict, 'consolidated_gene_id', 'Ensembl_ID_Provenance', None, Prefix.ENSEMBL, splitIDs=True)
-        try_append_id(ids, prop_dict, 'consolidated_hgnc_id', 'HGNC_ID_Provenance', None, Prefix.HGNC, True)
-        try_append_id(ids, prop_dict, 'consolidated_NCBI_id', 'NCBI_ID_Provenance', None, Prefix.NCBIGene, False, True)
+        try_append_id(ids, prop_dict, 'consolidated_hgnc_id', 'HGNC_ID_Provenance', None, Prefix.HGNC, True, splitIDs=True)
+        try_append_id(ids, prop_dict, 'consolidated_NCBI_id', 'NCBI_ID_Provenance', None, Prefix.NCBIGene, False, True, splitIDs=True)
         try_append_id(ids, prop_dict, 'consolidated_symbol', 'Symbol_Provenance', None, Prefix.Symbol)
         try_append_id(ids, prop_dict, 'ncbi_mim_id', None, 'ncbi', Prefix.OMIM, True)
         try_append_id(ids, prop_dict, 'hgnc_omim_id', None, "hgnc", Prefix.OMIM)
@@ -162,6 +165,15 @@ class TargetGraphGeneParser(TargetGraphParser):
             match = re.match(r'(\d+)', location)
             return int(match.group(1)) if match else None
 
+        def parse_strand(strand_value):
+            parts = split_and_trim_str(strand_value, '|')
+            if not parts:
+                return None
+            parsed = {Strand.parse(part) for part in parts if part}
+            if len(parsed) == 1:
+                return next(iter(parsed))
+            return None
+
         location = prop_dict.get('consolidated_location', None)
         strand = prop_dict.get('ensembl_strand', None)
         loc = GeneticLocation()
@@ -171,7 +183,7 @@ class TargetGraphGeneParser(TargetGraphParser):
             loc.chromosome = extract_chromosome(loc.location)
             has_data = True
         if strand is not None and len(strand) > 0:
-            loc.strand = Strand.parse(strand)
+            loc.strand = parse_strand(strand)
             has_data = True
         if has_data:
             return loc

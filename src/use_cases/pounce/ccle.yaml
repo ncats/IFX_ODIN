@@ -13,7 +13,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.csv
+      file_path: ./input_files/manual/target_graph/gene_ids.tsv
       types:
         - Gene
 

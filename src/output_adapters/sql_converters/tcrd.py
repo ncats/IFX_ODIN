@@ -72,6 +72,9 @@ class TCRDOutputConverter(SQLOutputConverter):
         return [{
             "table": 'protein',
             "data": session.query(mysqlProtein.id, mysqlProtein.ifx_id).all()
+        }, {
+            "table": 'ligand',
+            "data": session.query(mysqlLigand.id, mysqlLigand.identifier).all()
         }]
 
     def preload_id_mappings(self, session):
@@ -248,9 +251,10 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def ligand_converter(self, obj: dict) -> mysqlLigand:
         xrefs = [EquivalentId.parse(eq_id) for eq_id in (obj.get('xref') or [])]
+        ligand_identifier = obj.get('id')
         return mysqlLigand(
-            id=obj.get('id'),
-            identifier=obj.get('id'),
+            id=self.resolve_id('ligand', ligand_identifier),
+            identifier=ligand_identifier,
             name=obj.get('name'),
             isDrug=obj.get('isDrug', False),
             smiles=obj.get('smiles'),
@@ -265,12 +269,13 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def ligand_edge_converter(self, obj: dict) -> List[LigandActivity]:
         activity_objects = []
+        ligand_id = self.resolve_id('ligand', obj['end_id'])
         for detail in obj.get('details', []):
             pubmed_ids = list(detail.get('act_pmids') or [])
             if detail.get('moa_pmid'):
                 pubmed_ids.append(detail['moa_pmid'])
             activity_objects.append(LigandActivity(
-                ncats_ligand_id=obj['end_id'],
+                ncats_ligand_id=ligand_id,
                 target_id=self.resolve_id('protein', obj['start_id']),
                 act_value=detail.get('act_value'),
                 act_type=detail.get('act_type'),
@@ -570,9 +575,11 @@ class TCRDOutputConverter(SQLOutputConverter):
     # --- Keyword ---
 
     def keyword_xref_converter(self, obj: dict) -> Xref:
+        end = obj['end_node']
         return Xref(
             protein_id=self.resolve_id('protein', obj['start_id']),
             xtype='UniProt Keyword',
-            value=obj['end_node'].get('value') or obj['end_node'].get('name') or '',
+            value=end.get('source_id') or end.get('value') or end.get('name') or '',
+            xtra=end.get('value') or end.get('name'),
             provenance=obj['provenance'],
         )

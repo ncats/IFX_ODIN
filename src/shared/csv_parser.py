@@ -6,6 +6,7 @@ from datetime import datetime, date
 class CSVParser:
     file_path: str
     download_date: date
+    delimiter: str
 
     def get_version_info(self):
         metadata = os.stat(self.file_path)
@@ -14,11 +15,13 @@ class CSVParser:
     def __init__(self, file_path):
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
+        self.delimiter = '\t' if file_path.lower().endswith('.tsv') else ','
 
     @staticmethod
     def parse_excel_date(excel_date: str):
         formats = [
             "%Y-%m-%dT%H:%M:%S.%f",  # new format: with 'T' separator and microseconds
+            "%Y-%m-%dT%H:%M:%S",     # ISO format without microseconds
             "%Y-%m-%d %H:%M:%S.%f",  # First try: most specific (with microseconds)
             "%Y-%m-%d %H:%M:%S",     # Second: standard format with seconds
             "%Y-%m-%d %H:%M"         # Third: basic format with only minutes
@@ -32,7 +35,7 @@ class CSVParser:
 
     def all_rows(self):
         path = os.path.expanduser(self.file_path)
-        with open(path, 'r') as gene_file:
-            reader: csv.DictReader = csv.DictReader(gene_file)
+        with open(path, 'r', newline='') as gene_file:
+            reader: csv.DictReader = csv.DictReader(gene_file, delimiter=self.delimiter)
             for line in reader:
                 yield {k: v for k, v in line.items() if v != ''}

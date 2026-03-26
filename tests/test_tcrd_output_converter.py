@@ -17,6 +17,10 @@ class _FakeSession:
             return _FakeQuery([
                 (123, "IFX123"),
             ])
+        if key == ("id", "identifier"):
+            return _FakeQuery([
+                (77, "LIGAND:EXISTING"),
+            ])
         if key == ("name",):
             return _FakeQuery([])
         if key == ("mondoid",):
@@ -30,6 +34,45 @@ def test_tcrd_output_converter_preloads_protein_ids():
     converter.preload_id_mappings(_FakeSession())
 
     assert converter.id_mapping["protein"] == {"IFX123": 123}
+    assert converter.id_mapping["ligand"] == {"LIGAND:EXISTING": 77}
+
+
+def test_ligand_converter_assigns_integer_id_from_mapping():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["ligand"] = {"LIGAND:EXISTING": 77}
+
+    row = converter.ligand_converter({
+        "id": "LIGAND:EXISTING",
+        "name": "Existing ligand",
+        "xref": [],
+        "provenance": "test",
+    })
+
+    assert row.id == 77
+    assert row.identifier == "LIGAND:EXISTING"
+
+
+def test_ligand_edge_converter_uses_same_integer_ligand_id():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+    converter.id_mapping["ligand"] = {"LIGAND:EXISTING": 77}
+
+    rows = converter.ligand_edge_converter({
+        "start_id": "IFX123",
+        "end_id": "LIGAND:EXISTING",
+        "details": [{
+            "act_value": 1.5,
+            "act_type": "IC50",
+            "action_type": "inhibitor",
+            "reference": "ref",
+            "act_pmids": ["12345"],
+        }],
+        "provenance": "test",
+    })
+
+    assert len(rows) == 1
+    assert rows[0].ncats_ligand_id == 77
+    assert rows[0].target_id == 123
 
 
 def test_pathway_converter_keeps_pwtype_without_lookup_table():
@@ -51,6 +94,27 @@ def test_pathway_converter_keeps_pwtype_without_lookup_table():
     assert row.protein_id == 123
     assert row.pwtype == "Reactome"
     assert row.id_in_source == "R-HSA-199420"
+
+
+def test_keyword_xref_converter_writes_keyword_id_to_value_and_label_to_xtra():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    row = converter.keyword_xref_converter({
+        "start_id": "IFX123",
+        "end_node": {
+            "id": "keyword:uniprot:technical term:reference proteome",
+            "source_id": "KW-1185",
+            "value": "Reference proteome",
+            "category": "Technical term",
+        },
+        "provenance": "UniProt\t2026_01\t2026-01-28\t2026-03-16",
+    })
+
+    assert row.protein_id == 123
+    assert row.xtype == "UniProt Keyword"
+    assert row.value == "KW-1185"
+    assert row.xtra == "Reference proteome"
 
 
 def test_do_parent_uses_composite_primary_key():

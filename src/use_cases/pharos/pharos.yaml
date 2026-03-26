@@ -15,13 +15,13 @@ resolvers:
     class: TCRDTargetResolver
     kwargs:
       canonical_type: Protein
-      reviewed_only: True
+      reviewed_only: true
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
       protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.csv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
         - Gene
@@ -129,7 +129,7 @@ input_adapters:
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
       reviewed_only: True
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py

@@ -9,11 +9,11 @@ resolvers:
       canonical_type: Protein
       reviewed_only: True
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
       protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.csv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
         - Gene

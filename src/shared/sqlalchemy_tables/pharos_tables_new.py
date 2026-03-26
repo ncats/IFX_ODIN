@@ -150,8 +150,8 @@ class GeneRif2Pubmed(Base):
 
 class Ligand(Base):
     __tablename__ = 'ncats_ligands'
-    id=Column(String(255), primary_key=True)
-    identifier = Column(String(255), nullable=False)
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=False)
+    identifier = Column(String(255), nullable=False, unique=True)
     name = Column(Text, nullable=False)
     isDrug = Column(SmallInteger)
     smiles = Column(Text)
@@ -177,7 +177,7 @@ class Ligand(Base):
 class LigandActivity(Base):
     __tablename__ = 'ncats_ligand_activity'
     id = Column(Integer, primary_key=True)
-    ncats_ligand_id = Column(String(255), ForeignKey('ncats_ligands.id'), nullable=False)
+    ncats_ligand_id = Column(Integer, ForeignKey('ncats_ligands.id'), nullable=False)
     target_id = Column(Integer, ForeignKey('target.id'), nullable=False)
     act_value = Column(Float)
     act_type = Column(String(255))
@@ -370,7 +370,7 @@ class NcatsDataSourceMap(Base):
     license = Column(String(128))
     licenseURL = Column(String(128))
     protein_id = Column(Integer, ForeignKey("protein.id"))
-    ncats_ligand_id = Column(String(255), ForeignKey("ncats_ligands.id"))
+    ncats_ligand_id = Column(Integer, ForeignKey("ncats_ligands.id"))
     disease_name = Column(Text)
 
 class Ortholog(Base):
@@ -401,6 +401,7 @@ class Pathway(Base):
         Index("pathway_idx2", "protein_id"),
         Index("pathway_idx3", "pwtype"),
         Index("pathway_idx4", "name", mysql_length={"name": 256}),
+        Index("pathway_idx5", "protein_id", "pwtype", "name", mysql_length={"name": 256}),
         Index("pathway_text_idx", "name", mysql_prefix="FULLTEXT")
     )
 
