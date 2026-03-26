@@ -1,48 +1,136 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-#source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
+pchembl_cutoff: &pchembl_cutoff 5
 
 resolvers:
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
+    kwargs:
+      types:
+        - Ligand
+        - Disease
+
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
       canonical_type: Protein
-      reviewed_only: True
+      reviewed_only: true
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.csv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
       protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.csv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
         - Gene
         - Transcript
 
+  - label: tissue_ids
+    import: ./src/id_resolvers/tissue_resolver.py
+    class: TissueResolver
+    kwargs:
+      file_path: ./input_files/auto/uberon/uberon.obo
+      valid_ontologies:
+        - FMA
+        - EMAPA
+        - MA
+        - UMLS
+        - NCIT
+        - ZFA
+        - BTO
+        - CLDB
+        - EHDAA2
+        - BAMS
+        - neuronames
+        - VHOG
+        - MESH
+        - BIRNLEX
+        - TAO
+        - EHDAA
+        - GAID
+        - DHBA
+        - CALOHA
+        - EFO
+        - XAO
+        - HBA
+        - OpenCyc
+        - MBA
+        - galen
+        - FBbt
+        - GC_ID
+        - EV
+        - DMBA
+        - BM
+        - MAT
+        - MIAA
+        - NLXANAT
+        - VSAO
+        - AEO
+        - RETIRED_EHDAA2
+        - KUPO
+        - Wikipedia
+        - NLX
+        - ZFS
+        - UBERONTEMP
+        - UBERON
+        - TGMA
+        - TE
+        - TADS
+        - STID
+        - SPD
+        - SCTID
+        - SAO
+        - PHENOSCAPE
+        - PBA
+        - OGES
+        - OGEM
+        - NOID
+        - NIFSTD
+        - MURDOCH
+        - MPATH
+        - MP
+        - MFMO
+        - MAP
+        - ISBN
+        - HAO
+        - GOC
+        - GO
+        - FMAID
+        - FAO
+        - EVM
+        - ENVO
+        - EMAPS
+        - EHDA
+        - CP
+        - CL
+        - CARO
+        - BSA
+        - BILS
+        - BILA
+        - ANISEED
+        - ABA
+        - AAO
+      types:
+        - Tissue
+
 input_adapters:
-  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
-    class: ProteinAdapter
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
-      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      reviewed_only: true
 
-  - import: ./src/input_adapters/reactome/reactome_pathways.py
-    class: ReactomePathwayAdapter
+  - import: ./src/input_adapters/target_graph/generif_node.py
+    class: GeneRifNodeAdapter
     kwargs:
-      gmt_file_path: ./input_files/auto/reactome/ReactomePathways.gmt.zip
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
 
-  - import: ./src/input_adapters/reactome/reactome_pathways.py
-    class: ReactomePathwayParentEdgeAdapter
+  - import: ./src/input_adapters/target_graph/gene_generif_edge.py
+    class: GeneGeneRifEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/reactome/ReactomePathwaysRelation.txt
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
-
-  - import: ./src/input_adapters/reactome/reactome_pathways.py
-    class: ReactomeProteinPathwayEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      file_path: ./input_files/manual/target_graph/generif_9606.csv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

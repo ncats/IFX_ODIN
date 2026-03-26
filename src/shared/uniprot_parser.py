@@ -126,13 +126,20 @@ class UniProtParser:
     def get_keywords(uniprot_obj):
         keywords = {}
         for keyword_obj in uniprot_obj.get('keywords', []):
+            source_id = keyword_obj.get('id')
             value = keyword_obj.get('name')
             if not value:
                 continue
             category = keyword_obj.get('category')
             keyword_id = f"keyword:uniprot:{(category or 'unknown').strip().lower()}:{value.strip().lower()}"
             if keyword_id not in keywords:
-                keywords[keyword_id] = Keyword(id=keyword_id, category=category, source='UniProt', value=value)
+                keywords[keyword_id] = Keyword(
+                    id=keyword_id,
+                    source_id=source_id,
+                    category=category,
+                    source='UniProt',
+                    value=value,
+                )
         if len(keywords) == 0:
             return None
         return keywords

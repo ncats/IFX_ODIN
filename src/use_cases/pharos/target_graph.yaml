@@ -16,7 +16,7 @@ resolvers:
     class: TargetGraphGeneResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/gene_ids.csv
+      file_path: ./input_files/manual/target_graph/gene_ids.tsv
       types:
         - Gene
 
@@ -25,7 +25,7 @@ resolvers:
     class: TargetGraphTranscriptResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
       types:
         - Transcript
 
@@ -35,8 +35,8 @@ resolvers:
     kwargs:
       no_match_behavior: Skip
       file_paths:
-        - ./input_files/manual/target_graph/protein_ids.csv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
 
@@ -142,7 +142,7 @@ input_adapters:
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinAdapter
@@ -153,32 +153,32 @@ input_adapters:
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: IsoformProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
   - import: ./src/input_adapters/target_graph/gene_node.py
     class: GeneNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.csv
+      file_path: ./input_files/manual/target_graph/gene_ids.tsv
 
   - import: ./src/input_adapters/target_graph/transcript_node.py
     class: TranscriptNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
 
   - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
     class: GeneTranscriptEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.csv
+      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: TranscriptProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: GeneProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.csv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
   - import: ./src/input_adapters/target_graph/generif_node.py
     class: GeneRifNodeAdapter

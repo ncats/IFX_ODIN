@@ -7,6 +7,7 @@ from src.models.protein import Protein
 
 @dataclass
 class Keyword(Node):
+    source_id: Optional[str] = None
     category: Optional[str] = None
     source: Optional[str] = None
     value: Optional[str] = None
@@ -16,4 +17,3 @@ class Keyword(Node):
 class ProteinKeywordEdge(Relationship):
     start_node: Protein
     end_node: Keyword
-

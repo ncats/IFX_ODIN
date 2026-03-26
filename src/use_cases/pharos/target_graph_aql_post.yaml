@@ -8,8 +8,8 @@ resolvers:
     kwargs:
       no_match_behavior: Skip
       file_paths:
-        - ./input_files/manual/target_graph/protein_ids.csv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping.csv
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
 

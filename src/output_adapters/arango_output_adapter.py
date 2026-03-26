@@ -286,9 +286,14 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         sys_db = self.client.db('_system', username=self.credentials.user,
                             password=self.credentials.password)
 
+        effective_truncate = True if truncate_tables is None else truncate_tables
+
         if sys_db.has_database(self.database_name):
-            sys_db.delete_database(self.database_name)
-        sys_db.create_database(self.database_name)
+            if effective_truncate:
+                sys_db.delete_database(self.database_name)
+                sys_db.create_database(self.database_name)
+        else:
+            sys_db.create_database(self.database_name)
 
         return True
 

@@ -61,3 +61,20 @@ def test_parse_aliases_handles_missing_recommended_name():
     alias_pairs = {(a.type, a.term) for a in aliases}
 
     assert ("full name", "Submission Name") in alias_pairs
+
+
+def test_get_keywords_keeps_uniprot_keyword_accession():
+    row = {
+        "keywords": [
+            {"id": "KW-1185", "category": "Technical term", "name": "Reference proteome"},
+            {"id": "KW-0963", "category": "Cellular component", "name": "Cytoplasm"},
+        ]
+    }
+
+    keywords = UniProtParser.get_keywords(row)
+
+    assert keywords is not None
+    reference_proteome = keywords["keyword:uniprot:technical term:reference proteome"]
+    assert reference_proteome.source_id == "KW-1185"
+    assert reference_proteome.value == "Reference proteome"
+    assert reference_proteome.category == "Technical term"
