@@ -216,7 +216,7 @@ def _compute_summary(all_issues: list, coverage: list) -> dict:
 
 @router.get("/validate", response_class=HTMLResponse)
 async def upload_form(request: Request):
-    return _templates.TemplateResponse("pounce_upload.html", {"request": request})
+    return _templates.TemplateResponse(request, "pounce_upload.html", {"request": request})
 
 
 @router.post("/validate", response_class=HTMLResponse)
@@ -306,7 +306,7 @@ async def run_validation(
         _sessions[session_id]["file_basenames"] if session_id and session_id in _sessions else []
     )
 
-    return _templates.TemplateResponse("pounce_results.html", {
+    return _templates.TemplateResponse(request, "pounce_results.html", {
         "request":                request,
         "parsed_data":            parsed_data,
         "grouped":                grouped,
@@ -349,12 +349,12 @@ async def edit_form(request: Request, session_id: str):
     _cleanup_old_sessions()
     session = _sessions.get(session_id)
     if not session:
-        return _templates.TemplateResponse("pounce_submit_confirm.html", {
+        return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
             "request": request,
             "error": "Session expired — please re-upload your files.",
             "name": "", "email": "", "project_name": "",
         })
-    return _templates.TemplateResponse("pounce_edit.html", {
+    return _templates.TemplateResponse(request, "pounce_edit.html", {
         "request":          request,
         "session_id":       session_id,
         "project_basename": os.path.basename(session["project_path"]),
@@ -375,7 +375,7 @@ async def revalidate(
     _cleanup_old_sessions()
     session = _sessions.get(session_id)
     if not session:
-        return _templates.TemplateResponse("pounce_submit_confirm.html", {
+        return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
             "request": request,
             "error": "Session expired — please re-upload your files.",
             "name": "", "email": "", "project_name": "",
@@ -480,7 +480,7 @@ async def revalidate(
         _sessions[new_sid]["file_basenames"] if new_sid and new_sid in _sessions else []
     )
 
-    return _templates.TemplateResponse("pounce_results.html", {
+    return _templates.TemplateResponse(request, "pounce_results.html", {
         "request":                request,
         "parsed_data":            parsed_data,
         "grouped":                grouped,
@@ -508,7 +508,7 @@ async def submit_pounce(
 
     session = _sessions.get(session_id)
     if not session:
-        return _templates.TemplateResponse("pounce_submit_confirm.html", {
+        return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
             "request": request,
             "error": "Session expired — please re-upload your files and try again.",
             "name": name,
@@ -517,7 +517,7 @@ async def submit_pounce(
         })
 
     if not _smtp_config:
-        return _templates.TemplateResponse("pounce_submit_confirm.html", {
+        return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
             "request": request,
             "error": "Email delivery is not configured on this server.",
             "name": name,
@@ -595,7 +595,7 @@ async def submit_pounce(
         smtp.sendmail(_smtp_config["from_address"], [_smtp_config["to_address"], email], msg.as_string())
         smtp.quit()
     except Exception as e:
-        return _templates.TemplateResponse("pounce_submit_confirm.html", {
+        return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
             "request":      request,
             "error":        f"Failed to send email: {e}",
             "name":         name,
@@ -607,7 +607,7 @@ async def submit_pounce(
     shutil.rmtree(session["dir"], ignore_errors=True)
     del _sessions[session_id]
 
-    return _templates.TemplateResponse("pounce_submit_confirm.html", {
+    return _templates.TemplateResponse(request, "pounce_submit_confirm.html", {
         "request":      request,
         "error":        None,
         "name":         name,

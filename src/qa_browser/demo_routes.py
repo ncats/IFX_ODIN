@@ -254,7 +254,7 @@ async def demo_genes(
         "biotypes": biotypes,
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/metabolites", response_class=HTMLResponse)
@@ -300,7 +300,7 @@ async def demo_metabolites(
         "search": search,
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/measured-metabolites", response_class=HTMLResponse)
@@ -364,7 +364,7 @@ async def demo_measured_metabolites(
         "id_levels": id_levels,
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 # ── Project pages ─────────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ async def demo_projects(
         "total": total, "page": page, "page_size": page_size,
         "total_pages": total_pages, "search": search, "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/projects/{project_id:path}", response_class=HTMLResponse)
@@ -423,7 +423,7 @@ async def demo_project_detail(request: Request, project_id: str):
             text("SELECT * FROM project WHERE id = :id"), {"id": project_id}
         ).mappings().first()
         if not project:
-            return _templates.TemplateResponse("demo_not_found.html",
+            return _templates.TemplateResponse(request, "demo_not_found.html",
                 {"request": request, "entity": "Project", "id": project_id})
 
         def _scalars(query, params=None):
@@ -469,7 +469,7 @@ async def demo_project_detail(request: Request, project_id: str):
         "experiments": [dict(e) for e in experiments],
         "biosample_count": biosample_count, "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_project_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_project_detail.html", ctx)
 
 
 @router.get("/experiments/{experiment_id:path}", response_class=HTMLResponse)
@@ -480,7 +480,7 @@ async def demo_experiment_detail(request: Request, experiment_id: str):
             text("SELECT * FROM experiment WHERE id = :id"), {"id": experiment_id}
         ).mappings().first()
         if not experiment:
-            return _templates.TemplateResponse("demo_not_found.html",
+            return _templates.TemplateResponse(request, "demo_not_found.html",
                 {"request": request, "entity": "Experiment", "id": experiment_id})
 
         project = conn.execute(text("""
@@ -522,7 +522,7 @@ async def demo_experiment_detail(request: Request, experiment_id: str):
         "people": [dict(p) for p in people],
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_experiment_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_experiment_detail.html", ctx)
 
 
 # ── Analyte detail pages ──────────────────────────────────────────────────────
@@ -535,7 +535,7 @@ async def demo_metabolite_detail(request: Request, metabolite_id: str):
             text("SELECT * FROM metabolite WHERE id = :id"), {"id": metabolite_id}
         ).mappings().first()
         if not metabolite:
-            return _templates.TemplateResponse("demo_not_found.html",
+            return _templates.TemplateResponse(request, "demo_not_found.html",
                 {"request": request, "entity": "Metabolite", "id": metabolite_id})
 
         try:
@@ -593,7 +593,7 @@ async def demo_metabolite_detail(request: Request, metabolite_id: str):
         "pathways": [dict(r) for r in pathways],
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_metabolite_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_metabolite_detail.html", ctx)
 
 
 @router.get("/genes/{gene_id:path}", response_class=HTMLResponse)
@@ -604,7 +604,7 @@ async def demo_gene_detail(request: Request, gene_id: str):
             text("SELECT * FROM gene WHERE id = :id"), {"id": gene_id}
         ).mappings().first()
         if not gene:
-            return _templates.TemplateResponse("demo_not_found.html",
+            return _templates.TemplateResponse(request, "demo_not_found.html",
                 {"request": request, "entity": "Gene", "id": gene_id})
 
         experiments = conn.execute(text("""
@@ -644,7 +644,7 @@ async def demo_gene_detail(request: Request, gene_id: str):
         "stats": [dict(r) for r in stats],
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_gene_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_gene_detail.html", ctx)
 
 
 # ── Pathway pages ─────────────────────────────────────────────────────────────
@@ -752,7 +752,7 @@ async def demo_pathways(
         "total_pages": total_pages, "search": search,
         "pw_type": pw_type, "pw_types": pw_types, "sort_by": sort_by, "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/pathways/{pathway_id:path}", response_class=HTMLResponse)
@@ -773,7 +773,7 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
     # Check pathway exists first.
     pw_rows = await loop.run_in_executor(None, _q, "SELECT * FROM pathway WHERE id = :id", {"id": pathway_id})
     if not pw_rows:
-        return _templates.TemplateResponse("demo_not_found.html",
+        return _templates.TemplateResponse(request, "demo_not_found.html",
             {"request": request, "entity": "Pathway", "id": pathway_id})
     pathway = pw_rows[0]
 
@@ -1027,7 +1027,7 @@ async def demo_pathway_detail(request: Request, pathway_id: str):
         "gene_experiments": gene_experiments,
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_pathway_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_pathway_detail.html", ctx)
 
 
 @router.get("/dataset-preview", response_class=HTMLResponse)
@@ -1074,7 +1074,7 @@ async def demo_dataset_preview(request: Request, dataset_id: str, pathway_id: st
 
     rows = [(met_id, met_name, vals) for (met_id, met_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_dataset_preview.html", {
+    return _templates.TemplateResponse(request, "demo_dataset_preview.html", {
         "request": request,
         "condition_groups": condition_groups,
         "col_order": col_order,
@@ -1153,7 +1153,7 @@ async def demo_stats_preview(request: Request, stats_result_id: str, pathway_id:
 
     rows = [(met_id, met_name, vals) for (met_id, met_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_stats_preview.html", {
+    return _templates.TemplateResponse(request, "demo_stats_preview.html", {
         "request": request,
         "comparisons": comparisons,
         "col_order": col_order,
@@ -1210,7 +1210,7 @@ async def demo_gene_dataset_preview(request: Request, dataset_id: str, pathway_i
 
     rows = [(gene_id, gene_name, vals) for (gene_id, gene_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_dataset_preview.html", {
+    return _templates.TemplateResponse(request, "demo_dataset_preview.html", {
         "request": request,
         "condition_groups": condition_groups,
         "col_order": col_order,
@@ -1287,7 +1287,7 @@ async def demo_gene_stats_preview(request: Request, stats_result_id: str, pathwa
 
     rows = [(gene_id, gene_name, vals) for (gene_id, gene_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_stats_preview.html", {
+    return _templates.TemplateResponse(request, "demo_stats_preview.html", {
         "request": request,
         "comparisons": comparisons,
         "col_order": col_order,
@@ -1389,7 +1389,7 @@ async def demo_metabolite_classes(
         "total_pages": total_pages, "search": search,
         "level": level, "levels": levels, "sort_by": sort_by, "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse(template_name, ctx)
+    return _templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/metabolite-classes/{class_id:path}", response_class=HTMLResponse)
@@ -1400,7 +1400,7 @@ async def demo_metabolite_class_detail(request: Request, class_id: str):
             text("SELECT * FROM metabolite_class WHERE id = :id"), {"id": class_id}
         ).mappings().first()
         if not mc:
-            return _templates.TemplateResponse("demo_not_found.html",
+            return _templates.TemplateResponse(request, "demo_not_found.html",
                 {"request": request, "entity": "Metabolite Class", "id": class_id})
 
         _met_rows = conn.execute(text("""
@@ -1518,7 +1518,7 @@ async def demo_metabolite_class_detail(request: Request, class_id: str):
         "experiments": list(experiments_map.values()),
         "db_name": DB_NAME,
     }
-    return _templates.TemplateResponse("demo_metabolite_class_detail.html", ctx)
+    return _templates.TemplateResponse(request, "demo_metabolite_class_detail.html", ctx)
 
 
 @router.get("/metabolite-class-dataset-preview", response_class=HTMLResponse)
@@ -1567,7 +1567,7 @@ async def demo_metabolite_class_dataset_preview(
 
     rows = [(met_id, met_name, vals) for (met_id, met_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_dataset_preview.html", {
+    return _templates.TemplateResponse(request, "demo_dataset_preview.html", {
         "request": request,
         "condition_groups": condition_groups,
         "col_order": col_order,
@@ -1643,7 +1643,7 @@ async def demo_metabolite_class_stats_preview(
 
     rows = [(met_id, met_name, vals) for (met_id, met_name), vals in matrix.items()]
 
-    return _templates.TemplateResponse("demo_stats_preview.html", {
+    return _templates.TemplateResponse(request, "demo_stats_preview.html", {
         "request": request,
         "comparisons": list(comparisons_map.values()),
         "col_order": col_order,

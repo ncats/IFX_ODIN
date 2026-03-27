@@ -63,7 +63,7 @@ async def get_comments(request: Request):
     entries = _read()
     visible = [e for e in entries if not e.get("resolved")]
     resolved_count = sum(1 for e in entries if e.get("resolved"))
-    return _templates.TemplateResponse("feedback_comments.html", {
+    return _templates.TemplateResponse(request, "feedback_comments.html", {
         "request":        request,
         "entries":        visible,
         "resolved_count": resolved_count,
@@ -93,7 +93,7 @@ async def post_comment(
     entries = _read()
     visible = [e for e in entries if not e.get("resolved")]
     resolved_count = sum(1 for e in entries if e.get("resolved"))
-    return _templates.TemplateResponse("feedback_comments.html", {
+    return _templates.TemplateResponse(request, "feedback_comments.html", {
         "request":          request,
         "entries":          visible,
         "resolved_count":   resolved_count,
@@ -104,7 +104,7 @@ async def post_comment(
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     entries = _read()
-    return _templates.TemplateResponse("feedback_admin.html", {
+    return _templates.TemplateResponse(request, "feedback_admin.html", {
         "request": request,
         "entries": entries,
     })

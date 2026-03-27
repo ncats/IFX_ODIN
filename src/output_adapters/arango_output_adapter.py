@@ -20,8 +20,14 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     def __init__(self, credentials, database_name, minio_credentials=None):
         self._collection_schemas = {}
+        self._graph_views = []
+        self._graph_view_source_yaml = None
         self.minio_creds = DBCredentials(**minio_credentials) if minio_credentials else None
         super().__init__(credentials=credentials, database_name=database_name)
+
+    def set_graph_views_metadata(self, graph_views=None, source_yaml=None):
+        self._graph_views = graph_views or []
+        self._graph_view_source_yaml = source_yaml
 
     @staticmethod
     def _introspect_dataclass(cls) -> dict:
@@ -367,10 +373,17 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             self.clean_up_dangling_edges()
 
         existing_store = self.get_metadata_store(truncate=False)
+        existing_graph_views = {}
         try:
             existing_doc = existing_store.get("collection_schemas")
             if existing_doc:
                 self._collection_schemas = {**existing_doc.get("collections", {}), **self._collection_schemas}
+        except Exception:
+            pass
+        try:
+            existing_doc = existing_store.get("graph_views")
+            if existing_doc:
+                existing_graph_views = existing_doc.get("value", {}).get("views", {}) or {}
         except Exception:
             pass
 
@@ -395,6 +408,16 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             }, overwrite=True)
             print(f"Wrote collection schemas for {len(self._collection_schemas)} collections")
 
+        graph_views = self.get_graph_views_metadata(existing_graph_views)
+        if graph_views:
+            metadata_store.insert({
+                "_key": "graph_views",
+                "value": {
+                    "views": graph_views
+                }
+            }, overwrite=True)
+            print(f"Wrote graph views metadata for {len(graph_views)} views")
+
     def get_etl_metadata(self):
         git_info = get_git_metadata()
         etl_metadata = {
@@ -409,6 +432,21 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "python_version": platform.python_version(),
         }
         return etl_metadata
+
+    def get_graph_views_metadata(self, existing_graph_views=None):
+        existing_graph_views = existing_graph_views or {}
+        merged_graph_views = dict(existing_graph_views)
+
+        for graph_view in self._graph_views:
+            if not graph_view or "id" not in graph_view:
+                continue
+            view_id = graph_view["id"]
+            normalized_graph_view = dict(graph_view)
+            if self._graph_view_source_yaml and "defined_in_yaml" not in normalized_graph_view:
+                normalized_graph_view["defined_in_yaml"] = self._graph_view_source_yaml
+            merged_graph_views[view_id] = normalized_graph_view
+
+        return merged_graph_views
 
 
     def clean_up_dangling_edges(self, batch_size: int = 250000):
