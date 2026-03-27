@@ -25,6 +25,10 @@ class BuildGraphFromYaml:
     def load_yaml(self, yaml_file: str):
         self.configuration = ETL_Config(yaml_file)
         output_adapters = self.configuration.create_output_adapters()
+        graph_views = self.configuration.config_dict.get("graph_views", [])
+        for output_adapter in output_adapters:
+            if hasattr(output_adapter, "set_graph_views_metadata"):
+                output_adapter.set_graph_views_metadata(graph_views=graph_views, source_yaml=yaml_file)
         input_adapters = self.configuration.create_input_adapters()
         resolver_map = {}
         for resolver in self.configuration.resolvers.values():
@@ -40,4 +44,3 @@ class BuildGraphFromYaml:
 
     def do_etl(self, do_post_processing = True, clean_edges: bool = True):
         self.etl.do_etl(do_post_processing, clean_edges)
-

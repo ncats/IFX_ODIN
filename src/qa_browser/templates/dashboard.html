@@ -85,6 +85,37 @@
         </div>
         {% endif %}
 
+        {% if graph_views %}
+        <div class="card">
+            <h2>Graph Views</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>View</th>
+                        <th>Type</th>
+                        <th>Format</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for view_id, view in graph_views.items() %}
+                    <tr>
+                        <td>
+                            <a href="{{ root_path }}/db/{{ db_name }}/view/{{ view_id }}">{{ view.label or view_id }}</a>
+                            {% if view.description %}
+                            <div class="subtle">{{ view.description }}</div>
+                            {% endif %}
+                        </td>
+                        <td>{{ view.type or "" }}</td>
+                        <td>{{ view.output_format or "" }}</td>
+                        <td class="mono subtle">{{ view.defined_in_yaml or "" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
         <div class="card">
             <h2>Tools</h2>
             <p><a href="{{ root_path }}/db/{{ db_name }}/aql">AQL Console</a></p>

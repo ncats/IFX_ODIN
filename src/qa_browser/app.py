@@ -1,4 +1,6 @@
 import argparse
+import csv
+import io
 import json
 import sys
 from pathlib import Path
@@ -9,7 +11,7 @@ import urllib3
 import yaml
 from arango import ArangoClient
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine, text, inspect as sa_inspect
@@ -156,6 +158,19 @@ def json_pretty(value):
 templates.env.filters["json_pretty"] = json_pretty
 
 
+def _get_graph_views(db) -> dict:
+    if not db.has_collection("metadata_store"):
+        return {}
+    try:
+        store = db.collection("metadata_store")
+        doc = store.get("graph_views")
+        if not doc:
+            return {}
+        return doc.get("value", {}).get("views", {}) or {}
+    except Exception:
+        return {}
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -188,7 +203,7 @@ async def home(request: Request):
             print("Failed to connect to MySQL:", sys.exc_info()[1])
             pass
 
-    return templates.TemplateResponse("home.html", {
+    return templates.TemplateResponse(request, "home.html", {
         "request": request,
         "databases": arango_databases,
         "arango_url": arango_url,
@@ -235,15 +250,66 @@ async def dashboard(request: Request, db_name: str):
         except Exception:
             pass
 
-    return templates.TemplateResponse("dashboard.html", {
+    graph_views = _get_graph_views(db)
+
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "db_name": db_name,
         "collections": collections,
         "edge_defs": edge_defs,
         "etl_meta": etl_meta,
+        "graph_views": graph_views,
         "doc_count": sum(c["count"] for c in collections if c["type"] == "document"),
         "edge_count": sum(c["count"] for c in collections if c["type"] == "edge"),
     })
+
+
+@app.get("/db/{db_name}/view/{view_id}")
+async def execute_graph_view(db_name: str, view_id: str):
+    db = get_db(db_name)
+    graph_views = _get_graph_views(db)
+    graph_view = graph_views.get(view_id)
+
+    if not graph_view:
+        return HTMLResponse(f"Graph view '{view_id}' not found.", status_code=404)
+
+    if graph_view.get("query_language") != "aql":
+        return HTMLResponse("Only AQL graph views are supported.", status_code=400)
+
+    if graph_view.get("output_format") != "csv":
+        return HTMLResponse("Only CSV graph views are supported.", status_code=400)
+
+    query = graph_view.get("query")
+    columns = graph_view.get("columns") or []
+    if not query or not columns:
+        return HTMLResponse("Graph view is missing query or columns metadata.", status_code=400)
+
+    try:
+        rows = list(db.aql.execute(query, max_runtime=60))
+    except Exception as exc:
+        return HTMLResponse(f"Failed to execute graph view '{view_id}': {exc}", status_code=500)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        normalized_row = {}
+        for column in columns:
+            value = row.get(column) if isinstance(row, dict) else None
+            if isinstance(value, (dict, list)):
+                normalized_row[column] = json.dumps(value, default=str)
+            elif value is None:
+                normalized_row[column] = ""
+            else:
+                normalized_row[column] = value
+        writer.writerow(normalized_row)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={view_id}.csv"},
+    )
 
 
 @app.get("/db/{db_name}/collection/{coll_name}", response_class=HTMLResponse)
@@ -273,7 +339,7 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
     htmx = request.headers.get("HX-Request") == "true"
     template = "collection_rows.html" if htmx else "collection.html"
 
-    return templates.TemplateResponse(template, {
+    return templates.TemplateResponse(request, template, {
         "request": request,
         "db_name": db_name,
         "coll_name": coll_name,
@@ -317,7 +383,7 @@ async def collection_stats(request: Request, db_name: str, coll_name: str):
         pct = round(100 * count / sample_size, 1) if sample_size > 0 else 0
         stats.append({"field": field, "count": count, "pct": pct, "sample_size": sample_size})
 
-    return templates.TemplateResponse("stats_partial.html", {
+    return templates.TemplateResponse(request, "stats_partial.html", {
         "request": request,
         "stats": stats,
         "sample_size": sample_size,
@@ -378,7 +444,7 @@ async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key:
     except Exception as e:
         error = str(e)
 
-    return templates.TemplateResponse("parquet_stats.html", {
+    return templates.TemplateResponse(request, "parquet_stats.html", {
         "request": request,
         "stats": stats,
         "error": error,
@@ -482,7 +548,7 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         except Exception:
             pass
 
-    return templates.TemplateResponse("document.html", {
+    return templates.TemplateResponse(request, "document.html", {
         "request": request,
         "db_name": db_name,
         "coll_name": coll_name,
@@ -526,7 +592,7 @@ async def schema_view(request: Request, db_name: str):
 
     mermaid_text = "\n".join(mermaid_lines)
 
-    return templates.TemplateResponse("schema.html", {
+    return templates.TemplateResponse(request, "schema.html", {
         "request": request,
         "db_name": db_name,
         "edge_defs": edge_defs,
@@ -536,7 +602,7 @@ async def schema_view(request: Request, db_name: str):
 
 @app.get("/db/{db_name}/aql", response_class=HTMLResponse)
 async def aql_page(request: Request, db_name: str):
-    return templates.TemplateResponse("aql.html", {
+    return templates.TemplateResponse(request, "aql.html", {
         "request": request,
         "db_name": db_name,
         "results": None,
@@ -567,7 +633,7 @@ async def aql_execute(request: Request, db_name: str, query: str = Form(...)):
     htmx = request.headers.get("HX-Request") == "true"
     template = "aql_results.html" if htmx else "aql.html"
 
-    return templates.TemplateResponse(template, {
+    return templates.TemplateResponse(request, template, {
         "request": request,
         "db_name": db_name,
         "results": results,
@@ -608,7 +674,7 @@ async def mysql_dashboard(request: Request, db_name: str):
                 "to_columns": ", ".join(fk["referred_columns"]),
             })
 
-    return templates.TemplateResponse("mysql_dashboard.html", {
+    return templates.TemplateResponse(request, "mysql_dashboard.html", {
         "request": request,
         "db_name": db_name,
         "tables": tables,
@@ -655,7 +721,7 @@ async def mysql_table_browser(request: Request, db_name: str, table_name: str,
     htmx = request.headers.get("HX-Request") == "true"
     template = "mysql_table_rows.html" if htmx else "mysql_table.html"
 
-    return templates.TemplateResponse(template, {
+    return templates.TemplateResponse(request, template, {
         "request": request,
         "db_name": db_name,
         "table_name": table_name,
@@ -687,7 +753,7 @@ async def mysql_table_stats(request: Request, db_name: str, table_name: str):
             pct = round(100 * non_null / total, 1) if total > 0 else 0
             stats.append({"field": col_name, "count": non_null, "pct": pct})
 
-    return templates.TemplateResponse("stats_partial.html", {
+    return templates.TemplateResponse(request, "stats_partial.html", {
         "request": request,
         "stats": stats,
         "sample_size": total,
@@ -737,7 +803,7 @@ async def mysql_row_detail(request: Request, db_name: str, table_name: str, pk_v
     # Get column metadata
     columns_info = {c["name"]: str(c["type"]) for c in meta["columns"]}
 
-    return templates.TemplateResponse("mysql_row.html", {
+    return templates.TemplateResponse(request, "mysql_row.html", {
         "request": request,
         "db_name": db_name,
         "table_name": table_name,
@@ -772,7 +838,7 @@ async def mysql_schema(request: Request, db_name: str):
 
     mermaid_text = "\n".join(mermaid_lines)
 
-    return templates.TemplateResponse("mysql_schema.html", {
+    return templates.TemplateResponse(request, "mysql_schema.html", {
         "request": request,
         "db_name": db_name,
         "fk_defs": fk_defs,
@@ -790,7 +856,7 @@ async def mysql_refresh_schema(request: Request, db_name: str):
 
 @app.get("/mysql/{db_name}/sql", response_class=HTMLResponse)
 async def sql_page(request: Request, db_name: str):
-    return templates.TemplateResponse("mysql_sql.html", {
+    return templates.TemplateResponse(request, "mysql_sql.html", {
         "request": request,
         "db_name": db_name,
         "results": None,
@@ -827,7 +893,7 @@ async def sql_execute(request: Request, db_name: str, query: str = Form(...)):
     htmx = request.headers.get("HX-Request") == "true"
     template = "mysql_sql_results.html" if htmx else "mysql_sql.html"
 
-    return templates.TemplateResponse(template, {
+    return templates.TemplateResponse(request, template, {
         "request": request,
         "db_name": db_name,
         "results": results,
