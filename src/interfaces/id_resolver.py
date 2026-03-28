@@ -1,5 +1,6 @@
 import copy
 from abc import ABC, abstractmethod
+from dataclasses import fields
 from enum import Enum
 from typing import List, Dict, Optional, Type
 from dataclasses import dataclass, asdict, field
@@ -79,6 +80,44 @@ class IdResolver(ABC):
         id_map = self._resolve_internal(entries)
         return self.get_merged_map(entries, id_map, allow_retype=allow_retype)
 
+    @staticmethod
+    def _value_is_meaningful(value):
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip() != ''
+        if isinstance(value, (list, dict, set, tuple)):
+            return len(value) > 0
+        return True
+
+    def _can_retype_entry(self, entry: Node) -> bool:
+        if self.canonical_class is None:
+            return False
+        canonical_fields = {f.name for f in fields(self.canonical_class)}
+        ignored_fields = {'id', 'xref', 'provenance', 'sources'}
+        for f in fields(entry.__class__):
+            if f.name in ignored_fields:
+                continue
+            if not self._value_is_meaningful(getattr(entry, f.name, None)):
+                continue
+            if f.name not in canonical_fields:
+                return False
+        return True
+
+    def _coerce_entry_to_canonical(self, entry: Node, new_id: str, full_xref_list: List[EquivalentId]):
+        coerced = self.canonical_class(id=new_id)
+        coerced.xref = full_xref_list
+        canonical_fields = {f.name for f in fields(self.canonical_class)}
+        for f in fields(entry.__class__):
+            if f.name in {'id', 'xref'}:
+                continue
+            if f.name not in canonical_fields:
+                continue
+            value = copy.deepcopy(getattr(entry, f.name, None))
+            if self._value_is_meaningful(value):
+                setattr(coerced, f.name, value)
+        return coerced
+
     def get_merged_map(self, entries, id_map, allow_retype: bool = False):
         updated_count, validated_count = 0, 0
         entity_map = {
@@ -101,6 +140,7 @@ class IdResolver(ABC):
                         ]))
 
                         is_cross_type = self.canonical_class is not None and not isinstance(entry, self.canonical_class)
+                        can_retype = self._can_retype_entry(entry) if is_cross_type else False
                         if is_cross_type and not allow_retype:
                             print(f"WARNING: {type(entry).__name__} '{old_id}' resolves cross-type to "
                                   f"{self.canonical_class.__name__} '{new_id}'. Treating as unmatched — "
@@ -111,12 +151,20 @@ class IdResolver(ABC):
                                 new_entry.old_id = old_id
                                 entity_map[IdResolver.MatchKeys.unmatched][old_id] = new_entry
                             continue
+                        if is_cross_type and allow_retype and not can_retype:
+                            print(f"WARNING: {type(entry).__name__} '{old_id}' resolves cross-type to "
+                                  f"{self.canonical_class.__name__} '{new_id}', but populated fields are not "
+                                  f"compatible with {self.canonical_class.__name__}. Treating as unmatched.")
+                            if old_id not in entity_map[IdResolver.MatchKeys.unmatched]:
+                                new_entry = copy.deepcopy(entry)
+                                new_entry.old_id = old_id
+                                entity_map[IdResolver.MatchKeys.unmatched][old_id] = new_entry
+                            continue
 
                         if old_id not in entity_map[IdResolver.MatchKeys.matched]:
 
                             if is_cross_type and allow_retype:
-                                first_entry = self.canonical_class(id=new_id)
-                                first_entry.xref = full_xref_list
+                                first_entry = self._coerce_entry_to_canonical(entry, new_id, full_xref_list)
                             else:
                                 first_entry = copy.deepcopy(entry)
                                 first_entry.id = new_id
@@ -137,8 +185,7 @@ class IdResolver(ABC):
                                 for subsequent_match in matches[1:]:
                                     new_id = subsequent_match.match
                                     if is_cross_type and allow_retype:
-                                        new_entry = self.canonical_class(id=new_id)
-                                        new_entry.xref = full_xref_list
+                                        new_entry = self._coerce_entry_to_canonical(entry, new_id, full_xref_list)
                                     else:
                                         new_entry = copy.deepcopy(entry)
                                         new_entry.id = new_id
@@ -207,4 +254,3 @@ class IdResolver(ABC):
     @abstractmethod
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         raise NotImplementedError("derived classes must implement resolve_internal")
-

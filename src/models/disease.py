@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
 from typing import List, Optional
 
 from src.models.gene import Gene
@@ -36,19 +35,14 @@ class DODiseaseParentEdge(Relationship):
 class GeneDiseaseEdge(Relationship):
     start_node: Gene = None
     end_node: Disease = None
-    types: List[str] = None
-    evidence_codes: List[str] = None
-    evidence_terms: List[str] = None
-    references: List[str] = None
-    dates: List[datetime] = None
-    sources: List[str] = None
+    details: List["DiseaseAssociationDetail"] = field(default_factory=list)
 
 
 @dataclass
 class DiseaseAssociationDetail:
     source: str
     source_id: Optional[str] = None
-    evidence: List[str] = field(default_factory=list)
+    evidence_terms: List[str] = field(default_factory=list)
     pmids: List[str] = field(default_factory=list)
     evidence_codes: List[str] = field(default_factory=list)
 

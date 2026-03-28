@@ -72,6 +72,7 @@ class Gene(Audited, Node):
     mapping_ratio: Optional[float] = None
     symbol: Optional[str] = None
     biotype: Optional[str] = None
+    calculated_properties: Optional[Dict[str, float]] = None
     Name_Provenance: Optional[str] = None
     Location_Provenance: Optional[str] = None
     Ensembl_ID_Provenance: Optional[str] = None

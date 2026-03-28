@@ -101,6 +101,7 @@ class ETL_Config(Config):
     resolvers: dict[str, IdResolver] = {}
 
     def __init__(self, yaml_file):
+        self.resolvers = {}
         Config.__init__(self, yaml_file)
         self.create_resolvers()
 
@@ -116,4 +117,3 @@ class ETL_Config(Config):
 
     def create_input_adapters(self) -> List[InputAdapter]:
         return self.create_object_list('input_adapters', False)
-

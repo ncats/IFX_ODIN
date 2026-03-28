@@ -1,7 +1,9 @@
 from typing import List, Dict
 
 from src.interfaces.id_resolver import IdResolver, IdMatch, NoMatchBehavior, MultiMatchBehavior
+from src.models.gene import Gene, GeneticLocation
 from src.models.node import Node
+from src.models.protein import Protein
 
 
 class TempResolver(IdResolver):
@@ -33,3 +35,41 @@ def test_simple_merge():
 
     assert len(merged_map[IdResolver.MatchKeys.unmatched]) == 1
     assert merged_map[IdResolver.MatchKeys.unmatched]['2'].id == '2'
+
+
+def test_cross_type_retype_copies_compatible_fields():
+    testResolver = TempResolver(
+        types=['Gene'],
+        no_match_behavior=NoMatchBehavior.Allow,
+        multi_match_behavior=MultiMatchBehavior.All,
+        canonical_class=Protein,
+    )
+    entries = [Gene(id='ENSEMBL:ENSG1', calculated_properties={'gtex_tau': 0.5})]
+    id_map = {
+        'ENSEMBL:ENSG1': [IdMatch('ENSEMBL:ENSG1', 'IFXProtein:ABC', equivalent_ids=['ENSEMBL:ENSG1'])]
+    }
+
+    merged_map = testResolver.get_merged_map(entries, id_map, allow_retype=True)
+    matched = merged_map[IdResolver.MatchKeys.matched]['ENSEMBL:ENSG1']
+
+    assert isinstance(matched, Protein)
+    assert matched.id == 'IFXProtein:ABC'
+    assert matched.calculated_properties == {'gtex_tau': 0.5}
+
+
+def test_cross_type_retype_rejects_incompatible_fields():
+    testResolver = TempResolver(
+        types=['Gene'],
+        no_match_behavior=NoMatchBehavior.Allow,
+        multi_match_behavior=MultiMatchBehavior.All,
+        canonical_class=Protein,
+    )
+    entries = [Gene(id='ENSEMBL:ENSG1', location=GeneticLocation(location='1p36'))]
+    id_map = {
+        'ENSEMBL:ENSG1': [IdMatch('ENSEMBL:ENSG1', 'IFXProtein:ABC', equivalent_ids=['ENSEMBL:ENSG1'])]
+    }
+
+    merged_map = testResolver.get_merged_map(entries, id_map, allow_retype=True)
+
+    assert 'ENSEMBL:ENSG1' not in merged_map[IdResolver.MatchKeys.matched]
+    assert merged_map[IdResolver.MatchKeys.unmatched]['ENSEMBL:ENSG1'].id == 'ENSEMBL:ENSG1'

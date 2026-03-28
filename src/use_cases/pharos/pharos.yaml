@@ -299,7 +299,7 @@ input_adapters:
       version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
 
   - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
-    class: WikiPathwaysProteinPathwayEdgeAdapter
+    class: WikiPathwaysGenePathwayEdgeAdapter
     kwargs:
       file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
       version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
@@ -311,7 +311,7 @@ input_adapters:
       version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
 
   - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
-    class: PathwayCommonsProteinPathwayEdgeAdapter
+    class: PathwayCommonsGenePathwayEdgeAdapter
     kwargs:
       file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
       version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
