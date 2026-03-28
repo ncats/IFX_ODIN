@@ -7,14 +7,15 @@ from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
-from src.models.pathway import Pathway, ProteinPathwayEdge
-from src.models.protein import Protein
+from src.models.gene import Gene
+from src.models.pathway import GenePathwayEdge, Pathway
 
 
 class WikiPathwaysBaseAdapter(FlatFileAdapter):
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
+    def __init__(self, file_path: str, version_file_path: Optional[str] = None, max_rows: Optional[int] = None):
         FlatFileAdapter.__init__(self, file_path=file_path)
+        self.max_rows = max_rows
         version = None
         version_date = None
         if version_file_path:
@@ -39,7 +40,9 @@ class WikiPathwaysBaseAdapter(FlatFileAdapter):
     def _iter_parsed_lines(self):
         """Yields (name, wpid, url, genes) tuples from the GMT file."""
         with open(self.file_path, "r", encoding="utf-8") as handle:
-            for line in handle:
+            for idx, line in enumerate(handle):
+                if self.max_rows is not None and idx >= self.max_rows:
+                    break
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) < 3:
                     continue
@@ -70,18 +73,18 @@ class WikiPathwaysPathwayAdapter(WikiPathwaysBaseAdapter):
         yield pathways
 
 
-class WikiPathwaysProteinPathwayEdgeAdapter(WikiPathwaysBaseAdapter):
+class WikiPathwaysGenePathwayEdgeAdapter(WikiPathwaysBaseAdapter):
 
-    def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
-        edges: List[ProteinPathwayEdge] = []
+    def get_all(self) -> Generator[List[GenePathwayEdge], None, None]:
+        edges: List[GenePathwayEdge] = []
         for _, wpid, _, genes in self._iter_parsed_lines():
             for gene_id in genes:
                 if not gene_id.isdigit():
                     continue
-                protein_id = EquivalentId(id=gene_id, type=Prefix.NCBIGene)
+                gene_equivalent_id = EquivalentId(id=gene_id, type=Prefix.NCBIGene)
                 edges.append(
-                    ProteinPathwayEdge(
-                        start_node=Protein(id=protein_id.id_str()),
+                    GenePathwayEdge(
+                        start_node=Gene(id=gene_equivalent_id.id_str()),
                         end_node=Pathway(id=wpid),
                         source="WikiPathways"
                     )

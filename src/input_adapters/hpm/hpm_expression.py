@@ -10,12 +10,19 @@ from src.models.tissue import Tissue
 
 
 class HPMExpressionAdapter(ExpressionAdapterBase):
-    def __init__(self, data_file_path: str, uberon_map_file_path: str, version_file_path: str):
+    def __init__(
+        self,
+        data_file_path: str,
+        uberon_map_file_path: str,
+        version_file_path: str,
+        max_rows: Optional[int] = None,
+    ):
         super().__init__(
             data_file_path=data_file_path,
             version_file_path=version_file_path,
             uberon_map_file_path=uberon_map_file_path,
         )
+        self.max_rows = max_rows
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.HPM
@@ -45,7 +52,9 @@ class HPMExpressionAdapter(ExpressionAdapterBase):
         with open(self.data_file_path, "r") as f:
             reader = csv.DictReader(f)
 
-            for row in reader:
+            for idx, row in enumerate(reader):
+                if self.max_rows is not None and idx >= self.max_rows:
+                    break
                 raw_refseq = row.get("RefSeq Accession", "").strip()
                 if not raw_refseq:
                     continue

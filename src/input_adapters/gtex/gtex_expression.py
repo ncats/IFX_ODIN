@@ -9,12 +9,12 @@ from statistics import median
 from typing import Dict, Generator, List, Optional, Union
 
 from src.constants import DataSourceName, Prefix
+from src.models.gene import Gene
 from src.models.node import EquivalentId
 from src.input_adapters.shared.expression_adapter_base import ExpressionAdapterBase
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.expression import ExpressionDetail, ProteinTissueExpressionEdge
-from src.models.protein import Protein
+from src.models.expression import ExpressionDetail, GeneTissueExpressionEdge
 from src.models.tissue import Tissue
 
 
@@ -58,7 +58,7 @@ class GTExExpressionAdapter(InputAdapter):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def get_all(self) -> Generator[List[Union[Tissue, ProteinTissueExpressionEdge]], None, None]:
+    def get_all(self) -> Generator[List[Union[Tissue, Gene, GeneTissueExpressionEdge]], None, None]:
         subjects = self._load_subjects()
         samples = self._load_samples(subjects)
         yield self._build_tissue_nodes(samples)
@@ -176,7 +176,7 @@ class GTExExpressionAdapter(InputAdapter):
     def _iter_expression_relationship_batches(
         self,
         samples: Dict[str, SampleInfo],
-    ) -> Generator[List[ProteinTissueExpressionEdge], None, None]:
+    ) -> Generator[List[Union[Gene, GeneTissueExpressionEdge]], None, None]:
         with gzip.open(self.matrix_file_path, "rt") as f:
             _ = f.readline()
             _ = f.readline()
@@ -186,7 +186,7 @@ class GTExExpressionAdapter(InputAdapter):
             if self.max_samples is not None:
                 sample_ids = sample_ids[: self.max_samples]
 
-            batch: List[ProteinTissueExpressionEdge] = []
+            batch: List[Union[Gene, GeneTissueExpressionEdge]] = []
             gene_count = 0
 
             for row in reader:
@@ -199,8 +199,9 @@ class GTExExpressionAdapter(InputAdapter):
                 if self.max_samples is not None:
                     values = values[: self.max_samples]
                 tissue_values = self._aggregate_gene_by_tissue(sample_ids, values, samples)
-                relationships = self._build_records_for_gene(ensembl_id, tissue_values)
+                gene, relationships = self._build_records_for_gene(ensembl_id, tissue_values)
                 gene_count += 1
+                batch.append(gene)
                 for relationship in relationships:
                     batch.append(relationship)
                     if len(batch) >= self.batch_size:
@@ -255,7 +256,7 @@ class GTExExpressionAdapter(InputAdapter):
         self,
         ensembl_id: str,
         tissue_values: Dict[str, Dict[str, Optional[float]]],
-    ) -> List[Union[Protein, ProteinTissueExpressionEdge]]:
+    ) -> tuple[Gene, List[GeneTissueExpressionEdge]]:
         all_rank_map = self._normalized_rank({k: v["tpm"] for k, v in tissue_values.items()})
         male_rank_map = self._normalized_rank({k: v["tpm_male"] for k, v in tissue_values.items()})
         female_rank_map = self._normalized_rank({k: v["tpm_female"] for k, v in tissue_values.items()})
@@ -264,16 +265,15 @@ class GTExExpressionAdapter(InputAdapter):
         male_tpm = [v["tpm_male"] for v in tissue_values.values() if v["tpm_male"] is not None]
         female_tpm = [v["tpm_female"] for v in tissue_values.values() if v["tpm_female"] is not None]
 
-        records: List[Union[Protein, ProteinTissueExpressionEdge]] = [
-            Protein(
-                id=ensembl_id,
-                calculated_properties={
-                    "gtex_tau": ExpressionAdapterBase._compute_tau(overall_tpm),
-                    "gtex_male_tau": ExpressionAdapterBase._compute_tau(male_tpm),
-                    "gtex_female_tau": ExpressionAdapterBase._compute_tau(female_tpm),
-                },
-            )
-        ]
+        gene = Gene(
+            id=ensembl_id,
+            calculated_properties={
+                "gtex_tau": ExpressionAdapterBase._compute_tau(overall_tpm),
+                "gtex_tau_male": ExpressionAdapterBase._compute_tau(male_tpm) if male_tpm else 0.0,
+                "gtex_tau_female": ExpressionAdapterBase._compute_tau(female_tpm) if female_tpm else 0.0,
+            },
+        )
+        records: List[GeneTissueExpressionEdge] = []
 
         for tissue, values in tissue_values.items():
             uberon_id = values.get("uberon_id")
@@ -312,13 +312,13 @@ class GTExExpressionAdapter(InputAdapter):
                 ))
 
             records.append(
-                ProteinTissueExpressionEdge(
-                    start_node=Protein(id=ensembl_id),
+                GeneTissueExpressionEdge(
+                    start_node=gene,
                     end_node=Tissue(id=tissue_id),
                     details=details,
                 )
             )
-        return records
+        return gene, records
 
     @staticmethod
     def _normalized_rank(values: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:

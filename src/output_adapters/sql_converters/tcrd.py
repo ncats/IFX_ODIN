@@ -475,7 +475,7 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     @staticmethod
     def _disease_assoc_key(protein_id: str, disease_id: str, detail: dict, ordinal: int) -> str:
-        evidence = "|".join(sorted(detail.get('evidence') or []))
+        evidence_terms = "|".join(sorted(detail.get('evidence_terms') or []))
         pmids = "|".join(sorted(str(p) for p in (detail.get('pmids') or [])))
         evidence_codes = "|".join(sorted(detail.get('evidence_codes') or []))
         return "\t".join([
@@ -483,7 +483,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             disease_id or '',
             detail.get('source') or '',
             detail.get('source_id') or '',
-            evidence,
+            evidence_terms,
             pmids,
             evidence_codes,
             str(ordinal),
@@ -498,7 +498,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             return [{
                 'source': source,
                 'source_id': obj.get('source_id'),
-                'evidence': obj.get('evidence') or [],
+                'evidence_terms': obj.get('evidence_terms') or [],
                 'pmids': obj.get('pmids') or [],
                 'evidence_codes': obj.get('evidence_codes') or [],
             }]
@@ -537,7 +537,7 @@ class TCRDOutputConverter(SQLOutputConverter):
                 name=disease_name,
                 ncats_name=disease_name,
                 did=disease_id,
-                evidence="|".join(detail.get('evidence') or detail.get('evidence_codes') or []) or None,
+                evidence="|".join(detail.get('evidence_terms') or detail.get('evidence_codes') or []) or None,
                 mondoid=mondoid,
                 provenance=obj['provenance'],
             ))

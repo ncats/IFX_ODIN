@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import List
 
 from src.interfaces.input_adapter import InputAdapter
-from src.models.disease import Disease, GeneDiseaseEdge
+from src.models.alliance_genome import AllianceGeneDiseaseEdge
+from src.models.disease import Disease
 from src.models.gene import Gene
 from src.models.node import Node
 
@@ -43,7 +44,7 @@ class GeneDiseaseAssociationAdapter(InputAdapter):
                 if type == 'is_not_implicated_in':
                     continue
                 relationships.append(
-                    GeneDiseaseEdge(
+                    AllianceGeneDiseaseEdge(
                         start_node=Gene(id=gene_id),
                         end_node=Disease(id=disease_id),
                         types=[type],
@@ -51,7 +52,6 @@ class GeneDiseaseAssociationAdapter(InputAdapter):
                         evidence_terms=[evidence_term],
                         references=[reference],
                         dates=[date],
-                        sources=[source]
                     )
                 )
         return [*disease_map.values(), *relationships]

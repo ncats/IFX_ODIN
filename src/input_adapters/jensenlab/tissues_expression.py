@@ -17,9 +17,16 @@ from src.models.tissue import Tissue
 
 
 class JensenLabTissuesExpressionAdapter(InputAdapter):
-    def __init__(self, data_file_path: str, version_file_path: str, obo_file_path: Optional[str] = None):
+    def __init__(
+        self,
+        data_file_path: str,
+        version_file_path: str,
+        obo_file_path: Optional[str] = None,
+        max_rows: Optional[int] = None,
+    ):
         self.data_file_path = data_file_path
         self.version_file_path = version_file_path
+        self.max_rows = max_rows
         self._valid_tissue_ids: Optional[Set[str]] = (
             self._load_valid_tissue_ids(obo_file_path) if obo_file_path else None
         )
@@ -80,6 +87,7 @@ class JensenLabTissuesExpressionAdapter(InputAdapter):
     def _load_gene_map(self) -> Dict[str, List[Dict]]:
         gene_map: Dict[str, List[Dict]] = defaultdict(list)
         fieldnames = ["gene_id", "gene_name", "ontology_id", "tissue", "confidence"]
+        kept_rows = 0
         with open(self.data_file_path, "r") as f:
             reader = csv.DictReader(f, fieldnames=fieldnames, delimiter="\t")
             for row in reader:
@@ -89,7 +97,10 @@ class JensenLabTissuesExpressionAdapter(InputAdapter):
                 bto_id = row.get("ontology_id", "").strip()
                 if self._valid_tissue_ids is not None and bto_id not in self._valid_tissue_ids:
                     continue
+                if self.max_rows is not None and kept_rows >= self.max_rows:
+                    break
                 gene_map[gene_id].append(row)
+                kept_rows += 1
         return gene_map
 
     def _build_tissue_nodes(self, gene_map: Dict[str, List[Dict]]) -> List[Tissue]:

@@ -73,7 +73,8 @@ class InputAdapter(ABC):
                 for type, node_list in type_map.items():
                     if type in resolver_map:
                         resolver = resolver_map[type]
-                        entity_map = resolver.resolve_nodes(node_list)
+                        allow_retype = resolver.canonical_class is not None
+                        entity_map = resolver.resolve_nodes(node_list, allow_retype=allow_retype)
                         resolved_nodes.extend(resolver.parse_flat_node_list_from_map(entity_map))
                     else:
                         resolved_nodes.extend(node_list)
@@ -149,4 +150,3 @@ class InputAdapter(ABC):
                 if has_returned_batches:
                     print(f"final batch: {len(return_relationships)} relationship records")
                 yield return_relationships
-

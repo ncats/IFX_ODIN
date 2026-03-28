@@ -6,9 +6,9 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 
 from src.constants import DataSourceName, Prefix
 from src.input_adapters.shared.expression_adapter_base import ExpressionAdapterBase
-from src.models.expression import ExpressionDetail, ProteinTissueExpressionEdge
+from src.models.expression import ExpressionDetail, GeneTissueExpressionEdge
+from src.models.gene import Gene
 from src.models.node import EquivalentId
-from src.models.protein import Protein
 from src.models.tissue import Tissue
 
 # Ordinal encoding for IHC levels (used for tau and rank).
@@ -54,7 +54,21 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
     UBERON IDs come from manual_uberon_map.tsv, keyed by 'tissue - cell type' then 'tissue'.
     """
 
-    def get_all(self) -> Generator[List[Union[Tissue, Protein, ProteinTissueExpressionEdge]], None, None]:
+    def __init__(
+        self,
+        data_file_path: str,
+        version_file_path: str,
+        uberon_map_file_path: str,
+        max_genes: Optional[int] = None,
+    ):
+        super().__init__(
+            data_file_path=data_file_path,
+            version_file_path=version_file_path,
+            uberon_map_file_path=uberon_map_file_path,
+        )
+        self.max_genes = max_genes
+
+    def get_all(self) -> Generator[List[Union[Tissue, Gene, GeneTissueExpressionEdge]], None, None]:
         uberon_map = self._load_uberon_map()
         gene_data, unique_tissues = self._load_grouped()
         yield [Tissue(id=self._tissue_id(t, uberon_map), name=t) for t in unique_tissues]
@@ -80,6 +94,10 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
             if reliability == "Uncertain" or level not in QUAL_MAP:
                 continue
 
+            is_new_gene = gene not in gene_data
+            if self.max_genes is not None and is_new_gene and len(gene_data) >= self.max_genes:
+                break
+
             gene_data[gene].append((tissue, cell_type, level, reliability))
             if tissue not in tissue_order:
                 tissue_order[tissue] = len(tissue_order)
@@ -91,12 +109,11 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
         self,
         gene_data: Dict[str, List[Tuple[str, str, str, str]]],
         uberon_map: Dict[str, Optional[str]],
-    ) -> Generator[List[Union[Protein, ProteinTissueExpressionEdge]], None, None]:
-        batch: List[Union[Protein, ProteinTissueExpressionEdge]] = []
+    ) -> Generator[List[Union[Gene, GeneTissueExpressionEdge]], None, None]:
+        batch: List[Union[Gene, GeneTissueExpressionEdge]] = []
 
         for gene_id, rows in gene_data.items():
-            protein_id = self._protein_id(gene_id)
-            protein = Protein(id=protein_id)
+            gene = Gene(id=self._protein_id(gene_id))
 
             # Group by canonical Tissue name
             by_tissue: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
@@ -109,9 +126,8 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
                 for tissue, cell_types in by_tissue.items()
             }
 
-            tau = self._compute_tau(list(max_ordinals.values()))
+            gene.calculated_properties = {"hpa_ihc_tau": self._compute_tau(list(max_ordinals.values()))}
             rank_map = self._normalized_rank(max_ordinals)
-            protein.calculated_properties = {"hpa_ihc_tau": tau}
 
             edges = []
             for tissue, cell_types in by_tissue.items():
@@ -132,14 +148,14 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
                         source_rank=rank_map.get(tissue),
                     ))
                 edges.append(
-                    ProteinTissueExpressionEdge(
-                        start_node=protein,
+                    GeneTissueExpressionEdge(
+                        start_node=gene,
                         end_node=Tissue(id=tissue_id),
                         details=details,
                     )
                 )
 
-            batch.append(protein)
+            batch.append(gene)
             batch.extend(edges)
             if len(batch) >= self.batch_size:
                 yield batch
@@ -158,7 +174,21 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
     UBERON IDs come from manual_uberon_map.tsv, keyed by tissue name.
     """
 
-    def get_all(self) -> Generator[List[Union[Tissue, Protein, ProteinTissueExpressionEdge]], None, None]:
+    def __init__(
+        self,
+        data_file_path: str,
+        version_file_path: str,
+        uberon_map_file_path: str,
+        max_genes: Optional[int] = None,
+    ):
+        super().__init__(
+            data_file_path=data_file_path,
+            version_file_path=version_file_path,
+            uberon_map_file_path=uberon_map_file_path,
+        )
+        self.max_genes = max_genes
+
+    def get_all(self) -> Generator[List[Union[Tissue, Gene, GeneTissueExpressionEdge]], None, None]:
         uberon_map = self._load_uberon_map()
         gene_data, unique_tissues = self._load_grouped()
         yield [Tissue(id=self._tissue_id(t, uberon_map), name=t) for t in unique_tissues]
@@ -185,6 +215,10 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
             except ValueError:
                 continue
 
+            is_new_gene = gene not in gene_data
+            if self.max_genes is not None and is_new_gene and len(gene_data) >= self.max_genes:
+                break
+
             gene_data[gene].append((tissue, ntpm))
             if tissue not in tissue_order:
                 tissue_order[tissue] = len(tissue_order)
@@ -196,17 +230,15 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
         self,
         gene_data: Dict[str, List[Tuple[str, float]]],
         uberon_map: Dict[str, Optional[str]],
-    ) -> Generator[List[Union[Protein, ProteinTissueExpressionEdge]], None, None]:
-        batch: List[Union[Protein, ProteinTissueExpressionEdge]] = []
+    ) -> Generator[List[Union[Gene, GeneTissueExpressionEdge]], None, None]:
+        batch: List[Union[Gene, GeneTissueExpressionEdge]] = []
 
         for gene_id, rows in gene_data.items():
-            protein_id = self._protein_id(gene_id)
-            protein = Protein(id=protein_id)
+            gene = Gene(id=self._protein_id(gene_id))
 
             ntpm_by_tissue: Dict[str, float] = {tissue: ntpm for tissue, ntpm in rows}
-            tau = self._compute_tau(list(ntpm_by_tissue.values()))
+            gene.calculated_properties = {"hpa_rna_tau": self._compute_tau(list(ntpm_by_tissue.values()))}
             rank_map = self._normalized_rank(ntpm_by_tissue)
-            protein.calculated_properties = {"hpa_rna_tau": tau}
 
             edges = []
             for tissue, ntpm in ntpm_by_tissue.items():
@@ -222,14 +254,14 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
                     source_rank=rank_map.get(tissue),
                 )
                 edges.append(
-                    ProteinTissueExpressionEdge(
-                        start_node=protein,
+                    GeneTissueExpressionEdge(
+                        start_node=gene,
                         end_node=Tissue(id=tissue_id),
                         details=[detail],
                     )
                 )
 
-            batch.append(protein)
+            batch.append(gene)
             batch.extend(edges)
             if len(batch) >= self.batch_size:
                 yield batch

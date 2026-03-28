@@ -6,9 +6,9 @@ from typing import Generator, List, Optional, Union
 from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.disease import Disease, DiseaseAssociationDetail, ProteinDiseaseEdge
+from src.models.disease import Disease, DiseaseAssociationDetail, GeneDiseaseEdge
+from src.models.gene import Gene
 from src.models.node import EquivalentId, Node, Relationship
-from src.models.protein import Protein
 
 
 class CTDGeneDiseaseAdapter(FlatFileAdapter):
@@ -23,8 +23,9 @@ class CTDGeneDiseaseAdapter(FlatFileAdapter):
         "PubMedIDs",
     ]
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
+    def __init__(self, file_path: str, version_file_path: Optional[str] = None, max_rows: Optional[int] = None):
         FlatFileAdapter.__init__(self, file_path=file_path)
+        self.max_rows = max_rows
         version = None
         version_date = None
         if version_file_path:
@@ -49,7 +50,7 @@ class CTDGeneDiseaseAdapter(FlatFileAdapter):
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         diseases_by_id = {}
-        edges: List[ProteinDiseaseEdge] = []
+        edges: List[GeneDiseaseEdge] = []
 
         for row in self._iter_rows():
             disease_id = row["DiseaseID"].strip()
@@ -63,14 +64,14 @@ class CTDGeneDiseaseAdapter(FlatFileAdapter):
                 diseases_by_id[disease_id] = Disease(id=disease_id, name=disease_name)
 
             edges.append(
-                ProteinDiseaseEdge(
-                    start_node=Protein(id=EquivalentId(id=gene_id, type=Prefix.NCBIGene).id_str()),
+                GeneDiseaseEdge(
+                    start_node=Gene(id=EquivalentId(id=gene_id, type=Prefix.NCBIGene).id_str()),
                     end_node=Disease(id=disease_id, name=disease_name),
                     details=[
                         DiseaseAssociationDetail(
                             source="CTD",
                             source_id=disease_id,
-                            evidence=self._split_pipe_list(row.get("DirectEvidence")),
+                            evidence_terms=self._split_pipe_list(row.get("DirectEvidence")),
                             pmids=self._split_pipe_list(row.get("PubMedIDs")),
                         )
                     ],
@@ -87,7 +88,9 @@ class CTDGeneDiseaseAdapter(FlatFileAdapter):
                 fieldnames=self.fieldnames,
                 delimiter="\t",
             )
-            for row in reader:
+            for idx, row in enumerate(reader):
+                if self.max_rows is not None and idx >= self.max_rows:
+                    break
                 yield row
 
     @staticmethod

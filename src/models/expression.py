@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 from src.core.decorators import facets
+from src.models.gene import Gene
 from src.models.node import Relationship
 from src.models.protein import Protein
 from src.models.tissue import Tissue
@@ -33,5 +34,12 @@ class ExpressionDetail:
 @dataclass
 class ProteinTissueExpressionEdge(Relationship):
     start_node: Protein
+    end_node: Tissue
+    details: List[ExpressionDetail] = field(default_factory=list)
+
+
+@dataclass
+class GeneTissueExpressionEdge(Relationship):
+    start_node: Gene
     end_node: Tissue
     details: List[ExpressionDetail] = field(default_factory=list)
