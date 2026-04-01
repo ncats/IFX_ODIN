@@ -22,6 +22,7 @@ from typing import List
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
+from src.core.validator import ValidationError
 from src.input_adapters.pounce_sheets.mapping_coverage import (
     check_gene_coverage,
     check_metabolite_coverage,
@@ -161,6 +162,75 @@ def _group_issues(all_issues, project_filename, exp_filenames, stats_filenames):
     return [(wb, list(sheets.items())) for wb, sheets in grouped.items()]
 
 
+def _collapse_dependent_mapping_issues(all_issues: list[ValidationError]) -> list[ValidationError]:
+    """Suppress downstream analyte-ID noise when the root map-sheet key is broken.
+
+    If GeneMap.gene_id or MetabMap.metab_id is invalid, row-level GeneMeta/MetabMeta
+    ID failures and downstream matrix cross-reference failures are consequences, not
+    independent root causes. Replace that cascade with one explanatory message.
+    """
+    collapse_specs = [
+        {
+            "map_sheet": "GeneMap",
+            "map_key": "gene_id",
+            "meta_sheet": "GeneMeta",
+            "meta_field": "gene_id",
+            "xref_phrase": "does not exist in GeneMeta",
+            "message": (
+                "Downstream gene_id checks were skipped because 'GeneMap' maps "
+                "'gene_id' incorrectly. Fix the GeneMap gene_id column mapping first; "
+                "additional GeneMeta or matrix ID errors may appear after that."
+            ),
+        },
+        {
+            "map_sheet": "MetabMap",
+            "map_key": "metab_id",
+            "meta_sheet": "MetabMeta",
+            "meta_field": "metab_id",
+            "xref_phrase": "does not exist in MetabMeta",
+            "message": (
+                "Downstream metab_id checks were skipped because 'MetabMap' maps "
+                "'metab_id' incorrectly. Fix the MetabMap metab_id column mapping first; "
+                "additional MetabMeta or matrix ID errors may appear after that."
+            ),
+        },
+    ]
+
+    collapsed_issues = list(all_issues)
+    for spec in collapse_specs:
+        has_root_mapping_issue = any(
+            issue.severity == "error"
+            and issue.sheet == spec["map_sheet"]
+            and (issue.field == spec["map_key"] or issue.column == spec["map_key"])
+            for issue in collapsed_issues
+        )
+        if not has_root_mapping_issue:
+            continue
+
+        filtered = []
+        suppressed_count = 0
+        for issue in collapsed_issues:
+            is_meta_fallout = issue.sheet == spec["meta_sheet"] and issue.field == spec["meta_field"]
+            is_xref_fallout = spec["xref_phrase"] in issue.message
+            if is_meta_fallout or is_xref_fallout:
+                suppressed_count += 1
+                continue
+            filtered.append(issue)
+
+        if suppressed_count:
+            filtered.append(ValidationError(
+                severity="warning",
+                entity="parse",
+                field=spec["map_key"],
+                message=f"{spec['message']} ({suppressed_count} dependent issue{'s' if suppressed_count != 1 else ''} hidden.)",
+                sheet=spec["map_sheet"],
+                column=spec["map_key"],
+            ))
+        collapsed_issues = filtered
+
+    return collapsed_issues
+
+
 def _compute_coverage(parsed_data) -> list:
     """Return AnalyteCoverage results for analyte types that have a resolver loaded."""
     coverage = []
@@ -187,7 +257,14 @@ def _compute_coverage(parsed_data) -> list:
     return coverage
 
 
-def _compute_summary(all_issues: list, coverage: list) -> dict:
+def _compute_summary(
+    all_issues: list,
+    coverage: list,
+    grouped: list | None = None,
+    parsed_data=None,
+    metab_resolver_missing: bool = False,
+    gene_resolver_missing: bool = False,
+) -> dict:
     """Build a summary dict for inclusion in the submission email."""
     errors   = [i for i in all_issues if i.severity == "error"]
     warnings = [i for i in all_issues if i.severity == "warning"]
@@ -195,6 +272,29 @@ def _compute_summary(all_issues: list, coverage: list) -> dict:
         f"  {cov.analyte_type}: {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
         for cov in coverage
     ]
+    if metab_resolver_missing:
+        cov_lines.append("  MetabMeta: resolver not configured, coverage check skipped")
+    if gene_resolver_missing:
+        cov_lines.append("  GeneMeta: resolver not configured, coverage check skipped")
+
+    issue_breakdown = []
+    for workbook, sheets in grouped or []:
+        workbook_count = sum(len(issues) for _, issues in sheets)
+        issue_breakdown.append(f"  {workbook}: {workbook_count} issue{'s' if workbook_count != 1 else ''}")
+        for sheet, issues in sheets:
+            issue_breakdown.append(f"    - {sheet}: {len(issues)}")
+
+    data_counts = []
+    if parsed_data is not None:
+        data_counts = [
+            f"  Experiments: {len(parsed_data.experiments)}",
+            f"  Biospecimens: {len(parsed_data.biospecimens)}",
+            f"  Biosamples: {len(parsed_data.biosamples)}",
+            f"  Run biosamples: {len(parsed_data.run_biosamples)}",
+            f"  Genes: {len(parsed_data.genes)}",
+            f"  Metabolites: {len(parsed_data.metabolites)}",
+            f"  Stats datasets: {len(parsed_data.stats_results)}",
+        ]
 
     def _fmt(issue):
         parts = [p for p in [issue.sheet, issue.field,
@@ -209,6 +309,8 @@ def _compute_summary(all_issues: list, coverage: list) -> dict:
         "coverage_lines": cov_lines,
         "error_samples":   [_fmt(i) for i in errors[:5]],
         "warning_samples": [_fmt(i) for i in warnings[:5]],
+        "issue_breakdown": issue_breakdown,
+        "data_counts": data_counts,
     }
 
 
@@ -254,7 +356,7 @@ async def run_validation(
         for v in adapter.get_validators():
             content_issues.extend(v.validate(parsed_data))
 
-        all_issues = structural_issues + content_issues
+        all_issues = _collapse_dependent_mapping_issues(structural_issues + content_issues)
         grouped    = _group_issues(
             all_issues,
             os.path.basename(project_path),
@@ -293,14 +395,21 @@ async def run_validation(
     warnings = [i for i in all_issues if i.severity == "warning"]
     coverage = _compute_coverage(parsed_data)
 
-    # Fill in session summary now that coverage is available.
-    if session_id and session_id in _sessions:
-        _sessions[session_id]["summary"] = _compute_summary(all_issues, coverage)
-
     has_metabolites         = bool(parsed_data and parsed_data.metabolites)
     has_genes               = bool(parsed_data and parsed_data.genes)
     metab_resolver_missing  = has_metabolites and "Metabolite" not in _resolver_map
     gene_resolver_missing   = has_genes       and "Gene"       not in _resolver_map
+
+    # Fill in session summary now that coverage and resolver state are available.
+    if session_id and session_id in _sessions:
+        _sessions[session_id]["summary"] = _compute_summary(
+            all_issues,
+            coverage,
+            grouped=grouped,
+            parsed_data=parsed_data,
+            metab_resolver_missing=metab_resolver_missing,
+            gene_resolver_missing=gene_resolver_missing,
+        )
 
     session_filenames = (
         _sessions[session_id]["file_basenames"] if session_id and session_id in _sessions else []
@@ -430,7 +539,7 @@ async def revalidate(
         for v in adapter.get_validators():
             content_issues.extend(v.validate(parsed_data))
 
-        all_issues = structural_issues + content_issues
+        all_issues = _collapse_dependent_mapping_issues(structural_issues + content_issues)
         grouped    = _group_issues(
             all_issues,
             os.path.basename(project_path),
@@ -468,13 +577,20 @@ async def revalidate(
     warnings = [i for i in all_issues if i.severity == "warning"]
     coverage = _compute_coverage(parsed_data)
 
-    if new_sid and new_sid in _sessions:
-        _sessions[new_sid]["summary"] = _compute_summary(all_issues, coverage)
-
     has_metabolites        = bool(parsed_data and parsed_data.metabolites)
     has_genes              = bool(parsed_data and parsed_data.genes)
     metab_resolver_missing = has_metabolites and "Metabolite" not in _resolver_map
     gene_resolver_missing  = has_genes       and "Gene"       not in _resolver_map
+
+    if new_sid and new_sid in _sessions:
+        _sessions[new_sid]["summary"] = _compute_summary(
+            all_issues,
+            coverage,
+            grouped=grouped,
+            parsed_data=parsed_data,
+            metab_resolver_missing=metab_resolver_missing,
+            gene_resolver_missing=gene_resolver_missing,
+        )
 
     session_filenames = (
         _sessions[new_sid]["file_basenames"] if new_sid and new_sid in _sessions else []
@@ -526,12 +642,14 @@ async def submit_pounce(
         })
 
     # Build email message.
-    summary        = session.get("summary") or {}
-    error_count    = summary.get("error_count", 0)
-    warning_count  = summary.get("warning_count", 0)
-    coverage_lines = summary.get("coverage_lines", [])
-    error_samples  = summary.get("error_samples", [])
+    summary         = session.get("summary") or {}
+    error_count     = summary.get("error_count", 0)
+    warning_count   = summary.get("warning_count", 0)
+    coverage_lines  = summary.get("coverage_lines", [])
+    error_samples   = summary.get("error_samples", [])
     warning_samples = summary.get("warning_samples", [])
+    issue_breakdown = summary.get("issue_breakdown", [])
+    data_counts     = summary.get("data_counts", [])
 
     body_lines = [
         "POUNCE Submission",
@@ -539,9 +657,19 @@ async def submit_pounce(
         f"Submitter: {name} <{email}>",
         f"Project:   {session['project_name']}",
         "",
+        "=== Attached Files ===",
+    ]
+    body_lines.extend([f"  - {filename}" for filename in session.get("file_basenames", [])])
+    if data_counts:
+        body_lines.append("")
+        body_lines.append("=== Parsed Data Snapshot ===")
+        body_lines.extend(data_counts)
+
+    body_lines.extend([
+        "",
         "=== Validation Summary ===",
         f"  Errors:   {error_count}",
-    ]
+    ])
     if error_samples:
         body_lines.extend(error_samples)
         if error_count > 5:
@@ -551,6 +679,10 @@ async def submit_pounce(
         body_lines.extend(warning_samples)
         if warning_count > 5:
             body_lines.append(f"  … {warning_count - 5} more warning(s)")
+    if issue_breakdown:
+        body_lines.append("")
+        body_lines.append("=== Issue Breakdown ===")
+        body_lines.extend(issue_breakdown)
     if coverage_lines:
         body_lines.append("")
         body_lines.append("=== Mapping Coverage ===")

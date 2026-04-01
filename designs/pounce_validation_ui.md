@@ -249,10 +249,10 @@ _pounce_module.set_smtp_config(args.smtp_credentials)
 
 CLI flags added to `app.py`:
 
-| Flag | Default | Purpose |
-|---|---|---|
-| `--pounce-config` / `-P` | `./src/use_cases/pounce.yaml` | Resolver source |
-| `--smtp-credentials` / `-e` | `None` | SMTP config; omit to disable email |
+| Flag | Default                              | Purpose |
+|---|--------------------------------------|---|
+| `--pounce-config` / `-P` | `./src/use_cases/pounce/pounce.yaml` | Resolver source |
+| `--smtp-credentials` / `-e` | `None`                               | SMTP config; omit to disable email |
 
 ---
 

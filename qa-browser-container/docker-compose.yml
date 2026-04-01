@@ -19,12 +19,14 @@ services:
       - src/use_cases/secrets/ifxdev_arangodb.yaml
       - -m
       - src/use_cases/secrets/galeradev_write.yaml
+      - -m
+      - src/use_cases/secrets/pharos_credentials.yaml
       - -s
       - src/use_cases/secrets/ifxdev_minio.yaml
       - --root-path
       - /odin-qa
       - -P
-      - src/use_cases/pounce.yaml
+      - src/use_cases/pounce/pounce.yaml
       - -e
       - src/use_cases/secrets/smtp.yaml
       - -f
