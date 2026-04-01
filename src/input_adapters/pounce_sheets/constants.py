@@ -35,6 +35,7 @@ class ExperimentWorkbook:
             biological_replicate_number = "biological_replicate_number"
             technical_replicate_number = "technical_replicate_number"
             biosample_run_order = "biosample_run_order"
+            batch = "batch"
 
     class RunBioSampleMetaSheet:
         name = "RunBioSampleMeta"

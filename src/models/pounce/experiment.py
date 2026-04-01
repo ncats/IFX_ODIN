@@ -21,6 +21,7 @@ class PlatformType(SimpleEnum):
 if TYPE_CHECKING:
     from src.models.pounce.project import Project, Person
     from src.models.pounce.biosample import Biosample
+    from src.models.pounce.biospecimen import Biospecimen
 
 
 @dataclass
@@ -64,9 +65,16 @@ class RunBiosample(Node):
     biological_replicate_number: Optional[int] = None
     technical_replicate_number: Optional[int] = None
     run_order: Optional[int] = None
+    batch: Optional[str] = None
 
 
 @dataclass
 class BiosampleRunBiosampleEdge(Relationship):
     start_node: "Biosample" = None
     end_node: "RunBiosample" = None
+
+
+@dataclass
+class ExperimentBiospecimenEdge(Relationship):
+    start_node: "Experiment" = None
+    end_node: "Biospecimen" = None

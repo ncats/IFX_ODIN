@@ -2,11 +2,13 @@ import pandas as pd
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
-from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson
+from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson, ParsedBiosample, ParsedBiospecimen, ParsedExperiment, ParsedRunBiosample
+from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 from src.input_adapters.pounce_sheets.pounce_input_adapter import PounceInputAdapter
 from src.input_adapters.pounce_sheets.pounce_node_builder import PounceNodeBuilder
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.models.pounce.project import Project
+from src.models.pounce.experiment import ExperimentBiospecimenEdge, RunBiosample
 from src.constants import DataSourceName
 
 
@@ -74,8 +76,8 @@ def create_adapter_with_mock(project_data: dict, biosample_map_data: dict = None
 def test_person_nodes_and_edges_with_names_and_emails():
     proj = Project(id="PROJ001", name="Test")
     people = [
-        ParsedPerson(name="Alice", email="alice@example.com", role="Owner"),
-        ParsedPerson(name="Bob", email="bob@example.com", role="Owner"),
+        ParsedPerson(name="Alice", email="alice@example.com", roles=["Owner"]),
+        ParsedPerson(name="Bob", email="bob@example.com", roles=["Owner"]),
     ]
     nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
     assert len(nodes) == 2
@@ -87,7 +89,7 @@ def test_person_nodes_and_edges_with_names_and_emails():
 
 def test_person_nodes_and_edges_with_no_email():
     proj = Project(id="PROJ001", name="Test")
-    people = [ParsedPerson(name="Alice", role="Owner")]
+    people = [ParsedPerson(name="Alice", roles=["Owner"])]
     nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
     assert len(nodes) == 1
     assert nodes[0].id == "alice"
@@ -104,13 +106,13 @@ def test_person_nodes_and_edges_with_empty_people():
 def test_person_nodes_and_edges_creates_correct_edges():
     proj = Project(id="PROJ001", name="Test")
     people = [
-        ParsedPerson(name="Alice", email="alice@example.com", role="Owner"),
-        ParsedPerson(name="Bob", email="bob@example.com", role="Collaborator"),
+        ParsedPerson(name="Alice", email="alice@example.com", roles=["Owner"]),
+        ParsedPerson(name="Bob", email="bob@example.com", roles=["Collaborator"]),
     ]
     nodes, edges = PounceNodeBuilder._person_nodes_and_edges(proj, people)
     assert len(edges) == 2
-    assert edges[0].role == "Owner"
-    assert edges[1].role == "Collaborator"
+    assert edges[0].roles == ["Owner"]
+    assert edges[1].roles == ["Collaborator"]
 
 
 # --- get_datasource_name tests ---
@@ -124,3 +126,75 @@ def test_get_datasource_name_returns_ncats_pounce():
 
     # Assert
     assert result == DataSourceName.NCATSPounce
+
+
+def test_experiment_nodes_emit_deduped_experiment_biospecimen_edges():
+    builder = PounceNodeBuilder()
+    project = Project(id="PROJ001", name="Test")
+    project_data = ParsedPounceData(
+        biosamples=[
+            ParsedBiosample(biosample_id="BS1", biosample_type="sample"),
+            ParsedBiosample(biosample_id="BS2", biosample_type="sample"),
+        ],
+        biospecimens=[
+            ParsedBiospecimen(biospecimen_id="SPEC1", biospecimen_type="specimen"),
+            ParsedBiospecimen(biospecimen_id="SPEC1", biospecimen_type="specimen"),
+        ],
+    )
+    list(builder._biosample_nodes(project, project_data))
+
+    exp_data = ParsedPounceData(
+        experiments=[ParsedExperiment(experiment_id="EXP1", experiment_name="Experiment 1")],
+        run_biosamples=[
+            ParsedRunBiosample(run_biosample_id="RB1", biosample_id="BS1"),
+            ParsedRunBiosample(run_biosample_id="RB2", biosample_id="BS2"),
+        ],
+    )
+    exp_parser = MagicMock(spec=ExcelsheetParser)
+    exp_parser.file_path = "experiment.xlsx"
+    exp_parser.sheet_dfs = {}
+
+    with patch.object(PounceNodeBuilder, "_compute_experiment_counts", return_value=(0, 0)):
+        batches = list(builder._experiment_nodes(project, exp_data, exp_parser))
+
+    experiment_biospecimen_edges = [
+        edge
+        for batch in batches
+        for edge in batch
+        if isinstance(edge, ExperimentBiospecimenEdge)
+    ]
+
+    assert len(experiment_biospecimen_edges) == 1
+    assert experiment_biospecimen_edges[0].start_node.id == "EXP1"
+    assert experiment_biospecimen_edges[0].end_node.id == "PROJ001-SPEC1"
+
+
+def test_experiment_nodes_propagate_run_biosample_batch():
+    builder = PounceNodeBuilder()
+    project = Project(id="PROJ001", name="Test")
+    project_data = ParsedPounceData(
+        biosamples=[ParsedBiosample(biosample_id="BS1", biosample_type="sample")],
+        biospecimens=[ParsedBiospecimen(biospecimen_id="SPEC1", biospecimen_type="specimen")],
+    )
+    list(builder._biosample_nodes(project, project_data))
+
+    exp_data = ParsedPounceData(
+        experiments=[ParsedExperiment(experiment_id="EXP1", experiment_name="Experiment 1")],
+        run_biosamples=[ParsedRunBiosample(run_biosample_id="RB1", biosample_id="BS1", batch="3")],
+    )
+    exp_parser = MagicMock(spec=ExcelsheetParser)
+    exp_parser.file_path = "experiment.xlsx"
+    exp_parser.sheet_dfs = {}
+
+    with patch.object(PounceNodeBuilder, "_compute_experiment_counts", return_value=(0, 0)):
+        batches = list(builder._experiment_nodes(project, exp_data, exp_parser))
+
+    run_biosamples = [
+        node
+        for batch in batches
+        for node in batch
+        if isinstance(node, RunBiosample)
+    ]
+
+    assert len(run_biosamples) == 1
+    assert run_biosamples[0].batch == "3"

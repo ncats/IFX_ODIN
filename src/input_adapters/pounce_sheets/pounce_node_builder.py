@@ -23,7 +23,7 @@ from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRun
 from src.models.pounce.demographics import Demographics
 from src.models.pounce.exposure import Exposure
 from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge
-from src.models.pounce.experiment import Experiment, PlatformType, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge
+from src.models.pounce.experiment import Experiment, PlatformType, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge, ExperimentBiospecimenEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
 from src.models.pounce.project import Project, AccessLevel, ProjectType, Person, ProjectPersonEdge, \
     ProjectBiosampleEdge, LabGroup
@@ -33,6 +33,7 @@ from src.models.pounce.project import Project, AccessLevel, ProjectType, Person,
 class PounceContext:
     project: Optional[Project] = None
     biosample_by_original_id: Dict[str, Biosample] = field(default_factory=dict)
+    biospecimen_by_biosample_id: Dict[str, Biospecimen] = field(default_factory=dict)
     run_biosample_by_original_id: Dict[str, RunBiosample] = field(default_factory=dict)
     gene_by_raw_id: Dict[str, Any] = field(default_factory=dict)
     metabolite_by_raw_id: Dict[str, Any] = field(default_factory=dict)
@@ -154,6 +155,7 @@ class PounceNodeBuilder:
             )
             biosamples.append(biosample_obj)
             self._ctx.biosample_by_original_id[str(parsed_bs.biosample_id)] = biosample_obj
+            self._ctx.biospecimen_by_biosample_id[biosample_obj.id] = biospecimens[full_biospecimen_id]
 
             project_biosample_edges.append(ProjectBiosampleEdge(start_node=proj_obj, end_node=biosample_obj))
             biosample_biospecimen_edges.append(
@@ -245,28 +247,42 @@ class PounceNodeBuilder:
         # Run biosamples
         run_biosamples = []
         rb_edges: List[BiosampleRunBiosampleEdge] = []
+        experiment_biospecimen_edges: List[ExperimentBiospecimenEdge] = []
+        seen_biospecimen_ids = set()
         for parsed_rb in exp_data.run_biosamples:
             run_biosample_id = parsed_rb.run_biosample_id
             run_biosample_obj = RunBiosample(
                 id=f"{proj_obj.id}-{run_biosample_id}",
                 biological_replicate_number=self._parse_int(parsed_rb.biological_replicate_number),
                 technical_replicate_number=self._parse_int(parsed_rb.technical_replicate_number),
-                run_order=self._parse_int(parsed_rb.biosample_run_order)
+                run_order=self._parse_int(parsed_rb.biosample_run_order),
+                batch=parsed_rb.batch
             )
             run_biosamples.append(run_biosample_obj)
             self._ctx.run_biosample_by_original_id[str(run_biosample_id)] = run_biosample_obj
 
             biosample_id = str(parsed_rb.biosample_id)
             if biosample_id in self._ctx.biosample_by_original_id:
+                biosample_obj = self._ctx.biosample_by_original_id[biosample_id]
                 rb_edges.append(BiosampleRunBiosampleEdge(
-                    start_node=self._ctx.biosample_by_original_id[biosample_id],
+                    start_node=biosample_obj,
                     end_node=run_biosample_obj
                 ))
+                biospecimen_obj = self._ctx.biospecimen_by_biosample_id.get(biosample_obj.id)
+                if biospecimen_obj is None:
+                    print(f"Warning: Biosample has no biospecimen mapping: {biosample_obj.id}")
+                elif biospecimen_obj.id not in seen_biospecimen_ids:
+                    seen_biospecimen_ids.add(biospecimen_obj.id)
+                    experiment_biospecimen_edges.append(
+                        ExperimentBiospecimenEdge(start_node=experiment_obj, end_node=biospecimen_obj)
+                    )
             else:
                 print(f"Warning: RunBiosample references unknown biosample_id: {biosample_id}")
 
         yield run_biosamples
         yield rb_edges
+        if experiment_biospecimen_edges:
+            yield experiment_biospecimen_edges
 
         sheet_names = exp_parser.sheet_dfs.keys()
         if ExperimentWorkbook.GeneMetaSheet.name in sheet_names:
@@ -281,6 +297,7 @@ class PounceNodeBuilder:
                 meta_sheet=ExperimentWorkbook.RawDataMetaSheet.name,
                 data_sheet=ExperimentWorkbook.RawDataSheet.name,
                 analyte_id_col=analyte_id_col,
+                data_type="raw data",
                 parser=exp_parser
             )
         if ExperimentWorkbook.PeakDataSheet.name in sheet_names:
@@ -291,6 +308,7 @@ class PounceNodeBuilder:
                 meta_sheet=ExperimentWorkbook.PeakDataMetaSheet.name,
                 data_sheet=ExperimentWorkbook.PeakDataSheet.name,
                 analyte_id_col=analyte_id_col,
+                data_type="raw data",
                 parser=exp_parser
             )
 
@@ -496,16 +514,14 @@ class PounceNodeBuilder:
 
     def _parse_data_matrix(self, experiment_obj: Experiment, meta_sheet: str,
                            data_sheet: str, analyte_id_col: str = None,
-                           default_data_type: str = "raw_counts",
+                           data_type: str = "raw data",
                            parser: ExcelsheetParser = None
                            ) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse a data matrix sheet (RawData, PeakData, or StatsReadyData) into a Dataset node."""
         pre_processing = parser.safe_get_string(meta_sheet, "pre_processing_description")
         peri_processing = parser.safe_get_string(meta_sheet, "peri_processing_description")
-        peakdata_tag = parser.safe_get_string(meta_sheet, "peakdata_tag")
-
-        data_type = peakdata_tag.lower() if peakdata_tag else default_data_type
-        dataset_id = f"{experiment_obj.id}:{data_type}"
+        dataset_id_suffix = data_type.replace(" ", "_")
+        dataset_id = f"{experiment_obj.id}:{dataset_id_suffix}"
 
         raw_df = self._prepare_data_frame(parser, data_sheet, analyte_id_col)
 
@@ -567,7 +583,7 @@ class PounceNodeBuilder:
                 meta_sheet=StatsResultsWorkbook.StatsResultsMetaSheet.name,
                 data_sheet=StatsResultsWorkbook.StatsReadyDataSheet.name,
                 analyte_id_col=analyte_id_col,
-                default_data_type="stats_ready",
+                data_type="stats ready data",
                 parser=stats_parser
             )
 

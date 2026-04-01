@@ -244,8 +244,8 @@ class TestBuildPersons:
     def test_builds_persons_with_matching_emails(self):
         result = PounceParser._build_persons(["Alice", "Bob"], ["a@x.com", "b@x.com"], "Owner")
         assert len(result) == 2
-        assert result[0] == ParsedPerson(name="Alice", email="a@x.com", role="Owner")
-        assert result[1] == ParsedPerson(name="Bob", email="b@x.com", role="Owner")
+        assert result[0] == ParsedPerson(name="Alice", email="a@x.com", roles=["Owner"])
+        assert result[1] == ParsedPerson(name="Bob", email="b@x.com", roles=["Owner"])
 
     def test_drops_emails_when_counts_differ(self):
         result = PounceParser._build_persons(["Alice", "Bob"], ["a@x.com"], "Owner")
@@ -253,11 +253,11 @@ class TestBuildPersons:
 
     def test_no_emails_list(self):
         result = PounceParser._build_persons(["Alice"], [], "Collaborator")
-        assert result == [ParsedPerson(name="Alice", email=None, role="Collaborator")]
+        assert result == [ParsedPerson(name="Alice", email=None, roles=["Collaborator"])]
 
     def test_assigns_correct_role(self):
         result = PounceParser._build_persons(["Alice"], ["a@x.com"], "Collaborator")
-        assert result[0].role == "Collaborator"
+        assert result[0].roles == ["Collaborator"]
 
 
 # ---------------------------------------------------------------------------
@@ -401,10 +401,10 @@ class TestParseProject:
             "owner_email": ["alice@x.com", "bob@x.com"],
         })
         data, _ = PounceParser().parse_project(parser)
-        owners = [p for p in data.people if p.role == "Owner"]
+        owners = [p for p in data.people if p.roles == ["Owner"]]
         assert len(owners) == 2
-        assert owners[0] == ParsedPerson(name="Alice", email="alice@x.com", role="Owner")
-        assert owners[1] == ParsedPerson(name="Bob", email="bob@x.com", role="Owner")
+        assert owners[0] == ParsedPerson(name="Alice", email="alice@x.com", roles=["Owner"])
+        assert owners[1] == ParsedPerson(name="Bob", email="bob@x.com", roles=["Owner"])
 
     def test_builds_collaborators(self):
         parser = _make_project_parser({
@@ -412,7 +412,7 @@ class TestParseProject:
             "collaborator_email": ["carol@x.com"],
         })
         data, _ = PounceParser().parse_project(parser)
-        collabs = [p for p in data.people if p.role == "Collaborator"]
+        collabs = [p for p in data.people if p.roles == ["Collaborator"]]
         assert len(collabs) == 1
         assert collabs[0].name == "Carol"
         assert collabs[0].email == "carol@x.com"
@@ -426,8 +426,8 @@ class TestParseProject:
         })
         data, _ = PounceParser().parse_project(parser)
         assert len(data.people) == 2
-        roles = {p.role for p in data.people}
-        assert roles == {"Owner", "Collaborator"}
+        roles = {tuple(p.roles) for p in data.people}
+        assert roles == {("Owner",), ("Collaborator",)}
 
     def test_no_people_when_names_absent(self):
         parser = _make_project_parser({})
@@ -558,6 +558,7 @@ BASIC_RUN_MAP = {
     "biological_replicate_number": "BioRep",
     "technical_replicate_number": "TechRep",
     "biosample_run_order": "RunOrder",
+    "batch": "Batch",
 }
 
 
@@ -607,6 +608,12 @@ class TestParseExperiment:
         parser = _make_experiment_parser({}, BASIC_RUN_MAP, rows)
         data, _ = PounceParser().parse_experiment(parser)
         assert data.run_biosamples[0].biosample_id == "S1"
+
+    def test_parses_run_biosample_batch(self):
+        rows = [{"RunID": "R1", "SampleID": "S1", "BioRep": "1", "TechRep": "1", "RunOrder": "1", "Batch": "2"}]
+        parser = _make_experiment_parser({}, BASIC_RUN_MAP, rows)
+        data, _ = PounceParser().parse_experiment(parser)
+        assert data.run_biosamples[0].batch == "2"
 
     def test_no_run_biosamples_when_sheets_absent(self):
         parser = _make_experiment_parser({"experiment_id": "EXP001"})
