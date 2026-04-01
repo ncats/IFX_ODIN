@@ -51,7 +51,7 @@
     <div class="engine-header">
         <div class="engine-badge engine-badge-arango">{{ arango_icon }}</div>
         <span>ArangoDB Url: </span>
-        <span class="engine-host">{{ arango_url }}</span>
+        <a href="{{ arango_url }}" class="engine-host">{{ arango_url }}</a>
     </div>
     <div class="db-grid">
         {% for db in databases %}
