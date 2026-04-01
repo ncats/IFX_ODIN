@@ -211,10 +211,7 @@ def _get_graph_views(db) -> dict:
         return {}
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
-
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+def _build_browser_home_context(request: Request) -> dict:
     # Arango databases
     arango_databases = []
     arango_url = _credentials.get("url", "")
@@ -253,14 +250,32 @@ async def home(request: Request):
             print(f"Failed to connect to MySQL source {source_id}:", sys.exc_info()[1])
             pass
 
-    return templates.TemplateResponse(request, "home.html", {
+    return {
         "request": request,
         "databases": arango_databases,
         "arango_url": arango_url,
         "mysql_databases": mysql_databases,
         "mysql_sources": mysql_sources,
         "demo_queries_enabled": _demo_queries_enabled,
+    }
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse(request, "home.html", {
+        "request": request,
     })
+
+
+@app.get("/qa-browser", response_class=HTMLResponse)
+async def qa_browser_home(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "qa_browser_home.html",
+        _build_browser_home_context(request),
+    )
 
 
 @app.get("/db/{db_name}", response_class=HTMLResponse)
