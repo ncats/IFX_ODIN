@@ -198,10 +198,13 @@ class PounceNodeBuilder:
 
         exp_date = None
         if parsed.date:
-            try:
-                exp_date = datetime.strptime(str(parsed.date), "%Y%m%d").date()
-            except ValueError:
-                pass
+            if isinstance(parsed.date, datetime):
+                exp_date = parsed.date.date()
+            else:
+                try:
+                    exp_date = datetime.strptime(str(parsed.date), "%Y%m%d").date()
+                except ValueError:
+                    exp_date = parsed.date
 
         analyte_count, biosample_count = self._compute_experiment_counts(exp_data, exp_parser, stats_parser)
 

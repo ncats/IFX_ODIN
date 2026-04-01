@@ -160,8 +160,8 @@ class ParsedExperiment:
         key="experiment_design", sheet="ExperimentMeta")
     experiment_type: Optional[str] = sheet_field(
         key="experiment_type", sheet="ExperimentMeta")
-    date: Optional[str] = sheet_field(
-        key="date", sheet="ExperimentMeta")
+    date: Optional[date] = sheet_field(
+        key="date", sheet="ExperimentMeta", parse="date")
     lead_data_generator: Optional[str] = sheet_field(
         key="lead_data_generator", sheet="ExperimentMeta")
     lead_data_generator_email: Optional[str] = sheet_field(

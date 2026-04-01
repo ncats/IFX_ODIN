@@ -1,5 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
 
 import pandas as pd
 
@@ -12,11 +14,13 @@ class ExcelsheetParser:
     file_path: str
     sheet_dfs: Dict[str, pd.DataFrame]
     _parameter_map_cache: Dict[str, Dict[str, str]]
+    _sheet_xml_paths: Dict[str, str]
 
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.sheet_dfs = self._read_all_sheets()
         self._parameter_map_cache = {}
+        self._sheet_xml_paths = self._load_sheet_xml_paths()
 
     def _read_all_sheets(self) -> Dict[str, pd.DataFrame]:
         xls = pd.ExcelFile(self.file_path)
@@ -58,6 +62,22 @@ class ExcelsheetParser:
     def get_one_date(self, sheet_name: str, data_key: str) -> datetime:
         sheet_df = self.sheet_dfs[sheet_name]
         date_string = self._get_one_value(sheet_df, data_key)
+        if isinstance(date_string, datetime):
+            return date_string
+        if date_string is None:
+            raw_value = self._get_raw_submitter_value(sheet_name, data_key)
+            if raw_value not in (None, ""):
+                date_string = raw_value
+        if isinstance(date_string, (int, float)) and not isinstance(date_string, bool):
+            date_string = str(int(date_string))
+        if isinstance(date_string, str):
+            stripped = date_string.strip()
+            if len(stripped) == 8 and stripped.isdigit():
+                return datetime.strptime(stripped, "%Y%m%d")
+            try:
+                return datetime.fromisoformat(stripped)
+            except ValueError:
+                pass
         return datetime.strptime(str(date_string), "%Y%m%d")
 
     def get_parameter_map(self, sheet_name: str) -> Dict[str, str]:
@@ -82,3 +102,57 @@ class ExcelsheetParser:
     def get_mapped_value(self, sheet_name: str, key: str) -> str:
         param_map = self.get_parameter_map(sheet_name=sheet_name)
         return param_map[key]
+
+    def _load_sheet_xml_paths(self) -> Dict[str, str]:
+        ns = {
+            "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+            "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
+        }
+        with ZipFile(self.file_path) as zf:
+            workbook_root = ET.fromstring(zf.read("xl/workbook.xml"))
+            rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        rel_map = {
+            rel.attrib["Id"]: rel.attrib["Target"]
+            for rel in rels_root.findall("pkg:Relationship", ns)
+        }
+        sheet_paths = {}
+        for sheet in workbook_root.findall("main:sheets/main:sheet", ns):
+            name = sheet.attrib["name"]
+            rel_id = sheet.attrib[f"{{{ns['rel']}}}id"]
+            target = rel_map[rel_id]
+            sheet_paths[name] = target if target.startswith("xl/") else f"xl/{target}"
+        return sheet_paths
+
+    def _get_raw_submitter_value(self, sheet_name: str, data_key: str) -> Optional[str]:
+        sheet_df = self.sheet_dfs[sheet_name]
+        matches = sheet_df.index[sheet_df[self.KEY_COLUMN] == data_key].tolist()
+        if len(matches) != 1:
+            return None
+
+        sheet_xml_path = self._sheet_xml_paths.get(sheet_name)
+        if not sheet_xml_path:
+            return None
+
+        excel_row_number = matches[0] + 2  # header row + 1-based indexing
+        value_column_number = sheet_df.columns.get_loc(self.VALUE_COLUMN) + 1
+        cell_ref = f"{self._column_number_to_letters(value_column_number)}{excel_row_number}"
+
+        ns = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        with ZipFile(self.file_path) as zf:
+            sheet_root = ET.fromstring(zf.read(sheet_xml_path))
+
+        for cell in sheet_root.findall(f".//main:c[@r='{cell_ref}']", ns):
+            raw_value = cell.findtext("main:v", default=None, namespaces=ns)
+            if raw_value is not None:
+                return raw_value.strip()
+        return None
+
+    @staticmethod
+    def _column_number_to_letters(column_number: int) -> str:
+        letters = []
+        n = column_number
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            letters.append(chr(65 + remainder))
+        return "".join(reversed(letters))
