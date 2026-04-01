@@ -4,91 +4,26 @@ main.py — ODIN Entity Resolution Pipeline CLI
 """
 
 import argparse
+import importlib
 import os
 import sys
 import time
 import traceback
-import json
 from pathlib import Path
-from datetime import datetime
 
 import yaml
-import pandas as pd
+from threading import RLock
 
-# ---------------------------------------------------------------------------
-# TARGETS category imports
-# ---------------------------------------------------------------------------
-from publicdata.target_data.ensembl_download import EnsemblDownloader
-from publicdata.target_data.ensembl_transform import EnsemblTransformer
-from publicdata.target_data.ensembl_uniprot_isoform_xref import EnsemblUniProtIsoformXref
-from publicdata.target_data.ncbi_download import NCBIDownloader
-from publicdata.target_data.ncbi_transform import NCBITransformer
-from publicdata.target_data.hgnc_download import HGNCDownloader
-from publicdata.target_data.hgnc_transform import HGNCTransformer
-from publicdata.target_data.refseq_download import RefSeqDownloader
-from publicdata.target_data.refseq_transform import RefSeqTransformer
-from publicdata.target_data.uniprot_download import UniprotDownloader
-from publicdata.target_data.uniprot_transform import UniProtTransformer
-from publicdata.target_data.nodenorm_gene_download import NodeNormGeneDownloader
-from publicdata.target_data.nodenorm_gene_transform import NodeNormGeneTransformer
-from publicdata.target_data.nodenorm_protein_download import NodeNormProteinDownloader
-from publicdata.target_data.nodenorm_protein_transform import NodeNormProteinTransformer
-from publicdata.target_data.gene_merge import GENEDataMerger
-from publicdata.target_data.gene_ids import GeneDataProcessor
-from publicdata.target_data.transcript_merge import TranscriptResolver
-from publicdata.target_data.transcript_ids import TranscriptDataProcessor
-from publicdata.target_data.protein_merge import ProteinResolver
-from publicdata.target_data.protein_ids import ProteinDataProcessor
-from publicdata.target_data.antibodypedia_scraper import AntibodypediaScraper
-from publicdata.target_data.target_version import DownloadCatalogProcessor
+try:
+    from tqdm import tqdm
+    tqdm.set_lock(RLock())
+except Exception:
+    tqdm = None
 
-# ---------------------------------------------------------------------------
-# DISEASES category imports
-# ---------------------------------------------------------------------------
-from publicdata.disease_data.mondo_download import MondoDownloader
-from publicdata.disease_data.mondo_transform import MondoTransformer
-from publicdata.disease_data.doid_download import DOIDDownloader
-from publicdata.disease_data.doid_transform import DOIDTransformer
-from publicdata.disease_data.medgen_download import MedGenDownloader
-from publicdata.disease_data.medgen_transform import MedGenTransformer
-from publicdata.disease_data.orphanet_download import OrphanetDownloader
-from publicdata.disease_data.orphanet_transform import OrphanetTransformer
-from publicdata.disease_data.omim_download import OMIMDownloader
-from publicdata.disease_data.omim_transform import OMIMTransformer
-from publicdata.disease_data.umls_download import UMLSDownloader
-from publicdata.disease_data.nodenorm_disease_download import NodeNormDiseaseDownloader
-from publicdata.disease_data.nodenorm_disease_transform import NodeNormDiseaseTransformer
-from publicdata.disease_data.disease_name_cluster import DiseaseNameClusterer
-from publicdata.disease_data.disease_merge import DiseaseDataMerger
-from publicdata.disease_data.rdip_deliverable import RDIPDeliverable
-from publicdata.disease_data.jensen_download import JensenDiseaseDownloader
-from publicdata.disease_data.jensen_transform import JensenDiseaseTransformer
-from publicdata.disease_data.disease_id import DiseaseIDProcessor
-
-# ---------------------------------------------------------------------------
-# Other category imports
-# ---------------------------------------------------------------------------
-from publicdata.drug_data.gsrs_download import GSRSDownloader
-from publicdata.drug_data.gsrs_transform import GSRSTransformer
-from publicdata.GO_data.GO_download import GODownloader
-from publicdata.GO_data.GO_transform import GOTransformer
-from publicdata.PPI_data.string_download import StringPPIDownloader
-from publicdata.PPI_data.string_transform import StringPPITransformer
-from publicdata.phenotype_data.hpo_download import HPOPhenotypeDownloader
-from publicdata.phenotype_data.hpo_transform import HPOPhenotypeTransformer
-from publicdata.pathway_data.pathwaycommons_download import PathwayCommonsDownloader
-from publicdata.pathway_data.pathwaycommons_transform import PathwayCommonsTransformer
-from publicdata.pathway_data.panther_download import PantherDownloader
-from publicdata.pathway_data.panther_transform import PantherTransformer
-from publicdata.pathway_data.reactome_download import ReactomeDownloader
-from publicdata.pathway_data.reactome_transform import ReactomeTransformer
-from publicdata.pathway_data.wikipathway_download import WikiPathwaysDownloader
-from publicdata.pathway_data.wikipathway_transform import WikiPathwaysTransformer
-from publicdata.pathway_data.nodenorm_pathway_download import NodeNormPathwayDownloader
-from publicdata.pathway_data.nodenorm_pathway_transform import NodeNormPathwayTransformer
-from publicdata.pathway_data.pathways_merge import PathwayMergerTransformer
-from publicdata.pathway_data.pathway_ids import PathwayIDGenerator
-from publicdata.metabolite_data.hmdb_transform import HMDBTransformer
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 DEFAULT_CONFIGS = {
     "TARGETS":     "config/targets_config.yaml",
@@ -102,76 +37,81 @@ DEFAULT_CONFIGS = {
 }
 
 PROCESSOR_MAP = {
-    "ensembl_download":           (EnsemblDownloader,          None, "Download Ensembl BioMart data (4 queries)"),
-    "ncbi_download":              (NCBIDownloader,             None, "Download NCBI gene_info for Homo sapiens"),
-    "hgnc_download":              (HGNCDownloader,             None, "Download HGNC complete gene set"),
-    "refseq_download":            (RefSeqDownloader,           None, "Download RefSeq gene2refseq, gene2ensembl, gene_refseq_uniprotkb"),
-    "uniprot_download":           (UniprotDownloader,          None, "Download UniProtKB JSON + ID mapping + SPARQL isoforms"),
-    "nodenorm_gene_download":     (NodeNormGeneDownloader,     None, "Download NodeNorm gene compendium (human-filtered JSONL)"),
-    "nodenorm_protein_download":  (NodeNormProteinDownloader,  None, "Download NodeNorm protein compendium (human-filtered JSONL)"),
-    "ensembl_transform":          (EnsemblTransformer,         None, "Merge 4 Ensembl BioMart parts → ensembl_data_with_isoforms.csv"),
-    "ensembl_isoform":            (EnsemblUniProtIsoformXref,  None, "SPARQL cross-ref Ensembl ↔ UniProt isoforms; fill missing isoform IDs"),
-    "ncbi_transform":             (NCBITransformer,            None, "Parse NCBI gene_info TSV, expand dbXrefs → ncbi_gene_info.csv"),
-    "hgnc_transform":             (HGNCTransformer,            None, "Clean HGNC TSV, expand UniProt IDs → hgnc_complete_set.csv"),
-    "refseq_transform":           (RefSeqTransformer,          None, "Rename RefSeq columns, build RNA/protein concat CSVs"),
-    "uniprot_transform":          (UniProtTransformer,         None, "Flatten UniProt JSON → mapping + reviewed info CSVs with isoforms"),
-    "nodenorm_gene_transform":    (NodeNormGeneTransformer,    None, "Parse NodeNorm gene JSONL → nodenorm_genes.csv"),
-    "nodenorm_protein_transform": (NodeNormProteinTransformer, None, "Parse NodeNorm protein JSONL → nodenorm_proteins.csv"),
-    "gene_merge":                 (GENEDataMerger,             None, "Merge Ensembl + NCBI + HGNC + NodeNorm → gene_mapping_provenance.csv"),
-    "transcript_merge":           (TranscriptResolver,         None, "Merge BioMart + RefSeq + Ensembl isoforms → transcript_mapping_provenance.csv"),
-    "protein_merge":              (ProteinResolver,            None, "Merge UniProt + Ensembl + RefSeq + NodeNorm → protein_provenance_mapping.csv"),
-    "gene_ids":                   (GeneDataProcessor,          None, "Mint/preserve stable NCATS gene IDs → gene_ids.tsv"),
-    "transcript_ids":             (TranscriptDataProcessor,    None, "Mint/preserve stable NCATS transcript IDs → transcript_ids.tsv"),
-    "protein_ids":                (ProteinDataProcessor,       None, "Mint/preserve stable NCATS protein IDs → protein_ids.tsv"),
-    "target_version":             (DownloadCatalogProcessor,   None, "Collect all dl_*_metadata.json → dl_catalog.csv version summary"),
-    "antibodypedia":              (AntibodypediaScraper,       None, "[OPTIONAL] Scrape Antibodypedia for antibody counts (requires Chrome)"),
+    "ensembl_download":           ("publicdata.target_data.ensembl_download", "EnsemblDownloader",          None, "Download Ensembl BioMart data (4 queries)"),
+    "ncbi_download":              ("publicdata.target_data.ncbi_download", "NCBIDownloader",             None, "Download NCBI gene_info for Homo sapiens"),
+    "hgnc_download":              ("publicdata.target_data.hgnc_download", "HGNCDownloader",             None, "Download HGNC complete gene set"),
+    "refseq_download":            ("publicdata.target_data.refseq_download", "RefSeqDownloader",           None, "Download RefSeq gene2refseq, gene2ensembl, gene_refseq_uniprotkb"),
+    "uniprot_download":           ("publicdata.target_data.uniprot_download", "UniprotDownloader",          None, "Download UniProtKB JSON + ID mapping + SPARQL isoforms"),
+    "nodenorm_gene_download":     ("publicdata.target_data.nodenorm_gene_download", "NodeNormGeneDownloader",     None, "Download NodeNorm gene compendium (human-filtered JSONL)"),
+    "nodenorm_protein_download":  ("publicdata.target_data.nodenorm_protein_download", "NodeNormProteinDownloader",  None, "Download NodeNorm protein compendium (human-filtered JSONL)"),
+    "ensembl_transform":          ("publicdata.target_data.ensembl_transform", "EnsemblTransformer",         None, "Merge 4 Ensembl BioMart parts → ensembl_data_with_isoforms.csv"),
+    "ensembl_isoform":            ("publicdata.target_data.ensembl_uniprot_isoform_xref", "EnsemblUniProtIsoformXref",  None, "SPARQL cross-ref Ensembl ↔ UniProt isoforms; fill missing isoform IDs"),
+    "ncbi_transform":             ("publicdata.target_data.ncbi_transform", "NCBITransformer",            None, "Parse NCBI gene_info TSV, expand dbXrefs → ncbi_gene_info.csv"),
+    "hgnc_transform":             ("publicdata.target_data.hgnc_transform", "HGNCTransformer",            None, "Clean HGNC TSV, expand UniProt IDs → hgnc_complete_set.csv"),
+    "refseq_transform":           ("publicdata.target_data.refseq_transform", "RefSeqTransformer",          None, "Rename RefSeq columns, build RNA/protein concat CSVs"),
+    "uniprot_transform":          ("publicdata.target_data.uniprot_transform", "UniProtTransformer",         None, "Flatten UniProt JSON → mapping + reviewed info CSVs with isoforms"),
+    "nodenorm_gene_transform":    ("publicdata.target_data.nodenorm_gene_transform", "NodeNormGeneTransformer",    None, "Parse NodeNorm gene JSONL → nodenorm_genes.csv"),
+    "nodenorm_protein_transform": ("publicdata.target_data.nodenorm_protein_transform", "NodeNormProteinTransformer", None, "Parse NodeNorm protein JSONL → nodenorm_proteins.csv"),
+    "gene_merge":                 ("publicdata.target_data.gene_merge", "GENEDataMerger",             None, "Merge Ensembl + NCBI + HGNC + NodeNorm → gene_mapping_provenance.csv"),
+    "transcript_merge":           ("publicdata.target_data.transcript_merge", "TranscriptResolver",         None, "Merge BioMart + RefSeq + Ensembl isoforms → transcript_mapping_provenance.csv"),
+    "protein_merge":              ("publicdata.target_data.protein_merge", "ProteinResolver",            None, "Merge UniProt + Ensembl + RefSeq + NodeNorm → protein_provenance_mapping.csv"),
+    "gene_ids":                   ("publicdata.target_data.gene_ids", "GeneDataProcessor",          None, "Mint/preserve stable NCATS gene IDs → gene_ids.tsv"),
+    "transcript_ids":             ("publicdata.target_data.transcript_ids", "TranscriptDataProcessor",    None, "Mint/preserve stable NCATS transcript IDs → transcript_ids.tsv"),
+    "protein_ids":                ("publicdata.target_data.protein_ids", "ProteinDataProcessor",       None, "Mint/preserve stable NCATS protein IDs → protein_ids.tsv"),
+    "target_version":             ("publicdata.target_data.target_version", "DownloadCatalogProcessor",   None, "Collect all dl_*_metadata.json → dl_catalog.csv version summary"),
+    "antibodypedia":              ("publicdata.target_data.antibodypedia_scraper", "AntibodypediaScraper",       None, "[OPTIONAL] Scrape Antibodypedia for antibody counts (requires Chrome)"),
 
-    "mondo_download":              (MondoDownloader,             None, "Download Mondo disease ontology"),
-    "mondo_transform":             (MondoTransformer,            None, "Transform Mondo OWL → cleaned CSV"),
-    "doid_download":               (DOIDDownloader,              None, "Download Disease Ontology (DOID)"),
-    "doid_transform":              (DOIDTransformer,             None, "Transform DOID OWL → cleaned CSV"),
-    "medgen_download":             (MedGenDownloader,            None, "Download NCBI MedGen concepts"),
-    "medgen_transform":            (MedGenTransformer,           None, "Transform MedGen data"),
-    "orphanet_download":           (OrphanetDownloader,          None, "Download Orphanet rare disease data"),
-    "orphanet_transform":          (OrphanetTransformer,         None, "Transform Orphanet XML → CSV"),
-    "omim_download":               (OMIMDownloader,              None, "Download OMIM gene-phenotype data"),
-    "omim_transform":              (OMIMTransformer,             None, "Transform OMIM data"),
-    "nodenorm_disease_download":   (NodeNormDiseaseDownloader,   None, "Download NodeNorm disease compendium"),
-    "nodenorm_disease_transform":  (NodeNormDiseaseTransformer,  None, "Parse NodeNorm disease JSONL → CSV"),
-    #"umls_download":               (UMLSDownloader,              None, "Download UMLS metathesaurus (requires UMLS account)"),
-    "disease_merge":               (DiseaseDataMerger,           None, "Merge all disease sources → harmonized disease table"),
-    "jensen_download":             (JensenDiseaseDownloader,     None, "Download Jensen Lab disease associations"),
-    "jensen_transform":            (JensenDiseaseTransformer,    None, "Transform Jensen disease data"),
-    "disease_ids":                 (DiseaseIDProcessor,          None, "Mint/preserve stable NCATS disease IDs → disease_ids.tsv"),
-    "rdip_deliverable":            (RDIPDeliverable, None, "Generate RDIP rare disease harmonized xrefs"),
+    "mondo_download":              ("publicdata.disease_data.mondo_download", "MondoDownloader",             None, "Download Mondo disease ontology"),
+    "mondo_transform":             ("publicdata.disease_data.mondo_transform", "MondoTransformer",            None, "Transform Mondo OWL → cleaned CSV"),
+    "doid_download":               ("publicdata.disease_data.doid_download", "DOIDDownloader",              None, "Download Disease Ontology (DOID)"),
+    "doid_transform":              ("publicdata.disease_data.doid_transform", "DOIDTransformer",             None, "Transform DOID OWL → cleaned CSV"),
+    "medgen_download":             ("publicdata.disease_data.medgen_download", "MedGenDownloader",            None, "Download NCBI MedGen concepts"),
+    "medgen_transform":            ("publicdata.disease_data.medgen_transform", "MedGenTransformer",           None, "Transform MedGen data"),
+    "orphanet_download":           ("publicdata.disease_data.orphanet_download", "OrphanetDownloader",          None, "Download Orphanet rare disease data"),
+    "orphanet_transform":          ("publicdata.disease_data.orphanet_transform", "OrphanetTransformer",         None, "Transform Orphanet XML → CSV"),
+    "omim_download":               ("publicdata.disease_data.omim_download", "OMIMDownloader",              None, "Download OMIM gene-phenotype data"),
+    "omim_transform":              ("publicdata.disease_data.omim_transform", "OMIMTransformer",             None, "Transform OMIM data"),
+    "nodenorm_disease_download":   ("publicdata.disease_data.nodenorm_disease_download", "NodeNormDiseaseDownloader",   None, "Download NodeNorm disease compendium"),
+    "nodenorm_disease_transform":  ("publicdata.disease_data.nodenorm_disease_transform", "NodeNormDiseaseTransformer",  None, "Parse NodeNorm disease JSONL → CSV"),
+    "disease_merge":               ("publicdata.disease_data.disease_merge", "DiseaseDataMerger",           None, "Merge all disease sources → harmonized disease table"),
+    "jensen_download":             ("publicdata.disease_data.jensen_download", "JensenDiseaseDownloader",     None, "Download Jensen Lab disease associations"),
+    "jensen_transform":            ("publicdata.disease_data.jensen_transform", "JensenDiseaseTransformer",    None, "Transform Jensen disease data"),
+    "disease_ids":                 ("publicdata.disease_data.disease_id", "DiseaseIDProcessor",          None, "Mint/preserve stable NCATS disease IDs → disease_ids.tsv"),
+    "rdip_deliverable":            ("publicdata.disease_data.rdip_deliverable", "RDIPDeliverable", None, "Generate RDIP rare disease harmonized xrefs"),
 
-    "gsrs_download":  (GSRSDownloader,  None, "Download FDA GSRS substance registry"),
-    "gsrs_transform": (GSRSTransformer, None, "Transform GSRS data"),
+    "gsrs_download":  ("publicdata.drug_data.gsrs_download", "GSRSDownloader",  None, "Download FDA GSRS substance registry"),
+    "gsrs_transform": ("publicdata.drug_data.gsrs_transform", "GSRSTransformer", None, "Transform GSRS data"),
 
-    "go_download":  (GODownloader,  None, "Download Gene Ontology (GO) annotation data"),
-    "go_transform": (GOTransformer, None, "Transform GO annotations"),
+    "go_download":  ("publicdata.GO_data.GO_download", "GODownloader",  None, "Download Gene Ontology (GO) annotation data"),
+    "go_transform": ("publicdata.GO_data.GO_transform", "GOTransformer", None, "Transform GO annotations"),
 
-    "string_download":  (StringPPIDownloader,  None, "Download STRING protein interaction network"),
-    "string_transform": (StringPPITransformer, None, "Transform STRING PPI data"),
+    "string_download":  ("publicdata.PPI_data.string_download", "StringPPIDownloader",  None, "Download STRING protein interaction network"),
+    "string_transform": ("publicdata.PPI_data.string_transform", "StringPPITransformer", None, "Transform STRING PPI data"),
 
-    "hpo_download":  (HPOPhenotypeDownloader, None, "Download HPO phenotype annotations"),
-    "hpo_transform": (HPOPhenotypeTransformer, None, "Transform HPO data"),
+    "hpo_download":  ("publicdata.phenotype_data.hpo_download", "HPOPhenotypeDownloader", None, "Download HPO phenotype annotations"),
+    "hpo_transform": ("publicdata.phenotype_data.hpo_transform", "HPOPhenotypeTransformer", None, "Transform HPO data"),
 
-    "pathwaycommons_download":    (PathwayCommonsDownloader,   None, "Download PathwayCommons SIF"),
-    "pathwaycommons_transform":   (PathwayCommonsTransformer,  None, "Transform PathwayCommons data"),
-    "panther_download":           (PantherDownloader,          None, "Download PANTHER pathway data"),
-    "panther_transform":          (PantherTransformer,         None, "Transform PANTHER data"),
-    "reactome_download":          (ReactomeDownloader,         None, "Download Reactome pathways"),
-    "reactome_transform":         (ReactomeTransformer,        None, "Transform Reactome data"),
-    "wikipathway_download":       (WikiPathwaysDownloader,     None, "Download WikiPathways GPML"),
-    "wikipathway_transform":      (WikiPathwaysTransformer,    None, "Transform WikiPathways data"),
-    "nodenorm_pathway_download":  (NodeNormPathwayDownloader,  None, "Download NodeNorm pathway compendium"),
-    "nodenorm_pathway_transform": (NodeNormPathwayTransformer, None, "Transform NodeNorm pathway JSONL"),
-    "pathways_merge":             (PathwayMergerTransformer,   None, "Merge all pathway sources"),
-    "pathway_ids":                (PathwayIDGenerator,         None, "Mint stable NCATS pathway IDs"),
+    "pathwaycommons_download":    ("publicdata.pathway_data.pathwaycommons_download", "PathwayCommonsDownloader",   None, "Download PathwayCommons SIF"),
+    "pathwaycommons_transform":   ("publicdata.pathway_data.pathwaycommons_transform", "PathwayCommonsTransformer",  None, "Transform PathwayCommons data"),
+    "panther_download":           ("publicdata.pathway_data.panther_download", "PantherDownloader",          None, "Download PANTHER pathway data"),
+    "panther_transform":          ("publicdata.pathway_data.panther_transform", "PantherTransformer",         None, "Transform PANTHER data"),
+    "reactome_download":          ("publicdata.pathway_data.reactome_download", "ReactomeDownloader",         None, "Download Reactome pathways"),
+    "reactome_transform":         ("publicdata.pathway_data.reactome_transform", "ReactomeTransformer",        None, "Transform Reactome data"),
+    "wikipathway_download":       ("publicdata.pathway_data.wikipathway_download", "WikiPathwaysDownloader",     None, "Download WikiPathways GPML"),
+    "wikipathway_transform":      ("publicdata.pathway_data.wikipathway_transform", "WikiPathwaysTransformer",    None, "Transform WikiPathways data"),
+    "nodenorm_pathway_download":  ("publicdata.pathway_data.nodenorm_pathway_download", "NodeNormPathwayDownloader",  None, "Download NodeNorm pathway compendium"),
+    "nodenorm_pathway_transform": ("publicdata.pathway_data.nodenorm_pathway_transform", "NodeNormPathwayTransformer", None, "Transform NodeNorm pathway JSONL"),
+    "pathways_merge":             ("publicdata.pathway_data.pathways_merge", "PathwayMergerTransformer",   None, "Merge all pathway sources"),
+    "pathway_ids":                ("publicdata.pathway_data.pathway_ids", "PathwayIDGenerator",         None, "Mint stable NCATS pathway IDs"),
 
-    "hmdb_transform":             (HMDBTransformer,            None, "Transform HMDB metabolite data"),
+    "hmdb_transform":             ("publicdata.metabolite_data.hmdb_transform", "HMDBTransformer",            None, "Transform HMDB metabolite data"),
 }
+
+
+def _resolve_processor(name: str):
+    module_path, attr_name, section, desc = PROCESSOR_MAP[name]
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name), section, desc
 
 CATEGORY_PIPELINE = {
     "TARGETS": [
@@ -251,6 +191,7 @@ TARGETS_STAGES = {
 
 
 def load_config(path: Path) -> dict:
+    """Load and parse a YAML configuration file."""
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -264,6 +205,7 @@ def _stage_banner(stage: str, current: int, total: int) -> str:
 
 
 def _infer_category(module_name: str) -> list:
+    """Return the list of category names a module belongs to, based on prefix matching."""
     PREFIXES = {
         "TARGETS": ["ensembl_", "ncbi_", "hgnc_", "refseq_", "uniprot_",
                     "nodenorm_gene_", "nodenorm_protein_", "gene_",
@@ -283,6 +225,7 @@ def _infer_category(module_name: str) -> list:
 
 
 def list_pipeline(category: str) -> None:
+    """Print a formatted listing of all pipeline steps for a category."""
     pipeline = CATEGORY_PIPELINE.get(category.upper(), [])
     if not pipeline:
         print(f"No pipeline defined for category '{category}'.")
@@ -297,7 +240,7 @@ def list_pipeline(category: str) -> None:
         if stage and stage != last_stage:
             print(f"\n  ── {stage} ──")
             last_stage = stage
-        desc = PROCESSOR_MAP.get(name, (None, None, ""))[2]
+        desc = PROCESSOR_MAP.get(name, (None, None, None, ""))[3]
         print(f"  {i:>2}. {name:<35} {desc}")
 
 
@@ -319,123 +262,15 @@ def _print_summary(results: dict, total: int) -> None:
     print(f"\n  Status: {status}\n")
 
 
-def read_meta(path_str):
-    if not path_str:
-        return None
-    path = Path(path_str)
-    if not path.exists():
-        return None
-    try:
-        if path.suffix in [".yaml", ".yml"]:
-            with open(path) as f:
-                return yaml.safe_load(f)
-        with open(path) as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def build_target_manifests(config):
-    manifest_cfg = config.get("manifests", {})
-    source_json = manifest_cfg.get(
-        "source_versions_json",
-        "src/data/publicdata/target_data/metadata/source_versions_manifest.json"
-    )
-    source_csv = manifest_cfg.get(
-        "source_versions_csv",
-        "src/data/publicdata/target_data/metadata/source_versions_manifest.csv"
-    )
-    transform_json = manifest_cfg.get(
-        "transform_summary_json",
-        "src/data/publicdata/target_data/metadata/transform_summary_manifest.json"
-    )
-    transform_csv = manifest_cfg.get(
-        "transform_summary_csv",
-        "src/data/publicdata/target_data/metadata/transform_summary_manifest.csv"
-    )
-
-    source_rows = []
-    transform_rows = []
-
-    for section_key, section_cfg in config.items():
-        if not isinstance(section_cfg, dict):
-            continue
-
-        dl_meta_path = section_cfg.get("dl_metadata_file")
-        tf_meta_path = section_cfg.get("tf_metadata_file") or section_cfg.get("metadata_file")
-
-        dl_meta = read_meta(dl_meta_path)
-        tf_meta = read_meta(tf_meta_path)
-
-        if dl_meta:
-            source_rows.append({
-                "category": "TARGETS",
-                "source_key": section_key,
-                "source_name": dl_meta.get("source_name", section_key),
-                "source_version": dl_meta.get("source_version") or dl_meta.get("version"),
-                "download_start": dl_meta.get("download_start"),
-                "download_end": dl_meta.get("download_end") or dl_meta.get("timestamp"),
-                "status": dl_meta.get("status"),
-                "updated": dl_meta.get("updated"),
-                "metadata_file": dl_meta_path,
-                "raw_files": json.dumps([x.get("path") for x in dl_meta.get("outputs", [])]) if isinstance(dl_meta.get("outputs"), list) else None
-            })
-
-        if tf_meta:
-            summary = tf_meta.get("summary", {})
-            transform_rows.append({
-                "category": "TARGETS",
-                "source_key": section_key,
-                "transform_start": tf_meta.get("timestamp", {}).get("start") if isinstance(tf_meta.get("timestamp"), dict) else tf_meta.get("timestamp"),
-                "transform_end": tf_meta.get("timestamp", {}).get("end") if isinstance(tf_meta.get("timestamp"), dict) else tf_meta.get("timestamp"),
-                "final_output": tf_meta.get("final_output") or tf_meta.get("output_file"),
-                "archived_output": tf_meta.get("archived_output"),
-                "records_output": (
-                    tf_meta.get("record_counts", {}).get("after_merge")
-                    if isinstance(tf_meta.get("record_counts"), dict)
-                    else tf_meta.get("records_output") or tf_meta.get("num_records_output") or tf_meta.get("records")
-                ),
-                "n_added_ids": summary.get("n_added_ids"),
-                "n_removed_ids": summary.get("n_removed_ids"),
-                "n_field_changes": summary.get("n_field_changes"),
-                "entity_diff_file": summary.get("entity_diff_file"),
-                "metadata_file": tf_meta_path,
-            })
-
-    source_payload = {
-        "generated_at": datetime.now().isoformat(),
-        "category": "TARGETS",
-        "sources": source_rows,
-    }
-    transform_payload = {
-        "generated_at": datetime.now().isoformat(),
-        "category": "TARGETS",
-        "transforms": transform_rows,
-    }
-
-    Path(source_json).parent.mkdir(parents=True, exist_ok=True)
-    Path(transform_json).parent.mkdir(parents=True, exist_ok=True)
-
-    with open(source_json, "w") as f:
-        json.dump(source_payload, f, indent=2)
-    with open(transform_json, "w") as f:
-        json.dump(transform_payload, f, indent=2)
-
-    pd.DataFrame(source_rows).to_csv(source_csv, index=False)
-    pd.DataFrame(transform_rows).to_csv(transform_csv, index=False)
-
-    print(f"\n  🧾 Wrote source version manifest → {source_json}")
-    print(f"  🧾 Wrote transform summary manifest → {transform_json}")
-
-
 def run_selected_processors(selected, config, dry_run=False, skip_errors=False) -> dict:
+    """Execute a list of pipeline modules in order, returning success/failure/skip tallies."""
     results = {"succeeded": [], "failed": [], "skipped": []}
     total = len(selected)
 
     if dry_run:
         print(_banner(f"DRY RUN — {total} step(s) would be executed"))
         for i, key in enumerate(selected, 1):
-            desc = PROCESSOR_MAP.get(key, (None, None, ""))[2]
+            desc = PROCESSOR_MAP.get(key, (None, None, None, ""))[3]
             print(f"  [{i}/{total}] {key}  —  {desc}")
         print()
         return results
@@ -448,7 +283,7 @@ def run_selected_processors(selected, config, dry_run=False, skip_errors=False) 
             results["skipped"].append(key)
             continue
 
-        cls_or_fn, section, desc = PROCESSOR_MAP[key]
+        cls_or_fn, section, desc = _resolve_processor(key)
         print(_stage_banner(f"{key}  —  {desc}", i, total))
 
         t_start = time.perf_counter()
@@ -457,11 +292,20 @@ def run_selected_processors(selected, config, dry_run=False, skip_errors=False) 
             instance = cls_or_fn(cfg_to_pass) if section is not None else cls_or_fn(config)
 
             if hasattr(instance, "run"):
-                instance.run()
+                # target_version needs the full config for manifest generation
+                if key == "target_version":
+                    result = instance.run(full_config=config)
+                else:
+                    result = instance.run()
             elif hasattr(instance, "process"):
-                instance.process()
+                result = instance.process()
             elif callable(instance):
-                instance()
+                result = instance()
+            else:
+                result = None
+
+            if result is False:
+                raise RuntimeError(f"{key} reported failure")
 
             elapsed = time.perf_counter() - t_start
             print(f"\n  ✅ {key} completed in {elapsed:.1f}s")
@@ -482,6 +326,7 @@ def run_selected_processors(selected, config, dry_run=False, skip_errors=False) 
 
 
 def main():
+    """CLI entry point: parse arguments and run the selected pipeline modules."""
     parser = argparse.ArgumentParser(prog="python src/code/main.py")
     parser.add_argument(
         "category",
@@ -547,12 +392,6 @@ def main():
         dry_run=args.dry_run,
         skip_errors=args.skip_errors,
     )
-
-    if category == "TARGETS" and args.all and not args.dry_run:
-        try:
-            build_target_manifests(config)
-        except Exception as e:
-            print(f"\n  ⚠️  Manifest build failed: {e}")
 
     os._exit(1 if results.get("failed") else 0)
 
