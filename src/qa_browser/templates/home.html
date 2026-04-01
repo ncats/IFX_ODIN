@@ -59,22 +59,24 @@
 </div>
 {% endif %}
 
-{% if mysql_databases %}
+{% if mysql_sources %}
+{% for source in mysql_sources %}
 <div class="engine-section">
     <div class="engine-header">
         <div class="engine-badge engine-badge-mysql">{{ mysql_icon }}</div>
-        <span>MySQL Url: </span>
-        <span class="engine-host">{{ mysql_url }}</span>
+        <span>MySQL {% if mysql_sources|length > 1 %}{{ source.label }} {% endif %}Url: </span>
+        <span class="engine-host">{{ source.url }}</span>
     </div>
     <div class="db-grid">
-        {% for db in mysql_databases %}
-        <a href="{{ root_path }}/mysql/{{ db }}" class="db-card db-card-mysql">
+        {% for db in source.databases %}
+        <a href="{{ root_path }}/mysql/{{ source.id }}/{{ db }}" class="db-card db-card-mysql">
             <div class="db-name">{{ db }}</div>
             <div class="db-card-footer">relational · sql</div>
         </a>
         {% endfor %}
     </div>
 </div>
+{% endfor %}
 {% endif %}
 
 {% if not databases and not mysql_databases %}
@@ -93,6 +95,7 @@
     </div>
 </div>
 
+{% if demo_queries_enabled %}
 <div class="engine-section">
     <div class="engine-header">
         <span style="font-weight:600">POUNCE DEMO QUERIES</span>
@@ -120,5 +123,6 @@
         </a>
     </div>
 </div>
+{% endif %}
 
 {% endblock %}

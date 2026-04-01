@@ -163,8 +163,8 @@ report by workbook → sheet. No database writes occur.
 | `src/input_adapters/pounce_sheets/pounce_parser.py` | Parses workbooks → `ParsedPounceData` + structural issues |
 | `src/input_adapters/pounce_sheets/pounce_input_adapter.py` | `PounceInputAdapter` — ETL + validation entry point |
 | `src/input_adapters/pounce_sheets/validator_loader.py` | Loads `pounce_validators.yaml` → `List[Validator]` |
-| `src/use_cases/pounce_validators.yaml` | Field-level validation rules |
-| `src/use_cases/validate_pounce.py` | Standalone validation script |
+| `src/use_cases/pounce/pounce_validators.yaml` | Field-level validation rules |
+| `src/use_cases/pounce/validate_pounce.py` | Standalone validation script |
 
 ---
 

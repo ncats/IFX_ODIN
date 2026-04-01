@@ -2,6 +2,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -11,7 +12,7 @@ import urllib3
 import yaml
 from arango import ArangoClient
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine, text, inspect as sa_inspect
@@ -34,9 +35,36 @@ templates.env.globals["root_path"] = ""
 _client: Optional[ArangoClient] = None
 _credentials: dict = {}
 _mysql_credentials: dict = {}
+_mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
+_demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
+    "1", "true", "yes", "on"
+}
+
+
+def _slugify_mysql_source(value: str) -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "mysql"
+
+
+def _register_mysql_source(source_id: str, creds: dict, label: Optional[str] = None):
+    _mysql_sources[source_id] = {
+        "credentials": creds or {},
+        "label": label or source_id,
+    }
+
+
+def _get_mysql_source(source_id: str) -> dict:
+    source = _mysql_sources.get(source_id)
+    if source:
+        return source
+    if source_id == "default" and _mysql_credentials:
+        return {"credentials": _mysql_credentials, "label": "default"}
+    raise KeyError(f"Unknown MySQL source: {source_id}")
 
 
 def _get_parquet_buffer(file_ref: str):
@@ -90,44 +118,56 @@ def get_sys_db():
                      password=_credentials.get("password", "password"))
 
 
-def get_mysql_engine() -> Optional[Engine]:
+def get_mysql_engine(source_id: str = "default") -> Optional[Engine]:
     """Get a MySQL engine (no specific database) for listing databases."""
-    if not _mysql_credentials:
+    try:
+        source = _get_mysql_source(source_id)
+    except KeyError:
         return None
-    if "_root" not in _mysql_db_engines:
-        host = _mysql_credentials.get("url", "localhost")
-        port = _mysql_credentials.get("port", 3306)
-        user = _mysql_credentials.get("user", "root")
-        password = url_quote(_mysql_credentials.get("password", ""), safe="")
-        _mysql_db_engines["_root"] = create_engine(
+
+    credentials = source["credentials"]
+    if not credentials:
+        return None
+
+    cache_key = f"{source_id}::_root"
+    if cache_key not in _mysql_db_engines:
+        host = credentials.get("url", "localhost")
+        port = credentials.get("port", 3306)
+        user = credentials.get("user", "root")
+        password = url_quote(credentials.get("password", ""), safe="")
+        _mysql_db_engines[cache_key] = create_engine(
             f"mysql+pymysql://{user}:{password}@{host}:{port}",
             pool_pre_ping=True, pool_size=2,
         )
-    return _mysql_db_engines["_root"]
+    return _mysql_db_engines[cache_key]
 
 
-def get_mysql_db_engine(db_name: str) -> Engine:
+def get_mysql_db_engine(db_name: str, source_id: str = "default") -> Engine:
     """Get a MySQL engine scoped to a specific database."""
-    if db_name not in _mysql_db_engines:
-        host = _mysql_credentials.get("url", "localhost")
-        port = _mysql_credentials.get("port", 3306)
-        user = _mysql_credentials.get("user", "root")
-        password = url_quote(_mysql_credentials.get("password", ""), safe="")
-        _mysql_db_engines[db_name] = create_engine(
+    source = _get_mysql_source(source_id)
+    credentials = source["credentials"]
+    cache_key = f"{source_id}::{db_name}"
+    if cache_key not in _mysql_db_engines:
+        host = credentials.get("url", "localhost")
+        port = credentials.get("port", 3306)
+        user = credentials.get("user", "root")
+        password = url_quote(credentials.get("password", ""), safe="")
+        _mysql_db_engines[cache_key] = create_engine(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{db_name}",
             pool_pre_ping=True, pool_size=2,
         )
-    return _mysql_db_engines[db_name]
+    return _mysql_db_engines[cache_key]
 
 
-def get_mysql_inspector(db_name: str):
+def get_mysql_inspector(db_name: str, source_id: str = "default"):
     """Return cached schema metadata for a database.
 
     Cached as a plain dict so we don't hold live Inspector objects.
     Call invalidate_mysql_inspector(db_name) to force a refresh.
     """
-    if db_name not in _mysql_inspector_cache:
-        engine = get_mysql_db_engine(db_name)
+    cache_key = f"{source_id}::{db_name}"
+    if cache_key not in _mysql_inspector_cache:
+        engine = get_mysql_db_engine(db_name, source_id=source_id)
         insp = sa_inspect(engine)
         table_names = insp.get_table_names()
         meta = {}
@@ -137,13 +177,13 @@ def get_mysql_inspector(db_name: str):
                 "pk": insp.get_pk_constraint(tbl).get("constrained_columns", []),
                 "fks": insp.get_foreign_keys(tbl),
             }
-        _mysql_inspector_cache[db_name] = meta
-    return _mysql_inspector_cache[db_name]
+        _mysql_inspector_cache[cache_key] = meta
+    return _mysql_inspector_cache[cache_key]
 
 
-def invalidate_mysql_inspector(db_name: str):
+def invalidate_mysql_inspector(db_name: str, source_id: str = "default"):
     """Drop the cached schema for a database so the next request re-fetches it."""
-    _mysql_inspector_cache.pop(db_name, None)
+    _mysql_inspector_cache.pop(f"{source_id}::{db_name}", None)
 
 
 # ── Jinja2 filters ──────────────────────────────────────────────────────────
@@ -186,21 +226,31 @@ async def home(request: Request):
             pass
 
     # MySQL databases
+    mysql_sources = []
     mysql_databases = []
-    mysql_url = ""
-    engine = get_mysql_engine()
-    if engine:
-        host = _mysql_credentials.get("url", "localhost")
-        port = _mysql_credentials.get("port", 3306)
+    system_dbs = {"information_schema", "mysql", "performance_schema", "sys"}
+    for source_id, source in _mysql_sources.items():
+        credentials = source["credentials"]
+        engine = get_mysql_engine(source_id)
+        if not engine:
+            continue
+        host = credentials.get("url", "localhost")
+        port = credentials.get("port", 3306)
         mysql_url = f"{host}:{port}"
         try:
             with engine.connect() as conn:
                 result = conn.execute(text("SHOW DATABASES"))
-                system_dbs = {"information_schema", "mysql", "performance_schema", "sys"}
-                mysql_databases = [row[0] for row in result if row[0] not in system_dbs]
-                print(f"MySQL databases: {mysql_databases}")
+                dbs = [row[0] for row in result if row[0] not in system_dbs]
+                print(f"MySQL databases for {source_id}: {dbs}")
+                mysql_databases.extend(dbs)
+                mysql_sources.append({
+                    "id": source_id,
+                    "label": source["label"],
+                    "url": mysql_url,
+                    "databases": dbs,
+                })
         except Exception:
-            print("Failed to connect to MySQL:", sys.exc_info()[1])
+            print(f"Failed to connect to MySQL source {source_id}:", sys.exc_info()[1])
             pass
 
     return templates.TemplateResponse(request, "home.html", {
@@ -208,7 +258,8 @@ async def home(request: Request):
         "databases": arango_databases,
         "arango_url": arango_url,
         "mysql_databases": mysql_databases,
-        "mysql_url": mysql_url,
+        "mysql_sources": mysql_sources,
+        "demo_queries_enabled": _demo_queries_enabled,
     })
 
 
@@ -645,10 +696,19 @@ async def aql_execute(request: Request, db_name: str, query: str = Form(...)):
 
 # ── MySQL Routes ─────────────────────────────────────────────────────────────
 
-@app.get("/mysql/{db_name}", response_class=HTMLResponse)
-async def mysql_dashboard(request: Request, db_name: str):
-    engine = get_mysql_db_engine(db_name)
-    schema_meta = get_mysql_inspector(db_name)
+def _mysql_template_context(source_id: str, db_name: str) -> dict:
+    source = _get_mysql_source(source_id)
+    return {
+        "mysql_source_id": source_id,
+        "mysql_source_label": source["label"],
+        "db_name": db_name,
+    }
+
+
+@app.get("/mysql/{source_id}/{db_name}", response_class=HTMLResponse)
+async def mysql_dashboard(request: Request, source_id: str, db_name: str):
+    engine = get_mysql_db_engine(db_name, source_id=source_id)
+    schema_meta = get_mysql_inspector(db_name, source_id=source_id)
 
     # SHOW TABLE STATUS returns approximate row counts — much faster than COUNT(*) for InnoDB
     with engine.connect() as conn:
@@ -676,19 +736,19 @@ async def mysql_dashboard(request: Request, db_name: str):
 
     return templates.TemplateResponse(request, "mysql_dashboard.html", {
         "request": request,
-        "db_name": db_name,
         "tables": tables,
         "fk_defs": fk_defs,
         "table_count": len(tables),
         "total_rows": sum(t["count"] for t in tables),
+        **_mysql_template_context(source_id, db_name),
     })
 
 
-@app.get("/mysql/{db_name}/table/{table_name}", response_class=HTMLResponse)
-async def mysql_table_browser(request: Request, db_name: str, table_name: str,
+@app.get("/mysql/{source_id}/{db_name}/table/{table_name}", response_class=HTMLResponse)
+async def mysql_table_browser(request: Request, source_id: str, db_name: str, table_name: str,
                                page: int = 1, page_size: int = 25):
-    engine = get_mysql_db_engine(db_name)
-    meta = get_mysql_inspector(db_name)[table_name]
+    engine = get_mysql_db_engine(db_name, source_id=source_id)
+    meta = get_mysql_inspector(db_name, source_id=source_id)[table_name]
 
     columns_info = meta["columns"]
     pk_cols = meta["pk"]
@@ -723,7 +783,6 @@ async def mysql_table_browser(request: Request, db_name: str, table_name: str,
 
     return templates.TemplateResponse(request, template, {
         "request": request,
-        "db_name": db_name,
         "table_name": table_name,
         "rows": [dict(r) for r in rows],
         "columns": ordered_columns,
@@ -732,14 +791,15 @@ async def mysql_table_browser(request: Request, db_name: str, table_name: str,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages,
+        **_mysql_template_context(source_id, db_name),
     })
 
 
-@app.get("/mysql/{db_name}/table/{table_name}/stats", response_class=HTMLResponse)
-async def mysql_table_stats(request: Request, db_name: str, table_name: str):
+@app.get("/mysql/{source_id}/{db_name}/table/{table_name}/stats", response_class=HTMLResponse)
+async def mysql_table_stats(request: Request, source_id: str, db_name: str, table_name: str):
     """Column coverage stats for a MySQL table (loaded via HTMX)."""
-    engine = get_mysql_db_engine(db_name)
-    columns = get_mysql_inspector(db_name)[table_name]["columns"]
+    engine = get_mysql_db_engine(db_name, source_id=source_id)
+    columns = get_mysql_inspector(db_name, source_id=source_id)[table_name]["columns"]
 
     with engine.connect() as conn:
         total = conn.execute(text(f"SELECT COUNT(*) FROM `{table_name}`")).scalar()
@@ -761,10 +821,10 @@ async def mysql_table_stats(request: Request, db_name: str, table_name: str):
     })
 
 
-@app.get("/mysql/{db_name}/table/{table_name}/row/{pk_value:path}", response_class=HTMLResponse)
-async def mysql_row_detail(request: Request, db_name: str, table_name: str, pk_value: str):
-    engine = get_mysql_db_engine(db_name)
-    meta = get_mysql_inspector(db_name)[table_name]
+@app.get("/mysql/{source_id}/{db_name}/table/{table_name}/row/{pk_value:path}", response_class=HTMLResponse)
+async def mysql_row_detail(request: Request, source_id: str, db_name: str, table_name: str, pk_value: str):
+    engine = get_mysql_db_engine(db_name, source_id=source_id)
+    meta = get_mysql_inspector(db_name, source_id=source_id)[table_name]
     pk_cols = meta["pk"]
 
     # Parse pk_value: "123" for single PK, "col1=val1/col2=val2" for composite
@@ -797,7 +857,10 @@ async def mysql_row_detail(request: Request, db_name: str, table_name: str, pk_v
                         "table": fk["referred_table"],
                         "column": ref_col,
                         "value": val,
-                        "url": f"{templates.env.globals['root_path']}/mysql/{db_name}/table/{fk['referred_table']}/row/{val}",
+                        "url": (
+                            f"{templates.env.globals['root_path']}/mysql/{source_id}/{db_name}"
+                            f"/table/{fk['referred_table']}/row/{val}"
+                        ),
                     }
 
     # Get column metadata
@@ -805,19 +868,19 @@ async def mysql_row_detail(request: Request, db_name: str, table_name: str, pk_v
 
     return templates.TemplateResponse(request, "mysql_row.html", {
         "request": request,
-        "db_name": db_name,
         "table_name": table_name,
         "row": dict(row) if row else None,
         "pk_value": pk_value,
         "pk_cols": pk_cols,
         "fk_links": fk_links,
         "columns_info": columns_info,
+        **_mysql_template_context(source_id, db_name),
     })
 
 
-@app.get("/mysql/{db_name}/schema", response_class=HTMLResponse)
-async def mysql_schema(request: Request, db_name: str):
-    schema_meta = get_mysql_inspector(db_name)
+@app.get("/mysql/{source_id}/{db_name}/schema", response_class=HTMLResponse)
+async def mysql_schema(request: Request, source_id: str, db_name: str):
+    schema_meta = get_mysql_inspector(db_name, source_id=source_id)
 
     fk_defs = []
     mermaid_lines = ["erDiagram"]
@@ -840,34 +903,37 @@ async def mysql_schema(request: Request, db_name: str):
 
     return templates.TemplateResponse(request, "mysql_schema.html", {
         "request": request,
-        "db_name": db_name,
         "fk_defs": fk_defs,
         "mermaid_text": mermaid_text,
+        **_mysql_template_context(source_id, db_name),
     })
 
 
-@app.post("/mysql/{db_name}/refresh-schema", response_class=HTMLResponse)
-async def mysql_refresh_schema(request: Request, db_name: str):
+@app.post("/mysql/{source_id}/{db_name}/refresh-schema", response_class=HTMLResponse)
+async def mysql_refresh_schema(request: Request, source_id: str, db_name: str):
     """Bust the schema cache for a database and redirect to dashboard."""
     from fastapi.responses import RedirectResponse
-    invalidate_mysql_inspector(db_name)
-    return RedirectResponse(url=f"{templates.env.globals['root_path']}/mysql/{db_name}", status_code=303)
+    invalidate_mysql_inspector(db_name, source_id=source_id)
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/{source_id}/{db_name}",
+        status_code=303,
+    )
 
 
-@app.get("/mysql/{db_name}/sql", response_class=HTMLResponse)
-async def sql_page(request: Request, db_name: str):
+@app.get("/mysql/{source_id}/{db_name}/sql", response_class=HTMLResponse)
+async def sql_page(request: Request, source_id: str, db_name: str):
     return templates.TemplateResponse(request, "mysql_sql.html", {
         "request": request,
-        "db_name": db_name,
         "results": None,
         "query": "",
         "error": None,
         "columns": [],
+        **_mysql_template_context(source_id, db_name),
     })
 
 
-@app.post("/mysql/{db_name}/sql", response_class=HTMLResponse)
-async def sql_execute(request: Request, db_name: str, query: str = Form(...)):
+@app.post("/mysql/{source_id}/{db_name}/sql", response_class=HTMLResponse)
+async def sql_execute(request: Request, source_id: str, db_name: str, query: str = Form(...)):
     results = None
     error = None
     columns = []
@@ -879,7 +945,7 @@ async def sql_execute(request: Request, db_name: str, query: str = Form(...)):
         error = "Only SELECT, SHOW, DESCRIBE, and EXPLAIN queries are allowed."
     else:
         try:
-            engine = get_mysql_db_engine(db_name)
+            engine = get_mysql_db_engine(db_name, source_id=source_id)
             with engine.connect() as conn:
                 result = conn.execute(text(query))
                 if result.returns_rows:
@@ -895,12 +961,79 @@ async def sql_execute(request: Request, db_name: str, query: str = Form(...)):
 
     return templates.TemplateResponse(request, template, {
         "request": request,
-        "db_name": db_name,
         "results": results,
         "query": query,
         "error": error,
         "columns": columns,
+        **_mysql_template_context(source_id, db_name),
     })
+
+
+@app.get("/mysql/{db_name}", response_class=HTMLResponse)
+async def mysql_dashboard_default(db_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}",
+        status_code=307,
+    )
+
+
+@app.get("/mysql/{db_name}/table/{table_name}", response_class=HTMLResponse)
+async def mysql_table_browser_default(db_name: str, table_name: str, page: int = 1, page_size: int = 25):
+    return RedirectResponse(
+        url=(
+            f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}"
+            f"?page={page}&page_size={page_size}"
+        ),
+        status_code=307,
+    )
+
+
+@app.get("/mysql/{db_name}/table/{table_name}/stats", response_class=HTMLResponse)
+async def mysql_table_stats_default(db_name: str, table_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}/stats",
+        status_code=307,
+    )
+
+
+@app.get("/mysql/{db_name}/table/{table_name}/row/{pk_value:path}", response_class=HTMLResponse)
+async def mysql_row_detail_default(db_name: str, table_name: str, pk_value: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}/row/{pk_value}",
+        status_code=307,
+    )
+
+
+@app.get("/mysql/{db_name}/schema", response_class=HTMLResponse)
+async def mysql_schema_default(db_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/schema",
+        status_code=307,
+    )
+
+
+@app.post("/mysql/{db_name}/refresh-schema", response_class=HTMLResponse)
+async def mysql_refresh_schema_default(db_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/refresh-schema",
+        status_code=307,
+    )
+
+
+@app.get("/mysql/{db_name}/sql", response_class=HTMLResponse)
+async def sql_page_default(db_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/sql",
+        status_code=307,
+    )
+
+
+@app.post("/mysql/{db_name}/sql", response_class=HTMLResponse)
+async def sql_execute_default(db_name: str):
+    return RedirectResponse(
+        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/sql",
+        status_code=307,
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -939,9 +1072,10 @@ templates.env.filters["truncate_val"] = _truncate
 
 # ── Demo routes ──────────────────────────────────────────────────────────────
 
-import src.qa_browser.demo_routes as _demo_module  # noqa: E402
-app.include_router(_demo_module.router)
-_demo_module.set_templates(templates)
+if _demo_queries_enabled:
+    import src.qa_browser.demo_routes as _demo_module  # noqa: E402
+    app.include_router(_demo_module.router)
+    _demo_module.set_templates(templates)
 
 # ── POUNCE validation routes ─────────────────────────────────────────────────
 
@@ -966,15 +1100,16 @@ def main():
                         default="./src/use_cases/secrets/local_arangodb.yaml",
                         help="Path to ArangoDB credentials YAML file")
     parser.add_argument("--mysql-credentials", "-m",
-                        default=None,
-                        help="Path to MySQL credentials YAML file (url, user, password, port)")
+                        action="append",
+                        default=[],
+                        help="Path to a MySQL credentials YAML file; repeat to load multiple MySQL servers")
     parser.add_argument("--minio-credentials", "-s",
                         default=None,
                         help="Path to MinIO credentials YAML file (url, user, password, schema, internal_url)")
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--root-path", default="", help="ASGI root path for running behind a sub-path proxy (e.g. /odin-qa)")
-    parser.add_argument("--pounce-config", "-P", default="./src/use_cases/pounce.yaml",
+    parser.add_argument("--pounce-config", "-P", default="./src/use_cases/pounce/pounce.yaml",
                         help="Path to pounce.yaml — used to load resolvers for mapping coverage checks")
     parser.add_argument("--smtp-credentials", "-e",
                         default=None,
@@ -984,7 +1119,7 @@ def main():
                         help="Path to JSON file for storing feedback comments (created if missing)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _minio_credentials
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -995,15 +1130,30 @@ def main():
         print(f"Warning: {cred_path} not found, using defaults")
         _credentials = {"url": "http://localhost:8529", "user": "root", "password": "password"}
 
-    if args.mysql_credentials:
-        mysql_path = Path(args.mysql_credentials)
-        if mysql_path.exists():
-            with open(mysql_path) as f:
-                _mysql_credentials = yaml.safe_load(f)
-            print(f"Loaded MySQL credentials from {mysql_path}")
-        else:
+    for index, mysql_cred_path in enumerate(args.mysql_credentials, start=1):
+        mysql_path = Path(mysql_cred_path)
+        if not mysql_path.exists():
             print(f"Warning: MySQL credentials file {mysql_path} not found")
-    _demo_module.set_mysql_credentials(_mysql_credentials)
+            continue
+
+        with open(mysql_path) as f:
+            creds = yaml.safe_load(f) or {}
+
+        source_id = "default" if not _mysql_sources else _slugify_mysql_source(mysql_path.stem)
+        if source_id in _mysql_sources:
+            suffix = 2
+            while f"{source_id}-{suffix}" in _mysql_sources:
+                suffix += 1
+            source_id = f"{source_id}-{suffix}"
+
+        label = "default" if source_id == "default" else mysql_path.stem
+        _register_mysql_source(source_id, creds, label=label)
+        if index == 1:
+            _mysql_credentials = creds
+        print(f"Loaded MySQL credentials from {mysql_path} as source '{source_id}'")
+
+    if _demo_queries_enabled:
+        _demo_module.set_mysql_credentials(_mysql_credentials)
 
     if args.minio_credentials:
         minio_path = Path(args.minio_credentials)

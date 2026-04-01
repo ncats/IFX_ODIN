@@ -191,55 +191,66 @@
 
 {# ── Mapping coverage ────────────────────────────────────────────────────── #}
 {% if coverage or metab_resolver_missing or gene_resolver_missing %}
-<div class="card" style="margin-bottom: 2rem;">
-    <h2 style="margin-bottom: 0.85rem;">Mapping Coverage</h2>
-    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
-        Fraction of submitted analyte IDs that will resolve to canonical nodes in the graph after ETL.
-    </p>
-    {% for cov in coverage %}
-    <div style="margin-bottom: 1rem;">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 0.4rem;">{{ cov.sheet }}</div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.35rem;">
-            <div style="flex: 1; height: 14px; background: var(--bg); border: 1px solid var(--border);
-                        border-radius: 3px; overflow: hidden; max-width: 300px;">
-                <div style="height: 100%; width: {{ cov.mapped_pct }}%;
-                             background: {{ 'var(--success)' if cov.mapped_pct >= 90 else ('#d97706' if cov.mapped_pct >= 50 else 'var(--danger)') }};
-                             border-radius: 3px 0 0 3px; transition: width 0.3s;"></div>
+<details class="card" style="margin-bottom: 2rem;">
+    <summary style="{{ _detail_summary }}">
+        Mapping Coverage
+        <span style="font-weight: 400; color: var(--text-muted);">
+            {% if coverage %}
+            ({{ coverage|length }} analyte group{{ "s" if coverage|length != 1 }})
+            {% else %}
+            (check status)
+            {% endif %}
+        </span>
+    </summary>
+    <div style="padding: 0.85rem 1rem;">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
+            Fraction of submitted analyte IDs that will resolve to canonical nodes in the graph after ETL.
+        </p>
+        {% for cov in coverage %}
+        <div style="margin-bottom: 1rem;">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 0.4rem;">{{ cov.sheet }}</div>
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.35rem;">
+                <div style="flex: 1; height: 14px; background: var(--bg); border: 1px solid var(--border);
+                            border-radius: 3px; overflow: hidden; max-width: 300px;">
+                    <div style="height: 100%; width: {{ cov.mapped_pct }}%;
+                                 background: {{ 'var(--success)' if cov.mapped_pct >= 90 else ('#d97706' if cov.mapped_pct >= 50 else 'var(--danger)') }};
+                                 border-radius: 3px 0 0 3px; transition: width 0.3s;"></div>
+                </div>
+                <span style="font-family: var(--mono); font-size: 13px; font-weight: 600;">
+                    {{ cov.mapped }}/{{ cov.total }} ({{ "%.1f"|format(cov.mapped_pct) }}%)
+                </span>
+                <span style="font-size: 12px; color: var(--text-muted);">
+                    {{ cov.analyte_type|lower }}s will resolve to canonical nodes
+                </span>
             </div>
-            <span style="font-family: var(--mono); font-size: 13px; font-weight: 600;">
-                {{ cov.mapped }}/{{ cov.total }} ({{ "%.1f"|format(cov.mapped_pct) }}%)
-            </span>
-            <span style="font-size: 12px; color: var(--text-muted);">
-                {{ cov.analyte_type|lower }}s will resolve to canonical nodes
-            </span>
+            {% if cov.unmapped_ids %}
+            <details style="margin-top: 0.35rem;">
+                <summary style="font-size: 12px; color: var(--text-muted); padding: 0.2rem 0;">
+                    {{ cov.unmapped_ids|length }} unmapped ID{{ "s" if cov.unmapped_ids|length != 1 }}
+                </summary>
+                <div style="font-family: var(--mono); font-size: 12px; margin-top: 0.4rem;
+                            padding: 0.5rem 0.75rem; background: var(--bg-alt);
+                            border: 1px solid var(--border); border-radius: var(--radius);
+                            line-height: 1.8;">
+                    {{ cov.unmapped_ids | join(", ") }}
+                </div>
+            </details>
+            {% endif %}
         </div>
-        {% if cov.unmapped_ids %}
-        <details style="margin-top: 0.35rem;">
-            <summary style="font-size: 12px; color: var(--text-muted); padding: 0.2rem 0;">
-                {{ cov.unmapped_ids|length }} unmapped ID{{ "s" if cov.unmapped_ids|length != 1 }}
-            </summary>
-            <div style="font-family: var(--mono); font-size: 12px; margin-top: 0.4rem;
-                        padding: 0.5rem 0.75rem; background: var(--bg-alt);
-                        border: 1px solid var(--border); border-radius: var(--radius);
-                        line-height: 1.8;">
-                {{ cov.unmapped_ids | join(", ") }}
-            </div>
-        </details>
+        {% endfor %}
+
+        {% if metab_resolver_missing %}
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 0.5rem;">
+            <strong>MetabMeta</strong> — resolver not configured, coverage check skipped
+        </div>
+        {% endif %}
+        {% if gene_resolver_missing %}
+        <div style="font-size: 13px; color: var(--text-muted);">
+            <strong>GeneMeta</strong> — resolver not configured, coverage check skipped
+        </div>
         {% endif %}
     </div>
-    {% endfor %}
-
-    {% if metab_resolver_missing %}
-    <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 0.5rem;">
-        <strong>MetabMeta</strong> — resolver not configured, coverage check skipped
-    </div>
-    {% endif %}
-    {% if gene_resolver_missing %}
-    <div style="font-size: 13px; color: var(--text-muted);">
-        <strong>GeneMeta</strong> — resolver not configured, coverage check skipped
-    </div>
-    {% endif %}
-</div>
+</details>
 {% endif %}
 
 {# ── Parsed data ─────────────────────────────────────────────────────────── #}
