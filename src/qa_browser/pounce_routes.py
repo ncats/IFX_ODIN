@@ -36,7 +36,7 @@ from src.input_adapters.pounce_sheets.pounce_parser import (
 router = APIRouter(prefix="/pounce")
 
 _templates = None
-_VALIDATORS_CONFIG = str(Path(__file__).resolve().parent.parent / "use_cases" / "pounce_validators.yaml")
+_VALIDATORS_CONFIG = str(Path(__file__).resolve().parent.parent / "use_cases" / "pounce" / "pounce_validators.yaml")
 
 # Resolver map populated at startup from pounce.yaml.
 # Keys are entity type strings (e.g. "Metabolite", "Gene").

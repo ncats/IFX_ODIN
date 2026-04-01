@@ -288,6 +288,8 @@ class ParsedRunBiosample:
         key="technical_replicate_number", sheet="RunBioSampleMeta", parse="int")
     biosample_run_order: Optional[str] = sheet_field(
         key="biosample_run_order", sheet="RunBioSampleMeta", parse="int")
+    batch: Optional[str] = sheet_field(
+        key="batch", sheet="RunBioSampleMeta")
 
 
 # ---------------------------------------------------------------------------

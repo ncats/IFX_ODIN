@@ -262,6 +262,7 @@ class RunBiosampleConfig(ColumnConfig):
     biological_replicate_number_column: str
     technical_replicate_number_column: str
     biosample_run_order_column: str
+    batch_column: str
     project_id: str
 
     def __init__(self, run_sample_map: dict, project_id: str):
@@ -272,6 +273,7 @@ class RunBiosampleConfig(ColumnConfig):
         self.biological_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biological_replicate_number)
         self.technical_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.technical_replicate_number)
         self.biosample_run_order_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_run_order)
+        self.batch_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.batch)
 
     def get_data(self, row):
         run_biosample_id = self.get_row_value(row, self.run_biosample_id_column, True)
@@ -279,7 +281,8 @@ class RunBiosampleConfig(ColumnConfig):
             id=f"{self.project_id}-{run_biosample_id}",
             biological_replicate_number=self._parse_int(self.get_row_value(row, self.biological_replicate_number_column)),
             technical_replicate_number=self._parse_int(self.get_row_value(row, self.technical_replicate_number_column)),
-            run_order=self._parse_int(self.get_row_value(row, self.biosample_run_order_column))
+            run_order=self._parse_int(self.get_row_value(row, self.biosample_run_order_column)),
+            batch=self.get_row_value(row, self.batch_column)
         )
 
     def get_biosample_id(self, row) -> str:

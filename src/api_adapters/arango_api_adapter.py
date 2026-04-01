@@ -449,7 +449,7 @@ class ArangoPharosAPIAdapter(ArangoAPIAdapter):
         import io, csv
         from fastapi.responses import StreamingResponse
 
-        data = self.runQuery("""for pro in `biolink:Protein`
+        data = self.runQuery("""for pro in `Protein`
           return {
           id: pro.id,
           uniprot_id: pro.uniprot_id,

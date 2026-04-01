@@ -44,7 +44,7 @@ def set_fam(protein_id, fam_to_set, fam_map):
 
 
 unmatched_fam_query = """FOR pro IN `Protein`
-    FOR rel IN Has_Canonical_Isoform
+    FOR rel IN IsoformProteinEdge
         FILTER rel._from == pro._id
         FOR canpro IN `Protein`
             FILTER rel._to == canpro._id

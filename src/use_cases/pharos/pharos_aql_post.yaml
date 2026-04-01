@@ -74,7 +74,7 @@ graph_views:
       - tdl_pm_score
       - tdl_antibody_count
     query: |
-      FOR pro IN `biolink:Protein`
+      FOR pro IN `Protein`
         RETURN {
           id: pro.id,
           uniprot_id: pro.uniprot_id,

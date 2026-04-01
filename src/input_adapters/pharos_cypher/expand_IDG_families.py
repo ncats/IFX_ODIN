@@ -40,7 +40,7 @@ def set_fam(protein_id, fam_to_set, fam_map):
         raise Exception(f"ID {protein_id} has conflicting families {existing_fam_to_set} and {fam_to_set}")
 
 
-unmatched_fam_query = """MATCH (pro:`biolink:Protein`)-[r:Has_Canonical_Isoform]->(canpro:`biolink:Protein`)
+unmatched_fam_query = """MATCH (pro:`Protein`)-[r:IsoformProteinEdge]->(canpro:`Protein`)
     WHERE (pro.idg_family is null AND canpro.idg_family is not null) 
     OR (canpro.idg_family is null AND pro.idg_family is not null)
     RETURN pro.id, pro.idg_family, canpro.id, canpro.idg_family"""
