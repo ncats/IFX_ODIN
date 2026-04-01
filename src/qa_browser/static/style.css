@@ -414,6 +414,61 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     color: var(--text-muted);
 }
 
+.workflow-grid {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+}
+
+.workflow-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 180px;
+    padding: 1.5rem 1.5rem 1.1rem;
+}
+
+.workflow-card .db-name {
+    position: relative;
+    z-index: 1;
+    font-size: 1.35rem;
+    line-height: 1.15;
+    margin-bottom: 0.8rem;
+    word-break: normal;
+}
+
+.workflow-card .db-card-footer {
+    position: relative;
+    z-index: 1;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+}
+
+.workflow-card-pounce {
+    background:
+        linear-gradient(90deg, rgba(245, 246, 248, 0.98) 0%, rgba(245, 246, 248, 0.93) 38%, rgba(245, 246, 248, 0.7) 58%, rgba(245, 246, 248, 0.18) 100%),
+        url("https://opendata.ncats.nih.gov/public/ifx/pounce/pounce.png");
+    background-size: cover;
+    background-position: right center;
+    background-repeat: no-repeat;
+}
+
+.workflow-card-placeholder {
+    background:
+        linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.02)),
+        linear-gradient(120deg, transparent 0%, transparent 56%, rgba(37, 99, 235, 0.12) 56%, rgba(37, 99, 235, 0.12) 62%, transparent 62%),
+        var(--bg-alt);
+}
+
+@media (prefers-color-scheme: dark) {
+    .workflow-card-pounce {
+        background:
+            linear-gradient(90deg, rgba(30, 41, 59, 0.97) 0%, rgba(30, 41, 59, 0.92) 38%, rgba(30, 41, 59, 0.62) 58%, rgba(30, 41, 59, 0.14) 100%),
+            url("https://opendata.ncats.nih.gov/public/ifx/pounce/pounce.png");
+        background-size: cover;
+        background-position: right center;
+        background-repeat: no-repeat;
+    }
+}
+
 /* Document detail - header */
 .doc-header { margin-bottom: 1.25rem; }
 .doc-header h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
