@@ -23,28 +23,8 @@ from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 
-
-# -----------------------------------------------------------------------------
-# Logging / helpers
-# -----------------------------------------------------------------------------
-
-def setup_logging(log_file: str) -> None:
-    log_dir = os.path.dirname(log_file)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    if root.hasHandlers():
-        root.handlers.clear()
-
-    fh = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3)
-    fh.setFormatter(fmt)
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    root.addHandler(fh)
-    root.addHandler(ch)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 
 def compute_md5(path: str) -> str:
@@ -74,6 +54,7 @@ class NodeNormGeneTransformer:
         self.output_file = c["output_file"]
         self.metadata_file = c["tf_metadata_file"]
         self.download_metadata_file = c.get("dl_metadata_file")
+        self.transform_archive_dir = c.get("transform_archive_dir")
 
         self.log_file = c.get("transform_log_file", c.get("log_file"))
         if not self.log_file:
@@ -258,7 +239,15 @@ class NodeNormGeneTransformer:
         df = df.drop(columns=["ic", "taxa", "NodeNorm_Gene"], errors="ignore")
 
         _safe_mkdir_for_file(self.output_file)
-        df.to_csv(self.output_file, index=False)
+        ver_result = save_versioned_output(
+            df=df,
+            output_path=self.output_file,
+            id_col="nodenorm_NCBI_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
         out_count = len(df)
         logging.info("Saved %s gene records to %s", out_count, self.output_file)
 
@@ -296,6 +285,7 @@ class NodeNormGeneTransformer:
                 "md5": compute_md5(self.output_file),
                 "record_count": out_count,
                 "columns": df.columns.tolist(),
+                "output_versioning": ver_result,
             },
             "qc": {
                 "qc_mode": self.qc_mode,

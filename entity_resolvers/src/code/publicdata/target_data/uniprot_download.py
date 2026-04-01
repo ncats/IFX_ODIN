@@ -19,17 +19,7 @@ import yaml
 import pandas as pd
 from tqdm import tqdm
 from datetime import datetime
-
-
-def setup_logging(log_file):
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    handlers = [
-        logging.FileHandler(log_file, mode="a"),
-        logging.StreamHandler(sys.stdout),
-    ]
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s - %(levelname)s - %(message)s",
-                        handlers=handlers, force=True)
+from publicdata.target_data.download_utils import retry_request, setup_logging
 
 
 class UniprotDownloader:
@@ -86,11 +76,37 @@ class UniprotDownloader:
                 h.update(chunk)
         return h.hexdigest()
 
+    def _is_valid_json_output(self):
+        if not os.path.exists(self.decompressed_path) or os.path.getsize(self.decompressed_path) == 0:
+            return False
+        try:
+            with open(self.decompressed_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return isinstance(data, dict) and isinstance(data.get("results"), list)
+        except Exception:
+            return False
+
+    def _is_valid_idmap_output(self):
+        if not self._as_bool(self.cfg.get("download_idmap"), default=True):
+            return True
+        if not os.path.exists(self.idmap_output) or os.path.getsize(self.idmap_output) == 0:
+            return False
+        try:
+            df = pd.read_csv(self.idmap_output, nrows=1, dtype=str)
+            return "uniprot_id" in df.columns
+        except Exception:
+            return False
+
+    def _has_valid_isoform_outputs(self):
+        required = [self.canonical_isoforms]
+        if self.full_config.get("global", {}).get("qc_mode", True):
+            required.append(self.computational_isoforms)
+        return all(os.path.exists(p) and os.path.getsize(p) > 0 for p in required)
+
     def _download(self, url, dest):
         tmp = dest + ".tmp"
         logging.info(f"Downloading {url}")
-        resp = requests.get(url, stream=True)
-        resp.raise_for_status()
+        resp = retry_request("GET", url, stream=True, timeout=(30, None))
         total = int(resp.headers.get("content-length", 0))
         with open(tmp, "wb") as f, tqdm(total=total, unit="iB", unit_scale=True) as p:
             for chunk in resp.iter_content(8192):
@@ -106,11 +122,15 @@ class UniprotDownloader:
         ]
         for url in probe_urls:
             try:
-                resp = requests.get(url, timeout=timeout, stream=True)
-                resp.raise_for_status()
+                resp = retry_request("GET", url, timeout=(timeout, timeout), stream=True)
                 h = {k.lower(): v for k, v in resp.headers.items()}
-                rel = next((h[k] for k in ["x-release-number", "x-uniprot-release-number"] if k in h), None)
-                rdate = next((h[k] for k in ["x-uniprot-release-date", "x-release-date"] if k in h), None)
+                logging.debug(
+                    "UniProt probe headers from %s: %s",
+                    url,
+                    {k: v for k, v in h.items() if 'uniprot' in k or 'release' in k},
+                )
+                rel = next((h[k] for k in ["x-uniprot-release"] if k in h), None)
+                rdate = next((h[k] for k in ["x-uniprot-release-date"] if k in h), None)
                 if rel:
                     m = re.search(r"\b(\d{4}_\d{2})\b", rel)
                     rel = m.group(1) if m else rel.strip()
@@ -168,13 +188,12 @@ class UniprotDownloader:
     def execute_sparql_query(self, query):
         logging.info("SPARQL query starting…")
         start = datetime.now()
-        resp = requests.post(
-            "https://sparql.uniprot.org/sparql",
+        resp = retry_request(
+            "POST", "https://sparql.uniprot.org/sparql",
             data={"query": query},
             headers={"Accept": "application/sparql-results+json"},
             timeout=(10, 300), stream=True,
         )
-        resp.raise_for_status()
         buf = bytearray()
         for chunk in resp.iter_content(16384):
             buf.extend(chunk)
@@ -247,11 +266,16 @@ class UniprotDownloader:
             # Version-based skip
             release_num, release_date = self.detect_uniprot_release()
             previous_version = self.old_meta.get("source_version") or self.old_meta.get("version")
-            if (release_num and release_num != "unknown"
-                    and previous_version == release_num
-                    and os.path.exists(self.decompressed_path)):
+            have_valid_cached_outputs = (
+                self._is_valid_json_output()
+                and self._is_valid_idmap_output()
+                and self._has_valid_isoform_outputs()
+            )
+            if ((release_num and release_num != "unknown" and previous_version == release_num)
+                    or (release_num == "unknown" and have_valid_cached_outputs)):
+                version_label = release_num if release_num != "unknown" else "unknown"
                 logging.info(
-                    f"UniProt release unchanged ({release_num}) and decompressed file present — skipping download."
+                    f"UniProt cached outputs are valid and release state is unchanged/unavailable ({version_label}) — skipping download."
                 )
                 meta = {
                     "source_name": "UniProt",
@@ -300,6 +324,7 @@ class UniprotDownloader:
             with open(self.metadata_file, "w") as mf:
                 json.dump(meta, mf, indent=2)
             logging.info(f"Metadata → {self.metadata_file}")
+            return True
 
         except Exception as e:
             logging.error("Pipeline failed: %s", e, exc_info=True)

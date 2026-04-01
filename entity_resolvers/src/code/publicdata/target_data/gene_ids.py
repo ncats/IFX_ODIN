@@ -18,27 +18,8 @@ import secrets
 import pandas as pd
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-
-def setup_logging(log_file):
-    root = logging.getLogger()
-    # If we've already added handlers, do nothing.
-    if root.handlers:
-        return
-
-    root.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-    # Always add console handler
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    root.addHandler(ch)
-
-    # And only add file handler if requested
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
+from publicdata.target_data.shared.output_versioning import save_versioned_output
+from publicdata.target_data.download_utils import setup_logging
 
 def compute_md5(path: str) -> str:
     h = hashlib.md5()
@@ -380,10 +361,17 @@ class GeneDataProcessor:
         remaining = [c for c in up.columns if c not in ordered]
         final = up[ordered + remaining]
         os.makedirs(os.path.dirname(self.gene_ids_path), exist_ok=True)
-        final.to_csv(self.gene_ids_path, index=False, sep="\t")
+        ver_result = save_versioned_output(
+            df=final,
+            output_path=self.gene_ids_path,
+            id_col="ncats_gene_id",
+            sep="\t",
+            output_kind="resolved_node_ids",
+        )
         logging.info("Upserted IFXGene IDs to %s", self.gene_ids_path)
         self.add_metadata_step("Save Gene IDs",
                                f"Upserted IFXGene IDs to {self.gene_ids_path}")
+        self.metadata["output_versioning"] = ver_result
 
     def save_metadata(self):
         self.metadata["timestamp"]["end"] = datetime.now().isoformat()

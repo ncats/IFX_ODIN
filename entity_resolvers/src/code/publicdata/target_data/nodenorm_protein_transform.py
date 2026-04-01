@@ -23,28 +23,8 @@ from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 
-
-# -----------------------------------------------------------------------------
-# Logging / helpers
-# -----------------------------------------------------------------------------
-
-def setup_logging(log_file: str) -> None:
-    log_dir = os.path.dirname(log_file)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    if root.hasHandlers():
-        root.handlers.clear()
-
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    fh = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3)
-    fh.setFormatter(fmt)
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-    root.addHandler(fh)
-    root.addHandler(sh)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 
 def compute_md5(path: str) -> str:
@@ -77,6 +57,7 @@ class NodeNormProteinTransformer:
             os.path.join(os.path.dirname(self.output_file), "tf_nodenorm_proteins_metadata.json"),
         )
         self.download_metadata_file = c.get("dl_metadata_file")
+        self.transform_archive_dir = c.get("transform_archive_dir")
 
         self.log_file = c.get("transform_log_file", c.get("log_file"))
         if not self.log_file:
@@ -256,6 +237,15 @@ class NodeNormProteinTransformer:
         start = datetime.now()
         input_count, output_count = self.parse_data()
         df = self.save_to_csv()
+        ver_result = save_versioned_output(
+            df=df,
+            output_path=self.output_file,
+            id_col="nodenorm_uniprot_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
         diff_generated = self._generate_diff(df)
         end = datetime.now()
 
@@ -287,6 +277,7 @@ class NodeNormProteinTransformer:
                 "record_count": output_count,
                 "num_output_columns": df.shape[1],
                 "output_columns": df.columns.tolist(),
+                "output_versioning": ver_result,
             },
             "qc": {
                 "qc_mode": self.qc_mode,

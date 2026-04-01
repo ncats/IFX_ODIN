@@ -18,26 +18,14 @@ import hashlib
 import json
 import shutil
 import urllib3
+from publicdata.target_data.download_utils import retry_request, setup_logging
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-def setup_logging(config):
-    log_file = config.get("download_log_file") or config.get("log_file", "hgnc_download.log")
-    handlers = [logging.StreamHandler()]
-    directory = os.path.dirname(log_file)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    if log_file:
-        handlers.insert(0, logging.FileHandler(log_file))
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s - %(levelname)s - %(message)s",
-                        handlers=handlers, force=True)
 
 
 class HGNCDownloader:
     def __init__(self, full_config):
         self.config = full_config["hgnc_data"]
-        setup_logging(self.config)
+        setup_logging(self.config.get("download_log_file") or self.config.get("log_file", "hgnc_download.log"))
         self.url = self.config["download_url"]
         self.output_path = self.config["output_path"]
         self.meta_file = self.config.get("dl_metadata_file", "dl_hgnc_metadata.json")
@@ -58,11 +46,21 @@ class HGNCDownloader:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
+    def _is_valid_output(self, path):
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return False
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                first_line = handle.readline().strip().lower()
+            return "hgnc_id" in first_line and "symbol" in first_line
+        except Exception:
+            return False
+
     def detect_hgnc_version(self):
         try:
             from email.utils import parsedate_to_datetime
             logging.info("Checking Last-Modified header for HGNC file...")
-            response = requests.head(self.url, timeout=10)
+            response = retry_request("HEAD", self.url, timeout=(10, 10))
             last_modified = response.headers.get("Last-Modified")
             if last_modified:
                 dt = parsedate_to_datetime(last_modified)
@@ -79,7 +77,7 @@ class HGNCDownloader:
         previous_version = self.old_meta.get("source_version")
         if (current_version and current_version != "unknown"
                 and previous_version == current_version
-                and os.path.exists(self.output_path)):
+                and self._is_valid_output(self.output_path)):
             logging.info(
                 f"HGNC version unchanged ({current_version}) and file present — skipping download."
             )
@@ -98,7 +96,7 @@ class HGNCDownloader:
                 json.dump(metadata, f, indent=2)
             return True
 
-        temp_file = self.output_path + ".temp"
+        temp_file = self.output_path + ".tmp"
         update_detected = False
         old_md5 = None
         new_md5 = None
@@ -108,8 +106,7 @@ class HGNCDownloader:
 
         try:
             logging.info(f"Downloading HGNC data from {self.url}...")
-            with requests.get(self.url, stream=True, verify=False) as response:
-                response.raise_for_status()
+            with retry_request("GET", self.url, stream=True, timeout=(30, None), verify=False) as response:
                 total_size = int(response.headers.get("content-length", 0))
                 tqdm_bar = tqdm(total=total_size, unit="iB", unit_scale=True)
                 with open(temp_file, "wb") as f:
@@ -158,7 +155,10 @@ class HGNCDownloader:
         return True
 
     def run(self):
-        self.download()
+        ok = self.download()
+        if not ok:
+            raise RuntimeError("HGNC download failed")
+        return ok
 
 
 if __name__ == "__main__":

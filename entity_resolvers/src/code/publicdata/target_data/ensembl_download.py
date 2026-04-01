@@ -21,27 +21,14 @@ from pathlib import Path
 from datetime import datetime
 from requests.exceptions import HTTPError
 from tqdm import tqdm
-
-
-def setup_logging(config):
-    log_file = config.get("download_log_file") or config.get("log_file")
-    handlers = [logging.StreamHandler()]
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        handlers.insert(0, logging.FileHandler(log_file))
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=handlers,
-        force=True,
-    )
+from publicdata.target_data.download_utils import retry_request, setup_logging
 
 
 class EnsemblDownloader:
     def __init__(self, full_config):
         self.full_config = full_config
         self.config = full_config["ensembl_data"]
-        setup_logging(self.config)
+        setup_logging(self.config.get("download_log_file") or self.config.get("log_file", "ensembl_download.log"))
 
         # Embedded BioMart queries (self-contained, no external XML files needed)
         self.queries = [
@@ -134,14 +121,62 @@ class EnsemblDownloader:
             "updated": False,
             "status": "unknown",
         }
+        self.had_errors = False
+        self.expected_headers = [
+            [
+                "Gene stable ID",
+                "Gene stable ID version",
+                "Transcript stable ID",
+                "Transcript stable ID version",
+                "Protein stable ID",
+                "Protein stable ID version",
+                "Gene name",
+                "Gene type",
+                "Ensembl Canonical",
+                "Gene Synonym",
+                "Transcript support level (TSL)",
+                "NCBI gene (formerly Entrezgene) ID",
+                "HGNC ID",
+            ],
+            [
+                "Gene stable ID",
+                "Gene stable ID version",
+                "Transcript stable ID",
+                "Transcript stable ID version",
+                "Protein stable ID",
+                "Protein stable ID version",
+                "UniProtKB/Swiss-Prot ID",
+                "UniProtKB/TrEMBL ID",
+                "UniProtKB isoform ID",
+            ],
+            [
+                "Gene stable ID",
+                "Gene stable ID version",
+                "Transcript stable ID",
+                "Transcript stable ID version",
+                "RefSeq match transcript (MANE Select)",
+                "RefSeq mRNA ID",
+                "RefSeq ncRNA ID",
+                "RefSeq peptide ID",
+            ],
+            [
+                "Gene stable ID",
+                "Gene stable ID version",
+                "Gene description",
+                "Chromosome/scaffold name",
+                "Strand",
+                "Gene start (bp)",
+                "Gene end (bp)",
+            ],
+        ]
 
     def _detect_ensembl_release(self):
         """Get release number and date from the Ensembl REST API."""
         try:
-            resp = requests.get(
-                "https://rest.ensembl.org/info/data?",
+            resp = retry_request(
+                "GET", "https://rest.ensembl.org/info/data?",
                 headers={"Content-Type": "application/json"},
-                timeout=30,
+                timeout=(30, 30),
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -155,7 +190,7 @@ class EnsemblDownloader:
 
         # Fallback: scrape BioMart homepage
         try:
-            homepage = requests.get("https://www.ensembl.org/biomart/martview", timeout=10).text
+            homepage = retry_request("GET", "https://www.ensembl.org/biomart/martview", timeout=(10, 10)).text
             m = re.search(r"Ensembl release\s+(\d+)\s*(?:-\s*([A-Za-z]+\s+\d{4}))?", homepage, re.IGNORECASE)
             if m:
                 return m.group(1), m.group(2)
@@ -171,7 +206,32 @@ class EnsemblDownloader:
                 h.update(chunk)
         return h.hexdigest()
 
-    def fetch_biomart_data(self, query, output_csv):
+    @staticmethod
+    def _looks_like_biomart_error(first_line):
+        line = (first_line or "").strip().lower()
+        return (
+            not line
+            or line.startswith("<")
+            or line.startswith("query error")
+            or "biomart::exception" in line
+            or "could not connect to mysql database" in line
+            or "can't connect to mysql server" in line
+        )
+
+    def _is_valid_existing_output(self, path, expected_header):
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                first_line = handle.readline().strip()
+            if self._looks_like_biomart_error(first_line):
+                return False
+            actual_header = first_line.split(",")
+            return all(col in actual_header for col in expected_header)
+        except Exception:
+            return False
+
+    def fetch_biomart_data(self, query, output_csv, expected_header):
         """Execute a single BioMart query, write CSV. Returns status dict."""
         temp_csv = output_csv + ".tmp"
         url = "https://www.ensembl.org/biomart/martservice?query="
@@ -179,8 +239,7 @@ class EnsemblDownloader:
         os.makedirs(os.path.dirname(output_csv), exist_ok=True)
 
         try:
-            with requests.get(url + query, stream=True, timeout=300) as response:
-                response.raise_for_status()
+            with retry_request("GET", url + query, stream=True, timeout=(30, 300)) as response:
                 total_size = int(response.headers.get("content-length", 0))
                 tqdm_bar = tqdm(total=total_size, unit="iB", unit_scale=True,
                                 desc=os.path.basename(output_csv))
@@ -194,15 +253,23 @@ class EnsemblDownloader:
                 lines = content.splitlines()
                 if not lines:
                     logging.error("Empty response from BioMart")
-                    return {"status": "error", "records": 0}
+                    return {"status": "error", "records": 0, "message": "Empty response from BioMart"}
+
+                if self._looks_like_biomart_error(lines[0]):
+                    logging.error("BioMart returned an error response for %s: %s", output_csv, lines[0])
+                    return {"status": "error", "records": 0, "message": lines[0]}
 
                 header = lines[0].split("\t")
+                if not all(col in header for col in expected_header):
+                    msg = f"Unexpected BioMart header for {output_csv}: {header}"
+                    logging.error(msg)
+                    return {"status": "error", "records": 0, "message": msg}
                 rows = [line.split("\t") for line in lines[1:]]
                 pd.DataFrame(rows, columns=header).to_csv(temp_csv, index=False)
 
         except (HTTPError, Exception) as e:
             logging.error(f"BioMart query failed: {e}")
-            return {"status": "error", "records": 0}
+            return {"status": "error", "records": 0, "message": str(e)}
 
         # Compare hashes — skip if unchanged
         old_hash = self.compute_hash(output_csv) if os.path.exists(output_csv) else None
@@ -223,12 +290,15 @@ class EnsemblDownloader:
     def fetch(self):
         current_ver = self.metadata["source_version"]
         previous_ver = self.old_meta.get("source_version") or self.old_meta.get("version")
-        all_files_exist = all(os.path.exists(p) for p in self.output_paths)
+        all_files_valid = all(
+            self._is_valid_existing_output(path, expected)
+            for path, expected in zip(self.output_paths, self.expected_headers)
+        )
 
         # Skip ALL downloads if release version matches and all raw files exist
         if (current_ver and current_ver != "unknown"
                 and previous_ver == current_ver
-                and all_files_exist):
+                and all_files_valid):
             logging.info(
                 f"Ensembl release unchanged ({current_ver}) and all {len(self.output_paths)} "
                 f"raw files present — skipping download."
@@ -251,14 +321,19 @@ class EnsemblDownloader:
         # New release or missing files — download everything
         if current_ver != previous_ver:
             logging.info(f"Ensembl release changed: {previous_ver} → {current_ver}")
-        elif not all_files_exist:
-            missing = [p for p in self.output_paths if not os.path.exists(p)]
-            logging.info(f"Missing raw files: {missing}")
+        elif not all_files_valid:
+            invalid = [
+                p for p, expected in zip(self.output_paths, self.expected_headers)
+                if not self._is_valid_existing_output(p, expected)
+            ]
+            logging.info(f"Missing or invalid raw files: {invalid}")
 
-        for query, output_csv in zip(self.queries, self.output_paths):
-            result = self.fetch_biomart_data(query, output_csv)
+        for query, output_csv, expected_header in zip(self.queries, self.output_paths, self.expected_headers):
+            result = self.fetch_biomart_data(query, output_csv, expected_header)
             if result["status"] in ("new", "updated"):
                 self.metadata["updated"] = True
+            if result["status"] == "error":
+                self.had_errors = True
 
             self.metadata["outputs"].append({
                 "path": output_csv,
@@ -267,12 +342,25 @@ class EnsemblDownloader:
             })
 
         self.metadata["download_end"] = datetime.now().isoformat()
-        self.metadata["status"] = "updated" if self.metadata["updated"] else "no_change"
+        if self.had_errors:
+            self.metadata["status"] = "error"
+        else:
+            self.metadata["status"] = "updated" if self.metadata["updated"] else "no_change"
 
         os.makedirs(os.path.dirname(self.meta_log), exist_ok=True)
         with open(self.meta_log, "w") as f:
             json.dump(self.metadata, f, indent=2)
         logging.info(f"Metadata written: {self.meta_log}")
+
+        if self.had_errors:
+            failed_outputs = [
+                o["path"] for o in self.metadata["outputs"]
+                if o.get("status") == "error"
+            ]
+            raise RuntimeError(
+                "One or more Ensembl BioMart queries failed: "
+                + ", ".join(failed_outputs)
+            )
 
     def run(self):
         self.fetch()

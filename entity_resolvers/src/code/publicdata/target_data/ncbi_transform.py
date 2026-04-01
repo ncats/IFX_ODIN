@@ -13,11 +13,10 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    force=True,
-)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
+
+setup_logging()
 
 
 class NCBITransformer:
@@ -212,8 +211,15 @@ class NCBITransformer:
 
         transformed_df, start_time, end_time, processing_steps = self.transform_and_clean_ncbi_data(ncbi_df)
 
-        os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-        transformed_df.to_csv(self.output_file, index=False)
+        ver_result = save_versioned_output(
+            df=transformed_df,
+            output_path=self.output_file,
+            id_col="ncbi_NCBI_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
 
         logging.info(f"Saved cleaned NCBI data → {self.output_file}")
 
@@ -235,7 +241,7 @@ class NCBITransformer:
 
         transformed_df.to_csv(backup_path, index=False)
 
-        archive_path = self.archive_output(transformed_df)
+        archive_path = ver_result["archive_path"] or self.archive_output(transformed_df)
 
         meta = {
             "timestamp": {
@@ -245,6 +251,7 @@ class NCBITransformer:
             "input_file": self.input_file,
             "output_file": self.output_file,
             "archived_output": archive_path,
+            "output_versioning": ver_result,
             "processing_steps": processing_steps,
             "records_output": len(transformed_df),
             "summary": {

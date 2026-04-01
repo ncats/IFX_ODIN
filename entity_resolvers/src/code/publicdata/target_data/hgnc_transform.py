@@ -13,12 +13,11 @@ import logging
 import argparse
 from datetime import datetime
 from pathlib import Path
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    force=True,
-)
+from publicdata.target_data.download_utils import setup_logging
+
+setup_logging()
 
 
 class HGNCTransformer:
@@ -204,8 +203,15 @@ class HGNCTransformer:
             logging.error(f"Transformation error: {e}")
             sys.exit(1)
 
-        os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-        cleaned_df.to_csv(self.output_file, index=False)
+        ver_result = save_versioned_output(
+            df=cleaned_df,
+            output_path=self.output_file,
+            id_col="hgnc_hgnc_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
         logging.info(f"Wrote cleaned HGNC data to {self.output_file}")
 
         qc_dir = "src/data/publicdata/target_data/qc"
@@ -228,13 +234,14 @@ class HGNCTransformer:
 
         cleaned_df.to_csv(backup_path, index=False)
 
-        archive_path = self.archive_output(cleaned_df)
+        archive_path = ver_result["archive_path"] or self.archive_output(cleaned_df)
 
         metadata = {
             "timestamp": {"start": t0.isoformat(), "end": t1.isoformat()},
             "input_file": self.input_file,
             "output_file": self.output_file,
             "archived_output": archive_path,
+            "output_versioning": ver_result,
             "num_records_input": num_in,
             "num_records_output": num_out,
             "transformation_duration_seconds": (t1 - t0).total_seconds(),

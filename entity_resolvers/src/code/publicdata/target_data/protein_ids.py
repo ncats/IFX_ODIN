@@ -19,28 +19,19 @@ import pandas as pd
 from datetime import datetime
 from difflib import SequenceMatcher
 import re
+import requests
 import warnings
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"  # prevent leaked semaphore at exit
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="transformers.tokenization_utils_base")
 
 
-def setup_logging(log_file):
-    root = logging.getLogger()
-    if root.handlers:
-        return
-    root.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    root.addHandler(ch)
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
+from publicdata.target_data.download_utils import setup_logging
 
 
 class ProteinDataProcessor:
@@ -86,6 +77,21 @@ class ProteinDataProcessor:
         }
         self.metadata["processing_steps"].append(entry)
         logging.info("Metadata step: %s – %s", step_name, description)
+
+    @staticmethod
+    def _token_similarity(a, b):
+        def normalize(text):
+            text = re.sub(r"[^A-Za-z0-9]+", " ", str(text).lower()).strip()
+            if not text:
+                return []
+            return [tok for tok in text.split() if tok]
+
+        toks_a = set(normalize(a))
+        toks_b = set(normalize(b))
+        if not toks_a or not toks_b:
+            return 0.0
+        overlap = len(toks_a & toks_b)
+        return (2.0 * overlap) / (len(toks_a) + len(toks_b))
 
     def load_data(self):
         t0 = datetime.now()
@@ -146,17 +152,10 @@ class ProteinDataProcessor:
         """
         Compute a ‘combined_protein_name’ by comparing
         Ensembl description, UniProt name, and NodeNorm name
-        using exact, fuzzy, and semantic matching.
+        using exact, fuzzy, and token-overlap matching.
         """
         t0 = datetime.now()
         logging.info("STEP: match_descriptions")
-        import torch
-        # Disable MPS backend to prevent segfault at process exit on macOS
-        if hasattr(torch.backends, 'mps'):
-            torch.backends.mps.is_available = lambda: False
-            torch.backends.mps.is_built = lambda: False
-        from sentence_transformers import SentenceTransformer, util
-        model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
         df = self.protein_data
         df['combined_protein_name'] = pd.NA
@@ -218,28 +217,22 @@ class ProteinDataProcessor:
             best_method, best_score, best_name = None, 0.0, None
             for method, a, b in pairs:
                 if a and b:
-                    emb1 = model.encode(a, convert_to_tensor=True, show_progress_bar=False)
-                    emb2 = model.encode(b, convert_to_tensor=True, show_progress_bar=False)
-                    score = util.pytorch_cos_sim(emb1, emb2).item()
+                    score = self._token_similarity(a, b)
                     if score > best_score:
                         best_method, best_score, best_name = method, score, b
             if best_score >= semantic_threshold:
                 df.at[idx, 'combined_protein_name'] = best_name
                 df.at[idx, 'protein_name_score']   = best_score
-                df.at[idx, 'protein_name_method']  = f"Semantic-{best_method}"
+                df.at[idx, 'protein_name_method']  = f"Token-{best_method}"
             else:
                 df.at[idx, 'combined_protein_name'] = " | ".join(filter(None, [ed, un, nn]))
                 df.at[idx, 'protein_name_score']   = best_score
-                df.at[idx, 'protein_name_method']  = "Semantic-Fallback"
-
-        # Free the model to avoid PyTorch segfault / leaked semaphores at exit
-        del model
-        import gc; gc.collect()
+                df.at[idx, 'protein_name_method']  = "Token-Fallback"
 
         duration = (datetime.now() - t0).total_seconds()
         self.add_metadata_step(
             "match_descriptions",
-            "Computed exact/fuzzy/semantic similarity scores",
+            "Computed exact/fuzzy/token-overlap similarity scores",
             duration_seconds=duration,
             records=len(df)
         )
@@ -520,9 +513,9 @@ class ProteinDataProcessor:
                 continue
             df[col] = df[col].replace('', pd.NA)
             df[col] = df.groupby('uniprot_id')[col].transform(
-                lambda s: s.ffill().bfill()
+                lambda s: s.astype("string").ffill().bfill()
             )
-            df[col] = df[col].fillna('')
+            df[col] = df[col].astype("string").fillna('').astype(str)
 
         # ——— 2) Absorb bare accession rows ———
         # A "bare" row has uniprot_isoform == '' (no -N suffix) BUT
@@ -650,10 +643,13 @@ class ProteinDataProcessor:
             'ensembl_canonical': 'ensembl_canonical_token', # Ensembl "-1" canonical ENSP token (if present)
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+        if 'uniprot_canonical' not in df.columns:
+            df['uniprot_canonical'] = True
+        df['uniprot_canonical'] = df['uniprot_canonical'].fillna(False).astype(bool)
 
         # ——— Wrap up ———
         total = len(df)
-        n_can = int(df['is_canonical'].sum())
+        n_can = int(df['uniprot_canonical'].sum())
         n_iso = total - n_can
         n_bare = len(drop_idx) if len(drop_idx) > 0 else 0
         logging.info(
@@ -723,6 +719,128 @@ class ProteinDataProcessor:
         'createdAt', 'updatedAt',
     ]
 
+    # ——————————————————————————————————————————————————————————————
+    # UniProt removal-list filter
+    # ——————————————————————————————————————————————————————————————
+    UNIPROT_REMOVAL_URL = (
+        "https://ftp.ebi.ac.uk/pub/contrib/UniProt/proteomes/"
+        "proteins_to_remove_from_UniProtKB.txt"
+    )
+
+    def filter_uniprot_removal_list(self):
+        """
+        Download the EBI 'proteins to remove from UniProtKB' list and
+        remove matching rows from self.protein_data.
+
+        Removed rows are saved as a TSV alongside protein_ids:
+            <protein_ids_dir>/removed_uniprot_proteins.tsv
+
+        Matching is on base accession (strip isoform suffix) since the
+        removal list contains base accessions only.
+        """
+        t0 = datetime.now()
+        logging.info("STEP: filter_uniprot_removal_list")
+
+        # 1) Download the removal list
+        try:
+            resp = requests.get(self.UNIPROT_REMOVAL_URL, timeout=60)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logging.warning(
+                "Could not download UniProt removal list (%s); "
+                "skipping filter. Error: %s",
+                self.UNIPROT_REMOVAL_URL, e
+            )
+            self.add_metadata_step(
+                "filter_uniprot_removal_list",
+                "SKIPPED – download failed",
+                error=str(e),
+            )
+            return
+
+        # 2) Parse accessions (one per line, skip comments/blanks)
+        removal_accessions = set()
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            # Take first whitespace-delimited token (in case of annotations)
+            acc = line.split()[0].strip().upper()
+            if acc:
+                removal_accessions.add(acc)
+
+        logging.info(
+            "Loaded %d accessions from UniProt removal list",
+            len(removal_accessions)
+        )
+
+        if not removal_accessions:
+            self.add_metadata_step(
+                "filter_uniprot_removal_list",
+                "Removal list was empty; nothing filtered",
+            )
+            return
+
+        # 3) Match against base accession (strip -N isoform suffix)
+        df = self.protein_data
+        base_acc = (
+            df['uniprot_id']
+            .fillna('')
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .str.replace(r'-\d+$', '', regex=True)
+        )
+        removal_mask = base_acc.isin(removal_accessions)
+        n_removed = int(removal_mask.sum())
+
+        # 4) Save removed rows
+        if n_removed > 0:
+            removed_df = df.loc[removal_mask].copy()
+            removed_df['removal_reason'] = 'UniProt removal list'
+            removed_df['removal_list_url'] = self.UNIPROT_REMOVAL_URL
+            removed_df['removal_date'] = datetime.now().isoformat()
+
+            out_dir = os.path.dirname(self.protein_ids_path)
+            removed_path = os.path.join(out_dir, 'removed_uniprot_proteins.tsv')
+            os.makedirs(out_dir, exist_ok=True)
+            removed_df.to_csv(removed_path, sep='\t', index=False)
+            logging.info(
+                "Removed %d proteins matching UniProt removal list → %s",
+                n_removed, removed_path
+            )
+
+            # Drop from working data
+            self.protein_data = df.loc[~removal_mask].reset_index(drop=True)
+        else:
+            removed_path = None
+            logging.info(
+                "No proteins matched the UniProt removal list "
+                "(%d accessions checked against %d rows)",
+                len(removal_accessions), len(df)
+            )
+
+        duration = (datetime.now() - t0).total_seconds()
+        step_details = {
+            "duration_seconds": duration,
+            "removal_list_accessions": len(removal_accessions),
+            "rows_before": len(df),
+            "rows_removed": n_removed,
+            "rows_after": len(self.protein_data),
+        }
+        if removed_path:
+            step_details["removed_file"] = removed_path
+            self.metadata["outputs"].append({
+                "name": "removed_uniprot_proteins",
+                "path": removed_path,
+                "records": n_removed,
+            })
+        self.add_metadata_step(
+            "filter_uniprot_removal_list",
+            f"Filtered {n_removed} proteins from UniProt removal list",
+            **step_details,
+        )
+
     def save_data(self):
         t0 = datetime.now()
         logging.info("STEP: save_data (write IFX cache)")
@@ -743,15 +861,21 @@ class ProteinDataProcessor:
         remaining = [c for c in slim.columns if c not in ordered]
         slim = slim[ordered + remaining]
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        slim.to_csv(path, index=False, sep='\t')
+        ver_result = save_versioned_output(
+            df=slim,
+            output_path=path,
+            id_col="ncats_protein_id",
+            sep="\t",
+            output_kind="resolved_node_ids",
+        )
         logging.info("Updated IFX cache (protein_ids_path) as TSV at %s", path)
 
         self.metadata["outputs"].append({
             "name": "ifx_protein_ids",
             "path": path,
             "records": len(slim),
-            "excluded_columns": drop_cols
+            "excluded_columns": drop_cols,
+            "output_versioning": ver_result,
         })
         self.metadata["timestamp"]["end"] = datetime.now().isoformat()
 
@@ -767,6 +891,7 @@ class ProteinDataProcessor:
         self.generate_ncats_protein_ids()
         self.filter_isoforms()
         self.qc_flag_canonical_mismatches()
+        self.filter_uniprot_removal_list()
         self.save_data()
 
 

@@ -19,12 +19,10 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from publicdata.target_data.shared.entity_diff import run_entity_diff, archive_cleaned_output
+from publicdata.target_data.shared.output_versioning import save_versioned_output
+from publicdata.target_data.download_utils import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    force=True,
-)
+setup_logging()
 
 
 class EnsemblTransformer:
@@ -50,6 +48,23 @@ class EnsemblTransformer:
             "summary": {},
         }
         self.logger = logging.getLogger("EnsemblTransformer")
+
+    @staticmethod
+    def _first_line(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                return handle.readline().strip()
+        except Exception:
+            return ""
+
+    def _require_columns(self, df, required, path, label):
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            first_line = self._first_line(path)
+            raise RuntimeError(
+                f"{label} is missing required columns {missing}. "
+                f"Input file: {path}. First line: {first_line[:500]}"
+            )
 
     # ── Merge helpers (UNCHANGED from original) ──────────────────────────
 
@@ -146,6 +161,66 @@ class EnsemblTransformer:
             "Gene end (bp)": "ensembl_end",
         }, inplace=True)
 
+        if "ensembl_synonyms" not in df1.columns:
+            df1["ensembl_synonyms"] = ""
+
+        self._require_columns(
+            df1,
+            [
+                "ensembl_gene_id",
+                "ensembl_gene_id_version",
+                "ensembl_transcript_id",
+                "ensembl_transcript_id_version",
+                "ensembl_peptide_id",
+                "ensembl_peptide_id_version",
+                "ensembl_symbol",
+                "ensembl_gene_type",
+                "ensembl_canonical",
+                "ensembl_transcript_tsl",
+                "ensembl_NCBI_id",
+                "ensembl_hgnc_id",
+                "ensembl_synonyms",
+            ],
+            self.inputs[0],
+            "Ensembl BioMart part 1",
+        )
+        self._require_columns(
+            df2,
+            [
+                "ensembl_transcript_id_version",
+                "ensembl_uniprot_id",
+                "ensembl_trembl_id",
+                "ensembl_uniprot_isoform",
+            ],
+            self.inputs[1],
+            "Ensembl BioMart part 2",
+        )
+        self._require_columns(
+            df3,
+            [
+                "ensembl_transcript_id_version",
+                "ensembl_refseq_MANEselect",
+                "ensembl_refseq_NM",
+                "ensembl_refseq_NR",
+                "ensembl_refseq_NP",
+            ],
+            self.inputs[2],
+            "Ensembl BioMart part 3",
+        )
+        self._require_columns(
+            df4,
+            [
+                "ensembl_gene_id_version",
+                "ensembl_description",
+                "ensembl_location",
+                "ensembl_strand",
+                "ensembl_start",
+                "ensembl_end",
+            ],
+            self.inputs[3],
+            "Ensembl BioMart part 4",
+        )
+
         # ── Subsetting and cleaning (UNCHANGED) ─────────────────────────
         df2 = df2[["ensembl_transcript_id_version", "ensembl_uniprot_id",
                     "ensembl_trembl_id", "ensembl_uniprot_isoform"]]
@@ -163,8 +238,15 @@ class EnsemblTransformer:
         final = self.merge_dataframes(m123, df4, on="ensembl_gene_id_version", step="merge_with_df4")
 
         # ── Write final output ───────────────────────────────────────────
-        os.makedirs(os.path.dirname(self.final_output), exist_ok=True)
-        final.to_csv(self.final_output, index=False)
+        ver_result = save_versioned_output(
+            df=final,
+            output_path=self.final_output,
+            id_col=None,
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
         self.logger.info("Saved final merged to %s", self.final_output)
 
         # ── Entity diff on CLEANED output ────────────────────────────────
@@ -177,7 +259,7 @@ class EnsemblTransformer:
         )
 
         # ── Archive cleaned output ───────────────────────────────────────
-        archive_path = archive_cleaned_output(
+        archive_path = ver_result["archive_path"] or archive_cleaned_output(
             final, self.transform_archive_dir, Path(self.final_output).name
         )
         self.metadata["archived_output"] = archive_path
@@ -206,6 +288,7 @@ class EnsemblTransformer:
             },
             "final_output": self.final_output,
             "archived_output": archive_path,
+            "output_versioning": ver_result,
             "summary": self.metadata["summary"],
         }
         if self.metadata_file:

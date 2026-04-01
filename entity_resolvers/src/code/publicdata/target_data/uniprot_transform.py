@@ -24,18 +24,8 @@ from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
 
-
-def setup_logging(log_file):
-    handlers = [logging.StreamHandler()]
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        handlers.insert(0, logging.FileHandler(log_file, mode='a'))
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=handlers,
-        force=True
-    )
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 
 class UniProtTransformer:
@@ -515,8 +505,15 @@ class UniProtTransformer:
         df = self.fill_isoform_sequences(df)
 
         # 6) write final reviewed file
-        os.makedirs(os.path.dirname(self.reviewed_output), exist_ok=True)
-        df.to_csv(self.reviewed_output, index=False)
+        reviewed_ver = save_versioned_output(
+            df=df,
+            output_path=self.reviewed_output,
+            id_col="uniprot_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.transform_archive_dir,
+            output_kind="cleaned_source_table",
+        )
 
         # 7) entity-level diff instead of column diff
         qc_dir = "src/data/publicdata/target_data/qc"
@@ -539,14 +536,15 @@ class UniProtTransformer:
         df.to_csv(backup_path, index=False)
 
         # 8) archive transformed output
-        archive_path = self.archive_output(df)
+        archive_path = reviewed_ver["archive_path"] or self.archive_output(df)
         logging.info(f"Archived transform → {archive_path}")
 
         # 9) metadata summary
         self.metadata["outputs"].append({
             "name": "reviewed_csv",
             "path": os.path.abspath(self.reviewed_output),
-            "records": len(df)
+            "records": len(df),
+            "output_versioning": reviewed_ver,
         })
         self.metadata["outputs"].append({
             "name": "archived_reviewed_csv",
@@ -558,6 +556,7 @@ class UniProtTransformer:
         self.metadata["summary"] = {
             "records_output": len(df),
             "archived_output": archive_path,
+            "output_versioning": reviewed_ver,
             "n_added_ids": diff_summary["n_added_ids"] if diff_summary else 0,
             "n_removed_ids": diff_summary["n_removed_ids"] if diff_summary else 0,
             "n_field_changes": diff_summary["n_field_changes"] if diff_summary else 0,

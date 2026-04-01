@@ -17,11 +17,10 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    force=True,
-)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
+
+setup_logging()
 
 
 class RefSeqTransformer:
@@ -48,6 +47,15 @@ class RefSeqTransformer:
         """Load and rename columns (UNCHANGED from original)."""
         logging.info(f"Loading RefSeq data from {self.decompressed}...")
         df = pd.read_csv(self.decompressed, sep="\t", dtype=str)
+        if "#tax_id" in df.columns:
+            before = len(df)
+            df = df[df["#tax_id"].astype(str).str.strip() == "9606"].copy()
+            if len(df) != before:
+                logging.warning(
+                    "RefSeq input was not human-filtered; applied transform-time filter: %d -> %d rows",
+                    before,
+                    len(df),
+                )
         records_before = len(df)
 
         rename_map = {
@@ -63,9 +71,6 @@ class RefSeqTransformer:
         }
         df.rename(columns=rename_map, inplace=True)
 
-        os.makedirs(os.path.dirname(self.transformed_data_path), exist_ok=True)
-        df.to_csv(self.transformed_data_path, index=False)
-
         self.metadata["processing_steps"].append({
             "step": "rename_columns", "records": records_before,
         })
@@ -79,12 +84,20 @@ class RefSeqTransformer:
         rna_grouped = df_rna.groupby('refseq_ncbi_id')['refseq_rna_id'] \
             .agg(lambda x: '|'.join(x.dropna().unique())).reset_index()
         rna_path = self.config['refseq']['rna_concatenated_path']
-        os.makedirs(os.path.dirname(rna_path), exist_ok=True)
-        rna_grouped.to_csv(rna_path, index=False)
+        rna_ver = save_versioned_output(
+            df=rna_grouped,
+            output_path=rna_path,
+            id_col="refseq_ncbi_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.archive_dir,
+            output_kind="cleaned_source_table",
+        )
         logging.info(f"RNA concatenated: {len(rna_grouped)} genes → {rna_path}")
 
         self.metadata["outputs"].append({
             "name": "RefSeq RNA Concatenated", "path": rna_path, "records": len(rna_grouped),
+            "output_versioning": rna_ver,
         })
 
         # Protein
@@ -93,12 +106,20 @@ class RefSeqTransformer:
         prot_grouped = df_prot.groupby('refseq_ncbi_id')['refseq_protein_id'] \
             .agg(lambda x: ';'.join(x.dropna().unique())).reset_index()
         prot_path = self.config['refseq']['protein_concatenated_path']
-        os.makedirs(os.path.dirname(prot_path), exist_ok=True)
-        prot_grouped.to_csv(prot_path, index=False)
+        prot_ver = save_versioned_output(
+            df=prot_grouped,
+            output_path=prot_path,
+            id_col="refseq_ncbi_id",
+            sep=",",
+            write_diff=False,
+            archive_dir=self.archive_dir,
+            output_kind="cleaned_source_table",
+        )
         logging.info(f"Protein concatenated: {len(prot_grouped)} genes → {prot_path}")
 
         self.metadata["outputs"].append({
             "name": "RefSeq Protein Concatenated", "path": prot_path, "records": len(prot_grouped),
+            "output_versioning": prot_ver,
         })
 
         return rna_grouped, prot_grouped
@@ -188,11 +209,21 @@ class RefSeqTransformer:
         # Update backup with current gene-level data
         rna_grouped.to_csv(backup_file, index=False)
 
-        archive_path = self.archive_output(df)
+        ver_result = save_versioned_output(
+            df=df,
+            output_path=self.transformed_data_path,
+            id_col=None,
+            sep=",",
+            write_diff=False,
+            archive_dir=self.archive_dir,
+            output_kind="cleaned_source_table",
+        )
+        archive_path = ver_result["archive_path"] or self.archive_output(df)
 
         self.metadata["timestamp"]["end"] = datetime.now().isoformat()
         self.metadata["output_file"] = self.transformed_data_path
         self.metadata["archived_output"] = archive_path
+        self.metadata["output_versioning"] = ver_result
         self.metadata["num_records_input"] = len(df)
         self.metadata["num_records_output"] = len(df)
         self.metadata["summary"] = {

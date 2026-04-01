@@ -21,23 +21,8 @@ import yaml
 import argparse
 import requests
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 import logging
-
-
-def setup_logging(log_file):
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    if root.hasHandlers():
-        root.handlers.clear()
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    fh = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3)
-    fh.setFormatter(fmt)
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-    root.addHandler(fh)
-    root.addHandler(sh)
+from publicdata.target_data.download_utils import retry_request, setup_logging
 
 
 def parse_directory_listing(url, filename_prefix):
@@ -51,8 +36,7 @@ def parse_directory_listing(url, filename_prefix):
     """
     logging.info(f"Fetching directory listing from {url}")
     try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
+        r = retry_request("GET", url, timeout=(15, 15))
 
         file_info = {}
         for line in r.text.splitlines():
@@ -122,36 +106,33 @@ class NodeNormGeneDownloader:
             "outputs": [],
         }
 
-    def _download(self, url, dst, retries=3):
+    def _has_valid_raw_jsonl(self):
+        if not os.path.exists(self.raw_jsonl) or os.path.getsize(self.raw_jsonl) == 0:
+            return False
+        try:
+            with open(self.raw_jsonl, "r", encoding="utf-8", errors="ignore") as handle:
+                first_line = handle.readline()
+            return "NCBITaxon:9606" in first_line
+        except Exception:
+            return False
+
+    def _download(self, url, dst):
         dst_dir = os.path.dirname(dst)
         if dst_dir:
             os.makedirs(dst_dir, exist_ok=True)
-        for attempt in range(1, retries + 1):
-            try:
-                with requests.get(url, stream=True, timeout=(15, 600)) as r:
-                    r.raise_for_status()
-                    total = int(r.headers.get("content-length", 0))
-                    seen = 0
-                    with open(dst, "wb") as f:
-                        for chunk in r.iter_content(65536):
-                            if not chunk:
-                                continue
-                            f.write(chunk)
-                            seen += len(chunk)
-                            if total:
-                                print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
-                if total:
-                    print()
-                return  # success
-            except (requests.exceptions.ChunkedEncodingError,
-                    requests.exceptions.ConnectionError,
-                    requests.exceptions.Timeout) as e:
-                logging.warning(f"Download attempt {attempt}/{retries} failed for {url}: {e}")
-                if attempt == retries:
-                    raise
-                logging.info(f"Retrying in 10s...")
-                import time
-                time.sleep(10)
+        with retry_request("GET", url, stream=True, timeout=(15, 600)) as r:
+            total = int(r.headers.get("content-length", 0))
+            seen = 0
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(65536):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    seen += len(chunk)
+                    if total:
+                        print(f"\r{os.path.basename(dst)}: {seen/total*100:.1f}% ", end="", flush=True)
+            if total:
+                print()
 
     def _write_meta_and_return(self, status):
         self.new_meta["status"] = status
@@ -164,7 +145,7 @@ class NodeNormGeneDownloader:
     def run(self):
         logging.info(f"NodeNorm Gene — using url_base: {self.base_url} (version: {self.version})")
         self.new_meta["url"] = self.base_url + "Gene.txt"
-        have_raw = os.path.exists(self.raw_jsonl)
+        have_raw = self._has_valid_raw_jsonl()
 
         # ── Step 1: Check if url_base changed since last run ─────────────
         old_url_base = self.old_meta.get("url_base")
@@ -178,7 +159,7 @@ class NodeNormGeneDownloader:
         if not remote_files:
             logging.error("No Gene.txt files found in directory listing. Aborting.")
             self._write_meta_and_return("error")
-            return
+            raise RuntimeError("NodeNorm Gene listing returned no Gene.txt files")
 
         # ── Step 3: Compare against previous listing ─────────────────────
         old_files = self.old_meta.get("files", {})
@@ -252,6 +233,7 @@ class NodeNormGeneDownloader:
             self.new_meta["updated"] = True
             self.new_meta["outputs"].append({"path": self.raw_jsonl, "records": len(raw_lines)})
             self._write_meta_and_return("updated")
+        return True
 
 
 if __name__ == "__main__":

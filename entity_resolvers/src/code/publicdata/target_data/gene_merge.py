@@ -17,26 +17,8 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from tqdm import tqdm
 
-def setup_logging(log_file):
-    root = logging.getLogger()
-    # If we've already added handlers, do nothing.
-    if root.handlers:
-        return
-
-    root.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-    # Always add console handler
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    root.addHandler(ch)
-
-    # And only add file handler if requested
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 def generate_diff(old_path, new_path, base_name):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -591,9 +573,15 @@ class GENEDataMerger:
         final = self.flag_for_review(scored, scored)
 
         outp = gm_cfg['output_file']
-        os.makedirs(os.path.dirname(outp), exist_ok=True)
-        final.to_csv(outp, index=False)
+        ver_result = save_versioned_output(
+            df=final,
+            output_path=outp,
+            id_col=None,
+            sep=",",
+            output_kind="provenance_merge_table",
+        )
         print(f"\n🎯 Final merged file written to {outp}")
+        self.metadata["output_versioning"] = ver_result
 
     def run(self):
         logging.info("🚀 Starting full GENEDataMerger pipeline")

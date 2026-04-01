@@ -26,19 +26,8 @@ except ImportError:
     pass
 
 
-def setup_logging(log_file=None):
-    root = logging.getLogger()
-    if not root.handlers:
-        root.setLevel(logging.INFO)
-        fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        ch = logging.StreamHandler()
-        ch.setFormatter(fmt)
-        root.addHandler(ch)
-        if log_file:
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            fh = logging.FileHandler(log_file)
-            fh.setFormatter(fmt)
-            root.addHandler(fh)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 
 def parse_versionless_ids(val):
@@ -204,7 +193,7 @@ class ProteinResolver:
         logging.info("Reading input tables...")
         iso = pd.read_csv(self.paths['ensembl_isoform'], dtype=str).replace('nan', np.nan)
         r2  = pd.read_csv(self.paths['refseq_uniprot'], dtype=str).replace('nan', np.nan)
-        r3  = pd.read_csv(self.paths['refseq_ensembl'], dtype=str).replace('nan', np.nan)
+        r3  = self._read_refseq_ensembl().replace('nan', np.nan)
         um  = pd.read_csv(self.paths['uniprot_map'], dtype=str).replace('nan', np.nan)
         ui  = pd.read_csv(self.paths['uniprot_info'], dtype=str).replace('nan', np.nan)
         shapes = {
@@ -216,6 +205,17 @@ class ProteinResolver:
         }
         self._log_step("read_sources", "Loaded source tables", shapes)
         return iso, r2, r3, um, ui
+
+    def _read_refseq_ensembl(self):
+        path = self.paths['refseq_ensembl']
+        df = pd.read_csv(path, dtype=str, sep="\t")
+        if len(df.columns) == 1 and "\t" in str(df.columns[0]):
+            logging.warning(
+                "RefSeq-Ensembl file %s parsed as a single column with tab separator; retrying with python engine auto-detect",
+                path,
+            )
+            df = pd.read_csv(path, dtype=str, sep=None, engine="python")
+        return df
 
     def _uniprot_centric(self, um, ui):
         logging.info("Starting with UniProt as our standard protein ID")
@@ -800,8 +800,14 @@ class ProteinResolver:
     def _save(self, df):
         # remove any fully‐identical duplicate rows
         df = df.drop_duplicates()
-        os.makedirs(os.path.dirname(self.paths['output']), exist_ok=True)
-        df.to_csv(self.paths['output'], index=False)
+        ver_result = save_versioned_output(
+            df=df,
+            output_path=self.paths['output'],
+            id_col="uniprot_id",
+            sep=",",
+            output_kind="provenance_merge_table",
+        )
+        self.metadata["output_versioning"] = ver_result
         with open(self.paths['metadata'], 'w') as f:
             json.dump(self.metadata, f, indent=2)
         logging.info("Saved merged data and metadata")
