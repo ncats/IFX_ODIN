@@ -9,7 +9,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      reviewed_only: true
+      collapse_reviewed_targets: true
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
       transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv

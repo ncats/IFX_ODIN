@@ -12,85 +12,126 @@ from src.shared.targetgraph_parser import TargetGraphProteinParser
 
 
 class TGProteinFileBase(TargetGraphProteinParser):
-    def get_all_combined(self, reviewed_only = False):
+    @staticmethod
+    def build_protein_obj(line):
+        id = TargetGraphProteinParser.get_id(line)
+        protein_obj = Protein(id=id)
+        protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
+        protein_obj.created = TargetGraphProteinParser.get_creation_date(line)
+        protein_obj.updated = TargetGraphProteinParser.get_updated_time(line)
+        protein_obj.name = TargetGraphProteinParser.get_name(line)
+        protein_obj.symbol = TargetGraphProteinParser.get_symbol(line)
+        protein_obj.ensembl_id = TargetGraphProteinParser.get_ensembl_id(line)
+        protein_obj.refseq_id = TargetGraphProteinParser.get_refseq_id(line)
+
+        protein_obj.uniprot_id = TargetGraphProteinParser.get_uniprot_id(line)
+        protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
+
+        protein_obj.protein_name_score = line.get('protein_name_score', None)
+        protein_obj.protein_name_method = line.get('protein_name_method', None)
+        protein_obj.Ensembl_ID_Provenance = line.get('Ensembl_ID_Provenance', None)
+        protein_obj.RefSeq_ID_Provenance = line.get('RefSeq_ID_Provenance', None)
+        protein_obj.Uniprot_ID_Provenance = line.get('UniProt_ID_Provenance', None)
+        protein_obj.uniprot_isoform = line.get('uniprot_isoform', None)
+        protein_obj.ensembl_canonical = line.get('ensembl_canonical', None)
+        protein_obj.ncbi_id = TargetGraphProteinParser.get_gene_id(line)
+        protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'uniprot_canonical')
+        protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
+        protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)
+        return protein_obj
+
+    def get_all_combined(self, reviewed_only = False, collapse_reviewed_targets = False):
         protein_list = []
         transcript_relationships = []
         gene_relationships = []
         isoform_relationships = []
-        for line in self.all_rows():
-            id = TargetGraphProteinParser.get_id(line)
-            protein_obj = Protein(id=id)
-            protein_obj.uniprot_reviewed = TargetGraphProteinParser.get_uniprot_reviewed(line)
-            if reviewed_only and not protein_obj.uniprot_reviewed:
-                continue
-            protein_obj.created = TargetGraphProteinParser.get_creation_date(line)
-            protein_obj.updated = TargetGraphProteinParser.get_updated_time(line)
-            protein_obj.name = TargetGraphProteinParser.get_name(line)
-            protein_obj.symbol = TargetGraphProteinParser.get_symbol(line)
-            protein_obj.ensembl_id = TargetGraphProteinParser.get_ensembl_id(line)
-            protein_obj.refseq_id = TargetGraphProteinParser.get_refseq_id(line)
-            protein_obj.sequence = TargetGraphProteinParser.get_sequence(line)
+        rows = list(self.all_rows())
+        if reviewed_only and collapse_reviewed_targets:
+            for group in self.build_reviewed_representative_groups(rows):
+                representative_row = group["representative_row"]
+                protein_obj = self.build_protein_obj(representative_row)
+                protein_list.append(protein_obj)
 
-            protein_obj.uniprot_id = TargetGraphProteinParser.get_uniprot_id(line)
-            protein_obj.uniprot_annotationScore = TargetGraphProteinParser.get_uniprot_annotationScore(line)
-            protein_obj.uniprot_function = TargetGraphProteinParser.get_function(line)
+                transcript_ids = set()
+                gene_ids = set()
+                for line in group["group_rows"]:
+                    transcript_ids.update(TargetGraphProteinParser.get_transcript_ids(line))
+                    gene_ncbi_id = TargetGraphProteinParser.get_gene_id(line)
+                    if gene_ncbi_id:
+                        gene_ids.add(gene_ncbi_id)
 
-            protein_obj.protein_name_score = line.get('protein_name_score', None)
-            protein_obj.protein_name_method = line.get('protein_name_method', None)
-            protein_obj.Ensembl_ID_Provenance = line.get('Ensembl_ID_Provenance', None)
-            protein_obj.RefSeq_ID_Provenance = line.get('RefSeq_ID_Provenance', None)
-            protein_obj.Uniprot_ID_Provenance = line.get('UniProt_ID_Provenance', None)
-            protein_obj.uniprot_isoform = line.get('uniprot_isoform', None)
-            protein_obj.ensembl_canonical = line.get('ensembl_canonical', None)
-            protein_obj.ncbi_id = TargetGraphProteinParser.get_gene_id(line)
-            protein_obj.uniprot_canonical = TargetGraphProteinParser.get_boolean_or_none(line, 'is_canonical')
-            protein_obj.uniprot_entryType = TargetGraphProteinParser.get_uniprot_entryType(line)
-            protein_obj.mapping_ratio = TargetGraphProteinParser.get_mapping_ratio(line)
+                for transcript_ensembl_id in transcript_ids:
+                    transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
+                    transcript_relationships.append(
+                        TranscriptProteinEdge(
+                            start_node=Transcript(id=transcript_id.id_str()),
+                            end_node=protein_obj,
+                            created=protein_obj.created,
+                            updated=protein_obj.updated
+                        )
+                    )
 
-            transcript_ensembl_ids = TargetGraphProteinParser.get_transcript_ids(line)
+                for gene_ncbi_id in gene_ids:
+                    gene_id = EquivalentId(id=gene_ncbi_id, type=Prefix.NCBIGene)
+                    gene_relationships.append(
+                        GeneProteinEdge(
+                            start_node=Gene(id=gene_id.id_str()),
+                            end_node=protein_obj,
+                            created=protein_obj.created,
+                            updated=protein_obj.updated
+                        )
+                    )
+        else:
+            for line in rows:
+                protein_obj = self.build_protein_obj(line)
+                if reviewed_only and not protein_obj.uniprot_reviewed:
+                    continue
 
-            for transcript_ensembl_id in transcript_ensembl_ids:
-                transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
+                transcript_ensembl_ids = TargetGraphProteinParser.get_transcript_ids(line)
 
-                transcript_relationships.append(
-                    TranscriptProteinEdge(
-                        start_node=Transcript(id=transcript_id.id_str()),
+                for transcript_ensembl_id in transcript_ensembl_ids:
+                    transcript_id = EquivalentId(id=transcript_ensembl_id, type=Prefix.ENSEMBL)
+
+                    transcript_relationships.append(
+                        TranscriptProteinEdge(
+                            start_node=Transcript(id=transcript_id.id_str()),
+                            end_node=protein_obj,
+                            created=protein_obj.created,
+                            updated=protein_obj.updated
+                        )
+                    )
+
+                gene_ncbi_id = TargetGraphProteinParser.get_gene_id(line)
+                gene_id = EquivalentId(id=gene_ncbi_id, type=Prefix.NCBIGene)
+
+                gene_relationships.append(
+                    GeneProteinEdge(
+                        start_node=Gene(id=gene_id.id_str()),
                         end_node=protein_obj,
                         created=protein_obj.created,
                         updated=protein_obj.updated
                     )
                 )
+                protein_list.append(protein_obj)
 
-            gene_ncbi_id = TargetGraphProteinParser.get_gene_id(line)
-            gene_id = EquivalentId(id=gene_ncbi_id, type=Prefix.NCBIGene)
-
-            gene_relationships.append(
-                GeneProteinEdge(
-                    start_node=Gene(id=gene_id.id_str()),
-                    end_node=protein_obj,
-                    created=protein_obj.created,
-                    updated=protein_obj.updated
-                )
-            )
-            protein_list.append(protein_obj)
-
-            canonical_id = TargetGraphProteinParser.get_isoform_id(line)
-            if canonical_id is not None and canonical_id.startswith('IFXProtein:'):
-                canonical_protein = Protein(id=canonical_id)
-                isoform_relationships.append(
-                    IsoformProteinEdge(
-                        start_node=protein_obj,
-                        end_node=canonical_protein,
-                        created=protein_obj.created,
-                        updated=protein_obj.updated
+                canonical_id = TargetGraphProteinParser.get_isoform_id(line)
+                if canonical_id is not None and canonical_id.startswith('IFXProtein:'):
+                    canonical_protein = Protein(id=canonical_id)
+                    isoform_relationships.append(
+                        IsoformProteinEdge(
+                            start_node=protein_obj,
+                            end_node=canonical_protein,
+                            created=protein_obj.created,
+                            updated=protein_obj.updated
+                        )
                     )
-                )
 
         return protein_list, transcript_relationships, gene_relationships, isoform_relationships
 
 
 class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
     reviewed_only: bool
+    collapse_reviewed_targets: bool
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
@@ -101,12 +142,14 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
             download_date=self.download_date
         )
 
-    def __init__(self, file_path: str, additional_id_file_path: str = None, reviewed_only = False):
+    def __init__(self, file_path: str, additional_id_file_path: str = None,
+                 reviewed_only = False, collapse_reviewed_targets = False):
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
-        self.reviewed_only = reviewed_only
+        self.collapse_reviewed_targets = collapse_reviewed_targets
+        self.reviewed_only = reviewed_only or collapse_reviewed_targets
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
-        protein_list, _, _, _ = self.get_all_combined(self.reviewed_only)
+        protein_list, _, _, _ = self.get_all_combined(self.reviewed_only, self.collapse_reviewed_targets)
         yield protein_list
 
 
