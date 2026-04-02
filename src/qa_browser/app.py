@@ -569,48 +569,92 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                 scalar_fields.append((key, val))
 
     # Find connected nodes via graph traversal (vertex nodes only)
-    linked_groups = []
+    outgoing_linked_groups = []
+    incoming_linked_groups = []
     linked_aql = ""
     if doc and not is_edge and db.has_graph("graph"):
         try:
             _SAMPLE_LIMIT = 20
             linked_aql = (
-                f"LET counts = (\n"
-                f"    FOR v, e IN 1..1 ANY '{doc['_id']}' GRAPH 'graph'\n"
+                f"LET outgoing_counts = (\n"
+                f"    FOR v, e IN 1..1 OUTBOUND '{doc['_id']}' GRAPH 'graph'\n"
                 f"    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt\n"
                 f"    RETURN {{coll, cnt}}\n"
                 f")\n"
-                f"FOR c IN counts\n"
-                f"    LET samples = (\n"
-                f"        FOR v2, e2 IN 1..1 ANY '{doc['_id']}' GRAPH 'graph'\n"
-                f"        FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
-                f"        LIMIT {_SAMPLE_LIMIT}\n"
-                f"        RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
+                f"LET incoming_counts = (\n"
+                f"    FOR v, e IN 1..1 INBOUND '{doc['_id']}' GRAPH 'graph'\n"
+                f"    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt\n"
+                f"    RETURN {{coll, cnt}}\n"
+                f")\n"
+                f"RETURN {{\n"
+                f"    outgoing: (\n"
+                f"        FOR c IN outgoing_counts\n"
+                f"            LET samples = (\n"
+                f"                FOR v2, e2 IN 1..1 OUTBOUND '{doc['_id']}' GRAPH 'graph'\n"
+                f"                FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
+                f"                LIMIT {_SAMPLE_LIMIT}\n"
+                f"                RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
+                f"            )\n"
+                f"            SORT c.cnt DESC\n"
+                f"            RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}\n"
+                f"    ),\n"
+                f"    incoming: (\n"
+                f"        FOR c IN incoming_counts\n"
+                f"            LET samples = (\n"
+                f"                FOR v2, e2 IN 1..1 INBOUND '{doc['_id']}' GRAPH 'graph'\n"
+                f"                FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
+                f"                LIMIT {_SAMPLE_LIMIT}\n"
+                f"                RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
+                f"            )\n"
+                f"            SORT c.cnt DESC\n"
+                f"            RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}\n"
                 f"    )\n"
-                f"    SORT c.cnt DESC\n"
-                f"    RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}"
+                f"}}"
             )
             cursor = db.aql.execute(
                 """
-                LET counts = (
-                    FOR v, e IN 1..1 ANY @node_id GRAPH 'graph'
+                LET outgoing_counts = (
+                    FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
                     COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt
                     RETURN {coll, cnt}
                 )
-                FOR c IN counts
-                    LET samples = (
-                        FOR v2, e2 IN 1..1 ANY @node_id GRAPH 'graph'
-                        FILTER SPLIT(v2._id, '/')[0] == c.coll
-                        LIMIT @sample_limit
-                        RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
+                LET incoming_counts = (
+                    FOR v, e IN 1..1 INBOUND @node_id GRAPH 'graph'
+                    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt
+                    RETURN {coll, cnt}
+                )
+                RETURN {
+                    outgoing: (
+                        FOR c IN outgoing_counts
+                            LET samples = (
+                                FOR v2, e2 IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+                                FILTER SPLIT(v2._id, '/')[0] == c.coll
+                                LIMIT @sample_limit
+                                RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
+                            )
+                            SORT c.cnt DESC
+                            RETURN {collection: c.coll, count: c.cnt, nodes: samples}
+                    ),
+                    incoming: (
+                        FOR c IN incoming_counts
+                            LET samples = (
+                                FOR v2, e2 IN 1..1 INBOUND @node_id GRAPH 'graph'
+                                FILTER SPLIT(v2._id, '/')[0] == c.coll
+                                LIMIT @sample_limit
+                                RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
+                            )
+                            SORT c.cnt DESC
+                            RETURN {collection: c.coll, count: c.cnt, nodes: samples}
                     )
-                    SORT c.cnt DESC
-                    RETURN {collection: c.coll, count: c.cnt, nodes: samples}
+                }
                 """,
                 bind_vars={"node_id": doc["_id"], "sample_limit": _SAMPLE_LIMIT},
                 max_runtime=15,
             )
-            linked_groups = list(cursor)
+            linked_result = list(cursor)
+            if linked_result:
+                outgoing_linked_groups = linked_result[0].get("outgoing", [])
+                incoming_linked_groups = linked_result[0].get("incoming", [])
         except Exception:
             pass
 
@@ -625,7 +669,8 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "scalar_fields": scalar_fields,
         "list_fields": list_fields,
         "nested_fields": nested_fields,
-        "linked_groups": linked_groups,
+        "outgoing_linked_groups": outgoing_linked_groups,
+        "incoming_linked_groups": incoming_linked_groups,
         "linked_aql": linked_aql,
     })
 

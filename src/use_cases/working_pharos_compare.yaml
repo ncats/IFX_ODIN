@@ -1,4 +1,4 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 resolvers:
   - label: tcrd_targets
@@ -6,7 +6,7 @@ resolvers:
     class: TCRDTargetResolver
     kwargs:
       canonical_type: Protein
-      reviewed_only: true
+      collapse_reviewed_targets: true
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
       transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
@@ -107,19 +107,16 @@ resolvers:
         - Tissue
 
 input_adapters:
-  - import: ./src/input_adapters/gtex/gtex_expression.py
-    class: GTExExpressionAdapter
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
     kwargs:
-      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
-      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
-      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
-      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
-      max_genes: 200
-      max_samples: 200
+      file_path: /Users/kelleherkj/Downloads/260401Targets/protein_ids.tsv
+      collapse_reviewed_targets: true
+
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: test_ctd_pharos
+      database_name: test_pharos
     credentials: *source_credentials

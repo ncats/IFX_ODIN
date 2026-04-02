@@ -3,6 +3,8 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
 <a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
 <span class="sep">/</span>
 <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}">{{ coll_name }}</a>
@@ -110,10 +112,12 @@
 {% endif %}
 
 {# ── Linked Entities ─────────────────────────────────────── #}
-{% if linked_groups %}
+{% if outgoing_linked_groups or incoming_linked_groups %}
 <div class="card">
     <h2>Linked Entities</h2>
-    {% for group in linked_groups %}
+    {% if outgoing_linked_groups %}
+    <h3>Outgoing Links</h3>
+    {% for group in outgoing_linked_groups %}
     <div class="linked-group">
         <div class="linked-group-header">
             <span class="linked-coll-name">{{ group.collection }}</span>
@@ -127,6 +131,27 @@
         </div>
     </div>
     {% endfor %}
+
+    {% if incoming_linked_groups %}<hr class="obj-sep">{% endif %}
+    {% endif %}
+
+    {% if incoming_linked_groups %}
+    <h3>Incoming Links</h3>
+    {% for group in incoming_linked_groups %}
+    <div class="linked-group">
+        <div class="linked-group-header">
+            <span class="linked-coll-name">{{ group.collection }}</span>
+            <span class="linked-count">{{ group.count }}</span>
+            {% if group.nodes|length < group.count %}<span class="linked-truncated">showing {{ group.nodes|length }}</span>{% endif %}
+        </div>
+        <div class="linked-nodes">
+            {% for node in group.nodes %}
+            <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ group.collection }}/doc/{{ node.key }}" class="linked-node">{{ node.label }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
 </div>
 {% endif %}
 

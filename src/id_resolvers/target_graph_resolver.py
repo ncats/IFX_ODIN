@@ -103,16 +103,22 @@ class TCRDTargetResolver(TargetGraphResolver):
     gene_parser: TargetGraphGeneParser
     transcript_parser: TargetGraphTranscriptParser
     reviewed_only: bool
+    collapse_reviewed_targets: bool
 
     def get_version_info(self) -> str:
-        version_info = [f"reviewed only: {self.reviewed_only}"]
+        version_info = [
+            f"reviewed only: {self.reviewed_only}",
+            f"collapse reviewed targets: {self.collapse_reviewed_targets}",
+        ]
         version_info.append(self.gene_parser.get_version_info())
         version_info.append(self.transcript_parser.get_version_info())
         for parser in self.protein_parsers:
             version_info.append(parser.get_version_info())
         return '\t'.join(version_info)
 
-    def __init__(self, gene_file_path: str, transcript_file_path: str, protein_file_paths: List[str], additional_ids: str, reviewed_only: bool, canonical_type: Optional[str] = None, **kwargs):
+    def __init__(self, gene_file_path: str, transcript_file_path: str, protein_file_paths: List[str], additional_ids: str,
+                 reviewed_only: bool = False, collapse_reviewed_targets: bool = False,
+                 canonical_type: Optional[str] = None, **kwargs):
 
         self.parsers = []
         self.protein_parsers = [
@@ -120,7 +126,8 @@ class TCRDTargetResolver(TargetGraphResolver):
             for path in protein_file_paths]
         self.gene_parser = TargetGraphGeneParser(file_path=gene_file_path)
         self.transcript_parser = TargetGraphTranscriptParser(file_path=transcript_file_path)
-        self.reviewed_only = reviewed_only
+        self.collapse_reviewed_targets = collapse_reviewed_targets
+        self.reviewed_only = reviewed_only or collapse_reviewed_targets
 
         TargetGraphResolver.__init__(self, canonical_class=_resolve_canonical_class(canonical_type), **kwargs)
 
@@ -209,32 +216,64 @@ class TCRDTargetResolver(TargetGraphResolver):
         protein_gene_map = {}
 
         for parser in self.protein_parsers:
-            for line in parser.all_rows():
-                if reviewed_only and not parser.get_uniprot_reviewed(line):
-                    continue
-                protein_id = parser.get_id(line)
-                if protein_id not in protein_transcript_map:
-                    protein_transcript_map[protein_id] = set()
-                if protein_id not in protein_gene_map:
-                    protein_gene_map[protein_id] = set()
+            rows = list(parser.all_rows())
+            if reviewed_only and self.collapse_reviewed_targets:
+                representative_groups = parser.build_reviewed_representative_groups(rows)
+                for group in representative_groups:
+                    protein_id = group["representative_id"]
+                    if protein_id not in protein_transcript_map:
+                        protein_transcript_map[protein_id] = set()
+                    if protein_id not in protein_gene_map:
+                        protein_gene_map[protein_id] = set()
 
-                equiv_ids = parser.get_equivalent_ids(line)
-                ids = [MatchingPair(id=protein_id, match=protein_id, type='exact')]
-                for equiv_ids in equiv_ids:
-                    ids.append(MatchingPair(id=protein_id, match=equiv_ids.id_str(), type=equiv_ids.type.value))
+                    ids = protein_ids.setdefault(protein_id, set())
+                    ids.add(MatchingPair(id=protein_id, match=protein_id, type='exact'))
 
-                protein_ids[protein_id] = set(ids)
+                    for line in group["group_rows"]:
+                        source_protein_id = parser.get_id(line)
+                        ids.add(MatchingPair(id=protein_id, match=source_protein_id, type='exact'))
 
-                transcript_ids = parser.get_transcript_ids(line)
-                gene_id = parser.get_gene_id(line)
+                        equiv_ids = parser.get_equivalent_ids(line)
+                        for equiv_id in equiv_ids:
+                            ids.add(MatchingPair(id=protein_id, match=equiv_id.id_str(), type=equiv_id.type.value))
 
-                for transcript_id in transcript_ids:
-                    transcript_id_to_use = EquivalentId(id=transcript_id, type=Prefix.ENSEMBL).id_str()
-                    protein_transcript_map[protein_id].add(transcript_id_to_use)
+                        transcript_ids = parser.get_transcript_ids(line)
+                        gene_id = parser.get_gene_id(line)
 
-                if gene_id is not None:
-                    gene_id_to_use = EquivalentId(id=gene_id, type=Prefix.NCBIGene).id_str()
-                    protein_gene_map[protein_id].add(gene_id_to_use)
+                        for transcript_id in transcript_ids:
+                            transcript_id_to_use = EquivalentId(id=transcript_id, type=Prefix.ENSEMBL).id_str()
+                            protein_transcript_map[protein_id].add(transcript_id_to_use)
+
+                        if gene_id is not None:
+                            gene_id_to_use = EquivalentId(id=gene_id, type=Prefix.NCBIGene).id_str()
+                            protein_gene_map[protein_id].add(gene_id_to_use)
+            else:
+                for line in rows:
+                    if reviewed_only and not parser.get_uniprot_reviewed(line):
+                        continue
+                    protein_id = parser.get_id(line)
+                    if protein_id not in protein_transcript_map:
+                        protein_transcript_map[protein_id] = set()
+                    if protein_id not in protein_gene_map:
+                        protein_gene_map[protein_id] = set()
+
+                    equiv_ids = parser.get_equivalent_ids(line)
+                    ids = [MatchingPair(id=protein_id, match=protein_id, type='exact')]
+                    for equiv_ids in equiv_ids:
+                        ids.append(MatchingPair(id=protein_id, match=equiv_ids.id_str(), type=equiv_ids.type.value))
+
+                    protein_ids[protein_id] = set(ids)
+
+                    transcript_ids = parser.get_transcript_ids(line)
+                    gene_id = parser.get_gene_id(line)
+
+                    for transcript_id in transcript_ids:
+                        transcript_id_to_use = EquivalentId(id=transcript_id, type=Prefix.ENSEMBL).id_str()
+                        protein_transcript_map[protein_id].add(transcript_id_to_use)
+
+                    if gene_id is not None:
+                        gene_id_to_use = EquivalentId(id=gene_id, type=Prefix.NCBIGene).id_str()
+                        protein_gene_map[protein_id].add(gene_id_to_use)
 
         return protein_ids, protein_transcript_map, protein_gene_map
 

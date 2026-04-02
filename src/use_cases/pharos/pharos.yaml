@@ -15,7 +15,7 @@ resolvers:
     class: TCRDTargetResolver
     kwargs:
       canonical_type: Protein
-      reviewed_only: true
+      collapse_reviewed_targets: true
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
       transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
@@ -130,7 +130,7 @@ input_adapters:
     class: ProteinNodeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
-      reviewed_only: True
+      collapse_reviewed_targets: true
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinAdapter
