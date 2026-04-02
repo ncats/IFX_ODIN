@@ -1,7 +1,25 @@
 # New Data Source Ingest Playbook
 
 ## Goal
-Provide a repeatable checklist for adding a new data source to the pharos graph.  The second step of that ETL (pharos graph to TCRD format) is a separate task, not to be included in this playbook.
+Provide a repeatable workflow for adding a new data source to the target graph ingest. Start with discovery, document decisions early, validate against real payloads, and only then implement the adapter. Promotion into broader workflows happens only after the working ingest is validated.
+
+## Workflow Rules
+
+- Read this playbook before starting any brand-new ingest source.
+- Do discovery before code changes.
+- Pause after discovery and propose a short implementation plan for user confirmation.
+- Let the user run Snakemake and ETL executions unless they explicitly delegate those runs.
+- Start in `src/use_cases/working.yaml`; only promote to `src/use_cases/pharos/target_graph.yaml` after validation.
+- Keep source-specific decisions in a design doc under `designs/`.
+- End with explicit validation instructions the user can run.
+
+## Optional Comparison Inputs
+
+- Raw input files remain the primary source of truth for payload shape.
+- Old Pharos loader code, usually under `https://github.com/unmtransinfo/TCRD/tree/master/loaders`
+- Current Pharos MySQL in the `pharos319` schema using `src/use_cases/secrets/pharos_credentials.yaml`
+- New Pharos MySQL in the `pharos400` schema using `src/use_cases/secrets/pharos_credentials.yaml`
+- Graph staging database on `ifxdev`, especially when a source may already land in the graph built by `build_pharos.py`
 
 ## Checklist
 
@@ -9,67 +27,86 @@ Provide a repeatable checklist for adding a new data source to the pharos graph.
    - Add download rules to the relevant Snakefile (e.g., `workflows/pharos.Snakefile`).
    - If at all possible, get a discrete version and version date for the download.
    - Store files under `input_files/auto/<source>/`.
-   - User will run the Snakemake workflow to download the data, and report back when finished, to continue to the next step.
+   - The user should run the Snakemake workflow and report back when the files are available.
    - Record exact URLs in a design doc.
 
 2) **Capture version metadata**
    - Prefer an official version endpoint if available.
    - If not, use a stable proxy (e.g., `Last-Modified` header).
-   - Write version data to a small file (e.g., `reactome_version.tsv`) so adapters can reuse it.
+   - Write version data to a small file so adapters can reuse it.
+   - Prefer persisting `version`, `version_date`, and `download_date` during download/prep rather than recomputing them inside the adapter.
 
 3) **Explore and profile the downloaded files**
    - Before adapter implementation, run several iterative passes to inspect real payload shape.
    - Confirm field presence, cardinality, identifiers, edge semantics, and metadata quality.
-   - Finalize inclusion/exclusion and mapping decisions based on observed data.
+   - Finalize inclusion/exclusion and mapping decisions based on observed data, not source documentation alone.
+   - If the source is Pharos-relevant, compare the raw payload against both current downstream outputs and any existing graph staging output when available.
 
-4) **Review previous ETLs for this data**
+4) **Write the initial design document**
+   - Create a source-specific document under `designs/` as soon as discovery starts.
+   - Capture:
+     - source URLs and file formats
+     - version strategy
+     - observed payload shape and identifier families
+     - provisional mapping and exclusion decisions
+     - open questions or risks to validate during implementation
+   - This design doc is the expected written artifact from discovery.
+
+5) **Review previous ETLs for this data**
    - Ask the user about the TCRD ETL, or any later ETLs for the same data.
-   - Note that the TCRD format is not an intuitive fit, but usually captures important data.
+   - Treat prior ETLs as comparison points, not as the source of truth.
+   - Note that the TCRD format is not always a natural fit, but often captures important historical scope.
+   - For Pharos-related sources, inspect the old loader implementation in the TCRD repository when it helps explain legacy field choices or filtering.
 
-5) **Review data that makes it into TCRD**
+6) **Review data that makes it into TCRD**
    - Currently Pharos uses pharos319.
    - Review the relevant tables and row counts to understand what was ingested previously.
+   - Compare previous ingest output against the current raw payload to separate legacy limitations from current source reality.
+   - When relevant, also inspect `pharos400` to understand what the newer MySQL path already captures or still misses.
 
-6) **Write a design document**
-   - Create a document in `designs/` to record findings from steps 3–5:
-     - Source URLs and file format
-     - Version strategy
-     - Field mapping decisions and anything excluded
-     - How it fits the existing data model
+7) **Pause and propose the implementation plan**
+   - Summarize the intended adapter scope, node/edge model, resolver dependencies, and validation plan.
+   - Keep the first pass intentionally minimal.
+   - Get user confirmation before making code changes.
 
-7) **Implement an InputAdapter**
+8) **Implement an InputAdapter**
    - Inherit from `src/interfaces/input_adapter.py` (or `FlatFileAdapter`).
    - Implement:
      - `get_all`
      - `get_datasource_name`
      - `get_version` (include `version`, `version_date`, `download_date`).
-   - Emit `Node` / `Relationship` (or `Edge`) models that match the schema.
+   - Emit `Node` / `Relationship` models that match the schema.
+   - Keep adapters focused on source parsing and structural graph emission.
 
-8) **Map to the data model**
+9) **Map to the data model**
    - Confirm existing node/edge classes or add new ones in `src/models/`.
    - Use stable IDs and consistent prefixes.
+   - Avoid speculative parsing when source text is ambiguous; preserve the source text when parsing would be lossy.
+   - Keep source-specific payload that may merge later inside `details` structures instead of flattening it into top-level edge fields.
 
-9) **Wire configuration into YAML**
+10) **Wire configuration into YAML**
    - Add the adapter to `src/use_cases/working.yaml` first.
    - Pass file paths and version metadata file paths via `kwargs`.
-   - After the working ingest is validated, copy the finalized adapter configuration into
-     **both** `src/use_cases/pharos/pharos.yaml` and `src/use_cases/pharos/target_graph.yaml`.
+   - Only after the working ingest is validated, promote the finalized configuration into `src/use_cases/pharos/target_graph.yaml`.
 
-10) **Run and validate**
-    - Run the ETL via the YAML entrypoint (e.g., `src/use_cases/working.py`).
-    - Validate that counts and labels look correct.
-    - When there is a working MySQL validation path (for example `src/use_cases/working_mysql.yaml`),
-      compare the working MySQL tables against `pharos319` before promoting changes.
+11) **Validate the working ingest**
+    - Ask the user to run the working ETL path.
+    - Validate that counts, labels, IDs, provenance, and key edge endpoints look correct.
+    - Validate that representative input-file records land where expected in the working graph and, when available, in the working MySQL output.
+    - When there is a working MySQL validation path such as `src/use_cases/working_mysql.yaml`, compare working MySQL output against `pharos319` before promotion.
+    - When relevant, compare the working graph against the graph staging database on `ifxdev` to confirm whether the source is already represented there.
     - Check both row counts and field population:
-      - Which destination tables received rows
-      - Which source-specific columns are populated in `pharos319` but still empty in the working MySQL output
-      - Whether graph data is present in the working Arango DB but not yet mapped into TCRD tables
+      - which destination tables received rows
+      - which source-specific columns are populated in `pharos319` but still empty in the working MySQL output
+      - whether graph data is present in the working graph but not yet mapped into downstream tables
 
-11) **Update the design document**
+12) **Update the design document**
     - Revise the design doc to reflect what actually ended up in the code:
       - Final field mappings and any decisions that changed during implementation
       - Actual node/edge counts produced
       - Any data quality issues encountered and how they were handled
+      - Follow-up scope intentionally deferred from the first pass
+    - Include the exact validation steps and comparison points used to accept the ingest.
 
 ---
 
@@ -129,3 +166,4 @@ Provide a repeatable checklist for adding a new data source to the pharos graph.
 - **Use the `Last-Modified` HTTP header when no official version endpoint exists.** JensenLab
   regenerates files on a weekly Sunday schedule — the `Last-Modified` header captures that publish
   date reliably. Write it to a small TSV in Snakemake so the adapter can read it as `version_date`.
+- **Use named parameters for `DatasourceVersionInfo`.** This avoids argument-order regressions when version handling evolves.
