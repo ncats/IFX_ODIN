@@ -8,7 +8,7 @@ report, inspect the parsed data, and email the files directly to the NCATS inbox
 from one page.
 
 This is the web front-end for the validation framework documented in
-`pounce_validation_tool.md`. All validation logic stays in
+`designs/pounce/pounce_validation_tool.md`. All validation logic stays in
 `PounceInputAdapter` / `pounce_validators.yaml` — the UI is purely a delivery mechanism.
 
 ---

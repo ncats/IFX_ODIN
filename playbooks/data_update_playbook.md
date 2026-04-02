@@ -1,9 +1,25 @@
 # Data Update Playbook
 
 ## Goal
-Provide a repeatable checklist for refreshing existing input files, validating payload drift, and rebuilding a fresh graph/MySQL database with updated source data.
+Provide a repeatable workflow for refreshing existing input files, validating payload drift, and rebuilding a fresh graph/MySQL database with updated source data.
 
 This playbook is for **updating existing sources**, not adding brand new ingest sources. Use `playbooks/ingest_playbook.md` for new-source development.
+
+## Workflow Rules
+
+- Start with payload validation, not code changes.
+- Let the user run Snakemake and ETL executions unless they explicitly delegate those runs.
+- Prefer a narrow working validation path before any broader rebuild.
+- Update the relevant design doc when a refresh exposes a new parsing rule, mapping change, or failure mode.
+- End with explicit validation instructions or follow-up rebuild steps for the user.
+
+## Optional Comparison Inputs
+
+- Refreshed raw input files are the primary evidence for payload drift.
+- Old Pharos loader code when legacy behavior is relevant, usually under `https://github.com/unmtransinfo/TCRD/tree/master/loaders`
+- Current Pharos MySQL in the `pharos319` schema using `src/use_cases/secrets/pharos_credentials.yaml`
+- New Pharos MySQL in the `pharos400` schema using `src/use_cases/secrets/pharos_credentials.yaml`
+- Graph staging database on `ifxdev` when the refreshed source may already be landing there
 
 ## Typical Use Case
 
@@ -52,6 +68,7 @@ This playbook is for **updating existing sources**, not adding brand new ingest 
    - Start with `src/use_cases/working.yaml` or another intentionally narrow config.
    - Prefer validating a minimal set of affected sources before a full rebuild.
    - For bulk source refreshes, use a working config that exercises the affected source families.
+   - Ask the user to run the working ETL and report back with the relevant failure or validation output.
 
 7) **Inspect the working graph directly**
    - Check collection counts.
@@ -61,10 +78,12 @@ This playbook is for **updating existing sources**, not adding brand new ingest 
      edge end IDs resolve to nodes
    - Check representative samples for expected provenance, names, IDs, and details.
    - Check whether post-processing removed dangling edges as expected.
+   - Check whether representative raw input records can be traced into the working graph.
 
 8) **Run the matching working MySQL conversion when available**
    - Use `src/use_cases/working_mysql.yaml` when there is a downstream TCRD validation path.
    - Treat every `IntegrityError` as actionable until explained.
+   - Compare the refreshed output against both `pharos319` and, when relevant, `pharos400`.
    - Common causes:
      stale non-truncated tables
      duplicate emission across batches
@@ -88,6 +107,7 @@ This playbook is for **updating existing sources**, not adding brand new ingest 
      stale downstream schema
      hidden duplicate previously masked by permissive inserts
    - Update this playbook or source-specific designs when a new failure mode is discovered.
+   - Record the exact validation or rebuild commands the user should run next.
 
 ## High-Value Checks
 
@@ -119,3 +139,4 @@ This playbook is for **updating existing sources**, not adding brand new ingest 
 - Validate real payloads before trusting old code paths.
 - Prefer narrow working validation before expensive full rebuilds.
 - Treat new hard failures as useful signals, especially when permissive insert behavior previously hid bad data.
+- Diagnose the root cause before landing defensive guards that might hide the real payload or schema problem.

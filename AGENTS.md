@@ -1,8 +1,10 @@
 ## Ingest Workflow Preferences
 
-- For new ingest work, start by downloading/profiling source files and validating real payload shape before implementing adapter/model changes.
-- For new ingest work, pause after discovery and propose a short implementation plan; get user confirmation before making code changes.
-- For Snakemake runs and ETL executions, let the user run those steps
+- For any ingest task, start by reading `playbooks/ingest_playbook.md` for new sources or `playbooks/data_update_playbook.md` for refreshes.
+- For new ingest work, start with source discovery: identify the files, inspect real payload shape, and validate assumptions before implementing adapter/model changes.
+- For new ingest work, pause after discovery and provide a short implementation plan; get user confirmation before making code changes.
+- For source refreshes, profile the changed payloads before changing adapters, resolvers, or downstream conversion logic.
+- For Snakemake runs and ETL executions, let the user run those steps unless they explicitly ask otherwise.
 
 ## Ingest Standards
 
@@ -15,6 +17,15 @@
 - Avoid speculative parsing when source text is ambiguous; preserve source text when parsing would be lossy.
 - In adapters, dedupe repeated entities in-memory using deterministic IDs.
 - Emit ingest output in type-grouped batches (for example: primary nodes, related nodes, then edges).
+- When validating a new source, compare against any prior TCRD or legacy ETL only after confirming what the current raw payload actually contains.
+
+## Profiling And Planning Tools
+
+- Examine the old Pharos loader code when relevant, usually under `https://github.com/unmtransinfo/TCRD/tree/master/loaders`.
+- Examine current Pharos MySQL contents when relevant using `src/use_cases/secrets/pharos_credentials.yaml` against the `pharos319` schema.
+- Examine new Pharos MySQL contents when relevant using `src/use_cases/secrets/pharos_credentials.yaml` against the `pharos400` schema.
+- Examine the graph staging database on `ifxdev` when relevant, especially for ingests that may already land in the graph built by `build_pharos.py`.
+- Examine the raw input files directly and verify whether their data lands correctly in the graph database and in MySQL outputs when a MySQL path exists.
 
 ## Lessons Learned
 
@@ -28,7 +39,15 @@
 
 ## Workflow References
 
-- For ingest procedures and execution checklists, use `playbooks/ingest_playbook.md`.
+- Use `playbooks/ingest_playbook.md` for new-source ingest work.
+- Use `playbooks/data_update_playbook.md` for source refreshes and payload-drift investigations.
+
+## Documentation Model
+
+- `AGENTS.md` provides repo-level instructions and routing.
+- `playbooks/` contains repeatable repo workflows for specific classes of work.
+- `designs/` contains source-specific investigation notes, design decisions, and validation outcomes.
+- For ingest work, `AGENTS.md` should point to the relevant playbook, and the playbook should point to the expected design-doc artifact.
 
 ## Project Overview
 
@@ -78,7 +97,7 @@ pytest
 # Download data files
 cd workflows && snakemake -j 4
 
-# Run ETL from YAML config
+# Example ETL entrypoint a user may run for validation
 python -c "
 from src.use_cases.build_from_yaml import BuildGraphFromYaml
 builder = BuildGraphFromYaml('src/use_cases/pounce_v2.yaml')
@@ -128,7 +147,10 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 ## Workflow Conventions
 
 - **After creating any new file**, run `git add <path>` so it is staged for the next commit. Do not wait to be asked.
-- **When adding a new data source**, follow the steps in `playbooks/ingest_playbook.md`. Always read it at the start of any ingest task.
+- **For new ingest sources**, read `playbooks/ingest_playbook.md` before doing discovery or code changes.
+- **For source refreshes**, read `playbooks/data_update_playbook.md` before investigating payload drift or changing code.
+- **Do not skip discovery.** Inspect the real files first, record mapping decisions in `designs/`, then propose the implementation plan before editing code.
+- **Do not run Snakemake or ETL on the user's behalf by default.** Prepare the changes and tell the user exactly what to run for validation.
 
 ## Key Files
 
