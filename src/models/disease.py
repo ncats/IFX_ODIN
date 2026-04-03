@@ -45,6 +45,9 @@ class DiseaseAssociationDetail:
     evidence_terms: List[str] = field(default_factory=list)
     pmids: List[str] = field(default_factory=list)
     evidence_codes: List[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    zscore: Optional[float] = None
+    url: Optional[str] = None
 
     def to_dict(self):
         return asdict(self)

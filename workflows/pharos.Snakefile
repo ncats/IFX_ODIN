@@ -4,12 +4,16 @@ rule all:
         "../input_files/auto/ctd/ctd_version.tsv",
         "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
         "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv",
-        "../input_files/manual/target_graph/gene_ids.csv",
-        "../input_files/manual/target_graph/protein_ids.csv",
-        "../input_files/manual/target_graph/transcript_ids.csv",
-        "../input_files/manual/target_graph/uniprotkb_mapping.csv",
+        "../input_files/manual/target_graph/gene_ids.tsv",
+        "../input_files/manual/target_graph/protein_ids.tsv",
+        "../input_files/manual/target_graph/transcript_ids.tsv",
+        "../input_files/manual/target_graph/uniprotkb_mapping_20260315.csv",
         "../input_files/auto/go/go-basic.json",
         "../input_files/auto/jensenlab/protein_counts.tsv",
+        "../input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv",
+        "../input_files/auto/jensenlab/human_disease_experiments_filtered.tsv",
+        "../input_files/auto/jensenlab/human_disease_textmining_filtered.tsv",
+        "../input_files/auto/jensenlab/diseases_version.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
         "../input_files/auto/go/goa_human-go.gaf.gz",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
@@ -85,6 +89,30 @@ rule download_jensenlab_tissues:
         curl -fL -o {output[0]} "$url"
         last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
         python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version_date\\n'+dt+'\\n')" "$last_modified" {output[1]}
+        """
+
+rule download_jensenlab_diseases:
+    output:
+        "../input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv",
+        "../input_files/auto/jensenlab/human_disease_experiments_filtered.tsv",
+        "../input_files/auto/jensenlab/human_disease_textmining_filtered.tsv",
+        "../input_files/auto/jensenlab/diseases_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/jensenlab
+        knowledge_url='https://download.jensenlab.org/human_disease_knowledge_filtered.tsv'
+        experiments_url='https://download.jensenlab.org/human_disease_experiments_filtered.tsv'
+        textmining_url='https://download.jensenlab.org/human_disease_textmining_filtered.tsv'
+
+        curl -fL -o {output[0]} "$knowledge_url"
+        curl -fL -o {output[1]} "$experiments_url"
+        curl -fL -o {output[2]} "$textmining_url"
+
+        knowledge_lm=$(curl -fsI "$knowledge_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        experiments_lm=$(curl -fsI "$experiments_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        textmining_lm=$(curl -fsI "$textmining_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+
+        python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:4] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates); open(sys.argv[4],'w').write('version\\tversion_date\\n\\t'+version_date+'\\n')" "$knowledge_lm" "$experiments_lm" "$textmining_lm" {output[3]}
         """
 
 rule download_uberon:
