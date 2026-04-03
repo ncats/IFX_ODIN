@@ -1,5 +1,193 @@
 {% extends "base.html" %}
 {% block title %}{{ coll_name }} - {{ db_name }} - QA Browser{% endblock %}
+{% block head %}
+<style>
+    .collection-hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1.25rem;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(48, 120, 180, 0.12), rgba(48, 120, 180, 0.03) 48%, rgba(255, 255, 255, 0.9));
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    }
+    .collection-hero-title {
+        margin: 0 0 0.5rem;
+        font-size: 2rem;
+        line-height: 1.05;
+    }
+    .collection-hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        color: var(--text-muted);
+        margin-bottom: 0.9rem;
+    }
+    .collection-total {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text);
+    }
+    .collection-search {
+        display: flex;
+        gap: 0.65rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .collection-search-input {
+        min-width: min(420px, 100%);
+        max-width: 520px;
+        padding: 0.8rem 0.95rem;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--text);
+    }
+    .collection-search-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.8rem 1rem;
+        border: 0;
+        border-radius: 12px;
+        background: #14324a;
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .collection-search-clear {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+    }
+    .collection-search-hint {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+    }
+    .collection-download {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.8rem 1.1rem;
+        border-radius: 12px;
+        background: var(--accent);
+        color: white;
+        text-decoration: none;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: 0 10px 20px rgba(48, 120, 180, 0.22);
+    }
+    .collection-download:hover {
+        opacity: 0.94;
+    }
+    .active-filter-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    .active-filter-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        padding: 0.9rem 1rem;
+        width: min(320px, 100%);
+        max-width: 320px;
+    }
+    .active-filter-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .active-filter-card-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .active-filter-clear {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        text-decoration: none;
+    }
+    .active-filter-values {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+    .active-filter-value {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        text-decoration: none;
+        color: var(--text);
+        background: var(--bg-card);
+    }
+    .active-filter-value-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.9rem;
+    }
+    .active-filter-value-remove {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        flex-shrink: 0;
+    }
+    .collection-main {
+        display: flex;
+        gap: 1.25rem;
+        align-items: flex-start;
+    }
+    .collection-facets {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        min-width: 220px;
+        max-width: 260px;
+        flex-shrink: 0;
+    }
+    .collection-table {
+        overflow-x: auto;
+        flex: 1;
+        min-width: 0;
+    }
+    .collection-stats {
+        margin-top: 1rem;
+    }
+    @media (max-width: 900px) {
+        .collection-hero {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .collection-download {
+            width: 100%;
+        }
+        .collection-search-input {
+            min-width: 0;
+            width: 100%;
+        }
+        .collection-main {
+            flex-direction: column;
+        }
+        .collection-facets {
+            max-width: none;
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
@@ -11,48 +199,73 @@
 {% endblock %}
 
 {% block content %}
-<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem">
-    <h1 style="margin:0">{{ coll_name }}</h1>
-    <span class="badge {% if is_edge %}badge-edge{% else %}badge-doc{% endif %}">{{ "edge" if is_edge else "document" }}</span>
-    <span style="color:var(--text-muted)">{{ "{:,}".format(total) }} records</span>
+<div class="collection-hero">
+    <div>
+        <h1 class="collection-hero-title">{{ coll_name }}</h1>
+        <div class="collection-hero-meta">
+            <span class="badge {% if is_edge %}badge-edge{% else %}badge-doc{% endif %}">{{ "edge" if is_edge else "document" }}</span>
+            <span class="collection-total">{{ "{:,}".format(total) }} records</span>
+            <span>{{ db_name }}</span>
+        </div>
+        <form method="get" action="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}" class="collection-search">
+            <input type="hidden" name="page" value="1">
+            <input type="hidden" name="page_size" value="{{ page_size }}">
+            {% for field, values in active_filters.items() %}
+                {% for value in values %}
+            <input type="hidden" name="facet_{{ field }}" value="{{ value }}">
+                {% endfor %}
+            {% endfor %}
+            <input type="search"
+                   name="q"
+                   value="{{ search_term }}"
+                   placeholder="Search {{ coll_name }} text fields"
+                   class="collection-search-input">
+            <button type="submit" class="collection-search-button">Search</button>
+            {% if search_term %}
+            <a href="{{ clear_search_url }}"
+               class="collection-search-clear">
+                clear search
+            </a>
+            {% endif %}
+            {% if search_fields %}
+            <span class="collection-search-hint">Fields: {{ search_fields | join(", ") }}</span>
+            {% endif %}
+        </form>
+    </div>
+    <a href="{{ download_url }}"
+       class="collection-download">
+        Download CSV
+    </a>
 </div>
 
 {% if active_filter_summary %}
-<div class="card" style="margin-bottom:1rem">
-    <div style="display:flex; flex-direction:column; gap:0.75rem">
-        <span style="font-size:0.8rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted)">Active filters</span>
-        {% for filter_group in active_filter_summary %}
-        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center">
-            <span style="font-size:0.85rem; font-weight:600; color:var(--text-muted); min-width:120px">{{ filter_group["field"] }}</span>
-            {% for value in filter_group["values"] %}
-            <a href="{{ value.remove_href }}"
-               style="display:inline-flex; align-items:center; gap:0.35rem; padding:0.25rem 0.55rem; border:1px solid var(--border); border-radius:999px; text-decoration:none; color:var(--text); background:var(--bg-card)">
-                <span style="font-size:0.85rem">{{ value.label }}</span>
-                <span style="font-size:0.8rem; color:var(--text-muted)">✕</span>
-            </a>
-            {% endfor %}
+<div class="active-filter-grid">
+    {% for filter_group in active_filter_summary %}
+    <div class="card active-filter-card">
+        <div class="active-filter-card-header">
+            <span class="active-filter-card-title">{{ filter_group["field"] }}</span>
             <a href="{{ filter_group["clear_href"] }}"
-               style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
+               class="active-filter-clear">
                 clear
             </a>
         </div>
-        {% endfor %}
+        <div class="active-filter-values">
+            {% for value in filter_group["values"] %}
+            <a href="{{ value.remove_href }}"
+               class="active-filter-value">
+                <span class="active-filter-value-label">{{ value.label }}</span>
+                <span class="active-filter-value-remove">remove</span>
+            </a>
+            {% endfor %}
+        </div>
     </div>
+    {% endfor %}
 </div>
 {% endif %}
 
-<details class="card">
-    <summary>Field Coverage Stats</summary>
-    <div hx-get="{{ stats_url }}"
-         hx-trigger="toggle once from:closest details"
-         hx-swap="innerHTML">
-        <span class="htmx-indicator">Loading stats...</span>
-    </div>
-</details>
-
-<div style="display:flex; gap:1.25rem; align-items:flex-start">
+<div class="collection-main">
     {% if facet_panels %}
-    <div style="display:flex; flex-direction:column; gap:1rem; min-width:220px; max-width:260px; flex-shrink:0">
+    <div class="collection-facets">
         {% for panel in facet_panels %}
         <div class="card" style="padding:0.75rem 0">
             <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); margin-bottom:0.25rem">
@@ -82,10 +295,19 @@
     </div>
     {% endif %}
 
-    <div class="card" style="overflow-x:auto; flex:1; min-width:0">
+    <div class="card collection-table">
         <div id="table-container">
             {% include "collection_rows.html" %}
         </div>
     </div>
 </div>
+
+<details class="card collection-stats">
+    <summary>Field Coverage Stats</summary>
+    <div hx-get="{{ stats_url }}"
+         hx-trigger="toggle once from:closest details"
+         hx-swap="innerHTML">
+        <span class="htmx-indicator">Loading stats...</span>
+    </div>
+</details>
 {% endblock %}
