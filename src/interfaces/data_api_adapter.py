@@ -43,7 +43,7 @@ class APIAdapter(ABC):
 
     def get_default_facets(self, class_name: str) -> List[str]:
         cls = self.get_class(class_name)
-        categories, numerics = collect_facets(cls)
+        _, categories, _ = collect_facets(cls)
         return [cat for cat in categories if cat not in ['id', 'xref']]
 
     def initialize_class_map(self):

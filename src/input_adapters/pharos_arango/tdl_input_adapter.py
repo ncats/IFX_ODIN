@@ -10,6 +10,8 @@ from src.shared.db_credentials import DBCredentials
 
 class TDLInputAdapter(InputAdapter, ArangoAdapter):
     use_pharos_queries: bool
+    batch_size: int = 1000
+
     def __init__(self, credentials: DBCredentials, database_name: str, use_pharos_queries: bool = False):
         ArangoAdapter.__init__(self, credentials=credentials, database_name=database_name)
         self.use_pharos_queries = use_pharos_queries

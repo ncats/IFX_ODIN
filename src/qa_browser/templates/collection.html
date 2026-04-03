@@ -17,18 +17,75 @@
     <span style="color:var(--text-muted)">{{ "{:,}".format(total) }} records</span>
 </div>
 
+{% if active_filter_summary %}
+<div class="card" style="margin-bottom:1rem">
+    <div style="display:flex; flex-direction:column; gap:0.75rem">
+        <span style="font-size:0.8rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted)">Active filters</span>
+        {% for filter_group in active_filter_summary %}
+        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center">
+            <span style="font-size:0.85rem; font-weight:600; color:var(--text-muted); min-width:120px">{{ filter_group["field"] }}</span>
+            {% for value in filter_group["values"] %}
+            <a href="{{ value.remove_href }}"
+               style="display:inline-flex; align-items:center; gap:0.35rem; padding:0.25rem 0.55rem; border:1px solid var(--border); border-radius:999px; text-decoration:none; color:var(--text); background:var(--bg-card)">
+                <span style="font-size:0.85rem">{{ value.label }}</span>
+                <span style="font-size:0.8rem; color:var(--text-muted)">✕</span>
+            </a>
+            {% endfor %}
+            <a href="{{ filter_group["clear_href"] }}"
+               style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
+                clear
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <details class="card">
     <summary>Field Coverage Stats</summary>
-    <div hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/stats"
+    <div hx-get="{{ stats_url }}"
          hx-trigger="toggle once from:closest details"
          hx-swap="innerHTML">
         <span class="htmx-indicator">Loading stats...</span>
     </div>
 </details>
 
-<div class="card" style="overflow-x:auto">
-    <div id="table-container">
-        {% include "collection_rows.html" %}
+<div style="display:flex; gap:1.25rem; align-items:flex-start">
+    {% if facet_panels %}
+    <div style="display:flex; flex-direction:column; gap:1rem; min-width:220px; max-width:260px; flex-shrink:0">
+        {% for panel in facet_panels %}
+        <div class="card" style="padding:0.75rem 0">
+            <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); margin-bottom:0.25rem">
+                {{ panel["title"] }}
+            </div>
+            <ul style="list-style:none; margin:0; padding:0">
+                {% for value in panel["values"] %}
+                <li>
+                    <a href="{{ value.href }}"
+                       style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none; color:{% if value.selected %}var(--accent){% else %}var(--text){% endif %}; background:{% if value.selected %}var(--accent-light){% else %}transparent{% endif %}; font-weight:{% if value.selected %}600{% else %}400{% endif %}">
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0">{{ value.label }}</span>
+                        <span style="color:var(--text-muted); font-size:0.8rem; flex-shrink:0">{{ "{:,}".format(value.count) }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+                {% if panel["selected_values"] %}
+                <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
+                    <a href="{{ panel["clear_href"] }}"
+                       style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
+                        clear {{ panel["field"] }}
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card" style="overflow-x:auto; flex:1; min-width:0">
+        <div id="table-container">
+            {% include "collection_rows.html" %}
+        </div>
     </div>
 </div>
 {% endblock %}

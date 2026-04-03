@@ -169,13 +169,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 obj._data_frame = None
 
     def create_indexes(self, cls: Type, collection):
-        categories, numerics = collect_facets(cls)
+        extra_indexed, categories, numerics = collect_facets(cls)
 
         existing_indexes = collection.indexes()
         existing_fields = {tuple(index['fields']) for index in existing_indexes}
 
-        # Create hash indexes for category fields
-        for field in sorted(categories):
+        # Create hash indexes for category fields and additional explicitly-indexed fields.
+        for field in sorted(extra_indexed | categories):
             field_tuple = (field,)
             if field_tuple not in existing_fields:
                 print(f"Creating HASH index on: {field}")
@@ -208,9 +208,15 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         # Collect schema info from each object group
         for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             label = labels[0]
+            extra_indexed, categories, numerics = collect_facets(obj_cls)
             if label not in self._collection_schemas:
                 schema_entry = {
                     "fields": self._introspect_dataclass(obj_cls),
+                    "facet_metadata": {
+                        "extra_indexed_fields": sorted(extra_indexed),
+                        "category_fields": sorted(categories),
+                        "numeric_fields": sorted(numerics),
+                    }
                 }
                 if is_relationship:
                     schema_entry["type"] = "edge"
@@ -219,7 +225,23 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 else:
                     schema_entry["type"] = "document"
                 self._collection_schemas[label] = schema_entry
-            elif is_relationship:
+            else:
+                existing = self._collection_schemas[label]
+                existing_facet_metadata = existing.setdefault("facet_metadata", {
+                    "extra_indexed_fields": [],
+                    "category_fields": [],
+                    "numeric_fields": [],
+                })
+                existing_facet_metadata["extra_indexed_fields"] = sorted(
+                    set(existing_facet_metadata.get("extra_indexed_fields", [])) | extra_indexed
+                )
+                existing_facet_metadata["category_fields"] = sorted(
+                    set(existing_facet_metadata.get("category_fields", [])) | categories
+                )
+                existing_facet_metadata["numeric_fields"] = sorted(
+                    set(existing_facet_metadata.get("numeric_fields", [])) | numerics
+                )
+            if is_relationship and label in self._collection_schemas:
                 # Merge from/to collections for edges seen from multiple sources
                 existing = self._collection_schemas[label]
                 existing["from_collections"] = list(set(existing.get("from_collections", []) + start_labels))
