@@ -5,8 +5,8 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
-from urllib.parse import quote as url_quote
+from typing import Optional, Dict, List
+from urllib.parse import quote as url_quote, urlencode
 
 import urllib3
 import yaml
@@ -211,6 +211,264 @@ def _get_graph_views(db) -> dict:
         return {}
 
 
+def _get_collection_schema_entry(db, coll_name: str) -> dict:
+    if not db.has_collection("metadata_store"):
+        return {}
+    try:
+        store = db.collection("metadata_store")
+        doc = store.get("collection_schemas")
+        if not doc:
+            return {}
+        return (doc.get("collections") or {}).get(coll_name, {}) or {}
+    except Exception:
+        return {}
+
+
+def _get_collection_facet_metadata(db, coll_name: str) -> dict:
+    schema_entry = _get_collection_schema_entry(db, coll_name)
+    facet_metadata = schema_entry.get("facet_metadata") or {}
+    category_fields = list(facet_metadata.get("category_fields") or [])
+    if not category_fields:
+        category_fields = _infer_collection_category_fields(db, coll_name)
+    return {
+        "extra_indexed_fields": list(facet_metadata.get("extra_indexed_fields") or []),
+        "category_fields": category_fields,
+        "numeric_fields": list(facet_metadata.get("numeric_fields") or []),
+    }
+
+
+def _infer_collection_category_fields(db, coll_name: str) -> List[str]:
+    try:
+        coll = db.collection(coll_name)
+        indexes = coll.indexes()
+    except Exception:
+        return []
+
+    # Older graphs only expose index intent indirectly. Restrict the fallback to
+    # simple single-field hash indexes and suppress obviously noisy/internal fields.
+    suppressed_fields = {
+        "_key",
+        "_id",
+        "_rev",
+        "_from",
+        "_to",
+        "id",
+        "xref",
+        "resolved_ids",
+        "provenance",
+        "creation",
+        "updates",
+    }
+    inferred_fields = []
+    for index in indexes:
+        if index.get("type") != "hash":
+            continue
+        fields = index.get("fields") or []
+        if len(fields) != 1:
+            continue
+        field = fields[0]
+        if not field or field.startswith("_") or field in suppressed_fields:
+            continue
+        inferred_fields.append(field)
+    return sorted(set(inferred_fields))
+
+
+def _parse_collection_facet_filters(request: Request, category_fields: List[str]) -> Dict[str, List[str]]:
+    allowed_fields = set(category_fields)
+    active_filters = {}
+    for field in category_fields:
+        key = f"facet_{field}"
+        values = [value for value in request.query_params.getlist(key) if value != ""]
+        if values:
+            active_filters[field] = values
+    for key in request.query_params.keys():
+        if not key.startswith("facet_"):
+            continue
+        field = key[len("facet_"):]
+        if field not in allowed_fields:
+            continue
+        values = [value for value in request.query_params.getlist(key) if value != ""]
+        if values:
+            active_filters[field] = values
+    return active_filters
+
+
+def _build_collection_query_params(page: int, page_size: int, facet_filters: Dict[str, List[str]], overrides: dict = None) -> List[tuple]:
+    params = [("page", page), ("page_size", page_size)]
+    merged_filters = {field: list(values) for field, values in facet_filters.items()}
+    overrides = overrides or {}
+    for field, values in overrides.items():
+        merged_filters[field] = list(values)
+    for field in sorted(merged_filters):
+        for value in merged_filters[field]:
+            params.append((f"facet_{field}", value))
+    return params
+
+
+def _build_collection_url(db_name: str, coll_name: str, page: int, page_size: int,
+                          facet_filters: Dict[str, List[str]], overrides: dict = None) -> str:
+    params = _build_collection_query_params(page, page_size, facet_filters, overrides=overrides)
+    query_string = urlencode(params, doseq=True)
+    return f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}?{query_string}"
+
+
+def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dict[str, List[str]]) -> str:
+    params = []
+    for field in sorted(facet_filters):
+        for value in facet_filters[field]:
+            params.append((f"facet_{field}", value))
+    query_string = urlencode(params, doseq=True)
+    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/stats"
+    return f"{base_url}?{query_string}" if query_string else base_url
+
+
+def _get_filter_constraint_clause(filter_settings: Dict[str, List[str]], bind_vars: dict, variable: str = "doc") -> str:
+    clauses = []
+    for idx, (field, values) in enumerate(filter_settings.items()):
+        field_bind = f"facet_field_{idx}"
+        values_bind = f"facet_values_{idx}"
+        bind_vars[field_bind] = field
+        bind_vars[values_bind] = [_coerce_facet_filter_value(value) for value in values]
+        clauses.append(
+            "("
+            f"IS_ARRAY({variable}[@{field_bind}]) "
+            f"? LENGTH(INTERSECTION({variable}[@{field_bind}], @{values_bind})) > 0 "
+            f": {variable}[@{field_bind}] IN @{values_bind}"
+            ")"
+        )
+    return " AND ".join(clauses)
+
+
+def _get_facet_clause(field_bind_name: str, top_bind_name: str, variable: str = "doc") -> str:
+    return f"""
+        LET values = (
+            !HAS({variable}, @{field_bind_name}) || {variable}[@{field_bind_name}] == null
+                ? [null]
+                : (IS_ARRAY({variable}[@{field_bind_name}]) ? UNIQUE({variable}[@{field_bind_name}]) : [{variable}[@{field_bind_name}]])
+        )
+            FOR item IN values
+                COLLECT value = item WITH COUNT INTO count
+                SORT count DESC, value
+                LIMIT @{top_bind_name}
+                RETURN {{ value, count }}"""
+
+
+def _normalize_facet_value(value):
+    return "null" if value is None else str(value)
+
+
+def _format_facet_value(value):
+    return "missing" if value is None else str(value)
+
+
+def _coerce_facet_filter_value(value: str):
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "null":
+        return None
+    return value
+
+
+def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: int,
+                                   category_fields: List[str], active_filters: Dict[str, List[str]],
+                                   top: int = 20) -> List[dict]:
+    panels = []
+    for field in category_fields:
+        other_filters = {k: v for k, v in active_filters.items() if k != field}
+        bind_vars = {
+            "facet_field": field,
+            "facet_top": top,
+        }
+        filter_clause = _get_filter_constraint_clause(other_filters, bind_vars)
+        query = f"""
+            FOR doc IN `{coll_name}`
+                {f"FILTER {filter_clause}" if filter_clause else ""}
+                {_get_facet_clause('facet_field', 'facet_top')}
+        """
+        rows = list(db.aql.execute(query, bind_vars=bind_vars))
+        selected_values = set(active_filters.get(field, []))
+        facet_values = []
+        for row in rows:
+            normalized_value = _normalize_facet_value(row.get("value"))
+            updated_values = sorted(selected_values ^ {normalized_value})
+            overrides = dict(active_filters)
+            if updated_values:
+                overrides[field] = updated_values
+            else:
+                overrides[field] = []
+            facet_values.append({
+                "value": normalized_value,
+                "label": _format_facet_value(row.get("value")),
+                "count": row.get("count", 0),
+                "selected": normalized_value in selected_values,
+                "href": _build_collection_url(
+                    db_name=db_name,
+                    coll_name=coll_name,
+                    page=1,
+                    page_size=page_size,
+                    facet_filters=active_filters,
+                    overrides=overrides,
+                ),
+            })
+        panels.append({
+            "field": field,
+            "title": field.replace("_", " "),
+            "values": facet_values,
+            "selected_values": sorted(selected_values),
+            "clear_href": _build_collection_url(
+                db_name=db_name,
+                coll_name=coll_name,
+                page=1,
+                page_size=page_size,
+                facet_filters=active_filters,
+                overrides={field: []},
+            ),
+        })
+    return panels
+
+
+def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
+                                 active_filters: Dict[str, List[str]]) -> List[dict]:
+    summaries = []
+    for field in sorted(active_filters):
+        selected_values = list(active_filters[field])
+        values = []
+        for value in selected_values:
+            remaining_values = [item for item in selected_values if item != value]
+            overrides = dict(active_filters)
+            if remaining_values:
+                overrides[field] = remaining_values
+            else:
+                overrides[field] = []
+            values.append({
+                "label": _format_facet_value(None if value == "null" else value),
+                "remove_href": _build_collection_url(
+                    db_name=db_name,
+                    coll_name=coll_name,
+                    page=1,
+                    page_size=page_size,
+                    facet_filters=active_filters,
+                    overrides=overrides,
+                ),
+            })
+        summaries.append({
+            "field": field,
+            "values": values,
+            "clear_href": _build_collection_url(
+                db_name=db_name,
+                coll_name=coll_name,
+                page=1,
+                page_size=page_size,
+                facet_filters=active_filters,
+                overrides={field: []},
+            ),
+        })
+    return summaries
+
+
 def _build_browser_home_context(request: Request) -> dict:
     # Arango databases
     arango_databases = []
@@ -383,23 +641,61 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
                               page: int = 1, page_size: int = 25):
     db = get_db(db_name)
     skip = (page - 1) * page_size
+    facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    category_fields = sorted(facet_metadata.get("category_fields") or [])
+    active_filters = _parse_collection_facet_filters(request, category_fields)
+    filter_bind_vars = {}
+    filter_clause = _get_filter_constraint_clause(active_filters, filter_bind_vars)
 
     # Use AQL for both count and list so they always agree
-    count_cursor = db.aql.execute(
-        f"FOR doc IN `{coll_name}` COLLECT WITH COUNT INTO c RETURN c"
-    )
+    count_query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            COLLECT WITH COUNT INTO c
+            RETURN c
+    """
+    count_cursor = db.aql.execute(count_query, bind_vars=filter_bind_vars)
     total = list(count_cursor)[0]
     total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    skip = (page - 1) * page_size
+    list_bind_vars = {**filter_bind_vars, "skip": skip, "top": page_size}
 
     coll = db.collection(coll_name)
     is_edge = coll.properties().get("type") in ("edge", 3)
 
     # Fetch documents
-    query = f"FOR doc IN `{coll_name}` LIMIT @skip, @top RETURN doc"
-    cursor = db.aql.execute(query, bind_vars={"skip": skip, "top": page_size})
+    query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            LIMIT @skip, @top
+            RETURN doc
+    """
+    cursor = db.aql.execute(query, bind_vars=list_bind_vars)
     docs = list(cursor)
     # Discover columns from this page of results
     columns = _discover_columns(docs, is_edge)
+    facet_panels = _build_collection_facet_panels(
+        db=db,
+        db_name=db_name,
+        coll_name=coll_name,
+        page_size=page_size,
+        category_fields=category_fields,
+        active_filters=active_filters,
+    )
+    active_filter_summary = _build_active_filter_summary(
+        db_name=db_name,
+        coll_name=coll_name,
+        page_size=page_size,
+        active_filters=active_filters,
+    )
+    stats_url = _build_collection_stats_url(db_name, coll_name, active_filters)
+    prev_url = None
+    next_url = None
+    if page > 1:
+        prev_url = _build_collection_url(db_name, coll_name, page - 1, page_size, active_filters)
+    if page < total_pages:
+        next_url = _build_collection_url(db_name, coll_name, page + 1, page_size, active_filters)
 
     # HTMX partial rendering
     htmx = request.headers.get("HX-Request") == "true"
@@ -416,6 +712,12 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages,
+        "facet_panels": facet_panels,
+        "active_filters": active_filters,
+        "active_filter_summary": active_filter_summary,
+        "stats_url": stats_url,
+        "prev_url": prev_url,
+        "next_url": next_url,
     })
 
 
@@ -423,18 +725,32 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
 async def collection_stats(request: Request, db_name: str, coll_name: str):
     """Field coverage stats for a collection (loaded via HTMX)."""
     db = get_db(db_name)
-    coll = db.collection(coll_name)
-    total = coll.count()
+    facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    category_fields = sorted(facet_metadata.get("category_fields") or [])
+    active_filters = _parse_collection_facet_filters(request, category_fields)
+    filter_bind_vars = {}
+    filter_clause = _get_filter_constraint_clause(active_filters, filter_bind_vars)
+
+    count_query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            COLLECT WITH COUNT INTO c
+            RETURN c
+    """
+    count_results = list(db.aql.execute(count_query, bind_vars=filter_bind_vars))
+    total = count_results[0] if count_results else 0
     sample_size = min(total, 500)
+    sample_bind_vars = {**filter_bind_vars, "sample_size": sample_size}
 
     # Sample documents to discover fields
     query = f"""
         FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
             SORT RAND()
-            LIMIT {sample_size}
+            LIMIT @sample_size
             RETURN ATTRIBUTES(doc)
     """
-    cursor = db.aql.execute(query)
+    cursor = db.aql.execute(query, bind_vars=sample_bind_vars)
     all_attrs = list(cursor)
 
     field_counts = {}

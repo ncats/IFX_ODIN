@@ -30,8 +30,8 @@
 
 <div class="pagination">
     {% if page > 1 %}
-    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
-       hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+    <a href="{{ prev_url }}"
+       hx-get="{{ prev_url }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Prev</a>
@@ -44,8 +44,8 @@
     <span>of {{ "{:,}".format(total_pages) }}</span>
 
     {% if page < total_pages %}
-    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
-       hx-get="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+    <a href="{{ next_url }}"
+       hx-get="{{ next_url }}"
        hx-target="#table-container"
        hx-swap="innerHTML"
        hx-push-url="true">Next</a>

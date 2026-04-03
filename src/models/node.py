@@ -128,7 +128,7 @@ class EquivalentId:
 
 
 @dataclass
-@facets(category_fields=['id', 'xref', 'sources'])
+@facets(category_fields=['sources'], extra_indexed_fields=['id', 'xref'])
 class Node:
     id: str
     xref: Optional[List[EquivalentId]] = field(default_factory=list)
