@@ -524,31 +524,39 @@ class TCRDOutputConverter(SQLOutputConverter):
         )
 
     def disease_converter(self, obj: dict) -> List[mysqlDisease]:
-        disease_id = obj['end_id']
-        mondoid = disease_id if disease_id and disease_id.startswith('MONDO:') and disease_id in self._known_mondo_ids else None
+        resolved_disease_id = obj['end_id']
+        mondoid = (
+            resolved_disease_id
+            if resolved_disease_id and resolved_disease_id.startswith('MONDO:') and resolved_disease_id in self._known_mondo_ids
+            else None
+        )
         disease_name = self._disease_name(obj)
         rows = []
         for ordinal, detail in enumerate(self._iter_disease_details(obj)):
-            assoc_key = self._disease_assoc_key(obj['start_id'], disease_id, detail, ordinal)
+            source_disease_id = detail.get('source_id') or resolved_disease_id
+            assoc_key = self._disease_assoc_key(obj['start_id'], resolved_disease_id, detail, ordinal)
             rows.append(mysqlDisease(
                 id=self.resolve_id('disease_assoc', assoc_key),
                 dtype=detail.get('source') or '',
                 protein_id=self.resolve_id('protein', obj['start_id']),
                 name=disease_name,
                 ncats_name=disease_name,
-                did=disease_id,
+                did=source_disease_id,
                 evidence="|".join(detail.get('evidence_terms') or detail.get('evidence_codes') or []) or None,
+                zscore=detail.get('zscore'),
+                conf=detail.get('confidence'),
+                reference=detail.get('url'),
                 mondoid=mondoid,
                 provenance=obj['provenance'],
             ))
         return rows
 
     def ncats_d2da_converter(self, obj: dict) -> List[NcatsD2DA]:
-        disease_id = obj['end_id']
-        ncats_disease_id = self.resolve_id('ncats_disease', disease_id)
+        resolved_disease_id = obj['end_id']
+        ncats_disease_id = self.resolve_id('ncats_disease', resolved_disease_id)
         links = []
         for ordinal, detail in enumerate(self._iter_disease_details(obj)):
-            assoc_key = self._disease_assoc_key(obj['start_id'], disease_id, detail, ordinal)
+            assoc_key = self._disease_assoc_key(obj['start_id'], resolved_disease_id, detail, ordinal)
             links.append(NcatsD2DA(
                 ncats_disease_id=ncats_disease_id,
                 disease_assoc_id=self.resolve_id('disease_assoc', assoc_key),

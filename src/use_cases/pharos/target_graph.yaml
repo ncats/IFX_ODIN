@@ -304,6 +304,15 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/disease_ontology/doid.json
 
+  - import: ./src/input_adapters/jensenlab/diseases.py
+    class: JensenLabDiseasesAdapter
+    kwargs:
+      knowledge_file_path: ./input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv
+      experiments_file_path: ./input_files/auto/jensenlab/human_disease_experiments_filtered.tsv
+      textmining_file_path: ./input_files/auto/jensenlab/human_disease_textmining_filtered.tsv
+      version_file_path: ./input_files/auto/jensenlab/diseases_version.tsv
+      textmining_min_zscore: 6.0
+
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinDiseaseEdgeAdapter
     kwargs:

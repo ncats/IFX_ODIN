@@ -162,3 +162,63 @@ def test_ncats_disease_converter_only_keeps_loaded_mondo_ids():
         "provenance": "Mondo\tv2026-03-03\t2026-03-03\t2026-03-10",
     })
     assert known.mondoid == "MONDO:0000001"
+
+
+def test_disease_converter_prefers_detail_source_id_and_keeps_resolved_mondoid():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+    converter.id_mapping["ncats_disease"] = {"MONDO:0000001": 456}
+    converter._known_mondo_ids.add("MONDO:0000001")
+
+    rows = converter.disease_converter({
+        "start_id": "IFX123",
+        "end_id": "MONDO:0000001",
+        "end_node": {"name": "Example disease"},
+        "details": [{
+            "source": "JensenLab Text Mining",
+            "source_id": "DOID:1234",
+            "confidence": 3.2,
+            "zscore": 6.5,
+            "url": "https://example.org/jensen",
+        }],
+        "provenance": "JensenLab DISEASES\tNone\t2026-03-18\t2026-04-02",
+    })
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.protein_id == 123
+    assert row.dtype == "JensenLab Text Mining"
+    assert row.did == "DOID:1234"
+    assert row.mondoid == "MONDO:0000001"
+    assert row.conf == 3.2
+    assert row.zscore == 6.5
+    assert row.reference == "https://example.org/jensen"
+
+
+def test_ncats_d2da_converter_keys_links_off_resolved_disease_id():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+    converter.id_mapping["ncats_disease"] = {"MONDO:0000001": 456}
+    converter._known_mondo_ids.add("MONDO:0000001")
+
+    obj = {
+        "start_id": "IFX123",
+        "end_id": "MONDO:0000001",
+        "end_node": {"name": "Example disease"},
+        "details": [{
+            "source": "JensenLab Text Mining",
+            "source_id": "DOID:1234",
+            "confidence": 3.2,
+            "zscore": 6.5,
+            "url": "https://example.org/jensen",
+        }],
+        "provenance": "JensenLab DISEASES\tNone\t2026-03-18\t2026-04-02",
+    }
+
+    disease_rows = converter.disease_converter(obj)
+    link_rows = converter.ncats_d2da_converter(obj)
+
+    assert len(disease_rows) == 1
+    assert len(link_rows) == 1
+    assert link_rows[0].ncats_disease_id == 456
+    assert link_rows[0].disease_assoc_id == disease_rows[0].id

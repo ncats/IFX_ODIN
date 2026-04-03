@@ -41,6 +41,7 @@
 
 - Use `playbooks/ingest_playbook.md` for new-source ingest work.
 - Use `playbooks/data_update_playbook.md` for source refreshes and payload-drift investigations.
+- Use `playbooks/pharos_table_update_playbook.md` when updating the Pipeline Status Table in `src/use_cases/pharos/TCRD_TODO.md`.
 
 ## Documentation Model
 
@@ -149,6 +150,7 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 - **After creating any new file**, run `git add <path>` so it is staged for the next commit. Do not wait to be asked.
 - **For new ingest sources**, read `playbooks/ingest_playbook.md` before doing discovery or code changes.
 - **For source refreshes**, read `playbooks/data_update_playbook.md` before investigating payload drift or changing code.
+- **For Pipeline Status Table updates**, read `playbooks/pharos_table_update_playbook.md` before changing `src/use_cases/pharos/TCRD_TODO.md`.
 - **Do not skip discovery.** Inspect the real files first, record mapping decisions in `designs/`, then propose the implementation plan before editing code.
 - **Do not run Snakemake or ETL on the user's behalf by default.** Prepare the changes and tell the user exactly what to run for validation.
 

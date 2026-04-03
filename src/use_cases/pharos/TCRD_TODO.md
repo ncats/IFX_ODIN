@@ -19,12 +19,12 @@ Status: [ ] not started | [~] in progress | [x] done
 
 ## Pipeline Status Table
 
-Each row is a concept. Data source checkboxes = ingested into the Pharos graph. MySQL table checkboxes = graph-derived converter output written to TCRD.
+Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = ingested into the Pharos graph or side-lifted into the protein-oriented Pharos view. MySQL table checkboxes = graph-derived converter output written to TCRD.
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD) |
 |---------|------------------------|-------------|------------------------------|
 | **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
-| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | - |
+| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | [ ] TBD |
 | **GeneGeneRifEdge** | [x] target_graph generif CSV | `GeneGeneRifEdge` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
 | **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon` |
 | **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent` |
@@ -34,14 +34,14 @@ Each row is a concept. Data source checkboxes = ingested into the Pharos graph. 
 | **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa` |
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
-| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD | `Disease` | [x] `ncats_disease` |
-| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | - |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | - |
-| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
-| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | - |
-| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | - |
-| **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `ProteinPathwayEdge` | [x] `pathway_type`<br>[x] `pathway` |
-| **Keyword** | [x] UniProt | `Keyword` | - |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `Disease` | [x] `ncats_disease` |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [ ] TBD |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [ ] TBD |
+| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] JensenLab DISEASES *(Knowledge, Experiment/TIGA, and Text Mining; promoted in `pharos.yaml` / `target_graph.yaml`; working/full configs apply `textmining_min_zscore: 6.0` to stay close to historical Pharos text-mining scope)* | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
+| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | [ ] TBD |
+| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | [ ] TBD |
+| **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] PathwayCommons *(side-lifted from gene associations by the TCRD target resolver)* | `ProteinPathwayEdge` | [x] `pathway` |
+| **Keyword** | [x] UniProt | `Keyword` | [ ] TBD |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)* |
@@ -63,18 +63,11 @@ These tables are populated directly from ontology source files during the TCRD b
 ## Planned Data Sources
 
 ### Additional Disease Associations (ProteinDiseaseEdge)
-- CTD
 - DrugCentral Indication
-- ERAM
-- Expression Atlas
+- ERAM *(punt for now: public download appears stale/legacy; if we need ERAM coverage, prefer copying or migrating the legacy `eRAM` rows from `pharos319` rather than building a fresh ingest from the public files)*
+- Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
 - Monarch
 - OMIM
-- JensenLab DISEASES
-- JensenLab Knowledge UniProtKB-KW
-- JensenLab Text Mining
-
-### Additional Disease Ontologies (Disease)
-- Disease Ontology (DO)
 
 ### New Concepts
 - Protein-Protein Interactions — STRING, BioPlex, Reactome PPI
@@ -120,8 +113,10 @@ Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to valid
   - `MondoTableAdapter` and `MondoTableParentEdgeAdapter` now feed `mondo` / `mondo_parent`.
 - [x] Add source-file Disease Ontology adapters to the working/full TCRD YAMLs
   - `DOTableAdapter` and `DOTableParentEdgeAdapter` now feed `do` / `do_parent`.
-- [ ] Verify `mondo.def` is populated from source-file MONDO data
-- [ ] Verify `do.def` is populated from source-file Disease Ontology data
+- [x] Verify `mondo.def` is populated from source-file MONDO data
+  - `MondoTableAdapter` maps `Disease.mondo_description` into `MondoTerm.mondo_description`, and `TCRDOutputConverter.mondo_table_converter()` writes that into `mondo.def`.
+- [x] Verify `do.def` is populated from source-file Disease Ontology data
+  - `DOTableAdapter` maps `Disease.do_description` into `DOTerm.do_description`, and `TCRDOutputConverter.do_table_converter()` writes that into `do.def`.
 - [ ] Compare `mondo.comment` population against `pharos319`
   - Current source-file path preserves MONDO comments separately from the merged disease graph.
 
@@ -137,7 +132,11 @@ Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to valid
 - [ ] Decide whether disease association detail metadata should populate `disease.source`
   - `pharos319` uses `disease.source` for some sources; current working MySQL leaves it empty.
 - [ ] Document source-specific fields that remain intentionally unsupported in the working converter
-  - Examples from `pharos319`: `zscore`, `conf`, `drug_name`, `log2foldchange`, `pvalue`, `score`, `S2O`, `updated`.
+  - Examples from `pharos319`: `drug_name`, `log2foldchange`, `pvalue`, `score`, `S2O`, `updated`.
+- [x] Populate Jensen-compatible disease association fields in working/full MySQL
+  - `disease.did` now preserves source disease IDs, while `mondoid` remains a best-effort FK-backed resolved MONDO mapping.
+  - `disease.conf` and `disease.evidence` now populate for Jensen Knowledge / Experiment rows.
+  - `disease.zscore`, `disease.conf`, and `disease.reference` now populate for Jensen Text Mining rows.
 - [x] Add `ncats_d2da` links from `ncats_disease` to `disease` association rows
   - Current converter emits one direct link per disease association row.
 
