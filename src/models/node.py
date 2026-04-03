@@ -3,7 +3,7 @@ from datetime import datetime, date
 from typing import List, Union, get_origin, get_args, Optional
 
 from src.constants import Prefix
-from src.core.decorators import facets
+from src.core.decorators import indexed, facets, search
 
 
 def is_atypeof_field(type_hint, cls):
@@ -128,7 +128,9 @@ class EquivalentId:
 
 
 @dataclass
-@facets(category_fields=['sources'], extra_indexed_fields=['id', 'xref'])
+@indexed(fields=['id', 'xref'])
+@facets(category_fields=['sources'])
+@search(text_fields=['id'])
 class Node:
     id: str
     xref: Optional[List[EquivalentId]] = field(default_factory=list)

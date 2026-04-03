@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Union, Optional, Dict, List
 
-from src.core.decorators import facets
+from src.core.decorators import facets, search
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
 from src.models.gene import Audited
@@ -83,6 +83,7 @@ class IDGFamily(SimpleEnum):
 @facets(
     category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
     numeric_fields=["pm_score", "antibody_count"])
+@search(text_fields=["name", "symbol", "preferred_symbol", "description", "gene_name", "uniprot_id", "ensembl_id", "refseq_id", "ncbi_id"])
 class Protein(Audited, Analyte):
     preferred_symbol: Optional[str] = None
     protein_type: Optional[str] = None
@@ -127,6 +128,7 @@ class ProteinReactionEdge(Relationship):
 
 @dataclass
 @facets(category_fields=['type'])
+@search(text_fields=['name', 'type'])
 class MeasuredProtein(Node):
     name: Optional[str] = None
     type: Optional[str] = None

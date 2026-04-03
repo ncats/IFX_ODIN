@@ -231,9 +231,19 @@ def _get_collection_facet_metadata(db, coll_name: str) -> dict:
     if not category_fields:
         category_fields = _infer_collection_category_fields(db, coll_name)
     return {
-        "extra_indexed_fields": list(facet_metadata.get("extra_indexed_fields") or []),
         "category_fields": category_fields,
         "numeric_fields": list(facet_metadata.get("numeric_fields") or []),
+    }
+
+
+def _get_collection_search_metadata(db, coll_name: str) -> dict:
+    schema_entry = _get_collection_schema_entry(db, coll_name)
+    search_metadata = schema_entry.get("search_metadata") or {}
+    text_fields = list(search_metadata.get("text_fields") or [])
+    if not text_fields:
+        text_fields = _infer_collection_search_fields(db, coll_name, schema_entry=schema_entry)
+    return {
+        "text_fields": text_fields,
     }
 
 
@@ -273,6 +283,27 @@ def _infer_collection_category_fields(db, coll_name: str) -> List[str]:
     return sorted(set(inferred_fields))
 
 
+def _infer_collection_search_fields(db, coll_name: str, schema_entry: dict = None) -> List[str]:
+    schema_entry = schema_entry or _get_collection_schema_entry(db, coll_name)
+    schema_fields = set((schema_entry.get("fields") or {}).keys())
+    preferred_fields = [
+        "id",
+        "name",
+        "symbol",
+        "preferred_symbol",
+        "description",
+        "label",
+        "gene_name",
+        "type",
+        "xref",
+        "uniprot_id",
+        "ensembl_id",
+        "refseq_id",
+        "ncbi_id",
+    ]
+    return [field for field in preferred_fields if field in schema_fields]
+
+
 def _parse_collection_facet_filters(request: Request, category_fields: List[str]) -> Dict[str, List[str]]:
     allowed_fields = set(category_fields)
     active_filters = {}
@@ -293,8 +324,15 @@ def _parse_collection_facet_filters(request: Request, category_fields: List[str]
     return active_filters
 
 
-def _build_collection_query_params(page: int, page_size: int, facet_filters: Dict[str, List[str]], overrides: dict = None) -> List[tuple]:
+def _parse_collection_search_term(request: Request) -> str:
+    return request.query_params.get("q", "").strip()
+
+
+def _build_collection_query_params(page: int, page_size: int, facet_filters: Dict[str, List[str]],
+                                   search_term: str = "", overrides: dict = None) -> List[tuple]:
     params = [("page", page), ("page_size", page_size)]
+    if search_term:
+        params.append(("q", search_term))
     merged_filters = {field: list(values) for field, values in facet_filters.items()}
     overrides = overrides or {}
     for field, values in overrides.items():
@@ -306,20 +344,59 @@ def _build_collection_query_params(page: int, page_size: int, facet_filters: Dic
 
 
 def _build_collection_url(db_name: str, coll_name: str, page: int, page_size: int,
-                          facet_filters: Dict[str, List[str]], overrides: dict = None) -> str:
-    params = _build_collection_query_params(page, page_size, facet_filters, overrides=overrides)
+                          facet_filters: Dict[str, List[str]], search_term: str = "",
+                          overrides: dict = None) -> str:
+    params = _build_collection_query_params(page, page_size, facet_filters, search_term=search_term, overrides=overrides)
     query_string = urlencode(params, doseq=True)
     return f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}?{query_string}"
 
 
-def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dict[str, List[str]]) -> str:
+def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dict[str, List[str]],
+                                search_term: str = "") -> str:
     params = []
+    if search_term:
+        params.append(("q", search_term))
     for field in sorted(facet_filters):
         for value in facet_filters[field]:
             params.append((f"facet_{field}", value))
     query_string = urlencode(params, doseq=True)
     base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/stats"
     return f"{base_url}?{query_string}" if query_string else base_url
+
+
+def _build_collection_download_url(db_name: str, coll_name: str, page: int, page_size: int,
+                                   facet_filters: Dict[str, List[str]], search_term: str = "") -> str:
+    params = _build_collection_query_params(page, page_size, facet_filters, search_term=search_term)
+    query_string = urlencode(params, doseq=True)
+    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/download.csv"
+    return f"{base_url}?{query_string}" if query_string else base_url
+
+
+def _get_search_constraint_clause(search_fields: List[str], search_term: str, bind_vars: dict,
+                                  variable: str = "doc") -> str:
+    if not search_term or not search_fields:
+        return ""
+
+    bind_vars["search_term"] = search_term.lower()
+    field_bind_names = []
+    for idx, field in enumerate(search_fields):
+        bind_name = f"search_field_{idx}"
+        bind_vars[bind_name] = field
+        field_bind_names.append(bind_name)
+
+    field_clauses = []
+    for bind_name in field_bind_names:
+        field_clauses.append(
+            "("
+            f"HAS({variable}, @{bind_name}) && {variable}[@{bind_name}] != null && "
+            "("
+            f"IS_ARRAY({variable}[@{bind_name}]) "
+            f"? LENGTH(FOR item IN {variable}[@{bind_name}] FILTER CONTAINS(LOWER(TO_STRING(item)), @search_term) RETURN 1) > 0 "
+            f": CONTAINS(LOWER(TO_STRING({variable}[@{bind_name}])), @search_term)"
+            ")"
+            ")"
+        )
+    return " OR ".join(field_clauses)
 
 
 def _get_filter_constraint_clause(filter_settings: Dict[str, List[str]], bind_vars: dict, variable: str = "doc") -> str:
@@ -372,17 +449,39 @@ def _coerce_facet_filter_value(value: str):
     return value
 
 
+def _build_collection_constraints(active_filters: Dict[str, List[str]], search_fields: List[str],
+                                  search_term: str, bind_vars: dict, variable: str = "doc") -> str:
+    clauses = []
+    filter_clause = _get_filter_constraint_clause(active_filters, bind_vars, variable=variable)
+    if filter_clause:
+        clauses.append(f"({filter_clause})")
+    search_clause = _get_search_constraint_clause(search_fields, search_term, bind_vars, variable=variable)
+    if search_clause:
+        clauses.append(f"({search_clause})")
+    return " AND ".join(clauses)
+
+
 def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: int,
                                    category_fields: List[str], active_filters: Dict[str, List[str]],
+                                   search_fields: List[str], search_term: str,
                                    top: int = 20) -> List[dict]:
     panels = []
-    for field in category_fields:
+    ordered_fields = sorted(
+        category_fields,
+        key=lambda field: (0 if active_filters.get(field) else 1, field),
+    )
+    for field in ordered_fields:
         other_filters = {k: v for k, v in active_filters.items() if k != field}
         bind_vars = {
             "facet_field": field,
             "facet_top": top,
         }
-        filter_clause = _get_filter_constraint_clause(other_filters, bind_vars)
+        filter_clause = _build_collection_constraints(
+            active_filters=other_filters,
+            search_fields=search_fields,
+            search_term=search_term,
+            bind_vars=bind_vars,
+        )
         query = f"""
             FOR doc IN `{coll_name}`
                 {f"FILTER {filter_clause}" if filter_clause else ""}
@@ -410,6 +509,7 @@ def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: 
                     page=1,
                     page_size=page_size,
                     facet_filters=active_filters,
+                    search_term=search_term,
                     overrides=overrides,
                 ),
             })
@@ -424,6 +524,7 @@ def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: 
                 page=1,
                 page_size=page_size,
                 facet_filters=active_filters,
+                search_term=search_term,
                 overrides={field: []},
             ),
         })
@@ -431,7 +532,7 @@ def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: 
 
 
 def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
-                                 active_filters: Dict[str, List[str]]) -> List[dict]:
+                                 active_filters: Dict[str, List[str]], search_term: str = "") -> List[dict]:
     summaries = []
     for field in sorted(active_filters):
         selected_values = list(active_filters[field])
@@ -451,6 +552,7 @@ def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
                     page=1,
                     page_size=page_size,
                     facet_filters=active_filters,
+                    search_term=search_term,
                     overrides=overrides,
                 ),
             })
@@ -463,6 +565,7 @@ def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
                 page=1,
                 page_size=page_size,
                 facet_filters=active_filters,
+                search_term=search_term,
                 overrides={field: []},
             ),
         })
@@ -642,10 +745,18 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
     db = get_db(db_name)
     skip = (page - 1) * page_size
     facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    search_metadata = _get_collection_search_metadata(db, coll_name)
     category_fields = sorted(facet_metadata.get("category_fields") or [])
+    search_fields = list(search_metadata.get("text_fields") or [])
     active_filters = _parse_collection_facet_filters(request, category_fields)
+    search_term = _parse_collection_search_term(request)
     filter_bind_vars = {}
-    filter_clause = _get_filter_constraint_clause(active_filters, filter_bind_vars)
+    filter_clause = _build_collection_constraints(
+        active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+        bind_vars=filter_bind_vars,
+    )
 
     # Use AQL for both count and list so they always agree
     count_query = f"""
@@ -682,20 +793,32 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         page_size=page_size,
         category_fields=category_fields,
         active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
     )
     active_filter_summary = _build_active_filter_summary(
         db_name=db_name,
         coll_name=coll_name,
         page_size=page_size,
         active_filters=active_filters,
+        search_term=search_term,
     )
-    stats_url = _build_collection_stats_url(db_name, coll_name, active_filters)
+    stats_url = _build_collection_stats_url(db_name, coll_name, active_filters, search_term=search_term)
+    download_url = _build_collection_download_url(db_name, coll_name, page, page_size, active_filters, search_term=search_term)
+    clear_search_url = _build_collection_url(
+        db_name=db_name,
+        coll_name=coll_name,
+        page=1,
+        page_size=page_size,
+        facet_filters=active_filters,
+        search_term="",
+    )
     prev_url = None
     next_url = None
     if page > 1:
-        prev_url = _build_collection_url(db_name, coll_name, page - 1, page_size, active_filters)
+        prev_url = _build_collection_url(db_name, coll_name, page - 1, page_size, active_filters, search_term=search_term)
     if page < total_pages:
-        next_url = _build_collection_url(db_name, coll_name, page + 1, page_size, active_filters)
+        next_url = _build_collection_url(db_name, coll_name, page + 1, page_size, active_filters, search_term=search_term)
 
     # HTMX partial rendering
     htmx = request.headers.get("HX-Request") == "true"
@@ -715,10 +838,82 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         "facet_panels": facet_panels,
         "active_filters": active_filters,
         "active_filter_summary": active_filter_summary,
+        "search_term": search_term,
+        "search_fields": search_fields,
         "stats_url": stats_url,
+        "download_url": download_url,
+        "clear_search_url": clear_search_url,
         "prev_url": prev_url,
         "next_url": next_url,
     })
+
+
+@app.get("/db/{db_name}/collection/{coll_name}/download.csv")
+async def collection_download(request: Request, db_name: str, coll_name: str,
+                              page: int = 1, page_size: int = 25):
+    db = get_db(db_name)
+    facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    search_metadata = _get_collection_search_metadata(db, coll_name)
+    category_fields = sorted(facet_metadata.get("category_fields") or [])
+    search_fields = list(search_metadata.get("text_fields") or [])
+    active_filters = _parse_collection_facet_filters(request, category_fields)
+    search_term = _parse_collection_search_term(request)
+    filter_bind_vars = {}
+    filter_clause = _build_collection_constraints(
+        active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+        bind_vars=filter_bind_vars,
+    )
+
+    coll = db.collection(coll_name)
+    is_edge = coll.properties().get("type") in ("edge", 3)
+
+    # Match the export columns to the current list-page view by rediscovering
+    # columns from the currently visible page, then export all filtered rows.
+    page = max(page, 1)
+    page_size = max(page_size, 1)
+    skip = (page - 1) * page_size
+    preview_bind_vars = {**filter_bind_vars, "skip": skip, "top": page_size}
+    preview_query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            LIMIT @skip, @top
+            RETURN doc
+    """
+    preview_docs = list(db.aql.execute(preview_query, bind_vars=preview_bind_vars))
+    columns = _discover_columns(preview_docs, is_edge)
+    if not columns:
+        columns = ["_key"]
+
+    export_query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            RETURN doc
+    """
+    cursor = db.aql.execute(export_query, bind_vars=filter_bind_vars)
+
+    def generate_csv():
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+
+        for doc in cursor:
+            row = {column: _normalize_csv_value(doc.get(column)) for column in columns}
+            writer.writerow(row)
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    filename = f"{db_name}_{coll_name}.csv"
+    return StreamingResponse(
+        generate_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/db/{db_name}/collection/{coll_name}/stats", response_class=HTMLResponse)
@@ -726,10 +921,18 @@ async def collection_stats(request: Request, db_name: str, coll_name: str):
     """Field coverage stats for a collection (loaded via HTMX)."""
     db = get_db(db_name)
     facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    search_metadata = _get_collection_search_metadata(db, coll_name)
     category_fields = sorted(facet_metadata.get("category_fields") or [])
+    search_fields = list(search_metadata.get("text_fields") or [])
     active_filters = _parse_collection_facet_filters(request, category_fields)
+    search_term = _parse_collection_search_term(request)
     filter_bind_vars = {}
-    filter_clause = _get_filter_constraint_clause(active_filters, filter_bind_vars)
+    filter_clause = _build_collection_constraints(
+        active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+        bind_vars=filter_bind_vars,
+    )
 
     count_query = f"""
         FOR doc IN `{coll_name}`
@@ -894,36 +1097,38 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
             linked_aql = (
                 f"LET outgoing_counts = (\n"
                 f"    FOR v, e IN 1..1 OUTBOUND '{doc['_id']}' GRAPH 'graph'\n"
-                f"    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt\n"
-                f"    RETURN {{coll, cnt}}\n"
+                f"    COLLECT coll = SPLIT(v._id, '/')[0], edge_coll = SPLIT(e._id, '/')[0] WITH COUNT INTO cnt\n"
+                f"    RETURN {{coll, edge_coll, cnt}}\n"
                 f")\n"
                 f"LET incoming_counts = (\n"
                 f"    FOR v, e IN 1..1 INBOUND '{doc['_id']}' GRAPH 'graph'\n"
-                f"    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt\n"
-                f"    RETURN {{coll, cnt}}\n"
+                f"    COLLECT coll = SPLIT(v._id, '/')[0], edge_coll = SPLIT(e._id, '/')[0] WITH COUNT INTO cnt\n"
+                f"    RETURN {{coll, edge_coll, cnt}}\n"
                 f")\n"
                 f"RETURN {{\n"
                 f"    outgoing: (\n"
                 f"        FOR c IN outgoing_counts\n"
+                f"            SORT c.cnt DESC, c.edge_coll\n"
                 f"            LET samples = (\n"
                 f"                FOR v2, e2 IN 1..1 OUTBOUND '{doc['_id']}' GRAPH 'graph'\n"
                 f"                FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
+                f"                FILTER SPLIT(e2._id, '/')[0] == c.edge_coll\n"
                 f"                LIMIT {_SAMPLE_LIMIT}\n"
                 f"                RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
                 f"            )\n"
-                f"            SORT c.cnt DESC\n"
-                f"            RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}\n"
+                f"            RETURN {{collection: c.coll, edge_type: c.edge_coll, count: c.cnt, nodes: samples}}\n"
                 f"    ),\n"
                 f"    incoming: (\n"
                 f"        FOR c IN incoming_counts\n"
+                f"            SORT c.cnt DESC, c.edge_coll\n"
                 f"            LET samples = (\n"
                 f"                FOR v2, e2 IN 1..1 INBOUND '{doc['_id']}' GRAPH 'graph'\n"
                 f"                FILTER SPLIT(v2._id, '/')[0] == c.coll\n"
+                f"                FILTER SPLIT(e2._id, '/')[0] == c.edge_coll\n"
                 f"                LIMIT {_SAMPLE_LIMIT}\n"
                 f"                RETURN {{key: v2._key, label: v2.name || v2.symbol || v2._key}}\n"
                 f"            )\n"
-                f"            SORT c.cnt DESC\n"
-                f"            RETURN {{collection: c.coll, count: c.cnt, nodes: samples}}\n"
+                f"            RETURN {{collection: c.coll, edge_type: c.edge_coll, count: c.cnt, nodes: samples}}\n"
                 f"    )\n"
                 f"}}"
             )
@@ -931,36 +1136,38 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                 """
                 LET outgoing_counts = (
                     FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-                    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt
-                    RETURN {coll, cnt}
+                    COLLECT coll = SPLIT(v._id, '/')[0], edge_coll = SPLIT(e._id, '/')[0] WITH COUNT INTO cnt
+                    RETURN {coll, edge_coll, cnt}
                 )
                 LET incoming_counts = (
                     FOR v, e IN 1..1 INBOUND @node_id GRAPH 'graph'
-                    COLLECT coll = SPLIT(v._id, '/')[0] WITH COUNT INTO cnt
-                    RETURN {coll, cnt}
+                    COLLECT coll = SPLIT(v._id, '/')[0], edge_coll = SPLIT(e._id, '/')[0] WITH COUNT INTO cnt
+                    RETURN {coll, edge_coll, cnt}
                 )
                 RETURN {
                     outgoing: (
                         FOR c IN outgoing_counts
+                            SORT c.cnt DESC, c.edge_coll
                             LET samples = (
                                 FOR v2, e2 IN 1..1 OUTBOUND @node_id GRAPH 'graph'
                                 FILTER SPLIT(v2._id, '/')[0] == c.coll
+                                FILTER SPLIT(e2._id, '/')[0] == c.edge_coll
                                 LIMIT @sample_limit
                                 RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
                             )
-                            SORT c.cnt DESC
-                            RETURN {collection: c.coll, count: c.cnt, nodes: samples}
+                            RETURN {collection: c.coll, edge_type: c.edge_coll, count: c.cnt, nodes: samples}
                     ),
                     incoming: (
                         FOR c IN incoming_counts
+                            SORT c.cnt DESC, c.edge_coll
                             LET samples = (
                                 FOR v2, e2 IN 1..1 INBOUND @node_id GRAPH 'graph'
                                 FILTER SPLIT(v2._id, '/')[0] == c.coll
+                                FILTER SPLIT(e2._id, '/')[0] == c.edge_coll
                                 LIMIT @sample_limit
                                 RETURN {key: v2._key, label: v2.name || v2.symbol || v2._key}
                             )
-                            SORT c.cnt DESC
-                            RETURN {collection: c.coll, count: c.cnt, nodes: samples}
+                            RETURN {collection: c.coll, edge_type: c.edge_coll, count: c.cnt, nodes: samples}
                     )
                 }
                 """,
@@ -988,6 +1195,7 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "outgoing_linked_groups": outgoing_linked_groups,
         "incoming_linked_groups": incoming_linked_groups,
         "linked_aql": linked_aql,
+        "this_node_label": f"This {coll_name}",
     })
 
 
@@ -1441,6 +1649,14 @@ def _truncate(value, max_len=80):
     if len(s) > max_len:
         return s[:max_len] + "..."
     return s
+
+
+def _normalize_csv_value(value):
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, default=str)
+    if value is None:
+        return ""
+    return value
 
 
 templates.env.filters["truncate_val"] = _truncate

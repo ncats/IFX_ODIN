@@ -2,13 +2,14 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 from src.constants import DataSourceName
-from src.core.decorators import facets
+from src.core.decorators import facets, search
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
 
 @dataclass
 @facets(category_fields=["isDrug"])
+@search(text_fields=["name", "description", "smiles"])
 class Ligand(Node):
     name: Optional[str] = None
     isDrug: Optional[bool] = None
