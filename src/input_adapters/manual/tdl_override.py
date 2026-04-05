@@ -9,6 +9,7 @@ from src.shared.csv_parser import CSVParser
 
 
 class TDLOverrideAdapter(InputAdapter, CSVParser):
+    batch_size: int = 1000
     def __init__(self, file_path: str):
         InputAdapter.__init__(self)
         CSVParser.__init__(self, file_path=file_path)

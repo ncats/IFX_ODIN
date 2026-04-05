@@ -11,6 +11,7 @@ from src.models.protein import Protein, IDGFamily
 
 
 class IDGFamilyAdapter(InputAdapter, MySqlAdapter):
+    batch_size: int = 1000
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.OldPharos
 
