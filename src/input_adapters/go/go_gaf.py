@@ -15,9 +15,9 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
 
     def get_datasource_name(self) -> DataSourceName:
         if self.source == "UniProt":
-            return DataSourceName.UniProt
+            return DataSourceName.GOA_UniProt
         if self.source == "GO":
-            return DataSourceName.GO
+            return DataSourceName.GOA_GO
         return DataSourceName.Unknown
 
     def get_version(self) -> DatasourceVersionInfo:

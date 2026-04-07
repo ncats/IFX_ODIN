@@ -16,7 +16,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
-    Mondo, MondoParent, Disease as mysqlDisease, DiseaseType, DO, DOParent,
+    Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -50,7 +50,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinTissueExpressionEdge: [self.tissue_lookup_converter,
                                           self.expression_converter,
                                           self.gtex_converter],
-            MondoTerm: [self.mondo_table_converter],
+            MondoTerm: [self.mondo_table_converter, self.mondo_xref_converter],
             MondoTermParentEdge: [self.mondo_parent_table_converter],
             DOTerm: [self.do_table_converter],
             DOTermParentEdge: [self.do_parent_table_converter],
@@ -400,6 +400,25 @@ class TCRDOutputConverter(SQLOutputConverter):
             comment=obj.get('comment'),
             provenance=obj['provenance'],
         )
+
+    def mondo_xref_converter(self, obj: dict) -> List[MondoXref]:
+        rows = []
+        seen = set()
+        exact_matches = set(obj.get('exact_matches') or [])
+        for xref in obj.get('mondo_xrefs') or []:
+            if not xref or ':' not in xref or xref in seen:
+                continue
+            seen.add(xref)
+            db, value = xref.split(':', 1)
+            rows.append(MondoXref(
+                mondoid=obj['id'],
+                db=db,
+                value=value,
+                equiv_to=(xref in exact_matches),
+                xref=xref,
+                provenance=obj['provenance'],
+            ))
+        return rows
 
     def mondo_parent_table_converter(self, obj: dict) -> MondoParent:
         return MondoParent(

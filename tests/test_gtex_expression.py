@@ -2,6 +2,7 @@ import csv
 import gzip
 from pathlib import Path
 
+from src.constants import DataSourceName
 from src.input_adapters.gtex.gtex_expression import GTExExpressionAdapter
 from src.models.expression import GeneTissueExpressionEdge
 from src.models.gene import Gene
@@ -73,3 +74,16 @@ def test_gtex_adapter_emits_gene_expression_edges(tmp_path):
     assert {edge.start_node.id for edge in edges} == {"ENSEMBL:ENSG00000000003"}
     assert {edge.end_node.id for edge in edges} == {"UBERON:0002107", "UBERON:0000948"}
     assert all(detail.source == "GTEx" for edge in edges for detail in edge.details)
+
+
+def test_gtex_adapter_uses_gtex_datasource_name(tmp_path):
+    matrix_path, sample_attr_path, subject_path, version_path = _write_gtex_fixture(tmp_path)
+
+    adapter = GTExExpressionAdapter(
+        matrix_file_path=str(matrix_path),
+        sample_attributes_file_path=str(sample_attr_path),
+        subject_phenotypes_file_path=str(subject_path),
+        version_file_path=str(version_path),
+    )
+
+    assert adapter.get_datasource_name() == DataSourceName.GTEx

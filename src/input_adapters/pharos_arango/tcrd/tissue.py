@@ -64,14 +64,26 @@ class TissueAdapter(PharosArangoAdapter):
 class ExpressionAdapter(PharosArangoAdapter):
     batch_size = 5_000
 
+    def __init__(self, credentials, database_name: str, max_rows: int = None):
+        self.max_rows = max_rows
+        super().__init__(credentials=credentials, database_name=database_name)
+
     def get_all(self) -> Generator[List[ProteinTissueExpressionEdge], None, None]:
         last_key = None
+        emitted = 0
         while True:
-            rows = list(self.runQuery(expression_query(last_key=last_key, limit=self.batch_size)))
+            batch_limit = self.batch_size
+            if self.max_rows is not None:
+                remaining = self.max_rows - emitted
+                if remaining <= 0:
+                    break
+                batch_limit = min(batch_limit, remaining)
+
+            rows = list(self.runQuery(expression_query(last_key=last_key, limit=batch_limit)))
             if not rows:
                 break
 
-            yield [
+            batch = [
                 ProteinTissueExpressionEdge(
                     start_node=Protein(id=row['start_id']),
                     end_node=Tissue(id=row['end_id']),
@@ -79,6 +91,8 @@ class ExpressionAdapter(PharosArangoAdapter):
                 )
                 for row in rows
             ]
+            yield batch
+            emitted += len(batch)
             last_key = rows[-1]['_key']
 
     def get_version_info_query(self) -> DataSourceDetails:

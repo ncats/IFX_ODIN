@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Enum, SmallInteger, ForeignKey, Date, Float, Index, Boolean, \
+from sqlalchemy import Column, String, Integer, Text, Enum, SmallInteger, ForeignKey, Date, DateTime, Float, Index, Boolean, \
     DECIMAL, UniqueConstraint, Double, text
 from sqlalchemy.dialects.mysql import ENUM
 from sqlalchemy.orm import declarative_base, declared_attr
@@ -872,6 +872,42 @@ class InputVersion(Base):
     version = Column(String(45))
     release_date = Column(Date)
     download_date = Column(Date, nullable=False)
+
+
+class DataSourceVersion(Base):
+    __tablename__ = "data_source_version"
+    __table_args__ = (
+        Index("data_source_version_source_idx", "data_source"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    data_source = Column(String(255), nullable=False)
+    version = Column(String(255))
+    version_date = Column(Date)
+    download_date = Column(Date)
+    collections = Column(Text)
+
+
+class ETLRun(Base):
+    __tablename__ = "etl_run"
+    __table_args__ = (
+        Index("etl_run_stage_idx", "stage"),
+        Index("etl_run_database_idx", "database_name"),
+        Index("etl_run_run_date_idx", "run_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stage = Column(String(64), nullable=False)
+    database_name = Column(String(255), nullable=False)
+    run_date = Column(DateTime, nullable=False)
+    git_commit = Column(String(255))
+    git_branch = Column(String(255))
+    git_tag = Column(String(255))
+    runner = Column(String(255))
+    hostname = Column(String(255))
+    platform = Column(String(255))
+    platform_version = Column(String(255))
+    python_version = Column(String(255))
 
 class NcatsDataSource(Base):
     __tablename__ = 'ncats_dataSource'

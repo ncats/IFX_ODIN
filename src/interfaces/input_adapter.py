@@ -12,6 +12,37 @@ class InputAdapter(ABC):
     batch_size = 25000
     single_source: bool = False
 
+    @staticmethod
+    def _canonicalize_relationship_class(rel: Relationship, start_node: Node, end_node: Node) -> Relationship:
+        from src.models.disease import GeneDiseaseEdge, ProteinDiseaseEdge
+        from src.models.expression import GeneTissueExpressionEdge, ProteinTissueExpressionEdge
+        from src.models.gene import Gene
+        from src.models.pathway import GenePathwayEdge, ProteinPathwayEdge
+        from src.models.protein import Protein
+        from src.models.tissue import Tissue
+        from src.models.disease import Disease
+        from src.models.pathway import Pathway
+
+        mapping = {
+            (GeneTissueExpressionEdge, Protein, Tissue): ProteinTissueExpressionEdge,
+            (GeneDiseaseEdge, Protein, Disease): ProteinDiseaseEdge,
+            (GenePathwayEdge, Protein, Pathway): ProteinPathwayEdge,
+        }
+
+        target_cls = mapping.get((type(rel), type(start_node), type(end_node)))
+        if target_cls is None:
+            return rel
+
+        remapped = target_cls(
+            start_node=copy.deepcopy(start_node),
+            end_node=copy.deepcopy(end_node),
+        )
+        for key, value in rel.__dict__.items():
+            if key in {"start_node", "end_node"}:
+                continue
+            setattr(remapped, key, copy.deepcopy(value))
+        return remapped
+
     def get_name(self) -> str:
         return f"{self.__class__.__name__} ({self.get_datasource_name().value})"
 
@@ -139,6 +170,7 @@ class InputAdapter(ABC):
                                 rel_copy.end_node = copy.deepcopy(end_node)
                             else:
                                 rel_copy.end_node.id = end_node.id
+                            rel_copy = self._canonicalize_relationship_class(rel_copy, rel_copy.start_node, rel_copy.end_node)
                             return_relationships.append(rel_copy)
 
                     if len(return_relationships) >= self.batch_size:
