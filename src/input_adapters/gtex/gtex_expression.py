@@ -53,7 +53,7 @@ class GTExExpressionAdapter(InputAdapter):
         self.version_info = self._load_version_info()
 
     def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.TargetGraph
+        return DataSourceName.GTEx
 
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info

@@ -1,3 +1,4 @@
+import re
 from typing import Generator, List
 
 from src.input_adapters.disease_ontology.do_adapter import DOBaseAdapter, DODiseaseAdapter
@@ -7,6 +8,68 @@ from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOT
 
 class MondoTableAdapter(MondoDiseaseAdapter):
 
+    _IDENTIFIERS_ORG_PREFIX_MAP = {
+        "mesh": "MESH",
+        "medgen": "MEDGEN",
+        "snomedct": "SNOMEDCT",
+        "omim": "OMIM",
+        "orphanet": "ORPHANET",
+        "icd10cm": "ICD10CM",
+        "icd10": "ICD10",
+        "icd9": "ICD9",
+        "efo": "EFO",
+        "doid": "DOID",
+        "ncit": "NCIT",
+        "umls": "UMLS",
+    }
+
+    @classmethod
+    def _normalize_xref_value(cls, value: str) -> str | None:
+        if not value:
+            return None
+        raw = value.strip()
+        if not raw:
+            return None
+        if "://" not in raw and ":" in raw:
+            return raw
+
+        obo_match = re.search(r"/obo/([A-Za-z0-9]+)_([^/#]+)$", raw)
+        if obo_match:
+            return f"{obo_match.group(1).upper()}:{obo_match.group(2)}"
+
+        identifiers_match = re.search(r"identifiers\.org/([^/]+)/([^/?#]+)$", raw)
+        if identifiers_match:
+            prefix = identifiers_match.group(1).lower()
+            mapped_prefix = cls._IDENTIFIERS_ORG_PREFIX_MAP.get(prefix, prefix.upper())
+            return f"{mapped_prefix}:{identifiers_match.group(2)}"
+
+        umls_match = re.search(r"/umls/id/([^/?#]+)$", raw, re.IGNORECASE)
+        if umls_match:
+            return f"UMLS:{umls_match.group(1)}"
+
+        return None
+
+    @classmethod
+    def _extract_exact_matches(cls, node: dict) -> list[str]:
+        exact_matches = set()
+        for entry in (node.get("meta") or {}).get("basicPropertyValues") or []:
+            predicate = (entry.get("pred") or "").lower()
+            if not predicate.endswith("exactmatch"):
+                continue
+            normalized = cls._normalize_xref_value(entry.get("val") or "")
+            if normalized:
+                exact_matches.add(normalized)
+        return sorted(exact_matches)
+
+    @classmethod
+    def _extract_xrefs(cls, node: dict) -> list[str]:
+        xrefs = set()
+        for entry in (node.get("meta") or {}).get("xrefs") or []:
+            normalized = cls._normalize_xref_value(entry.get("val") if isinstance(entry, dict) else entry)
+            if normalized:
+                xrefs.add(normalized)
+        return sorted(xrefs)
+
     def _to_term(self, node: dict, subset_label_map: dict) -> MondoTerm:
         disease = self._to_disease(node, subset_label_map)
         comments = disease.comments or []
@@ -15,6 +78,8 @@ class MondoTableAdapter(MondoDiseaseAdapter):
             name=disease.name,
             mondo_description=disease.mondo_description,
             comment=comments[0] if comments else None,
+            mondo_xrefs=self._extract_xrefs(node),
+            exact_matches=self._extract_exact_matches(node),
         )
 
     def get_all(self) -> Generator[List[MondoTerm], None, None]:

@@ -117,4 +117,6 @@ output_adapters:
     kwargs:
       database_name: pharos400
       truncate_tables: true
+      source_graph_credentials: *source_credentials
+      source_graph_database: *source_database
     credentials: *destination_credentials

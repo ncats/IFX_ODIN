@@ -96,6 +96,74 @@ def test_pathway_converter_keeps_pwtype_without_lookup_table():
     assert row.id_in_source == "R-HSA-199420"
 
 
+def test_gtex_converter_branches_gtex_details_from_shared_expression_edge():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.gtex_converter({
+        "start_id": "IFX123",
+        "details": [
+            {
+                "source": "GTEx",
+                "tissue": "Liver",
+                "source_tissue_id": "UBERON:0002107",
+                "number_value": 10.0,
+                "source_rank": 0.7,
+            },
+            {
+                "source": "GTEx",
+                "tissue": "Liver",
+                "source_tissue_id": "UBERON:0002107",
+                "sex": "male",
+                "number_value": 11.0,
+                "source_rank": 0.8,
+            },
+            {
+                "source": "GTEx",
+                "tissue": "Liver",
+                "source_tissue_id": "UBERON:0002107",
+                "sex": "female",
+                "number_value": 9.0,
+                "source_rank": 0.6,
+            },
+            {
+                "source": "HPM Protein",
+                "tissue": "Liver",
+                "source_tissue_id": "UBERON:0002107",
+                "number_value": 1.0,
+            },
+        ],
+        "provenance": "GTEx\tv1\t2026-01-01\t2026-01-02",
+    })
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.protein_id == 123
+    assert row.tissue == "Liver"
+    assert row.uberon_id == "UBERON:0002107"
+    assert row.tpm == 10.0
+    assert row.tpm_male == 11.0
+    assert row.tpm_female == 9.0
+
+
+def test_mondo_xref_converter_marks_exact_matches():
+    converter = TCRDOutputConverter()
+
+    rows = converter.mondo_xref_converter({
+        "id": "MONDO:0000001",
+        "mondo_xrefs": ["DOID:4", "ICD9:799.9"],
+        "exact_matches": ["DOID:4"],
+        "provenance": "Mondo\tv2026-03-03\t2026-03-03\t2026-03-10",
+    })
+
+    assert len(rows) == 2
+    by_xref = {row.xref: row for row in rows}
+    assert by_xref["DOID:4"].db == "DOID"
+    assert by_xref["DOID:4"].value == "4"
+    assert by_xref["DOID:4"].equiv_to is True
+    assert by_xref["ICD9:799.9"].equiv_to is False
+
+
 def test_keyword_xref_converter_writes_keyword_id_to_value_and_label_to_xtra():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

@@ -116,25 +116,25 @@ resolvers:
         - Tissue
 
 input_adapters:
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-    class: DODiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-    class: DODiseaseParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/mondo/mondo_adapter.py
+#    class: MondoDiseaseParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/mondo/mondo.json
+#
+#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+#    class: DODiseaseAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
+#
+#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+#    class: DODiseaseParentEdgeAdapter
+#    kwargs:
+#      file_path: ./input_files/auto/disease_ontology/doid.json
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
@@ -142,14 +142,31 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       collapse_reviewed_targets: true
 
-  - import: ./src/input_adapters/jensenlab/diseases.py
-    class: JensenLabDiseasesAdapter
-    kwargs:
-      knowledge_file_path: ./input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv
-      experiments_file_path: ./input_files/auto/jensenlab/human_disease_experiments_filtered.tsv
-      textmining_file_path: ./input_files/auto/jensenlab/human_disease_textmining_filtered.tsv
-      version_file_path: ./input_files/auto/jensenlab/diseases_version.tsv
-      textmining_min_zscore: 6.0
+#  - import: ./src/input_adapters/gtex/gtex_expression.py
+#    class: GTExExpressionAdapter
+#    kwargs:
+#      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+#      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
+#      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
+#      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
+#      max_genes: 500
+#      max_samples: 500
+#
+#  - import: ./src/input_adapters/hpm/hpm_expression.py
+#    class: HPMExpressionAdapter
+#    kwargs:
+#      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
+#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
+#      version_file_path: ./input_files/manual/hpm/version.csv
+
+#  - import: ./src/input_adapters/jensenlab/diseases.py
+#    class: JensenLabDiseasesAdapter
+#    kwargs:
+#      knowledge_file_path: ./input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv
+#      experiments_file_path: ./input_files/auto/jensenlab/human_disease_experiments_filtered.tsv
+#      textmining_file_path: ./input_files/auto/jensenlab/human_disease_textmining_filtered.tsv
+#      version_file_path: ./input_files/auto/jensenlab/diseases_version.tsv
+#      textmining_min_zscore: 6.0
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

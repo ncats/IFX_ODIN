@@ -1,5 +1,8 @@
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
+from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
+from src.models.datasource_version_info import DataSourceDetails
 from src.output_adapters.mysql_output_adapter import MySQLOutputAdapter, TCRDOutputAdapter
 from src.shared.db_credentials import DBCredentials
 from src.shared.sqlalchemy_tables.pharos_tables_new import TDL_info
@@ -118,6 +121,126 @@ def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
 
     assert fake_converter.sessions == [fake_session]
     assert fake_session.closed is True
+
+
+def test_tcrd_output_adapter_builds_transitive_closure_with_self_rows():
+    closure = TCRDOutputAdapter._build_transitive_closure(
+        node_ids=["A", "B", "C", "D"],
+        direct_edges=[("B", "A"), ("C", "B")],
+    )
+
+    assert closure == [
+        ("A", "A"),
+        ("B", "A"),
+        ("B", "B"),
+        ("C", "A"),
+        ("C", "B"),
+        ("C", "C"),
+        ("D", "D"),
+    ]
+
+
+def test_tcrd_output_adapter_builds_deduped_data_source_version_rows():
+    metadata = DatabaseMetadata(collections=[
+        CollectionMetadata(
+            name="Protein",
+            total_count=1,
+            sources=[
+                DataSourceDetails(
+                    name="UniProt",
+                    version="2026_01",
+                    version_date=None,
+                    download_date=None,
+                ),
+                DataSourceDetails(
+                    name="GOA (GO)",
+                    version=None,
+                    version_date=None,
+                    download_date=None,
+                ),
+            ],
+        ),
+        CollectionMetadata(
+            name="ProteinGoTermEdge",
+            total_count=1,
+            sources=[
+                DataSourceDetails(
+                    name="GOA (GO)",
+                    version=None,
+                    version_date=None,
+                    download_date=None,
+                ),
+                DataSourceDetails(
+                    name="GOA (UniProt)",
+                    version=None,
+                    version_date=None,
+                    download_date=None,
+                ),
+            ],
+        ),
+    ])
+
+    rows = TCRDOutputAdapter._build_data_source_version_rows(metadata)
+
+    assert rows == [
+        {
+            "data_source": "GOA (GO)",
+            "version": None,
+            "version_date": None,
+            "download_date": None,
+            "collections": "Protein, ProteinGoTermEdge",
+        },
+        {
+            "data_source": "GOA (UniProt)",
+            "version": None,
+            "version_date": None,
+            "download_date": None,
+            "collections": "ProteinGoTermEdge",
+        },
+        {
+            "data_source": "UniProt",
+            "version": "2026_01",
+            "version_date": None,
+            "download_date": None,
+            "collections": "Protein",
+        },
+    ]
+
+
+def test_tcrd_output_adapter_builds_etl_run_rows():
+    graph_etl = {
+        "run_date": "2026-04-04T11:49:01.558897",
+        "runner": "kelleherkj",
+        "hostname": "ncatslnifxdvv01",
+        "platform": "Linux",
+        "platform_version": "#181-Ubuntu SMP",
+        "python_version": "3.11.11",
+        "git_info": {
+            "git_commit": "abc123",
+            "git_branch": "main",
+            "git_tag": None,
+        },
+    }
+
+    rows = TCRDOutputAdapter._build_etl_run_rows(graph_etl, "pharos400")
+
+    assert len(rows) == 2
+    assert rows[0] == {
+        "stage": "graph_build",
+        "database_name": "pharos400",
+        "run_date": datetime.fromisoformat("2026-04-04T11:49:01.558897"),
+        "git_commit": "abc123",
+        "git_branch": "main",
+        "git_tag": None,
+        "runner": "kelleherkj",
+        "hostname": "ncatslnifxdvv01",
+        "platform": "Linux",
+        "platform_version": "#181-Ubuntu SMP",
+        "python_version": "3.11.11",
+    }
+    assert rows[1]["stage"] == "graph_to_mysql"
+    assert rows[1]["database_name"] == "pharos400"
+    assert isinstance(rows[1]["run_date"], datetime)
 
 
 def test_mysql_output_adapter_detects_fk_integrity_error():

@@ -9,6 +9,8 @@ class MondoTerm(Node):
     name: Optional[str] = None
     mondo_description: Optional[str] = None
     comment: Optional[str] = None
+    mondo_xrefs: Optional[list[str]] = None
+    exact_matches: Optional[list[str]] = None
 
 
 @dataclass
