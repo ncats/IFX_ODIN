@@ -1,4 +1,6 @@
+import hashlib
 import pandas as pd
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
@@ -48,6 +50,47 @@ def _iter_pairs(experiment_files, stats_files):
 
 class PounceNodeBuilder:
     @staticmethod
+    def _slugify(value: Optional[str], max_len: int = 48) -> str:
+        if not value:
+            return "unnamed"
+        slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+        slug = re.sub(r"-{2,}", "-", slug).strip("-")
+        return slug[:max_len].strip("-") or "unnamed"
+
+    @staticmethod
+    def _hash_suffix(*parts: Optional[str], length: int = 8) -> str:
+        normalized = "|".join("" if part is None else str(part).strip().lower() for part in parts)
+        return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:length]
+
+    @classmethod
+    def _project_id(cls, parsed_project: ParsedProject) -> str:
+        slug = cls._slugify(parsed_project.project_name)
+        date_part = parsed_project.date.isoformat() if parsed_project.date else None
+        owner_emails = sorted((parsed_project.owner_emails or []))
+        collaborator_emails = sorted((parsed_project.collaborator_emails or []))
+        suffix = cls._hash_suffix(
+            parsed_project.project_name,
+            date_part,
+            "|".join(owner_emails),
+            "|".join(collaborator_emails),
+        )
+        return f"pounce:{slug}-{suffix}"
+
+    @classmethod
+    def _experiment_id(cls, project_id: str, parsed_experiment) -> str:
+        slug = cls._slugify(parsed_experiment.experiment_name)
+        date_part = parsed_experiment.date.isoformat() if hasattr(parsed_experiment.date, "isoformat") else parsed_experiment.date
+        suffix = cls._hash_suffix(
+            project_id,
+            parsed_experiment.experiment_name,
+            date_part,
+            parsed_experiment.platform_type,
+            parsed_experiment.platform_name,
+            parsed_experiment.platform_output_type,
+        )
+        return f"{project_id}:{slug}-{suffix}"
+
+    @staticmethod
     def _to_null_if_na(value: Optional[str]) -> Optional[str]:
         """Convert a value to None if it is missing, empty, or 'N/A' (case-insensitive)."""
         if value is None:
@@ -81,7 +124,7 @@ class PounceNodeBuilder:
     @staticmethod
     def _project_node(parsed_project: ParsedProject) -> Project:
         return Project(
-            id=parsed_project.project_id,
+            id=PounceNodeBuilder._project_id(parsed_project),
             name=parsed_project.project_name,
             description=parsed_project.description,
             date=parsed_project.date,
@@ -192,10 +235,7 @@ class PounceNodeBuilder:
 
         parsed = exp_data.experiments[0]
 
-        exp_id = parsed.experiment_id
-        if not exp_id:
-            self._ctx.experiment_counter += 1
-            exp_id = f"{proj_obj.id}-exp-{self._ctx.experiment_counter}"
+        exp_id = self._experiment_id(proj_obj.id, parsed)
 
         exp_date = None
         if parsed.date:
