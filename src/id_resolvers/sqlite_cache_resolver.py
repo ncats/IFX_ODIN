@@ -58,7 +58,14 @@ class SqliteCacheResolver(IdResolver, ABC):
             print('\texisting database is missing the version key')
             return True
         sqlite_version_info = sqlite_version_info[0]
-        input_version_info = self.get_version_info()
+        try:
+            input_version_info = self.get_version_info()
+        except Exception as exc:
+            print(f'\tfailed to fetch current input version; preserving existing cache: {exc}')
+            return False
+        if not input_version_info or str(input_version_info).endswith('unknown'):
+            print('\tcurrent input version is unavailable; preserving existing cache')
+            return False
         if sqlite_version_info != input_version_info:
             print(f'\texisting data version does not match input version')
             print(f'\t{sqlite_version_info}')

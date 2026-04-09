@@ -75,6 +75,8 @@ class ParsedBiosample:
         key="biosample_id", sheet="BioSampleMeta")
     biosample_type: Optional[str] = sheet_field(
         key="biosample_type", sheet="BioSampleMeta")
+    biosample_tracking: Optional[str] = sheet_field(
+        key="biosample_tracking", sheet="BioSampleMeta")
 
 
 @dataclass
@@ -286,8 +288,11 @@ class ParsedRunBiosample:
         key="biological_replicate_number", sheet="RunBioSampleMeta", parse="int")
     technical_replicate_number: Optional[str] = sheet_field(
         key="technical_replicate_number", sheet="RunBioSampleMeta", parse="int")
-    biosample_run_order: Optional[str] = sheet_field(
-        key="biosample_run_order", sheet="RunBioSampleMeta", parse="int")
+    runbiosample_run_order: Optional[str] = sheet_field(
+        key="runbiosample_run_order",
+        aliases=["biosample_run_order"],
+        sheet="RunBioSampleMeta",
+        parse="int")
     batch: Optional[str] = sheet_field(
         key="batch", sheet="RunBioSampleMeta")
 

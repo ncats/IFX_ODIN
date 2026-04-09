@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 class Biosample(Node):
     original_id: str = None
     type: str = None
+    tracking: Optional[str] = None
     demographics: Optional[Demographics] = None
 
 

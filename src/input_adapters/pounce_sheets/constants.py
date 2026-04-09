@@ -34,7 +34,8 @@ class ExperimentWorkbook:
             biosample_id = "biosample_id"
             biological_replicate_number = "biological_replicate_number"
             technical_replicate_number = "technical_replicate_number"
-            biosample_run_order = "biosample_run_order"
+            runbiosample_run_order = "runbiosample_run_order"
+            biosample_run_order_legacy = "biosample_run_order"
             batch = "batch"
 
     class RunBioSampleMetaSheet:
@@ -150,6 +151,7 @@ class ProjectWorkbook:
         class Key:
             biosample_id = 'biosample_id'
             biosample_type = 'biosample_type'
+            biosample_tracking = 'biosample_tracking'
 
             biospecimen_id = 'biospecimen_id'
             biospecimen_type = 'biospecimen_type'

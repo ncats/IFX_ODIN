@@ -151,6 +151,7 @@ class PounceNodeBuilder:
                 id=full_biosample_id,
                 original_id=parsed_bs.biosample_id,
                 type=parsed_bs.biosample_type,
+                tracking=self._to_null_if_na(parsed_bs.biosample_tracking),
                 demographics=demographics
             )
             biosamples.append(biosample_obj)
@@ -258,7 +259,7 @@ class PounceNodeBuilder:
                 id=f"{proj_obj.id}-{run_biosample_id}",
                 biological_replicate_number=self._parse_int(parsed_rb.biological_replicate_number),
                 technical_replicate_number=self._parse_int(parsed_rb.technical_replicate_number),
-                run_order=self._parse_int(parsed_rb.biosample_run_order),
+                run_order=self._parse_int(parsed_rb.runbiosample_run_order),
                 batch=parsed_rb.batch
             )
             run_biosamples.append(run_biosample_obj)

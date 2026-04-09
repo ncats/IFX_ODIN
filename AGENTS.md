@@ -147,7 +147,7 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 
 ## Workflow Conventions
 
-- **After creating any new file**, run `git add <path>` so it is staged for the next commit. Do not wait to be asked.
+- **After creating any new file that is not matched by `.gitignore`**, run `git add <path>` so it is staged for the next commit. Do not stage ignored files unless the user explicitly asks.
 - **For new ingest sources**, read `playbooks/ingest_playbook.md` before doing discovery or code changes.
 - **For source refreshes**, read `playbooks/data_update_playbook.md` before investigating payload drift or changing code.
 - **For Pipeline Status Table updates**, read `playbooks/pharos_table_update_playbook.md` before changing `src/use_cases/pharos/TCRD_TODO.md`.
