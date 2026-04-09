@@ -75,6 +75,8 @@ for _cls in [
     for _f, _meta in get_sheet_fields(_cls):
         if _meta["sheet"]:
             _KNOWN_KEYS_BY_SHEET[_meta["sheet"]].add(_meta["key"])
+            for _alias in _meta.get("aliases", []):
+                _KNOWN_KEYS_BY_SHEET[_meta["sheet"]].add(_alias)
 
 # EffectSize_Map has no parsed dataclass (parsing not yet implemented); seed manually.
 _KNOWN_KEYS_BY_SHEET[StatsResultsWorkbook.EffectSizeMapSheet.name] = {
@@ -132,6 +134,22 @@ class PounceParser:
         return parser.safe_get_string(sheet, key)
 
     @classmethod
+    def _parse_meta_field_with_aliases(
+        cls,
+        parser: ExcelsheetParser,
+        sheet: str,
+        key: str,
+        aliases: list[str],
+        parse_type: str
+    ):
+        candidate_keys = [key, *aliases]
+        for candidate in candidate_keys:
+            value = cls._parse_meta_field(parser, sheet, candidate, parse_type)
+            if value is not None and value != "" and value != []:
+                return value
+        return None
+
+    @classmethod
     def parse_meta_sheet(cls, parser: ExcelsheetParser, dataclass_type: Type):
         """Parse a meta sheet into an instance of *dataclass_type*.
 
@@ -142,6 +160,7 @@ class PounceParser:
         for f, meta in get_sheet_fields(dataclass_type):
             sheet = meta["sheet"]
             key = meta["key"]
+            aliases = meta.get("aliases", [])
             parse_type = meta["parse"]
             indexed = meta["indexed"]
 
@@ -151,14 +170,15 @@ class PounceParser:
                 idx = 1
                 while True:
                     actual_key = key.format(idx)
-                    val = cls._parse_meta_field(parser, sheet, actual_key, parse_type)
+                    alias_keys = [alias.format(idx) for alias in aliases]
+                    val = cls._parse_meta_field_with_aliases(parser, sheet, actual_key, alias_keys, parse_type)
                     if val is None or val == "" or val == []:
                         break
                     values.append(val)
                     idx += 1
                 kwargs[f.name] = values
             else:
-                kwargs[f.name] = cls._parse_meta_field(parser, sheet, key, parse_type)
+                kwargs[f.name] = cls._parse_meta_field_with_aliases(parser, sheet, key, aliases, parse_type)
 
         return dataclass_type(**kwargs)
 
@@ -167,13 +187,15 @@ class PounceParser:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_column_name(param_map: dict, key: str, index: int = None) -> Optional[str]:
+    def _get_column_name(param_map: dict, key: str, index: int = None, aliases: Optional[List[str]] = None) -> Optional[str]:
         """Resolve a column name from the parameter map, optionally with an index."""
-        actual_key = key.format(index) if index is not None else key
-        col = param_map.get(actual_key)
-        if col in ("", "NA", "N/A", None):
-            return None
-        return col
+        candidate_keys = [key, *(aliases or [])]
+        for candidate in candidate_keys:
+            actual_key = candidate.format(index) if index is not None else candidate
+            col = param_map.get(actual_key)
+            if col not in ("", "NA", "N/A", None):
+                return col
+        return None
 
     @staticmethod
     def _get_row_value(row, column_name: Optional[str], is_list: bool = False):
@@ -196,16 +218,17 @@ class PounceParser:
         kwargs = {}
         for f, meta in get_sheet_fields(dataclass_type):
             key = meta["key"]
+            aliases = meta.get("aliases", [])
             parse_type = meta["parse"]
             indexed = meta["indexed"]
 
             if indexed:
                 if index is not None:
-                    col = cls._get_column_name(param_map, key, index)
+                    col = cls._get_column_name(param_map, key, index, aliases)
                 else:
-                    col = cls._get_column_name(param_map, key)
+                    col = cls._get_column_name(param_map, key, aliases=aliases)
             else:
-                col = cls._get_column_name(param_map, key)
+                col = cls._get_column_name(param_map, key, aliases=aliases)
 
             is_list = parse_type == "string_list"
             raw = cls._get_row_value(row, col, is_list=is_list)

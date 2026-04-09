@@ -1,3 +1,4 @@
+import argparse
 import os
 from src.core.config import ETL_Config, create_object_from_config
 from src.input_adapters.pounce_sheets.mapping_coverage import (
@@ -6,6 +7,15 @@ from src.input_adapters.pounce_sheets.mapping_coverage import (
 from src.input_adapters.pounce_sheets.pounce_parser import (
     _PROJECT_REQUIRED_SHEETS, _EXPERIMENT_RECOGNIZED_SHEETS, _STATS_RECOGNIZED_SHEETS,
 )
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--show-unmapped",
+    action="store_true",
+    help="Print the full list of unmapped IDs in coverage output."
+)
+args = parser.parse_args()
+UNMAPPED_PREVIEW_LIMIT = 50
 
 # yaml_file = "./src/use_cases/pounce/test_pounce_validation.yaml"
 yaml_file = "./src/use_cases/pounce/pounce.yaml"
@@ -107,7 +117,13 @@ for chosen in pounce_configs:
                 print(f"  MetabMeta — {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
                       f" metabolites will resolve to canonical Metabolite nodes")
                 if cov.unmapped_ids:
-                    print(f"    Unmapped: {', '.join(cov.unmapped_ids)}")
+                    print(f"    Unmapped: {len(cov.unmapped_ids)}")
+                    preview_ids = cov.unmapped_ids[:UNMAPPED_PREVIEW_LIMIT]
+                    if args.show_unmapped:
+                        print(f"    Unmapped IDs: {', '.join(cov.unmapped_ids)}")
+                    else:
+                        suffix = "" if len(cov.unmapped_ids) <= UNMAPPED_PREVIEW_LIMIT else ", ..."
+                        print(f"    Unmapped preview: {', '.join(preview_ids)}{suffix}")
             else:
                 print(f"  MetabMeta — no Metabolite resolver configured")
 
@@ -118,6 +134,12 @@ for chosen in pounce_configs:
                 print(f"  GeneMeta — {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
                       f" genes will resolve to canonical Gene nodes")
                 if cov.unmapped_ids:
-                    print(f"    Unmapped: {', '.join(cov.unmapped_ids)}")
+                    print(f"    Unmapped: {len(cov.unmapped_ids)}")
+                    preview_ids = cov.unmapped_ids[:UNMAPPED_PREVIEW_LIMIT]
+                    if args.show_unmapped:
+                        print(f"    Unmapped IDs: {', '.join(cov.unmapped_ids)}")
+                    else:
+                        suffix = "" if len(cov.unmapped_ids) <= UNMAPPED_PREVIEW_LIMIT else ", ..."
+                        print(f"    Unmapped preview: {', '.join(preview_ids)}{suffix}")
             else:
                 print(f"  GeneMeta — no Gene resolver configured")

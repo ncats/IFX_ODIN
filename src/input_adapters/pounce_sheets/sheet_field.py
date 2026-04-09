@@ -14,6 +14,7 @@ SHEET_FIELD_META_KEY = "sheet_field"
 def sheet_field(
     key: str,
     sheet: Optional[str] = None,
+    aliases: Optional[list[str]] = None,
     parse: str = "string",
     indexed: bool = False,
     default: Any = None,
@@ -42,6 +43,7 @@ def sheet_field(
     metadata = {
         SHEET_FIELD_META_KEY: {
             "key": key,
+            "aliases": aliases or [],
             "sheet": sheet,
             "parse": parse,
             "indexed": indexed,

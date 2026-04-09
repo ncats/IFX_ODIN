@@ -10,14 +10,15 @@ from src.models.pounce.exposure import Exposure
 from src.models.pounce.experiment import RunBiosample
 
 
-def get_column_name(map_name, key, index=None):
-    if index is not None:
-        key = key.format(index)
-    if key in map_name:
-        val = map_name[key]
-        if val == '' or val == 'NA' or val == 'N/A':
-            return None
-        return val
+def get_column_name(map_name, key, index=None, aliases=None):
+    candidate_keys = [key, *(aliases or [])]
+    for candidate in candidate_keys:
+        actual_key = candidate.format(index) if index is not None else candidate
+        if actual_key in map_name:
+            val = map_name[actual_key]
+            if val == '' or val == 'NA' or val == 'N/A':
+                return None
+            return val
     return None
 
 def get_list_of_column_names(map_name, key):
@@ -261,7 +262,7 @@ class RunBiosampleConfig(ColumnConfig):
     biosample_id_column: str
     biological_replicate_number_column: str
     technical_replicate_number_column: str
-    biosample_run_order_column: str
+    runbiosample_run_order_column: str
     batch_column: str
     project_id: str
 
@@ -272,7 +273,11 @@ class RunBiosampleConfig(ColumnConfig):
         self.biosample_id_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_id)
         self.biological_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biological_replicate_number)
         self.technical_replicate_number_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.technical_replicate_number)
-        self.biosample_run_order_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_run_order)
+        self.runbiosample_run_order_column = get_column_name(
+            run_sample_map,
+            ExperimentWorkbook.RunBioSampleMapSheet.Key.runbiosample_run_order,
+            aliases=[ExperimentWorkbook.RunBioSampleMapSheet.Key.biosample_run_order_legacy]
+        )
         self.batch_column = get_column_name(run_sample_map, ExperimentWorkbook.RunBioSampleMapSheet.Key.batch)
 
     def get_data(self, row):
@@ -281,7 +286,7 @@ class RunBiosampleConfig(ColumnConfig):
             id=f"{self.project_id}-{run_biosample_id}",
             biological_replicate_number=self._parse_int(self.get_row_value(row, self.biological_replicate_number_column)),
             technical_replicate_number=self._parse_int(self.get_row_value(row, self.technical_replicate_number_column)),
-            run_order=self._parse_int(self.get_row_value(row, self.biosample_run_order_column)),
+            run_order=self._parse_int(self.get_row_value(row, self.runbiosample_run_order_column)),
             batch=self.get_row_value(row, self.batch_column)
         )
 
