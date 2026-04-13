@@ -1674,6 +1674,7 @@ if _demo_queries_enabled:
 import src.qa_browser.pounce_routes as _pounce_module  # noqa: E402
 app.include_router(_pounce_module.router)
 _pounce_module.set_templates(templates)
+_pounce_module.set_mysql_engine_getter(get_mysql_db_engine)
 # set_pounce_config is called in main() after args are parsed
 
 # ── Feedback routes ───────────────────────────────────────────────────────────
@@ -1709,6 +1710,9 @@ def main():
     parser.add_argument("--feedback-file", "-f",
                         default=None,
                         help="Path to JSON file for storing feedback comments (created if missing)")
+    parser.add_argument("--pounce-project-base-url",
+                        default="",
+                        help="Public base URL for project detail links, e.g. https://pounce-ci.ncats.nih.gov/project")
     args = parser.parse_args()
 
     global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials
@@ -1758,6 +1762,7 @@ def main():
 
     _pounce_module.set_pounce_config(args.pounce_config)
     _pounce_module.set_smtp_config(args.smtp_credentials)
+    _pounce_module.set_public_project_base_url(args.pounce_project_base_url)
     _feedback_module.set_feedback_file(args.feedback_file)
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")

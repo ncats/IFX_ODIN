@@ -21,6 +21,7 @@ from typing import List
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy import text
 
 from src.core.validator import ValidationError
 from src.input_adapters.pounce_sheets.mapping_coverage import (
@@ -63,6 +64,10 @@ _SESSION_TTL = 3600  # 1 hour
 # Keys: host, port, user, password, from_address, to_address, use_tls
 
 _smtp_config: dict = {}
+_get_mysql_db_engine = None
+_MYSQL_DB_NAME = "omicsdb_dev2"
+_MYSQL_SOURCE_ID = "default"
+_public_project_base_url = ""
 
 
 def set_templates(t):
@@ -87,6 +92,16 @@ def set_smtp_config(path: str):
         print(f"[pounce] Loaded SMTP config from {path!r}")
     except Exception as e:
         print(f"[pounce] Could not load SMTP config from {path!r}: {e}")
+
+
+def set_mysql_engine_getter(getter):
+    global _get_mysql_db_engine
+    _get_mysql_db_engine = getter
+
+
+def set_public_project_base_url(url: str):
+    global _public_project_base_url
+    _public_project_base_url = (url or "").rstrip("/")
 
 
 def set_pounce_config(pounce_yaml_path: str):
@@ -137,6 +152,304 @@ def _save_upload(upload: UploadFile, directory: str, prefix: str = "") -> str:
     with open(dest, "wb") as f:
         f.write(upload.file.read())
     return dest
+
+
+def _write_blob_file(filename: str, content: bytes, directory: str, prefix: str = "") -> str:
+    safe_name = Path(filename).name
+    dest = os.path.join(directory, f"{prefix}{safe_name}" if prefix else safe_name)
+    if os.path.exists(dest):
+        base, ext = os.path.splitext(safe_name)
+        dest = os.path.join(directory, f"{prefix}{base}_1{ext}")
+    with open(dest, "wb") as f:
+        f.write(content)
+    return dest
+
+
+def _is_real_upload(upload: UploadFile | None) -> bool:
+    return bool(upload and getattr(upload, "filename", ""))
+
+
+def _build_session(
+    project_path: str,
+    exp_paths: list[str],
+    stats_paths: list[str],
+    parsed_data=None,
+    submission_label: str = "POUNCE submission",
+    file_change_summary: dict | None = None,
+    existing_project_id: str | None = None,
+) -> tuple[str, dict]:
+    session_id = str(uuid.uuid4())
+    project_name = (
+        parsed_data.project.project_name
+        if parsed_data and parsed_data.project
+        else os.path.basename(project_path)
+    )
+    session = {
+        "dir": os.path.dirname(project_path),
+        "created": time.time(),
+        "project_name": project_name,
+        "project_path": project_path,
+        "exp_paths": exp_paths,
+        "stats_paths": stats_paths,
+        "file_paths": [project_path] + exp_paths + stats_paths,
+        "file_basenames": (
+            [os.path.basename(project_path)]
+            + [os.path.basename(p) for p in exp_paths]
+            + [os.path.basename(p) for p in stats_paths]
+        ),
+        "summary": None,
+        "submission_label": submission_label,
+        "file_change_summary": file_change_summary or {},
+        "existing_project_id": existing_project_id,
+    }
+    _sessions[session_id] = session
+    return session_id, session
+
+
+def _summarize_new_submission(project_path: str, exp_paths: list[str], stats_paths: list[str]) -> dict:
+    return {
+        "added": [os.path.basename(project_path)] + [os.path.basename(p) for p in exp_paths] + [os.path.basename(p) for p in stats_paths],
+        "replaced": [],
+        "unchanged": [],
+    }
+
+
+def _summarize_edit_submission(
+    prior_session: dict,
+    project_file: UploadFile,
+    experiment_files: list[UploadFile],
+    stats_files: list[UploadFile],
+    new_experiment_files: list[UploadFile],
+    new_stats_files: list[UploadFile],
+) -> dict:
+    summary = {"added": [], "replaced": [], "unchanged": []}
+
+    current_project_name = os.path.basename(prior_session["project_path"])
+    if _is_real_upload(project_file):
+        summary["replaced"].append(f"{current_project_name} -> {Path(project_file.filename).name}")
+    else:
+        summary["unchanged"].append(current_project_name)
+
+    for existing_path, upload in zip(prior_session["exp_paths"], experiment_files):
+        existing_name = os.path.basename(existing_path)
+        if _is_real_upload(upload):
+            summary["replaced"].append(f"{existing_name} -> {Path(upload.filename).name}")
+        else:
+            summary["unchanged"].append(existing_name)
+
+    for existing_path, upload in zip(prior_session["stats_paths"], stats_files):
+        existing_name = os.path.basename(existing_path)
+        if _is_real_upload(upload):
+            summary["replaced"].append(f"{existing_name} -> {Path(upload.filename).name}")
+        else:
+            summary["unchanged"].append(existing_name)
+
+    pair_count = max(len(new_experiment_files), len(new_stats_files))
+    for i in range(pair_count):
+        exp_upload = new_experiment_files[i] if i < len(new_experiment_files) else None
+        stats_upload = new_stats_files[i] if i < len(new_stats_files) else None
+        if _is_real_upload(exp_upload):
+            summary["added"].append(Path(exp_upload.filename).name)
+        if _is_real_upload(stats_upload):
+            summary["added"].append(Path(stats_upload.filename).name)
+
+    return summary
+
+
+def _get_mysql_engine():
+    if _get_mysql_db_engine is None:
+        raise RuntimeError("MySQL access is not configured for the QA browser.")
+    return _get_mysql_db_engine(_MYSQL_DB_NAME, source_id=_MYSQL_SOURCE_ID)
+
+
+def _search_existing_projects(search_term: str = "") -> list[dict]:
+    engine = _get_mysql_engine()
+    where_sql = ""
+    params: dict = {}
+    if search_term:
+        where_sql = """
+        WHERE (
+            p.name LIKE :search
+            OR p.id LIKE :search
+            OR p.description LIKE :search
+            OR p.access LIKE :search
+            OR COALESCE(lg.lab_groups, '') LIKE :search
+            OR COALESCE(kw.keywords, '') LIKE :search
+            OR COALESCE(pt.project_types, '') LIKE :search
+            OR COALESCE(pp.people, '') LIKE :search
+            OR COALESCE(ep.experiment_people, '') LIKE :search
+        )
+        """
+        params["search"] = f"%{search_term}%"
+
+    query = text(f"""
+        SELECT
+            p.id,
+            p.name,
+            p.description,
+            p.date,
+            p.access,
+            p.rare_disease_focus,
+            COALESCE(lg.lab_groups, '') AS lab_groups,
+            COALESCE(kw.keywords, '') AS keywords,
+            COALESCE(pt.project_types, '') AS project_types,
+            COALESCE(pp.people, '') AS people,
+            COALESCE(ep.experiment_people, '') AS experiment_people,
+            COUNT(DISTINCT pe.to_id) AS experiment_count,
+            COUNT(DISTINCT pb.to_id) AS biosample_count,
+            COUNT(DISTINCT CASE WHEN pw.project_id IS NOT NULL THEN p.id END) AS has_project_workbook
+        FROM project p
+        LEFT JOIN (
+            SELECT plg.parent_id, GROUP_CONCAT(lg.label ORDER BY lg.label SEPARATOR ', ') AS lab_groups
+            FROM project__lab_groups plg
+            JOIN lab_group lg ON lg.id = plg.lab_group_id
+            GROUP BY plg.parent_id
+        ) lg ON lg.parent_id = p.id
+        LEFT JOIN (
+            SELECT parent_id, GROUP_CONCAT(value ORDER BY value SEPARATOR ', ') AS keywords
+            FROM project__keywords
+            GROUP BY parent_id
+        ) kw ON kw.parent_id = p.id
+        LEFT JOIN (
+            SELECT ppt.parent_id, GROUP_CONCAT(pt.label ORDER BY pt.label SEPARATOR ', ') AS project_types
+            FROM project__project_type ppt
+            JOIN project_type pt ON pt.id = ppt.project_type_id
+            GROUP BY ppt.parent_id
+        ) pt ON pt.parent_id = p.id
+        LEFT JOIN (
+            SELECT
+                pp.from_id AS project_id,
+                GROUP_CONCAT(
+                    DISTINCT COALESCE(NULLIF(TRIM(p.name), ''), p.email, p.id)
+                    ORDER BY COALESCE(NULLIF(TRIM(p.name), ''), p.email, p.id)
+                    SEPARATOR ', '
+                ) AS people
+            FROM project_to_person pp
+            JOIN person p ON p.id = pp.to_id
+            GROUP BY pp.from_id
+        ) pp ON pp.project_id = p.id
+        LEFT JOIN (
+            SELECT
+                pe.from_id AS project_id,
+                GROUP_CONCAT(
+                    DISTINCT COALESCE(NULLIF(TRIM(p.name), ''), p.email, p.id)
+                    ORDER BY COALESCE(NULLIF(TRIM(p.name), ''), p.email, p.id)
+                    SEPARATOR ', '
+                ) AS experiment_people
+            FROM project_to_experiment pe
+            JOIN experiment_to_person ep ON ep.from_id = pe.to_id
+            JOIN person p ON p.id = ep.to_id
+            GROUP BY pe.from_id
+        ) ep ON ep.project_id = p.id
+        LEFT JOIN project_to_experiment pe ON pe.from_id = p.id
+        LEFT JOIN project_to_biosample pb ON pb.from_id = p.id
+        LEFT JOIN project__workbook pw ON pw.project_id = p.id
+        {where_sql}
+        GROUP BY
+            p.id, p.name, p.description, p.date, p.access, p.rare_disease_focus,
+            lg.lab_groups, kw.keywords, pt.project_types, pp.people, ep.experiment_people
+        ORDER BY p.date DESC, p.name ASC
+        LIMIT 100
+    """)
+    with engine.connect() as conn:
+        return [dict(row) for row in conn.execute(query, params).mappings().all()]
+
+
+def _create_existing_project_session(project_id: str) -> str:
+    engine = _get_mysql_engine()
+    tmp = tempfile.mkdtemp()
+    try:
+        with engine.connect() as conn:
+            project_row = conn.execute(text("""
+                SELECT p.id, p.name, pw.original_filename, pw.content_blob
+                FROM project p
+                LEFT JOIN project__workbook pw ON pw.project_id = p.id
+                WHERE p.id = :project_id
+            """), {"project_id": project_id}).mappings().first()
+
+            if not project_row:
+                raise RuntimeError(f"Project '{project_id}' not found in {_MYSQL_DB_NAME}.")
+            if not project_row["original_filename"] or project_row["content_blob"] is None:
+                raise RuntimeError(
+                    f"Project '{project_id}' does not have a stored project workbook in {_MYSQL_DB_NAME}."
+                )
+
+            pair_rows = conn.execute(text("""
+                SELECT
+                    e.id AS experiment_id,
+                    e.name AS experiment_name,
+                    ew.original_filename AS experiment_filename,
+                    ew.content_blob AS experiment_blob,
+                    sr.id AS stats_result_id,
+                    sr.name AS stats_result_name,
+                    sw.original_filename AS stats_filename,
+                    sw.content_blob AS stats_blob
+                FROM project_to_experiment pe
+                JOIN experiment e ON e.id = pe.to_id
+                LEFT JOIN experiment__workbook ew ON ew.experiment_id = e.id
+                LEFT JOIN experiment_to_stats_result es ON es.from_id = e.id
+                LEFT JOIN stats_result sr ON sr.id = es.to_id
+                LEFT JOIN stats_result__workbook sw ON sw.stats_result_id = sr.id
+                WHERE pe.from_id = :project_id
+                ORDER BY e.name, e.id, sr.name, sr.id
+            """), {"project_id": project_id}).mappings().all()
+
+        project_path = _write_blob_file(project_row["original_filename"], project_row["content_blob"], tmp)
+        exp_paths: list[str] = []
+        stats_paths: list[str] = []
+
+        for i, row in enumerate(pair_rows):
+            if not row["experiment_filename"] or row["experiment_blob"] is None:
+                raise RuntimeError(
+                    f"Experiment '{row['experiment_id']}' does not have a stored workbook in {_MYSQL_DB_NAME}."
+                )
+            if not row["stats_result_id"] or not row["stats_filename"] or row["stats_blob"] is None:
+                raise RuntimeError(
+                    f"Experiment '{row['experiment_id']}' is missing its stored stats workbook in {_MYSQL_DB_NAME}."
+                )
+            exp_paths.append(_write_blob_file(row["experiment_filename"], row["experiment_blob"], tmp, prefix=f"exp{i}_"))
+            stats_paths.append(_write_blob_file(row["stats_filename"], row["stats_blob"], tmp, prefix=f"stats{i}_"))
+
+        session_id, session = _build_session(
+            project_path,
+            exp_paths,
+            stats_paths,
+            submission_label="Existing project edit",
+            file_change_summary={
+                "added": [],
+                "replaced": [],
+                "unchanged": [os.path.basename(project_path)] + [os.path.basename(p) for p in exp_paths] + [os.path.basename(p) for p in stats_paths],
+            },
+            existing_project_id=project_id,
+        )
+        session["project_name"] = project_row["name"] or session["project_name"]
+        return session_id
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+
+
+def _append_new_pairs(
+    experiment_uploads: list[UploadFile],
+    stats_uploads: list[UploadFile],
+    tmp: str,
+    exp_paths: list[str],
+    stats_paths: list[str],
+) -> None:
+    pair_count = max(len(experiment_uploads), len(stats_uploads))
+    for i in range(pair_count):
+        exp_upload = experiment_uploads[i] if i < len(experiment_uploads) else None
+        stats_upload = stats_uploads[i] if i < len(stats_uploads) else None
+        has_exp = _is_real_upload(exp_upload)
+        has_stats = _is_real_upload(stats_upload)
+        if not has_exp and not has_stats:
+            continue
+        if has_exp != has_stats:
+            raise ValueError(
+                f"New experiment row {i + 1} must include both an experiment workbook and a StatsResults workbook."
+            )
+        exp_paths.append(_save_upload(exp_upload, tmp, prefix=f"exp_new{i}_"))
+        stats_paths.append(_save_upload(stats_upload, tmp, prefix=f"stats_new{i}_"))
 
 
 # ── Validation helpers ────────────────────────────────────────────────────────
@@ -357,8 +670,49 @@ def _compute_summary(
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/validate", response_class=HTMLResponse)
+async def submission_home(request: Request):
+    return _templates.TemplateResponse(request, "pounce_submission_home.html", {"request": request})
+
+
+@router.get("/validate/new", response_class=HTMLResponse)
 async def upload_form(request: Request):
     return _templates.TemplateResponse(request, "pounce_upload.html", {"request": request})
+
+
+@router.get("/validate/existing", response_class=HTMLResponse)
+async def existing_project_form(request: Request, q: str = ""):
+    projects = []
+    error = None
+    try:
+        projects = _search_existing_projects(q.strip())
+    except Exception as e:
+        error = str(e)
+
+    return _templates.TemplateResponse(request, "pounce_existing_project.html", {
+        "request": request,
+        "projects": projects,
+        "query": q,
+        "error": error,
+        "mysql_db_name": _MYSQL_DB_NAME,
+        "public_project_base_url": _public_project_base_url,
+    })
+
+
+@router.post("/validate/existing/load", response_class=HTMLResponse)
+async def load_existing_project(request: Request, project_id: str = Form(...)):
+    _cleanup_old_sessions()
+    try:
+        session_id = _create_existing_project_session(project_id)
+        return await edit_form(request, session_id)
+    except Exception as e:
+        return _templates.TemplateResponse(request, "pounce_existing_project.html", {
+            "request": request,
+            "projects": [],
+            "query": "",
+            "error": str(e),
+            "mysql_db_name": _MYSQL_DB_NAME,
+            "public_project_base_url": _public_project_base_url,
+        })
 
 
 @router.post("/validate", response_class=HTMLResponse)
@@ -406,27 +760,14 @@ async def run_validation(
         )
 
         # Create session so files survive until the submitter clicks Send.
-        session_id = str(uuid.uuid4())
-        project_name = (
-            parsed_data.project.project_name
-            if parsed_data and parsed_data.project
-            else os.path.basename(project_path)
+        session_id, _ = _build_session(
+            project_path,
+            exp_paths,
+            stats_paths,
+            parsed_data=parsed_data,
+            submission_label="New project submission",
+            file_change_summary=_summarize_new_submission(project_path, exp_paths, stats_paths),
         )
-        _sessions[session_id] = {
-            "dir": tmp,
-            "created": time.time(),
-            "project_name": project_name,
-            "project_path": project_path,
-            "exp_paths":    exp_paths,
-            "stats_paths":  stats_paths,
-            "file_paths": [project_path] + exp_paths + stats_paths,
-            "file_basenames": (
-                [os.path.basename(project_path)]
-                + [os.path.basename(p) for p in exp_paths]
-                + [os.path.basename(p) for p in stats_paths]
-            ),
-            "summary": None,  # filled in below after coverage is computed
-        }
 
     except Exception as e:
         parse_error = str(e)
@@ -511,6 +852,8 @@ async def edit_form(request: Request, session_id: str):
     return _templates.TemplateResponse(request, "pounce_edit.html", {
         "request":          request,
         "session_id":       session_id,
+        "mode_title":       "Edit Project Files",
+        "mode_subtitle":    "Download the current files, replace any of them, and append new experiment and StatsResults workbook pairs if needed.",
         "project_basename": os.path.basename(session["project_path"]),
         "exp_basenames":    [os.path.basename(p) for p in session["exp_paths"]],
         "stats_basenames":  [os.path.basename(p) for p in session["stats_paths"]],
@@ -522,8 +865,10 @@ async def revalidate(
     request:          Request,
     session_id:       str,
     project_file:     UploadFile       = File(...),
-    experiment_files: List[UploadFile] = File(...),
-    stats_files:      List[UploadFile] = File(...),
+    experiment_files: List[UploadFile] = File(default=[]),
+    stats_files:      List[UploadFile] = File(default=[]),
+    new_experiment_files: List[UploadFile] = File(default=[]),
+    new_stats_files:      List[UploadFile] = File(default=[]),
 ):
     """Re-run validation, replacing only the slots where a new file was uploaded."""
     _cleanup_old_sessions()
@@ -571,6 +916,8 @@ async def revalidate(
         for existing_p in session["stats_paths"][len(stats_paths):]:
             stats_paths.append(shutil.copy2(existing_p, tmp))
 
+        _append_new_pairs(new_experiment_files, new_stats_files, tmp, exp_paths, stats_paths)
+
         adapter = PounceInputAdapter(
             project_file=project_path,
             experiment_files=exp_paths,
@@ -593,27 +940,22 @@ async def revalidate(
             [os.path.basename(p) for p in stats_paths],
         )
 
-        new_sid = str(uuid.uuid4())
-        project_name = (
-            parsed_data.project.project_name
-            if parsed_data and parsed_data.project
-            else os.path.basename(project_path)
-        )
-        _sessions[new_sid] = {
-            "dir":            tmp,
-            "created":        time.time(),
-            "project_name":   project_name,
-            "project_path":   project_path,
-            "exp_paths":      exp_paths,
-            "stats_paths":    stats_paths,
-            "file_paths":     [project_path] + exp_paths + stats_paths,
-            "file_basenames": (
-                [os.path.basename(project_path)]
-                + [os.path.basename(p) for p in exp_paths]
-                + [os.path.basename(p) for p in stats_paths]
+        new_sid, _ = _build_session(
+            project_path,
+            exp_paths,
+            stats_paths,
+            parsed_data=parsed_data,
+            submission_label=session.get("submission_label") or "Updated submission",
+            file_change_summary=_summarize_edit_submission(
+                session,
+                project_file,
+                experiment_files,
+                stats_files,
+                new_experiment_files,
+                new_stats_files,
             ),
-            "summary": None,
-        }
+            existing_project_id=session.get("existing_project_id"),
+        )
 
     except Exception as e:
         parse_error = str(e)
@@ -700,15 +1042,41 @@ async def submit_pounce(
     warning_samples = summary.get("warning_samples", [])
     issue_breakdown = summary.get("issue_breakdown", [])
     data_counts     = summary.get("data_counts", [])
+    file_change_summary = session.get("file_change_summary") or {}
+    submission_label = session.get("submission_label") or "POUNCE submission"
 
     body_lines = [
         "POUNCE Submission",
         "",
+        f"Submission type: {submission_label}",
         f"Submitter: {name} <{email}>",
         f"Project:   {session['project_name']}",
+    ]
+    if session.get("existing_project_id"):
+        body_lines.append(f"Existing project ID: {session['existing_project_id']}")
+
+    added_files = file_change_summary.get("added") or []
+    replaced_files = file_change_summary.get("replaced") or []
+    unchanged_files = file_change_summary.get("unchanged") or []
+    if added_files or replaced_files or unchanged_files:
+        body_lines.extend([
+            "",
+            "=== File Change Summary ===",
+        ])
+        if added_files:
+            body_lines.append("  Added:")
+            body_lines.extend([f"    - {item}" for item in added_files])
+        if replaced_files:
+            body_lines.append("  Replaced:")
+            body_lines.extend([f"    - {item}" for item in replaced_files])
+        if unchanged_files:
+            body_lines.append("  Unchanged:")
+            body_lines.extend([f"    - {item}" for item in unchanged_files])
+
+    body_lines.extend([
         "",
         "=== Attached Files ===",
-    ]
+    ])
     body_lines.extend([f"  - {filename}" for filename in session.get("file_basenames", [])])
     if data_counts:
         body_lines.append("")

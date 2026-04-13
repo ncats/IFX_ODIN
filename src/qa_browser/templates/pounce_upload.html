@@ -1,16 +1,18 @@
 {% extends "base.html" %}
-{% block title %}POUNCE Validate{% endblock %}
+{% block title %}POUNCE Submission{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<span>POUNCE Validate</span>
+<a href="{{ root_path }}/pounce/validate">POUNCE Submission</a>
+<span class="sep">/</span>
+<span>Add New Project</span>
 {% endblock %}
 
 {% block content %}
 <div class="hero">
     <div class="hero-text">
         <h1 class="hero-title">POUNCE Submission</h1>
-        <p class="hero-subtitle">Upload your Excel workbooks to check for errors before sending them to NCATS.</p>
+        <p class="hero-subtitle">Add a new project by uploading a project workbook and one or more experiment and StatsResults workbook pairs.</p>
     </div>
 </div>
 

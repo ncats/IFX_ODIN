@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Edit Existing Project{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/pounce/validate">POUNCE Submission</a>
+<span class="sep">/</span>
+<span>Edit Existing Project</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">Edit Existing Project</h1>
+        <p class="hero-subtitle">Choose an existing project from {{ mysql_db_name }} to load its stored workbooks for download, replacement, and validation.</p>
+    </div>
+</div>
+
+<form method="get" action="{{ root_path }}/pounce/validate/existing" style="max-width: 1200px; margin-bottom: 1rem;">
+    <div class="card" style="display:flex; gap:0.75rem; align-items:end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:280px;">
+            <div class="upload-field-label" style="margin-bottom:0.35rem;">Filter projects</div>
+            <input type="text" id="project-filter" name="q" value="{{ query }}" placeholder="Search all shown fields"
+                   style="width:100%; padding:0.65rem 0.8rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--text);">
+        </div>
+        <button type="submit" class="btn btn-primary">Refresh</button>
+    </div>
+</form>
+
+{% if error %}
+<div class="error-box" style="max-width: 1200px; margin-bottom: 1rem;">{{ error }}</div>
+{% endif %}
+
+<div style="max-width: 1200px;">
+    {% if projects %}
+        <div id="project-filter-summary" style="font-size:12px; color:var(--text-muted); margin:0 0 0.75rem 0.1rem;">
+            Showing {{ projects|length }} project{{ "s" if projects|length != 1 }} from {{ mysql_db_name }}.
+        </div>
+
+    <div class="card" style="padding:0; overflow:hidden;">
+        <div style="overflow-x:auto;">
+        <table style="min-width: 1500px;">
+            <thead>
+                <tr>
+                    <th style="white-space:nowrap;"></th>
+                    <th style="white-space:nowrap;">Links</th>
+                    <th style="white-space:nowrap;">Project</th>
+                    <th>Description</th>
+                    <th style="white-space:nowrap;">Date</th>
+                    <th style="white-space:nowrap;">Access</th>
+                    <th style="white-space:nowrap;">Experiments</th>
+                    <th style="white-space:nowrap;">Biosamples</th>
+                    <th>Project Type</th>
+                    <th>Lab Groups</th>
+                    <th>Project People</th>
+                    <th>Experiment People</th>
+                    <th style="white-space:nowrap;">Workbook</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for project in projects %}
+                <tr class="existing-project-row"
+                    data-project-name="{{ (project.name or '')|lower }}"
+                    data-project-id="{{ project.id|lower }}"
+                    data-project-description="{{ (project.description or '')|lower }}"
+                    data-project-access="{{ (project.access or '')|lower }}"
+                    data-project-date="{{ (project.date|string if project.date else '')|lower }}"
+                    data-project-lab-groups="{{ (project.lab_groups or '')|lower }}"
+                    data-project-keywords="{{ (project.keywords or '')|lower }}"
+                    data-project-types="{{ (project.project_types or '')|lower }}"
+                    data-project-people="{{ (project.people or '')|lower }}"
+                    data-project-experiment-people="{{ (project.experiment_people or '')|lower }}"
+                    data-project-biosamples="{{ project.biosample_count }}"
+                    data-project-experiments="{{ project.experiment_count }}"
+                    data-project-rare-disease="{{ 'yes' if project.rare_disease_focus else 'no' }}">
+                    <td style="white-space:nowrap;">
+                        <form method="post" action="{{ root_path }}/pounce/validate/existing/load" style="margin:0;">
+                            <input type="hidden" name="project_id" value="{{ project.id }}">
+                            <button type="submit" class="btn">Load</button>
+                        </form>
+                    </td>
+                    <td style="white-space:nowrap;">
+                        {% if public_project_base_url %}
+                        <a href="{{ public_project_base_url }}/{{ project.id }}" target="_blank" rel="noopener noreferrer">Details</a>
+                        {% endif %}
+                    </td>
+                    <td style="min-width:220px;">
+                        <div style="font-weight:600;">{{ project.name or project.id }}</div>
+                        <div class="mono" style="font-size:12px; color:var(--text-muted); margin-top:0.2rem;">{{ project.id }}</div>
+                    </td>
+                    <td style="min-width:280px; max-width:360px; white-space:normal; overflow-wrap:anywhere;">{{ project.description or "" }}</td>
+                    <td style="white-space:nowrap;">{{ project.date or "" }}</td>
+                    <td style="white-space:nowrap;">{{ project.access or "" }}</td>
+                    <td style="white-space:nowrap;">{{ project.experiment_count }}</td>
+                    <td style="white-space:nowrap;">{{ project.biosample_count }}</td>
+                    <td style="min-width:180px; white-space:normal; overflow-wrap:anywhere;">{{ project.project_types or "" }}</td>
+                    <td>{{ project.lab_groups or "" }}</td>
+                    <td style="min-width:180px; white-space:normal; overflow-wrap:anywhere;">{{ project.people or "" }}</td>
+                    <td style="min-width:180px; white-space:normal; overflow-wrap:anywhere;">{{ project.experiment_people or "" }}</td>
+                    <td style="white-space:nowrap;">{{ "yes" if project.has_project_workbook else "missing" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% elif not error %}
+    <div class="card" style="font-size:13px; color:var(--text-muted);">
+        No matching projects found.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+const projectFilterInput = document.getElementById('project-filter');
+const projectRows = Array.from(document.querySelectorAll('.existing-project-row'));
+const projectFilterSummary = document.getElementById('project-filter-summary');
+
+function applyProjectFilter() {
+    if (!projectFilterInput) return;
+    const term = projectFilterInput.value.trim().toLowerCase();
+    let visibleCount = 0;
+
+    projectRows.forEach(row => {
+        const haystack = [
+            row.dataset.projectName,
+            row.dataset.projectId,
+            row.dataset.projectDescription,
+            row.dataset.projectAccess,
+            row.dataset.projectDate,
+            row.dataset.projectLabGroups,
+            row.dataset.projectKeywords,
+            row.dataset.projectTypes,
+            row.dataset.projectPeople,
+            row.dataset.projectExperimentPeople,
+            row.dataset.projectBiosamples,
+            row.dataset.projectExperiments,
+            row.dataset.projectRareDisease,
+        ].join(' ');
+        const matches = !term || haystack.includes(term);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount += 1;
+    });
+
+    if (projectFilterSummary) {
+        if (term) {
+            projectFilterSummary.textContent = `Showing ${visibleCount} matching project${visibleCount === 1 ? '' : 's'} from ${projectRows.length} loaded.`;
+        } else {
+            projectFilterSummary.textContent = `Showing ${projectRows.length} project${projectRows.length === 1 ? '' : 's'} from {{ mysql_db_name }}.`;
+        }
+    }
+}
+
+if (projectFilterInput) {
+    projectFilterInput.addEventListener('input', applyProjectFilter);
+    applyProjectFilter();
+}
+</script>
+{% endblock %}

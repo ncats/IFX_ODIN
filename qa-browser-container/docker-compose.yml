@@ -31,6 +31,8 @@ services:
       - src/use_cases/secrets/smtp.yaml
       - -f
       - input_files/feedback.json
+      - --pounce-project-base-url
+      - https://pounce-ci.ncats.nih.gov/project
     networks:
       - dashboard_network
     restart: unless-stopped

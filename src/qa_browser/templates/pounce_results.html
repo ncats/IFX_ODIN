@@ -3,7 +3,7 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="{{ root_path }}/pounce/validate">POUNCE Validate</a>
+<a href="{{ root_path }}/pounce/validate">POUNCE Submission</a>
 <span class="sep">/</span>
 <span>Results</span>
 {% endblock %}
@@ -63,7 +63,7 @@
         {% if session_id %}
         <div class="hero-stat">
             <a href="{{ root_path }}/pounce/edit/{{ session_id }}"
-               class="btn" style="font-size: 12px; padding: 0.3rem 0.75rem;">Edit files</a>
+               class="btn btn-primary" style="font-size: 12px; padding: 0.45rem 0.9rem; white-space: nowrap;">Edit workbook set</a>
         </div>
         {% endif %}
     </div>
