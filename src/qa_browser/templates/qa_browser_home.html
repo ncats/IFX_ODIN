@@ -55,7 +55,7 @@
     </div>
     <div class="db-grid">
         {% for db in databases %}
-        <a href="{{ root_path }}/db/{{ db }}" class="db-card db-card-arango">
+        <a href="{{ root_path }}/db/{{ db }}" class="db-card db-card-arango{% if db.startswith('test_') %} nerd-only{% endif %}">
             <div class="db-name">{{ db }}</div>
             <div class="db-card-footer">graph · document</div>
         </a>
@@ -74,7 +74,7 @@
     </div>
     <div class="db-grid">
         {% for db in source.databases %}
-        <a href="{{ root_path }}/mysql/{{ source.id }}/{{ db }}" class="db-card db-card-mysql">
+        <a href="{{ root_path }}/mysql/{{ source.id }}/{{ db }}" class="db-card db-card-mysql{% if db.startswith('test_') %} nerd-only{% endif %}">
             <div class="db-name">{{ db }}</div>
             <div class="db-card-footer">relational · sql</div>
         </a>

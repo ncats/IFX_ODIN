@@ -138,14 +138,19 @@ class InputAdapter(ABC):
                     if type in resolver_map:
                         resolver = resolver_map[type]
                         temp_node_map = resolver.resolve_nodes(type_map[type], allow_retype=True)
-                        node_map.update(resolver.parse_entity_map(temp_node_map))
+                        parsed_node_map = resolver.parse_entity_map(temp_node_map)
+                        for original_id, resolved_nodes in parsed_node_map.items():
+                            node_map[(type, original_id)] = resolved_nodes
 
                 return_relationships = []
                 has_returned_batches = False
                 for entry in relationships:
-                    if entry.start_node.__class__.__name__ in resolver_map and entry.start_node.id not in node_map:
+                    start_lookup = (entry.start_node.__class__.__name__, entry.start_node.id)
+                    end_lookup = (entry.end_node.__class__.__name__, entry.end_node.id)
+
+                    if entry.start_node.__class__.__name__ in resolver_map and start_lookup not in node_map:
                         continue
-                    if entry.end_node.__class__.__name__ in resolver_map and entry.end_node.id not in node_map:
+                    if entry.end_node.__class__.__name__ in resolver_map and end_lookup not in node_map:
                         continue
 
                     start_id = entry.start_node.id
@@ -154,10 +159,10 @@ class InputAdapter(ABC):
                     end_id = entry.end_node.id
                     end_nodes = [entry.end_node]
 
-                    if start_id in node_map:
-                        start_nodes = node_map[start_id]
-                    if end_id in node_map:
-                        end_nodes = node_map[end_id]
+                    if start_lookup in node_map:
+                        start_nodes = node_map[start_lookup]
+                    if end_lookup in node_map:
+                        end_nodes = node_map[end_lookup]
 
                     for start_node in start_nodes:
                         for end_node in end_nodes:

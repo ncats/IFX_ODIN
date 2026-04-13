@@ -21,7 +21,21 @@ resolvers:
       types:
         - Gene
 
+  - label: uniprot_proteins
+    import: ./src/id_resolvers/uniprot_resolver.py
+    class: UniProtResolver
+    kwargs:
+      uniprot_json_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      types:
+        - Protein
+
 input_adapters:
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinAdapter
+    kwargs:
+      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+
   - import: ./src/input_adapters/ensembl/gene.py
     class: GeneAdapter
     kwargs:
@@ -112,6 +126,16 @@ input_adapters:
         - ./input_files/manual/pounce/round_robin/exp0_RR_Experiment_Metabo.xlsx
       stats_results_files:
         - ./input_files/manual/pounce/round_robin/stats0_RR_StatsResults_Metabo.xlsx
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
+
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Project_Proteomics_DingyinDT_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Experiment_Proteomics_DingyinDT_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_StatsResults_Proteomics_DingyinDT_v2.xlsx
       validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
 output_adapters:

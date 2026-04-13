@@ -1,6 +1,5 @@
 import pytest
 import pandas as pd
-from unittest.mock import patch
 from datetime import datetime
 
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
@@ -8,8 +7,11 @@ from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 
 def create_parser_with_sheets(sheet_data: dict) -> ExcelsheetParser:
     """Helper to create a parser with mocked sheet data."""
-    with patch.object(ExcelsheetParser, '_read_all_sheets', return_value=sheet_data):
-        parser = ExcelsheetParser(file_path="dummy.xlsx")
+    parser = ExcelsheetParser.__new__(ExcelsheetParser)
+    parser.file_path = "dummy.xlsx"
+    parser.sheet_dfs = sheet_data
+    parser._parameter_map_cache = {}
+    parser._sheet_xml_paths = {}
     return parser
 
 

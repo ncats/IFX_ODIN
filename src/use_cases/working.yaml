@@ -1,176 +1,52 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-pchembl_cutoff: &pchembl_cutoff 5
+destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
+ramp_sqlite_file: &ramp_sqlite_file ./input_files/auto/ramp/RaMP_SQLite_v3.0.12.sqlite
 
 resolvers:
-  - label: translator_nn
-    import: ./src/id_resolvers/node_normalizer.py
-    class: TranslatorNodeNormResolver
-    kwargs:
-      types:
-        - Ligand
-        - Disease
+#  - label: ramp_resolver
+#    import: ./src/id_resolvers/ramp_metabolite_resolver.py
+#    class: RampMetaboliteIdResolver
+#    kwargs:
+#      types:
+#        - Metabolite
+#      sqlite_file: *ramp_sqlite_file
+#
+#  - label: ensembl_resolver
+#    import: ./src/id_resolvers/ensembl_gene_resolver.py
+#    class: EnsemblGeneResolver
+#    kwargs:
+#      types:
+#        - Gene
 
-  - label: tcrd_targets
-    import: ./src/id_resolvers/target_graph_resolver.py
-    class: TCRDTargetResolver
+  - label: uniprot_proteins
+    import: ./src/id_resolvers/uniprot_resolver.py
+    class: UniProtResolver
     kwargs:
-      canonical_type: Protein
-      collapse_reviewed_targets: true
-      no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
-      protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
+      uniprot_json_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
       types:
         - Protein
-        - Gene
-        - Transcript
-
-  - label: tissue_ids
-    import: ./src/id_resolvers/tissue_resolver.py
-    class: TissueResolver
-    kwargs:
-      file_path: ./input_files/auto/uberon/uberon.obo
-      valid_ontologies:
-        - FMA
-        - EMAPA
-        - MA
-        - UMLS
-        - NCIT
-        - ZFA
-        - BTO
-        - CLDB
-        - EHDAA2
-        - BAMS
-        - neuronames
-        - VHOG
-        - MESH
-        - BIRNLEX
-        - TAO
-        - EHDAA
-        - GAID
-        - DHBA
-        - CALOHA
-        - EFO
-        - XAO
-        - HBA
-        - OpenCyc
-        - MBA
-        - galen
-        - FBbt
-        - GC_ID
-        - EV
-        - DMBA
-        - BM
-        - MAT
-        - MIAA
-        - NLXANAT
-        - VSAO
-        - AEO
-        - RETIRED_EHDAA2
-        - KUPO
-        - Wikipedia
-        - NLX
-        - ZFS
-        - UBERONTEMP
-        - UBERON
-        - TGMA
-        - TE
-        - TADS
-        - STID
-        - SPD
-        - SCTID
-        - SAO
-        - PHENOSCAPE
-        - PBA
-        - OGES
-        - OGEM
-        - NOID
-        - NIFSTD
-        - MURDOCH
-        - MPATH
-        - MP
-        - MFMO
-        - MAP
-        - ISBN
-        - HAO
-        - GOC
-        - GO
-        - FMAID
-        - FAO
-        - EVM
-        - ENVO
-        - EMAPS
-        - EHDA
-        - CP
-        - CL
-        - CARO
-        - BSA
-        - BILS
-        - BILA
-        - ANISEED
-        - ABA
-        - AAO
-      types:
-        - Tissue
 
 input_adapters:
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/mondo/mondo_adapter.py
-#    class: MondoDiseaseParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/mondo/mondo.json
-#
-#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-#    class: DODiseaseAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/disease_ontology/doid.json
-#
-#  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-#    class: DODiseaseParentEdgeAdapter
-#    kwargs:
-#      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
-      collapse_reviewed_targets: true
+      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
 
-#  - import: ./src/input_adapters/gtex/gtex_expression.py
-#    class: GTExExpressionAdapter
-#    kwargs:
-#      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
-#      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
-#      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
-#      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
-#      max_genes: 500
-#      max_samples: 500
-#
-#  - import: ./src/input_adapters/hpm/hpm_expression.py
-#    class: HPMExpressionAdapter
-#    kwargs:
-#      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
-#      uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
-#      version_file_path: ./input_files/manual/hpm/version.csv
-
-#  - import: ./src/input_adapters/jensenlab/diseases.py
-#    class: JensenLabDiseasesAdapter
-#    kwargs:
-#      knowledge_file_path: ./input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv
-#      experiments_file_path: ./input_files/auto/jensenlab/human_disease_experiments_filtered.tsv
-#      textmining_file_path: ./input_files/auto/jensenlab/human_disease_textmining_filtered.tsv
-#      version_file_path: ./input_files/auto/jensenlab/diseases_version.tsv
-#      textmining_min_zscore: 6.0
+  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
+    class: PounceInputAdapter
+    kwargs:
+      project_file: ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Project_Proteomics_DingyinDT_v2.xlsx
+      experiment_files:
+        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Experiment_Proteomics_DingyinDT_v2.xlsx
+      stats_results_files:
+        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_StatsResults_Proteomics_DingyinDT_v2.xlsx
+      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: test_pharos
-    credentials: *source_credentials
+      database_name: test_pounce
+      minio_credentials: *minio_credentials
+    credentials: *destination_credentials

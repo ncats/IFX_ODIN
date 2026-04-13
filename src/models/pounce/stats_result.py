@@ -4,12 +4,14 @@ from typing import Optional, List, Tuple, TYPE_CHECKING, Dict
 
 from src.core.decorators import facets
 from src.models.node import Node, Relationship
+from src.models.pounce.workbook_artifact import WorkbookArtifact
 
 if TYPE_CHECKING:
     from src.models.pounce.experiment import Experiment
     from src.models.pounce.project import Person
     from src.models.gene import Gene
     from src.models.metabolite import Metabolite
+    from src.models.protein import Protein
     import pandas as pd
 
 # Ordered longest-first to avoid prefix collisions (e.g. "ES" matching "ESPval")
@@ -88,6 +90,7 @@ class StatsResult(Node):
     data_type: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
+    workbook: Optional[WorkbookArtifact] = None
     pre_processing_description: Optional[str] = None
     peri_processing_description: Optional[str] = None
     effect_size_description: Optional[str] = None
@@ -126,3 +129,9 @@ class StatsResultGeneEdge(Relationship):
 class StatsResultMetaboliteEdge(Relationship):
     start_node: "StatsResult" = None
     end_node: "Metabolite" = None
+
+
+@dataclass
+class StatsResultProteinEdge(Relationship):
+    start_node: "StatsResult" = None
+    end_node: "Protein" = None

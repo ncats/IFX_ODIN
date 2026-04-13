@@ -2,13 +2,16 @@ import pandas as pd
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
-from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson, ParsedBiosample, ParsedBiospecimen, ParsedExperiment, ParsedRunBiosample
+from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson, ParsedBiosample, ParsedBiospecimen, ParsedExperiment, ParsedRunBiosample, ParsedProject
 from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 from src.input_adapters.pounce_sheets.pounce_input_adapter import PounceInputAdapter
 from src.input_adapters.pounce_sheets.pounce_node_builder import PounceNodeBuilder
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
-from src.models.pounce.project import Project
-from src.models.pounce.experiment import ExperimentBiospecimenEdge, RunBiosample
+from src.models.pounce.project import Project, AccessLevel
+from src.models.pounce.experiment import Experiment, ExperimentBiospecimenEdge, RunBiosample
+from src.models.protein import MeasuredProtein
+from src.models.pounce.dataset import Dataset, DatasetProteinEdge
+from src.models.pounce.workbook_artifact import WorkbookArtifact
 from src.constants import DataSourceName
 
 
@@ -128,6 +131,35 @@ def test_get_datasource_name_returns_ncats_pounce():
     assert result == DataSourceName.NCATSPounce
 
 
+def test_project_id_builder_uses_hyphens_not_colons():
+    parsed_project = ParsedProject(
+        project_name="Colon Test Project",
+        date=datetime(2024, 3, 15),
+        owner_emails=["owner@example.com"],
+        collaborator_emails=["collab@example.com"],
+    )
+
+    project_id = PounceNodeBuilder._project_id(parsed_project)
+
+    assert project_id.startswith("pounce_")
+    assert ":" not in project_id
+
+
+def test_experiment_id_builder_uses_hyphens_not_colons():
+    parsed_experiment = ParsedExperiment(
+        experiment_name="Experiment: 1",
+        date=datetime(2024, 3, 16),
+        platform_type="bulk_rnaseq",
+        platform_name="NovaSeq",
+        platform_output_type="counts",
+    )
+
+    experiment_id = PounceNodeBuilder._experiment_id("pounce-proj-1234abcd", parsed_experiment)
+
+    assert experiment_id.startswith("pounce-proj-1234abcd_")
+    assert ":" not in experiment_id
+
+
 def test_experiment_nodes_emit_deduped_experiment_biospecimen_edges():
     builder = PounceNodeBuilder()
     project = Project(id="PROJ001", name="Test")
@@ -144,7 +176,7 @@ def test_experiment_nodes_emit_deduped_experiment_biospecimen_edges():
     list(builder._biosample_nodes(project, project_data))
 
     exp_data = ParsedPounceData(
-        experiments=[ParsedExperiment(experiment_id="EXP1", experiment_name="Experiment 1")],
+        experiments=[ParsedExperiment(experiment_name="Experiment 1")],
         run_biosamples=[
             ParsedRunBiosample(run_biosample_id="RB1", biosample_id="BS1"),
             ParsedRunBiosample(run_biosample_id="RB2", biosample_id="BS2"),
@@ -165,7 +197,7 @@ def test_experiment_nodes_emit_deduped_experiment_biospecimen_edges():
     ]
 
     assert len(experiment_biospecimen_edges) == 1
-    assert experiment_biospecimen_edges[0].start_node.id == "EXP1"
+    assert experiment_biospecimen_edges[0].start_node.id.startswith("PROJ001_experiment-1-")
     assert experiment_biospecimen_edges[0].end_node.id == "PROJ001-SPEC1"
 
 
@@ -179,7 +211,7 @@ def test_experiment_nodes_propagate_run_biosample_batch():
     list(builder._biosample_nodes(project, project_data))
 
     exp_data = ParsedPounceData(
-        experiments=[ParsedExperiment(experiment_id="EXP1", experiment_name="Experiment 1")],
+        experiments=[ParsedExperiment(experiment_name="Experiment 1")],
         run_biosamples=[ParsedRunBiosample(run_biosample_id="RB1", biosample_id="BS1", batch="3")],
     )
     exp_parser = MagicMock(spec=ExcelsheetParser)
@@ -198,3 +230,65 @@ def test_experiment_nodes_propagate_run_biosample_batch():
 
     assert len(run_biosamples) == 1
     assert run_biosamples[0].batch == "3"
+
+
+def test_experiment_nodes_inherit_project_access():
+    builder = PounceNodeBuilder()
+    project = Project(id="PROJ001", name="Test", access=AccessLevel.ncats)
+    exp_data = ParsedPounceData(
+        experiments=[ParsedExperiment(experiment_name="Experiment 1")],
+    )
+    exp_parser = MagicMock(spec=ExcelsheetParser)
+    exp_parser.file_path = "experiment.xlsx"
+    exp_parser.sheet_dfs = {}
+
+    with patch.object(PounceNodeBuilder, "_compute_experiment_counts", return_value=(0, 0)):
+        first_batch = next(builder._experiment_nodes(project, exp_data, exp_parser))
+
+    experiment = next(node for node in first_batch if isinstance(node, Experiment))
+
+    assert experiment.access == AccessLevel.ncats
+
+
+def test_parse_data_matrix_inherits_experiment_access_for_dataset():
+    builder = PounceNodeBuilder()
+    experiment = Experiment(id="EXP001", name="Experiment 1", access=AccessLevel.private)
+    parser = MagicMock(spec=ExcelsheetParser)
+    parser.sheet_dfs = {"ProteinData": pd.DataFrame()}
+    parser.safe_get_string.return_value = None
+
+    first_batch = next(builder._parse_data_matrix(
+        experiment,
+        meta_sheet="ProteinDataMeta",
+        data_sheet="ProteinData",
+        analyte_id_col="protein_id",
+        data_type="protein data",
+        parser=parser,
+    ))
+    dataset = next(node for node in first_batch if isinstance(node, Dataset))
+
+    assert dataset.access == AccessLevel.private
+
+
+def test_project_node_carries_workbook_artifact():
+    parsed_project = ParsedProject(project_name="Test Project")
+
+    project = PounceNodeBuilder._project_node(parsed_project, workbook_local_path="/tmp/test_project.xlsx")
+
+    assert isinstance(project.workbook, WorkbookArtifact)
+    assert project.workbook.original_filename == "test_project.xlsx"
+    assert project.workbook._local_path == "/tmp/test_project.xlsx"
+
+
+def test_build_analyte_edges_includes_proteins():
+    builder = PounceNodeBuilder()
+    parent = MagicMock()
+    df = pd.DataFrame(index=["Q09666"])
+    measured = MeasuredProtein(id="UniProtKB:Q09666", name="AHNAK")
+    builder._ctx.protein_by_raw_id["Q09666"] = measured
+
+    edges = builder._build_analyte_edges(parent, df, MagicMock, MagicMock, DatasetProteinEdge)
+
+    assert len(edges) == 1
+    assert isinstance(edges[0], DatasetProteinEdge)
+    assert edges[0].end_node.id == "UniProtKB:Q09666"

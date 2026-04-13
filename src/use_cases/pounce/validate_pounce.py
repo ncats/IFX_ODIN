@@ -2,7 +2,7 @@ import argparse
 import os
 from src.core.config import ETL_Config, create_object_from_config
 from src.input_adapters.pounce_sheets.mapping_coverage import (
-    check_metabolite_coverage, check_gene_coverage,
+    check_metabolite_coverage, check_gene_coverage, check_protein_coverage,
 )
 from src.input_adapters.pounce_sheets.pounce_parser import (
     _PROJECT_REQUIRED_SHEETS, _EXPERIMENT_RECOGNIZED_SHEETS, _STATS_RECOGNIZED_SHEETS,
@@ -19,6 +19,7 @@ UNMAPPED_PREVIEW_LIMIT = 50
 
 # yaml_file = "./src/use_cases/pounce/test_pounce_validation.yaml"
 yaml_file = "./src/use_cases/pounce/pounce.yaml"
+# yaml_file = "./src/use_cases/working.yaml"
 
 config = ETL_Config(yaml_file)
 resolver_map = {t: r for r in config.resolvers.values() for t in r.types}
@@ -27,6 +28,31 @@ pounce_configs = [
     c for c in config.config_dict.get("input_adapters", [])
     if c.get("class") == "PounceInputAdapter"
 ]
+
+
+def _assign_content_issue_source_files(all_issues, project_file: str, experiment_files: list[str], stats_files: list[str]) -> None:
+    for issue in all_issues:
+        if issue.source_file:
+            continue
+
+        if issue.entity == "project":
+            issue.source_file = project_file
+            continue
+
+        if issue.entity == "experiments" and issue.row is not None and 0 <= issue.row < len(experiment_files):
+            issue.source_file = experiment_files[issue.row]
+            continue
+
+        if issue.entity == "stats_results" and issue.row is not None and 0 <= issue.row < len(stats_files):
+            issue.source_file = stats_files[issue.row]
+            continue
+
+        if issue.sheet in _PROJECT_REQUIRED_SHEETS:
+            issue.source_file = project_file
+        elif issue.sheet in _EXPERIMENT_RECOGNIZED_SHEETS and len(experiment_files) == 1:
+            issue.source_file = experiment_files[0]
+        elif issue.sheet in _STATS_RECOGNIZED_SHEETS and len(stats_files) == 1:
+            issue.source_file = stats_files[0]
 
 for chosen in pounce_configs:
     kwargs = chosen.get("kwargs", {})
@@ -45,6 +71,7 @@ for chosen in pounce_configs:
     content_issues = []
     for validator in adapter.get_validators():
         content_issues.extend(validator.validate(parsed_data))
+    _assign_content_issue_source_files(content_issues, project_file, experiment_files, stats_files)
 
     all_issues = structural_issues + content_issues
     errors = [e for e in all_issues if e.severity == "error"]
@@ -106,8 +133,9 @@ for chosen in pounce_configs:
 
     has_metabolites = bool(parsed_data.metabolites)
     has_genes = bool(parsed_data.genes)
+    has_proteins = bool(parsed_data.proteins)
 
-    if has_metabolites or has_genes:
+    if has_metabolites or has_genes or has_proteins:
         print(f"\nMapping Coverage:")
 
         if has_metabolites:
@@ -143,3 +171,20 @@ for chosen in pounce_configs:
                         print(f"    Unmapped preview: {', '.join(preview_ids)}{suffix}")
             else:
                 print(f"  GeneMeta — no Gene resolver configured")
+
+        if has_proteins:
+            protein_resolver = resolver_map.get("Protein")
+            cov = check_protein_coverage(parsed_data.proteins, protein_resolver)
+            if cov:
+                print(f"  ProteinMeta — {cov.mapped}/{cov.total} ({cov.mapped_pct:.1f}%)"
+                      f" proteins will resolve to canonical Protein nodes")
+                if cov.unmapped_ids:
+                    print(f"    Unmapped: {len(cov.unmapped_ids)}")
+                    preview_ids = cov.unmapped_ids[:UNMAPPED_PREVIEW_LIMIT]
+                    if args.show_unmapped:
+                        print(f"    Unmapped IDs: {', '.join(cov.unmapped_ids)}")
+                    else:
+                        suffix = "" if len(cov.unmapped_ids) <= UNMAPPED_PREVIEW_LIMIT else ", ..."
+                        print(f"    Unmapped preview: {', '.join(preview_ids)}{suffix}")
+            else:
+                print(f"  ProteinMeta — no Protein resolver configured")

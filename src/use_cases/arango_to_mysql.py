@@ -10,7 +10,8 @@ import json
 import re
 from itertools import product
 
-from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index
+from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Boolean, ForeignKey, Index, LargeBinary
+from sqlalchemy.dialects.mysql import LONGBLOB
 
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.shared.arango_adapter import ArangoAdapter
@@ -43,6 +44,13 @@ def _edge_table_name(schema: dict) -> str:
     from_name = _camel_to_snake(schema["from_collections"][0])
     to_name = _camel_to_snake(schema["to_collections"][0])
     return f"{from_name}_to_{to_name}"
+
+
+def _is_workbook_artifact_schema(field_schema: dict) -> bool:
+    if not isinstance(field_schema, dict) or field_schema.get("type") != "object":
+        return False
+    fields = field_schema.get("fields", {})
+    return {"file_reference", "original_filename", "media_type"}.issubset(fields.keys())
 
 
 class ArangoToMySqlConverter(ArangoAdapter):
@@ -297,6 +305,9 @@ class ArangoToMySqlConverter(ArangoAdapter):
             else:
                 col_type = _SQL_TYPE_MAP.get(sub_schema, Text)
                 columns.append(Column(sub_name, col_type, nullable=True))
+
+        if _is_workbook_artifact_schema(field_schema):
+            columns.append(Column("content_blob", LargeBinary().with_variant(LONGBLOB(), "mysql"), nullable=True))
 
         table = Table(obj_table_name, self.sa_metadata, *columns)
         return table, grandchild_tables
@@ -597,6 +608,11 @@ class ArangoToMySqlConverter(ArangoAdapter):
                             val = json.dumps(val)
                         obj_row[sub_name] = val
 
+                    if _is_workbook_artifact_schema(obj_schema):
+                        file_ref = nested.get("file_reference")
+                        if file_ref:
+                            obj_row["content_blob"] = self._get_s3_buffer(file_ref).read()
+
                     object_rows[obj_field].append(obj_row)
 
                 # Dict fields: extract key-value pairs
@@ -713,8 +729,8 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
     # --- MinIO / parquet helpers ---
 
-    def _get_parquet_buffer(self, file_ref: str):
-        """Fetch a parquet file from MinIO and return a BytesIO buffer."""
+    def _get_s3_buffer(self, file_ref: str):
+        """Fetch an S3-backed object from MinIO and return a BytesIO buffer."""
         import io
         import boto3
         from botocore.client import Config
@@ -738,6 +754,10 @@ class ArangoToMySqlConverter(ArangoAdapter):
         )
         response = s3.get_object(Bucket=bucket, Key=key)
         return io.BytesIO(response["Body"].read())
+
+    def _get_parquet_buffer(self, file_ref: str):
+        """Fetch a parquet file from MinIO and return a BytesIO buffer."""
+        return self._get_s3_buffer(file_ref)
 
     # --- Parquet data melting ---
 

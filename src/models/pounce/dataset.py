@@ -3,11 +3,13 @@ from typing import Optional, List, TYPE_CHECKING
 
 from src.core.decorators import facets
 from src.models.node import Node, Relationship
+from src.models.pounce.project import AccessLevel
 
 if TYPE_CHECKING:
     from src.models.pounce.experiment import Experiment, RunBiosample
     from src.models.gene import Gene
     from src.models.metabolite import Metabolite
+    from src.models.protein import Protein
     import pandas as pd
 
 
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
 @facets(category_fields=['data_type'])
 class Dataset(Node):
     data_type: Optional[str] = None
+    access: Optional[AccessLevel] = None
     pre_processing_description: Optional[str] = None
     peri_processing_description: Optional[str] = None
     file_reference: Optional[str] = None
@@ -47,3 +50,9 @@ class DatasetGeneEdge(Relationship):
 class DatasetMetaboliteEdge(Relationship):
     start_node: "Dataset" = None
     end_node: "Metabolite" = None
+
+
+@dataclass
+class DatasetProteinEdge(Relationship):
+    start_node: "Dataset" = None
+    end_node: "Protein" = None

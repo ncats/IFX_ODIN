@@ -26,6 +26,7 @@ from src.core.validator import ValidationError
 from src.input_adapters.pounce_sheets.mapping_coverage import (
     check_gene_coverage,
     check_metabolite_coverage,
+    check_protein_coverage,
 )
 from src.input_adapters.pounce_sheets.pounce_input_adapter import PounceInputAdapter
 from src.input_adapters.pounce_sheets.pounce_parser import (
@@ -162,6 +163,32 @@ def _group_issues(all_issues, project_filename, exp_filenames, stats_filenames):
     return [(wb, list(sheets.items())) for wb, sheets in grouped.items()]
 
 
+def _assign_content_issue_source_files(all_issues: list[ValidationError], project_path: str,
+                                       exp_paths: list[str], stats_paths: list[str]) -> None:
+    for issue in all_issues:
+        if issue.source_file:
+            continue
+
+        if issue.entity == "project":
+            issue.source_file = project_path
+            continue
+
+        if issue.entity == "experiments" and issue.row is not None and 0 <= issue.row < len(exp_paths):
+            issue.source_file = exp_paths[issue.row]
+            continue
+
+        if issue.entity == "stats_results" and issue.row is not None and 0 <= issue.row < len(stats_paths):
+            issue.source_file = stats_paths[issue.row]
+            continue
+
+        if issue.sheet in _PROJECT_REQUIRED_SHEETS:
+            issue.source_file = project_path
+        elif issue.sheet in _EXPERIMENT_RECOGNIZED_SHEETS and len(exp_paths) == 1:
+            issue.source_file = exp_paths[0]
+        elif issue.sheet in _STATS_RECOGNIZED_SHEETS and len(stats_paths) == 1:
+            issue.source_file = stats_paths[0]
+
+
 def _collapse_dependent_mapping_issues(all_issues: list[ValidationError]) -> list[ValidationError]:
     """Suppress downstream analyte-ID noise when the root map-sheet key is broken.
 
@@ -254,6 +281,15 @@ def _compute_coverage(parsed_data) -> list:
         except Exception as e:
             print(f"[pounce] gene coverage check failed: {e}")
 
+    if parsed_data.proteins:
+        resolver = _resolver_map.get("Protein")
+        try:
+            cov = check_protein_coverage(parsed_data.proteins, resolver)
+            if cov:
+                coverage.append(cov)
+        except Exception as e:
+            print(f"[pounce] protein coverage check failed: {e}")
+
     return coverage
 
 
@@ -264,6 +300,7 @@ def _compute_summary(
     parsed_data=None,
     metab_resolver_missing: bool = False,
     gene_resolver_missing: bool = False,
+    protein_resolver_missing: bool = False,
 ) -> dict:
     """Build a summary dict for inclusion in the submission email."""
     errors   = [i for i in all_issues if i.severity == "error"]
@@ -276,6 +313,8 @@ def _compute_summary(
         cov_lines.append("  MetabMeta: resolver not configured, coverage check skipped")
     if gene_resolver_missing:
         cov_lines.append("  GeneMeta: resolver not configured, coverage check skipped")
+    if protein_resolver_missing:
+        cov_lines.append("  ProteinMeta: resolver not configured, coverage check skipped")
 
     issue_breakdown = []
     for workbook, sheets in grouped or []:
@@ -292,6 +331,7 @@ def _compute_summary(
             f"  Biosamples: {len(parsed_data.biosamples)}",
             f"  Run biosamples: {len(parsed_data.run_biosamples)}",
             f"  Genes: {len(parsed_data.genes)}",
+            f"  Proteins: {len(parsed_data.proteins)}",
             f"  Metabolites: {len(parsed_data.metabolites)}",
             f"  Stats datasets: {len(parsed_data.stats_results)}",
         ]
@@ -355,6 +395,7 @@ async def run_validation(
         content_issues = []
         for v in adapter.get_validators():
             content_issues.extend(v.validate(parsed_data))
+        _assign_content_issue_source_files(content_issues, project_path, exp_paths, stats_paths)
 
         all_issues = _collapse_dependent_mapping_issues(structural_issues + content_issues)
         grouped    = _group_issues(
@@ -397,8 +438,10 @@ async def run_validation(
 
     has_metabolites         = bool(parsed_data and parsed_data.metabolites)
     has_genes               = bool(parsed_data and parsed_data.genes)
+    has_proteins            = bool(parsed_data and parsed_data.proteins)
     metab_resolver_missing  = has_metabolites and "Metabolite" not in _resolver_map
     gene_resolver_missing   = has_genes       and "Gene"       not in _resolver_map
+    protein_resolver_missing = has_proteins   and "Protein"    not in _resolver_map
 
     # Fill in session summary now that coverage and resolver state are available.
     if session_id and session_id in _sessions:
@@ -409,6 +452,7 @@ async def run_validation(
             parsed_data=parsed_data,
             metab_resolver_missing=metab_resolver_missing,
             gene_resolver_missing=gene_resolver_missing,
+            protein_resolver_missing=protein_resolver_missing,
         )
 
     session_filenames = (
@@ -426,6 +470,7 @@ async def run_validation(
         "coverage":               coverage,
         "metab_resolver_missing": metab_resolver_missing,
         "gene_resolver_missing":  gene_resolver_missing,
+        "protein_resolver_missing": protein_resolver_missing,
         "session_id":             session_id,
         "session_filenames":      session_filenames,
         "smtp_configured":        bool(_smtp_config),
@@ -538,6 +583,7 @@ async def revalidate(
         content_issues = []
         for v in adapter.get_validators():
             content_issues.extend(v.validate(parsed_data))
+        _assign_content_issue_source_files(content_issues, project_path, exp_paths, stats_paths)
 
         all_issues = _collapse_dependent_mapping_issues(structural_issues + content_issues)
         grouped    = _group_issues(
@@ -579,8 +625,10 @@ async def revalidate(
 
     has_metabolites        = bool(parsed_data and parsed_data.metabolites)
     has_genes              = bool(parsed_data and parsed_data.genes)
+    has_proteins           = bool(parsed_data and parsed_data.proteins)
     metab_resolver_missing = has_metabolites and "Metabolite" not in _resolver_map
     gene_resolver_missing  = has_genes       and "Gene"       not in _resolver_map
+    protein_resolver_missing = has_proteins  and "Protein"    not in _resolver_map
 
     if new_sid and new_sid in _sessions:
         _sessions[new_sid]["summary"] = _compute_summary(
@@ -590,6 +638,7 @@ async def revalidate(
             parsed_data=parsed_data,
             metab_resolver_missing=metab_resolver_missing,
             gene_resolver_missing=gene_resolver_missing,
+            protein_resolver_missing=protein_resolver_missing,
         )
 
     session_filenames = (
@@ -607,6 +656,7 @@ async def revalidate(
         "coverage":               coverage,
         "metab_resolver_missing": metab_resolver_missing,
         "gene_resolver_missing":  gene_resolver_missing,
+        "protein_resolver_missing": protein_resolver_missing,
         "session_id":             new_sid,
         "session_filenames":      session_filenames,
         "smtp_configured":        bool(_smtp_config),

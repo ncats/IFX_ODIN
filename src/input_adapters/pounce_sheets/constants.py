@@ -3,7 +3,6 @@ class ExperimentWorkbook:
         name = "ExperimentMeta"
 
         class Key:
-            experiment_id = "experiment_id"
             experiment_name = "experiment_name"
             experiment_description = "experiment_description"
             experiment_design = "experiment_design"
@@ -84,6 +83,32 @@ class ExperimentWorkbook:
     class GeneMetaSheet:
         name = "GeneMeta"
 
+    class ProteinMapSheet:
+        name = "ProteinMap"
+
+        class Key:
+            protein_id = "protein_id"
+            protein_name = "protein_name"
+            gene_name = "gene_name"
+            protein_class = "protein_class"
+            alternate_id = "alternate_id"
+            pathway_ids = "pathway_ids"
+            category = "category {}"
+
+    class ProteinMetaSheet:
+        name = "ProteinMeta"
+
+    class ProteinDataMetaSheet:
+        name = "ProteinDataMeta"
+
+        class Key:
+            pre_processing_description = "pre_processing_description"
+            peri_processing_description = "peri_processing_description"
+            proteindata_tag = "proteindata_tag"
+
+    class ProteinDataSheet:
+        name = "ProteinData"
+
     class RawDataMetaSheet:
         name = "RawDataMeta"
 
@@ -103,7 +128,6 @@ class StatsResultsWorkbook:
             statsresults_name = "statsresults_name"
             stats_description = "stats_description"
             experiment_name = "experiment_name"
-            experiment_id = "experiment_id"
             lead_informatician = "lead_informatician"
             lead_informatician_email = "lead_informatician_email"
             pre_processing_description = "pre_processing_description"
@@ -123,6 +147,7 @@ class StatsResultsWorkbook:
         class Key:
             gene_id = "gene_id"
             metabolite_id = "metabolite_id"
+            protein_id = "protein_id"
 
     class EffectSizeSheet:
         name = "EffectSize"
@@ -133,7 +158,6 @@ class ProjectWorkbook:
         name = "ProjectMeta"
         class Key:
             project_name = "project_name"
-            project_id = "project_id"
             description = "description"
             date = "date"
             owner_name = "owner_name"
