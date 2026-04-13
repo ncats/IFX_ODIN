@@ -25,7 +25,7 @@
         <div class="loaded-file-panel has-file" style="margin-bottom: 0.75rem; padding: 0.8rem 0.9rem; display: flex; justify-content: space-between; gap: 1rem; align-items: center;">
             <div style="min-width: 0;">
                 <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Currently loaded</div>
-                <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ project_basename }}</div>
+                <div class="mono" title="{{ project_basename }}" style="font-size: 12px; white-space: normal; overflow-wrap: anywhere; word-break: break-word;">{{ project_basename }}</div>
             </div>
             <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ project_basename }}" class="btn" style="white-space: nowrap;">Download</a>
         </div>
@@ -56,7 +56,7 @@
                 <div class="loaded-file-panel has-file" style="margin-bottom: 0.55rem; padding: 0.7rem 0.8rem; display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;">
                     <div style="min-width: 0;">
                         <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">Currently loaded</div>
-                        <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ exp_basenames[i] }}</div>
+                        <div class="mono" title="{{ exp_basenames[i] }}" style="font-size: 12px; white-space: normal; overflow-wrap: anywhere; word-break: break-word;">{{ exp_basenames[i] }}</div>
                     </div>
                     <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ exp_basenames[i] }}"
                        class="btn" style="white-space: nowrap;">Download</a>
@@ -78,7 +78,7 @@
                 <div class="loaded-file-panel has-file" style="margin-bottom: 0.55rem; padding: 0.7rem 0.8rem; display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;">
                     <div style="min-width: 0;">
                         <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">Currently loaded</div>
-                        <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ stats_basenames[i] }}</div>
+                        <div class="mono" title="{{ stats_basenames[i] }}" style="font-size: 12px; white-space: normal; overflow-wrap: anywhere; word-break: break-word;">{{ stats_basenames[i] }}</div>
                     </div>
                     <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ stats_basenames[i] }}"
                        class="btn" style="white-space: nowrap;">Download</a>
