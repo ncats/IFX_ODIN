@@ -129,6 +129,16 @@ h2 { font-size: 1.15rem; margin-bottom: 0.5rem; color: var(--text-muted); font-w
 
 .card h2 { margin-bottom: 0.75rem; }
 
+.section-eyebrow {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.75rem;
+}
+
 /* Stats row */
 .stats-row {
     display: flex;
@@ -257,6 +267,12 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .hero-subtitle {
     font-size: 1.05rem;
     color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.hero-subtitle-strong {
+    font-size: 1.2rem;
+    color: var(--text);
     line-height: 1.5;
 }
 
@@ -869,6 +885,19 @@ details summary:hover { color: var(--accent); }
     border-color: var(--success);
 }
 
+.loaded-file-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-alt);
+    transition: border-color 0.15s, background 0.15s;
+    min-width: 0;
+}
+
+.loaded-file-panel.has-file {
+    border-color: var(--success);
+    background: color-mix(in srgb, var(--success) 8%, var(--bg-alt));
+}
+
 .drop-zone-input {
     position: absolute;
     width: 0;
@@ -930,12 +959,16 @@ details summary:hover { color: var(--accent); }
 /* Experiment / Stats pair rows */
 .pair-row {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     gap: 0.75rem;
     align-items: start;
     padding-bottom: 0.85rem;
     margin-bottom: 0.85rem;
     border-bottom: 1px solid var(--border);
+}
+
+.pair-cell {
+    min-width: 0;
 }
 
 .pair-row:last-child {

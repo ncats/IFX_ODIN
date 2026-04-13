@@ -3,16 +3,16 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="{{ root_path }}/pounce/validate">POUNCE Validate</a>
+<a href="{{ root_path }}/pounce/validate">POUNCE Submission</a>
 <span class="sep">/</span>
-<span>Edit Files</span>
+<span>{{ mode_title or "Edit Files" }}</span>
 {% endblock %}
 
 {% block content %}
 <div class="hero">
     <div class="hero-text">
-        <h1 class="hero-title">Edit Files</h1>
-        <p class="hero-subtitle">Drop a replacement for any file that needs changes. Leave a slot empty to keep the current file.</p>
+        <h1 class="hero-title">{{ mode_title or "Edit Files" }}</h1>
+        <p class="hero-subtitle">{{ mode_subtitle or "Drop a replacement for any file that needs changes. Leave a slot empty to keep the current file." }}</p>
     </div>
 </div>
 
@@ -22,8 +22,12 @@
     {# ── Project workbook ──────────────────────────────────────────────── #}
     <div class="card" style="margin-bottom: 1rem;">
         <div class="upload-field-label">Project workbook</div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            Current: <span class="mono">{{ project_basename }}</span>
+        <div class="loaded-file-panel has-file" style="margin-bottom: 0.75rem; padding: 0.8rem 0.9rem; display: flex; justify-content: space-between; gap: 1rem; align-items: center;">
+            <div style="min-width: 0;">
+                <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Currently loaded</div>
+                <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ project_basename }}</div>
+            </div>
+            <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ project_basename }}" class="btn" style="white-space: nowrap;">Download</a>
         </div>
         <div class="drop-zone">
             <div class="dz-empty">
@@ -49,8 +53,13 @@
         <div class="pair-row" style="{{ '' if not loop.last else 'margin-bottom: 0;' }}">
             <div class="pair-cell">
                 <div class="pair-cell-label">Experiment {{ i + 1 }}</div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    Current: <span class="mono">{{ exp_basenames[i] }}</span>
+                <div class="loaded-file-panel has-file" style="margin-bottom: 0.55rem; padding: 0.7rem 0.8rem; display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;">
+                    <div style="min-width: 0;">
+                        <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">Currently loaded</div>
+                        <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ exp_basenames[i] }}</div>
+                    </div>
+                    <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ exp_basenames[i] }}"
+                       class="btn" style="white-space: nowrap;">Download</a>
                 </div>
                 <div class="drop-zone">
                     <div class="dz-empty">
@@ -66,8 +75,13 @@
             </div>
             <div class="pair-cell">
                 <div class="pair-cell-label">Stats Results {{ i + 1 }}</div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    Current: <span class="mono">{{ stats_basenames[i] }}</span>
+                <div class="loaded-file-panel has-file" style="margin-bottom: 0.55rem; padding: 0.7rem 0.8rem; display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;">
+                    <div style="min-width: 0;">
+                        <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">Currently loaded</div>
+                        <div class="mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ stats_basenames[i] }}</div>
+                    </div>
+                    <a href="{{ root_path }}/pounce/download/{{ session_id }}/{{ stats_basenames[i] }}"
+                       class="btn" style="white-space: nowrap;">Download</a>
                 </div>
                 <div class="drop-zone">
                     <div class="dz-empty">
@@ -85,7 +99,52 @@
         {% endfor %}
     </div>
 
-    <button type="submit" class="btn btn-primary" id="revalidate-btn">Revalidate</button>
+    <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="upload-field-label" style="margin-bottom: 0.25rem;">Add Experiment Pairs</div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 1rem;">
+            Add one or more new experiment and StatsResults workbook pairs. Leave an added row empty to ignore it.
+        </p>
+
+        <div id="new-experiment-pairs">
+            <div class="pair-row">
+                <div class="pair-cell">
+                    <div class="pair-cell-label">New Experiment 1</div>
+                    <div class="drop-zone">
+                        <div class="dz-empty">
+                            <div class="dz-icon">↑</div>
+                            <div class="dz-hint">Drop <code>.xlsx</code> or <span class="dz-link">browse</span></div>
+                        </div>
+                        <div class="dz-filled">
+                            <div class="dz-filename"></div>
+                            <div class="dz-change">Click or drop to replace</div>
+                        </div>
+                        <input type="file" name="new_experiment_files" accept=".xlsx" class="drop-zone-input">
+                    </div>
+                </div>
+                <div class="pair-cell">
+                    <div class="pair-cell-label">New Stats Results 1</div>
+                    <div class="drop-zone">
+                        <div class="dz-empty">
+                            <div class="dz-icon">↑</div>
+                            <div class="dz-hint">Drop <code>.xlsx</code> or <span class="dz-link">browse</span></div>
+                        </div>
+                        <div class="dz-filled">
+                            <div class="dz-filename"></div>
+                            <div class="dz-change">Click or drop to replace</div>
+                        </div>
+                        <input type="file" name="new_stats_files" accept=".xlsx" class="drop-zone-input">
+                    </div>
+                </div>
+                <button type="button" class="pair-remove-btn" onclick="removePair(this)"
+                        title="Remove" style="display:none;">✕</button>
+            </div>
+        </div>
+
+        <button type="button" class="btn btn-sm" onclick="addPair()"
+                style="margin-top: 0.85rem;">+ Add experiment</button>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="revalidate-btn">Validate</button>
     <a href="javascript:history.back()"
        style="margin-left: 1rem; font-size: 13px; color: var(--text-muted);">Cancel</a>
 
@@ -126,11 +185,45 @@ function initDropZone(zone) {
 function setFile(zone, name) {
     zone.querySelector('.dz-filename').textContent = name;
     zone.classList.add('has-file');
+    const loadedPanel = zone.parentElement.querySelector('.loaded-file-panel');
+    if (loadedPanel) loadedPanel.classList.remove('has-file');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 document.querySelectorAll('.drop-zone').forEach(dz => initDropZone(dz));
+
+function addPair() {
+    const container = document.getElementById('new-experiment-pairs');
+    const existing = container.querySelectorAll('.pair-row');
+    const clone = existing[0].cloneNode(true);
+
+    clone.querySelectorAll('.drop-zone-input').forEach(inp => { inp.value = ''; });
+    clone.querySelectorAll('.dz-filename').forEach(el => { el.textContent = ''; });
+    clone.querySelectorAll('.drop-zone').forEach(dz => dz.classList.remove('has-file', 'drag-over'));
+
+    container.appendChild(clone);
+    updatePairLabels();
+    clone.querySelectorAll('.drop-zone').forEach(dz => initDropZone(dz));
+}
+
+function removePair(btn) {
+    btn.closest('.pair-row').remove();
+    updatePairLabels();
+}
+
+function updatePairLabels() {
+    const rows = document.querySelectorAll('#new-experiment-pairs .pair-row');
+    rows.forEach((row, i) => {
+        const labels = row.querySelectorAll('.pair-cell-label');
+        if (labels[0]) labels[0].textContent = `New Experiment ${i + 1}`;
+        if (labels[1]) labels[1].textContent = `New Stats Results ${i + 1}`;
+        const rmBtn = row.querySelector('.pair-remove-btn');
+        if (rmBtn) rmBtn.style.display = rows.length > 1 ? 'flex' : 'none';
+    });
+}
+
+updatePairLabels();
 
 document.getElementById('edit-form').addEventListener('submit', function() {
     const btn = document.getElementById('revalidate-btn');

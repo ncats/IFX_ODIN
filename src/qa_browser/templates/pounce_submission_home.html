@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}POUNCE Submission{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>POUNCE Submission</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <div class="hero-text">
+        <h1 class="hero-title">POUNCE Submission</h1>
+    </div>
+</div>
+<div>
+    <h2 class="hero-subtitle hero-subtitle-strong">I want to...</h2>
+</div>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; max-width: 900px;">
+    <a href="{{ root_path }}/pounce/validate/new" class="card" style="display:block; color:inherit; text-decoration:none;">
+        <div class="section-eyebrow">
+            Add a New Project
+        </div>
+        <div style="font-size:15px; font-weight:600; margin-bottom:0.5rem;">Upload a fresh workbook set</div>
+        <div style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+            Start a new submission with one project workbook and one or more experiment and StatsResults workbook pairs.
+        </div>
+    </a>
+
+    <a href="{{ root_path }}/pounce/validate/existing" class="card" style="display:block; color:inherit; text-decoration:none;">
+        <div class="section-eyebrow">
+            Edit an Existing Project
+        </div>
+        <div style="font-size:15px; font-weight:600; margin-bottom:0.5rem;">Download and replace content, or append new experiment files</div>
+        <div style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+            Load the stored workbook set for an existing project, download the original files, replace any workbook, and add new experiment and StatsResults pairs.
+        </div>
+    </a>
+</div>
+{% endblock %}
