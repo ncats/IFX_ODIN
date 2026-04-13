@@ -1,13 +1,13 @@
 """Mapping coverage checks for POUNCE analyte sheets.
 
-For each analyte type (Metabolite, Gene), checks what fraction of the
+For each analyte type (Metabolite, Gene, Protein), checks what fraction of the
 submitted IDs will resolve to a canonical node in the graph after ETL.
 """
 
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from src.input_adapters.pounce_sheets.parsed_classes import ParsedGene, ParsedMetab
+from src.input_adapters.pounce_sheets.parsed_classes import ParsedGene, ParsedMetab, ParsedProtein
 from src.interfaces.id_resolver import IdResolver
 
 
@@ -102,6 +102,44 @@ def check_gene_coverage(
         analyte_type="Gene",
         sheet="GeneMeta",
         total=len(unique_gene_ids),
+        mapped=mapped,
+        unmapped_ids=unmapped_ids,
+    )
+
+
+def check_protein_coverage(
+    proteins: List[ParsedProtein], resolver: Optional[IdResolver] = None
+) -> Optional[AnalyteCoverage]:
+    """Check how many ProteinMeta entries will resolve to canonical Protein nodes.
+
+    Returns None when no protein resolver is configured.
+    """
+    if resolver is None:
+        return None
+
+    from src.constants import Prefix
+    from src.models.node import EquivalentId
+    from src.models.protein import Protein
+
+    unique_protein_ids = list(dict.fromkeys(p.protein_id for p in proteins if p.protein_id))
+
+    mapped = 0
+    unmapped_ids = []
+
+    for protein_id in unique_protein_ids:
+        uniprot_id = EquivalentId(id=protein_id, type=Prefix.UniProtKB).id_str()
+        results = resolver.resolve_internal([Protein(id=uniprot_id)])
+        did_map = len(results.get(uniprot_id, [])) > 0
+
+        if did_map:
+            mapped += 1
+        else:
+            unmapped_ids.append(protein_id)
+
+    return AnalyteCoverage(
+        analyte_type="Protein",
+        sheet="ProteinMeta",
+        total=len(unique_protein_ids),
         mapped=mapped,
         unmapped_ids=unmapped_ids,
     )

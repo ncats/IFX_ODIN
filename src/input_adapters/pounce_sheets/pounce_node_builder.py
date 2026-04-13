@@ -1,4 +1,5 @@
 import hashlib
+import os
 import pandas as pd
 import re
 from dataclasses import dataclass, field
@@ -17,18 +18,20 @@ from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 from src.input_adapters.pounce_sheets.pounce_parser import PounceParser
 from src.models.gene import MeasuredGene, MeasuredGeneEdge, Gene
 from src.models.metabolite import MeasuredMetabolite, MeasuredMetaboliteEdge, Metabolite
+from src.models.protein import MeasuredProtein, MeasuredProteinEdge, Protein
 from src.models.node import Node, Relationship, EquivalentId
 from src.models.pounce.biosample import Biosample, BiosampleBiospecimenEdge
 from src.models.pounce.biospecimen import Biospecimen
 from src.models.pounce.category_value import CategoryValue
-from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRunBiosampleEdge, DatasetGeneEdge, DatasetMetaboliteEdge
+from src.models.pounce.dataset import Dataset, ExperimentDatasetEdge, DatasetRunBiosampleEdge, DatasetGeneEdge, DatasetMetaboliteEdge, DatasetProteinEdge
 from src.models.pounce.demographics import Demographics
 from src.models.pounce.exposure import Exposure
-from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge
+from src.models.pounce.stats_result import StatsResult, ComparisonColumn, ExperimentStatsResultEdge, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultPersonEdge, StatsResultProteinEdge
 from src.models.pounce.experiment import Experiment, PlatformType, ProjectExperimentEdge, ExperimentPersonEdge, RunBiosample, BiosampleRunBiosampleEdge, ExperimentBiospecimenEdge
 from src.models.pounce.exposure import BiosampleExposureEdge
 from src.models.pounce.project import Project, AccessLevel, ProjectType, Person, ProjectPersonEdge, \
     ProjectBiosampleEdge, LabGroup
+from src.models.pounce.workbook_artifact import WorkbookArtifact
 
 
 @dataclass
@@ -38,6 +41,7 @@ class PounceContext:
     biospecimen_by_biosample_id: Dict[str, Biospecimen] = field(default_factory=dict)
     run_biosample_by_original_id: Dict[str, RunBiosample] = field(default_factory=dict)
     gene_by_raw_id: Dict[str, Any] = field(default_factory=dict)
+    protein_by_raw_id: Dict[str, Any] = field(default_factory=dict)
     metabolite_by_raw_id: Dict[str, Any] = field(default_factory=dict)
     experiment_counter: int = 0
 
@@ -74,7 +78,7 @@ class PounceNodeBuilder:
             "|".join(owner_emails),
             "|".join(collaborator_emails),
         )
-        return f"pounce:{slug}-{suffix}"
+        return f"pounce_{slug}-{suffix}"
 
     @classmethod
     def _experiment_id(cls, project_id: str, parsed_experiment) -> str:
@@ -88,7 +92,7 @@ class PounceNodeBuilder:
             parsed_experiment.platform_name,
             parsed_experiment.platform_output_type,
         )
-        return f"{project_id}:{slug}-{suffix}"
+        return f"{project_id}_{slug}-{suffix}"
 
     @staticmethod
     def _to_null_if_na(value: Optional[str]) -> Optional[str]:
@@ -106,7 +110,7 @@ class PounceNodeBuilder:
     def build(self, project_file, experiment_files, stats_results_files, parser) -> Generator:
         print(f"reading: {project_file}")
         project_data, _ = parser.parse_project(ExcelsheetParser(file_path=project_file))
-        proj_obj = self._project_node(project_data.project)
+        proj_obj = self._project_node(project_data.project, workbook_local_path=project_file)
         person_nodes, person_edges = self._person_nodes_and_edges(proj_obj, project_data.people)
         yield [proj_obj, *person_nodes, *person_edges]
 
@@ -117,17 +121,29 @@ class PounceNodeBuilder:
             exp_data, _ = parser.parse_experiment(exp_parser)
             stats_parser = ExcelsheetParser(file_path=stats_file) if stats_file else None
             stats_data, _ = parser.parse_stats_results(stats_parser) if stats_parser else (None, [])
-            yield from self._experiment_nodes(proj_obj, exp_data, exp_parser, stats_data, stats_parser)
+            yield from self._experiment_nodes(
+                proj_obj,
+                exp_data,
+                exp_parser,
+                stats_data,
+                stats_parser,
+                experiment_file=exp_file,
+                stats_file=stats_file,
+            )
 
     # --- Project workbook ---
 
     @staticmethod
-    def _project_node(parsed_project: ParsedProject) -> Project:
+    def _project_node(parsed_project: ParsedProject, workbook_local_path: Optional[str] = None) -> Project:
         return Project(
             id=PounceNodeBuilder._project_id(parsed_project),
             name=parsed_project.project_name,
             description=parsed_project.description,
             date=parsed_project.date,
+            workbook=WorkbookArtifact(
+                original_filename=os.path.basename(workbook_local_path) if workbook_local_path else None,
+                _local_path=workbook_local_path,
+            ) if workbook_local_path else None,
             lab_groups=[group for raw in (parsed_project.lab_groups or []) if (group := LabGroup.parse(raw)) is not None],
             access=AccessLevel.parse(parsed_project.privacy_type) if parsed_project.privacy_type else None,
             keywords=parsed_project.keywords or [],
@@ -230,6 +246,8 @@ class PounceNodeBuilder:
         exp_parser: ExcelsheetParser,
         stats_data: Optional[ParsedPounceData] = None,
         stats_parser: Optional[ExcelsheetParser] = None,
+        experiment_file: Optional[str] = None,
+        stats_file: Optional[str] = None,
     ) -> Generator[List[Union[Node, Relationship]], None, None]:
         print(f"reading: {exp_parser.file_path}")
 
@@ -254,6 +272,11 @@ class PounceNodeBuilder:
             name=parsed.experiment_name,
             description=parsed.experiment_description,
             design=parsed.experiment_design,
+            workbook=WorkbookArtifact(
+                original_filename=os.path.basename(experiment_file) if experiment_file else None,
+                _local_path=experiment_file,
+            ) if experiment_file else None,
+            access=proj_obj.access,
             experiment_type=parsed.experiment_type,
             date=exp_date,
             platform_type=PlatformType.parse(parsed.platform_type),
@@ -331,6 +354,8 @@ class PounceNodeBuilder:
         sheet_names = exp_parser.sheet_dfs.keys()
         if ExperimentWorkbook.GeneMetaSheet.name in sheet_names:
             yield from self._parse_genes(experiment_obj, exp_parser)
+        if ExperimentWorkbook.ProteinMetaSheet.name in sheet_names:
+            yield from self._parse_proteins(experiment_obj, exp_parser)
         if ExperimentWorkbook.MetabMetaSheet.name in sheet_names:
             yield from self._parse_metabolites(experiment_obj, exp_parser)
         if ExperimentWorkbook.RawDataSheet.name in sheet_names:
@@ -355,9 +380,20 @@ class PounceNodeBuilder:
                 data_type="raw data",
                 parser=exp_parser
             )
+        if ExperimentWorkbook.ProteinDataSheet.name in sheet_names:
+            protein_map = exp_parser.get_parameter_map(ExperimentWorkbook.ProteinMapSheet.name)
+            analyte_id_col = protein_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_id)
+            yield from self._parse_data_matrix(
+                experiment_obj,
+                meta_sheet=ExperimentWorkbook.ProteinDataMetaSheet.name,
+                data_sheet=ExperimentWorkbook.ProteinDataSheet.name,
+                analyte_id_col=analyte_id_col,
+                data_type="protein data",
+                parser=exp_parser
+            )
 
         if stats_parser:
-            yield from self._stats_results_nodes(experiment_obj, stats_parser, stats_data)
+            yield from self._stats_results_nodes(experiment_obj, stats_parser, stats_data, stats_file=stats_file)
 
     def _compute_experiment_counts(
         self, exp_data: ParsedPounceData, exp_parser: ExcelsheetParser,
@@ -377,6 +413,14 @@ class PounceNodeBuilder:
             gene_map = exp_parser.get_parameter_map(ExperimentWorkbook.GeneMapSheet.name)
             analyte_id_col = gene_map.get(ExperimentWorkbook.GeneMapSheet.Key.gene_id)
             df = self._prepare_data_frame(exp_parser, ExperimentWorkbook.RawDataSheet.name, analyte_id_col)
+            if df is not None:
+                analyte_ids.update(str(i) for i in df.index)
+                run_biosample_ids.update(str(c) for c in df.columns)
+
+        if ExperimentWorkbook.ProteinDataSheet.name in sheet_names:
+            protein_map = exp_parser.get_parameter_map(ExperimentWorkbook.ProteinMapSheet.name)
+            analyte_id_col = protein_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_id)
+            df = self._prepare_data_frame(exp_parser, ExperimentWorkbook.ProteinDataSheet.name, analyte_id_col)
             if df is not None:
                 analyte_ids.update(str(i) for i in df.index)
                 run_biosample_ids.update(str(c) for c in df.columns)
@@ -503,6 +547,36 @@ class PounceNodeBuilder:
         yield metabolites
         yield metabolite_edges
 
+    def _parse_proteins(self, experiment_obj: Experiment, parser: ExcelsheetParser
+                        ) -> Generator[List[Union[Node, Relationship]], None, None]:
+        """Parse protein data from ProteinMeta sheet."""
+        column_map = parser.get_parameter_map(ExperimentWorkbook.ProteinMapSheet.name)
+        protein_id_col = column_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_id)
+        protein_name_col = column_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_name)
+        protein_class_col = column_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_class)
+
+        proteins = []
+        protein_edges = []
+        for _, row in parser.sheet_dfs[ExperimentWorkbook.ProteinMetaSheet.name].iterrows():
+            protein_id = row.get(protein_id_col) if protein_id_col else None
+            if not protein_id:
+                continue
+
+            protein_uniprot_id = EquivalentId(id=protein_id, type=Prefix.UniProtKB).id_str()
+            protein_obj = MeasuredProtein(
+                id=protein_uniprot_id,
+                name=row.get(protein_name_col) if protein_name_col else None,
+                type=row.get(protein_class_col) if protein_class_col else None,
+            )
+            proteins.append(protein_obj)
+            self._ctx.protein_by_raw_id[str(protein_id)] = protein_obj
+            protein_edges.append(
+                MeasuredProteinEdge(start_node=protein_obj, end_node=Protein(id=protein_uniprot_id))
+            )
+
+        yield proteins
+        yield protein_edges
+
     # --- Data matrix and stats results parsing ---
 
     @staticmethod
@@ -525,8 +599,8 @@ class PounceNodeBuilder:
         return raw_df.set_index(analyte_id_col)
 
     def _build_analyte_edges(self, parent_node, df, gene_edge_cls: Type[Relationship],
-                             metab_edge_cls: Type[Relationship]) -> List[Relationship]:
-        """Build edges from a parent node (Dataset or StatsResult) to Gene/Metabolite nodes."""
+                             metab_edge_cls: Type[Relationship], protein_edge_cls: Type[Relationship]) -> List[Relationship]:
+        """Build edges from a parent node (Dataset or StatsResult) to Gene/Metabolite/Protein nodes."""
         edges = []
         for analyte_id in df.index:
             raw_id = str(analyte_id)
@@ -534,6 +608,8 @@ class PounceNodeBuilder:
                 edges.append(gene_edge_cls(start_node=parent_node, end_node=self._ctx.gene_by_raw_id[raw_id]))
             elif raw_id in self._ctx.metabolite_by_raw_id:
                 edges.append(metab_edge_cls(start_node=parent_node, end_node=self._ctx.metabolite_by_raw_id[raw_id]))
+            elif raw_id in self._ctx.protein_by_raw_id:
+                edges.append(protein_edge_cls(start_node=parent_node, end_node=self._ctx.protein_by_raw_id[raw_id]))
         return edges
 
     def _qualify_data_frame_ids(self, df):
@@ -545,6 +621,8 @@ class PounceNodeBuilder:
                 index_rename[raw_id] = self._ctx.metabolite_by_raw_id[raw_id_str].id
             elif raw_id_str in self._ctx.gene_by_raw_id:
                 index_rename[raw_id] = self._ctx.gene_by_raw_id[raw_id_str].id
+            elif raw_id_str in self._ctx.protein_by_raw_id:
+                index_rename[raw_id] = self._ctx.protein_by_raw_id[raw_id_str].id
 
         col_rename = {
             col: self._ctx.run_biosample_by_original_id[str(col)].id
@@ -572,6 +650,7 @@ class PounceNodeBuilder:
         if raw_df is None:
             dataset = Dataset(
                 id=dataset_id, data_type=data_type,
+                access=experiment_obj.access,
                 pre_processing_description=pre_processing, peri_processing_description=peri_processing,
                 row_count=0, column_count=0, gene_id_column=analyte_id_col, sample_columns=[]
             )
@@ -582,6 +661,7 @@ class PounceNodeBuilder:
 
         placeholder = Dataset(
             id=dataset_id, data_type=data_type,
+            access=experiment_obj.access,
             pre_processing_description=pre_processing, peri_processing_description=peri_processing,
             row_count=len(raw_df), column_count=len(raw_df.columns),
             gene_id_column=analyte_id_col, sample_columns=list(raw_df.columns)
@@ -590,12 +670,13 @@ class PounceNodeBuilder:
             DatasetRunBiosampleEdge(start_node=placeholder, end_node=self._ctx.run_biosample_by_original_id[str(col)])
             for col in raw_df.columns if str(col) in self._ctx.run_biosample_by_original_id
         ]
-        analyte_edges = self._build_analyte_edges(placeholder, raw_df, DatasetGeneEdge, DatasetMetaboliteEdge)
+        analyte_edges = self._build_analyte_edges(placeholder, raw_df, DatasetGeneEdge, DatasetMetaboliteEdge, DatasetProteinEdge)
 
         qualified_df = self._qualify_data_frame_ids(raw_df)
 
         dataset = Dataset(
             id=dataset_id, data_type=data_type,
+            access=experiment_obj.access,
             pre_processing_description=pre_processing, peri_processing_description=peri_processing,
             row_count=len(qualified_df), column_count=len(qualified_df.columns),
             gene_id_column=analyte_id_col, sample_columns=list(qualified_df.columns),
@@ -611,7 +692,8 @@ class PounceNodeBuilder:
             yield analyte_edges
 
     def _stats_results_nodes(self, experiment_obj: Experiment, stats_parser: ExcelsheetParser,
-                             stats_data: Optional[ParsedPounceData] = None
+                             stats_data: Optional[ParsedPounceData] = None,
+                             stats_file: Optional[str] = None
                              ) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse StatsReadyData and EffectSize from the stats results workbook."""
         stats_sheet_names = stats_parser.sheet_dfs.keys()
@@ -632,13 +714,21 @@ class PounceNodeBuilder:
             )
 
         if StatsResultsWorkbook.EffectSizeSheet.name in stats_sheet_names:
-            yield from self._parse_effect_size(experiment_obj, analyte_id_col, es_column_map, stats_parser, stats_data)
+            yield from self._parse_effect_size(
+                experiment_obj,
+                analyte_id_col,
+                es_column_map,
+                stats_parser,
+                stats_data,
+                stats_file=stats_file,
+            )
 
     def _parse_effect_size(self, experiment_obj: Experiment,
                            analyte_id_col: str = None,
                            es_column_map: Dict[str, ComparisonColumn] = None,
                            parser: ExcelsheetParser = None,
-                           stats_data: Optional[ParsedPounceData] = None
+                           stats_data: Optional[ParsedPounceData] = None,
+                           stats_file: Optional[str] = None
                            ) -> Generator[List[Union[Node, Relationship]], None, None]:
         """Parse EffectSize sheet into a StatsResult node with edges to analytes."""
         if es_column_map is None:
@@ -668,6 +758,10 @@ class PounceNodeBuilder:
         if raw_df is None:
             stats_result = StatsResult(
                 id=stats_result_id, data_type="effect_size",
+                workbook=WorkbookArtifact(
+                    original_filename=os.path.basename(stats_file) if stats_file else None,
+                    _local_path=stats_file,
+                ) if stats_file else None,
                 row_count=0, column_count=0,
                 analyte_id_column=analyte_id_col,
                 comparison_columns=list(es_column_map.values()), **meta_kwargs
@@ -682,7 +776,7 @@ class PounceNodeBuilder:
 
         placeholder = StatsResult(id=stats_result_id, data_type="effect_size",
                                   row_count=0, column_count=0, analyte_id_column=analyte_id_col)
-        analyte_edges = self._build_analyte_edges(placeholder, raw_df, StatsResultGeneEdge, StatsResultMetaboliteEdge)
+        analyte_edges = self._build_analyte_edges(placeholder, raw_df, StatsResultGeneEdge, StatsResultMetaboliteEdge, StatsResultProteinEdge)
 
         qualified_df = self._qualify_data_frame_ids(raw_df)
 
@@ -693,6 +787,10 @@ class PounceNodeBuilder:
 
         stats_result = StatsResult(
             id=stats_result_id, data_type="effect_size",
+            workbook=WorkbookArtifact(
+                original_filename=os.path.basename(stats_file) if stats_file else None,
+                _local_path=stats_file,
+            ) if stats_file else None,
             row_count=len(qualified_df), column_count=len(qualified_df.columns),
             analyte_id_column=analyte_id_col, comparison_columns=comparison_columns,
             _data_frame=qualified_df, **meta_kwargs
@@ -787,6 +885,7 @@ class PounceNodeBuilder:
         analyte_keys = {
             StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id,
             StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id,
+            StatsResultsWorkbook.EffectSizeMapSheet.Key.protein_id,
         }
         notes_col = "Submitter_Notes"
         has_notes = notes_col in df.columns

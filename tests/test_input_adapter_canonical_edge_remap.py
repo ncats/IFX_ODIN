@@ -6,9 +6,9 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.disease import Disease, GeneDiseaseEdge, ProteinDiseaseEdge
 from src.models.expression import GeneTissueExpressionEdge, ProteinTissueExpressionEdge
-from src.models.gene import Gene
+from src.models.gene import Gene, MeasuredGene, MeasuredGeneEdge
 from src.models.pathway import GenePathwayEdge, Pathway, ProteinPathwayEdge
-from src.models.protein import Protein
+from src.models.protein import Protein, MeasuredProtein, MeasuredProteinEdge
 from src.models.tissue import Tissue
 from src.models.alliance_genome import AllianceGeneDiseaseEdge
 
@@ -17,6 +17,14 @@ class _RetypeGeneResolver(IdResolver):
     def resolve_internal(self, input_nodes: List[Gene]) -> Dict[str, List[IdMatch]]:
         return {
             node.id: [IdMatch(node.id, f"IFXProtein:{node.id}", equivalent_ids=[f"NCBIGene:{node.id}"])]
+            for node in input_nodes
+        }
+
+
+class _IdentityResolver(IdResolver):
+    def resolve_internal(self, input_nodes):
+        return {
+            node.id: [IdMatch(node.id, node.id, equivalent_ids=[node.id])]
             for node in input_nodes
         }
 
@@ -91,3 +99,49 @@ def test_input_adapter_leaves_unmapped_gene_edge_classes_unchanged():
     assert isinstance(rel.start_node, Protein)
     assert rel.start_node.id == "IFXProtein:G1"
     assert rel.evidence_terms == ["ECO:1"]
+
+
+def test_input_adapter_keeps_measured_gene_edge_start_node_typed_as_measured_gene():
+    edge = MeasuredGeneEdge(
+        start_node=MeasuredGene(id="Ensembl:G1", symbol="GENE1"),
+        end_node=Gene(id="Ensembl:G1"),
+    )
+    adapter = _SingleBatchAdapter([edge])
+
+    batches = list(adapter.get_resolved_and_provenanced_list({
+        "Gene": _IdentityResolver(
+            types=["Gene"],
+            no_match_behavior=NoMatchBehavior.Skip,
+            multi_match_behavior=MultiMatchBehavior.All,
+        )
+    }))
+    rel = batches[-1][0]
+
+    assert isinstance(rel, MeasuredGeneEdge)
+    assert isinstance(rel.start_node, MeasuredGene)
+    assert rel.start_node.id == "Ensembl:G1"
+    assert isinstance(rel.end_node, Gene)
+    assert rel.end_node.id == "Ensembl:G1"
+
+
+def test_input_adapter_keeps_measured_protein_edge_start_node_typed_as_measured_protein():
+    edge = MeasuredProteinEdge(
+        start_node=MeasuredProtein(id="UniProtKB:P12345", name="Protein 1"),
+        end_node=Protein(id="UniProtKB:P12345"),
+    )
+    adapter = _SingleBatchAdapter([edge])
+
+    batches = list(adapter.get_resolved_and_provenanced_list({
+        "Protein": _IdentityResolver(
+            types=["Protein"],
+            no_match_behavior=NoMatchBehavior.Skip,
+            multi_match_behavior=MultiMatchBehavior.All,
+        )
+    }))
+    rel = batches[-1][0]
+
+    assert isinstance(rel, MeasuredProteinEdge)
+    assert isinstance(rel.start_node, MeasuredProtein)
+    assert rel.start_node.id == "UniProtKB:P12345"
+    assert isinstance(rel.end_node, Protein)
+    assert rel.end_node.id == "UniProtKB:P12345"

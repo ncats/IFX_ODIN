@@ -39,8 +39,7 @@
         <p class="hero-subtitle">
             {%- if parsed_data and parsed_data.project -%}
                 {%- set proj = parsed_data.project -%}
-                {{ proj.project_id or "" }}
-                {%- if proj.project_type %} &middot; {{ proj.project_type | join(", ") }}{% endif %}
+                {%- if proj.project_type %}{{ proj.project_type | join(", ") }}{% endif %}
                 {%- if proj.date %} &middot; {{ proj.date }}{% endif %}
             {%- else -%}
                 {{ project_filename }}
@@ -132,7 +131,6 @@
     <div style="font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text-muted);
                 text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem;">Project</div>
     <div style="display: grid; grid-template-columns: 185px 1fr; gap: 0 1rem; align-items: baseline; row-gap: 0.1rem;">
-        {{ kv_row("Project ID",          proj.project_id) }}
         {{ kv_row("Description",         proj.description) }}
         {{ kv_row("Date",                proj.date) }}
         {{ kv_row("Owners",              proj.owner_names) }}
@@ -190,7 +188,7 @@
 {% endif %}
 
 {# ── Mapping coverage ────────────────────────────────────────────────────── #}
-{% if coverage or metab_resolver_missing or gene_resolver_missing %}
+{% if coverage or metab_resolver_missing or gene_resolver_missing or protein_resolver_missing %}
 <details class="card" style="margin-bottom: 2rem;">
     <summary style="{{ _detail_summary }}">
         Mapping Coverage
@@ -249,6 +247,11 @@
             <strong>GeneMeta</strong> — resolver not configured, coverage check skipped
         </div>
         {% endif %}
+        {% if protein_resolver_missing %}
+        <div style="font-size: 13px; color: var(--text-muted);">
+            <strong>ProteinMeta</strong> — resolver not configured, coverage check skipped
+        </div>
+        {% endif %}
     </div>
 </details>
 {% endif %}
@@ -266,7 +269,6 @@
         Experiment {{ loop.index }}{% if exp.experiment_name %}: {{ exp.experiment_name }}{% endif %}
     </summary>
     <div style="{{ _kv_grid }}">
-        {{ kv_row("Experiment ID",              exp.experiment_id) }}
         {{ kv_row("Name",                       exp.experiment_name) }}
         {{ kv_row("Description",                exp.experiment_description) }}
         {{ kv_row("Design",                     exp.experiment_design) }}

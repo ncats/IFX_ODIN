@@ -21,8 +21,6 @@ from src.input_adapters.pounce_sheets.sheet_field import sheet_field
 
 @dataclass
 class ParsedProject:
-    project_id: Optional[str] = sheet_field(
-        key="project_id", sheet="ProjectMeta")
     project_name: Optional[str] = sheet_field(
         key="project_name", sheet="ProjectMeta")
     description: Optional[str] = sheet_field(
@@ -152,8 +150,6 @@ class ParsedExposure:
 
 @dataclass
 class ParsedExperiment:
-    experiment_id: Optional[str] = sheet_field(
-        key="experiment_id", sheet="ExperimentMeta")
     experiment_name: Optional[str] = sheet_field(
         key="experiment_name", sheet="ExperimentMeta")
     experiment_description: Optional[str] = sheet_field(
@@ -224,6 +220,24 @@ class ParsedGene:
         key="category {}", sheet="GeneMeta", indexed=True, default_factory=list)
 
 
+@dataclass
+class ParsedProtein:
+    protein_id: Optional[str] = sheet_field(
+        key="protein_id", sheet="ProteinMeta")
+    protein_name: Optional[str] = sheet_field(
+        key="protein_name", sheet="ProteinMeta")
+    gene_name: Optional[str] = sheet_field(
+        key="gene_name", sheet="ProteinMeta")
+    protein_class: Optional[str] = sheet_field(
+        key="protein_class", sheet="ProteinMeta")
+    alternate_id: Optional[str] = sheet_field(
+        key="alternate_id", sheet="ProteinMeta")
+    pathway_ids: Optional[str] = sheet_field(
+        key="pathway_ids", sheet="ProteinMeta")
+    categories: Optional[List[str]] = sheet_field(
+        key="category {}", sheet="ProteinMeta", indexed=True, default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Experiment workbook — MetabMeta via MetabMap (mapped sheet, multi-row)
 # ---------------------------------------------------------------------------
@@ -274,6 +288,16 @@ class ParsedRawDataMeta:
         key="peakdata_tag", sheet="RawDataMeta")
 
 
+@dataclass
+class ParsedProteinDataMeta:
+    pre_processing_description: Optional[str] = sheet_field(
+        key="pre_processing_description", sheet="ProteinDataMeta")
+    peri_processing_description: Optional[str] = sheet_field(
+        key="peri_processing_description", sheet="ProteinDataMeta")
+    proteindata_tag: Optional[str] = sheet_field(
+        key="proteindata_tag", sheet="ProteinDataMeta")
+
+
 # ---------------------------------------------------------------------------
 # Experiment workbook — RunBioSampleMeta via RunBioSampleMap (mapped sheet, multi-row)
 # ---------------------------------------------------------------------------
@@ -307,6 +331,8 @@ class ParsedStatsResultsMeta:
         key="statsresults_name", sheet="StatsResultsMeta")
     stats_description: Optional[str] = sheet_field(
         key="stats_description", sheet="StatsResultsMeta")
+    experiment_name: Optional[str] = sheet_field(
+        key="experiment_name", sheet="StatsResultsMeta")
     lead_informatician: Optional[str] = sheet_field(
         key="lead_informatician", sheet="StatsResultsMeta")
     lead_informatician_email: Optional[str] = sheet_field(

@@ -18,6 +18,8 @@ from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedExperiment,
     ParsedGene,
     ParsedMetab,
+    ParsedProtein,
+    ParsedProteinDataMeta,
     ParsedPeakDataMeta,
     ParsedRawDataMeta,
     ParsedRunBiosample,
@@ -36,7 +38,9 @@ class ParsedPounceData:
     exposures: List[ParsedExposure] = field(default_factory=list)
     experiments: List[ParsedExperiment] = field(default_factory=list)
     genes: List[ParsedGene] = field(default_factory=list)
+    proteins: List[ParsedProtein] = field(default_factory=list)
     metabolites: List[ParsedMetab] = field(default_factory=list)
+    protein_data_meta: List[ParsedProteinDataMeta] = field(default_factory=list)
     peak_data_meta: List[ParsedPeakDataMeta] = field(default_factory=list)
     raw_data_meta: List[ParsedRawDataMeta] = field(default_factory=list)
     run_biosamples: List[ParsedRunBiosample] = field(default_factory=list)

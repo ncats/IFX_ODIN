@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import os
 import platform
 import socket
@@ -155,7 +156,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         for obj in objects:
             if isinstance(obj, (Dataset, StatsResult)) and obj._data_frame is not None:
                 safe_id = self.safe_key(obj.id).replace(':', '_')
-                key = f"parquet/{safe_id}.parquet"
+                key = f"{self.database_name}/parquet/{safe_id}.parquet"
 
                 buf = io.BytesIO()
                 table = pa.Table.from_pandas(obj._data_frame)
@@ -167,6 +168,69 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
                 obj.file_reference = f"s3://{creds.schema}/{key}"
                 obj._data_frame = None
+
+    def _project_id_for_workbook_owner(self, obj) -> str:
+        from src.models.pounce.project import Project
+        from src.models.pounce.experiment import Experiment
+        from src.models.pounce.stats_result import StatsResult
+
+        if isinstance(obj, Project):
+            return obj.id
+        if isinstance(obj, Experiment):
+            return obj.id.rsplit("_", 1)[0]
+        if isinstance(obj, StatsResult):
+            experiment_id = obj.id.split(":", 1)[0]
+            return experiment_id.rsplit("_", 1)[0]
+        raise TypeError(f"Unsupported workbook owner type: {type(obj).__name__}")
+
+    def _handle_pounce_workbook_nodes(self, objects):
+        from src.models.pounce.project import Project
+        from src.models.pounce.experiment import Experiment
+        from src.models.pounce.stats_result import StatsResult
+        from src.models.pounce.workbook_artifact import WorkbookArtifact
+
+        if not self.minio_creds:
+            return
+
+        import boto3
+        from botocore.client import Config
+
+        creds = self.minio_creds
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=creds.url,
+            aws_access_key_id=creds.user,
+            aws_secret_access_key=creds.password,
+            config=Config(
+                signature_version="s3v4",
+                s3={'addressing_style': 'path'}
+            ),
+            verify=False,
+        )
+        self._ensure_bucket(s3, creds.schema)
+
+        for obj in objects:
+            if not isinstance(obj, (Project, Experiment, StatsResult)):
+                continue
+            workbook = getattr(obj, "workbook", None)
+            if not isinstance(workbook, WorkbookArtifact):
+                continue
+            local_path = workbook._local_path
+            if workbook.file_reference and str(workbook.file_reference).startswith("s3://"):
+                continue
+            if not local_path:
+                continue
+            if not os.path.exists(local_path):
+                raise FileNotFoundError(f"Workbook file not found for {type(obj).__name__} {obj.id}: {local_path}")
+
+            project_id = self._project_id_for_workbook_owner(obj)
+            original_name = workbook.original_filename or os.path.basename(local_path)
+            key = f"{self.database_name}/workbooks/{self.safe_key(project_id)}/{original_name}"
+            with open(local_path, "rb") as handle:
+                s3.put_object(Bucket=creds.schema, Key=key, Body=handle)
+            workbook.original_filename = original_name
+            workbook.file_reference = f"s3://{creds.schema}/{key}"
+            workbook._local_path = None
 
     def create_indexes(self, cls: Type, collection):
         indexed_fields = collect_indexed_fields(cls)
@@ -193,7 +257,19 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     def store(self, objects, single_source = False) -> bool:
 
         def generate_edge_key(from_node, to_node, edge_type):
-            return f"{self.safe_key(edge_type)}__{self.safe_key(from_node)}__{self.safe_key(to_node)}"
+            edge_hash = hashlib.sha256(f"{from_node}|{to_node}".encode("utf-8")).hexdigest()
+            return f"{self.safe_key(edge_type)}__{edge_hash}"
+
+        def get_insert_failures(insert_result):
+            failed = []
+            if not insert_result:
+                return failed
+            for result in insert_result:
+                if isinstance(result, Exception):
+                    failed.append(result)
+                elif isinstance(result, dict) and result.get("error"):
+                    failed.append(result)
+            return failed
 
         merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
 
@@ -201,6 +277,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             objects = [objects]
 
         self._handle_dataset_nodes(objects)
+        self._handle_pounce_workbook_nodes(objects)
 
         db = self.get_db()
         graph = self.get_graph()
@@ -295,9 +372,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     }
                     edges.append(edge)
 
-                edge_collection.insert_many(edges, overwrite=True)
-
-
+                insert_result = edge_collection.insert_many(edges, overwrite=True)
+                failed = get_insert_failures(insert_result)
+                if failed:
+                    print(f"edge insert failures for {label}:")
+                    for failure in failed[:10]:
+                        print(failure)
+                    raise Exception(f"failed to insert {len(failed)} edge records into {label}")
             else:
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list, skip_merge=single_source)
 
@@ -308,10 +389,16 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 merged_nodes = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='nodes')
 
                 print(merged_nodes[0])
-                collection.insert_many(
+                insert_result = collection.insert_many(
                     [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes],
                     overwrite=True
                 )
+                failed = get_insert_failures(insert_result)
+                if failed:
+                    print(f"node insert failures for {label}:")
+                    for failure in failed[:10]:
+                        print(failure)
+                    raise Exception(f"failed to insert {len(failed)} node records into {label}")
 
         return True
 
@@ -326,6 +413,46 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         existing_nodes = collection.get_many(keys)
         return collection, existing_nodes
 
+    def _delete_minio_prefix(self, prefix: str) -> None:
+        if not self.minio_creds:
+            return
+
+        import boto3
+        from botocore.client import Config
+        from botocore.exceptions import ClientError
+
+        creds = self.minio_creds
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=creds.url,
+            aws_access_key_id=creds.user,
+            aws_secret_access_key=creds.password,
+            config=Config(
+                signature_version="s3v4",
+                s3={'addressing_style': 'path'}
+            ),
+            verify=False,
+        )
+
+        try:
+            s3.head_bucket(Bucket=creds.schema)
+        except ClientError:
+            return
+
+        paginator = s3.get_paginator("list_objects_v2")
+        total_deleted = 0
+        for page in paginator.paginate(Bucket=creds.schema, Prefix=prefix):
+            contents = page.get("Contents", [])
+            if not contents:
+                continue
+            objects = [{"Key": item["Key"]} for item in contents]
+            for i in range(0, len(objects), 1000):
+                chunk = objects[i:i + 1000]
+                s3.delete_objects(Bucket=creds.schema, Delete={"Objects": chunk})
+                total_deleted += len(chunk)
+        if total_deleted:
+            print(f"Deleted {total_deleted} MinIO objects under s3://{creds.schema}/{prefix}")
+
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         sys_db = self.client.db('_system', username=self.credentials.user,
                             password=self.credentials.password)
@@ -336,6 +463,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             if effective_truncate:
                 sys_db.delete_database(self.database_name)
                 sys_db.create_database(self.database_name)
+                self._delete_minio_prefix(f"{self.database_name}/")
         else:
             sys_db.create_database(self.database_name)
 

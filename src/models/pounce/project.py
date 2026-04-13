@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Union, TYPE_CHECKING
 from src.interfaces.simple_enum import SimpleEnum, LabeledIntEnum
 from src.models.node import Node, Relationship
+from src.models.pounce.workbook_artifact import WorkbookArtifact
 from datetime import date
 
 if TYPE_CHECKING:
@@ -53,6 +54,7 @@ class Project(Node):
     name: str = None
     description: str = None
     date: date = None
+    workbook: WorkbookArtifact = None
     lab_groups: List[LabGroup] = field(default_factory=list)
     keywords: List[str] = field(default_factory=list)
     access: AccessLevel = None

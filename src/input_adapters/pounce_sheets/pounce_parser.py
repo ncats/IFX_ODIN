@@ -22,6 +22,8 @@ from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedMetab,
     ParsedPeakDataMeta,
     ParsedPerson,
+    ParsedProtein,
+    ParsedProteinDataMeta,
     ParsedProject,
     ParsedRawDataMeta,
     ParsedRunBiosample,
@@ -46,6 +48,10 @@ _EXPERIMENT_REQUIRED_SHEETS: Set[str] = {
 _EXPERIMENT_RECOGNIZED_SHEETS: Set[str] = _EXPERIMENT_REQUIRED_SHEETS | {
     ExperimentWorkbook.GeneMapSheet.name,
     ExperimentWorkbook.GeneMetaSheet.name,
+    ExperimentWorkbook.ProteinMapSheet.name,
+    ExperimentWorkbook.ProteinMetaSheet.name,
+    ExperimentWorkbook.ProteinDataMetaSheet.name,
+    ExperimentWorkbook.ProteinDataSheet.name,
     ExperimentWorkbook.MetabMapSheet.name,
     ExperimentWorkbook.MetabMetaSheet.name,
     ExperimentWorkbook.RawDataMetaSheet.name,
@@ -69,7 +75,7 @@ _KNOWN_KEYS_BY_SHEET: Dict[str, Set[str]] = defaultdict(set)
 for _cls in [
     ParsedProject, ParsedBiosample, ParsedBiospecimen, ParsedDemographics,
     ParsedExposure, ParsedExperiment, ParsedGene, ParsedMetab,
-    ParsedPeakDataMeta, ParsedRawDataMeta,
+    ParsedProtein, ParsedPeakDataMeta, ParsedProteinDataMeta, ParsedRawDataMeta,
     ParsedRunBiosample, ParsedStatsResultsMeta,
 ]:
     for _f, _meta in get_sheet_fields(_cls):
@@ -82,6 +88,7 @@ for _cls in [
 _KNOWN_KEYS_BY_SHEET[StatsResultsWorkbook.EffectSizeMapSheet.name] = {
     StatsResultsWorkbook.EffectSizeMapSheet.Key.gene_id,
     StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id,
+    StatsResultsWorkbook.EffectSizeMapSheet.Key.protein_id,
 }
 
 # Placeholder key used in EffectSize_Map rows that don't yet have an NCATSDPI name.
@@ -357,6 +364,17 @@ class PounceParser:
                 data.genes.append(
                     self._parse_mapped_row(row, gene_map, ParsedGene))
 
+        # --- ProteinMeta via ProteinMap (mapped sheet) ---
+        if "ProteinMap" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "ProteinMap", "ProteinMeta"))
+            protein_map = parser.get_parameter_map("ProteinMap")
+            data.param_maps[ExperimentWorkbook.ProteinMapSheet.name] = protein_map
+        if "ProteinMap" in parser.sheet_dfs and "ProteinMeta" in parser.sheet_dfs:
+            issues.extend(self._check_mapped_columns(parser, "ProteinMap", "ProteinMeta", protein_map))
+            for _, row in parser.sheet_dfs["ProteinMeta"].iterrows():
+                data.proteins.append(
+                    self._parse_mapped_row(row, protein_map, ParsedProtein))
+
         # --- MetabMeta via MetabMap (mapped sheet) ---
         if "MetabMap" in parser.sheet_dfs:
             issues.extend(self._check_unknown_keys(parser, "MetabMap", "MetabMeta"))
@@ -390,6 +408,16 @@ class PounceParser:
                     f"metab_id '{{value}}' in PeakData does not exist in MetabMeta",
                 ))
 
+        if "ProteinMap" in parser.sheet_dfs and data.proteins:
+            protein_id_col = protein_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_id)
+            if protein_id_col and protein_id_col not in ("NA", "N/A", ""):
+                valid_protein_ids = {p.protein_id for p in data.proteins if p.protein_id}
+                issues.extend(self._check_data_matrix_references(
+                    parser, ExperimentWorkbook.ProteinDataSheet.name,
+                    protein_id_col, valid_protein_ids,
+                    f"protein_id '{{value}}' in ProteinData does not exist in ProteinMeta",
+                ))
+
         # Check that data matrix sample column names match run_biosample_ids in RunBioSampleMeta.
         valid_run_ids = {rb.run_biosample_id for rb in data.run_biosamples if rb.run_biosample_id}
         if valid_run_ids:
@@ -411,6 +439,15 @@ class PounceParser:
                         valid_sample_ids=valid_run_ids,
                         message_template="column '{value}' in PeakData does not match any run_biosample_id in RunBioSampleMeta",
                     ))
+            if "ProteinMap" in parser.sheet_dfs:
+                protein_id_col = protein_map.get(ExperimentWorkbook.ProteinMapSheet.Key.protein_id)
+                if protein_id_col and protein_id_col not in ("NA", "N/A", ""):
+                    issues.extend(self._check_matrix_sample_columns(
+                        parser, ExperimentWorkbook.ProteinDataSheet.name,
+                        exclude_columns={protein_id_col},
+                        valid_sample_ids=valid_run_ids,
+                        message_template="column '{value}' in ProteinData does not match any run_biosample_id in RunBioSampleMeta",
+                    ))
 
         # --- PeakDataMeta (meta sheet) ---
         if "PeakDataMeta" in parser.sheet_dfs:
@@ -422,15 +459,20 @@ class PounceParser:
             issues.extend(self._check_unknown_keys(parser, "RawDataMeta", "RawDataMeta"))
             data.raw_data_meta.append(self.parse_meta_sheet(parser, ParsedRawDataMeta))
 
+        if "ProteinDataMeta" in parser.sheet_dfs:
+            issues.extend(self._check_unknown_keys(parser, "ProteinDataMeta", "ProteinDataMeta"))
+            data.protein_data_meta.append(self.parse_meta_sheet(parser, ParsedProteinDataMeta))
+
         return data, issues
 
     def parse_stats_results(self, parser: ExcelsheetParser,
                              valid_gene_ids: Optional[Set[str]] = None,
                              valid_metab_ids: Optional[Set[str]] = None,
+                             valid_protein_ids: Optional[Set[str]] = None,
                              valid_run_biosample_ids: Optional[Set[str]] = None):
         """Parse a stats results workbook (metadata only).
 
-        ``valid_gene_ids``, ``valid_metab_ids``, and ``valid_run_biosample_ids``
+        ``valid_gene_ids``, ``valid_metab_ids``, ``valid_protein_ids``, and ``valid_run_biosample_ids``
         are ID sets from the paired experiment.  When provided, ID values in
         StatsReadyData and EffectSize are checked against them, and StatsReadyData
         sample column names are checked against run_biosample_ids.
@@ -444,8 +486,7 @@ class PounceParser:
 
         if "StatsResultsMeta" in parser.sheet_dfs:
             issues.extend(self._check_unknown_keys(parser, "StatsResultsMeta", "StatsResultsMeta"))
-            data.stats_results.append(
-                self.parse_meta_sheet(parser, ParsedStatsResultsMeta))
+            data.stats_results.append(self.parse_meta_sheet(parser, ParsedStatsResultsMeta))
 
         # --- EffectSize_Map (map sheet) ---
         if "EffectSize_Map" in parser.sheet_dfs:
@@ -484,6 +525,15 @@ class PounceParser:
                             f"metab_id '{{value}}' in {sheet} does not exist in paired experiment's MetabMeta",
                         ))
 
+            if valid_protein_ids:
+                protein_id_col = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.protein_id)
+                if protein_id_col and protein_id_col not in ("NA", "N/A", ""):
+                    for sheet in _stats_data_sheets:
+                        issues.extend(self._check_data_matrix_references(
+                            parser, sheet, protein_id_col, valid_protein_ids,
+                            f"protein_id '{{value}}' in {sheet} does not exist in paired experiment's ProteinMeta",
+                        ))
+
             # Check StatsReadyData sample column names against paired run_biosample_ids.
             # Exclude whichever analyte ID column(s) are configured in EffectSize_Map.
             if valid_run_biosample_ids:
@@ -494,6 +544,9 @@ class PounceParser:
                 _m = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.metabolite_id)
                 if _m and _m not in ("NA", "N/A", ""):
                     analyte_cols.add(_m)
+                _p = effect_size_map.get(StatsResultsWorkbook.EffectSizeMapSheet.Key.protein_id)
+                if _p and _p not in ("NA", "N/A", ""):
+                    analyte_cols.add(_p)
                 issues.extend(self._check_matrix_sample_columns(
                     parser, StatsResultsWorkbook.StatsReadyDataSheet.name,
                     exclude_columns=analyte_cols,
@@ -525,7 +578,9 @@ class PounceParser:
                 exp_parser, valid_biosample_ids=valid_biosample_ids)
             combined.experiments.extend(exp_data.experiments)
             combined.genes.extend(exp_data.genes)
+            combined.proteins.extend(exp_data.proteins)
             combined.metabolites.extend(exp_data.metabolites)
+            combined.protein_data_meta.extend(exp_data.protein_data_meta)
             combined.peak_data_meta.extend(exp_data.peak_data_meta)
             combined.raw_data_meta.extend(exp_data.raw_data_meta)
             combined.run_biosamples.extend(exp_data.run_biosamples)
@@ -537,12 +592,14 @@ class PounceParser:
             if i < len(stats_files):
                 valid_gene_ids = {str(g.gene_id).strip() for g in exp_data.genes if g.gene_id} or None
                 valid_metab_ids = {str(m.metab_id).strip() for m in exp_data.metabolites if m.metab_id} or None
+                valid_protein_ids = {str(p.protein_id).strip() for p in exp_data.proteins if p.protein_id} or None
                 valid_run_biosample_ids = {str(rb.run_biosample_id).strip() for rb in exp_data.run_biosamples if rb.run_biosample_id} or None
                 stats_parser = ExcelsheetParser(file_path=stats_files[i])
                 stats_data, stats_issues = self.parse_stats_results(
                     stats_parser,
                     valid_gene_ids=valid_gene_ids,
                     valid_metab_ids=valid_metab_ids,
+                    valid_protein_ids=valid_protein_ids,
                     valid_run_biosample_ids=valid_run_biosample_ids,
                 )
                 combined.stats_results.extend(stats_data.stats_results)

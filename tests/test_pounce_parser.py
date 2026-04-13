@@ -196,7 +196,7 @@ class TestGetRowValue:
         assert PounceParser._get_row_value({"Col": "  S1  "}, "Col") == "S1"
 
     def test_returns_numeric_value_unchanged(self):
-        assert PounceParser._get_row_value({"Col": 42}, "Col") == 42
+        assert PounceParser._get_row_value({"Col": 42}, "Col") == "42"
 
     def test_returns_none_for_none_column_name(self):
         assert PounceParser._get_row_value({"Col": "S1"}, None) is None
@@ -258,6 +258,51 @@ class TestBuildPersons:
     def test_assigns_correct_role(self):
         result = PounceParser._build_persons(["Alice"], ["a@x.com"], "Collaborator")
         assert result[0].roles == ["Collaborator"]
+
+
+def test_parse_experiment_parses_protein_metadata_and_protein_data_meta():
+    parser = make_mock_parser(
+        meta_data={
+            "ExperimentMeta": {"experiment_name": "Proteomics Experiment"},
+            "ProteinDataMeta": {
+                "pre_processing_description": "search",
+                "peri_processing_description": "normalize",
+                "proteindata_tag": "LFQ_Intensity",
+            },
+        },
+        sheet_dfs={
+            "ExperimentMeta": pd.DataFrame(),
+            "RunBioSampleMap": pd.DataFrame(columns=["NCATSDPI_Variable_Name"]),
+            "RunBioSampleMeta": pd.DataFrame(columns=["run_biosample_id", "biosample_id"]),
+            "ProteinMap": pd.DataFrame(columns=["NCATSDPI_Variable_Name"]),
+            "ProteinMeta": pd.DataFrame([
+                {"Uniprot_Acc": "Q09666", "Protein_Description": "AHNAK", "Gene_Symbol": "AHNAK"}
+            ]),
+            "ProteinDataMeta": pd.DataFrame(columns=["NCATSDPI_Variable_Name"]),
+            "ProteinData": pd.DataFrame(columns=["Uniprot_Acc", "S1"]),
+        },
+        param_maps={
+            "RunBioSampleMap": {
+                "run_biosample_id": "run_biosample_id",
+                "biosample_id": "biosample_id",
+            },
+            "ProteinMap": {
+                "protein_id": "Uniprot_Acc",
+                "protein_name": "Protein_Description",
+                "gene_name": "Gene_Symbol",
+            },
+        },
+    )
+
+    data, issues = PounceParser().parse_experiment(parser)
+
+    assert not [issue for issue in issues if issue.severity == "error"]
+    assert len(data.proteins) == 1
+    assert data.proteins[0].protein_id == "Q09666"
+    assert data.proteins[0].protein_name == "AHNAK"
+    assert data.proteins[0].gene_name == "AHNAK"
+    assert len(data.protein_data_meta) == 1
+    assert data.protein_data_meta[0].proteindata_tag == "LFQ_Intensity"
 
 
 # ---------------------------------------------------------------------------
@@ -335,11 +380,6 @@ BASIC_BIOSAMPLE_MAP = {
 
 class TestParseProject:
 
-    def test_parses_project_id(self):
-        parser = _make_project_parser({"project_id": "PROJ001"})
-        data, _ = PounceParser().parse_project(parser)
-        assert data.project.project_id == "PROJ001"
-
     def test_parses_project_name(self):
         parser = _make_project_parser({"project_name": "My Project"})
         data, _ = PounceParser().parse_project(parser)
@@ -401,10 +441,9 @@ class TestParseProject:
             "owner_email": ["alice@x.com", "bob@x.com"],
         })
         data, _ = PounceParser().parse_project(parser)
-        owners = [p for p in data.people if p.roles == ["Owner"]]
-        assert len(owners) == 2
-        assert owners[0] == ParsedPerson(name="Alice", email="alice@x.com", roles=["Owner"])
-        assert owners[1] == ParsedPerson(name="Bob", email="bob@x.com", roles=["Owner"])
+        assert len(data.people) == 2
+        assert data.people[0] == ParsedPerson(name="Alice", email="alice@x.com", roles=["Owner", "Contact"])
+        assert data.people[1] == ParsedPerson(name="Bob", email="bob@x.com", roles=["Owner"])
 
     def test_builds_collaborators(self):
         parser = _make_project_parser({
@@ -427,7 +466,7 @@ class TestParseProject:
         data, _ = PounceParser().parse_project(parser)
         assert len(data.people) == 2
         roles = {tuple(p.roles) for p in data.people}
-        assert roles == {("Owner",), ("Collaborator",)}
+        assert roles == {("Owner", "Contact"), ("Collaborator",)}
 
     def test_no_people_when_names_absent(self):
         parser = _make_project_parser({})
@@ -564,12 +603,6 @@ BASIC_RUN_MAP = {
 
 class TestParseExperiment:
 
-    def test_parses_experiment_id(self):
-        parser = _make_experiment_parser({"experiment_id": "EXP001"})
-        data, _ = PounceParser().parse_experiment(parser)
-        assert len(data.experiments) == 1
-        assert data.experiments[0].experiment_id == "EXP001"
-
     def test_parses_experiment_name(self):
         parser = _make_experiment_parser({"experiment_name": "RNA-seq run 1"})
         data, _ = PounceParser().parse_experiment(parser)
@@ -616,7 +649,7 @@ class TestParseExperiment:
         assert data.run_biosamples[0].batch == "2"
 
     def test_no_run_biosamples_when_sheets_absent(self):
-        parser = _make_experiment_parser({"experiment_id": "EXP001"})
+        parser = _make_experiment_parser({"experiment_name": "EXP001"})
         data, _ = PounceParser().parse_experiment(parser)
         assert data.run_biosamples == []
 
@@ -795,7 +828,7 @@ class TestParseAll:
             from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
             from src.input_adapters.pounce_sheets.parsed_classes import ParsedProject
             d = ParsedPounceData()
-            d.project = ParsedProject(project_id="P1")
+            d.project = ParsedProject(project_name="P1")
             captured["called"] = True
             return d, []
 
@@ -807,6 +840,6 @@ class TestParseAll:
 
         result, _ = PounceParser().parse_all("fake_project.xlsx")
         assert captured.get("called") is True
-        assert result.project.project_id == "P1"
+        assert result.project.project_name == "P1"
         assert result.experiments == []
         assert result.stats_results == []

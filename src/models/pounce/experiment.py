@@ -5,6 +5,8 @@ from typing import Dict, Optional, List, TYPE_CHECKING
 from src.core.decorators import facets
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
+from src.models.pounce.project import AccessLevel
+from src.models.pounce.workbook_artifact import WorkbookArtifact
 
 
 class PlatformType(SimpleEnum):
@@ -30,6 +32,8 @@ class Experiment(Node):
     name: Optional[str] = None
     description: Optional[str] = None
     design: Optional[str] = None
+    workbook: Optional[WorkbookArtifact] = None
+    access: Optional[AccessLevel] = None
     experiment_type: Optional[str] = None
     date: Optional[date] = None
     platform_type: Optional[PlatformType] = None

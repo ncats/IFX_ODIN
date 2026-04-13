@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from src.constants import Prefix
 from src.models.node import Node
@@ -36,8 +36,18 @@ class UniProtResolver(IdResolver, UniProtFileReader):
         match_list.sort(key=lambda x: scores.get(x.context[0], float('inf')))
         return match_list
 
-    def __init__(self, uniprot_json_path: str):
+    def __init__(self,
+                 uniprot_json_path: str,
+                 types: Optional[List[str]] = None,
+                 no_match_behavior="Allow",
+                 multi_match_behavior="All"):
         self.alias_map = {}
+        IdResolver.__init__(
+            self,
+            types=types or ["Protein"],
+            no_match_behavior=no_match_behavior,
+            multi_match_behavior=multi_match_behavior,
+        )
         UniProtFileReader.__init__(self, uniprot_json_path)
         for entry in self.next():
             primary_accession = UniProtParser.get_primary_accession(entry)
@@ -75,14 +85,14 @@ class UniProtResolver(IdResolver, UniProtFileReader):
     def return_matches(self, unsorted_matches):
         sorted_matches = UniProtResolver.sort_matches(unsorted_matches)
         if len(sorted_matches) == 0:
-            return None, None
+            return []
         best_context = sorted_matches[0].context[0]
         best_matches = [match for match in sorted_matches if match.context[0] == best_context]
         return best_matches
 
     def _resolve(self, input_id):
         if input_id not in self.alias_map:
-            return None, None
+            return []
         unsorted_matches = self.alias_map.get(input_id)
         for match in unsorted_matches:
             match.context = UniProtResolver.sort_list(match.context)
@@ -91,8 +101,11 @@ class UniProtResolver(IdResolver, UniProtFileReader):
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         result_list = {}
         for node in input_nodes:
-            input_list = [node.id]
-            best_matches = self.get_matches_for_merged_list(input_list)
+            best_matches = self.get_matches_for_merged_list([node.id])
+            if not best_matches and isinstance(node.id, str) and node.id.startswith(f"{Prefix.UniProtKB}:"):
+                normalized_id = self.clean_id(node.id, 'uniprot')
+                if normalized_id != node.id:
+                    best_matches = self.get_matches_for_merged_list([normalized_id])
             result_list[node.id] = best_matches
         return result_list
 

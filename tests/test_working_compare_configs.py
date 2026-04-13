@@ -14,9 +14,9 @@ def test_working_pharos_compare_yaml_uses_tcrd_target_resolver():
     assert resolvers["tcrd_targets"]["kwargs"]["types"] == ["Protein", "Gene", "Transcript"]
     assert resolvers["tcrd_targets"]["kwargs"]["canonical_type"] == "Protein"
     assert resolvers["tcrd_targets"]["kwargs"]["collapse_reviewed_targets"] is True
-    assert resolvers["tcrd_targets"]["kwargs"]["gene_file_path"] == "/Users/kelleherkj/Downloads/260401Targets/gene_ids.tsv"
-    assert resolvers["tcrd_targets"]["kwargs"]["transcript_file_path"] == "/Users/kelleherkj/Downloads/260401Targets/transcript_ids.tsv"
-    assert resolvers["tcrd_targets"]["kwargs"]["protein_file_paths"] == ["/Users/kelleherkj/Downloads/260401Targets/protein_ids.tsv"]
+    assert resolvers["tcrd_targets"]["kwargs"]["gene_file_path"] == "./input_files/manual/target_graph/gene_ids.tsv"
+    assert resolvers["tcrd_targets"]["kwargs"]["transcript_file_path"] == "./input_files/manual/target_graph/transcript_ids.tsv"
+    assert resolvers["tcrd_targets"]["kwargs"]["protein_file_paths"] == ["./input_files/manual/target_graph/protein_ids.tsv"]
     assert resolvers["tissue_ids"]["class"] == "TissueResolver"
 
     assert input_adapters[0]["class"] == "ProteinNodeAdapter"
