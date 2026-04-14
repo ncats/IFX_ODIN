@@ -388,7 +388,7 @@ class PounceNodeBuilder:
                 meta_sheet=ExperimentWorkbook.ProteinDataMetaSheet.name,
                 data_sheet=ExperimentWorkbook.ProteinDataSheet.name,
                 analyte_id_col=analyte_id_col,
-                data_type="protein data",
+                data_type="raw data",
                 parser=exp_parser
             )
 

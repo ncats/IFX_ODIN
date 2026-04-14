@@ -552,7 +552,6 @@ class TCRDOutputConverter(SQLOutputConverter):
         disease_name = self._disease_name(obj)
         rows = []
         for ordinal, detail in enumerate(self._iter_disease_details(obj)):
-            source_disease_id = detail.get('source_id') or resolved_disease_id
             assoc_key = self._disease_assoc_key(obj['start_id'], resolved_disease_id, detail, ordinal)
             rows.append(mysqlDisease(
                 id=self.resolve_id('disease_assoc', assoc_key),
@@ -560,11 +559,12 @@ class TCRDOutputConverter(SQLOutputConverter):
                 protein_id=self.resolve_id('protein', obj['start_id']),
                 name=disease_name,
                 ncats_name=disease_name,
-                did=source_disease_id,
+                did=detail.get('source_id'),
                 evidence="|".join(detail.get('evidence_terms') or detail.get('evidence_codes') or []) or None,
                 zscore=detail.get('zscore'),
                 conf=detail.get('confidence'),
                 reference=detail.get('url'),
+                drug_name=detail.get('drug_name'),
                 mondoid=mondoid,
                 provenance=obj['provenance'],
             ))
