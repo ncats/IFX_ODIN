@@ -48,6 +48,9 @@ class DiseaseAssociationDetail:
     confidence: Optional[float] = None
     zscore: Optional[float] = None
     url: Optional[str] = None
+    drug_name: Optional[str] = None
+    snomed_id: Optional[str] = None
+    doid: Optional[str] = None
 
     def to_dict(self):
         return asdict(self)

@@ -63,6 +63,11 @@ class DiseaseAdapter(PharosArangoAdapter):
             rows.append(disease)
         yield rows
 
+        db = self.get_db()
+        if not db.has_collection("DiseaseParentEdge"):
+            yield []
+            return
+
         parents = self.runQuery(disease_parent_query())
         yield [
             DiseaseParentEdge(

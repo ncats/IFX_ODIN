@@ -58,18 +58,29 @@ Provide a repeatable workflow for adding a new data source to the target graph i
    - Note that the TCRD format is not always a natural fit, but often captures important historical scope.
    - For Pharos-related sources, inspect the old loader implementation in the TCRD repository when it helps explain legacy field choices or filtering.
 
-6) **Review data that makes it into TCRD**
+6) **Check identifier normalization coverage**
+   - Before adapter implementation, inspect how the configured resolver path will normalize the source IDs.
+   - For Pharos / target_graph disease ingest, check the current Node Normalizer integration in `src/id_resolvers/node_normalizer.py`.
+   - When the source offers multiple disease identifier families, profile each candidate family separately (for example `UMLS`, `SNOMEDCT`, `DOID`) rather than assuming the most ontology-like one is best.
+   - Query the resolver service metadata when helpful, for example Node Normalizer `GET /get_curie_prefixes`, to confirm accepted prefixes.
+   - Measure real coverage on distinct source IDs, not just a few spot checks.
+   - Record both:
+     - percent of source IDs that resolve at all
+     - representative canonical prefixes returned by the resolver
+   - Use these findings to choose what raw source ID the adapter should emit and leave canonicalization to the resolver layer whenever possible.
+
+7) **Review data that makes it into TCRD**
    - Currently Pharos uses pharos319.
    - Review the relevant tables and row counts to understand what was ingested previously.
    - Compare previous ingest output against the current raw payload to separate legacy limitations from current source reality.
    - When relevant, also inspect `pharos400` to understand what the newer MySQL path already captures or still misses.
 
-7) **Pause and propose the implementation plan**
+8) **Pause and propose the implementation plan**
    - Summarize the intended adapter scope, node/edge model, resolver dependencies, and validation plan.
    - Keep the first pass intentionally minimal.
    - Get user confirmation before making code changes.
 
-8) **Implement an InputAdapter**
+9) **Implement an InputAdapter**
    - Inherit from `src/interfaces/input_adapter.py` (or `FlatFileAdapter`).
    - Implement:
      - `get_all`
@@ -78,18 +89,18 @@ Provide a repeatable workflow for adding a new data source to the target graph i
    - Emit `Node` / `Relationship` models that match the schema.
    - Keep adapters focused on source parsing and structural graph emission.
 
-9) **Map to the data model**
+10) **Map to the data model**
    - Confirm existing node/edge classes or add new ones in `src/models/`.
    - Use stable IDs and consistent prefixes.
    - Avoid speculative parsing when source text is ambiguous; preserve the source text when parsing would be lossy.
    - Keep source-specific payload that may merge later inside `details` structures instead of flattening it into top-level edge fields.
 
-10) **Wire configuration into YAML**
+11) **Wire configuration into YAML**
    - Add the adapter to `src/use_cases/working.yaml` first.
    - Pass file paths and version metadata file paths via `kwargs`.
    - Only after the working ingest is validated, promote the finalized configuration into `src/use_cases/pharos/target_graph.yaml`.
 
-11) **Validate the working ingest**
+12) **Validate the working ingest**
     - Ask the user to run the working ETL path.
     - Validate that counts, labels, IDs, provenance, and key edge endpoints look correct.
     - Validate that representative input-file records land where expected in the working graph and, when available, in the working MySQL output.
@@ -100,7 +111,7 @@ Provide a repeatable workflow for adding a new data source to the target graph i
       - which source-specific columns are populated in `pharos319` but still empty in the working MySQL output
       - whether graph data is present in the working graph but not yet mapped into downstream tables
 
-12) **Update the design document**
+13) **Update the design document**
     - Revise the design doc to reflect what actually ended up in the code:
       - Final field mappings and any decisions that changed during implementation
       - Actual node/edge counts produced

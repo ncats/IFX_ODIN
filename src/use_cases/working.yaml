@@ -3,50 +3,45 @@ minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
 ramp_sqlite_file: &ramp_sqlite_file ./input_files/auto/ramp/RaMP_SQLite_v3.0.12.sqlite
 
 resolvers:
-#  - label: ramp_resolver
-#    import: ./src/id_resolvers/ramp_metabolite_resolver.py
-#    class: RampMetaboliteIdResolver
-#    kwargs:
-#      types:
-#        - Metabolite
-#      sqlite_file: *ramp_sqlite_file
-#
-#  - label: ensembl_resolver
-#    import: ./src/id_resolvers/ensembl_gene_resolver.py
-#    class: EnsemblGeneResolver
-#    kwargs:
-#      types:
-#        - Gene
-
-  - label: uniprot_proteins
-    import: ./src/id_resolvers/uniprot_resolver.py
-    class: UniProtResolver
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
     kwargs:
-      uniprot_json_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      types:
+        - Disease
+
+  - label: tcrd_targets
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TCRDTargetResolver
+    kwargs:
+      canonical_type: Protein
+      collapse_reviewed_targets: true
+      no_match_behavior: Skip
+      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      protein_file_paths:
+        - ./input_files/manual/target_graph/protein_ids.tsv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
       types:
         - Protein
+        - Gene
+        - Transcript
 
 input_adapters:
-  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
-    class: ProteinAdapter
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
-      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      collapse_reviewed_targets: true
 
-  - import: ./src/input_adapters/pounce_sheets/pounce_input_adapter.py
-    class: PounceInputAdapter
-    kwargs:
-      project_file: ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Project_Proteomics_DingyinDT_v2.xlsx
-      experiment_files:
-        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_Experiment_Proteomics_DingyinDT_v2.xlsx
-      stats_results_files:
-        - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_StatsResults_Proteomics_DingyinDT_v2.xlsx
-      validators_config: ./src/use_cases/pounce/pounce_validators.yaml
+  - import: ./src/input_adapters/drug_central/drug_indication.py
+    class: DrugCentralIndicationAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: test_pounce
+      database_name: test_pharos
       minio_credentials: *minio_credentials
     credentials: *destination_credentials

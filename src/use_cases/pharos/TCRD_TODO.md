@@ -24,7 +24,7 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD) |
 |---------|------------------------|-------------|------------------------------|
 | **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
-| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | [ ] TBD |
+| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | [x] `generif` |
 | **GeneGeneRifEdge** | [x] target_graph generif CSV | `GeneGeneRifEdge` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
 | **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon` |
 | **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent` |
@@ -35,13 +35,13 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
 | **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `Disease` | [x] `ncats_disease` |
-| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [ ] TBD |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [ ] TBD |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [x] `mondo_parent`<br>[x] `ancestry_mondo` |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent`<br>[x] `ancestry_do` |
 | **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] JensenLab DISEASES *(Knowledge, Experiment/TIGA, and Text Mining; promoted in `pharos.yaml` / `target_graph.yaml`; working/full configs apply `textmining_min_zscore: 6.0` to stay close to historical Pharos text-mining scope)* | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
-| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | [ ] TBD |
-| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | [ ] TBD |
+| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | [x] `pathway` |
+| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL |
 | **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] PathwayCommons *(side-lifted from gene associations by the TCRD target resolver)* | `ProteinPathwayEdge` | [x] `pathway` |
-| **Keyword** | [x] UniProt | `Keyword` | [ ] TBD |
+| **Keyword** | [x] UniProt | `Keyword` | [x] `xref` *(UniProt Keyword xtype)* |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)* |
@@ -55,8 +55,8 @@ These tables are populated directly from ontology source files during the TCRD b
 
 | Source Concept | Source Files | TCRD Tables |
 |---------|------------------------|-------------|
-| **MONDO ontology** | [x] `input_files/auto/mondo/mondo.json` | [x] `mondo`<br>[x] `mondo_parent` |
-| **Disease Ontology** | [x] `input_files/auto/disease_ontology/doid.json` | [x] `do`<br>[x] `do_parent` |
+| **MONDO ontology** | [x] `input_files/auto/mondo/mondo.json` | [x] `mondo`<br>[x] `mondo_parent`<br>[x] `ancestry_mondo` *(post-processing from `mondo_parent`)* |
+| **Disease Ontology** | [x] `input_files/auto/disease_ontology/doid.json` | [x] `do`<br>[x] `do_parent`<br>[x] `ancestry_do` *(post-processing from `do_parent`)* |
 
 ---
 
