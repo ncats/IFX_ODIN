@@ -34,9 +34,13 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       collapse_reviewed_targets: true
 
-  - import: ./src/input_adapters/drug_central/drug_indication.py
-    class: DrugCentralIndicationAdapter
-    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
+  - import: ./src/input_adapters/panther/panther_classes.py
+    class: PantherClassesAdapter
+    kwargs:
+      class_file_path: ./input_files/auto/panther/Protein_Class_19.0
+      relationship_file_path: ./input_files/auto/panther/Protein_class_relationship
+      sequence_classification_file_path: ./input_files/auto/panther/PTHR19.0_human
+      version_file_path: ./input_files/auto/panther/panther_classes_version.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

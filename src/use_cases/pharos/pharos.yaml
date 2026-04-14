@@ -329,6 +329,14 @@ input_adapters:
       file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
       version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
 
+  - import: ./src/input_adapters/panther/panther_classes.py
+    class: PantherClassesAdapter
+    kwargs:
+      class_file_path: ./input_files/auto/panther/Protein_Class_19.0
+      relationship_file_path: ./input_files/auto/panther/Protein_class_relationship
+      sequence_classification_file_path: ./input_files/auto/panther/PTHR19.0_human
+      version_file_path: ./input_files/auto/panther/panther_classes_version.tsv
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter

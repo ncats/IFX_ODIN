@@ -46,6 +46,7 @@ class DataSourceName(SimpleEnum):
     DiseaseOntology = "Disease Ontology"
     CTD = "CTD"
     UBERON = 'UBERON'
+    PANTHERClasses = "PANTHER Protein Classes"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
@@ -89,6 +90,7 @@ class Prefix(SimpleEnum):
     OMIM = 'OMIM'                       	# from TNN
     OMIM_PS = 'OMIM.PS'                 	# from TNN
     orphanet = 'orphanet'               	# from TNN
+    PANTHER_CLASS = 'PANTHER.CLASS'
     PANTHER_FAMILY = 'PANTHER.FAMILY'    	# from TNN
     PANTHER_PATHWAY = 'PANTHER.PATHWAY'  	# from TNN
     PMC = 'PMC'                         	# from TNN

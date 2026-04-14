@@ -38,7 +38,11 @@ rule all:
         "../input_files/auto/jensenlab/tissues_version.tsv",
         "../input_files/auto/wikipathways/wikipathways_human.gmt",
         "../input_files/auto/wikipathways/wikipathways_version.tsv",
-        "../input_files/auto/disease_ontology/doid.json"
+        "../input_files/auto/disease_ontology/doid.json",
+        "../input_files/auto/panther/Protein_Class_19.0",
+        "../input_files/auto/panther/Protein_class_relationship",
+        "../input_files/auto/panther/PTHR19.0_human",
+        "../input_files/auto/panther/panther_classes_version.tsv"
 
 rule download_ctd:
     output:
@@ -244,6 +248,30 @@ rule download_pathwaycommons:
         mkdir -p ../input_files/auto/pathwaycommons
         curl -fL -o {output[0]} https://download.baderlab.org/PathwayCommons/PC2/v14/pc-hgnc.gmt.gz
         curl -fs https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt | python3 -c "import sys,re; from datetime import datetime; data=sys.stdin.read(); m=re.search(r'PC version (\d+) (\d+ \w+ \d+)',data); v=m.group(1); dt=datetime.strptime(m.group(2),'%d %b %Y').date().isoformat(); open('{output[1]}','w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')"
+        """
+
+rule download_panther_classes:
+    output:
+        "../input_files/auto/panther/Protein_Class_19.0",
+        "../input_files/auto/panther/Protein_class_relationship",
+        "../input_files/auto/panther/PTHR19.0_human",
+        "../input_files/auto/panther/panther_classes_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/panther
+        class_url='https://data.pantherdb.org/PANTHER19.0/ontology/Protein_Class_19.0'
+        rel_url='https://data.pantherdb.org/PANTHER19.0/ontology/Protein_class_relationship'
+        seq_url='https://data.pantherdb.org/ftp/sequence_classifications/current_release/PANTHER_Sequence_Classification_files/PTHR19.0_human'
+
+        curl -fL -o {output[0]} "$class_url"
+        curl -fL -o {output[1]} "$rel_url"
+        curl -fL -o {output[2]} "$seq_url"
+
+        class_lm=$(curl -fsI "$class_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        rel_lm=$(curl -fsI "$rel_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        seq_lm=$(curl -fsI "$seq_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+        python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:4] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; version='19.0'; open(sys.argv[4],'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+sys.argv[5]+'\\n')" "$class_lm" "$rel_lm" "$seq_lm" {output[3]} "$download_date"
         """
 
 rule download_wikipathways:

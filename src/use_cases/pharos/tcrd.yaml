@@ -105,6 +105,18 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/panther.py
+    class: PantherClassAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/panther.py
+    class: ProteinPantherClassAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
   - import: ./src/input_adapters/pharos_arango/tcrd/keyword.py
     class: ProteinKeywordAdapter
     credentials: *source_credentials
