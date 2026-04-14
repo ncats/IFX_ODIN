@@ -34,13 +34,15 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa` |
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
-| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `Disease` | [x] `ncats_disease` |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES *(promoted in `pharos.yaml` / `target_graph.yaml`)*<br>[x] DrugCentral Indication | `Disease` | [x] `ncats_disease` |
 | **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [x] `mondo_parent`<br>[x] `ancestry_mondo` |
 | **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent`<br>[x] `ancestry_do` |
-| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] JensenLab DISEASES *(Knowledge, Experiment/TIGA, and Text Mining; promoted in `pharos.yaml` / `target_graph.yaml`; working/full configs apply `textmining_min_zscore: 6.0` to stay close to historical Pharos text-mining scope)* | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
+| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] JensenLab DISEASES *(Knowledge, Experiment/TIGA, and Text Mining; promoted in `pharos.yaml` / `target_graph.yaml`; working/full configs apply `textmining_min_zscore: 6.0` to stay close to historical Pharos text-mining scope)*<br>[x] DrugCentral Indication | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
 | **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | [x] `pathway` |
 | **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL |
 | **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] PathwayCommons *(side-lifted from gene associations by the TCRD target resolver)* | `ProteinPathwayEdge` | [x] `pathway` |
+| **PantherClass** | [x] PANTHER Classes *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `PantherClass` | [x] `panther_class` *(via `tcrd.yaml`; validated in `working_mysql.yaml` first)* |
+| **ProteinPantherClassEdge** | [x] PANTHER Classes *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `ProteinPantherClassEdge` | [x] `p2pc` *(via `tcrd.yaml`; validated in `working_mysql.yaml` first)* |
 | **Keyword** | [x] UniProt | `Keyword` | [x] `xref` *(UniProt Keyword xtype)* |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
@@ -61,18 +63,13 @@ These tables are populated directly from ontology source files during the TCRD b
 ---
 
 ## Planned Data Sources
-
-### Additional Disease Associations (ProteinDiseaseEdge)
-- DrugCentral Indication
-- ERAM *(punt for now: public download appears stale/legacy; if we need ERAM coverage, prefer copying or migrating the legacy `eRAM` rows from `pharos319` rather than building a fresh ingest from the public files)*
-- Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
-- Monarch
-- OMIM
+### Target Disease Associations
+- maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
 - Protein-Protein Interactions — STRING, BioPlex, Reactome PPI
 - Orthologs — OMA, EggNOG, Inparanoid
-- Protein Classes - PANTHER, DTO
+- Protein Classes - DTO
 - Phenotype — IMPC, JAX/MGI
 - GWAS
 - Protein & Disease Novelty (this might be TINx, I'm not sure)
@@ -98,6 +95,22 @@ These tables are populated directly from ontology source files during the TCRD b
 ### Requires License
 - DisGeNET Disease Associations
 - KEGG Pathway
+- OMIM investigation follow-up *(low priority: legacy TCRD/Pharos loaded licensed OMIM files into `omim`, `omim_ps`, and `phenotype` with `ptype='OMIM'`, and the frontend did not surface that content. Revisit only if we explicitly want a phenotype/trait ingest, not as a target-disease source.)*
+
+### Punted / Not Doing Right Now
+- ERAM *(punt for now: public download appears stale/legacy; if we need ERAM coverage, prefer copying or migrating the legacy `eRAM` rows from `pharos319` rather than building a fresh ingest from the public files)*
+- Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
+- Monarch as a standalone disease-association source *(do not ingest the current dump as `Monarch`; the public file is a Translator-style aggregate whose primary sources are `infores:omim` and `infores:clingen`)*
+
+### Findings From Investigation
+- OMIM is not a legacy Pharos target-disease association source
+  - old `load-OMIM.py` populated `omim`, `omim_ps`, and `phenotype`, not `disease`
+  - `pharos319` currently has `14147` `phenotype` rows with `ptype='OMIM'`
+  - the old frontend did not surface that OMIM phenotype content
+- Current Monarch disease dump is not a clean standalone `Monarch` source
+  - the current public file is a Translator-style aggregate
+  - `infores:monarchinitiative` is the aggregator, while the primary sources are `infores:omim` and `infores:clingen`
+  - do not ingest it as `Monarch`; revisit direct OMIM or direct ClinGen instead
 
 ---
 
@@ -117,8 +130,9 @@ Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to valid
   - `MondoTableAdapter` maps `Disease.mondo_description` into `MondoTerm.mondo_description`, and `TCRDOutputConverter.mondo_table_converter()` writes that into `mondo.def`.
 - [x] Verify `do.def` is populated from source-file Disease Ontology data
   - `DOTableAdapter` maps `Disease.do_description` into `DOTerm.do_description`, and `TCRDOutputConverter.do_table_converter()` writes that into `do.def`.
-- [ ] Compare `mondo.comment` population against `pharos319`
-  - Current source-file path preserves MONDO comments separately from the merged disease graph.
+- [x] Compare `mondo.comment` population against `pharos319`
+  - Current source-file path already maps MONDO comments into `mondo.comment` through `MondoTableAdapter` and `TCRDOutputConverter.mondo_table_converter()`.
+  - Current source-file adapter output includes `1210` commented MONDO terms versus `773` in `pharos319`; the difference appears to reflect source-version drift, not a missing comment mapping.
 
 ### Disease Association Table
 
@@ -127,12 +141,26 @@ Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to valid
 - [x] Map `ProteinDiseaseEdge.details` into source-specific `disease` association rows
   - Current converter emits one `disease` row per edge detail rather than one row per merged graph edge.
 - [x] Populate `disease.evidence` from disease association details
-- [ ] Decide whether any disease-detail text should populate `disease.description`
-  - `pharos319` has disease descriptions for some sources, but current working MySQL leaves `disease.description` empty.
-- [ ] Decide whether disease association detail metadata should populate `disease.source`
-  - `pharos319` uses `disease.source` for some sources; current working MySQL leaves it empty.
-- [ ] Document source-specific fields that remain intentionally unsupported in the working converter
-  - Examples from `pharos319`: `drug_name`, `log2foldchange`, `pvalue`, `score`, `S2O`, `updated`.
+- [x] Decide whether any disease-detail text should populate `disease.description`
+  - Keep the generic converter behavior as-is: do not map edge-detail text into `disease.description`.
+  - Legacy `pharos319` only populated `disease.description` for `UniProt Disease`, and that text is disease-level descriptive content rather than generic edge-detail payload.
+  - In the current graph model, source-native disease descriptions belong on the `Disease` node (for example `Disease.uniprot_description`), not in per-source association detail rows.
+- [x] Decide whether disease association detail metadata should populate `disease.source`
+  - Keep `disease.source` intentionally empty in the generic working converter for now.
+  - In legacy `pharos319`, `disease.source` was source-specific subsource metadata for only some ingests (for example `DisGeNET` values like `CTD_human` / `PSYGENET`, and `eRAM` source bundles like `CLINVAR|CTD_human|GHR|ORPHANET|UNIPROT`).
+  - That does not map cleanly to a generic cross-source field, so any future population should be source-specific and explicit rather than inferred from `details`.
+- [x] Document source-specific fields that remain intentionally unsupported in the working converter
+  - Intentionally supported already:
+    - `drug_name` for `DrugCentral Indication`
+    - `zscore`, `conf`, and `reference` for Jensen text-mining / knowledge rows
+  - Intentionally unsupported in the generic converter:
+    - `description` as an edge-detail sink
+    - `source` as a generic subsource field
+    - `log2foldchange` and `pvalue` from `Expression Atlas`
+    - `score` and `source` from `DisGeNET`
+    - `source` from `eRAM`
+    - `S2O` / `O2S` from legacy `Monarch`
+    - `updated` flags from legacy source-specific rows
 - [x] Populate Jensen-compatible disease association fields in working/full MySQL
   - `disease.did` now preserves source disease IDs, while `mondoid` remains a best-effort FK-backed resolved MONDO mapping.
   - `disease.conf` and `disease.evidence` now populate for Jensen Knowledge / Experiment rows.
@@ -145,7 +173,6 @@ Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to valid
 - [x] Add `ncats_disease` output for canonical disease nodes from the graph
 - [x] Limit `ncats_disease` output to diseases that have target associations
   - `DiseaseAdapter` now supports `associated_only: true` for the TCRD build path.
-- [ ] Decide how non-`MONDO:` / non-`DOID:` associated disease nodes should be represented downstream
+- [x] Decide how non-`MONDO:` / non-`DOID:` associated disease nodes should be represented downstream
   - Current graph includes associated diseases with prefixes such as `UMLS`, `OMIM`, `HP`, `EFO`, `NCIT`, and `MESH`.
-- [ ] Compare disease ID normalization expectations against `pharos319`
-  - Especially for legacy `MIM:` / `OMIM:` / `UMLS:` disease identifiers that appear in association rows.
+  - the IdResolver handles the mappings

@@ -119,6 +119,12 @@ Provide a repeatable workflow for adding a new data source to the target graph i
       - Follow-up scope intentionally deferred from the first pass
     - Include the exact validation steps and comparison points used to accept the ingest.
 
+14) **Update the playbook with reusable lessons learned**
+   - After the ingest is working, capture any lessons that would help future ingests in the `Lessons Learned` section of this playbook.
+   - Keep these lessons generally applicable across sources and workflows.
+   - Prefer patterns, failure modes, and workflow improvements over source-specific facts.
+   - Do not duplicate details that belong only in the source design doc.
+
 ---
 
 ## Lessons Learned

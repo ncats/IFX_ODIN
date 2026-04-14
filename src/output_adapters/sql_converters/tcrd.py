@@ -8,6 +8,7 @@ from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdg
 from src.models.keyword import ProteinKeywordEdge
 from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
+from src.models.panther_class import PantherClass, ProteinPantherClassEdge
 from src.models.pathway import ProteinPathwayEdge
 from src.models.protein import Protein
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
@@ -17,7 +18,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
-    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway,
+    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -61,6 +62,9 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_converter],
+            # Panther
+            PantherClass: [self.panther_class_converter],
+            ProteinPantherClassEdge: [self.p2pc_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
         }
@@ -597,6 +601,23 @@ class TCRDOutputConverter(SQLOutputConverter):
             name=end.get('name') or '',
             url=end.get('url'),
             provenance=obj['provenance'],
+        )
+
+    # --- Panther ---
+
+    def panther_class_converter(self, obj: dict) -> mysqlPantherClass:
+        return mysqlPantherClass(
+            id=self.resolve_id('panther_class', obj['id']),
+            pcid=obj.get('source_id') or obj['id'],
+            parent_pcids=obj.get('parent_pcids'),
+            name=obj.get('name') or '',
+            description=obj.get('description'),
+        )
+
+    def p2pc_converter(self, obj: dict) -> P2PC:
+        return P2PC(
+            panther_class_id=self.resolve_id('panther_class', obj['end_id']),
+            protein_id=self.resolve_id('protein', obj['start_id']),
         )
 
     # --- Keyword ---
