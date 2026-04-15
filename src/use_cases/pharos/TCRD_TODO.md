@@ -73,7 +73,6 @@ These tables are populated directly from ontology source files during the TCRD b
 - Phenotype — IMPC, JAX/MGI
 - GWAS
 - Protein & Disease Novelty (this might be TINx, I'm not sure)
-- Harmonizome - updated version maybe
 - P-HIPSTer Viral PPIs
 - Publications — NCBI, JensenLab
 - NIH Target Lists
@@ -101,6 +100,7 @@ These tables are populated directly from ontology source files during the TCRD b
 - ERAM *(punt for now: public download appears stale/legacy; if we need ERAM coverage, prefer copying or migrating the legacy `eRAM` rows from `pharos319` rather than building a fresh ingest from the public files)*
 - Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
 - Monarch as a standalone disease-association source *(do not ingest the current dump as `Monarch`; the public file is a Translator-style aggregate whose primary sources are `infores:omim` and `infores:clingen`)*
+- Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
 
 ### Findings From Investigation
 - OMIM is not a legacy Pharos target-disease association source
