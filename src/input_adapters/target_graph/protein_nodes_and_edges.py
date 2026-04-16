@@ -20,7 +20,7 @@ class TGProteinFileBase(TargetGraphProteinParser):
         protein_obj.created = TargetGraphProteinParser.get_creation_date(line)
         protein_obj.updated = TargetGraphProteinParser.get_updated_time(line)
         protein_obj.name = TargetGraphProteinParser.get_name(line)
-        protein_obj.symbol = TargetGraphProteinParser.get_symbol(line)
+        # protein_obj.symbol = TargetGraphProteinParser.get_symbol(line)  # don't use this, it's sometimes a multi-valued symbol
         protein_obj.ensembl_id = TargetGraphProteinParser.get_ensembl_id(line)
         protein_obj.refseq_id = TargetGraphProteinParser.get_refseq_id(line)
 

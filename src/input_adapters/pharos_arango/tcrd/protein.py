@@ -54,20 +54,4 @@ class ProteinAdapter(PharosArangoAdapter):
         return DataSourceDetails.parse_tsv(raw_version_info)
 
     def get_all(self) -> Generator[List[Node], None, None]:
-        proteins = self.runQuery(protein_query())
-        symbol_count = {}
-        for p in proteins:
-            symbol = p.get('symbol', None)
-            if symbol is not None:
-                if symbol not in symbol_count:
-                    symbol_count[symbol] = 0
-                symbol_count[symbol] += 1
-
-        for p in proteins:
-            symbol = p.get('symbol', None)
-            if symbol is not None and symbol_count[symbol] == 1:
-                p['preferred_symbol'] = symbol
-            else:
-                p['preferred_symbol'] = p['uniprot_id']
-
-        yield [Protein.from_dict(row) for row in proteins]
+        yield [Protein.from_dict(row) for row in self.runQuery(protein_query())]

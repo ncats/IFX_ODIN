@@ -34,6 +34,18 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       collapse_reviewed_targets: true
 
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinAdapter
+    kwargs:
+      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+
+  - import: ./src/input_adapters/pharos_arango/set_preferred_symbol.py
+    class: SetPreferredSymbolAdapter
+    kwargs:
+      database_name: test_pharos
+    credentials: *destination_credentials
+
   - import: ./src/input_adapters/panther/panther_classes.py
     class: PantherClassesAdapter
     kwargs:
@@ -41,6 +53,18 @@ input_adapters:
       relationship_file_path: ./input_files/auto/panther/Protein_class_relationship
       sequence_classification_file_path: ./input_files/auto/panther/PTHR19.0_human
       version_file_path: ./input_files/auto/panther/panther_classes_version.tsv
+
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: DTOClassAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: DTOClassParentEdgeAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: ProteinDTOClassAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

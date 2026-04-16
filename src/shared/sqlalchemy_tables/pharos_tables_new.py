@@ -613,12 +613,23 @@ class DTO(Base):
     )
 
 
+class DTOParent(Base):
+    __tablename__ = "dto_parent"
+
+    dtoid = Column(String(255), ForeignKey("dto.dtoid"), primary_key=True, nullable=False)
+    parent_id = Column(String(255), ForeignKey("dto.dtoid"), primary_key=True, nullable=False)
+
+    __table_args__ = (
+        Index("dto_parent_idx1", "dtoid"),
+        Index("dto_parent_idx2", "parent_id"),
+    )
+
+
 class P2DTO(Base):
     __tablename__ = "p2dto"
 
     dtoid = Column(String(255), ForeignKey("dto.dtoid"), primary_key=True, nullable=False)
     protein_id = Column(Integer, ForeignKey("protein.id"), primary_key=True, nullable=False)
-    generation = Column(Integer, nullable=False)
 
     __table_args__ = (
         Index("p2dto_dtoid_foreign", "dtoid"),

@@ -1,0 +1,147 @@
+Resource,Dataset,Description,Category,Attribute,Views,Archived
+Achilles,Cell Line Gene Essentiality Profiles,Fitness scores for cell lines following single gene knockdowns,disease or phenotype associations,cell line,27402,FALSE
+Allen Brain Atlas,Adult Human Brain Tissue Gene Expression Profiles,mRNA expression profiles for 6 adult human brain tissue samples spanning ~300 brain structures,transcriptomics,tissue,46368,FALSE
+Allen Brain Atlas,Adult Mouse Brain Tissue Gene Expression Profiles,mRNA expression profiles for adult mouse brain tissues spanning ~2000 anatomically defined brain structures,transcriptomics,tissue,22736,FALSE
+Allen Brain Atlas,Developing Human Brain Tissue Gene Expression Profiles by Microarray,mRNA expression profiles for human brain tissue samples spanning 27 time points and 26 brain structures,transcriptomics,tissue sample,11072,FALSE
+Allen Brain Atlas,Developing Human Brain Tissue Gene Expression Profiles by RNA-seq,mRNA expression profiles for human brain tissue samples spanning 31 time points and 26 brain structures,transcriptomics,tissue sample,9901,FALSE
+Allen Brain Atlas,Prenatal Human Brain Tissue Gene Expression Profiles,mRNA expression profiles for 4 human prenatal brain tissue samples spanning 4 time points and ~300 brain structures,transcriptomics,tissue,11522,FALSE
+Biocarta,Pathways,Sets of proteins participating in pathways from Biocarta,structural or functional annotations,pathway,85074,FALSE
+BioGPS,Cell Line Gene Expression Profiles,mRNA expression profiles for the NCI-60 panel of cancer cell lines,transcriptomics,cell line,53275,FALSE
+BioGPS,Human Cell Type and Tissue Gene Expression Profiles,mRNA expression profiles for human tissues and cell types,transcriptomics,cell type or tissue,23586,FALSE
+BioGPS,Mouse Cell Type and Tissue Gene Expression Profiles,mRNA expression profiles for mouse tissues and cell types,transcriptomics,cell type or tissue,29091,FALSE
+Cancer Cell Line Encyclopedia (CCLE),Cell Line Gene CNV Profiles,Gene-level copy number variation profiles for cancer cell lines,genomics,cell line,40435,FALSE
+Cancer Cell Line Encyclopedia (CCLE),Cell Line Gene Expression Profiles,mRNA microarray expression profiles for cancer cell lines,transcriptomics,cell line,131737,FALSE
+Cancer Cell Line Encyclopedia (CCLE),Cell Line Gene Mutation Profiles,Gene-level mutation profiles for cancer cell lines,genomics,cell line,41238,FALSE
+ChIP-X Enrichment Analysis (ChEA),Transcription Factor Targets,Target genes of transcription factors from published ChIP-chip ChIP-seq and other transcription factor binding site profiling studies,genomics,transcription factor,109401,FALSE
+Connectivity Map (CMAP),Signatures of Differentially Expressed Genes for Small Molecules,mRNA expression profiles for cell lines following chemical perturbation,transcriptomics,small molecule perturbation,17592,FALSE
+CORUM,Protein Complexes,Proteins participating in complexes by manual literature curation,structural or functional annotations,protein complex,21336,FALSE
+Catalogue of Somatic Mutations In Cancer (COSMIC),Cell Line Gene CNV Profiles,Gene-level copy number variation profiles for cancer cell lines,genomics,cell line,16497,FALSE
+Catalogue of Somatic Mutations In Cancer (COSMIC),Cell Line Gene Mutation Profiles,Gene mutations in cancer cell lines from low-throughput or high-throughput studies,genomics,cell line,31096,FALSE
+Comparative Toxicogenomics Database (CTD),Gene-Chemical Interactions,Chemical-gene interactions curated from literature,physical interactions,chemical,139178,FALSE
+Comparative Toxicogenomics Database (CTD),Gene-Disease Associations,Disease-gene interactions from manually curated literature,disease or phenotype associations,disease,43154,FALSE
+Database of Genotypes and Phenotypes (dbGAP),Gene-Trait Associations,Gene-trait associations curated from genetic association studies,disease or phenotype associations,trait,10329,FALSE
+Dephosphorylation Database (DEPOD),Substrates of Phosphatases,Phosphatase-substrate interactions manually curated from literature and databases of protein annotations or protein interactions,physical interactions,phosphatase,5543,FALSE
+DrugBank,Drug Targets,Sets of proteins targeted by drugs by manual literature curation,physical interactions,drug,119120,FALSE
+Encyclopedia of DNA Elements (ENCODE),Histone Modification Site Profiles,Histone site modification profiles for cell lines from ENCODE,genomics,histone modification site profile,10798,FALSE
+Encyclopedia of DNA Elements (ENCODE),Transcription Factor Binding Site Profiles,Transcription factor binding site profiles for cell lines,genomics,transcription factor binding site profile,24381,FALSE
+Encyclopedia of DNA Elements (ENCODE),Transcription Factor Targets,Target genes of transcription factors from transcription factor binding site profiles,genomics,transcription factor,152744,FALSE
+ESCAPE,Omics Signatures of Genes and Proteins for Stem Cells,Sets of target genes of transcription factors from published ChIP-chip ChIP-seq and other transcription factor binding site profiling studies;sets of differentially expressed genes following perturbation of a protein from gene expression data in GEO; sets of interacting proteins from high- and low-throughput protein-protein interaction studies; sets of targets of microRNAs from public databases computationally predicted or experimentally verified,transcriptomics,PubMedID,7022,FALSE
+Genetic Association Database (GAD),Gene-Disease Associations,Gene-disease associations curated from genetic association studies,disease or phenotype associations,disease,45396,FALSE
+Genetic Association Database (GAD),High Level Gene-Disease Associations,Gene-disease associations curated from genetic association studies,disease or phenotype associations,disease,9514,FALSE
+Genomics of Drug Sensitivity in Cancer (GDSC),Cell Line Gene Expression Profiles,mRNA microarray expression profiles for cancer cell lines,transcriptomics,cell line,21317,FALSE
+Gene Reference Into Function (GeneRIF),Biological Term Annotations,Statements describing functions of genes distilled from biomedical publications,structural or functional annotations,biological term,38260,FALSE
+GeneSigDB,Published Gene Signatures,Gene signatures reported in the literature that were derived from analysis of transcriptomic or proteomic data,transcriptomics,PubMedID,9969,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Diseases,mRNA expression profiles for cell lines or tissues following disease perturbation,transcriptomics,disease perturbation,18110,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Gene Perturbations,mRNA expression profiles for cell lines or tissues following genetic perturbation (knockdown knockout over-expression mutation),transcriptomics,gene perturbation,10904,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Kinase Perturbations,mRNA expression profiles for cell lines or tissues following kinase perturbation (inhibition activation knockdown knockout over-expression mutation),transcriptomics,kinase perturbation,10221,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Small Molecules,mRNA expression profiles for cell lines or tissues following small molecule perturbation,transcriptomics,small molecule perturbation,8817,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Transcription Factor Perturbations,mRNA expression profiles for cell lines or tissues following transcription factor perturbation (inhibition activation knockdown knockout over-expression mutation),transcriptomics,transcription factor perturbation,14623,FALSE
+Gene Expression Omnibus (GEO),Signatures of Differentially Expressed Genes for Viral Infections,mRNA expression profiles for cell lines or tissues following viral infection,transcriptomics,virus perturbation,10599,FALSE
+Genotype Tissue Expression (GTEx),Tissue Sample Gene Expression Profiles,RNA-seq gene expression profiles for tissue samples from GTEx,transcriptomics,tissue sample,15278,FALSE
+Guide to Pharmacology,Chemical Ligands of Receptors,Chemical ligand-receptor interactions curated by experts,physical interactions,ligand (chemical),31564,FALSE
+Guide to Pharmacology,Protein Ligands of Receptors,Protein ligand-receptor interactions curated by experts,physical interactions,ligand (protein),4165,FALSE
+GWASdb,SNP-Disease Associations,SNP-disease association p-values curated from published GWAS,disease or phenotype associations,disease,33894,FALSE
+GWASdb,SNP-Phenotype Associations,SNP-phenotype association p-values curated from published GWAS,disease or phenotype associations,phenotype,11955,FALSE
+Heiser et al. PNAS 2011,Cell Line Gene Expression Profiles,mRNA expression profiles for breast cancer cell lines measured by microarray,transcriptomics,cell line,7207,FALSE
+Human Metabolome Database,Metabolites of Enzymes,Biomolecular interactions between metabolites and proteins such as processing enzymes curated from literature,physical interactions,metabolite,15374,FALSE
+Human Protein Atlas (HPA),Cell Line Gene Expression Profiles,RNA-seq gene expression profiles for cell lines from HPA,transcriptomics,cell line,14693,FALSE
+Human Protein Atlas (HPA),Tissue Gene Expression Profiles,RNA-seq gene expression profiles for tissues from HPA,transcriptomics,tissue,15269,FALSE
+Human Protein Atlas (HPA),Tissue Protein Expression Profiles,Semiquantitative protein expression profiles for tissues,proteomics,tissue,7142,FALSE
+Human Protein Atlas (HPA),Tissue Sample Gene Expression Profiles,RNA-seq gene expression profiles for tissue samples from HPA,transcriptomics,tissue sample,6667,FALSE
+Human Proteome Map (HPM),Cell Type and Tissue Protein Expression Profiles,Protein expression profiles for tissues and cell types,proteomics,cell type or tissue,5399,FALSE
+Human Phenotype Ontology (HPO),Gene-Disease Associations,Phenotype-causing gene mutations of human phenotypes from disease knowledgebases,disease or phenotype associations,phenotype,41843,FALSE
+Hub Proteins,Protein-Protein Interactions,Sets of proteins interacting with hub proteins aggregated from data,physical interactions,hub protein,14664,FALSE
+HuGE Navigator,Gene-Phenotype Associations,Gene-phenotype associations extracted from published GWAS by automated text-mining,disease or phenotype associations,phenotype,14962,FALSE
+HumanCyc,Pathways,Sets of proteins participating in pathways from HumanCyc,structural or functional annotations,pathway,6521,FALSE
+InterPro,Predicted Protein Domain Annotations,Protein domains predicted for gene products based on sequence similarity to known domain signatures,structural or functional annotations,protein domain,23220,FALSE
+Kinase Enrichment Analysis (KEA),Substrates of Kinases,Protein substrates of kinases from published low-throughput and high-throughput phosphoproteomics studies,physical interactions,kinase,11864,FALSE
+LINCS Kinativ,Kinase Inhibitor Bioactivity Profiles,Percent inhibition of kinases by small molecules measured in cell lysates,physical interactions,chemical bioactivity profile,3853,FALSE
+LINCS KinomeScan,Kinase Inhibitor Targets,Kinase inhibitor targets from percent inhibition of kinases by small molecules measured using purified kinases,physical interactions,small molecule,6705,FALSE
+Klijn et al. Nat. Biotechnol. 2015,Cell Line Gene CNV Profiles,Gene-level copy number variation profiles for cancer cell lines,genomics,cell line,10068,FALSE
+Klijn et al. Nat. Biotechnol. 2015,Cell Line Gene Expression Profiles,RNA-seq gene expression profiles for cancer cell lines,transcriptomics,cell line,15315,FALSE
+Klijn et al. Nat. Biotechnol. 2015,Cell Line Gene Mutation Profiles,SNP gene mutations in cancer cell lines identified by microarray,genomics,cell line,9699,FALSE
+LOCATE,Curated Protein Localization Annotations,Subcellular localization of proteins from low-throughput or high-throughput protein localization assays,proteomics,cellular component,9006,FALSE
+MiRTarBase,microRNA Targets,Target genes of microRNAs from published experiments,physical interactions,microRNA,24342,FALSE
+MotifMap,Predicted Transcription Factor Targets,Target genes of transcription factors predicted using known transcription factor binding site motifs,genomics,transcription factor,30714,FALSE
+Molecular Signatures Database (MSigDB),Cancer Gene Co-expression Modules,Computational signatures of genes co-expressed with cancer related genes,transcriptomics,co-expressed gene,9717,FALSE
+Molecular Signatures Database (MSigDB),Signatures of Differentially Expressed Genes for Cancer Gene Perturbations,Oncogenic signatures of genes differentially expressed following cancer gene perturbations,transcriptomics,gene perturbation,8749,FALSE
+Nuclear Receptor Signaling Atlas (NURSA),Protein Complexes,Proteins identified in complexes isolated from cultured cells,proteomics,protein complex,13205,FALSE
+Nuclear Receptor Signaling Atlas (NURSA),Protein-Protein Interactions,Protein-protein interactions inferred from membership in complexes,proteomics,interacting protein,10222,FALSE
+Online Mendelian Inheritance in Man (OMIM),Gene-Disease Associations,Disease- or phenotype-causing gene mutations for heritable human diseases or phenotypes curated from biomedical publications,disease or phenotype associations,phenotype,29083,FALSE
+PANTHER,Pathways,Sets of proteins participating in pathways from PANTHER,structural or functional annotations,pathway,13028,FALSE
+Pathway Commons (PC),Protein-Protein Interactions,Protein-protein interactions from low-throughput or high-throughput studies aggregated by Pathway Commons from the following databases: Reactome NCI Pathways PhosphoSite HumanCyc HPRD PANTHER DIP BioGRID IntAct BIND Transfac MiRTarBase Drugbank Recon X Comparative Toxicogenomics Database and KEGG,physical interactions,interacting protein,81664,FALSE
+Phosphosite Textmining,Biological Term Annotations,Occurrence frequencies for biological terms in abstracts of publications describing phosphosites,structural or functional annotations,biological term,4115,FALSE
+PhosphoSitePlus,Substrates of Kinases,Kinase-substrate interactions curated from low-throughput or high-throughput phosphoproteomics studies,physical interactions,kinase,16361,FALSE
+Pathway Interaction Database (PID),Pathways,Sets of proteins participating in pathways from PID,structural or functional annotations,pathway,18482,FALSE
+Proteomics Database (ProteomicsDB),Cell Type and Tissue Protein Expression Profiles,Protein expression profiles for tissues and cell types reprocessed from many proteomics datasets,proteomics,cell type or tissue,16719,FALSE
+Roadmap Epigenomics,Cell and Tissue DNA Methylation Profiles,DNA methylation profiles for primary cell types and tissues,genomics,cell type or tissue,11555,FALSE
+Roadmap Epigenomics,Cell and Tissue Gene Expression Profiles,mRNA expression profiles for primary cell types and tissues,transcriptomics,cell type or tissue,7754,FALSE
+Roadmap Epigenomics,Histone Modification Site Profiles,Histone modification profiles for primary cells and tissues,genomics,histone modification site profile,8798,FALSE
+SILAC Phosphoproteomics,Signatures of Differentially Phosphorylated Proteins for Drugs,Phosphorylation levels of proteins in cell lines following drug treatment,proteomics,drug perturbation,5187,FALSE
+SILAC Phosphoproteomics,Signatures of Differentially Phosphorylated Proteins for Gene Perturbations,Phosphorylation levels of proteins in cell lines following genetic perturbation (knockdown knockout over-expression mutation),proteomics,gene perturbation,3149,FALSE
+SILAC Phosphoproteomics,Signatures of Differentially Phosphorylated Proteins for Protein Ligands,Phosphorylation levels of proteins in cell lines following ligand treatment,proteomics,ligand (protein) perturbation,4446,FALSE
+TargetScan,Predicted Conserved microRNA Targets,Target genes of microRNAs predicted by searching genes for sites matching conserved miRNA seed regions,genomics,microRNA,8990,FALSE
+The Cancer Genome Atlas (TCGA),Signatures of Differentially Expressed Genes for Tumors,mRNA expression profiles for tumor and normal tissue samples,transcriptomics,tissue sample,21862,FALSE
+Virus MINT,Protein-Viral Protein Interactions,Interactions between viral and human proteins manually curated from literature,physical interactions,viral protein,7940,FALSE
+Virus MINT,Protein-Virus Interactions,Interactions between viruses and human proteins manually curated from literature,physical interactions,virus,5341,FALSE
+LOCATE,Predicted Protein Localization Annotations,Subcellular localization of proteins by sequence similarity to localization sequences,proteomics,cellular component,5904,FALSE
+TargetScan,Predicted Nonconserved microRNA Targets,Target genes of microRNAs predicted by searching genes for sites matching nonconserved miRNA seed regions,genomics,microRNA,7651,FALSE
+PhosphoSitePlus,Phosphosite-Disease Associations,Disease-phosphosite associations curated from literature,disease or phenotype associations,disease,5006,FALSE
+Sanger Cancer Dependency Map (DepMap),Cancer Cell Line Proteomics,Protein intensity values acquired using data-independent acquisition mass spectrometry (DIA-MS).,proteomics,cell line,4215,FALSE
+knockTF,Gene Expression Profiles with Transcription Factor Perturtbations,Gene expression profiles for cell lines or tissues following transcription factor perturbation (knockdown/knockout),transcriptomics,transcription factor perturbation,4397,FALSE
+Kinase Library,Serine Threonine Kinome Atlas,A phosphoproteomics atlas detailing phosphorylation of protein substrates by 303 serine/threonine kinases in the human kinome.,proteomics,kinase,4235,FALSE
+DeepCoverMOA,Drug Mechanisms of Action,Protein expression profiles in HCT116 cell line following drug treatment,proteomics,small molecule perturbation,3778,FALSE
+Tabula Sapiens,Gene-Cell Associations,Gene expression data from Tabula Sapiens scRNA-seq counts,transcriptomics,cell type,4844,FALSE
+DisGeNET,Gene-Disease Associations,Gene-disease associations sourced from curated repositories GWAS catalogues animal models and the scientific literature,disease or phenotype associations,disease,35106,FALSE
+DisGeNET,Gene-Phenotype Associations,Gene-phenotype associations sourced from curated repositories GWAS catalogues animal models and the scientific literature,disease or phenotype associations,phenotype,13614,FALSE
+Cancer Cell Line Encyclopedia (CCLE),Cell Line Proteomics,Protein intensity values acquired using mass spectrometry across human cancerous cell lines,proteomics,cell line,7452,FALSE
+Cancer Dependency Map (DepMap),CRISPR Gene Dependency,Dependency scores for cell lines following single gene knockdowns,disease or phenotype associations,cell line,9182,FALSE
+ChIP-X Enrichment Analysis (ChEA),Transcription Factor Targets 2022,Target genes of transcription factors from published ChIP-chip ChIP-seq and other transcription factor binding site profiling studies,genomics,transcription factor,11824,FALSE
+Mammalian Phenotype Ontology (MPO),Mouse Phenotype Associations 2023,Observed phenotypes of transgenic mice collected from mouse phenotyping studies,disease or phenotype associations,phenotype,10232,FALSE
+LINCS L1000 Connectivity Map (L1000 CMAP),CRISPR Knockout Consensus Signatures,Gene association consensus signatures following CRISPR gene knockout,transcriptomics,gene perturbation,33071,FALSE
+Molecular Transducers of Physical Activity Consortium (MoTrPAC),Rat Endurance Exercise Training Transcriptomics,RNA-seq gene expression profiles for rat tissue samples across 4 time points and 19 tissues,transcriptomics,tissue sample,1728,FALSE
+GlyGen,Glycosylated Proteins,Proteins glycosylated by saccharide ligands from glycosylation site citations,proteomics,glycan,2766,FALSE
+International Mouse Phenotyping Consortium (IMPC),Knockout Mouse Phenotypes,Observed phenotypes of mice following gene knockout,disease or phenotype associations,phenotype,4107,FALSE
+Metabolomics Workbench (MW),Enzyme Metabolite Associations,Biomolecular interactions between metabolites and proteins curated from experimental studies,physical interactions,metabolite,1701,FALSE
+LINCS L1000 Connectivity Map (L1000 CMAP),Chemical Perturbations Consensus Signatures,Gene association consensus signatures following small molecule perturbation,transcriptomics,small molecule perturbation,7838,FALSE
+Genotype Tissue Expression (GTEx),Tissue Gene Expression Profiles 2023,Gene expression profiles for tissues from GTEx by RNA-seq,transcriptomics,tissue,5124,FALSE
+Genotype Tissue Expression (GTEx),Tissue-Specific Aging Signatures,Tissue-specific aging signatures createed from GTEx RNA-seq gene expression profiles,transcriptomics,tissue sample,5299,FALSE
+The Human BioMolecular Atlas Program (HuBMAP),Azimuth Cell Type Annotations,Gene-cell type annotations from integrated reference scRNA-seq gene expression profiles,transcriptomics,cell type,4734,FALSE
+SynGO,Synaptic Gene Annotations,Curated annotations of genes with synaptic processes and components,structural or functional annotations,biological term,2421,FALSE
+CellMarker,Gene-Cell Type Associations,Cell type markers across various tissues from human and mouse scRNA-seq,transcriptomics,cell type,8697,FALSE
+Kinase Library,Tyrosine Kinome Atlas,A phosphoproteomics atlas detailing phosphorylation of protein substrates by 93 canonical and non-canonical tyrosine kinases in the human kinome.,proteomics,kinase,1852,FALSE
+Pathway Figure Optical Character Recognition (PFOCR),Pathway Figure Associations 2024,Sets of genes/proteins extracted from pathway figures in research publications using optical character recognition updated for 2024,structural or functional annotations,pathway,20023,FALSE
+WikiPathways,Pathways 2024,Sets of proteins participating in pathways from WikiPathways updated for 2024,structural or functional annotations,pathway,3596,FALSE
+PerturbAtlas,Signatures of Differentially Expressed Genes for Gene Perturbations,Gene expression profiles for cell lines cell types tissues and models following genetic perturbation (knockdown knockout knockin over-expression mutation and multi-condition),transcriptomics,gene perturbation,6487,FALSE
+PerturbAtlas,Signatures of Differentially Expressed Genes for Mouse Gene Perturbations,Gene expression profiles for cell lines cell types tissues and models following genetic perturbation (knockdown knockout knockin over-expression mutation and multi-condition),transcriptomics,gene perturbation,1580,FALSE
+Reactome,Pathways 2024,Sets of proteins participating in pathways from Reactome updated for 2024,structural or functional annotations,pathway,11023,FALSE
+The Human BioMolecular Atlas Program (HuBMAP),ASCT+B Annotations,Anatomical structure and cell type biomarker annotations from the HuBMAP ASCT+B tables,structural or functional annotations,cell type,2068,FALSE
+RummaGEO,Gene Perturbation Signatures,Single gene perturbation signatures produced by querying RummaGEO metadata for knockouts knockdowns and over-expression conditions,transcriptomics,gene perturbation,1196,FALSE
+RummaGEO,Drug Perturbation Signatures,Drug perturbation signatures produced from automatically mined RNA-seq samples from GEO.,transcriptomics,drug perturbation,1567,FALSE
+The Human BioMolecular Atlas Program (HuBMAP),ASCT+B Augmented with RNA-seq Coexpression,Anatomical structure and cell type biomarker annotations from the HuBMAP ASCT+B tables augmented with RNA-seq coexpression data from ARCHS4,structural or functional annotations,cell type,1321,FALSE
+Gene Ontology (GO),Biological Process Annotations 2025,curated annotations of genes with biological processes,structural or functional annotations,biological process,5279,FALSE
+Gene Ontology (GO),Cellular Component Annotations 2025,curated annotations of genes with cellular components,structural or functional annotations,cellular component,2545,FALSE
+Gene Ontology (GO),Molecular Function Annotations 2025,curated annotations of genes with molecular functions,structural or functional annotations,molecular function,797,FALSE
+DISEASES,Curated Gene-Disease Assocation Evidence Scores 2025,Disease gene evidence scores by manual literature curation,disease or phenotype associations,disease,10970,FALSE
+DISEASES,Experimental Gene-Disease Association Evidence Scores 2025,Disease gene evidence scores by integrating experimental data (GWAS),disease or phenotype associations,disease,13578,FALSE
+DISEASES,Text-mining Gene-Disease Association Evidence Scores 2025,Gene-disease co-occurrence scores from text-mining biomedical abstracts,disease or phenotype associations,disease,49658,FALSE
+Novartis Institutes for Biomedical Research (NIBR),DRUG-seq U2OS MoA Box,Drug perturbation signatures created by profiling 4343 small molecules in the U2-OS cell line with the DRUG-seq platform,transcriptomics,drug perturbation,28722,FALSE
+Genotype Tissue Expression (GTEx),eQTL 2025,Significance values for all gene-SNP pairs testing likelihood that SNP affects gene expression,genomics,SNP,8554,FALSE
+TISSUES,Curated Tissue Protein Expression Evidence Scores 2025,Protein tissue expression evidence scores by manual literature curation,structural or functional annotations,tissue,10389,FALSE
+TISSUES,Experimental Tissue Protein Expression Evidence Scores 2025,Protein tissue expression evidence scores by integrating experimental data,proteomics,cell type or tissue,8374,FALSE
+TISSUES,Text-mining Tissue Protein Expression Evidence Scores 2025,Gene-tissue co-occurrence scores from text-mining biomedical abstracts,structural or functional annotations,cell type or tissue,31613,FALSE
+COMPARTMENTS,Curated Protein Localization Evidence Scores 2025,Protein subcellular localization evidence scores by manual literature curation,structural or functional annotations,cellular component,1704,FALSE
+COMPARTMENTS,Experimental Protein Localization Evidence Scores 2025,Protein subcellular localization evidence scores by integrating experimental data,proteomics,cellular component,867,FALSE
+COMPARTMENTS,Text-mining Protein Localization Evidence Scores 2025,Gene-cellular compartment co-occurrence scores from text-mining biomedical abstracts,structural or functional annotations,cellular component,10913,FALSE
+Replogle et al. Cell 2022,K562 Genome-wide Perturb-seq Gene Perturbation Signatures,Gene expression profiles in the K562 cell line following CRISPRi genetic perturbation,transcriptomics,gene perturbation,4640,FALSE
+Replogle et al. Cell 2022,K562 Essential Perturb-seq Gene Perturbation Signatures,Gene expression profiles in the K562 cell line following CRISPRi genetic perturbation of essential genes,transcriptomics,gene perturbation,6222,FALSE
+Replogle et al. Cell 2022,RPE1 Essential Perturb-seq Gene Perturbation Signatures,Gene expression profiles in the RPE1 cell line following CRISPRi genetic perturbation of essential genes,transcriptomics,gene perturbation,4346,FALSE
+Tahoe Therapeutics,Tahoe 100M Perturbation Atlas,Single-cell expression data from drug perturbation across cell lines in over 95 million cells,transcriptomics,drug perturbation,8291,FALSE
+ClinVar,Gene-Phenotype Associations 2025,SNP-phenotype associations curated by ClinVar users from various sources,disease or phenotype associations,phenotype,23808,FALSE
+Jaspar PWMs,Predicted Human Transcription Factor Targets 2025,Target genes of human transcription factors predicted using known transcription factor binding site motifs,genomics,transcription factor,48056,FALSE
+Jaspar PWMs,Predicted Mouse Transcription Factor Targets 2025,Target genes of mouse transcription factors predicted using known transcription factor binding site motifs,genomics,transcription factor,2133,FALSE
+Cell Maps for AI (CM4AI),U2OS Cell Map Protein Localization Assemblies,Protein localization assemblies constructed from integrating AP-MS biomolecular interaction and IF imaging data,structural or functional annotations,biological term,660,FALSE
+GWAS Catalog,SNP-Phenotype Associations 2025,SNP-phenotype association p-values curated from published GWAS,disease or phenotype associations,phenotype,18130,FALSE
+Allen Brain Atlas,Aging Dementia and Traumatic Brain Injury Tissue Sample Gene Expression Profiles,mRNA expression profiles for dementia and traumatic brain injuries (TBI) from aging brain tissue,transcriptomics,tissue sample,1157,FALSE
+Sci-Plex,Drug Perturbation Signatures,sciRNA-seq expression profiles for A549 K562 and MCF7 cells treated with 188 compounds at 4 doses,transcriptomics,drug perturbation,980,FALSE
+Kyoto Encyclopedia of Genes and Genomes (KEGG),Pathways 2026,Sets of proteins participating in pathways from KEGG,structural or functional annotations,pathway,22865,FALSE

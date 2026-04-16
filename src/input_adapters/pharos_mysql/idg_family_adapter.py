@@ -1,25 +1,14 @@
-from datetime import datetime
 from typing import List, Generator
 
-from src.constants import Prefix, DataSourceName
-from src.input_adapters.sql_adapter import MySqlAdapter
+from src.constants import Prefix
+from src.input_adapters.pharos_mysql.base import Pharos319Adapter
 from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
-from src.interfaces.input_adapter import InputAdapter
-from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein, IDGFamily
 
 
-class IDGFamilyAdapter(InputAdapter, MySqlAdapter):
+class IDGFamilyAdapter(Pharos319Adapter):
     batch_size: int = 1000
-    def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.OldPharos
-
-    def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version="3.19",
-            version_date=datetime.fromisoformat("2024-02-15"),
-        )
 
     def get_all(self) -> Generator[List[Protein], None, None]:
         results = (self.get_session().query(
