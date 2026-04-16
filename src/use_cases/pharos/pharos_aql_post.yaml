@@ -21,6 +21,12 @@ resolvers:
 
 input_adapters:
 
+  - import: ./src/input_adapters/pharos_arango/set_preferred_symbol.py
+    class: SetPreferredSymbolAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
+
   - import: ./src/input_adapters/pharos_arango/set_ligand_activity_flag.py
     class: SetLigandActivityFlagAdapter
     kwargs:

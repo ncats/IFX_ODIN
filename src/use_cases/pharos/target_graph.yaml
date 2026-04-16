@@ -379,6 +379,18 @@ input_adapters:
       sequence_classification_file_path: ./input_files/auto/panther/PTHR19.0_human
       version_file_path: ./input_files/auto/panther/panther_classes_version.tsv
 
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: DTOClassAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: DTOClassParentEdgeAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
+    class: ProteinDTOClassAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter

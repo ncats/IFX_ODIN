@@ -55,7 +55,7 @@ class ProteinAdapter(InputAdapter, UniProtFileReader):
                               sequence=UniProtParser.get_sequence(row),
                               secondary_uniprot_ids=UniProtParser.get_secondary_accessions(row),
                               gene_name=UniProtParser.get_gene_name(row),
-                              symbol=';'.join(UniProtParser.get_symbols(row)) if UniProtParser.get_symbols(row) else None,
+                              symbol=UniProtParser.get_primary_symbol(row),
                               name=UniProtParser.get_full_name(row)
                               )
             proteins.append(protein)

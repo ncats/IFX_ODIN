@@ -1,12 +1,11 @@
 from typing import List
 
 from src.constants import Prefix
-from src.input_adapters.sql_adapter import MySqlAdapter
+from src.input_adapters.pharos_mysql.base import Pharos319Adapter
 from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, Target as mysql_Target, T2TC as mysql_t2tc
-from src.interfaces.input_adapter import InputAdapter
 from src.models.protein import Protein, IDGFamily
 
-class ProteinAdapter(InputAdapter, MySqlAdapter):
+class ProteinAdapter(Pharos319Adapter):
     def get_all(self):
         results = (self.get_session().query(
             mysql_Protein.name,

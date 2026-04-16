@@ -16,11 +16,14 @@ from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     AncestryDO,
+    AncestryDTO,
     AncestryMONDO,
     AncestryUBERON,
     DataSourceVersion,
     DO,
     DOParent,
+    DTO,
+    DTOParent,
     ETLRun,
     Mondo,
     MondoParent,
@@ -354,17 +357,36 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 [{"oid": oid, "ancestor_id": ancestor_id} for oid, ancestor_id in closure],
             )
 
+    @staticmethod
+    def _populate_dto_parent_column(session):
+        session.query(DTO).update({DTO.parent_id: None})
+        direct_edges = session.query(DTOParent.dtoid, DTOParent.parent_id).all()
+        if direct_edges:
+            session.bulk_update_mappings(
+                DTO,
+                [{"dtoid": dtoid, "parent_id": parent_id} for dtoid, parent_id in direct_edges],
+            )
+
     def do_post_processing(self, clean_edges: bool = True) -> None:
         session = self.get_session()
         try:
             self._populate_data_source_version_table(session)
             self._populate_etl_run_table(session)
+            self._populate_dto_parent_column(session)
             self._populate_ancestry_table(
                 session=session,
                 node_cls=DO,
                 parent_cls=DOParent,
                 ancestry_cls=AncestryDO,
                 node_key="doid",
+                parent_key="parent_id",
+            )
+            self._populate_ancestry_table(
+                session=session,
+                node_cls=DTO,
+                parent_cls=DTOParent,
+                ancestry_cls=AncestryDTO,
+                node_key="dtoid",
                 parent_key="parent_id",
             )
             self._populate_ancestry_table(

@@ -4,15 +4,14 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import aliased
 
 from src.constants import Prefix
-from src.input_adapters.sql_adapter import MySqlAdapter
-from src.interfaces.input_adapter import InputAdapter
+from src.input_adapters.pharos_mysql.base import Pharos319Adapter
 from src.models.node import Relationship
 
 from src.shared.sqlalchemy_tables.pharos_tables_old import Protein as mysql_Protein, PPI as mysql_ppi
 from src.models.ppi import PPIEdge
 from src.models.protein import Protein
 
-class ProteinProteinInteractionAdapter(InputAdapter, MySqlAdapter):
+class ProteinProteinInteractionAdapter(Pharos319Adapter):
 
     def get_all(self) -> List[Relationship]:
         protein_alias1 = aliased(mysql_Protein)

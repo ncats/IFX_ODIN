@@ -2,6 +2,7 @@ import hashlib
 from typing import Union, List, Optional
 from src.constants import Prefix
 from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge
+from src.models.dto_class import DTOClass, DTOClassParentEdge, ProteinDTOClassEdge
 from src.models.expression import ProteinTissueExpressionEdge
 from src.models.generif import GeneGeneRifEdge
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
@@ -19,6 +20,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC,
+    DTO as mysqlDTO, DTOParent, P2DTO,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -65,6 +67,10 @@ class TCRDOutputConverter(SQLOutputConverter):
             # Panther
             PantherClass: [self.panther_class_converter],
             ProteinPantherClassEdge: [self.p2pc_converter],
+            # DTO
+            DTOClass: [self.dto_converter],
+            DTOClassParentEdge: [self.dto_parent_converter],
+            ProteinDTOClassEdge: [self.p2dto_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
         }
@@ -100,14 +106,17 @@ class TCRDOutputConverter(SQLOutputConverter):
         return mysqlProtein(
             id=self.resolve_id('protein', obj['id']),
             ifx_id=obj['id'],
-            description=obj['name'],
+            name=obj.get('gene_name'),
+            description=obj.get('description'),
             uniprot=obj['uniprot_id'],
-            sym=obj['symbol'],
+            sym=obj.get('symbol'),
             geneid=gene_id,
             stringid=string_id,
             seq=obj['sequence'],
+            dtoid=(obj.get('dtoid') or '').replace(':', '_') or None,
+            dtoclass=obj.get('dtoclass'),
             provenance=obj['provenance'],
-            preferred_symbol=obj['preferred_symbol']
+            preferred_symbol=obj.get('preferred_symbol')
         )
 
     def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
@@ -617,6 +626,28 @@ class TCRDOutputConverter(SQLOutputConverter):
     def p2pc_converter(self, obj: dict) -> P2PC:
         return P2PC(
             panther_class_id=self.resolve_id('panther_class', obj['end_id']),
+            protein_id=self.resolve_id('protein', obj['start_id']),
+        )
+
+    # --- DTO ---
+
+    def dto_converter(self, obj: dict) -> mysqlDTO:
+        return mysqlDTO(
+            dtoid=obj['id'],
+            name=obj.get('name') or '',
+            parent_id=None,
+            def_=obj.get('description'),
+        )
+
+    def dto_parent_converter(self, obj: dict) -> DTOParent:
+        return DTOParent(
+            dtoid=obj['start_id'],
+            parent_id=obj['end_id'],
+        )
+
+    def p2dto_converter(self, obj: dict) -> P2DTO:
+        return P2DTO(
+            dtoid=obj['end_id'],
             protein_id=self.resolve_id('protein', obj['start_id']),
         )
 

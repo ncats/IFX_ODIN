@@ -117,6 +117,24 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/dto.py
+    class: DTOClassAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/dto.py
+    class: DTOClassParentAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/dto.py
+    class: ProteinDTOClassAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
   - import: ./src/input_adapters/pharos_arango/tcrd/keyword.py
     class: ProteinKeywordAdapter
     credentials: *source_credentials

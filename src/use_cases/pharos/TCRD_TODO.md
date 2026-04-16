@@ -35,17 +35,21 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
 | **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES *(promoted in `pharos.yaml` / `target_graph.yaml`)*<br>[x] DrugCentral Indication | `Disease` | [x] `ncats_disease` |
-| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | [x] `mondo_parent`<br>[x] `ancestry_mondo` |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | [x] `do_parent`<br>[x] `ancestry_do` |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | not exported from merged graph; source-file MONDO tables populate `mondo_parent` / `ancestry_mondo` below |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | not exported from merged graph; source-file DO tables populate `do_parent` / `ancestry_do` below |
 | **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] JensenLab DISEASES *(Knowledge, Experiment/TIGA, and Text Mining; promoted in `pharos.yaml` / `target_graph.yaml`; working/full configs apply `textmining_min_zscore: 6.0` to stay close to historical Pharos text-mining scope)*<br>[x] DrugCentral Indication | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
-| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | [x] `pathway` |
+| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | no standalone TCRD table; pathway content is duplicated via `ProteinPathwayEdge` into `pathway` |
 | **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL |
 | **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways *(side-lifted from gene associations by the TCRD target resolver)*<br>[x] PathwayCommons *(side-lifted from gene associations by the TCRD target resolver)* | `ProteinPathwayEdge` | [x] `pathway` |
 | **PantherClass** | [x] PANTHER Classes *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `PantherClass` | [x] `panther_class` *(via `tcrd.yaml`; validated in `working_mysql.yaml` first)* |
 | **ProteinPantherClassEdge** | [x] PANTHER Classes *(promoted in `pharos.yaml` / `target_graph.yaml`)* | `ProteinPantherClassEdge` | [x] `p2pc` *(via `tcrd.yaml`; validated in `working_mysql.yaml` first)* |
-| **Keyword** | [x] UniProt | `Keyword` | [x] `xref` *(UniProt Keyword xtype)* |
+| **DTOClass** | [x] old Pharos MySQL | `DTOClass` | current converter supports `dto`, but DTO is not wired in active `tcrd.yaml` |
+| **DTOClassParentEdge** | [x] old Pharos MySQL | `DTOClassParentEdge` | current converter supports `dto_parent`, but DTO is not wired in active `tcrd.yaml` |
+| **ProteinDTOClassEdge** | [x] old Pharos MySQL | `ProteinDTOClassEdge` | current converter supports `p2dto`, but DTO is not wired in active `tcrd.yaml` |
+| **Keyword** | [x] UniProt | `Keyword` | no standalone TCRD table; keyword content is duplicated via `ProteinKeywordEdge` into `xref` |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` *(UniProt Keyword xtype)* |
 | | *— post-processing (pharos_aql_post.yaml) —* | | |
+| **SetPreferredSymbolAdapter** | [x] computed from graph | updates `preferred_symbol` on `Protein` | *(via Protein → `protein.preferred_symbol`)* |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)* |
 | **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)* |
 | **TDLInputAdapter** | [x] computed from graph | updates `tdl`, `tdl_meta` on `Protein` | *(via Protein)* |
@@ -57,7 +61,7 @@ These tables are populated directly from ontology source files during the TCRD b
 
 | Source Concept | Source Files | TCRD Tables |
 |---------|------------------------|-------------|
-| **MONDO ontology** | [x] `input_files/auto/mondo/mondo.json` | [x] `mondo`<br>[x] `mondo_parent`<br>[x] `ancestry_mondo` *(post-processing from `mondo_parent`)* |
+| **MONDO ontology** | [x] `input_files/auto/mondo/mondo.json` | [x] `mondo`<br>[x] `mondo_xref`<br>[x] `mondo_parent`<br>[x] `ancestry_mondo` *(post-processing from `mondo_parent`)* |
 | **Disease Ontology** | [x] `input_files/auto/disease_ontology/doid.json` | [x] `do`<br>[x] `do_parent`<br>[x] `ancestry_do` *(post-processing from `do_parent`)* |
 
 ---
@@ -69,7 +73,6 @@ These tables are populated directly from ontology source files during the TCRD b
 ### New Concepts
 - Protein-Protein Interactions — STRING, BioPlex, Reactome PPI
 - Orthologs — OMA, EggNOG, Inparanoid
-- Protein Classes - DTO
 - Phenotype — IMPC, JAX/MGI
 - GWAS
 - Protein & Disease Novelty (this might be TINx, I'm not sure)
@@ -79,6 +82,9 @@ These tables are populated directly from ontology source files during the TCRD b
 - IDG Resources
 - Nearest Tclin (computed from graph)
 - Publication Statistics (PubMed Score, PubTator)
+
+### Refactoring / Polish
+- Normalize old `pharos_mysql` adapters to use `EquivalentId(...).id_str()` consistently instead of manual `f"{Prefix...}:{...}"` string construction where they emit graph IDs.
 
 ### Simple Linkouts
 - Dark Kinase Knowledgebase — understudied kinases compendium

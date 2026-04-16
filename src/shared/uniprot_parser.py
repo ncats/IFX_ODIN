@@ -113,6 +113,13 @@ class UniProtParser:
         return symbols
 
     @staticmethod
+    def get_primary_symbol(uniprot_obj):
+        symbols = UniProtParser.get_symbols(uniprot_obj)
+        if not symbols:
+            return None
+        return symbols[0]
+
+    @staticmethod
     def get_sequence(uniprot_obj):
         return uniprot_obj['sequence']['value']
 

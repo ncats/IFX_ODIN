@@ -744,6 +744,30 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     font-size: 12px;
 }
 
+.existing-project-load-btn {
+    background: color-mix(in srgb, var(--accent) 92%, black 8%);
+    color: #fff;
+    min-width: 5.25rem;
+    padding: 0.55rem 1rem;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12), 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
+}
+
+.existing-project-load-btn:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 22%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
+}
+
+.existing-project-load-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-light),
+                0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
+}
+
 /* Mermaid */
 .mermaid {
     background: var(--bg-alt);

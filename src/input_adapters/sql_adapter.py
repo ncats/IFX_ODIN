@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
+from dataclasses import replace
 
 from src.shared.db_credentials import DBCredentials
 
@@ -59,7 +60,11 @@ class MySqlAdapter(HostedSqlAdapter):
         super().__init__(credentials, dialect="mysql+pymysql")
 
     def recreate_mysql_db(self, db_name, truncate_tables = True):
-        engine = self.get_engine()
+        server_credentials = replace(self.credentials, schema=None)
+        engine = create_engine(
+            HostedSqlAdapter(server_credentials, dialect="mysql+pymysql").get_connection_string(),
+            pool_pre_ping=True
+        )
 
         with engine.connect() as conn:
             if truncate_tables:
@@ -69,6 +74,7 @@ class MySqlAdapter(HostedSqlAdapter):
                 print(f"Created empty MySQL database: {db_name}")
             else:
                 print(f"Ensured MySQL database exists: {db_name}")
+        engine.dispose()
         self.update_database(db_name)
 
 
