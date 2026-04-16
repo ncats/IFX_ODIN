@@ -96,6 +96,50 @@ def test_pathway_converter_keeps_pwtype_without_lookup_table():
     assert row.id_in_source == "R-HSA-199420"
 
 
+def test_ppi_converter_emits_reciprocal_rows_with_max_score_and_legacy_stringdb_label():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX123": 123,
+        "IFX456": 456,
+    }
+
+    rows = converter.ppi_converter({
+        "start_id": "IFX456",
+        "end_id": "IFX123",
+        "sources": ["STRING\t12.0\t2023-05-16\t2026-04-16"],
+        "score": [475, 477],
+        "provenance": "STRING\t12.0\t2023-05-16\t2026-04-16",
+    })
+
+    assert len(rows) == 2
+    assert {(row.protein_id, row.other_id) for row in rows} == {(123, 456), (456, 123)}
+    assert all(row.ppitypes == "StringDB" for row in rows)
+    assert all(row.score == 477 for row in rows)
+
+
+def test_ppi_converter_joins_multiple_source_labels():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX123": 123,
+        "IFX456": 456,
+    }
+
+    rows = converter.ppi_converter({
+        "start_id": "IFX123",
+        "end_id": "IFX456",
+        "sources": [
+            "Reactome\t95\t2025-11-27\t2026-03-23",
+            "STRING\t12.0\t2023-05-16\t2026-04-16",
+        ],
+        "score": [800],
+        "provenance": "STRING\t12.0\t2023-05-16\t2026-04-16",
+    })
+
+    assert len(rows) == 2
+    assert all(row.ppitypes == "Reactome,StringDB" for row in rows)
+    assert all(row.score == 800 for row in rows)
+
+
 def test_gtex_converter_branches_gtex_details_from_shared_expression_edge():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

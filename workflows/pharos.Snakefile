@@ -25,6 +25,8 @@ rule all:
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
         "../input_files/auto/reactome/reactome_version.tsv",
+        "../input_files/auto/string/9606.protein.links.v12.0.txt.gz",
+        "../input_files/auto/string/string_version.tsv",
         "../input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz",
         "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt",
         "../input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt",
@@ -189,6 +191,19 @@ rule download_reactome:
         last_modified=$(curl -fsI https://reactome.org/download/current/ReactomePathways.gmt.zip | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
         version=$(curl -fs https://reactome.org/ContentService/data/database/version)
         python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[3]}
+        """
+
+rule download_string:
+    output:
+        "../input_files/auto/string/9606.protein.links.v12.0.txt.gz",
+        "../input_files/auto/string/string_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/string
+        url='https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz'
+        curl -fL -o {output[0]} "$url"
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n12.0\\t'+dt+'\\n')" "$last_modified" {output[1]}
         """
 
 rule download_gtex:

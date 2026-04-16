@@ -184,3 +184,8 @@ Provide a repeatable workflow for adding a new data source to the target graph i
   regenerates files on a weekly Sunday schedule — the `Last-Modified` header captures that publish
   date reliably. Write it to a small TSV in Snakemake so the adapter can read it as `version_date`.
 - **Use named parameters for `DatasourceVersionInfo`.** This avoids argument-order regressions when version handling evolves.
+
+### Edge merging and downstream parity
+- **If duplicate source rows can collapse onto the same final graph edge, make merge-sensitive edge payload list-valued in the graph.** STRING PPIs needed `score: List[float]` instead of a scalar because reviewed-target collapse could merge multiple source rows onto one final `PPIEdge`; otherwise `KeepLast` silently overwrote earlier scores.
+- **A graph edge and a downstream SQL row do not need the same cardinality.** For PPIs, the graph should keep one conceptual undirected edge with merged payload, while the legacy `ncats_ppi` table expects reciprocal directed rows for query-order parity. Model the graph cleanly first, then adapt row cardinality explicitly in the SQL converter.
+- **When a legacy downstream table stores one scalar but the graph preserves many values, choose and document an explicit collapse rule.** For STRING PPI export, `max(score)` was used for `ncats_ppi.score`; do not let scalar selection happen implicitly through merge order.
