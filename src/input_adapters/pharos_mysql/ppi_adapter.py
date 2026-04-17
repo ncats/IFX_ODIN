@@ -47,6 +47,6 @@ class ProteinProteinInteractionAdapter(Pharos319Adapter):
                 p_int=row[3],
                 p_ni=row[4],
                 p_wrong=row[5],
-                score=row[6]
+                score=[row[6]] if row[6] is not None else []
             )
             for row in results]

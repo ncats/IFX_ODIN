@@ -11,6 +11,7 @@ from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
 from src.models.panther_class import PantherClass, ProteinPantherClassEdge
 from src.models.pathway import ProteinPathwayEdge
+from src.models.ppi import PPIEdge
 from src.models.protein import Protein
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
@@ -19,7 +20,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
-    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC,
+    NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
     DTO as mysqlDTO, DTOParent, P2DTO,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -64,6 +65,8 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_converter],
+            # PPI
+            PPIEdge: [self.ppi_converter],
             # Panther
             PantherClass: [self.panther_class_converter],
             ProteinPantherClassEdge: [self.p2pc_converter],
@@ -611,6 +614,54 @@ class TCRDOutputConverter(SQLOutputConverter):
             url=end.get('url'),
             provenance=obj['provenance'],
         )
+
+    # --- PPI ---
+
+    @staticmethod
+    def _ppi_source_label(source: str) -> str:
+        if not source:
+            return source
+        label = source.split('\t', 1)[0]
+        return {'STRING': 'StringDB'}.get(label, label)
+
+    @staticmethod
+    def _max_or_value(value):
+        if isinstance(value, list):
+            return max(value) if value else None
+        return value
+
+    def ppi_converter(self, obj: dict) -> List[mysqlPPI]:
+        protein_id = self.resolve_id('protein', obj['start_id'])
+        other_id = self.resolve_id('protein', obj['end_id'])
+
+        source_labels = sorted({
+            self._ppi_source_label(source)
+            for source in (obj.get('sources') or [])
+            if source
+        })
+
+        shared = dict(
+            ppitypes=",".join(source_labels) if source_labels else self._ppi_source_label(obj['provenance']),
+            p_int=self._max_or_value(obj.get('p_int')),
+            p_ni=self._max_or_value(obj.get('p_ni')),
+            p_wrong=self._max_or_value(obj.get('p_wrong')),
+            evidence=obj.get('evidence'),
+            interaction_type=obj.get('interaction_type'),
+            score=self._max_or_value(obj.get('score')),
+        )
+
+        return [
+            mysqlPPI(
+                protein_id=protein_id,
+                other_id=other_id,
+                **shared,
+            ),
+            mysqlPPI(
+                protein_id=other_id,
+                other_id=protein_id,
+                **shared,
+            ),
+        ]
 
     # --- Panther ---
 

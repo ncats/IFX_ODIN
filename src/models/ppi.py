@@ -13,4 +13,4 @@ class PPIEdge(Relationship):
     p_int: float = None
     p_ni: float = None
     p_wrong: float = None
-    score: float = None
+    score: List[float] = field(default_factory=list)

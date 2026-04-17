@@ -138,6 +138,13 @@ input_adapters:
       file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
       version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
 
+  - import: ./src/input_adapters/string/string_ppi.py
+    class: StringPPIAdapter
+    kwargs:
+      file_path: ./input_files/auto/string/9606.protein.links.v12.0.txt.gz
+      version_file_path: ./input_files/auto/string/string_version.tsv
+      score_cutoff: 400
+
   - import: ./src/input_adapters/target_graph/generif_node.py
     class: GeneRifNodeAdapter
     kwargs:
