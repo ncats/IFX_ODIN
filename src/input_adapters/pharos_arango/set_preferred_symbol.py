@@ -8,6 +8,7 @@ from src.shared.arango_adapter import ArangoAdapter
 
 
 class SetPreferredSymbolAdapter(InputAdapter, ArangoAdapter):
+    batch_size: int = 1000
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PostProcessing
