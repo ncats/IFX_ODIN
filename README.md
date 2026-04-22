@@ -16,7 +16,7 @@ make virtual environment
 * `export PYTHONPATH=/Users/kelleherkj/IdeaProjects/NCATS_ODIN:$PYTHONPATH`
   * update with your correct path
 * install dependencies in your python environment
-  * `pip install -r requirements.txt`
+  * `pip install -r requirements.txt -c constraints.txt`
 
 start local memgraph
 * navigate to the container

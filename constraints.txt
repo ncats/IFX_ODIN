@@ -1,0 +1,4 @@
+aiohttp>=3.12.14
+azure-core>=1.38.0
+Pillow>=11.3.0,<12
+tornado>=6.5.0
