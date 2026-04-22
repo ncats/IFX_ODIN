@@ -110,7 +110,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             id=self.resolve_id('protein', obj['id']),
             ifx_id=obj['id'],
             name=obj.get('gene_name'),
-            description=obj.get('description'),
+            description=obj.get('name'),
             uniprot=obj['uniprot_id'],
             sym=obj.get('symbol'),
             geneid=gene_id,
@@ -124,6 +124,13 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
         tdl_infos = []
+        uniprot_description = obj.get('uniprot_function')
+        if uniprot_description:
+            tdl_infos.append(TDL_info(
+                itype="UniProt Function",
+                protein_id=self.resolve_id('protein', obj['id']),
+                string_value=uniprot_description
+            ))
         if obj.get('antibody_count') and len(obj['antibody_count']) > 0:
             antibody_count = max([int(p) for p in obj['antibody_count']])
             if antibody_count > 0:

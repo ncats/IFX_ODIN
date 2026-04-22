@@ -52,6 +52,45 @@ def test_ligand_converter_assigns_integer_id_from_mapping():
     assert row.identifier == "LIGAND:EXISTING"
 
 
+def test_protein_converter_uses_short_graph_name_for_legacy_description():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    row = converter.protein_converter({
+        "id": "IFX123",
+        "xref": ["NCBIGene:1234", "ENSEMBL:ENSP00000123456"],
+        "gene_name": "SC6A5_HUMAN",
+        "name": "Sodium- and chloride-dependent glycine transporter 2",
+        "description": "Long UniProt free text that should not land in legacy protein.description",
+        "uniprot_id": "Q9Y345",
+        "symbol": "SLC6A5",
+        "sequence": "MSEQ",
+        "dtoid": None,
+        "dtoclass": None,
+        "preferred_symbol": "SLC6A5",
+        "provenance": "test",
+    })
+
+    assert row.name == "SC6A5_HUMAN"
+    assert row.description == "Sodium- and chloride-dependent glycine transporter 2"
+
+
+def test_tdl_info_converter_exports_uniprot_function_as_legacy_uniprot_function():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.tdl_info_converter({
+        "id": "IFX123",
+        "uniprot_function": "Long UniProt-derived descriptive text",
+        "description": "Graph description fallback",
+        "provenance": "test",
+    })
+
+    by_type = {row.itype: row for row in rows}
+    assert by_type["UniProt Function"].protein_id == 123
+    assert by_type["UniProt Function"].string_value == "Long UniProt-derived descriptive text"
+
+
 def test_ligand_edge_converter_uses_same_integer_ligand_id():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

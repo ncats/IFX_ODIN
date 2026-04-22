@@ -90,7 +90,7 @@ tests/                     # pytest tests
 python -m venv .venv
 source .venv/bin/activate
 export PYTHONPATH=/path/to/IFX_ODIN:$PYTHONPATH
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 
 # Run tests
 pytest
