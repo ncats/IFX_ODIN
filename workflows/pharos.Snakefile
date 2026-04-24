@@ -24,7 +24,11 @@ rule all:
         "../input_files/auto/reactome/ReactomePathways.gmt.zip",
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
+        "../input_files/auto/reactome/reactome.homo_sapiens.interactions.tab-delimited.txt",
         "../input_files/auto/reactome/reactome_version.tsv",
+        "../input_files/auto/bioplex/BioPlex_293T_Network_10K_Dec_2019.tsv",
+        "../input_files/auto/bioplex/BioPlex_HCT116_Network_5.5K_Dec_2019.tsv",
+        "../input_files/auto/bioplex/bioplex_version.tsv",
         "../input_files/auto/string/9606.protein.links.v12.0.txt.gz",
         "../input_files/auto/string/string_version.tsv",
         "../input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz",
@@ -182,15 +186,37 @@ rule download_reactome:
         "../input_files/auto/reactome/ReactomePathways.gmt.zip",
         "../input_files/auto/reactome/ReactomePathwaysRelation.txt",
         "../input_files/auto/reactome/UniProt2Reactome_All_Levels.txt",
+        "../input_files/auto/reactome/reactome.homo_sapiens.interactions.tab-delimited.txt",
         "../input_files/auto/reactome/reactome_version.tsv"
     shell:
         """
         curl -o {output[0]} https://reactome.org/download/current/ReactomePathways.gmt.zip
         curl -o {output[1]} https://reactome.org/download/current/ReactomePathwaysRelation.txt
         curl -o {output[2]} https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt
-        last_modified=$(curl -fsI https://reactome.org/download/current/ReactomePathways.gmt.zip | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        curl -o {output[3]} https://reactome.org/download/current/interactors/reactome.homo_sapiens.interactions.tab-delimited.txt
+        last_modified=$(curl -fsI https://reactome.org/download/current/interactors/reactome.homo_sapiens.interactions.tab-delimited.txt | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
         version=$(curl -fs https://reactome.org/ContentService/data/database/version)
-        python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[3]}
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; v=sys.argv[2].strip(); out=sys.argv[3]; dt=email.utils.parsedate_to_datetime(lm).date().isoformat(); open(out,'w').write('version\\tversion_date\\n'+v+'\\t'+dt+'\\n')" "$last_modified" "$version" {output[4]}
+        """
+
+rule download_bioplex:
+    output:
+        "../input_files/auto/bioplex/BioPlex_293T_Network_10K_Dec_2019.tsv",
+        "../input_files/auto/bioplex/BioPlex_HCT116_Network_5.5K_Dec_2019.tsv",
+        "../input_files/auto/bioplex/bioplex_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/bioplex
+        p293t_url='https://bioplex.hms.harvard.edu/data/BioPlex_293T_Network_10K_Dec_2019.tsv'
+        hct116_url='https://bioplex.hms.harvard.edu/data/BioPlex_HCT116_Network_5.5K_Dec_2019.tsv'
+
+        curl -fL -o {output[0]} "$p293t_url"
+        curl -fL -o {output[1]} "$hct116_url"
+
+        p293t_lm=$(curl -fsI "$p293t_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        hct116_lm=$(curl -fsI "$hct116_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+
+        python3 -c "import email.utils,sys; p293t_lm,hct116_lm,out=sys.argv[1:4]; p293t_dt=email.utils.parsedate_to_datetime(p293t_lm).date().isoformat(); hct116_dt=email.utils.parsedate_to_datetime(hct116_lm).date().isoformat(); open(out,'w').write('dataset\\tfile\\tversion\\tversion_date\\nBioPlex 3.0 293T\\tBioPlex_293T_Network_10K_Dec_2019.tsv\\t3.0\\t'+p293t_dt+'\\nBioPlex 3.0 HCT116\\tBioPlex_HCT116_Network_5.5K_Dec_2019.tsv\\t3.0\\t'+hct116_dt+'\\n')" "$p293t_lm" "$hct116_lm" {output[2]}
         """
 
 rule download_string:

@@ -637,6 +637,13 @@ class TCRDOutputConverter(SQLOutputConverter):
             return max(value) if value else None
         return value
 
+    @staticmethod
+    def _join_list(value):
+        if isinstance(value, list):
+            normalized = [str(v) for v in value if v is not None and str(v) != ""]
+            return "|".join(dict.fromkeys(normalized)) if normalized else None
+        return value
+
     def ppi_converter(self, obj: dict) -> List[mysqlPPI]:
         protein_id = self.resolve_id('protein', obj['start_id'])
         other_id = self.resolve_id('protein', obj['end_id'])
@@ -652,8 +659,8 @@ class TCRDOutputConverter(SQLOutputConverter):
             p_int=self._max_or_value(obj.get('p_int')),
             p_ni=self._max_or_value(obj.get('p_ni')),
             p_wrong=self._max_or_value(obj.get('p_wrong')),
-            evidence=obj.get('evidence'),
-            interaction_type=obj.get('interaction_type'),
+            evidence=self._join_list(obj.get('pmids')) or obj.get('evidence'),
+            interaction_type=self._join_list(obj.get('interaction_type')),
             score=self._max_or_value(obj.get('score')),
         )
 

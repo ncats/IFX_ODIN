@@ -145,6 +145,24 @@ input_adapters:
       version_file_path: ./input_files/auto/string/string_version.tsv
       score_cutoff: 400
 
+  - import: ./src/input_adapters/bioplex/bioplex_ppi.py
+    class: BioPlexPPIAdapter
+    kwargs:
+      file_path: ./input_files/auto/bioplex/BioPlex_293T_Network_10K_Dec_2019.tsv
+      version_file_path: ./input_files/auto/bioplex/bioplex_version.tsv
+
+  - import: ./src/input_adapters/bioplex/bioplex_ppi.py
+    class: BioPlexPPIAdapter
+    kwargs:
+      file_path: ./input_files/auto/bioplex/BioPlex_HCT116_Network_5.5K_Dec_2019.tsv
+      version_file_path: ./input_files/auto/bioplex/bioplex_version.tsv
+
+  - import: ./src/input_adapters/reactome/reactome_ppi.py
+    class: ReactomePPIAdapter
+    kwargs:
+      file_path: ./input_files/auto/reactome/reactome.homo_sapiens.interactions.tab-delimited.txt
+      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+
   - import: ./src/input_adapters/target_graph/generif_node.py
     class: GeneRifNodeAdapter
     kwargs:

@@ -37,9 +37,12 @@ class ProteinPPIAdapter(PharosArangoAdapter):
                     end_node=Protein(id=row["end_id"]),
                     provenance=row.get("provenance"),
                     sources=row.get("sources") or [],
-                    p_int=row.get("p_int"),
-                    p_ni=row.get("p_ni"),
-                    p_wrong=row.get("p_wrong"),
+                    p_int=row.get("p_int") or [],
+                    p_ni=row.get("p_ni") or [],
+                    p_wrong=row.get("p_wrong") or [],
+                    pmids=row.get("pmids") or [],
+                    contexts=row.get("contexts") or [],
+                    interaction_type=row.get("interaction_type") or [],
                     score=row.get("score") or [],
                 )
                 for row in rows

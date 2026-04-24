@@ -179,6 +179,28 @@ def test_ppi_converter_joins_multiple_source_labels():
     assert all(row.score == 800 for row in rows)
 
 
+def test_ppi_converter_maps_reactome_pmids_and_interaction_type_downstream():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX123": 123,
+        "IFX456": 456,
+    }
+
+    rows = converter.ppi_converter({
+        "start_id": "IFX123",
+        "end_id": "IFX456",
+        "sources": ["Reactome\t96\t2026-03-24\t2026-04-24"],
+        "pmids": [24243840, 11163199],
+        "contexts": ["reactome:R-HSA-2428940"],
+        "interaction_type": ["physical association"],
+        "provenance": "Reactome\t96\t2026-03-24\t2026-04-24",
+    })
+
+    assert len(rows) == 2
+    assert all(row.evidence == "24243840|11163199" for row in rows)
+    assert all(row.interaction_type == "physical association" for row in rows)
+
+
 def test_gtex_converter_branches_gtex_details_from_shared_expression_edge():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

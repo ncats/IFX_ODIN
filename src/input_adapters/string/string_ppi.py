@@ -89,7 +89,6 @@ class StringPPIAdapter(FlatFileAdapter):
                 edge = PPIEdge(
                     start_node=Protein(id=f"{Prefix.ENSEMBL}:{protein1}"),
                     end_node=Protein(id=f"{Prefix.ENSEMBL}:{protein2}"),
-                    sources=[self.get_datasource_name().value],
                     score=[score],
                 )
                 batch.append(edge)

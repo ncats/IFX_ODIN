@@ -35,7 +35,7 @@ def test_string_ppi_adapter_applies_default_cutoff_and_skips_self_pairs(tmp_path
         ("ENSEMBL:ENSP0002", "ENSEMBL:ENSP0003", [400]),
         ("ENSEMBL:ENSP0003", "ENSEMBL:ENSP0004", [700]),
     ]
-    assert all(edge.sources == ["STRING"] for edge in edges)
+    assert all(edge.sources == [] for edge in edges)
 
     version = adapter.get_version()
     assert version.version == "12.0"
