@@ -80,6 +80,19 @@ class IDGFamily(SimpleEnum):
         raise Exception(f"Unknown IDG Family: {tcrd_value}")
 
 @dataclass
+class YearScore:
+    year: Optional[int] = None
+    score: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, float]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
 @facets(
     category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
     numeric_fields=["pm_score", "antibody_count"])
@@ -102,6 +115,7 @@ class Protein(Audited, Analyte):
     name: Optional[str] = None
     idg_family: Optional[IDGFamily] = None
     pm_score: Optional[List[float]] = None
+    pm_score_by_year: Optional[List[YearScore]] = None
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None
     uniprot_function: Optional[str] = None

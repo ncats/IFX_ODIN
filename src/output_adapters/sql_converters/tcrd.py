@@ -21,7 +21,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
-    DTO as mysqlDTO, DTOParent, P2DTO,
+    DTO as mysqlDTO, DTOParent, P2DTO, Pmscore,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -38,7 +38,8 @@ class TCRDOutputConverter(SQLOutputConverter):
         self._converters = {
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
-                      self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter],
+                      self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter,
+                      self.pmscore_converter],
             # GeneRif
             GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
             # GO
@@ -171,6 +172,23 @@ class TCRDOutputConverter(SQLOutputConverter):
             )
             for a in ids
         ]
+
+    def pmscore_converter(self, obj: dict) -> List[Pmscore]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        rows = []
+        for entry in obj.get('pm_score_by_year') or []:
+            year = entry.get('year')
+            score = entry.get('score')
+            if year is None or score is None:
+                continue
+            rows.append(
+                Pmscore(
+                    protein_id=protein_id,
+                    year=int(year),
+                    score=float(score),
+                )
+            )
+        return rows
 
     def t2tc_converter(self, obj: dict) -> T2TC:
         return T2TC(
