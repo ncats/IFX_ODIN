@@ -30,6 +30,7 @@
 ## Lessons Learned
 
 - Keep adapters focused on source parsing and structural graph emission; move cross-ontology ID normalization to resolvers.
+- Raw source adapters should not populate `sources` or `provenance`; let the framework stamp canonical datasource/version metadata during ETL.
 - For ontology xrefs, maintain an explicit allowlist and perform case-insensitive prefix checks.
 - When adding new datasource version handling, use named parameters for `DatasourceVersionInfo` to avoid argument-order regressions.
 - When an edge can be emitted by multiple sources and later merged, keep source-specific payload in a `details` list instead of top-level edge fields.

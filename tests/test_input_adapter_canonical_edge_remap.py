@@ -145,3 +145,31 @@ def test_input_adapter_keeps_measured_protein_edge_start_node_typed_as_measured_
     assert rel.start_node.id == "UniProtKB:P12345"
     assert isinstance(rel.end_node, Protein)
     assert rel.end_node.id == "UniProtKB:P12345"
+
+
+def test_input_adapter_preserves_existing_edge_sources_and_provenance():
+    edge = ProteinPathwayEdge(
+        start_node=Protein(id="UniProtKB:P1"),
+        end_node=Pathway(id="Reactome:R-HSA-1"),
+        source="Reactome",
+    )
+    edge.sources = ["BioPlex\t3.0 (293T)\t2024-01-19\t2026-04-24", "Reactome\t96\t2026-03-24\t2026-04-24"]
+    edge.provenance = "BioPlex\t3.0 (293T)\t2024-01-19\t2026-04-24"
+    adapter = _SingleBatchAdapter([edge])
+
+    batches = list(adapter.get_resolved_and_provenanced_list({
+        "Protein": _IdentityResolver(
+            types=["Protein"],
+            no_match_behavior=NoMatchBehavior.Skip,
+            multi_match_behavior=MultiMatchBehavior.All,
+        ),
+        "Pathway": _IdentityResolver(
+            types=["Pathway"],
+            no_match_behavior=NoMatchBehavior.Skip,
+            multi_match_behavior=MultiMatchBehavior.All,
+        ),
+    }))
+    rel = batches[-1][0]
+
+    assert rel.sources == ["BioPlex\t3.0 (293T)\t2024-01-19\t2026-04-24", "Reactome\t96\t2026-03-24\t2026-04-24"]
+    assert rel.provenance == "BioPlex\t3.0 (293T)\t2024-01-19\t2026-04-24"

@@ -16,7 +16,6 @@ class InputAdapter(ABC):
     def _canonicalize_relationship_class(rel: Relationship, start_node: Node, end_node: Node) -> Relationship:
         from src.models.disease import GeneDiseaseEdge, ProteinDiseaseEdge
         from src.models.expression import GeneTissueExpressionEdge, ProteinTissueExpressionEdge
-        from src.models.gene import Gene
         from src.models.pathway import GenePathwayEdge, ProteinPathwayEdge
         from src.models.protein import Protein
         from src.models.tissue import Tissue
@@ -85,8 +84,9 @@ class InputAdapter(ABC):
                 version_info = self.get_version()
                 version_data = [self.get_datasource_name(), version_info.version, version_info.version_date, version_info.download_date]
                 version_string = '\t'.join([str(e) for e in version_data])
-                entry.provenance = version_string
-                if self.get_datasource_name() != DataSourceName.PostProcessing:
+                if not getattr(entry, 'provenance', None):
+                    entry.provenance = version_string
+                if self.get_datasource_name() != DataSourceName.PostProcessing and not getattr(entry, 'sources', None):
                     entry.sources = [version_string]
 
             nodes = [e for e in entries if isinstance(e, Node)]

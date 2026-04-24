@@ -18,6 +18,7 @@ class DataSourceName(SimpleEnum):
     Cellosaurus = "Cellosaurus"
     Reactome = "Reactome"
     STRING = "STRING"
+    BioPlex = "BioPlex"
     WikiPathways = "WikiPathways"
     PathwayCommons = "PathwayCommons"
     CLO = "Cell Line Ontology (CLO)"

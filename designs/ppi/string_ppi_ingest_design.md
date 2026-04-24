@@ -4,8 +4,7 @@
 
 Implemented and validated in the working graph and working MySQL paths.
 
-This first pass covers **STRING human protein-protein interactions** only.
-BioPlex and Reactome PPI remain follow-up sources.
+STRING, BioPlex, and Reactome PPI are now all implemented for Pharos.
 
 ## Scope
 
@@ -15,9 +14,7 @@ Implemented source:
 
 Explicitly deferred:
 
-- BioPlex PPI
-- Reactome PPI
-- source-specific `interaction_type` / `evidence` population
+- richer STRING channel-specific fields from `.protein.links.full...`
 
 ## Files Added / Changed
 
@@ -102,7 +99,6 @@ Confirmed old IFX_ODIN / Pharos readback behavior:
 - `PPIEdge`
   - `start_node`: `Protein(id="ENSEMBL:ENSP...")`
   - `end_node`: `Protein(id="ENSEMBL:ENSP...")`
-  - `sources`: STRING provenance list
   - `score`: list-valued, emitted as `[combined_score]`
 
 Implementation choices:
@@ -110,6 +106,7 @@ Implementation choices:
 - `score_cutoff` is an adapter parameter with default `400`
 - rows below the cutoff are discarded before they enter the graph
 - self-pairs are discarded before they enter the graph
+- adapter does not populate `sources`; the ETL framework stamps canonical datasource/version metadata
 - `max_rows` is supported for bounded validation runs and counts **kept emitted
   edges**, not scanned raw lines
 
@@ -237,10 +234,6 @@ pairs before export.
 
 - Profile whether STRING `.protein.links.full...` is worth revisiting for richer
   channel-specific fields
-- Add Reactome PPI ingest
-  - populate `interaction_type`
-  - decide whether the Reactome evidence/context column should map to `evidence`
-- Add BioPlex PPI ingest
 - Decide whether downstream `ncats_ppi` export should collapse duplicate canonical
   pairs before reciprocal row generation, or continue to preserve one SQL row pair
   per graph edge
