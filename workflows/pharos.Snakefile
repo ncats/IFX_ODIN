@@ -14,6 +14,9 @@ rule all:
         "../input_files/auto/jensenlab/human_disease_experiments_filtered.tsv",
         "../input_files/auto/jensenlab/human_disease_textmining_filtered.tsv",
         "../input_files/auto/jensenlab/diseases_version.tsv",
+        "../input_files/auto/jensenlab/human_textmining_mentions.tsv",
+        "../input_files/auto/jensenlab/disease_textmining_mentions.tsv",
+        "../input_files/auto/jensenlab/tinx_version.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
         "../input_files/auto/go/goa_human-go.gaf.gz",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
@@ -123,6 +126,26 @@ rule download_jensenlab_diseases:
         textmining_lm=$(curl -fsI "$textmining_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
 
         python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:4] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates); open(sys.argv[4],'w').write('version\\tversion_date\\n\\t'+version_date+'\\n')" "$knowledge_lm" "$experiments_lm" "$textmining_lm" {output[3]}
+        """
+
+rule download_tinx:
+    output:
+        "../input_files/auto/jensenlab/human_textmining_mentions.tsv",
+        "../input_files/auto/jensenlab/disease_textmining_mentions.tsv",
+        "../input_files/auto/jensenlab/tinx_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/jensenlab
+        protein_url='https://download.jensenlab.org/human_textmining_mentions.tsv'
+        disease_url='https://download.jensenlab.org/disease_textmining_mentions.tsv'
+
+        curl -fL -o {output[0]} "$protein_url"
+        curl -fL -o {output[1]} "$disease_url"
+
+        protein_lm=$(curl -fsI "$protein_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        disease_lm=$(curl -fsI "$disease_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+
+        python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates); open(sys.argv[3],'w').write('version\\tversion_date\\n\\t'+version_date+'\\n')" "$protein_lm" "$disease_lm" {output[2]}
         """
 
 rule download_uberon:

@@ -26,8 +26,15 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/ppi.py
-    class: ProteinPPIAdapter
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: DiseaseAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      associated_only: true
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: TINXImportanceAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database

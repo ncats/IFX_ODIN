@@ -54,6 +54,17 @@ class RecordMerger:
             obj.provenance = f"creation: {obj.provenance}"
         return objects
 
+    def dedupe_dict_list_preserve_order(self, values: List[dict]) -> List[dict]:
+        seen = set()
+        deduped = []
+        for value in values:
+            key = json.dumps(value, sort_keys=True)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(value)
+        return deduped
+
     def merge_objects(self, objects, existing_object_map, mapper, pk_columns, merge_anyway = False):
         updates, inserts = [], []
         if len(pk_columns) == 1 and getattr(pk_columns[0], "autoincrement", False) and not merge_anyway:
@@ -178,8 +189,7 @@ class RecordMerger:
                             updates.append(f"{prop}\t{len(existing_prop_value)} entries already there\t{len(record[prop])} entries being merged\t{record['provenance']}")
                             if isinstance(record[prop][0], dict):
                                 combined = existing_prop_value + record[prop]
-                                deduped = list({json.dumps(d, sort_keys=True) for d in combined})
-                                existing_node[prop] = [json.loads(d) for d in deduped]
+                                existing_node[prop] = self.dedupe_dict_list_preserve_order(combined)
                             else:
                                 existing_node[prop] = list(set(existing_prop_value + record[prop]))
                         else:
@@ -187,8 +197,7 @@ class RecordMerger:
 
                             value = record[prop]
                             if value and isinstance(value[0], dict):
-                                deduped = list({json.dumps(d, sort_keys=True) for d in value})
-                                existing_node[prop] = [json.loads(d) for d in deduped]
+                                existing_node[prop] = self.dedupe_dict_list_preserve_order(value)
                             else:
                                 existing_node[prop] = list(set(value))
                     else:

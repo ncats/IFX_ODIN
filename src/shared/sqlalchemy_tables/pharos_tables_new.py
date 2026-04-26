@@ -58,6 +58,7 @@ class Protein(Base):
     stringid = Column(String(15), nullable=True)
     dtoclass = Column(String(255), nullable=True)
     preferred_symbol = Column(String(20), nullable=False)
+    novelty = Column(DECIMAL(34, 16), nullable=True)
 
     __table_args__ = (
         Index("protein_idx1", "uniprot"),
@@ -354,6 +355,7 @@ class NcatsDisease(Base):
     target_count = Column(Integer)
     direct_target_count = Column(Integer)
     gard_rare = Column(Boolean)
+    novelty = Column(DECIMAL(34, 16), nullable=True)
 
 class NcatsDataSourceMap(Base):
     __tablename__ = "ncats_dataSource_map"
@@ -714,46 +716,18 @@ class NcatsDiseaseAncestry(Base):
         Index("ncats_disease_ancestry_ncats_disease_id_foreign", "ncats_disease_id"),
     )
 
-class TinxNovelty(Base):
-    __tablename__ = "tinx_novelty"
-
-    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
-    score = Column(DECIMAL(34, 16), nullable=False)
-
-    __table_args__ = (
-        Index("tinx_novelty_idx1", "protein_id"),
-        Index("tinx_novelty_idx3", "protein_id", "score"),
-    )
-
-
 class TinxImportance(Base):
     __tablename__ = "tinx_importance"
 
-    doid = Column(String(20), ForeignKey("tinx_disease.doid"), primary_key=True, nullable=False)
+    ncats_disease_id = Column(Integer, ForeignKey("ncats_disease.id"), primary_key=True, nullable=False)
     protein_id = Column(Integer, ForeignKey("protein.id"), primary_key=True, nullable=False)
+    doid = Column(String(20), nullable=True)
     score = Column(DECIMAL(34, 16), nullable=False)
 
     __table_args__ = (
         Index("tinx_importance_idx1", "protein_id"),
-        Index("tinx_importance_idx2", "doid"),
-    )
-
-
-class TinxDisease(Base):
-    __tablename__ = "tinx_disease"
-
-    doid = Column(String(20), primary_key=True, nullable=False)
-    name = Column(Text, nullable=False)
-    summary = Column(Text, nullable=True)
-    score = Column(DECIMAL(34, 16), nullable=True)
-
-    __table_args__ = (
-        Index(
-            "tinx_disease_text_idx",
-            "name","summary",
-            mysql_prefix="FULLTEXT"
-        ),
+        Index("tinx_importance_idx2", "ncats_disease_id"),
+        Index("tinx_importance_idx3", "doid"),
     )
 
 class GeneAttributeType(Base):

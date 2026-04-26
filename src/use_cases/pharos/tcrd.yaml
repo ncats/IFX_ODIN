@@ -105,6 +105,12 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: TINXImportanceAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
   - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
     class: ProteinPathwayAdapter
     credentials: *source_credentials

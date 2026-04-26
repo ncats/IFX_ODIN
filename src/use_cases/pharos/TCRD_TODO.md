@@ -21,39 +21,40 @@ Status: [ ] not started | [~] in progress | [x] done
 
 Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = ingested into the Pharos graph or side-lifted into the protein-oriented Pharos view. MySQL table checkboxes = graph-derived converter output written to TCRD.
 
-| Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD) |
-|---------|-----------------------|-------------|-----------------------|
-| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info` |
-| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | [x] `generif` |
-| **GeneGeneRifEdge** | [x] target_graph generif CSV | `GeneGeneRifEdge` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed` |
-| **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon` |
-| **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent` |
-| **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex` |
-| **GoTerm** | [x] GO OBO | `GoTerm` | [x] `go` |
-| **GoTermHasParent** | [x] GO OBO | `GoTermHasParent` | [x] `go_parent` |
-| **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa` |
-| **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands` |
-| **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity` |
-| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication | `Disease` | [x] `ncats_disease` |
-| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | not exported from merged graph; source-file MONDO tables populate `mondo_parent` / `ancestry_mondo` below |
-| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | not exported from merged graph; source-file DO tables populate `do_parent` / `ancestry_do` below |
-| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD <br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da` |
-| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | no standalone TCRD table; pathway content is duplicated via `ProteinPathwayEdge` into `pathway` |
-| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL |
-| **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways <br>[x] PathwayCommons  | `ProteinPathwayEdge` | [x] `pathway` |
-| **PPIEdge** | [x] STRING | `PPIEdge` | [x] `ncats_ppi`  |
-| **PantherClass** | [x] PANTHER Classes | `PantherClass` | [x] `panther_class` |
-| **ProteinPantherClassEdge** | [x] PANTHER Classes  | `ProteinPantherClassEdge` | [x] `p2pc`  |
-| **DTOClass** | [x] old Pharos MySQL | `DTOClass` | current converter supports `dto`, but DTO is not wired in active `tcrd.yaml` |
-| **DTOClassParentEdge** | [x] old Pharos MySQL | `DTOClassParentEdge` | current converter supports `dto_parent`, but DTO is not wired in active `tcrd.yaml` |
-| **ProteinDTOClassEdge** | [x] old Pharos MySQL | `ProteinDTOClassEdge` | current converter supports `p2dto`, but DTO is not wired in active `tcrd.yaml` |
-| **Keyword** | [x] UniProt | `Keyword` | no standalone TCRD table; keyword content is duplicated via `ProteinKeywordEdge` into `xref` |
-| **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref` | | |
-| **SetPreferredSymbolAdapter** | [x] computed from graph | updates `preferred_symbol` on `Protein` | *(via Protein → `protein.preferred_symbol`)* |
-| **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)* |
-| **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)* |
-| **TDLInputAdapter** | [x] computed from graph | updates `tdl`, `tdl_meta` on `Protein` | *(via Protein)* |
-| **TDLOverrideAdapter** | [x] manual CSV | updates `tdl` on `Protein` | *(via Protein)* |
+| Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD)                                                                                 |
+|---------|-----------------------|-------------|-------------------------------------------------------------------------------------------------------------|
+| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] TIN-X *(novelty)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore` |
+| **GeneRif** | [x] target_graph generif CSV | `GeneRif` | [x] `generif`                                                                                               |
+| **GeneGeneRifEdge** | [x] target_graph generif CSV | `GeneGeneRifEdge` | [x] `generif`<br>[x] `generif2pubmed`<br>[x] `protein2pubmed`                                               |
+| **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon`                                                                                                |
+| **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent`                                                                                         |
+| **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex`                                                              |
+| **GoTerm** | [x] GO OBO | `GoTerm` | [x] `go`                                                                                                    |
+| **GoTermHasParent** | [x] GO OBO | `GoTermHasParent` | [x] `go_parent`                                                                                             |
+| **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa`                                                                                                   |
+| **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands`                                                                                         |
+| **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity`                                                                                 |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication<br>[x] TIN-X *(novelty)* | `Disease` | [x] `ncats_disease`                                                                                         |
+| **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | not exported from merged graph; source-file MONDO tables populate `mondo_parent` / `ancestry_mondo` below   |
+| **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | not exported from merged graph; source-file DO tables populate `do_parent` / `ancestry_do` below            |
+| **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD <br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da`                                                     |
+| **TINXImportanceEdge** | [x] TIN-X *(protein-disease importance; Jensen-derived)* | `TINXImportanceEdge` | [x] `tinx_importance`                                                                                        |
+| **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | no standalone TCRD table; pathway content is duplicated via `ProteinPathwayEdge` into `pathway`             |
+| **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL                                                                           |
+| **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways <br>[x] PathwayCommons  | `ProteinPathwayEdge` | [x] `pathway`                                                                                               |
+| **PPIEdge** | [x] STRING<br>[x] BioPlex<br>[x] Reactome | `PPIEdge` | [x] `ncats_ppi`                                                                                             |
+| **PantherClass** | [x] PANTHER Classes | `PantherClass` | [x] `panther_class`                                                                                         |
+| **ProteinPantherClassEdge** | [x] PANTHER Classes  | `ProteinPantherClassEdge` | [x] `p2pc`                                                                                                  |
+| **DTOClass** | [x] old Pharos MySQL | `DTOClass` | current converter supports `dto`, but DTO is not wired in active `tcrd.yaml`                                |
+| **DTOClassParentEdge** | [x] old Pharos MySQL | `DTOClassParentEdge` | current converter supports `dto_parent`, but DTO is not wired in active `tcrd.yaml`                         |
+| **ProteinDTOClassEdge** | [x] old Pharos MySQL | `ProteinDTOClassEdge` | current converter supports `p2dto`, but DTO is not wired in active `tcrd.yaml`                              |
+| **Keyword** | [x] UniProt | `Keyword` | no standalone TCRD table; keyword content is duplicated via `ProteinKeywordEdge` into `xref`                |
+| **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref`                                                                                                  | | |
+| **SetPreferredSymbolAdapter** | [x] computed from graph | updates `preferred_symbol` on `Protein` | *(via Protein → `protein.preferred_symbol`)*                                                                |
+| **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)*                                                                                   |
+| **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)*                                                                                              |
+| **TDLInputAdapter** | [x] computed from graph | updates `tdl`, `tdl_meta` on `Protein` | *(via Protein)*                                                                                             |
+| **TDLOverrideAdapter** | [x] manual CSV | updates `tdl` on `Protein` | *(via Protein)*                                                                                             |
 
 ### Source-File Ontology Tables
 
@@ -71,17 +72,15 @@ These tables are populated directly from ontology source files during the TCRD b
 - maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
-- Protein-Protein Interactions — BioPlex, Reactome PPI
+- Tiga
+- Publications — NCBI, JensenLab
+- IDG Resources
+- NIH Target Lists
+- Other Publication Statistics (PubTator)
 - Orthologs — OMA, EggNOG, Inparanoid
 - Phenotype — IMPC, JAX/MGI
-- GWAS
-- Protein & Disease Novelty (this might be TINx, I'm not sure)
 - P-HIPSTer Viral PPIs
-- Publications — NCBI, JensenLab
-- NIH Target Lists
-- IDG Resources
 - Nearest Tclin (computed from graph)
-- Publication Statistics (PubMed Score, PubTator)
 
 ### Simple Linkouts
 - Dark Kinase Knowledgebase — understudied kinases compendium
@@ -104,7 +103,8 @@ These tables are populated directly from ontology source files during the TCRD b
 - Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
 - Monarch as a standalone disease-association source *(do not ingest the current dump as `Monarch`; the public file is a Translator-style aggregate whose primary sources are `infores:omim` and `infores:clingen`)*
 - Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
-
+- GWAS - gwas data is essentially duplicated in the old pharos, as it shows up in TIGA as well, and the UI exclusively uses the TIGA data, not the legacy direct GWAS data that was in there before TIGA was a thing
+ 
 ### Findings From Investigation
 - OMIM is not a legacy Pharos target-disease association source
   - old `load-OMIM.py` populated `omim`, `omim_ps`, and `phenotype`, not `disease`
