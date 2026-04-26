@@ -10,6 +10,7 @@ from src.models.node import Node, Relationship
 class Disease(Node):
     name: str = None
     type: Optional[str] = None
+    novelty: Optional[List[float]] = None
     mondo_description: Optional[str] = None
     do_description: Optional[str] = None
     uniprot_description: Optional[str] = None
@@ -42,6 +43,7 @@ class GeneDiseaseEdge(Relationship):
 class DiseaseAssociationDetail:
     source: str
     source_id: Optional[str] = None
+    importance: List[float] = field(default_factory=list)
     evidence_terms: List[str] = field(default_factory=list)
     pmids: List[str] = field(default_factory=list)
     evidence_codes: List[str] = field(default_factory=list)
@@ -62,6 +64,13 @@ class DiseaseAssociationDetail:
 
 @dataclass
 class ProteinDiseaseEdge(Relationship):
+    start_node: Protein = None
+    end_node: Disease = None
+    details: List[DiseaseAssociationDetail] = field(default_factory=list)
+
+
+@dataclass
+class TINXImportanceEdge(Relationship):
     start_node: Protein = None
     end_node: Disease = None
     details: List[DiseaseAssociationDetail] = field(default_factory=list)

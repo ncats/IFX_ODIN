@@ -1,7 +1,7 @@
 import hashlib
 from typing import Union, List, Optional
 from src.constants import Prefix
-from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge
+from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge, TINXImportanceEdge
 from src.models.dto_class import DTOClass, DTOClassParentEdge, ProteinDTOClassEdge
 from src.models.expression import ProteinTissueExpressionEdge
 from src.models.generif import GeneGeneRifEdge
@@ -21,6 +21,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
+    TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -64,6 +65,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             DiseaseParentEdge: None,
             DODiseaseParentEdge: None,
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
+            TINXImportanceEdge: [self.tinx_importance_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_converter],
             # PPI
@@ -120,7 +122,8 @@ class TCRDOutputConverter(SQLOutputConverter):
             dtoid=(obj.get('dtoid') or '').replace(':', '_') or None,
             dtoclass=obj.get('dtoclass'),
             provenance=obj['provenance'],
-            preferred_symbol=obj.get('preferred_symbol')
+            preferred_symbol=obj.get('preferred_symbol'),
+            novelty=min(obj.get('novelty') or []) if obj.get('novelty') else None,
         )
 
     def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
@@ -580,6 +583,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             do_description=obj.get('do_description'),
             mondo_description=obj.get('mondo_description'),
             mondoid=mondoid,
+            novelty=min(obj.get('novelty') or []) if obj.get('novelty') else None,
             provenance=obj['provenance'],
         )
 
@@ -624,6 +628,27 @@ class TCRDOutputConverter(SQLOutputConverter):
                 provenance=obj['provenance'],
             ))
         return links
+
+    def tinx_importance_converter(self, obj: dict) -> List[TinxImportance]:
+        best_doid = None
+        best_score = None
+        for detail in self._iter_disease_details(obj):
+            importance = detail.get('importance') or []
+            doid = detail.get('doid') or detail.get('source_id')
+            if not importance:
+                continue
+            score = max(importance)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_doid = doid
+        if best_score is None:
+            return []
+        return [TinxImportance(
+            ncats_disease_id=self.resolve_id('ncats_disease', obj['end_id']),
+            protein_id=self.resolve_id('protein', obj['start_id']),
+            doid=best_doid,
+            score=best_score,
+        )]
 
     # --- Pathway ---
 

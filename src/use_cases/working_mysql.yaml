@@ -26,6 +26,19 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: DiseaseAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      associated_only: true
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: TINXImportanceAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TCRDOutputAdapter

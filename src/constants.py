@@ -32,6 +32,7 @@ class DataSourceName(SimpleEnum):
     JensenLabPM = "JensenLab PubMed Score"
     JensenLabTissues = "JensenLab TISSUES"
     JensenLabDiseases = "JensenLab DISEASES"
+    TINX = "TIN-X"
     HPM = "Human Protein Map"
     HPA = "Human Protein Atlas"
     GTEx = "GTEx"

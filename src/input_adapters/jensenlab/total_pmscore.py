@@ -10,6 +10,8 @@ from src.models.protein import Protein, YearScore
 
 
 class TotalPMScoreAdapter(InputAdapter):
+    batch_size: int = 1000
+
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.JensenLabPM
 

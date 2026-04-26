@@ -243,6 +243,13 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/jensenlab/protein_counts.tsv
 
+  - import: ./src/input_adapters/jensenlab/tinx.py
+    class: TINXAdapter
+    kwargs:
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
+      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+
   - import: ./src/input_adapters/jensenlab/tissues_expression.py
     class: JensenLabTissuesExpressionAdapter
     kwargs:

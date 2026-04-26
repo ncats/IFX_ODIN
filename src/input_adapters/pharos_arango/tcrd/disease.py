@@ -2,7 +2,7 @@ from typing import Generator, List, Union
 
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.models.datasource_version_info import DataSourceDetails
-from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge, DiseaseAssociationDetail
+from src.models.disease import Disease, DiseaseParentEdge, ProteinDiseaseEdge, DiseaseAssociationDetail, TINXImportanceEdge
 from src.models.protein import Protein
 
 
@@ -12,8 +12,8 @@ def disease_query() -> str:
     """
 
 
-def associated_disease_ids_query() -> str:
-    return """FOR rel IN `ProteinDiseaseEdge`
+def associated_disease_ids_query(collection_name: str) -> str:
+    return f"""FOR rel IN `{collection_name}`
     COLLECT disease_id = rel.end_id
     RETURN disease_id
     """
@@ -36,6 +36,17 @@ def protein_disease_query(last_key: str = None, limit: int = 10000) -> str:
     """
 
 
+def tinx_importance_query(last_key: str = None, limit: int = 10000) -> str:
+    filter_clause = f'FILTER rel._key > "{last_key}"' if last_key else ""
+    return f"""
+    FOR rel IN `TINXImportanceEdge`
+        {filter_clause}
+        SORT rel._key
+        LIMIT {limit}
+        RETURN rel
+    """
+
+
 def disease_version_query() -> str:
     return """FOR d IN `Disease` LIMIT 1 RETURN d.creation"""
 
@@ -48,9 +59,13 @@ class DiseaseAdapter(PharosArangoAdapter):
         super().__init__(credentials=credentials, database_name=database_name)
 
     def get_all(self) -> Generator[List[Union[Disease, DiseaseParentEdge]], None, None]:
+        db = self.get_db()
         associated_ids = None
         if self.associated_only:
-            associated_ids = set(self.runQuery(associated_disease_ids_query()))
+            associated_ids = set()
+            for collection_name in ("ProteinDiseaseEdge", "TINXImportanceEdge"):
+                if db.has_collection(collection_name):
+                    associated_ids.update(self.runQuery(associated_disease_ids_query(collection_name)))
 
         diseases = self.runQuery(disease_query())
         disease_map = {}
@@ -63,7 +78,6 @@ class DiseaseAdapter(PharosArangoAdapter):
             rows.append(disease)
         yield rows
 
-        db = self.get_db()
         if not db.has_collection("DiseaseParentEdge"):
             yield []
             return
@@ -100,6 +114,36 @@ class ProteinDiseaseAdapter(PharosArangoAdapter):
 
             yield [
                 ProteinDiseaseEdge(
+                    start_node=Protein(id=row['start_id']),
+                    end_node=Disease(id=row['end_id'], name=row.get('end_node', {}).get('name', '')),
+                    details=self._build_details(row)
+                )
+                for row in rows
+            ]
+            last_key = rows[-1]['_key']
+
+    def get_version_info_query(self) -> DataSourceDetails:
+        raw_version_info = self.runQuery(disease_version_query())[0]
+        return DataSourceDetails.parse_tsv(raw_version_info)
+
+
+class TINXImportanceAdapter(PharosArangoAdapter):
+    batch_size = 10_000
+
+    @staticmethod
+    def _build_details(row: dict) -> List[DiseaseAssociationDetail]:
+        details = row.get('details') or []
+        return [DiseaseAssociationDetail.from_dict(detail) for detail in details]
+
+    def get_all(self) -> Generator[List[TINXImportanceEdge], None, None]:
+        last_key = None
+        while True:
+            rows = list(self.runQuery(tinx_importance_query(last_key=last_key, limit=self.batch_size)))
+            if not rows:
+                break
+
+            yield [
+                TINXImportanceEdge(
                     start_node=Protein(id=row['start_id']),
                     end_node=Disease(id=row['end_id'], name=row.get('end_node', {}).get('name', '')),
                     details=self._build_details(row)
