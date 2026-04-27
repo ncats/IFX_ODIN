@@ -8,7 +8,7 @@ from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.disease import Disease, DiseaseAssociationDetail, TINXImportanceEdge
+from src.models.disease import Disease
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.protein import Protein
 
@@ -58,10 +58,10 @@ class TINXAdapter(InputAdapter):
         )
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
-        print("TIN-X: building protein PMID maps")
-        pmid_to_protein_count, pmid_to_proteins = self._build_protein_pmid_maps()
+        print("TIN-X: building protein PMID counts")
+        pmid_to_protein_count = self._build_protein_pmid_counts()
         print(
-            f"TIN-X: built protein PMID maps for {len(pmid_to_proteins)} pmids "
+            f"TIN-X: built protein PMID counts for {len(pmid_to_protein_count)} pmids "
             f"across {sum(pmid_to_protein_count.values())} protein-pmid mentions"
         )
 
@@ -76,79 +76,18 @@ class TINXAdapter(InputAdapter):
         yield from self._yield_protein_novelty(pmid_to_protein_count)
         print("TIN-X: emitting disease novelty")
         yield from self._yield_disease_novelty(pmid_to_disease_count)
-        print("TIN-X: emitting protein-disease importance edges")
 
-        batch: List[TINXImportanceEdge] = []
-        pair_count = 0
-        processed_diseases = 0
-        for doid, disease_pmid_set in self._iter_disease_mentions():
-            protein_scores: Dict[str, float] = defaultdict(float)
-            for pmid in disease_pmid_set:
-                proteins_for_pmid = pmid_to_proteins.get(pmid)
-                protein_count = pmid_to_protein_count.get(pmid, 0)
-                disease_count = pmid_to_disease_count.get(pmid, 0)
-                if not proteins_for_pmid or protein_count <= 0 or disease_count <= 0:
-                    continue
-                increment = 1.0 / (protein_count * disease_count)
-                for protein_id in proteins_for_pmid:
-                    protein_scores[protein_id] += increment
-
-            for protein_id, importance in protein_scores.items():
-                if importance <= 0:
-                    continue
-                batch.append(
-                    TINXImportanceEdge(
-                        start_node=Protein(id=EquivalentId(id=protein_id, type=Prefix.ENSEMBL).id_str()),
-                        end_node=Disease(id=doid),
-                        details=[
-                            DiseaseAssociationDetail(
-                                source="TIN-X",
-                                source_id=doid,
-                                doid=doid,
-                                importance=[importance],
-                            )
-                        ],
-                    )
-                )
-                pair_count += 1
-                if len(batch) >= self.batch_size:
-                    print(
-                        f"TIN-X: yielding {len(batch)} importance edges "
-                        f"after {processed_diseases + 1} diseases and {pair_count} total pairs"
-                    )
-                    yield batch
-                    batch = []
-                if self.max_pairs is not None and pair_count >= self.max_pairs:
-                    break
-            processed_diseases += 1
-            if processed_diseases % self.progress_every == 0:
-                print(
-                    f"TIN-X: processed {processed_diseases} diseases and emitted "
-                    f"{pair_count} importance pairs"
-                )
-            if self.max_pairs is not None and pair_count >= self.max_pairs:
-                break
-
-        if batch:
-            print(
-                f"TIN-X: final importance batch {len(batch)} edges "
-                f"after {processed_diseases} diseases and {pair_count} total pairs"
-            )
-            yield batch
-
-    def _build_protein_pmid_maps(self) -> Tuple[Dict[str, int], Dict[str, List[str]]]:
+    def _build_protein_pmid_counts(self) -> Dict[str, int]:
         pmid_to_protein_count: Dict[str, int] = defaultdict(int)
-        pmid_to_proteins: Dict[str, List[str]] = defaultdict(list)
         for loaded_proteins, (protein_id, pmids) in enumerate(self._iter_protein_mentions(), start=1):
             for pmid in pmids:
                 pmid_to_protein_count[pmid] += 1
-                pmid_to_proteins[pmid].append(protein_id)
             if loaded_proteins % self.progress_every == 0:
                 print(
                     f"TIN-X: indexed {loaded_proteins} proteins into "
-                    f"{len(pmid_to_proteins)} unique pmids"
+                    f"{len(pmid_to_protein_count)} unique pmids"
                 )
-        return pmid_to_protein_count, pmid_to_proteins
+        return pmid_to_protein_count
 
     def _build_disease_pmid_counts(self) -> Dict[str, int]:
         pmid_to_disease_count: Dict[str, int] = defaultdict(int)
