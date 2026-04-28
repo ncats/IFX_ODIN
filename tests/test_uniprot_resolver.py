@@ -37,3 +37,16 @@ def test_uniprot_resolver_normalizes_isoform_to_base_accession():
 
     assert len(results["UniProtKB:Q15149-9"]) == 1
     assert results["UniProtKB:Q15149-9"][0].match == "UniProtKB:Q15149"
+
+
+def test_uniprot_resolver_resolves_symbol_alias():
+    resolver = UniProtResolver(
+        uniprot_json_path="./input_files/auto/uniprot/uniprot-human-reviewed.json.gz",
+        types=["Protein"],
+        no_match_behavior="Skip",
+    )
+
+    results = resolver.resolve_internal([Protein(id="TP53")])
+
+    assert len(results["TP53"]) == 1
+    assert results["TP53"][0].match == "UniProtKB:P04637"

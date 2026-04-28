@@ -1,8 +1,14 @@
-from src.use_cases.build_from_yaml import BuildGraphFromYaml
+from src.use_cases.build_cli import run_arango_build_cli
 
-etl_builder = BuildGraphFromYaml(yaml_file="./src/use_cases/pharos/target_graph.yaml")
-etl_builder.prepare_datastore()
-etl_builder.do_etl(clean_edges=False)
 
-post_etl_builder = BuildGraphFromYaml(yaml_file="./src/use_cases/pharos/target_graph_aql_post.yaml")
-post_etl_builder.do_etl()
+def main():
+    run_arango_build_cli(
+        build_name="target_graph",
+        database_name="target_graph",
+        primary_yaml="./src/use_cases/pharos/target_graph.yaml",
+        post_yaml="./src/use_cases/pharos/target_graph_aql_post.yaml",
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -18,11 +18,13 @@ class HostDashboardFromYaml:
 class BuildGraphFromYaml:
     configuration: ETL_Config
     etl: ETL
+    yaml_file: str
 
     def __init__(self, yaml_file: str):
         self.load_yaml(yaml_file)
 
     def load_yaml(self, yaml_file: str):
+        self.yaml_file = yaml_file
         self.configuration = ETL_Config(yaml_file)
         output_adapters = self.configuration.create_output_adapters()
         graph_views = self.configuration.config_dict.get("graph_views", [])
@@ -42,5 +44,5 @@ class BuildGraphFromYaml:
     def prepare_datastore(self, truncate_tables: bool = True):
         self.etl.create_or_truncate_datastores(truncate_tables=truncate_tables)
 
-    def do_etl(self, do_post_processing = True, clean_edges: bool = True):
-        self.etl.do_etl(do_post_processing, clean_edges)
+    def do_etl(self, do_post_processing = True, clean_edges: bool = True, resume: bool = False):
+        self.etl.do_etl(do_post_processing, clean_edges, resume=resume, run_id=self.yaml_file)

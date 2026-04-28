@@ -469,6 +469,96 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         return True
 
+    def _checkpoint_doc_key(self, run_id: str) -> str:
+        return f"etl_checkpoint__{self.safe_key(run_id)}"
+
+    def _read_checkpoint_doc(self, run_id: str) -> dict:
+        store = self.get_metadata_store(truncate=False)
+        return store.get(self._checkpoint_doc_key(run_id)) or {}
+
+    def _write_checkpoint_doc(self, run_id: str, doc: dict) -> None:
+        store = self.get_metadata_store(truncate=False)
+        payload = {
+            "_key": self._checkpoint_doc_key(run_id),
+            "type": "etl_checkpoint",
+            "run_id": run_id,
+            **doc,
+            "last_updated": datetime.now().isoformat(),
+        }
+        store.insert(payload, overwrite=True)
+
+    def _upsert_collection_schemas_doc(self) -> None:
+        if not self._collection_schemas:
+            return
+        store = self.get_metadata_store(truncate=False)
+        existing_doc = store.get("collection_schemas") or {}
+        merged_collections = {**existing_doc.get("collections", {}), **self._collection_schemas}
+        store.insert({
+            "_key": "collection_schemas",
+            "collections": merged_collections,
+        }, overwrite=True)
+
+    def get_completed_adapter_names(self, run_id: str) -> set[str]:
+        doc = self._read_checkpoint_doc(run_id)
+        adapters = doc.get("adapters", {}) or {}
+        return {
+            adapter_name for adapter_name, metadata in adapters.items()
+            if metadata.get("status") == "completed"
+        }
+
+    def reset_run_state(self, run_id: str) -> None:
+        store = self.get_metadata_store(truncate=False)
+        existing = store.get(self._checkpoint_doc_key(run_id))
+        if existing:
+            store.delete(existing["_key"])
+
+    def mark_adapter_running(self, run_id: str, adapter_name: str, adapter_position: int | None = None,
+                             adapter_total: int | None = None) -> None:
+        doc = self._read_checkpoint_doc(run_id)
+        adapters = dict(doc.get("adapters", {}) or {})
+        previous = dict(adapters.get(adapter_name, {}) or {})
+        adapters[adapter_name] = {
+            **previous,
+            "status": "running",
+            "adapter_position": adapter_position,
+            "adapter_total": adapter_total,
+            "started_at": datetime.now().isoformat(),
+        }
+        self._write_checkpoint_doc(run_id, {"adapters": adapters})
+
+    def mark_adapter_completed(self, run_id: str, adapter_name: str, records_written: int = 0,
+                               adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        doc = self._read_checkpoint_doc(run_id)
+        adapters = dict(doc.get("adapters", {}) or {})
+        previous = dict(adapters.get(adapter_name, {}) or {})
+        adapters[adapter_name] = {
+            **previous,
+            "status": "completed",
+            "adapter_position": adapter_position,
+            "adapter_total": adapter_total,
+            "records_written": records_written,
+            "completed_at": datetime.now().isoformat(),
+        }
+        self._write_checkpoint_doc(run_id, {"adapters": adapters})
+
+    def mark_adapter_failed(self, run_id: str, adapter_name: str, error_message: str | None = None,
+                            adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        doc = self._read_checkpoint_doc(run_id)
+        adapters = dict(doc.get("adapters", {}) or {})
+        previous = dict(adapters.get(adapter_name, {}) or {})
+        adapters[adapter_name] = {
+            **previous,
+            "status": "failed",
+            "adapter_position": adapter_position,
+            "adapter_total": adapter_total,
+            "error_message": error_message,
+            "failed_at": datetime.now().isoformat(),
+        }
+        self._write_checkpoint_doc(run_id, {"adapters": adapters})
+
+    def flush_incremental_metadata(self) -> None:
+        self._upsert_collection_schemas_doc()
+
 
     def get_metadata(self) -> DatabaseMetadata:
         collections: List[CollectionMetadata] = []
@@ -553,7 +643,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         except Exception:
             pass
 
-        metadata_store = self.get_metadata_store(truncate=True)
+        metadata_store = self.get_metadata_store(truncate=False)
 
         db_metadata = self.get_metadata()
         metadata_store.insert({

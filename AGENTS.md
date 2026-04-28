@@ -30,6 +30,7 @@
 ## Lessons Learned
 
 - Keep adapters focused on source parsing and structural graph emission; move cross-ontology ID normalization to resolvers.
+- When canonical/equivalent `xref` content should come from identifier reconciliation, populate it via `IdResolver` matches rather than inventing it in the adapter. The ETL framework applies resolvers in `InputAdapter.get_resolved_and_provenanced_list()`, and `IdResolver.get_merged_map()` writes `IdMatch.equivalent_ids` onto resolved nodes as `xref`.
 - Raw source adapters should not populate `sources` or `provenance`; let the framework stamp canonical datasource/version metadata during ETL.
 - For ontology xrefs, maintain an explicit allowlist and perform case-insensitive prefix checks.
 - When adding new datasource version handling, use named parameters for `DatasourceVersionInfo` to avoid argument-order regressions.
@@ -148,7 +149,7 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 
 ## Workflow Conventions
 
-- **After creating any new file that is not matched by `.gitignore`**, run `git add <path>` so it is staged for the next commit. Do not stage ignored files unless the user explicitly asks.
+- **Do not assume Git staging is the user's unit of work.** The user organizes changes in IntelliJ changelists. Prefer leaving commit grouping to the user unless they explicitly ask for staging or committing help, and be careful not to mix unrelated changelists.
 - **For new ingest sources**, read `playbooks/ingest_playbook.md` before doing discovery or code changes.
 - **For source refreshes**, read `playbooks/data_update_playbook.md` before investigating payload drift or changing code.
 - **For Pipeline Status Table updates**, read `playbooks/pharos_table_update_playbook.md` before changing `src/use_cases/pharos/TCRD_TODO.md`.

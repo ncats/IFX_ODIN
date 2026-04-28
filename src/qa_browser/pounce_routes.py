@@ -45,6 +45,8 @@ _VALIDATORS_CONFIG = str(Path(__file__).resolve().parent.parent / "use_cases" / 
 # Keys are entity type strings (e.g. "Metabolite", "Gene").
 # Empty if pounce.yaml is missing or all resolvers fail to load.
 _resolver_map: dict = {}
+_pounce_config_path: str = ""
+_resolvers_loaded: bool = False
 
 # ── Session store ────────────────────────────────────────────────────────────
 # Keeps uploaded files alive after validation so the submitter can email them.
@@ -105,18 +107,28 @@ def set_public_project_base_url(url: str):
 
 
 def set_pounce_config(pounce_yaml_path: str):
-    """Load resolvers from pounce.yaml for mapping coverage checks.
+    """Store the pounce.yaml path for lazy resolver loading."""
+    global _pounce_config_path, _resolver_map, _resolvers_loaded
+    _pounce_config_path = pounce_yaml_path or ""
+    _resolver_map = {}
+    _resolvers_loaded = False
+    if not _pounce_config_path or not os.path.exists(_pounce_config_path):
+        print(f"[pounce] config not found at {_pounce_config_path!r} — mapping coverage disabled")
+    else:
+        print(f"[pounce] configured lazy resolver loading from {_pounce_config_path!r}")
 
-    Called once at app startup. Failures are caught per-resolver so that one
-    missing data file does not block the others from loading.
-    """
-    global _resolver_map
-    if not pounce_yaml_path or not os.path.exists(pounce_yaml_path):
-        print(f"[pounce] config not found at {pounce_yaml_path!r} — mapping coverage disabled")
+
+def _ensure_resolvers_loaded():
+    """Load resolvers from pounce.yaml on first use for mapping coverage checks."""
+    global _resolver_map, _resolvers_loaded
+    if _resolvers_loaded:
+        return
+    _resolvers_loaded = True
+    if not _pounce_config_path or not os.path.exists(_pounce_config_path):
         return
     try:
         from src.core.config import Config, create_object_from_config
-        config = Config(pounce_yaml_path)
+        config = Config(_pounce_config_path)
         for rc in config.config_dict.get("resolvers", []):
             label = rc.get("label", "?")
             try:
@@ -127,7 +139,7 @@ def set_pounce_config(pounce_yaml_path: str):
             except Exception as e:
                 print(f"[pounce] could not load resolver '{label}': {e}")
     except Exception as e:
-        print(f"[pounce] could not load config from {pounce_yaml_path!r}: {e}")
+        print(f"[pounce] could not load config from {_pounce_config_path!r}: {e}")
 
 
 # ── Session helpers ───────────────────────────────────────────────────────────
@@ -576,6 +588,7 @@ def _compute_coverage(parsed_data) -> list:
     coverage = []
     if parsed_data is None:
         return coverage
+    _ensure_resolvers_loaded()
 
     if parsed_data.metabolites:
         resolver = _resolver_map.get("Metabolite")

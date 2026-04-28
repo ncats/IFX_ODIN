@@ -1,0 +1,120 @@
+@prefix ifx: <https://ifx.ncats.nih.gov/ontology/> .
+@prefix biolink: <https://w3id.org/biolink/vocab/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ifx: a owl:Ontology ;
+    rdfs:label "IFX RaMP RDF ontology" ;
+    rdfs:comment "High-level ontology for the IFX RDF export derived from RaMP and shared for MetaboHUB prototype integration." .
+
+ifx:Metabolite a owl:Class ;
+    rdfs:label "Metabolite" .
+
+ifx:Protein a owl:Class ;
+    rdfs:label "Protein" ;
+    rdfs:subClassOf biolink:Protein .
+
+ifx:Pathway a owl:Class ;
+    rdfs:label "Pathway" ;
+    rdfs:subClassOf biolink:Pathway .
+
+ifx:Reaction a owl:Class ;
+    rdfs:label "Reaction" .
+
+ifx:ReactionClass a owl:Class ;
+    rdfs:label "Reaction class" .
+
+ifx:MetaboliteClass a owl:Class ;
+    rdfs:label "Metabolite class" ;
+    rdfs:subClassOf biolink:OntologyClass .
+
+ifx:MetaboliteProteinEdge a owl:Class ;
+    rdfs:label "Metabolite-protein association statement" .
+
+ifx:MetaboliteReactionEdge a owl:Class ;
+    rdfs:label "Metabolite-reaction association statement" .
+
+ifx:MetabolitePathwayEdge a owl:Class ;
+    rdfs:label "Metabolite-pathway association statement" .
+
+ifx:ProteinReactionEdge a owl:Class ;
+    rdfs:label "Protein-reaction association statement" .
+
+ifx:ProteinPathwayEdge a owl:Class ;
+    rdfs:label "Protein-pathway association statement" .
+
+ifx:ReactionReactionClassEdge a owl:Class ;
+    rdfs:label "Reaction to reaction-class association statement" .
+
+ifx:ReactionClassParentEdge a owl:Class ;
+    rdfs:label "Reaction-class hierarchy statement" .
+
+ifx:MetaboliteClassEdge a owl:Class ;
+    rdfs:label "Metabolite to metabolite-class association statement" .
+
+ifx:hasProtein a owl:ObjectProperty ;
+    rdfs:label "has protein" ;
+    rdfs:domain ifx:Metabolite ;
+    rdfs:range ifx:Protein .
+
+ifx:hasReaction a owl:ObjectProperty ;
+    rdfs:label "has reaction" ;
+    rdfs:domain ifx:Metabolite ;
+    rdfs:range ifx:Reaction .
+
+ifx:hasPathway a owl:ObjectProperty ;
+    rdfs:label "has pathway" ;
+    rdfs:range ifx:Pathway .
+
+ifx:participatesInReaction a owl:ObjectProperty ;
+    rdfs:label "participates in reaction" ;
+    rdfs:domain ifx:Protein ;
+    rdfs:range ifx:Reaction .
+
+ifx:hasReactionClass a owl:ObjectProperty ;
+    rdfs:label "has reaction class" ;
+    rdfs:domain ifx:Reaction ;
+    rdfs:range ifx:ReactionClass .
+
+ifx:hasParentReactionClass a owl:ObjectProperty ;
+    rdfs:label "has parent reaction class" ;
+    rdfs:domain ifx:ReactionClass ;
+    rdfs:range ifx:ReactionClass .
+
+ifx:hasMetaboliteClass a owl:ObjectProperty ;
+    rdfs:label "has metabolite class" ;
+    rdfs:domain ifx:Metabolite ;
+    rdfs:range ifx:MetaboliteClass .
+
+ifx:subject a owl:ObjectProperty ;
+    rdfs:label "statement subject" .
+
+ifx:predicate a owl:ObjectProperty ;
+    rdfs:label "statement predicate" .
+
+ifx:object a owl:ObjectProperty ;
+    rdfs:label "statement object" .
+
+ifx:id a owl:DatatypeProperty ;
+    rdfs:label "source identifier" ;
+    rdfs:range xsd:string .
+
+ifx:source a owl:DatatypeProperty ;
+    rdfs:label "source" ;
+    rdfs:range xsd:string .
+
+ifx:sources a owl:DatatypeProperty ;
+    rdfs:label "sources" ;
+    rdfs:range xsd:string .
+
+ifx:substrate_product a owl:DatatypeProperty ;
+    rdfs:label "substrate/product role code" ;
+    rdfs:comment "RaMP reaction role code on MetaboliteReactionEdge statements. 0=input/substrate, 1=output/product; other source values may occur." ;
+    rdfs:range xsd:integer .
+
+rdfs:label a owl:DatatypeProperty .
+skos:altLabel a owl:DatatypeProperty .
+skos:exactMatch a owl:ObjectProperty .

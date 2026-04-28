@@ -31,6 +31,27 @@ class OutputAdapter(ABC):
     def preprocess_objects(self, objects):
         return objects
 
+    def get_completed_adapter_names(self, run_id: str) -> set[str]:
+        return set()
+
+    def reset_run_state(self, run_id: str) -> None:
+        pass
+
+    def mark_adapter_running(self, run_id: str, adapter_name: str, adapter_position: int | None = None,
+                             adapter_total: int | None = None) -> None:
+        pass
+
+    def mark_adapter_completed(self, run_id: str, adapter_name: str, records_written: int = 0,
+                               adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        pass
+
+    def mark_adapter_failed(self, run_id: str, adapter_name: str, error_message: str | None = None,
+                            adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        pass
+
+    def flush_incremental_metadata(self) -> None:
+        pass
+
     def get_list_type(self, list):
         for item in list:
             if item is not None:

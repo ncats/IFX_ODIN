@@ -213,10 +213,44 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .badge-doc { background: var(--accent-light); color: var(--accent); }
 .badge-edge { background: #fef3c7; color: #92400e; }
 .badge-mysql { background: #dbeafe; color: #1e40af; }
+.badge-success { background: #dcfce7; color: #166534; }
+.badge-running { background: #dbeafe; color: #1d4ed8; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
 
 @media (prefers-color-scheme: dark) {
     .badge-edge { background: #422006; color: #fbbf24; }
     .badge-mysql { background: #1e3a5f; color: #60a5fa; }
+    .badge-success { background: #133127; color: #86efac; }
+    .badge-running { background: #1e3a5f; color: #93c5fd; }
+    .badge-danger { background: #4c1d1d; color: #fca5a5; }
+}
+
+.build-summary-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.build-stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+    min-width: 120px;
+}
+
+.build-stat .value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--mono);
+}
+
+.build-stat .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 /* Pagination */

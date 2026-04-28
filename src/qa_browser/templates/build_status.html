@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ db_name }} Build Status - QA Browser{% endblock %}
+{% block head %}
+{% if build_status and build_status.is_active %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>Build Status</span>
+{% endblock %}
+
+{% block content %}
+<h1>{{ db_name }} Build Status</h1>
+
+{% if build_status %}
+<div class="card">
+    <p style="margin-top:0; margin-bottom:0.75rem">
+        <span class="badge
+            {% if build_status.overall_status == 'completed' %}badge-success
+            {% elif build_status.overall_status == 'running' or build_status.overall_status == 'post_processing' %}badge-running
+            {% elif build_status.overall_status == 'failed' %}badge-danger
+            {% else %}badge-doc{% endif %}">
+            {{ build_status.overall_status.replace('_', ' ') }}
+        </span>
+        <span class="subtle" style="margin-left:0.5rem">{{ build_status.overall_message }}</span>
+    </p>
+    <div class="build-summary-row">
+        <div class="build-stat">
+            <div class="value">{{ build_status.completed }}</div>
+            <div class="label">Completed</div>
+        </div>
+        <div class="build-stat">
+            <div class="value">{{ build_status.running }}</div>
+            <div class="label">Running</div>
+        </div>
+        <div class="build-stat">
+            <div class="value">{{ build_status.failed }}</div>
+            <div class="label">Failed</div>
+        </div>
+        <div class="build-stat">
+            <div class="value">{{ build_status.seen_total }}/{{ build_status.known_total }}</div>
+            <div class="label">Adapters Seen</div>
+        </div>
+        <div class="build-stat">
+            <div class="value">{{ "{:,}".format(build_status.total_records) }}</div>
+            <div class="label">Records Written</div>
+        </div>
+    </div>
+    <p class="subtle" style="margin-bottom:0.75rem">
+        Run: <span class="mono">{{ build_status.run_id }}</span>
+        {% if build_status.last_updated %}
+        · Updated {{ build_status.last_updated }}
+        {% endif %}
+        {% if build_status.etl_run_date %}
+        · Final ETL metadata {{ build_status.etl_run_date }}
+        {% endif %}
+        {% if build_status.is_active %}
+        · Auto-refreshing every 5s
+        {% endif %}
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Step</th>
+                <th>Status</th>
+                <th style="text-align:right">Records</th>
+                <th>Elapsed</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for adapter in build_status.adapters %}
+            <tr>
+                <td>
+                    {% if adapter.adapter_position and adapter.adapter_total %}
+                    <span class="subtle">[{{ adapter.adapter_position }}/{{ adapter.adapter_total }}]</span>
+                    {% endif %}
+                    {{ adapter.name }}
+                    {% if adapter.error_message %}
+                    <div class="subtle">{{ adapter.error_message }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge
+                        {% if adapter.status == 'completed' %}badge-success
+                        {% elif adapter.status == 'running' %}badge-running
+                        {% elif adapter.status == 'failed' %}badge-danger
+                        {% else %}badge-doc{% endif %}">
+                        {{ adapter.status }}
+                    </span>
+                </td>
+                <td class="mono" style="text-align:right">
+                    {% if adapter.records_written is not none %}
+                    {{ "{:,}".format(adapter.records_written) }}
+                    {% endif %}
+                </td>
+                <td class="mono">{{ adapter.elapsed }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p>No build checkpoint metadata found for this database.</p>
+</div>
+{% endif %}
+{% endblock %}

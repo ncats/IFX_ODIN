@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from urllib.parse import quote as url_quote, urlencode
 
@@ -209,6 +210,149 @@ def _get_graph_views(db) -> dict:
         return doc.get("value", {}).get("views", {}) or {}
     except Exception:
         return {}
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
+
+def _format_duration_seconds(total_seconds: float | int | None) -> str:
+    if total_seconds is None:
+        return ""
+    total_seconds = int(total_seconds)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
+def _format_elapsed(started_at: Optional[str], finished_at: Optional[str] = None) -> str:
+    start_dt = _parse_iso_datetime(started_at)
+    if start_dt is None:
+        return ""
+    end_dt = _parse_iso_datetime(finished_at) or datetime.utcnow()
+    return _format_duration_seconds(max((end_dt - start_dt).total_seconds(), 0))
+
+
+def _get_build_status(db) -> Optional[dict]:
+    if not db.has_collection("metadata_store"):
+        return None
+    try:
+        cursor = db.aql.execute("""
+            FOR d IN metadata_store
+                FILTER d.type == "etl_checkpoint"
+                SORT d.last_updated DESC
+                RETURN d
+        """)
+        checkpoints = list(cursor)
+    except Exception:
+        return None
+
+    if not checkpoints:
+        return None
+
+    active = next((doc for doc in checkpoints if any(
+        meta.get("status") == "running" for meta in (doc.get("adapters") or {}).values()
+    )), None)
+    checkpoint = active or checkpoints[0]
+    adapters = checkpoint.get("adapters") or {}
+    rows = []
+    completed = 0
+    running = 0
+    failed = 0
+    total = 0
+    total_records = 0
+
+    for adapter_name, metadata in sorted(
+        adapters.items(),
+        key=lambda item: (item[1].get("adapter_position") or 10**9, item[0])
+    ):
+        status = metadata.get("status", "unknown")
+        if status == "completed":
+            completed += 1
+        elif status == "running":
+            running += 1
+        elif status == "failed":
+            failed += 1
+        total = max(total, metadata.get("adapter_total") or 0)
+        total_records += metadata.get("records_written") or 0
+        rows.append({
+            "name": adapter_name,
+            "status": status,
+            "adapter_position": metadata.get("adapter_position"),
+            "adapter_total": metadata.get("adapter_total"),
+            "records_written": metadata.get("records_written"),
+            "started_at": metadata.get("started_at"),
+            "completed_at": metadata.get("completed_at"),
+            "failed_at": metadata.get("failed_at"),
+            "error_message": metadata.get("error_message"),
+            "elapsed": _format_elapsed(
+                metadata.get("started_at"),
+                metadata.get("completed_at") or metadata.get("failed_at"),
+            ),
+        })
+
+    if not total:
+        total = len(rows)
+
+    etl_meta = None
+    try:
+        cursor = db.aql.execute('RETURN DOCUMENT("metadata_store", "etl_metadata").value')
+        results = list(cursor)
+        if results and results[0]:
+            etl_meta = results[0]
+    except Exception:
+        etl_meta = None
+
+    checkpoint_updated_dt = _parse_iso_datetime(checkpoint.get("last_updated"))
+    etl_run_dt = _parse_iso_datetime((etl_meta or {}).get("run_date"))
+
+    if failed > 0:
+        overall_status = "failed"
+        overall_message = "One or more adapters failed."
+    elif running > 0:
+        overall_status = "running"
+        overall_message = "Adapters are still running."
+    elif completed > 0 and completed >= total:
+        if etl_run_dt and (checkpoint_updated_dt is None or etl_run_dt >= checkpoint_updated_dt):
+            overall_status = "completed"
+            overall_message = "ETL and post-processing completed."
+        else:
+            overall_status = "post_processing"
+            overall_message = "Adapters completed. Post-processing or cleanup is still running."
+    elif completed > 0:
+        overall_status = "partial"
+        overall_message = "Some adapters completed, but the build is not finished."
+    else:
+        overall_status = "unknown"
+        overall_message = "Build state is not yet clear from metadata."
+
+    return {
+        "run_id": checkpoint.get("run_id"),
+        "last_updated": checkpoint.get("last_updated"),
+        "etl_run_date": (etl_meta or {}).get("run_date"),
+        "adapters": rows,
+        "completed": completed,
+        "running": running,
+        "failed": failed,
+        "known_total": total,
+        "seen_total": len(rows),
+        "total_records": total_records,
+        "is_active": running > 0,
+        "overall_status": overall_status,
+        "overall_message": overall_message,
+    }
 
 
 def _get_collection_schema_entry(db, coll_name: str) -> dict:
@@ -678,7 +822,6 @@ async def dashboard(request: Request, db_name: str):
             pass
 
     graph_views = _get_graph_views(db)
-
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "db_name": db_name,
@@ -688,6 +831,17 @@ async def dashboard(request: Request, db_name: str):
         "graph_views": graph_views,
         "doc_count": sum(c["count"] for c in collections if c["type"] == "document"),
         "edge_count": sum(c["count"] for c in collections if c["type"] == "edge"),
+    })
+
+
+@app.get("/db/{db_name}/build-status", response_class=HTMLResponse)
+async def build_status_page(request: Request, db_name: str):
+    db = get_db(db_name)
+    build_status = _get_build_status(db)
+    return templates.TemplateResponse(request, "build_status.html", {
+        "request": request,
+        "db_name": db_name,
+        "build_status": build_status,
     })
 
 

@@ -1,10 +1,13 @@
+import gzip
+import os
 from typing import List, Dict, Optional
+
+import ijson
 
 from src.constants import Prefix
 from src.models.node import Node
 from src.shared.uniprot_parser import UniProtParser
 from src.interfaces.id_resolver import IdResolver, IdMatch
-from src.shared.uniprot_file_reader import UniProtFileReader
 
 scores = {
     "exact": 0,
@@ -22,7 +25,7 @@ scores = {
 }
 
 
-class UniProtResolver(IdResolver, UniProtFileReader):
+class UniProtResolver(IdResolver):
     name = "UniProt Resolver"
     alias_map: dict
 
@@ -42,36 +45,39 @@ class UniProtResolver(IdResolver, UniProtFileReader):
                  no_match_behavior="Allow",
                  multi_match_behavior="All"):
         self.alias_map = {}
+        self.uniprot_json_path = uniprot_json_path
         IdResolver.__init__(
             self,
             types=types or ["Protein"],
             no_match_behavior=no_match_behavior,
             multi_match_behavior=multi_match_behavior,
         )
-        UniProtFileReader.__init__(self, uniprot_json_path)
-        for entry in self.next():
-            primary_accession = UniProtParser.get_primary_accession(entry)
-            aliases = UniProtParser.parse_aliases(entry)
-            for alias in aliases:
-                if alias.term not in self.alias_map:
-                    self.alias_map[alias.term] = [
-                        IdMatch(input=alias.term, match=primary_accession, context=[alias.type])
-                    ]
-                else:
-                    list = self.alias_map[alias.term]
-                    same_id_match = [matching_entry for matching_entry in list if
-                                     matching_entry.match == primary_accession]
-                    if len(same_id_match) > 0:
-                        same_id_match[0].context.append(alias.type)
-                    else:
-                        list.append(
+        path = os.path.expanduser(self.uniprot_json_path)
+        print(f"reading file at {path}")
+        with gzip.open(path, 'rb') as gzip_file:
+            for entry in ijson.items(gzip_file, 'results.item'):
+                primary_accession = UniProtParser.get_primary_accession(entry)
+                aliases = UniProtParser.parse_aliases(entry)
+                for alias in aliases:
+                    if alias.term not in self.alias_map:
+                        self.alias_map[alias.term] = [
                             IdMatch(input=alias.term, match=primary_accession, context=[alias.type])
-                        )
-            for go_term_json in UniProtParser.find_cross_refs(entry, 'GO'):
-                go_id, go_type, go_term, eco_term, eco_assigned_by = UniProtParser.parse_go_term(go_term_json)
-                self.alias_map[go_id] = [
-                    IdMatch(input=go_id, match=go_id, context=['exact'])
-                ]
+                        ]
+                    else:
+                        list = self.alias_map[alias.term]
+                        same_id_match = [matching_entry for matching_entry in list if
+                                         matching_entry.match == primary_accession]
+                        if len(same_id_match) > 0:
+                            same_id_match[0].context.append(alias.type)
+                        else:
+                            list.append(
+                                IdMatch(input=alias.term, match=primary_accession, context=[alias.type])
+                            )
+                for go_term_json in UniProtParser.find_cross_refs(entry, 'GO'):
+                    go_id, go_type, go_term, eco_term, eco_assigned_by = UniProtParser.parse_go_term(go_term_json)
+                    self.alias_map[go_id] = [
+                        IdMatch(input=go_id, match=go_id, context=['exact'])
+                    ]
 
     def get_matches_for_merged_list(self, input_ids: List[str]):
         id_list = list(set(input_ids))
