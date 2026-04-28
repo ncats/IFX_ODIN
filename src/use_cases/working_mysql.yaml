@@ -33,8 +33,8 @@ input_adapters:
       database_name: *source_database
       associated_only: true
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: TINXImportanceAdapter
+  - import: ./src/input_adapters/pharos_arango/tcrd/tiga.py
+    class: ProteinGwasTraitAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database

@@ -2,16 +2,6 @@
 
 These are starter queries for the IFX RDF export derived from RaMP.
 
-Assumptions:
-
-- namespace prefix `ifx:` points at the exported ontology namespace
-- `rdfs:label` is used for primary names
-- `skos:altLabel` is used for synonyms
-- `skos:exactMatch` is used for xrefs
-- resources use `rdf:type`
-- simple edge predicates are exposed directly
-- edge payload resources may exist as separate statement nodes
-
 See also:
 
 - `designs/rdf/ramp_rdf_ontology.ttl`
@@ -23,7 +13,6 @@ See also:
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
 ```
 
@@ -39,250 +28,268 @@ WHERE {
 }
 ```
 
-## 2. Show A Few Metabolites With Names
+## 2. Find A Metabolite From An Alternate ID And Show All Properties
+
+This example works against the current exported subset.
 
 ```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-SELECT ?metabolite ?name
+SELECT ?metabolite ?p ?o
 WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
-              rdfs:label ?name .
+  ?metabolite skos:exactMatch <https://identifiers.org/hmdb:HMDB0000001> ;
+              ?p ?o .
 }
-LIMIT 25
+ORDER BY ?metabolite ?p ?o
 ```
 
-## 3. Show Metabolites By Name Prefix
+If you want to inspect a different identifier namespace, replace the object IRI
+accordingly, for example:
+
+- `https://identifiers.org/kegg.compound:C01152`
+- `http://purl.obolibrary.org/obo/CHEBI_70958`
+- `https://identifiers.org/hmdb:HMDB0000002`
+
+## 3. Find Pathways For A Metabolite And Show Pathway And Edge Properties
+
+This example starts from a known metabolite alternate ID and returns named
+columns for both:
+
+- pathway node properties
+- `ifx:MetabolitePathwayEdge` statement properties
 
 ```sparql
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
 
-SELECT ?metabolite ?name
+SELECT
+  ?metabolite
+  ?metName
+  ?pathway
+  ?pathwayName
+  ?pathwayId
+  ?pathwaySourceId
+  ?pathwayType
+  ?pathwayCategory
+  ?pathwaySources
+  ?edgeStmt
+  ?edgeSource
+  ?edgeSources
 WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
-              rdfs:label ?name .
-  FILTER(STRSTARTS(LCASE(STR(?name)), "3"))
-}
-LIMIT 25
-```
-
-## 4. Count Pathways
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT (COUNT(*) AS ?n)
-WHERE {
-  ?pathway rdf:type ifx:Pathway .
-}
-```
-
-## 5. Metabolite To Pathway Join
-
-Assumes direct edge predicate `ifx:hasPathway`.
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?metabolite ?metName ?pathway ?pathwayName
-WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
+  ?metabolite skos:exactMatch <https://identifiers.org/hmdb:HMDB0000001> ;
               ifx:hasPathway ?pathway .
+
   OPTIONAL { ?metabolite rdfs:label ?metName }
+
   OPTIONAL { ?pathway rdfs:label ?pathwayName }
+  OPTIONAL { ?pathway ifx:id ?pathwayId }
+  OPTIONAL { ?pathway ifx:source_id ?pathwaySourceId }
+  OPTIONAL { ?pathway ifx:type ?pathwayType }
+  OPTIONAL { ?pathway ifx:category ?pathwayCategory }
+  OPTIONAL { ?pathway ifx:sources ?pathwaySources }
+
+  OPTIONAL {
+    ?edgeStmt rdf:type ifx:MetabolitePathwayEdge ;
+              ifx:subject ?metabolite ;
+              ifx:predicate ifx:hasPathway ;
+              ifx:object ?pathway .
+    OPTIONAL { ?edgeStmt ifx:source ?edgeSource }
+    OPTIONAL { ?edgeStmt ifx:sources ?edgeSources }
+  }
 }
-LIMIT 50
+ORDER BY ?pathway
+LIMIT 25
 ```
 
-## 6. Metabolite To Reaction Join
+## 4. Find A Pathway By Pathway Name
 
-Assumes direct edge predicate `ifx:hasReaction`.
+Replace the pathway name string with the pathway you want to inspect.
 
 ```sparql
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
 
-SELECT ?metabolite ?metName ?reaction ?reactionLabel
+SELECT ?pathway ?p ?o
 WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
+  ?pathway rdf:type ifx:Pathway ;
+           rdfs:label "Histidine metabolism" ;
+           ?p ?o .
+}
+ORDER BY ?pathway ?p ?o
+```
+
+## 5. Retrieve Metabolites And Proteins For A Given Pathway
+
+This returns one row per metabolite or protein linked to the named pathway.
+
+```sparql
+PREFIX rdf:
+  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+  PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
+
+  SELECT
+    ?pathway
+    ?pathwayName
+    ?analyte
+    ?analyteType
+    ?analyteName
+    ?edgeStmt
+    ?edgeSource
+    ?edgeSources
+  WHERE {
+    ?pathway rdf:type ifx:Pathway ;
+             rdfs:label "Histidine metabolism" .
+    BIND("Histidine metabolism" AS ?pathwayName)
+
+    {
+      ?analyte rdf:type ifx:Metabolite ;
+               ifx:hasPathway ?pathway .
+      BIND("Metabolite" AS ?analyteType)
+      OPTIONAL { ?analyte rdfs:label ?analyteName }
+
+      OPTIONAL {
+        ?edgeStmt rdf:type ifx:MetabolitePathwayEdge ;
+                  ifx:subject ?analyte ;
+                  ifx:predicate ifx:hasPathway ;
+                  ifx:object ?pathway .
+        OPTIONAL { ?edgeStmt ifx:source ?edgeSource }
+        OPTIONAL { ?edgeStmt ifx:sources ?edgeSources }
+      }
+    }
+    UNION
+    {
+      ?analyte rdf:type ifx:Protein ;
+               ifx:hasPathway ?pathway .
+      BIND("Protein" AS ?analyteType)
+      OPTIONAL { ?analyte rdfs:label ?analyteName }
+
+      OPTIONAL {
+        ?edgeStmt rdf:type ifx:ProteinPathwayEdge ;
+                  ifx:subject ?analyte ;
+                  ifx:predicate ifx:hasPathway ;
+                  ifx:object ?pathway .
+        OPTIONAL { ?edgeStmt ifx:source ?edgeSource }
+        OPTIONAL { ?edgeStmt ifx:sources ?edgeSources }
+      }
+    }
+  }
+  ORDER BY ?analyteType ?analyteName ?analyte
+  LIMIT 200
+```
+
+## 6. Find Reactions For An Analyte And Show Reaction And Edge Properties
+
+This example starts from a known metabolite alternate ID and returns named
+columns for both:
+
+- reaction node properties
+- `ifx:MetaboliteReactionEdge` statement properties
+
+```sparql
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
+
+SELECT
+  ?metabolite
+  ?metName
+  ?reaction
+  ?reactionLabel
+  ?reactionId
+  ?reactionSourceId
+  ?reactionDirection
+  ?reactionEquation
+  ?reactionHtmlEquation
+  ?reactionIsTransport
+  ?reactionSources
+  ?edgeStmt
+  ?edgeSubstrateProduct
+  ?edgeIsCofactor
+  ?edgeSources
+WHERE {
+  ?metabolite skos:exactMatch <https://identifiers.org/hmdb:HMDB0000010> ;
               ifx:hasReaction ?reaction .
+
   OPTIONAL { ?metabolite rdfs:label ?metName }
-  OPTIONAL { ?reaction rdfs:label ?reactionLabel }
+
+  OPTIONAL { ?reaction ifx:label ?reactionLabel }
+  OPTIONAL { ?reaction ifx:id ?reactionId }
+  OPTIONAL { ?reaction ifx:source_id ?reactionSourceId }
+  OPTIONAL { ?reaction ifx:direction ?reactionDirection }
+  OPTIONAL { ?reaction ifx:equation ?reactionEquation }
+  OPTIONAL { ?reaction ifx:html_equation ?reactionHtmlEquation }
+  OPTIONAL { ?reaction ifx:is_transport ?reactionIsTransport }
+  OPTIONAL { ?reaction ifx:sources ?reactionSources }
+
+  OPTIONAL {
+    ?edgeStmt rdf:type ifx:MetaboliteReactionEdge ;
+              ifx:subject ?metabolite ;
+              ifx:predicate ifx:hasReaction ;
+              ifx:object ?reaction .
+    OPTIONAL { ?edgeStmt ifx:substrate_product ?edgeSubstrateProduct }
+    OPTIONAL { ?edgeStmt ifx:is_cofactor ?edgeIsCofactor }
+    OPTIONAL { ?edgeStmt ifx:sources ?edgeSources }
+  }
 }
+ORDER BY ?reaction
 LIMIT 50
 ```
 
-## 7. Count Edge Payload Statement Nodes
+## 7. Start From A List Of Alternate IDs And Find Linked Pathways
 
-Useful if you export reified statement resources for edges with metadata.
+This query starts from a mixed list of alternate IDs and returns any matching
+metabolites or proteins together with their linked pathways.
 
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?edgeType (COUNT(*) AS ?n)
-WHERE {
-  ?stmt rdf:type ?edgeType ;
-        ifx:subject ?s ;
-        ifx:predicate ?p ;
-        ifx:object ?o .
-}
-GROUP BY ?edgeType
-ORDER BY DESC(?n)
-```
-
-## 8. Inspect Edge Metadata
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?stmt ?s ?p ?o ?source ?role
-WHERE {
-  ?stmt ifx:subject ?s ;
-        ifx:predicate ?p ;
-        ifx:object ?o .
-  OPTIONAL { ?stmt ifx:source ?source }
-  OPTIONAL { ?stmt ifx:substrate_product ?role }
-}
-LIMIT 25
-```
-
-## 9. Find Resources By Source Tag
-
-Good for sanity-checking merged provenance.
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?resource ?source
-WHERE {
-  ?resource ifx:sources ?source .
-  FILTER(CONTAINS(LCASE(STR(?source)), "ramp"))
-}
-LIMIT 50
-```
-
-## 10. Find Metabolite By Exact RaMP Identifier
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?resource
-WHERE {
-  ?resource ifx:id "RAMP_C_000265500" .
-}
-```
-
-## 11. Prefix Search On Metabolite Name
+Replace the example IRIs in the `VALUES` block with the identifiers you want to
+test. For proteins in this subset, useful identifiers are often UniProt,
+NCBIGene, or Ensembl IRIs if they were exported as `skos:exactMatch`.
 
 ```sparql
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
 
-SELECT ?metabolite ?name
+SELECT DISTINCT
+  ?inputXref
+  ?analyte
+  ?analyteType
+  ?analyteName
+  ?pathway
+  ?pathwayName
+  ?pathwayId
+  ?pathwaySourceId
 WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
-              rdfs:label ?name .
-  FILTER(STRSTARTS(LCASE(STR(?name)), "3"))
-}
-LIMIT 50
-```
+  VALUES ?inputXref {
+    <https://identifiers.org/hmdb:HMDB0000010>
+    <https://identifiers.org/hmdb:HMDB0000002>
+    <https://identifiers.org/ncbigene:1312>
+  }
 
-## 12. Top Pathways By Number Of Metabolites
+  {
+    ?analyte rdf:type ifx:Metabolite ;
+             skos:exactMatch ?inputXref ;
+             ifx:hasPathway ?pathway .
+    BIND("Metabolite" AS ?analyteType)
+  }
+  UNION
+  {
+    ?analyte rdf:type ifx:Protein ;
+             skos:exactMatch ?inputXref ;
+             ifx:hasPathway ?pathway .
+    BIND("Protein" AS ?analyteType)
+  }
 
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?pathway ?pathwayName (COUNT(DISTINCT ?metabolite) AS ?metaboliteCount)
-WHERE {
-  ?metabolite ifx:hasPathway ?pathway .
+  OPTIONAL { ?analyte rdfs:label ?analyteName }
   OPTIONAL { ?pathway rdfs:label ?pathwayName }
+  OPTIONAL { ?pathway ifx:id ?pathwayId }
+  OPTIONAL { ?pathway ifx:source_id ?pathwaySourceId }
 }
-GROUP BY ?pathway ?pathwayName
-ORDER BY DESC(?metaboliteCount)
-LIMIT 25
+ORDER BY ?inputXref ?analyteType ?pathwayName ?pathway
+LIMIT 200
 ```
-
-## 13. Find Metabolite Synonyms
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?metabolite ?name ?synonym
-WHERE {
-  ?metabolite rdf:type ifx:Metabolite ;
-              rdfs:label ?name ;
-              skos:altLabel ?synonym .
-}
-LIMIT 50
-```
-
-## 14. Find Cross-References For One Metabolite
-
-```sparql
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?xref
-WHERE {
-  <https://ifx.ncats.nih.gov/resource/Metabolite/RAMP_C_000265500> skos:exactMatch ?xref .
-}
-ORDER BY ?xref
-```
-
-## 15. Count Distinct Sources
-
-```sparql
-PREFIX ifx: <https://ifx.ncats.nih.gov/ontology/>
-
-SELECT ?source (COUNT(*) AS ?n)
-WHERE {
-  ?resource ifx:sources ?source .
-}
-GROUP BY ?source
-ORDER BY DESC(?n)
-LIMIT 50
-```
-
-## 16. Inspect One Resource Fully
-
-Replace the IRI with a real exported resource.
-
-```sparql
-SELECT ?p ?o
-WHERE {
-  <https://ifx.ncats.nih.gov/resource/Metabolite/RAMP_C_000265500> ?p ?o .
-}
-ORDER BY ?p
-```
-
-## 17. Sanity Check Class Distribution
-
-```sparql
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-SELECT ?class (COUNT(*) AS ?n)
-WHERE {
-  ?resource rdf:type ?class .
-}
-GROUP BY ?class
-ORDER BY DESC(?n)
-LIMIT 100
-```
-
-## Notes
-
-- If a query returns nothing, first inspect one known resource with query 16.
-- The ontology and property definitions for this export are in `ramp_rdf_ontology.ttl`.
-- For very large datasets, start with `LIMIT` and narrow to one class or relation at a time.

@@ -4,7 +4,7 @@ import os
 import platform
 import socket
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from enum import Enum
 from typing import Type, List, get_origin, get_args, Union
 
@@ -522,7 +522,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "status": "running",
             "adapter_position": adapter_position,
             "adapter_total": adapter_total,
-            "started_at": datetime.now().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_checkpoint_doc(run_id, {"adapters": adapters})
 
@@ -537,7 +537,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "adapter_position": adapter_position,
             "adapter_total": adapter_total,
             "records_written": records_written,
-            "completed_at": datetime.now().isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_checkpoint_doc(run_id, {"adapters": adapters})
 
@@ -552,7 +552,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "adapter_position": adapter_position,
             "adapter_total": adapter_total,
             "error_message": error_message,
-            "failed_at": datetime.now().isoformat(),
+            "failed_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_checkpoint_doc(run_id, {"adapters": adapters})
 

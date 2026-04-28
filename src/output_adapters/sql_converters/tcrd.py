@@ -13,6 +13,7 @@ from src.models.panther_class import PantherClass, ProteinPantherClassEdge
 from src.models.pathway import ProteinPathwayEdge
 from src.models.ppi import PPIEdge
 from src.models.protein import Protein
+from src.models.tiga import ProteinGwasTraitEdge, GwasTrait
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
@@ -21,7 +22,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
-    TinxImportance,
+    Tiga as mysqlTiga, TigaProvenance, TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -66,6 +67,9 @@ class TCRDOutputConverter(SQLOutputConverter):
             DODiseaseParentEdge: None,
             ProteinDiseaseEdge: [self.disease_type_converter, self.disease_converter, self.ncats_d2da_converter],
             TINXImportanceEdge: [self.tinx_importance_converter],
+            # TIGA
+            GwasTrait: None,
+            ProteinGwasTraitEdge: [self.tiga_converter, self.tiga_provenance_converter],
             # Pathway
             ProteinPathwayEdge: [self.pathway_converter],
             # PPI
@@ -649,6 +653,60 @@ class TCRDOutputConverter(SQLOutputConverter):
             doid=best_doid,
             score=best_score,
         )]
+
+    # --- TIGA ---
+
+    def tiga_converter(self, obj: dict) -> List[mysqlTiga]:
+        trait = obj.get('end_node') or {}
+        if not trait:
+            return []
+        rows = []
+        disease_ids = obj.get('disease_ids') or [None]
+        for detail in obj.get('details') or []:
+            for disease_id in disease_ids:
+                rows.append(mysqlTiga(
+                    protein_id=self.resolve_id('protein', obj['start_id']),
+                    ensg=detail.get('ensg') or '',
+                    efoid=obj.get('end_id') or '',
+                    trait=trait.get('name') or '',
+                    n_study=detail.get('n_study'),
+                    n_snp=detail.get('n_snp'),
+                    n_snpw=detail.get('n_snpw'),
+                    geneNtrait=detail.get('geneNtrait'),
+                    geneNstudy=detail.get('geneNstudy'),
+                    traitNgene=detail.get('traitNgene'),
+                    traitNstudy=detail.get('traitNstudy'),
+                    pvalue_mlog_median=detail.get('pvalue_mlog_median'),
+                    pvalue_mlog_max=detail.get('pvalue_mlog_max'),
+                    or_median=detail.get('or_median'),
+                    n_beta=detail.get('n_beta'),
+                    study_N_mean=int(detail['study_N_mean']) if detail.get('study_N_mean') is not None else None,
+                    rcras=detail.get('rcras'),
+                    meanRank=detail.get('meanRank'),
+                    meanRankScore=detail.get('meanRankScore'),
+                    ncats_disease_id=self.resolve_id('ncats_disease', disease_id) if disease_id else None,
+                    provenance=obj['provenance'],
+                ))
+        return rows
+
+    def tiga_provenance_converter(self, obj: dict) -> List[TigaProvenance]:
+        if not obj.get('end_node'):
+            return []
+        rows = []
+        for edge_detail in obj.get('details') or []:
+            for prov_detail in edge_detail.get('provenance_details') or []:
+                study_acc = prov_detail.get('study_acc')
+                pubmedid = prov_detail.get('pubmedid')
+                if not study_acc or pubmedid is None:
+                    continue
+                rows.append(TigaProvenance(
+                    ensg=edge_detail.get('ensg') or '',
+                    efoid=obj.get('end_id') or '',
+                    study_acc=study_acc,
+                    pubmedid=int(pubmedid),
+                    provenance=obj['provenance'],
+                ))
+        return rows
 
     # --- Pathway ---
 

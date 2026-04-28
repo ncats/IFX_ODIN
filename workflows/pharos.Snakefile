@@ -17,6 +17,9 @@ rule all:
         "../input_files/auto/jensenlab/human_textmining_mentions.tsv",
         "../input_files/auto/jensenlab/disease_textmining_mentions.tsv",
         "../input_files/auto/jensenlab/tinx_version.tsv",
+        "../input_files/auto/tiga/tiga_gene-trait_stats.tsv",
+        "../input_files/auto/tiga/tiga_gene-trait_provenance.tsv",
+        "../input_files/auto/tiga/tiga_version.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
         "../input_files/auto/go/goa_human-go.gaf.gz",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
@@ -146,6 +149,29 @@ rule download_tinx:
         disease_lm=$(curl -fsI "$disease_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
 
         python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates); open(sys.argv[3],'w').write('version\\tversion_date\\n\\t'+version_date+'\\n')" "$protein_lm" "$disease_lm" {output[2]}
+        """
+
+rule download_tiga:
+    output:
+        "../input_files/auto/tiga/tiga_gene-trait_stats.tsv",
+        "../input_files/auto/tiga/tiga_gene-trait_provenance.tsv",
+        "../input_files/auto/tiga/tiga_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/tiga
+        base_url='https://unmtid-dbs.net/download/TIGA'
+        stats_url="$base_url/latest/tiga_gene-trait_stats.tsv"
+        provenance_url="$base_url/latest/tiga_gene-trait_provenance.tsv"
+
+        curl -fL -o {output[0]} "$stats_url"
+        curl -fL -o {output[1]} "$provenance_url"
+
+        stats_lm=$(curl -fsI "$stats_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        provenance_lm=$(curl -fsI "$provenance_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+        version=$(curl -fsL "$base_url/" | grep -Eo 'href="[0-9]{{8}}/"' | cut -d'"' -f2 | tr -d '/' | sort | tail -n1)
+
+        python3 -c "import email.utils,sys; version,stats_lm,prov_lm,out_path,download_date=sys.argv[1:6]; vals=[v for v in (stats_lm, prov_lm) if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(out_path,'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+download_date+'\\n')" "$version" "$stats_lm" "$provenance_lm" {output[2]} "$download_date"
         """
 
 rule download_uberon:

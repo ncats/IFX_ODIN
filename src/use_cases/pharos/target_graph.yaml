@@ -361,6 +361,13 @@ input_adapters:
       file_path: ./input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz
       version_file_path: ./input_files/auto/ctd/ctd_version.tsv
 
+  - import: ./src/input_adapters/tiga/tiga.py
+    class: TIGAAdapter
+    kwargs:
+      stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
+      provenance_file_path: ./input_files/auto/tiga/tiga_gene-trait_provenance.tsv
+      version_file_path: ./input_files/auto/tiga/tiga_version.tsv
+
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomePathwayAdapter
     kwargs:

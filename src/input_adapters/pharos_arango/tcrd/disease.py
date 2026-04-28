@@ -63,7 +63,7 @@ class DiseaseAdapter(PharosArangoAdapter):
         associated_ids = None
         if self.associated_only:
             associated_ids = set()
-            for collection_name in ("ProteinDiseaseEdge", "TINXImportanceEdge"):
+            for collection_name in ("ProteinDiseaseEdge", "TINXImportanceEdge", "GwasTraitDiseaseEdge"):
                 if db.has_collection(collection_name):
                     associated_ids.update(self.runQuery(associated_disease_ids_query(collection_name)))
 
