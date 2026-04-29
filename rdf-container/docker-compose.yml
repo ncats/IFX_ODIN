@@ -1,18 +1,16 @@
 services:
   fuseki:
-    image: secoresearch/fuseki:latest
+    image: secoresearch/fuseki:5.5.0
     container_name: ifx_fuseki
     ports:
       - "3030:3030"
     environment:
-      ADMIN_PASSWORD: admin
-      ENABLE_DATA_WRITE: "true"
-      ENABLE_UPDATE: "true"
+      ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD:?set FUSEKI_ADMIN_PASSWORD in rdf-container/.env}
+      ENABLE_DATA_WRITE: "false"
+      ENABLE_UPDATE: "false"
       QUERY_TIMEOUT: "10000,60000"
       TDB: "true"
     volumes:
-      - fuseki_data:/fuseki
+      - ./databases:/fuseki-base/databases
+      - ./configuration:/fuseki-base/configuration
     restart: unless-stopped
-
-volumes:
-  fuseki_data:

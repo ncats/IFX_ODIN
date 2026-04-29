@@ -3,6 +3,7 @@ output_files
 output
 secrets
 secrets.env
+rdf-container/.env
 .venv
 .snakemake
 .idea

@@ -5,6 +5,15 @@ source_database: &source_database pharos
 meets_idg_cutoff: &meets_idg_cutoff true
 
 resolvers:
+  # Important: keep Disease resolution and Target resolution aligned with src/use_cases/pharos/pharos.yaml.
+  # otherwise, IDs could drift between pharos.yaml and tcrd.yaml.
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
+    kwargs:
+      types:
+        - Disease
+
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
@@ -97,7 +106,7 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      associated_only: true
+      associated_only: false
 
   - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
     class: ProteinDiseaseAdapter
@@ -105,11 +114,16 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: TINXImportanceAdapter
-    credentials: *source_credentials
+  # Direct source-file TIN-X importance load.
+  # This intentionally bypasses graph TINXImportanceEdge materialization to avoid
+  # very large edge volume in pharos.yaml, but it creates a short-term dependency
+  # on Disease resolution matching pharos.yaml.
+  - import: ./src/input_adapters/jensenlab/tinx.py
+    class: TINXImportanceFileAdapter
     kwargs:
-      database_name: *source_database
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
+      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
 
   - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
     class: ProteinPathwayAdapter

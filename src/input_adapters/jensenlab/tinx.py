@@ -1,6 +1,8 @@
 import csv
 import os
 import re
+import sqlite3
+import tempfile
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
@@ -8,7 +10,7 @@ from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.disease import Disease
+from src.models.disease import Disease, DiseaseAssociationDetail, TINXImportanceEdge
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.protein import Protein
 
@@ -218,3 +220,191 @@ class TINXAdapter(InputAdapter):
         if match:
             return f"DOID:{match.group(1)}"
         return None
+
+
+class TINXImportanceFileAdapter(TINXAdapter):
+    sqlite_batch_size = 100_000
+
+    def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
+        temp_db_path = None
+        conn = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="tinx_importance_", suffix=".sqlite", delete=False) as handle:
+                temp_db_path = handle.name
+
+            print(f"TIN-X importance: staging in sqlite at {temp_db_path}")
+            conn = sqlite3.connect(temp_db_path)
+            self._configure_sqlite(conn)
+            self._create_sqlite_tables(conn)
+            self._load_protein_mentions_into_sqlite(conn)
+            self._load_disease_mentions_into_sqlite(conn)
+            self._build_sqlite_count_tables(conn)
+            yield from self._yield_importance_edges(conn)
+        finally:
+            if conn is not None:
+                conn.close()
+            if temp_db_path and os.path.exists(temp_db_path):
+                os.unlink(temp_db_path)
+
+    @staticmethod
+    def _configure_sqlite(conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA journal_mode=OFF")
+        conn.execute("PRAGMA synchronous=OFF")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA cache_size=-200000")
+
+    @staticmethod
+    def _create_sqlite_tables(conn: sqlite3.Connection) -> None:
+        conn.execute("CREATE TABLE protein_mentions (protein_id TEXT NOT NULL, pmid TEXT NOT NULL)")
+        conn.execute("CREATE TABLE disease_mentions (doid TEXT NOT NULL, pmid TEXT NOT NULL)")
+        conn.commit()
+
+    def _load_protein_mentions_into_sqlite(self, conn: sqlite3.Connection) -> None:
+        print("TIN-X importance: loading protein mentions into sqlite")
+        batch: List[Tuple[str, str]] = []
+        loaded_proteins = 0
+        total_rows = 0
+        for protein_id, pmids in self._iter_protein_mentions():
+            loaded_proteins += 1
+            batch.extend((protein_id, pmid) for pmid in pmids)
+            if len(batch) >= self.sqlite_batch_size:
+                conn.executemany(
+                    "INSERT INTO protein_mentions (protein_id, pmid) VALUES (?, ?)",
+                    batch,
+                )
+                total_rows += len(batch)
+                batch = []
+                conn.commit()
+                print(
+                    f"TIN-X importance: loaded {loaded_proteins} proteins and "
+                    f"{total_rows} protein-pmid rows"
+                )
+        if batch:
+            conn.executemany(
+                "INSERT INTO protein_mentions (protein_id, pmid) VALUES (?, ?)",
+                batch,
+            )
+            total_rows += len(batch)
+            conn.commit()
+        print(
+            f"TIN-X importance: finished protein load with {loaded_proteins} proteins "
+            f"and {total_rows} protein-pmid rows"
+        )
+        conn.execute("CREATE INDEX protein_mentions_pmid_idx ON protein_mentions (pmid)")
+        conn.commit()
+
+    def _load_disease_mentions_into_sqlite(self, conn: sqlite3.Connection) -> None:
+        print("TIN-X importance: loading disease mentions into sqlite")
+        batch: List[Tuple[str, str]] = []
+        loaded_diseases = 0
+        total_rows = 0
+        for doid, pmids in self._iter_disease_mentions():
+            loaded_diseases += 1
+            batch.extend((doid, pmid) for pmid in pmids)
+            if len(batch) >= self.sqlite_batch_size:
+                conn.executemany(
+                    "INSERT INTO disease_mentions (doid, pmid) VALUES (?, ?)",
+                    batch,
+                )
+                total_rows += len(batch)
+                batch = []
+                conn.commit()
+                print(
+                    f"TIN-X importance: loaded {loaded_diseases} diseases and "
+                    f"{total_rows} disease-pmid rows"
+                )
+        if batch:
+            conn.executemany(
+                "INSERT INTO disease_mentions (doid, pmid) VALUES (?, ?)",
+                batch,
+            )
+            total_rows += len(batch)
+            conn.commit()
+        print(
+            f"TIN-X importance: finished disease load with {loaded_diseases} diseases "
+            f"and {total_rows} disease-pmid rows"
+        )
+        conn.execute("CREATE INDEX disease_mentions_pmid_idx ON disease_mentions (pmid)")
+        conn.execute("CREATE INDEX disease_mentions_doid_idx ON disease_mentions (doid)")
+        conn.commit()
+
+    @staticmethod
+    def _build_sqlite_count_tables(conn: sqlite3.Connection) -> None:
+        print("TIN-X importance: building PMID count tables")
+        conn.execute("""
+            CREATE TABLE pmid_protein_count AS
+            SELECT pmid, COUNT(*) AS n
+            FROM protein_mentions
+            GROUP BY pmid
+        """)
+        conn.execute("CREATE UNIQUE INDEX pmid_protein_count_idx ON pmid_protein_count (pmid)")
+        conn.execute("""
+            CREATE TABLE pmid_disease_count AS
+            SELECT pmid, COUNT(*) AS n
+            FROM disease_mentions
+            GROUP BY pmid
+        """)
+        conn.execute("CREATE UNIQUE INDEX pmid_disease_count_idx ON pmid_disease_count (pmid)")
+        conn.commit()
+
+    def _yield_importance_edges(self, conn: sqlite3.Connection) -> Generator[List[TINXImportanceEdge], None, None]:
+        print("TIN-X importance: emitting importance edges")
+        disease_cursor = conn.execute("SELECT DISTINCT doid FROM disease_mentions ORDER BY doid")
+        batch: List[TINXImportanceEdge] = []
+        pair_count = 0
+        processed_diseases = 0
+        for (doid,) in disease_cursor:
+            rows = conn.execute(
+                """
+                SELECT
+                    pm.protein_id,
+                    SUM(1.0 / (ppc.n * dpc.n)) AS importance
+                FROM disease_mentions dm
+                JOIN protein_mentions pm ON pm.pmid = dm.pmid
+                JOIN pmid_protein_count ppc ON ppc.pmid = dm.pmid
+                JOIN pmid_disease_count dpc ON dpc.pmid = dm.pmid
+                WHERE dm.doid = ?
+                GROUP BY pm.protein_id
+                HAVING importance > 0
+                """,
+                (doid,),
+            )
+            for protein_id, importance in rows:
+                batch.append(
+                    TINXImportanceEdge(
+                        start_node=Protein(id=EquivalentId(id=protein_id, type=Prefix.ENSEMBL).id_str()),
+                        end_node=Disease(id=doid),
+                        details=[
+                            DiseaseAssociationDetail(
+                                source="TIN-X",
+                                source_id=doid,
+                                doid=doid,
+                                importance=[float(importance)],
+                            )
+                        ],
+                    )
+                )
+                pair_count += 1
+                if len(batch) >= self.batch_size:
+                    print(
+                        f"TIN-X importance: yielding {len(batch)} edges "
+                        f"after {processed_diseases + 1} diseases and {pair_count} total pairs"
+                    )
+                    yield batch
+                    batch = []
+                if self.max_pairs is not None and pair_count >= self.max_pairs:
+                    break
+            processed_diseases += 1
+            if processed_diseases % self.progress_every == 0:
+                print(
+                    f"TIN-X importance: processed {processed_diseases} diseases "
+                    f"and emitted {pair_count} total pairs"
+                )
+            if self.max_pairs is not None and pair_count >= self.max_pairs:
+                break
+        if batch:
+            print(
+                f"TIN-X importance: final batch {len(batch)} edges "
+                f"after {processed_diseases} diseases and {pair_count} total pairs"
+            )
+            yield batch

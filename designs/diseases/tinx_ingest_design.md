@@ -54,10 +54,11 @@ For `pharos319`, only the aggregate score tables survive in the snapshot current
   - computed from Jensen disease mention PMIDs
   - stored on the canonical resolved `Disease` node as a list
   - collapsed to `min(novelty)` when exporting to MySQL
-- `DiseaseAssociationDetail.importance`
+- `TIN-X` importance
   - computed from shared protein/disease PMIDs
-  - stored on `TINXImportanceEdge.details[].importance` as a list
-  - collapsed to `max(importance)` when exporting to MySQL
+  - no longer materialized in the Pharos graph
+  - loaded directly into TCRD/MySQL from source files in `tcrd.yaml`
+  - canonical disease/protein IDs still depend on resolver behavior matching the graph build
 
 MySQL shape:
 - no dedicated `tinx_novelty`
@@ -67,6 +68,10 @@ MySQL shape:
 - `tinx_importance` remains as the source-specific association table
 - `tinx_importance` is keyed by canonical disease identity plus protein identity
 - original source `DOID` is retained in `tinx_importance.doid` as provenance only
+
+Short-term operational constraint:
+- `src/use_cases/pharos/tcrd.yaml` must keep its `Disease` resolver behavior aligned with `src/use_cases/pharos/pharos.yaml`
+- otherwise the direct TIN-X importance loader can drift from the canonical disease IDs used by the graph build
 
 ## Scoring Rules
 
@@ -100,9 +105,8 @@ Current wiring:
 Validated in the working path:
 - graph stores TIN-X protein novelty on `Protein.novelty`
 - graph stores TIN-X disease novelty on `Disease.novelty`
-- graph stores TIN-X importance on `TINXImportanceEdge.details[].importance`
 - MySQL stores novelty on canonical `protein.novelty` and `ncats_disease.novelty`
-- MySQL stores association scores plus source `DOID` in `tinx_importance`
+- MySQL stores TIN-X association scores plus source `DOID` in `tinx_importance`
 
 Notable downstream behavior:
 - `DiseaseAdapter(associated_only: true)` means the MySQL path only exports diseases that participate in exported associations

@@ -3,6 +3,13 @@ source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.
 source_database: &source_database test_pharos
 
 resolvers:
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
+    kwargs:
+      types:
+        - Disease
+
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
@@ -31,13 +38,16 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      associated_only: true
+      associated_only: false
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/tiga.py
-    class: ProteinGwasTraitAdapter
-    credentials: *source_credentials
+  - import: ./src/input_adapters/jensenlab/tinx.py
+    class: TINXImportanceFileAdapter
     kwargs:
-      database_name: *source_database
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
+      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+      max_proteins: 500
+      max_diseases: 500
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py

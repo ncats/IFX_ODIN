@@ -39,13 +39,15 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/mondo/mondo.json
 
-  - import: ./src/input_adapters/tiga/tiga.py
-    class: TIGAAdapter
+  - import: ./src/input_adapters/jensenlab/tinx.py
+    class: TINXAdapter
     kwargs:
-      stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
-      provenance_file_path: ./input_files/auto/tiga/tiga_gene-trait_provenance.tsv
-      version_file_path: ./input_files/auto/tiga/tiga_version.tsv
-      max_rows: 5000
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
+      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+      max_proteins: 500
+      max_diseases: 500
+
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

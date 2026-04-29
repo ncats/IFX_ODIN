@@ -4,6 +4,7 @@ import os
 import platform
 import socket
 from src.interfaces.metadata import DatabaseMetadata, get_git_metadata
+from sqlalchemy import case, func
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +28,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     ETLRun,
     Mondo,
     MondoParent,
+    TinxImportance,
     Uberon,
     UberonParent,
 )
@@ -133,6 +135,14 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
                     rows = self._serialize_rows(converted_objects)
                     stmt = mysql_insert(table_class.__table__)
+                    if table_class is TinxImportance:
+                        stmt = stmt.on_duplicate_key_update(
+                            score=func.greatest(table_class.score, stmt.inserted.score),
+                            doid=case(
+                                (stmt.inserted.score > table_class.score, stmt.inserted.doid),
+                                else_=table_class.doid,
+                            ),
+                        )
                     try:
                         session.execute(stmt, rows)
                         session.commit()

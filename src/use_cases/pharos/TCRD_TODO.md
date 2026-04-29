@@ -19,7 +19,7 @@ Status: [ ] not started | [~] in progress | [x] done
 
 ## Pipeline Status Table
 
-Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = ingested into the Pharos graph or side-lifted into the protein-oriented Pharos view. MySQL table checkboxes = graph-derived converter output written to TCRD.
+Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = ingested into the Pharos graph or side-lifted into the protein-oriented Pharos view. MySQL table checkboxes = outputs written during the TCRD build, whether graph-derived or loaded directly from source files.
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD)                                                                                 |
 |---------|-----------------------|-------------|-------------------------------------------------------------------------------------------------------------|
@@ -34,11 +34,13 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **ProteinGoTermEdge** | [x] UniProt GAF<br>[x] GO GAF | `ProteinGoTermEdge` | [x] `goa`                                                                                                   |
 | **Ligand** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `Ligand` | [x] `ncats_ligands`                                                                                         |
 | **ProteinLigandEdge** | [x] IUPHAR<br>[x] ChEMBL<br>[x] DrugCentral | `ProteinLigandEdge` | [x] `ncats_ligand_activity`                                                                                 |
-| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication<br>[x] TIN-X *(novelty)* | `Disease` | [x] `ncats_disease`                                                                                         |
+| **Disease** | [x] MONDO<br>[x] Disease Ontology<br>[x] UniProt curated<br>[x] CTD<br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication<br>[x] TIN-X *(novelty only)* | `Disease` | [x] `ncats_disease` *(graph-backed disease rows; currently includes TIN-X novelty diseases needed by direct `tinx_importance` load)* |
 | **DiseaseParentEdge** | [x] MONDO | `DiseaseParentEdge` | not exported from merged graph; source-file MONDO tables populate `mondo_parent` / `ancestry_mondo` below   |
 | **DODiseaseParentEdge** | [x] Disease Ontology | `DODiseaseParentEdge` | not exported from merged graph; source-file DO tables populate `do_parent` / `ancestry_do` below            |
 | **ProteinDiseaseEdge** | [x] UniProt curated<br>[x] CTD <br>[x] JensenLab DISEASES <br>[x] DrugCentral Indication | `ProteinDiseaseEdge` | [x] `disease_type`<br>[x] `disease`<br>[x] `ncats_d2da`                                                     |
-| **TINXImportanceEdge** | [x] TIN-X *(protein-disease importance; Jensen-derived)* | `TINXImportanceEdge` | [x] `tinx_importance`                                                                                        |
+| **TIN-X Importance** | [x] TIN-X *(protein-disease importance; Jensen-derived)* | not materialized in graph; loaded directly from source files in `tcrd.yaml` | [x] `tinx_importance`                                                                                        |
+| **GwasTrait** | [x] TIGA | `GwasTrait` | no standalone TCRD table; trait content is duplicated via `ProteinGwasTraitEdge` into `tiga`                 |
+| **ProteinGwasTraitEdge** | [x] TIGA *(GWAS gene/trait associations; best-effort disease projection via `GwasTraitDiseaseEdge`)* | `ProteinGwasTraitEdge` | [x] `tiga`<br>[x] `tiga_provenance`                                                                          |
 | **Pathway** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways<br>[x] PathwayCommons | `Pathway` | no standalone TCRD table; pathway content is duplicated via `ProteinPathwayEdge` into `pathway`             |
 | **PathwayParentEdge** | [x] Reactome | `PathwayParentEdge` | not exported to legacy TCRD MySQL                                                                           |
 | **ProteinPathwayEdge** | [x] UniProt<br>[x] Reactome<br>[x] WikiPathways <br>[x] PathwayCommons  | `ProteinPathwayEdge` | [x] `pathway`                                                                                               |
@@ -72,7 +74,6 @@ These tables are populated directly from ontology source files during the TCRD b
 - maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
-- Tiga
 - Publications — NCBI, JensenLab
 - IDG Resources
 - NIH Target Lists
