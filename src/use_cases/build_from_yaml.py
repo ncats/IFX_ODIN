@@ -3,6 +3,15 @@ from src.core.etl import ETL
 from src.interfaces.data_api_adapter import APIAdapter
 
 
+def preload_core_model_modules():
+    # Preload the model modules involved in ETL inheritance/dataclass composition
+    # so YAML-driven adapter imports do not control their first-import order.
+    import src.models.node
+    import src.models.protein
+    import src.models.disease
+    import src.models.gwas_trait
+
+
 class HostDashboardFromYaml:
     configuration: Dashboard_Config
     api_adapter: APIAdapter
@@ -24,6 +33,7 @@ class BuildGraphFromYaml:
         self.load_yaml(yaml_file)
 
     def load_yaml(self, yaml_file: str):
+        preload_core_model_modules()
         self.yaml_file = yaml_file
         self.configuration = ETL_Config(yaml_file)
         output_adapters = self.configuration.create_output_adapters()
