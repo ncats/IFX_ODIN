@@ -13,7 +13,7 @@ from src.models.panther_class import PantherClass, ProteinPantherClassEdge
 from src.models.pathway import ProteinPathwayEdge
 from src.models.ppi import PPIEdge
 from src.models.protein import Protein
-from src.models.tiga import ProteinGwasTraitEdge, GwasTrait
+from src.models.gwas_trait import ProteinGwasTraitEdge, GwasTrait
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (

@@ -11,7 +11,7 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.disease import Disease
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.protein import Protein
-from src.models.tiga import (
+from src.models.gwas_trait import (
     GwasAssociationDetail,
     GwasAssociationProvenance,
     GwasTrait,

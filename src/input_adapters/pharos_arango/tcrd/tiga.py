@@ -3,7 +3,7 @@ from typing import Generator, List, Union
 from src.input_adapters.pharos_arango.tcrd.protein import PharosArangoAdapter
 from src.models.datasource_version_info import DataSourceDetails
 from src.models.protein import Protein
-from src.models.tiga import GwasTrait, ProteinGwasTraitEdge
+from src.models.gwas_trait import GwasTrait, ProteinGwasTraitEdge
 
 
 def protein_gwas_trait_query(last_key: str = None, limit: int = 10000) -> str:

@@ -3,7 +3,7 @@ from pathlib import Path
 from src.input_adapters.tiga.tiga import TIGAAdapter
 from src.models.disease import Disease
 from src.models.protein import Protein
-from src.models.tiga import GwasTrait, GwasTraitDiseaseEdge, ProteinGwasTraitEdge
+from src.models.gwas_trait import GwasTrait, GwasTraitDiseaseEdge, ProteinGwasTraitEdge
 
 
 def _write_fixture(path: Path, content: str) -> None:
