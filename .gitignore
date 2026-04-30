@@ -4,6 +4,7 @@ output
 secrets
 secrets.env
 rdf-container/.env
+rdf-container/databases/
 .venv
 .snakemake
 .idea

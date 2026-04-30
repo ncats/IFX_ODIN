@@ -7,6 +7,32 @@ See also:
 - `designs/rdf/ramp_rdf_ontology.ttl`
 - `designs/rdf/ramp_rdf_handoff_note.md`
 
+## Public Endpoint
+
+The public SPARQL endpoint for the current prototype is:
+
+```text
+https://stitcher.ncats.io/ramp/sparql
+```
+
+You can send queries with either `GET` or `POST`. `POST` is recommended for
+longer queries.
+
+Example `POST` query with `curl`:
+
+```bash
+curl -s \
+  -H 'Accept: application/sparql-results+json' \
+  --data 'query=SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }' \
+  https://stitcher.ncats.io/ramp/sparql
+```
+
+Example `GET` query in a browser:
+
+```text
+https://stitcher.ncats.io/ramp/sparql?query=SELECT%20(COUNT(*)%20AS%20%3Fn)%20WHERE%20%7B%20%3Fs%20%3Fp%20%3Fo%20%7D
+```
+
 ## Prefixes
 
 ```sparql

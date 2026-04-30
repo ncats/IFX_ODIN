@@ -13,6 +13,8 @@ from src.models.protein import Protein
 
 
 class AntibodyCountAdapter(InputAdapter):
+    batch_size: int = 1000
+
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.Antibodypedia
 
