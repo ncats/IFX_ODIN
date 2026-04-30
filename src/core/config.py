@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import sys
 from typing import List
 
 import yaml
@@ -13,12 +14,25 @@ from src.shared.db_credentials import DBCredentials
 def create_object_from_config(config: dict):
     module_path = config['import']
     class_name = config['class']
-    module_name = os.path.splitext(os.path.basename(module_path))[0]
+    abs_module_path = os.path.abspath(module_path)
+    normalized_module_path = os.path.normpath(abs_module_path)
+    module_name = (
+        "yaml_import__"
+        + normalized_module_path.replace(":", "").replace(os.sep, "_").replace(".", "_")
+    )
 
-    # Load the module from the file path
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Cache modules by full file path-derived name so multiple YAML entries that point
+    # at the same file reuse one module object, and same-basename files do not collide.
+    module = sys.modules.get(module_name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(module_name, abs_module_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
 
     # Get the class from the module
     cls = getattr(module, class_name)
