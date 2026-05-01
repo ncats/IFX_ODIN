@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 from src.core.decorators import facets, search
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
+from src.models.publication import PublicationReference
 
 
 class Strand(SimpleEnum):
@@ -69,7 +70,7 @@ class Audited:
 @search(text_fields=["symbol"])
 class Gene(Audited, Node):
     location: Optional[GeneticLocation] = None
-    pubmed_ids: Optional[List[int]] = None
+    publications: Optional[List[PublicationReference]] = None
     mapping_ratio: Optional[float] = None
     symbol: Optional[str] = None
     biotype: Optional[str] = None

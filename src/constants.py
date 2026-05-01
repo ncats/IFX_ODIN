@@ -30,6 +30,7 @@ class DataSourceName(SimpleEnum):
     GOA_UniProt = "GOA (UniProt)"
     DrugCentral = "DrugCentral"
     JensenLabPM = "JensenLab PubMed Score"
+    JensenLabTextMining = "JensenLab Text Mining"
     JensenLabTissues = "JensenLab TISSUES"
     JensenLabDiseases = "JensenLab DISEASES"
     TINX = "TIN-X"

@@ -7,6 +7,7 @@ from src.interfaces.simple_enum import SimpleEnum
 from src.models.analyte import Analyte
 from src.models.gene import Audited
 from src.models.node import Relationship, Node
+from src.models.publication import PublicationReference
 from src.models.reaction import Reaction
 
 
@@ -117,6 +118,7 @@ class Protein(Audited, Analyte):
     pm_score: Optional[List[float]] = None
     pm_score_by_year: Optional[List[YearScore]] = None
     novelty: Optional[List[float]] = None
+    publications: Optional[List[PublicationReference]] = None
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None
     uniprot_function: Optional[str] = None

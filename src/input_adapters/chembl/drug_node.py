@@ -1,5 +1,6 @@
 import os
 import pickle
+import re
 from typing import List, Dict, Generator
 
 from sqlalchemy import or_
@@ -33,8 +34,15 @@ class ChemblAdapter(MySqlAdapter):
         ).filter(Version.name.op('REGEXP')('^ChEMBL_[0-9]+$')).first()
         self.version_info = DatasourceVersionInfo(version=results.name, version_date=results.creation_date)
 
+    def _activity_cache_file(self, pchembl_cutoff: float) -> str:
+        schema = self.credentials.schema or "default"
+        version = self.version_info.version or "unknown"
+        safe_schema = re.sub(r"[^A-Za-z0-9_.-]+", "_", schema)
+        safe_version = re.sub(r"[^A-Za-z0-9_.-]+", "_", version)
+        return f"input_files/chembl/activities_{safe_schema}_{safe_version}_{pchembl_cutoff}.pkl"
+
     def fetch_activity_data(self, pchembl_cutoff: float):
-        cache_file = f"input_files/chembl/activities_{pchembl_cutoff}.pkl"
+        cache_file = self._activity_cache_file(pchembl_cutoff)
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 print('loading chembl data from cache')

@@ -160,19 +160,20 @@ FOR n IN `Protein`
 
 pharos_gene_rif_count = """
 FOR p IN `Protein`
-  LET rif_ids = UNIQUE(
-      FOR rif IN OUTBOUND p `GeneGeneRifEdge`
-        RETURN rif._id
+  LET direct_keys = UNIQUE(
+    FOR pub IN (p.publications || [])
+      FOR gene_rif IN (pub.gene_rifs || [])
+        FILTER gene_rif.text != null AND TRIM(gene_rif.text) != ""
+        RETURN CONCAT_SEPARATOR("||", TO_STRING(pub.gene_id), LOWER(TRIM(gene_rif.text)))
   )
   RETURN {
     protein_id: p.id,
-    value: LENGTH(rif_ids)
+    value: LENGTH(direct_keys)
   }
 """
 
 gene_rif_count = """
 FOR p IN `Protein`
-
   LET genes = (
     FOR g IN INBOUND p `GeneProteinEdge`
       FILTER IS_SAME_COLLECTION("Gene", g)
@@ -187,16 +188,25 @@ FOR p IN `Protein`
         RETURN g
   )
 
-  LET all_genes = UNION(genes, more_genes)
+  LET all_genes = UNION_DISTINCT(genes, more_genes)
 
-  LET rif_ids = UNIQUE(
+  LET direct_keys = (
+    FOR pub IN (p.publications || [])
+      FOR gene_rif IN (pub.gene_rifs || [])
+        FILTER gene_rif.text != null AND TRIM(gene_rif.text) != ""
+        RETURN CONCAT_SEPARATOR("||", TO_STRING(pub.gene_id), LOWER(TRIM(gene_rif.text)))
+  )
+
+  LET gene_keys = (
     FOR g IN all_genes
-      FOR rif IN OUTBOUND g `GeneGeneRifEdge`
-        RETURN rif._id
+      FOR pub IN (g.publications || [])
+        FOR gene_rif IN (pub.gene_rifs || [])
+          FILTER gene_rif.text != null AND TRIM(gene_rif.text) != ""
+          RETURN CONCAT_SEPARATOR("||", TO_STRING(pub.gene_id), LOWER(TRIM(gene_rif.text)))
   )
 
   RETURN {
     protein_id: p.id,
-    value: LENGTH(rif_ids)
+    value: LENGTH(UNIQUE(APPEND(direct_keys, gene_keys)))
   }
 """

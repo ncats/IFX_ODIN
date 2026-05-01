@@ -33,22 +33,6 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: DiseaseAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      associated_only: false
-
-  - import: ./src/input_adapters/jensenlab/tinx.py
-    class: TINXImportanceFileAdapter
-    kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
-      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
-      max_proteins: 500
-      max_diseases: 500
-
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TCRDOutputAdapter

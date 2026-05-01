@@ -205,15 +205,12 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
-  - import: ./src/input_adapters/target_graph/generif_node.py
-    class: GeneRifNodeAdapter
+  - import: ./src/input_adapters/ncbi/publications.py
+    class: NCBIPublicationAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/generif_9606.csv
-
-  - import: ./src/input_adapters/target_graph/gene_generif_edge.py
-    class: GeneGeneRifEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/generif_9606.csv
+      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
+      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
+      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
 
   - import: ./src/input_adapters/gtex/gtex_expression.py
     class: GTExExpressionAdapter
@@ -290,6 +287,12 @@ input_adapters:
     kwargs:
       protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
       disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+
+  - import: ./src/input_adapters/jensenlab/publications.py
+    class: JensenLabPublicationAdapter
+    kwargs:
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
       version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
 
   - import: ./src/input_adapters/jensenlab/tissues_expression.py

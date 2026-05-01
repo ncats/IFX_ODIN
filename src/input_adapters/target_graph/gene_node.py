@@ -28,7 +28,6 @@ class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
             gene_obj.created = TargetGraphGeneParser.get_creation_date(line)
             gene_obj.updated = TargetGraphGeneParser.get_updated_time(line)
             gene_obj.type = TargetGraphGeneParser.get_gene_type(line)
-            gene_obj.pubmed_ids = TargetGraphGeneParser.get_pubmed_ids(line)
             gene_obj.mapping_ratio = TargetGraphGeneParser.get_mapping_ratio(line)
             gene_obj.symbol = TargetGraphGeneParser.get_symbol(line)
             gene_obj.Name_Provenance = line.get('Description_Provenance', None)
@@ -39,4 +38,3 @@ class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
             gene_obj.Symbol_Provenance = line.get('Symbol_Provenance', None)
             gene_list.append(gene_obj)
         yield gene_list
-

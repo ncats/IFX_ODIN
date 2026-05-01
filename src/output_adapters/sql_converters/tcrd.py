@@ -1,4 +1,5 @@
 import hashlib
+from datetime import date, datetime
 from typing import Union, List, Optional
 from src.constants import Prefix
 from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge, TINXImportanceEdge
@@ -41,7 +42,8 @@ class TCRDOutputConverter(SQLOutputConverter):
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
                       self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter,
-                      self.pmscore_converter],
+                      self.pmscore_converter, self.generif_from_publications_converter,
+                      self.generif_assoc_from_publications_converter, self.p2p_from_publications_converter],
             # GeneRif
             GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
             # GO
@@ -216,16 +218,70 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     # --- GeneRif ---
 
+    def _iter_publications(self, obj: dict) -> List[dict]:
+        return list(obj.get('publications') or [])
+
+    def _group_generifs_from_publications(self, obj: dict) -> List[dict]:
+        grouped = {}
+        for publication in self._iter_publications(obj):
+            gene_id = publication.get('gene_id')
+            pmid = publication.get('pmid')
+            for gene_rif in publication.get('gene_rifs') or []:
+                rif_text = gene_rif.get('text')
+                updated_at = gene_rif.get('updated_at')
+                if rif_text is None:
+                    continue
+                key = (gene_id, rif_text)
+                entry = grouped.setdefault(
+                    key,
+                    {
+                        'start_id': obj['id'],
+                        'gene_id': gene_id,
+                        'date': updated_at,
+                        'pmids': set(),
+                        'end_node': {'text': rif_text},
+                        'provenance': obj['provenance'],
+                    },
+                )
+                if updated_at and (entry['date'] is None or updated_at > entry['date']):
+                    entry['date'] = updated_at
+                if pmid is not None:
+                    entry['pmids'].add(int(pmid))
+
+        grouped_rows = []
+        for entry in grouped.values():
+            entry['pmids'] = sorted(entry['pmids'])
+            grouped_rows.append(entry)
+        return grouped_rows
+
     def _generif_hash(self, obj: dict) -> str:
         data_to_hash = f"{obj['start_id']}-{obj['gene_id']}-{obj['date']}-{obj['end_node']['text']}"
         return hashlib.sha256(data_to_hash.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _coerce_date(value):
+        if value is None or value == '':
+            return None
+        if isinstance(value, date):
+            return value
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value).date()
+            except ValueError:
+                try:
+                    return date.fromisoformat(value)
+                except ValueError:
+                    return None
+        return None
 
     def generif_converter(self, obj: dict) -> GeneRif:
         return GeneRif(
             id=self._generif_hash(obj),
             protein_id=self.resolve_id('protein', obj['start_id']),
             gene_id=obj['gene_id'],
-            date=obj['date'],
+            date=self._coerce_date(obj['date']),
             text=obj['end_node']['text'],
             provenance=obj['provenance']
         )
@@ -251,6 +307,39 @@ class TCRDOutputConverter(SQLOutputConverter):
                     pubmed_id=pmid,
                     gene_id=obj['gene_id'],
                     source='NCBI',
+                    provenance=obj['provenance']
+                )
+            )
+        return rows
+
+    def generif_from_publications_converter(self, obj: dict) -> List[GeneRif]:
+        return [self.generif_converter(grouped) for grouped in self._group_generifs_from_publications(obj)]
+
+    def generif_assoc_from_publications_converter(self, obj: dict) -> List[GeneRif2Pubmed]:
+        rows: List[GeneRif2Pubmed] = []
+        for grouped in self._group_generifs_from_publications(obj):
+            rows.extend(self.generif_assoc_converter(grouped))
+        return rows
+
+    def p2p_from_publications_converter(self, obj: dict) -> List[Protein2Pubmed]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        rows = []
+        for publication in self._iter_publications(obj):
+            pmid = publication.get('pmid')
+            source = publication.get('source')
+            gene_id = publication.get('gene_id')
+            if pmid is None or source is None:
+                continue
+            key = (protein_id, str(pmid), gene_id, source)
+            if key in self._seen_protein2pubmed:
+                continue
+            self._seen_protein2pubmed.add(key)
+            rows.append(
+                Protein2Pubmed(
+                    protein_id=protein_id,
+                    pubmed_id=int(pmid),
+                    gene_id=gene_id,
+                    source=source,
                     provenance=obj['provenance']
                 )
             )

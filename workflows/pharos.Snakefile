@@ -17,6 +17,9 @@ rule all:
         "../input_files/auto/jensenlab/human_textmining_mentions.tsv",
         "../input_files/auto/jensenlab/disease_textmining_mentions.tsv",
         "../input_files/auto/jensenlab/tinx_version.tsv",
+        "../input_files/auto/ncbi/gene2pubmed.gz",
+        "../input_files/auto/ncbi/generifs_basic.gz",
+        "../input_files/auto/ncbi/ncbi_publications_version.tsv",
         "../input_files/auto/tiga/tiga_gene-trait_stats.tsv",
         "../input_files/auto/tiga/tiga_gene-trait_provenance.tsv",
         "../input_files/auto/tiga/tiga_version.tsv",
@@ -149,6 +152,26 @@ rule download_tinx:
         disease_lm=$(curl -fsI "$disease_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
 
         python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates); open(sys.argv[3],'w').write('version\\tversion_date\\n\\t'+version_date+'\\n')" "$protein_lm" "$disease_lm" {output[2]}
+        """
+
+rule download_ncbi_publications:
+    output:
+        "../input_files/auto/ncbi/gene2pubmed.gz",
+        "../input_files/auto/ncbi/generifs_basic.gz",
+        "../input_files/auto/ncbi/ncbi_publications_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/ncbi
+        gene2pubmed_url='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz'
+        generif_url='https://ftp.ncbi.nlm.nih.gov/gene/GeneRIF/generifs_basic.gz'
+        curl -fL -o {output[0]} "$gene2pubmed_url"
+        curl -fL -o {output[1]} "$generif_url"
+
+        gene2pubmed_lm=$(curl -fsI "$gene2pubmed_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        generif_lm=$(curl -fsI "$generif_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+
+        python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(sys.argv[3],'w').write('version\\tversion_date\\tdownload_date\\n\\t'+version_date+'\\t'+sys.argv[4]+'\\n')" "$gene2pubmed_lm" "$generif_lm" {output[2]} "$download_date"
         """
 
 rule download_tiga:

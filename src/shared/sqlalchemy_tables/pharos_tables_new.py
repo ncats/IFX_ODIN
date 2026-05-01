@@ -777,16 +777,18 @@ class DOParent(Base):
 class Protein2Pubmed(Base):
     __tablename__ = "protein2pubmed"
 
-    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, primary_key=True)
-    pubmed_id = Column(Integer, nullable=False, primary_key=True)
-    gene_id = Column(Integer, nullable=True, primary_key=True)
-    source = Column(String(45), nullable=False, primary_key=True)
+    id = Column(Integer, primary_key=True)
+    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
+    pubmed_id = Column(Integer, nullable=False)
+    gene_id = Column(Integer, nullable=True)
+    source = Column(String(45), nullable=False)
 
     __table_args__ = (
         Index("protein2pubmed_idx1", "protein_id"),
         Index("protein2pubmed_idx2", "pubmed_id"),
         Index("protein2pubmed_type", "source"),
         Index("protein2pubmed_type_protein_id", "source", "protein_id"),
+        Index("protein2pubmed_unique_assoc", "protein_id", "pubmed_id", "gene_id", "source", unique=True),
     )
 
 class Alias(Base):
