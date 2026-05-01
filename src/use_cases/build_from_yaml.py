@@ -11,6 +11,7 @@ def preload_core_model_modules():
     import src.models.disease
     import src.models.gwas_trait
     import src.models.panther_class
+    import src.models.dto_class
 
 
 class HostDashboardFromYaml:
