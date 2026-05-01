@@ -117,8 +117,6 @@ class PantherClassesAdapter(InputAdapter):
 
                 top_level_id = family_id.split(":", 1)[0]
                 if top_level_id not in nodes:
-                    from inspect import signature
-                    print("PantherFamily signature in adapter:", signature(PantherFamily))
                     nodes[top_level_id] = PantherFamily(
                         id=_panther_family_node_id(top_level_id),
                         source_id=top_level_id,

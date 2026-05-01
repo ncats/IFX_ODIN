@@ -38,6 +38,7 @@
 - Put disease descriptions on `Disease` nodes (for example `uniprot_description`), not on disease association edge details.
 - Prefer modern ontology-backed evidence codes from the source (for example ECO) over recreating legacy source-specific evidence encodings from older Pharos/TCRD tables.
 - When debugging ingest or conversion failures, prefer understanding the root cause before landing a defensive fix that may hide the real issue; temporary guards are fine, but they should follow diagnosis, not replace it.
+- If a build shows inexplicable dataclass/constructor signature errors for shared graph models, suspect import-order-sensitive model initialization. Prefer adding the affected modules to the centralized model preload in `src/use_cases/build_from_yaml.py` rather than scattering one-off imports through adapters or ETL code.
 
 ## Workflow References
 
