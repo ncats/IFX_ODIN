@@ -12,7 +12,7 @@ from src.models.publication import PublicationReference
 
 
 class JensenLabPublicationAdapter(InputAdapter):
-    batch_size = 1000
+    batch_size = 300
 
     def __init__(
         self,
