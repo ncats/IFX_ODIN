@@ -17,6 +17,7 @@ from src.models.protein import Protein
 
 class TINXAdapter(InputAdapter):
     progress_every = 1000
+    batch_size = 1000
 
     def __init__(
         self,
