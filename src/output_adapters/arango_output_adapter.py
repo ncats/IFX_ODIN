@@ -18,6 +18,7 @@ from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 from src.shared.db_credentials import DBCredentials
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
+    NODE_MERGE_METADATA_FIELDS = ("_key", "id", "creation", "updates", "resolved_ids")
 
     def __init__(self, credentials, database_name, minio_credentials=None):
         self._collection_schemas = {}
@@ -383,22 +384,47 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list, skip_merge=single_source)
 
                 self.create_indexes(obj_cls, collection)
-                existing_record_map = {
-                    record['id']: record for record in existing_nodes
-                }
+                existing_ids = {record['id'] for record in existing_nodes}
+                existing_record_map = {record['id']: record for record in existing_nodes}
                 merged_nodes = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='nodes')
 
-                print(merged_nodes[0])
-                insert_result = collection.insert_many(
-                    [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes],
-                    overwrite=True
-                )
-                failed = get_insert_failures(insert_result)
-                if failed:
-                    print(f"node insert failures for {label}:")
-                    for failure in failed[:10]:
-                        print(failure)
-                    raise Exception(f"failed to insert {len(failed)} node records into {label}")
+                node_payloads = [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes]
+
+                if single_source:
+                    insert_result = collection.insert_many(node_payloads, overwrite=True)
+                    failed = get_insert_failures(insert_result)
+                    if failed:
+                        print(f"node insert failures for {label}:")
+                        for failure in failed[:10]:
+                            print(failure)
+                        raise Exception(f"failed to insert {len(failed)} node records into {label}")
+                    continue
+
+                inserts = [obj for obj in node_payloads if obj["id"] not in existing_ids]
+                updates = [obj for obj in node_payloads if obj["id"] in existing_ids]
+
+                if inserts:
+                    insert_result = collection.insert_many(inserts)
+                    failed = get_insert_failures(insert_result)
+                    if failed:
+                        print(f"node insert failures for {label}:")
+                        for failure in failed[:10]:
+                            print(failure)
+                        raise Exception(f"failed to insert {len(failed)} node records into {label}")
+
+                if updates:
+                    update_result = collection.update_many(
+                        updates,
+                        merge=True,
+                        keep_none=False,
+                        check_rev=False
+                    )
+                    failed = get_insert_failures(update_result)
+                    if failed:
+                        print(f"node update failures for {label}:")
+                        for failure in failed[:10]:
+                            print(failure)
+                        raise Exception(f"failed to update {len(failed)} node records into {label}")
 
         return True
 
@@ -410,8 +436,34 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         if skip_merge:
             return collection, []
         keys = [self.safe_key(obj['id']) for obj in obj_list]
-        existing_nodes = collection.get_many(keys)
+        fetch_fields = self.get_node_merge_fetch_fields(obj_list)
+        existing_nodes = list(db.aql.execute(
+            """
+            FOR key IN @keys
+              LET doc = DOCUMENT(@collection, key)
+              FILTER doc != null
+              RETURN KEEP(doc, @fields)
+            """,
+            bind_vars={
+                "collection": label,
+                "keys": keys,
+                "fields": fetch_fields,
+            },
+            batch_size=max(100, min(len(keys), 1000)),
+            max_runtime=600,
+        ))
         return collection, existing_nodes
+
+    def get_node_merge_fetch_fields(self, obj_list):
+        fields = set(self.NODE_MERGE_METADATA_FIELDS)
+        for obj in obj_list:
+            for key in obj.keys():
+                if key.startswith('_'):
+                    continue
+                if key in {"provenance", "entity_resolution"}:
+                    continue
+                fields.add(key)
+        return sorted(fields)
 
     def _delete_minio_prefix(self, prefix: str) -> None:
         if not self.minio_creds:

@@ -65,6 +65,50 @@ class RecordMerger:
             deduped.append(value)
         return deduped
 
+    def dedupe_list_preserve_order(self, values: List):
+        seen = set()
+        deduped = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            deduped.append(value)
+        return deduped
+
+    def get_list_entries_to_add(self, existing_values, incoming_values):
+        existing_values = existing_values or []
+        incoming_values = incoming_values or []
+
+        if incoming_values and isinstance(incoming_values[0], dict):
+            existing_keys = {json.dumps(value, sort_keys=True) for value in existing_values}
+            additions = []
+            seen_additions = set()
+            for value in incoming_values:
+                value_key = json.dumps(value, sort_keys=True)
+                if value_key in existing_keys or value_key in seen_additions:
+                    continue
+                seen_additions.add(value_key)
+                additions.append(value)
+            return additions
+
+        existing_set = set(existing_values)
+        additions = []
+        seen_additions = set()
+        for value in incoming_values:
+            if value in existing_set or value in seen_additions:
+                continue
+            seen_additions.add(value)
+            additions.append(value)
+        return additions
+
+    def format_list_update_summary(self, entries_to_add: List):
+        preview_limit = 5
+        preview = entries_to_add[:preview_limit]
+        summary = json.dumps(preview, sort_keys=True)
+        if len(entries_to_add) > preview_limit:
+            summary = f"{summary} (+{len(entries_to_add) - preview_limit} more)"
+        return summary
+
     def merge_objects(self, objects, existing_object_map, mapper, pk_columns, merge_anyway = False):
         updates, inserts = [], []
         if len(pk_columns) == 1 and getattr(pk_columns[0], "autoincrement", False) and not merge_anyway:
@@ -185,21 +229,27 @@ class RecordMerger:
                             if self.field_conflict_behavior == FieldConflictBehavior.KeepLast:
                                 existing_node[prop] = record[prop]
                     elif prop in list_keys:
+                        entries_to_add = self.get_list_entries_to_add(existing_prop_value, record[prop])
                         if existing_prop_value is not None and len(existing_prop_value) > 0:
-                            updates.append(f"{prop}\t{len(existing_prop_value)} entries already there\t{len(record[prop])} entries being merged\t{record['provenance']}")
+                            updates.append(
+                                f"{prop}\t{len(existing_prop_value)} entries already there\t"
+                                f"adding {self.format_list_update_summary(entries_to_add)}\t{record['provenance']}"
+                            )
                             if isinstance(record[prop][0], dict):
                                 combined = existing_prop_value + record[prop]
                                 existing_node[prop] = self.dedupe_dict_list_preserve_order(combined)
                             else:
-                                existing_node[prop] = list(set(existing_prop_value + record[prop]))
+                                existing_node[prop] = self.dedupe_list_preserve_order(existing_prop_value + record[prop])
                         else:
-                            updates.append(f"{prop}\tNULL\t{len(record[prop])} entries being merged\t{record['provenance']}")
+                            updates.append(
+                                f"{prop}\tNULL\tadding {self.format_list_update_summary(entries_to_add)}\t{record['provenance']}"
+                            )
 
                             value = record[prop]
                             if value and isinstance(value[0], dict):
                                 existing_node[prop] = self.dedupe_dict_list_preserve_order(value)
                             else:
-                                existing_node[prop] = list(set(value))
+                                existing_node[prop] = self.dedupe_list_preserve_order(value)
                     else:
                         raise Exception('key is neither field nor list', prop, record)
 

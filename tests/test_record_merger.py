@@ -57,8 +57,8 @@ def test_basic_record_merging():
             'update1',
             f'name\tAleece\tAlice\tsource1\t{field_conflict_behavior.value}',
             f'new_field\tNULL\tvalue1\tsource1\t{field_conflict_behavior.value}',
-            'new_list_field\tNULL\t1 entries being merged\tsource1',
-            'old_list_field\t1 entries already there\t1 entries being merged\tsource1'
+            'new_list_field\tNULL\tadding ["new_value"]\tsource1',
+            'old_list_field\t1 entries already there\tadding ["another_value"]\tsource1'
         ])
 
 def test_new_record_merging():
@@ -138,9 +138,41 @@ def test_double_merge():
         'update1',
         'name\tAleece\tAlice\tsource1\tKeepLast',
         'new_field\tNULL\tvalue1\tsource1\tKeepLast',
-        'old_list_field\t1 entries already there\t1 entries being merged\tsource1',
+        'old_list_field\t1 entries already there\tadding ["another_value"]\tsource1',
         'name\tAlice\tAleece\tsource2\tKeepLast',
-        'old_list_field\t2 entries already there\t1 entries being merged\tsource2',
+        'old_list_field\t2 entries already there\tadding ["yet_another_value"]\tsource2',
     ]
 
+
+def test_list_update_audit_caps_added_entries_preview_at_five():
+    existing_record_map = {
+        "1": {
+            "id": "1",
+            "sources": ["existing-source"],
+            "resolved_ids": ["res-existing"],
+            "creation": "source-existing",
+            "updates": []
+        }
+    }
+    records = [{
+        "id": "1",
+        "sources": [
+            "existing-source",
+            "source-1",
+            "source-2",
+            "source-3",
+            "source-4",
+            "source-5",
+            "source-6",
+        ],
+        "entity_resolution": "res-new",
+        "provenance": "source-new"
+    }]
+    merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
+
+    merged_records = merger.merge_records(records, existing_record_map)
+
+    assert merged_records[0]["updates"] == [
+        'sources\t1 entries already there\tadding ["source-1", "source-2", "source-3", "source-4", "source-5"] (+1 more)\tsource-new'
+    ]
 
