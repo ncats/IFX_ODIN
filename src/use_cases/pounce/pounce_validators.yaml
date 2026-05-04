@@ -102,6 +102,14 @@ GeneMeta:
   required:
     - gene_id
 
+ProteinMap:
+  required:
+    - protein_id
+
+ProteinMeta:
+  required:
+    - protein_id
+
 RawDataMeta:
   required:
     - pre_processing_description

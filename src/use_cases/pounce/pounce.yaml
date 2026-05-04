@@ -138,6 +138,264 @@ input_adapters:
         - ./input_files/manual/pounce/dingyin_proteomics/POUNCE_StatsResults_Proteomics_DingyinDT_v2.xlsx
       validators_config: ./src/use_cases/pounce/pounce_validators.yaml
 
+graph_views:
+  - id: pounce_unresolved_analyte_summary
+    label: POUNCE Unresolved Analyte Summary
+    description: Per-project counts of measured analytes that did and did not resolve to canonical graph nodes
+    type: export
+    output_format: csv
+    query_language: aql
+    columns:
+      - project_id
+      - project_name
+      - analyte_type
+      - total_measured_count
+      - resolved_count
+      - unresolved_count
+      - pct_unresolved
+    query: |
+      FOR project IN `Project`
+        LET metabolite_ids = UNION_DISTINCT(
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                FOR measured IN OUTBOUND dataset `DatasetMetaboliteEdge`
+                  RETURN measured._id
+          ),
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                FOR measured IN OUTBOUND stats_result `StatsResultMetaboliteEdge`
+                  RETURN measured._id
+          )
+        )
+        LET gene_ids = UNION_DISTINCT(
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                FOR measured IN OUTBOUND dataset `DatasetGeneEdge`
+                  RETURN measured._id
+          ),
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                FOR measured IN OUTBOUND stats_result `StatsResultGeneEdge`
+                  RETURN measured._id
+          )
+        )
+        LET protein_ids = UNION_DISTINCT(
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                FOR measured IN OUTBOUND dataset `DatasetProteinEdge`
+                  RETURN measured._id
+          ),
+          (
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                FOR measured IN OUTBOUND stats_result `StatsResultProteinEdge`
+                  RETURN measured._id
+          )
+        )
+        LET metabolite_total = LENGTH(metabolite_ids)
+        LET gene_total = LENGTH(gene_ids)
+        LET protein_total = LENGTH(protein_ids)
+        LET metabolite_resolved = LENGTH(
+          FOR measured_id IN metabolite_ids
+            LET measured = DOCUMENT(measured_id)
+            FILTER measured != null
+            FILTER LENGTH(
+              FOR canonical IN OUTBOUND measured `MeasuredMetaboliteEdge`
+                LIMIT 1
+                RETURN 1
+            ) > 0
+            RETURN 1
+        )
+        LET gene_resolved = LENGTH(
+          FOR measured_id IN gene_ids
+            LET measured = DOCUMENT(measured_id)
+            FILTER measured != null
+            FILTER LENGTH(
+              FOR canonical IN OUTBOUND measured `MeasuredGeneEdge`
+                LIMIT 1
+                RETURN 1
+            ) > 0
+            RETURN 1
+        )
+        LET protein_resolved = LENGTH(
+          FOR measured_id IN protein_ids
+            LET measured = DOCUMENT(measured_id)
+            FILTER measured != null
+            FILTER LENGTH(
+              FOR canonical IN OUTBOUND measured `MeasuredProteinEdge`
+                LIMIT 1
+                RETURN 1
+            ) > 0
+            RETURN 1
+        )
+        FOR row IN [
+          {
+            project_id: project.id,
+            project_name: project.name,
+            analyte_type: "Metabolite",
+            total_measured_count: metabolite_total,
+            resolved_count: metabolite_resolved,
+            unresolved_count: metabolite_total - metabolite_resolved,
+            pct_unresolved: metabolite_total == 0 ? 0 : ROUND(((metabolite_total - metabolite_resolved) / metabolite_total) * 10000) / 100
+          },
+          {
+            project_id: project.id,
+            project_name: project.name,
+            analyte_type: "Gene",
+            total_measured_count: gene_total,
+            resolved_count: gene_resolved,
+            unresolved_count: gene_total - gene_resolved,
+            pct_unresolved: gene_total == 0 ? 0 : ROUND(((gene_total - gene_resolved) / gene_total) * 10000) / 100
+          },
+          {
+            project_id: project.id,
+            project_name: project.name,
+            analyte_type: "Protein",
+            total_measured_count: protein_total,
+            resolved_count: protein_resolved,
+            unresolved_count: protein_total - protein_resolved,
+            pct_unresolved: protein_total == 0 ? 0 : ROUND(((protein_total - protein_resolved) / protein_total) * 10000) / 100
+          }
+        ]
+          SORT row.project_name, row.analyte_type
+          RETURN row
+
+  - id: pounce_unresolved_analyte_detail
+    label: POUNCE Unresolved Analyte Detail
+    description: Unresolved measured analytes across all projects; filter the exported CSV by project as needed
+    type: export
+    output_format: csv
+    query_language: aql
+    columns:
+      - project_id
+      - project_name
+      - experiment_id
+      - experiment_name
+      - experiment_workbook
+      - platform_type
+      - analyte_type
+      - measured_node_id
+      - submitted_id
+      - display_name
+      - alternate_ids
+      - identification_level
+    query: |
+      LET unresolved_rows = UNION_DISTINCT(
+        (
+          FOR project IN `Project`
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR row IN UNION_DISTINCT(
+                (
+                  FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                    FOR measured IN OUTBOUND dataset `DatasetMetaboliteEdge`
+                      RETURN measured
+                ),
+                (
+                  FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                    FOR measured IN OUTBOUND stats_result `StatsResultMetaboliteEdge`
+                      RETURN measured
+                )
+              )
+                FILTER LENGTH(
+                  FOR canonical IN OUTBOUND row `MeasuredMetaboliteEdge`
+                    LIMIT 1
+                    RETURN 1
+                ) == 0
+                RETURN {
+                  project_id: project.id,
+                  project_name: project.name,
+                  experiment_id: experiment.id,
+                  experiment_name: experiment.name,
+                  experiment_workbook: experiment.workbook.original_filename,
+                  platform_type: experiment.platform_type,
+                  analyte_type: "Metabolite",
+                  measured_node_id: row.id,
+                  submitted_id: STARTS_WITH(row.id, CONCAT(experiment.id, "-")) ? SUBSTRING(row.id, LENGTH(experiment.id) + 1) : row.id,
+                  display_name: row.name,
+                  alternate_ids: row.alternate_ids,
+                  identification_level: row.identification_level
+                }
+        ),
+        (
+          FOR project IN `Project`
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR row IN UNION_DISTINCT(
+                (
+                  FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                    FOR measured IN OUTBOUND dataset `DatasetGeneEdge`
+                      RETURN measured
+                ),
+                (
+                  FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                    FOR measured IN OUTBOUND stats_result `StatsResultGeneEdge`
+                      RETURN measured
+                )
+              )
+                FILTER LENGTH(
+                  FOR canonical IN OUTBOUND row `MeasuredGeneEdge`
+                    LIMIT 1
+                    RETURN 1
+                ) == 0
+                RETURN {
+                  project_id: project.id,
+                  project_name: project.name,
+                  experiment_id: experiment.id,
+                  experiment_name: experiment.name,
+                  experiment_workbook: experiment.workbook.original_filename,
+                  platform_type: experiment.platform_type,
+                  analyte_type: "Gene",
+                  measured_node_id: row.id,
+                  submitted_id: row.id,
+                  display_name: row.symbol,
+                  alternate_ids: null,
+                  identification_level: null
+                }
+        ),
+        (
+          FOR project IN `Project`
+            FOR experiment IN OUTBOUND project `ProjectExperimentEdge`
+              FOR row IN UNION_DISTINCT(
+                (
+                  FOR dataset IN OUTBOUND experiment `ExperimentDatasetEdge`
+                    FOR measured IN OUTBOUND dataset `DatasetProteinEdge`
+                      RETURN measured
+                ),
+                (
+                  FOR stats_result IN OUTBOUND experiment `ExperimentStatsResultEdge`
+                    FOR measured IN OUTBOUND stats_result `StatsResultProteinEdge`
+                      RETURN measured
+                )
+              )
+                FILTER LENGTH(
+                  FOR canonical IN OUTBOUND row `MeasuredProteinEdge`
+                    LIMIT 1
+                    RETURN 1
+                ) == 0
+                RETURN {
+                  project_id: project.id,
+                  project_name: project.name,
+                  experiment_id: experiment.id,
+                  experiment_name: experiment.name,
+                  experiment_workbook: experiment.workbook.original_filename,
+                  platform_type: experiment.platform_type,
+                  analyte_type: "Protein",
+                  measured_node_id: row.id,
+                  submitted_id: row.id,
+                  display_name: row.name,
+                  alternate_ids: null,
+                  identification_level: null
+                }
+        )
+      )
+      FOR row IN unresolved_rows
+        SORT row.project_name, row.experiment_name, row.analyte_type, row.submitted_id
+        RETURN row
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter

@@ -1,0 +1,115 @@
+Over Required?,sheet,field,is_required_in_validators,required_condition,has_allowed_values_check,notes
+,ProjectMeta,project_name,yes,,no,
+,ProjectMeta,description,yes,,no,
+,ProjectMeta,date,yes,,no,
+,ProjectMeta,owner_name,yes,,no,
+,ProjectMeta,owner_email,yes,,no,
+,ProjectMeta,keywords,yes,,no,
+,ProjectMeta,collaborator_name,yes,,no,
+,ProjectMeta,collaborator_email,yes,,no,
+,ProjectMeta,privacy_type,yes,,yes,
+,ProjectMeta,lab_groups,yes,,yes,
+,ProjectMeta,project_type,yes,,yes,
+,ProjectMeta,RD_tag,yes,,yes,
+Flavivirus,ProjectMeta,biosample_preparation,yes,,no,
+,BioSampleMap,biosample_id,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,biosample_type,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,biosample_tracking,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,biospecimen_id,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,biospecimen_type,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,biospecimen_description,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,organism_names,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,organism_category,no,,no,Maps a submitter column into BioSampleMeta
+"Transcriptomice_template_v2, Flavivirus, Proteomics",BioSampleMap,disease_names,yes,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,disease_category,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,age,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,race,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,ethnicity,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,sex,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,phenotype{}_category,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,demographic{}_category,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_names,no,,no,Indexed exposure group member
+,BioSampleMap,exposure{}_type,no,,no,Indexed exposure group member
+,BioSampleMap,exposure{}_category,no,,no,Indexed exposure group member
+,BioSampleMap,exposure{}_concentration,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_unit,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_time,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_time_unit,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_start,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,exposure{}_end,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,condition{}_category,no,,no,Maps a submitter column into BioSampleMeta
+,BioSampleMap,growth_media,no,,no,Maps a submitter column into BioSampleMeta
+,ExperimentMeta,experiment_name,yes,,no,
+,ExperimentMeta,experiment_description,yes,,no,
+,ExperimentMeta,experiment_design,yes,,no,
+,ExperimentMeta,experiment_type,yes,,yes,
+Flavivirus x 2,ExperimentMeta,date,yes,,no,
+Flavivirus x 3,ExperimentMeta,lead_data_generator,yes,,no,
+Flavivirus x 3,ExperimentMeta,lead_data_generator_email,yes,,no,
+,ExperimentMeta,lead_informatician,yes,,no,
+,ExperimentMeta,lead_informatician_email,yes,,no,
+,ExperimentMeta,platform_type,yes,,yes,
+,ExperimentMeta,platform_name,yes,,no,
+,ExperimentMeta,platform_provider,yes,,no,
+,ExperimentMeta,platform_output_type,yes,,yes,
+"DDLPS, Flavivirus, Proteomics",ExperimentMeta,public_repo_id,yes,,no,
+"DDLPS, Flavivirus, Proteomics",ExperimentMeta,repo_url,yes,,no,
+DDLPS,ExperimentMeta,raw_file_archive_dir,yes,,no,
+,ExperimentMeta,extraction_protocol,no,,no,
+,ExperimentMeta,acquisition_method,no,,no,
+,ExperimentMeta,metabolite_identification_description,conditional,when platform_type in [metabolomics|lipidomics],no,
+,ExperimentMeta,experiment_data_file,yes,,no,
+,ExperimentMeta,attached_file_{},no,,no,Indexed field
+,RunBioSampleMap,run_biosample_id,yes,,no,Maps a submitter column into RunBioSampleMeta
+,RunBioSampleMap,biosample_id,yes,,no,Maps a submitter column into RunBioSampleMeta
+,RunBioSampleMap,biological_replicate_number,no,,no,Maps a submitter column into RunBioSampleMeta
+,RunBioSampleMap,technical_replicate_number,no,,no,Maps a submitter column into RunBioSampleMeta
+,RunBioSampleMap,runbiosample_run_order,no,,no,Canonical map key
+,RunBioSampleMap,biosample_run_order,no,,no,Legacy accepted map key alias
+,RunBioSampleMap,batch,no,,no,Maps a submitter column into RunBioSampleMeta
+,GeneMap,gene_id,yes,,no,Maps a submitter column into GeneMeta
+,GeneMap,hgnc_gene_symbol,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,gene_biotype,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,alternate_id,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,chromosome_location,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,strand,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,pathway_ids,no,,no,Maps a submitter column into GeneMeta
+,GeneMap,category {},no,,no,Indexed field
+,ProteinMap,protein_id,yes,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,protein_name,no,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,gene_name,no,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,protein_class,no,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,alternate_id,no,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,pathway_ids,no,,no,Maps a submitter column into ProteinMeta
+,ProteinMap,category {},no,,no,Indexed field
+,MetabMap,metab_id,yes,,no,Maps a submitter column into MetabMeta
+,MetabMap,metab_name,yes,,no,Maps a submitter column into MetabMeta
+"DDLPS, Round Robin",MetabMap,metab_chemclass,yes,,no,Maps a submitter column into MetabMeta
+"DDLPS, Round Robin",MetabMap,identification_level,yes,,no,Maps a submitter column into MetabMeta
+,MetabMap,alternate_metab_id,no,,no,Maps a submitter column into MetabMeta
+,MetabMap,alternate_metab_symbol,no,,no,Maps a submitter column into MetabMeta
+,MetabMap,pathway_ids,no,,no,Maps a submitter column into MetabMeta
+,MetabMap,category {},no,,no,Indexed field
+,RawDataMeta,pre_processing_description,yes,,no,
+,RawDataMeta,peakdata_tag,yes,,no,
+,PeakDataMeta,pre_processing_description,yes,,no,
+,PeakDataMeta,peri_processing_description,no,,no,
+,PeakDataMeta,peakdata_tag,no,,no,
+,ProteinDataMeta,pre_processing_description,no,,no,No direct required validator currently
+,ProteinDataMeta,peri_processing_description,no,,no,No direct required validator currently
+,ProteinDataMeta,proteindata_tag,no,,no,No direct required validator currently
+,StatsResultsMeta,statsresults_name,yes,,no,
+,StatsResultsMeta,stats_description,yes,,no,
+,StatsResultsMeta,experiment_name,no,,no,
+,StatsResultsMeta,lead_informatician,yes,,no,
+,StatsResultsMeta,lead_informatician_email,yes,,no,
+,StatsResultsMeta,pre_processing_description,yes,,no,
+,StatsResultsMeta,peri_processing_description,yes,,no,
+,StatsResultsMeta,ES,yes,,no,
+"Round Robin, Proteomics",StatsResultsMeta,ESPval,yes,,no,
+"Round Robin, Proteomics",StatsResultsMeta,ESadjPval,yes,,no,
+,StatsResultsMeta,ES2,no,,no,
+,StatsResultsMeta,DataAnalysisCode_Link,no,,no,
+,EffectSize_Map,gene_id,conditional,when platform_type in [bulk_rnaseq|sc_rnaseq|atac_seq|rasl_seq|qpcr|chip_seq],no,Maps analyte ID column for stats sheets
+,EffectSize_Map,metabolite_id,conditional,when platform_type in [metabolomics|lipidomics],no,Maps analyte ID column for stats sheets
+,EffectSize_Map,protein_id,no,,no,Accepted but not currently required in validators
