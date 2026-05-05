@@ -8,6 +8,7 @@ from datetime import datetime, date, timezone
 from enum import Enum
 from typing import Type, List, get_origin, get_args, Union
 
+from arango.exceptions import DocumentInsertError, DocumentUpdateError
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
 from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
 from src.interfaces.output_adapter import OutputAdapter
@@ -373,13 +374,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     }
                     edges.append(edge)
 
-                insert_result = edge_collection.insert_many(edges, overwrite=True)
-                failed = get_insert_failures(insert_result)
-                if failed:
-                    print(f"edge insert failures for {label}:")
-                    for failure in failed[:10]:
-                        print(failure)
-                    raise Exception(f"failed to insert {len(failed)} edge records into {label}")
+                self.insert_many_with_backoff(
+                    edge_collection,
+                    edges,
+                    overwrite=True,
+                    label=label,
+                    kind="edge"
+                )
             else:
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list, skip_merge=single_source)
 
@@ -391,40 +392,34 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 node_payloads = [{**obj, "_key": self.safe_key(obj["id"])} for obj in merged_nodes]
 
                 if single_source:
-                    insert_result = collection.insert_many(node_payloads, overwrite=True)
-                    failed = get_insert_failures(insert_result)
-                    if failed:
-                        print(f"node insert failures for {label}:")
-                        for failure in failed[:10]:
-                            print(failure)
-                        raise Exception(f"failed to insert {len(failed)} node records into {label}")
+                    self.insert_many_with_backoff(
+                        collection,
+                        node_payloads,
+                        overwrite=True,
+                        label=label,
+                        kind="node"
+                    )
                     continue
 
                 inserts = [obj for obj in node_payloads if obj["id"] not in existing_ids]
                 updates = [obj for obj in node_payloads if obj["id"] in existing_ids]
 
                 if inserts:
-                    insert_result = collection.insert_many(inserts)
-                    failed = get_insert_failures(insert_result)
-                    if failed:
-                        print(f"node insert failures for {label}:")
-                        for failure in failed[:10]:
-                            print(failure)
-                        raise Exception(f"failed to insert {len(failed)} node records into {label}")
+                    self.insert_many_with_backoff(
+                        collection,
+                        inserts,
+                        overwrite=False,
+                        label=label,
+                        kind="node"
+                    )
 
                 if updates:
-                    update_result = collection.update_many(
+                    self.update_many_with_backoff(
+                        collection,
                         updates,
-                        merge=True,
-                        keep_none=False,
-                        check_rev=False
+                        label=label,
+                        kind="node"
                     )
-                    failed = get_insert_failures(update_result)
-                    if failed:
-                        print(f"node update failures for {label}:")
-                        for failure in failed[:10]:
-                            print(failure)
-                        raise Exception(f"failed to update {len(failed)} node records into {label}")
 
         return True
 
@@ -464,6 +459,71 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     continue
                 fields.add(key)
         return sorted(fields)
+
+    def insert_many_with_backoff(self, collection, records, overwrite=False, label="", kind="node"):
+        self._insert_many_with_backoff(
+            collection,
+            records,
+            overwrite=overwrite,
+            label=label,
+            kind=kind
+        )
+
+    def _insert_many_with_backoff(self, collection, records, overwrite=False, label="", kind="node"):
+        try:
+            insert_result = collection.insert_many(records, overwrite=overwrite)
+        except DocumentInsertError:
+            if len(records) == 1:
+                raise
+            midpoint = len(records) // 2
+            self._insert_many_with_backoff(collection, records[:midpoint], overwrite=overwrite, label=label, kind=kind)
+            self._insert_many_with_backoff(collection, records[midpoint:], overwrite=overwrite, label=label, kind=kind)
+            return
+
+        failed = []
+        if insert_result:
+            for result in insert_result:
+                if isinstance(result, DocumentInsertError):
+                    failed.append(result)
+                elif isinstance(result, dict) and result.get("error"):
+                    failed.append(result)
+        if failed:
+            print(f"{kind} insert failures for {label}:")
+            for failure in failed[:10]:
+                print(failure)
+            raise Exception(f"failed to insert {len(failed)} {kind} records into {label}")
+
+    def update_many_with_backoff(self, collection, records, label="", kind="node"):
+        self._update_many_with_backoff(collection, records, label=label, kind=kind)
+
+    def _update_many_with_backoff(self, collection, records, label="", kind="node"):
+        try:
+            update_result = collection.update_many(
+                records,
+                merge=True,
+                keep_none=False,
+                check_rev=False
+            )
+        except DocumentUpdateError:
+            if len(records) == 1:
+                raise
+            midpoint = len(records) // 2
+            self._update_many_with_backoff(collection, records[:midpoint], label=label, kind=kind)
+            self._update_many_with_backoff(collection, records[midpoint:], label=label, kind=kind)
+            return
+
+        failed = []
+        if update_result:
+            for result in update_result:
+                if isinstance(result, DocumentUpdateError):
+                    failed.append(result)
+                elif isinstance(result, dict) and result.get("error"):
+                    failed.append(result)
+        if failed:
+            print(f"{kind} update failures for {label}:")
+            for failure in failed[:10]:
+                print(failure)
+            raise Exception(f"failed to update {len(failed)} {kind} records into {label}")
 
     def _delete_minio_prefix(self, prefix: str) -> None:
         if not self.minio_creds:
