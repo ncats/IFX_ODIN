@@ -6,6 +6,9 @@ class _FakeQuery:
     def __init__(self, rows):
         self._rows = rows
 
+    def join(self, *_args, **_kwargs):
+        return self
+
     def all(self):
         return self._rows
 
@@ -16,6 +19,10 @@ class _FakeSession:
         if key == ("id", "ifx_id"):
             return _FakeQuery([
                 (123, "IFX123"),
+            ])
+        if key == ("id", "uniprot"):
+            return _FakeQuery([
+                (123, "Q9Y345"),
             ])
         if key == ("id", "identifier"):
             return _FakeQuery([
@@ -34,7 +41,74 @@ def test_tcrd_output_converter_preloads_protein_ids():
     converter.preload_id_mappings(_FakeSession())
 
     assert converter.id_mapping["protein"] == {"IFX123": 123}
+    assert converter.id_mapping["target_by_uniprot"] == {"Q9Y345": 123}
     assert converter.id_mapping["ligand"] == {"LIGAND:EXISTING": 77}
+
+
+def test_drgc_resource_converter_uses_target_mapping_by_uniprot():
+    converter = TCRDOutputConverter()
+    converter._target_id_by_uniprot = {"Q9Y345": 123}
+
+    row = converter.drgc_resource_converter({
+        "id": "https://repo.metadatacenter.org/template-instances/example",
+        "uniprot_id": "Q9Y345",
+        "rssid": "https://repo.metadatacenter.org/template-instances/example",
+        "resource_type": "Genetic Construct",
+        "json": "{\"resource\": []}",
+        "legacy_target_id": 999,
+        "provenance": "Pharos 3.19\t3.19\t2024-02-15\tNone",
+    })
+
+    assert row.target_id == 123
+    assert row.rssid == "https://repo.metadatacenter.org/template-instances/example"
+    assert row.resource_type == "Genetic Construct"
+
+
+def test_drgc_resource_converter_skips_missing_destination_target():
+    converter = TCRDOutputConverter()
+
+    row = converter.drgc_resource_converter({
+        "id": "rssid",
+        "uniprot_id": "Q5JXX5",
+        "rssid": "rssid",
+        "resource_type": "Mouse",
+        "json": "{}",
+        "legacy_target_id": 1234,
+        "provenance": "Pharos 3.19\t3.19\t2024-02-15\tNone",
+    })
+
+    assert row is None
+
+
+def test_protein_converter_seeds_drgc_target_mapping_for_same_run():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    converter.protein_converter({
+        "id": "IFX123",
+        "xref": [],
+        "gene_name": "SC6A5_HUMAN",
+        "name": "Sodium- and chloride-dependent glycine transporter 2",
+        "uniprot_id": "Q9Y345",
+        "symbol": "SLC6A5",
+        "sequence": "MSEQ",
+        "dtoid": None,
+        "dtoclass": None,
+        "preferred_symbol": "SLC6A5",
+        "provenance": "test",
+    })
+
+    row = converter.drgc_resource_converter({
+        "id": "https://repo.metadatacenter.org/template-instances/example",
+        "uniprot_id": "Q9Y345",
+        "rssid": "https://repo.metadatacenter.org/template-instances/example",
+        "resource_type": "Genetic Construct",
+        "json": "{\"resource\": []}",
+        "legacy_target_id": 999,
+        "provenance": "Pharos 3.19\t3.19\t2024-02-15\tNone",
+    })
+
+    assert row.target_id == 123
 
 
 def test_ligand_converter_assigns_integer_id_from_mapping():

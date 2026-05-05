@@ -2,6 +2,7 @@ import hashlib
 from datetime import date, datetime
 from typing import Union, List, Optional
 from src.constants import Prefix
+from src.models.drgc_resource import DRGCResource
 from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge, TINXImportanceEdge
 from src.models.dto_class import DTOClass, DTOClassParentEdge, ProteinDTOClassEdge
 from src.models.expression import ProteinTissueExpressionEdge
@@ -18,7 +19,7 @@ from src.models.gwas_trait import ProteinGwasTraitEdge, GwasTrait
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
-    Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
+    DrgcResource as mysqlDrgcResource, Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
     Uberon, UberonParent, Tissue as mysqlTissue, Expression, Gtex,
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
@@ -38,6 +39,8 @@ class TCRDOutputConverter(SQLOutputConverter):
         self._disease_name_by_id: dict[str, str] = {}
         self._known_mondo_ids: set[str] = set()
         self._seen_protein2pubmed: set[tuple[int, str, int | None, str]] = set()
+        self._target_id_by_uniprot: dict[str, int] = {}
+        self._warned_missing_drgc_targets: set[tuple[str, str | None]] = set()
         self._converters = {
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
@@ -59,6 +62,8 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinTissueExpressionEdge: [self.tissue_lookup_converter,
                                           self.expression_converter,
                                           self.gtex_converter],
+            # Direct MySQL side-loads
+            DRGCResource: [self.drgc_resource_converter],
             MondoTerm: [self.mondo_table_converter, self.mondo_xref_converter],
             MondoTermParentEdge: [self.mondo_parent_table_converter],
             DOTerm: [self.do_table_converter],
@@ -95,12 +100,19 @@ class TCRDOutputConverter(SQLOutputConverter):
             "table": 'protein',
             "data": session.query(mysqlProtein.id, mysqlProtein.ifx_id).all()
         }, {
+            "table": 'target_by_uniprot',
+            "data": session.query(Target.id, mysqlProtein.uniprot)
+            .join(T2TC, T2TC.target_id == Target.id)
+            .join(mysqlProtein, mysqlProtein.id == T2TC.protein_id)
+            .all()
+        }, {
             "table": 'ligand',
             "data": session.query(mysqlLigand.id, mysqlLigand.identifier).all()
         }]
 
     def preload_id_mappings(self, session):
         super().preload_id_mappings(session)
+        self._target_id_by_uniprot = dict(self.id_mapping.get("target_by_uniprot", {}))
         self._known_disease_types = {
             row[0] for row in session.query(DiseaseType.name).all() if row[0]
         }
@@ -115,12 +127,15 @@ class TCRDOutputConverter(SQLOutputConverter):
         gene_id = gene_ids[0].split(':')[-1] if gene_ids else None
         ensembl_ids = [p for p in obj['xref'] if p.startswith('ENSEMBL:ENSP')]
         string_id = ensembl_ids[0].split(':')[-1] if ensembl_ids and gene_id is None else None
+        protein_id = self.resolve_id('protein', obj['id'])
+        uniprot_id = obj['uniprot_id']
+        self._target_id_by_uniprot[uniprot_id] = protein_id
         return mysqlProtein(
-            id=self.resolve_id('protein', obj['id']),
+            id=protein_id,
             ifx_id=obj['id'],
             name=obj.get('gene_name'),
             description=obj.get('name'),
-            uniprot=obj['uniprot_id'],
+            uniprot=uniprot_id,
             sym=obj.get('symbol'),
             geneid=gene_id,
             stringid=string_id,
@@ -214,6 +229,26 @@ class TCRDOutputConverter(SQLOutputConverter):
             fam=obj['idg_family'],
             tdl=obj['tdl'],
             provenance=obj['provenance']
+        )
+
+    def drgc_resource_converter(self, obj: dict) -> mysqlDrgcResource | None:
+        target_id = self._target_id_by_uniprot.get(obj["uniprot_id"])
+        if target_id is None:
+            warning_key = (obj["uniprot_id"], obj.get("rssid"))
+            if warning_key not in self._warned_missing_drgc_targets:
+                self._warned_missing_drgc_targets.add(warning_key)
+                print(
+                    f"Skipping DRGC resource with no destination target_id for UniProt {obj['uniprot_id']} "
+                    f"(legacy target_id={obj.get('legacy_target_id')}, rssid={obj.get('rssid')})"
+                )
+            return None
+
+        return mysqlDrgcResource(
+            rssid=obj["rssid"],
+            resource_type=obj["resource_type"],
+            target_id=target_id,
+            json=obj["json"],
+            provenance=obj["provenance"],
         )
 
     # --- GeneRif ---

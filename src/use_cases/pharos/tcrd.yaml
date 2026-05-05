@@ -1,6 +1,7 @@
 destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 source_database: &source_database pharos
+legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/pharos_credentials.yaml
 
 meets_idg_cutoff: &meets_idg_cutoff true
 
@@ -56,6 +57,10 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_mysql/drgc_resource_adapter.py
+    class: DRGCResourceAdapter
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ppi.py
     class: ProteinPPIAdapter

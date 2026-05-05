@@ -51,6 +51,7 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **ProteinDTOClassEdge** | [x] old Pharos MySQL | `ProteinDTOClassEdge` | current converter supports `p2dto`, but DTO is not wired in active `tcrd.yaml`                              |
 | **Keyword** | [x] UniProt | `Keyword` | no standalone TCRD table; keyword content is duplicated via `ProteinKeywordEdge` into `xref`                |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref`                                                                                                  | | |
+| **IDG Resources** | [x] old Pharos MySQL `drgc_resource` *(direct MySQL side-load by UniProt; not graph-modeled)* | not materialized in graph; loaded directly from legacy Pharos MySQL in `tcrd.yaml` | [x] `drgc_resource` |
 | **SetPreferredSymbolAdapter** | [x] computed from graph | updates `preferred_symbol` on `Protein` | *(via Protein → `protein.preferred_symbol`)*                                                                |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)*                                                                                   |
 | **SetGoTermLeafFlagAdapter** | [x] computed from graph | updates `is_leaf` on `GoTerm` | *(via GoTerm)*                                                                                              |
@@ -73,7 +74,6 @@ These tables are populated directly from ontology source files during the TCRD b
 - maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
-- IDG Resources
 - NIH Target Lists
 - Other Publication Statistics (PubTator)
 - Orthologs — OMA, EggNOG, Inparanoid
