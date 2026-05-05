@@ -1,5 +1,11 @@
 from src.models.protein import Protein
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
+from arango.exceptions import DocumentUpdateError
+
+
+class FakeDocumentUpdateError(DocumentUpdateError):
+    def __init__(self):
+        Exception.__init__(self, "fake 413")
 
 
 class FakeCollection:
@@ -21,6 +27,19 @@ class FakeCollection:
             "keep_none": keep_none,
             "check_rev": check_rev,
         })
+        return []
+
+
+class FailingUpdateCollection(FakeCollection):
+    def update_many(self, docs, merge=True, keep_none=False, check_rev=False):
+        self.update_calls.append({
+            "docs": docs,
+            "merge": merge,
+            "keep_none": keep_none,
+            "check_rev": check_rev,
+        })
+        if len(docs) > 1:
+            raise FakeDocumentUpdateError()
         return []
 
 
@@ -114,3 +133,18 @@ def test_store_uses_update_many_for_existing_nodes_and_insert_many_for_new_nodes
     assert collection.update_calls[0]["merge"] is True
     assert collection.update_calls[0]["keep_none"] is False
     assert collection.update_calls[0]["check_rev"] is False
+
+
+def test_update_many_with_backoff_splits_on_document_update_error():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    collection = FailingUpdateCollection()
+    records = [
+        {"_key": "a", "id": "a"},
+        {"_key": "b", "id": "b"},
+        {"_key": "c", "id": "c"},
+        {"_key": "d", "id": "d"},
+    ]
+
+    adapter.update_many_with_backoff(collection, records, label="Protein", kind="node")
+
+    assert [len(call["docs"]) for call in collection.update_calls] == [4, 2, 1, 1, 2, 1, 1]
