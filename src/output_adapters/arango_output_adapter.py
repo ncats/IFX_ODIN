@@ -817,7 +817,27 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         return merged_graph_views
 
 
-    def clean_up_dangling_edges(self, batch_size: int = 250000):
+    def _get_document_existence_map(self, db, doc_ids, check_batch_size: int = 10000):
+        existence_map = {}
+        unique_doc_ids = list(dict.fromkeys(doc_ids))
+
+        for start in range(0, len(unique_doc_ids), check_batch_size):
+            batch_doc_ids = unique_doc_ids[start:start + check_batch_size]
+            batch_results = list(db.aql.execute(
+                """
+                FOR doc_id IN @doc_ids
+                    LET exists = DOCUMENT(doc_id) != null
+                    RETURN {id: doc_id, exists: exists}
+                """,
+                bind_vars={"doc_ids": batch_doc_ids},
+                batch_size=max(100, min(len(batch_doc_ids), 1000)),
+                max_runtime=600,
+            ))
+            existence_map.update({item['id']: item['exists'] for item in batch_results})
+
+        return existence_map
+
+    def clean_up_dangling_edges(self, batch_size: int = 250000, check_batch_size: int = 10000):
         db = self.get_db()
         graph = self.get_graph()
         for edge_collection in graph.edge_definitions():
@@ -834,13 +854,17 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 key_filter = f"FILTER e._key > '{last_key}'" if last_key else ""
 
                 # Step 1: Get edge batch
-                cursor = db.aql.execute(f"""
+                cursor = db.aql.execute(
+                    f"""
                     FOR e IN `{collection_name}`
                         {key_filter}
                         SORT e._key
                         LIMIT {batch_size}
                         RETURN {{_key: e._key, _from: e._from, _to: e._to}}
-                """)
+                    """,
+                    batch_size=max(100, min(batch_size, 1000)),
+                    max_runtime=600,
+                )
 
                 edges = list(cursor)
                 if not edges:
@@ -849,24 +873,16 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 last_key = edges[-1]['_key']
 
                 # Step 2: Check which ones are dangling (batch the DOCUMENT calls)
-                from_docs = [e['_from'] for e in edges]
-                to_docs = [e['_to'] for e in edges]
-
-                # Check existence in batches
-                from_check = db.aql.execute(f"""
-                    FOR doc_id IN {from_docs}
-                        LET exists = DOCUMENT(doc_id) != null
-                        RETURN {{id: doc_id, exists: exists}}
-                """)
-
-                to_check = db.aql.execute(f"""
-                    FOR doc_id IN {to_docs}
-                        LET exists = DOCUMENT(doc_id) != null
-                        RETURN {{id: doc_id, exists: exists}}
-                """)
-
-                from_exists = {item['id']: item['exists'] for item in from_check}
-                to_exists = {item['id']: item['exists'] for item in to_check}
+                from_exists = self._get_document_existence_map(
+                    db,
+                    [e['_from'] for e in edges],
+                    check_batch_size=check_batch_size,
+                )
+                to_exists = self._get_document_existence_map(
+                    db,
+                    [e['_to'] for e in edges],
+                    check_batch_size=check_batch_size,
+                )
 
                 # Find dangling edges
                 dangling_keys = []
@@ -876,10 +892,15 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
                 # Step 3: Delete dangling edges by key
                 if dangling_keys:
-                    db.aql.execute(f"""
-                        FOR key IN {dangling_keys}
+                    db.aql.execute(
+                        f"""
+                        FOR key IN @keys
                             REMOVE key IN `{collection_name}`
-                    """)
+                        """,
+                        bind_vars={"keys": dangling_keys},
+                        batch_size=max(100, min(len(dangling_keys), 1000)),
+                        max_runtime=600,
+                    )
 
                 deleted_count = len(dangling_keys)
                 total_deleted += deleted_count

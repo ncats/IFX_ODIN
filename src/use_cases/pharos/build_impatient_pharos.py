@@ -6,7 +6,7 @@ def main():
         build_name="impatient_pharos",
         database_name="impatient_pharos",
         primary_yaml="./src/use_cases/pharos/impatient_pharos.yaml",
-        post_yaml="./src/use_cases/pharos/pharos_aql_post.yaml",
+        post_yaml="./src/use_cases/pharos/impatient_pharos_aql_post.yaml",
     )
 
 
