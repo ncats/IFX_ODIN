@@ -7,6 +7,8 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.disease import Disease, GeneDiseaseEdge, ProteinDiseaseEdge
 from src.models.expression import GeneTissueExpressionEdge, ProteinTissueExpressionEdge
 from src.models.gene import Gene, MeasuredGene, MeasuredGeneEdge
+from src.models.mouse_phenotype import GeneMousePhenotypeEdge, MousePhenotype, ProteinMousePhenotypeEdge
+from src.models.ortholog import GeneOrthologGeneEdge, OrthologGene, ProteinOrthologGeneEdge
 from src.models.pathway import GenePathwayEdge, Pathway, ProteinPathwayEdge
 from src.models.protein import Protein, MeasuredProtein, MeasuredProteinEdge
 from src.models.tissue import Tissue
@@ -86,6 +88,30 @@ def test_input_adapter_remaps_gene_pathway_edge_to_protein_edge():
     assert isinstance(rel, ProteinPathwayEdge)
     assert rel.start_node.id == "IFXProtein:G1"
     assert rel.source == "x"
+
+
+def test_input_adapter_remaps_gene_ortholog_edge_to_protein_ortholog_edge():
+    edge = GeneOrthologGeneEdge(start_node=Gene(id="G1"), end_node=OrthologGene(id="OG1"))
+    adapter = _SingleBatchAdapter([edge])
+
+    batches = list(adapter.get_resolved_and_provenanced_list(_resolver_map()))
+    rel = batches[-1][0]
+
+    assert isinstance(rel, ProteinOrthologGeneEdge)
+    assert rel.start_node.id == "IFXProtein:G1"
+    assert rel.end_node.id == "OG1"
+
+
+def test_input_adapter_remaps_gene_mouse_phenotype_edge_to_protein_mouse_phenotype_edge():
+    edge = GeneMousePhenotypeEdge(start_node=Gene(id="G1"), end_node=MousePhenotype(id="MP:1"), details=[])
+    adapter = _SingleBatchAdapter([edge])
+
+    batches = list(adapter.get_resolved_and_provenanced_list(_resolver_map()))
+    rel = batches[-1][0]
+
+    assert isinstance(rel, ProteinMousePhenotypeEdge)
+    assert rel.start_node.id == "IFXProtein:G1"
+    assert rel.end_node.id == "MP:1"
 
 
 def test_input_adapter_leaves_unmapped_gene_edge_classes_unchanged():

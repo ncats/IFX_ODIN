@@ -16,16 +16,22 @@ class InputAdapter(ABC):
     def _canonicalize_relationship_class(rel: Relationship, start_node: Node, end_node: Node) -> Relationship:
         from src.models.disease import GeneDiseaseEdge, ProteinDiseaseEdge
         from src.models.expression import GeneTissueExpressionEdge, ProteinTissueExpressionEdge
+        from src.models.mouse_phenotype import GeneMousePhenotypeEdge, ProteinMousePhenotypeEdge
+        from src.models.ortholog import GeneOrthologGeneEdge, ProteinOrthologGeneEdge
         from src.models.pathway import GenePathwayEdge, ProteinPathwayEdge
         from src.models.protein import Protein
         from src.models.tissue import Tissue
         from src.models.disease import Disease
         from src.models.pathway import Pathway
+        from src.models.mouse_phenotype import MousePhenotype
+        from src.models.ortholog import OrthologGene
 
         mapping = {
             (GeneTissueExpressionEdge, Protein, Tissue): ProteinTissueExpressionEdge,
             (GeneDiseaseEdge, Protein, Disease): ProteinDiseaseEdge,
             (GenePathwayEdge, Protein, Pathway): ProteinPathwayEdge,
+            (GeneOrthologGeneEdge, Protein, OrthologGene): ProteinOrthologGeneEdge,
+            (GeneMousePhenotypeEdge, Protein, MousePhenotype): ProteinMousePhenotypeEdge,
         }
 
         target_cls = mapping.get((type(rel), type(start_node), type(end_node)))

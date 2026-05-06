@@ -58,6 +58,30 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/ortholog.py
+    class: OrthologGeneAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ortholog.py
+    class: ProteinOrthologGeneEdgeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ortholog.py
+    class: OrthologGeneMousePhenotypeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/ortholog.py
+    class: ProteinMousePhenotypeAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
   - import: ./src/input_adapters/pharos_mysql/drgc_resource_adapter.py
     class: DRGCResourceAdapter
     credentials: *legacy_pharos_credentials

@@ -51,6 +51,11 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 | **ProteinDTOClassEdge** | [x] old Pharos MySQL | `ProteinDTOClassEdge` | current converter supports `p2dto`, but DTO is not wired in active `tcrd.yaml`                              |
 | **Keyword** | [x] UniProt | `Keyword` | no standalone TCRD table; keyword content is duplicated via `ProteinKeywordEdge` into `xref`                |
 | **ProteinKeywordEdge** | [x] UniProt | `ProteinKeywordEdge` | [x] `xref`                                                                                                  | | |
+| **OrthologGene** | [x] HCOP | `OrthologGene` | [x] `nhprotein` |
+| **ProteinOrthologGeneEdge** | [x] HCOP *(gene-native in `target_graph.yaml`, side-lifted in `pharos.yaml`)* | `ProteinOrthologGeneEdge` | [x] `ortholog` |
+| **MousePhenotype** | [x] MP ontology<br>[x] IMPC<br>[x] JAX/MGI HMD | `MousePhenotype` | no standalone TCRD table; phenotype term content is duplicated via phenotype edge export |
+| **OrthologGeneMousePhenotypeEdge** | [x] IMPC | `OrthologGeneMousePhenotypeEdge` | [x] `phenotype` *(IMPC branch)* |
+| **ProteinMousePhenotypeEdge** | [x] JAX/MGI HMD *(gene-native in `target_graph.yaml`, side-lifted in `pharos.yaml`)* | `ProteinMousePhenotypeEdge` | [x] `phenotype` *(JAX/MGI branch)* |
 | **IDG Resources** | [x] old Pharos MySQL `drgc_resource` *(direct MySQL side-load by UniProt; not graph-modeled)* | not materialized in graph; loaded directly from legacy Pharos MySQL in `tcrd.yaml` | [x] `drgc_resource` |
 | **SetPreferredSymbolAdapter** | [x] computed from graph | updates `preferred_symbol` on `Protein` | *(via Protein → `protein.preferred_symbol`)*                                                                |
 | **SetLigandActivityFlagAdapter** | [x] computed from graph | updates `meets_idg_cutoff` on `ProteinLigandEdge` | *(via ProteinLigandEdge)*                                                                                   |
@@ -76,6 +81,7 @@ These tables are populated directly from ontology source files during the TCRD b
 ### New Concepts
 - NIH Target Lists
 - Other Publication Statistics (PubTator)
+- Patent Counts
 - Orthologs — OMA, EggNOG, Inparanoid
 - Phenotype — IMPC, JAX/MGI
 - P-HIPSTer Viral PPIs
@@ -113,16 +119,3 @@ These tables are populated directly from ontology source files during the TCRD b
   - the current public file is a Translator-style aggregate
   - `infores:monarchinitiative` is the aggregator, while the primary sources are `infores:omim` and `infores:clingen`
   - do not ingest it as `Monarch`; revisit direct OMIM or direct ClinGen instead
-
----
-
-## Working Graph -> TCRD Gap TODOs
-
-Use `src/use_cases/working.yaml` and `src/use_cases/working_mysql.yaml` to validate these gaps before promoting changes into the full Pharos configs.
-
-Completed and promoted:
-
-- source-file MONDO / DO table loading for TCRD
-- disease association row expansion from `ProteinDiseaseEdge.details`
-- `ncats_disease` / `ncats_d2da` coverage fixes
-- disease field population decisions documented and implemented in the working/full converter paths

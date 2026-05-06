@@ -37,6 +37,10 @@ class DataSourceName(SimpleEnum):
     HPM = "Human Protein Map"
     HPA = "Human Protein Atlas"
     GTEx = "GTEx"
+    HCOP = "HCOP"
+    IMPC = "IMPC"
+    MGI = "MGI"
+    MP = "Mammalian Phenotype Ontology (MP)"
     Antibodypedia = "Antibodypedia.com"
     IUPHAR = "IUPHAR/BPS Guide to PHARMACOLOGY"
     NCBI = "NCBI"
@@ -124,6 +128,8 @@ class Prefix(SimpleEnum):
     BAMS = 'BAMS'
     neuronames = 'neuronames'
     VHOG = 'VHOG'
+    VGNC = 'VGNC'
+    CGNC = 'CGNC'
     BIRNLEX = 'BIRNLEX'
     TAO = 'TAO'
     EHDAA = 'EHDAA'
