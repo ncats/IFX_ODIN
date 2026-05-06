@@ -47,7 +47,7 @@ class Protein(Base):
     ifx_id = Column(String(18), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    uniprot = Column(String(20), nullable=False)
+    uniprot = Column(String(20))
     up_version = Column(Integer, nullable=True)
     geneid = Column(Integer, nullable=True)
     sym = Column(String(20), nullable=True)
@@ -318,7 +318,7 @@ class DiseaseType(Base):
 class NhProtein(Base):
     __tablename__ = "nhprotein"
     __table_args__ = (
-        Index("nhprotein_idx1", "uniprot", unique=True),
+        Index("nhprotein_idx1", "uniprot"),
         Index("nhprotein_idx2", "sym"),
         Index("nhprotein_idx3", "taxid", "geneid"),
         Index("nhprotein_idx4", "species")
@@ -429,7 +429,7 @@ class Phenotype(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    ptype = Column(String(255), ForeignKey("phenotype_type.name"), nullable=False)
+    ptype = Column(String(255), nullable=False)
     protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"))
     nhprotein_id = Column(Integer, ForeignKey("nhprotein.id", ondelete="CASCADE"))
     trait = Column(Text)
@@ -447,15 +447,6 @@ class Phenotype(Base):
     statistical_method = Column(Text)
     sex = Column(String(8))
     original_id = Column(Integer)
-
-class PhenotypeType(Base):
-    __tablename__ = "phenotype_type"
-    __table_args__ = (
-        UniqueConstraint("name", "ontology", name="phenotype_type_idx1"),
-    )
-    name = Column(String(255), primary_key=True, nullable=False)
-    ontology = Column(String(255))
-    description = Column(Text)
 
 class Expression(Base):
     __tablename__ = "expression"

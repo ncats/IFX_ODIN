@@ -4,6 +4,13 @@ rule all:
         "../input_files/auto/ctd/ctd_version.tsv",
         "../input_files/auto/pathwaycommons/pc-hgnc.gmt.gz",
         "../input_files/auto/pathwaycommons/pathwaycommons_version.tsv",
+        "../input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz",
+        "../input_files/auto/hcop/hcop_version.tsv",
+        "../input_files/auto/impc/genotype-phenotype-assertions-IMPC.csv.gz",
+        "../input_files/auto/impc/impc_version.tsv",
+        "../input_files/auto/mgi/HMD_HumanPhenotype.rpt",
+        "../input_files/auto/mgi/mgi_hmd_version.tsv",
+        "../input_files/auto/mp/mp.obo",
         "../input_files/manual/target_graph/gene_ids.tsv",
         "../input_files/manual/target_graph/protein_ids.tsv",
         "../input_files/manual/target_graph/transcript_ids.tsv",
@@ -95,7 +102,58 @@ version_date = datetime.strptime(match.group(1), '%a %b %d %H:%M:%S %Z %Y').date
 with open(output_path, 'w', encoding='utf-8') as out:
     out.write('version\\tversion_date\\n')
     out.write(version_date + '\\t' + version_date + '\\n')
-" {output[0]} {output[1]}
+        " {output[0]} {output[1]}
+        """
+
+rule download_hcop:
+    output:
+        "../input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz",
+        "../input_files/auto/hcop/hcop_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/hcop
+        url='https://storage.googleapis.com/public-download-files/hcop/human_all_hcop_sixteen_column.txt.gz'
+        curl -fL -o {output[0]} "$url"
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; download_date=sys.argv[3]; version='human_all_hcop_sixteen_column.txt.gz'; version_date=email.utils.parsedate_to_datetime(lm).date().isoformat() if lm.strip() else ''; open(out,'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+download_date+'\\n')" "$last_modified" {output[1]} "$download_date"
+        """
+
+rule download_impc:
+    output:
+        "../input_files/auto/impc/genotype-phenotype-assertions-IMPC.csv.gz",
+        "../input_files/auto/impc/impc_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/impc
+        url='https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/latest/results/genotype-phenotype-assertions-IMPC.csv.gz'
+        curl -fL -o {output[0]} "$url"
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; download_date=sys.argv[3]; version='genotype-phenotype-assertions-IMPC.csv.gz'; version_date=email.utils.parsedate_to_datetime(lm).date().isoformat() if lm.strip() else ''; open(out,'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+download_date+'\\n')" \"$last_modified\" {output[1]} \"$download_date\"
+        """
+
+rule download_mgi_hmd:
+    output:
+        "../input_files/auto/mgi/HMD_HumanPhenotype.rpt",
+        "../input_files/auto/mgi/mgi_hmd_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/mgi
+        url='https://www.informatics.jax.org/downloads/reports/HMD_HumanPhenotype.rpt'
+        curl -fL -o {output[0]} "$url"
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+        python3 -c "import email.utils,sys; lm=sys.argv[1]; out=sys.argv[2]; download_date=sys.argv[3]; version='HMD_HumanPhenotype.rpt'; version_date=email.utils.parsedate_to_datetime(lm).date().isoformat() if lm.strip() else ''; open(out,'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+download_date+'\\n')" "$last_modified" {output[1]} "$download_date"
+        """
+
+rule download_mp:
+    output:
+        "../input_files/auto/mp/mp.obo"
+    shell:
+        """
+        mkdir -p ../input_files/auto/mp
+        curl -fL -o {output[0]} https://purl.obolibrary.org/obo/mp.obo
         """
 
 rule download_jensenlab_tissues:

@@ -80,6 +80,236 @@ def test_drgc_resource_converter_skips_missing_destination_target():
     assert row is None
 
 
+def test_nhprotein_converter_projects_ortholog_gene_into_gene_centric_row():
+    converter = TCRDOutputConverter()
+
+    row = converter.nhprotein_converter({
+        "id": "NCBIGene:13489",
+        "species": "10090",
+        "symbol": "Drd2",
+        "name": "dopamine receptor D2",
+        "entrez_gene_id": "13489",
+        "xref": ["NCBIGene:13489", "MGI:94924", "ENSEMBL:ENSMUSG00000032259"],
+        "provenance": "HCOP\tlatest\t2026-05-04\t2026-05-05",
+    })
+
+    assert row.id == 1
+    assert row.uniprot is None
+    assert row.name == "Drd2"
+    assert row.description == "dopamine receptor D2"
+    assert row.sym == "Drd2"
+    assert row.species == "Mus musculus"
+    assert row.taxid == 10090
+    assert row.geneid == 13489
+
+
+def test_phenotype_converter_emits_one_row_per_detail_per_linked_protein():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX1": 101,
+        "IFX2": 202,
+    }
+
+    rows = converter.phenotype_converter({
+        "start_id": "NCBIGene:13489",
+        "end_id": "MP:0005635",
+        "protein_links": [
+            {"protein_node_id": "IFX1", "support_sources": ["OMA", "EggNOG"]},
+            {"protein_node_id": "IFX2", "support_sources": ["Inparanoid", "OMA", "HGNC"]},
+        ],
+        "end_node": {"name": "decreased circulating bilirubin level"},
+        "details": [
+            {
+                "source": "IMPC",
+                "top_level_term_id": "MP:0005376",
+                "top_level_term_name": "homeostasis/metabolism phenotype",
+                "p_value": 3.97e-09,
+                "percentage_change": "-143.75",
+                "effect_size": "1.54",
+                "procedure_name": "Clinical Chemistry",
+                "parameter_name": "Total bilirubin",
+                "gp_assoc": True,
+                "statistical_method": "GLS",
+                "sex": "male",
+            },
+            {
+                "source": "IMPC",
+                "top_level_term_id": "MP:0005376",
+                "top_level_term_name": "homeostasis/metabolism phenotype",
+                "p_value": 1.0e-06,
+                "percentage_change": "-120",
+                "effect_size": "1.2",
+                "procedure_name": "Clinical Chemistry",
+                "parameter_name": "Total bilirubin",
+                "gp_assoc": True,
+                "statistical_method": "GLS",
+                "sex": "female",
+            },
+        ],
+        "provenance": "IMPC\tgenotype-phenotype-assertions-IMPC.csv.gz\t2026-03-16\t2026-05-05",
+    })
+
+    assert len(rows) == 4
+    assert {row.protein_id for row in rows} == {101, 202}
+    assert {row.sex for row in rows} == {"male", "female"}
+    assert {row.nhprotein_id for row in rows} == {1}
+    assert all(row.ptype == "IMPC" for row in rows)
+    assert all(row.term_id == "MP:0005635" for row in rows)
+    assert all(row.term_name == "decreased circulating bilirubin level" for row in rows)
+
+
+def test_phenotype_converter_keeps_nhprotein_only_when_no_human_links_present():
+    converter = TCRDOutputConverter()
+
+    rows = converter.phenotype_converter({
+        "start_id": "NCBIGene:13489",
+        "end_id": "MP:0005635",
+        "protein_links": [],
+        "end_node": {"name": "decreased circulating bilirubin level"},
+        "details": [{
+            "source": "IMPC",
+            "procedure_name": "Clinical Chemistry",
+            "parameter_name": "Total bilirubin",
+        }],
+        "provenance": "IMPC\tgenotype-phenotype-assertions-IMPC.csv.gz\t2026-03-16\t2026-05-05",
+    })
+
+    assert rows == []
+
+
+def test_phenotype_converter_skips_links_that_fail_legacy_2_of_3_support_rule():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX1": 101,
+        "IFX2": 202,
+    }
+
+    rows = converter.phenotype_converter({
+        "start_id": "NCBIGene:13489",
+        "end_id": "MP:0005635",
+        "protein_links": [
+            {"protein_node_id": "IFX1", "support_sources": ["OMA"]},
+            {"protein_node_id": "IFX2", "support_sources": ["HGNC", "Ensembl"]},
+        ],
+        "end_node": {"name": "decreased circulating bilirubin level"},
+        "details": [{
+            "source": "IMPC",
+            "procedure_name": "Clinical Chemistry",
+            "parameter_name": "Total bilirubin",
+        }],
+        "provenance": "IMPC\tgenotype-phenotype-assertions-IMPC.csv.gz\t2026-03-16\t2026-05-05",
+    })
+
+    assert rows == []
+
+
+def test_phenotype_converter_maps_mgi_to_legacy_jax_ptype_without_nhprotein():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {
+        "IFX1": 101,
+        "IFX2": 202,
+    }
+
+    rows = converter.phenotype_converter({
+        "start_id": "NCBIGene:13489",
+        "end_id": "MP:0005385",
+        "protein_links": [
+            {"protein_node_id": "IFX1", "support_sources": ["OMA"]},
+            {"protein_node_id": "IFX2", "support_sources": ["HGNC", "Ensembl"]},
+        ],
+        "end_node": {"name": "cardiovascular system phenotype"},
+        "details": [{
+            "source": "MGI",
+            "source_id": "MGI:2166359",
+        }],
+        "provenance": "MGI\tHMD_HumanPhenotype.rpt\t2026-05-04\t2026-05-06",
+    })
+
+    assert len(rows) == 2
+    assert {row.protein_id for row in rows} == {101, 202}
+    assert all(row.ptype == "JAX/MGI Human Ortholog Phenotype" for row in rows)
+    assert all(row.nhprotein_id is None for row in rows)
+    assert all(row.term_id == "MP:0005385" for row in rows)
+    assert all(row.term_name == "cardiovascular system phenotype" for row in rows)
+    assert all(row.p_value is None for row in rows)
+    assert all(row.procedure_name is None for row in rows)
+
+
+def test_protein_mouse_phenotype_converter_maps_mgi_to_legacy_jax_ptype():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX1": 101}
+
+    rows = converter.protein_mouse_phenotype_converter({
+        "start_id": "IFX1",
+        "end_id": "MP:0005385",
+        "end_node": {"name": "cardiovascular system phenotype"},
+        "details": [{
+            "source": "MGI",
+            "source_id": "MGI:2166359",
+        }],
+        "provenance": "MGI\tHMD_HumanPhenotype.rpt\t2026-05-04\t2026-05-06",
+    })
+
+    assert len(rows) == 1
+    assert rows[0].ptype == "JAX/MGI Human Ortholog Phenotype"
+    assert rows[0].protein_id == 101
+    assert rows[0].nhprotein_id is None
+    assert rows[0].term_id == "MP:0005385"
+    assert rows[0].term_name == "cardiovascular system phenotype"
+
+
+def test_ortholog_converter_emits_legacy_row_with_sorted_sources():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX1": 101}
+
+    row = converter.ortholog_converter({
+        "start_id": "IFX1",
+        "species": "10090",
+        "support_sources": ["EggNOG", "OMA", "Ensembl"],
+        "source_db_ids": ["MGI:94924"],
+        "ortholog_symbols": ["Drd2"],
+        "ortholog_names": ["dopamine receptor D2"],
+        "end_node": {
+            "entrez_gene_id": "13489",
+            "symbol": "Drd2",
+            "name": "dopamine receptor D2",
+        },
+        "provenance": "HCOP\tlatest\t2025-05-16\t2026-05-05",
+    })
+
+    assert row.protein_id == 101
+    assert row.taxid == 10090
+    assert row.species == "Mus musculus"
+    assert row.db_id == "MGI:94924"
+    assert row.geneid == 13489
+    assert row.symbol == "Drd2"
+    assert row.name == "dopamine receptor D2"
+    assert row.sources == "OMA, EggNOG"
+    assert row.mod_url == "http://www.informatics.jax.org/marker/MGI:94924"
+
+
+def test_ortholog_converter_skips_rows_failing_legacy_2_of_3_rule():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX1": 101}
+
+    row = converter.ortholog_converter({
+        "start_id": "IFX1",
+        "species": "10090",
+        "support_sources": ["OMA", "Ensembl"],
+        "source_db_ids": ["MGI:94924"],
+        "ortholog_symbols": ["Drd2"],
+        "ortholog_names": ["dopamine receptor D2"],
+        "end_node": {
+            "entrez_gene_id": "13489",
+            "symbol": "Drd2",
+            "name": "dopamine receptor D2",
+        },
+        "provenance": "HCOP\tlatest\t2025-05-16\t2026-05-05",
+    })
+
+    assert row is None
+
+
 def test_protein_converter_seeds_drgc_target_mapping_for_same_run():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

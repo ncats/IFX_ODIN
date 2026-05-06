@@ -1,7 +1,7 @@
 import hashlib
 from datetime import date, datetime
 from typing import Union, List, Optional
-from src.constants import Prefix
+from src.constants import Prefix, DataSourceName
 from src.models.drgc_resource import DRGCResource
 from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge, TINXImportanceEdge
 from src.models.dto_class import DTOClass, DTOClassParentEdge, ProteinDTOClassEdge
@@ -16,8 +16,11 @@ from src.models.pathway import ProteinPathwayEdge
 from src.models.ppi import PPIEdge
 from src.models.protein import Protein
 from src.models.gwas_trait import ProteinGwasTraitEdge, GwasTrait
+from src.models.mouse_phenotype import OrthologGeneMousePhenotypeEdge, ProteinMousePhenotypeEdge
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
+from src.models.ortholog import OrthologGene, ProteinOrthologGeneEdge
+from src.input_adapters.shared.hcop import HCOP_TAXID_TO_SPECIES
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DrgcResource as mysqlDrgcResource, Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
     GeneRif, GeneRif2Pubmed, Protein2Pubmed, Ligand as mysqlLigand, LigandActivity,
@@ -25,7 +28,8 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Mondo, MondoParent, MondoXref, Disease as mysqlDisease, DiseaseType, DO, DOParent,
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
     Tiga as mysqlTiga, TigaProvenance, TinxImportance,
-    DTO as mysqlDTO, DTOParent, P2DTO, Pmscore,
+    DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
+    Ortholog as mysqlOrtholog,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -64,6 +68,10 @@ class TCRDOutputConverter(SQLOutputConverter):
                                           self.gtex_converter],
             # Direct MySQL side-loads
             DRGCResource: [self.drgc_resource_converter],
+            OrthologGene: [self.nhprotein_converter],
+            ProteinOrthologGeneEdge: [self.ortholog_converter],
+            OrthologGeneMousePhenotypeEdge: [self.phenotype_converter],
+            ProteinMousePhenotypeEdge: [self.protein_mouse_phenotype_converter],
             MondoTerm: [self.mondo_table_converter, self.mondo_xref_converter],
             MondoTermParentEdge: [self.mondo_parent_table_converter],
             DOTerm: [self.do_table_converter],
@@ -250,6 +258,202 @@ class TCRDOutputConverter(SQLOutputConverter):
             json=obj["json"],
             provenance=obj["provenance"],
         )
+
+    # --- Ortholog / phenotype ---
+
+    @staticmethod
+    def _parse_optional_int(value) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_xref_value(obj: dict, prefix: str) -> Optional[str]:
+        for xref in obj.get("xref") or []:
+            if isinstance(xref, str) and xref.startswith(f"{prefix}:"):
+                return xref.split(":", 1)[1]
+        return None
+
+    @staticmethod
+    def _passes_legacy_ortholog_support_rule(support_sources: List[str] | None) -> bool:
+        if not support_sources:
+            return False
+        accepted = {"Inparanoid", "OMA", "EggNOG"}
+        return len(accepted.intersection(set(support_sources))) >= 2
+
+    @staticmethod
+    def _legacy_ortholog_sources_string(support_sources: List[str] | None) -> Optional[str]:
+        ordered = ["Inparanoid", "OMA", "EggNOG"]
+        support_set = set(support_sources or [])
+        selected = [source for source in ordered if source in support_set]
+        if len(selected) < 2:
+            return None
+        return ", ".join(selected)
+
+    @staticmethod
+    def _legacy_ortholog_mod_url(taxid: Optional[int], db_id: Optional[str], symbol: Optional[str]) -> Optional[str]:
+        if taxid == 10090:
+            return f"http://www.informatics.jax.org/marker/{db_id or '-'}"
+        if taxid == 10116:
+            rgd_id = (db_id or "").split(":", 1)[1] if db_id and ":" in db_id else "-"
+            return f"http://rgd.mcw.edu/rgdweb/report/gene/main.html?id={rgd_id or '-'}"
+        if taxid == 7955:
+            return f"http://zfin.org/{db_id or '-'}"
+        if taxid == 7227 and db_id:
+            return f"http://flybase.org/reports/{db_id}.html"
+        if taxid == 6239 and symbol:
+            return f"http://www.wormbase.org/search/gene/{symbol}"
+        if taxid == 4932 and db_id:
+            return f"https://www.yeastgenome.org/locus/{db_id}"
+        return None
+
+    def nhprotein_converter(self, obj: dict) -> mysqlNhProtein:
+        taxid = self._parse_optional_int(obj.get("species"))
+        symbol = obj.get("symbol")
+        description = obj.get("name")
+        fallback_name = symbol or description or obj["id"]
+        return mysqlNhProtein(
+            id=self.resolve_id("nhprotein", obj["id"]),
+            uniprot=self._extract_xref_value(obj, Prefix.UniProtKB.value),
+            name=fallback_name,
+            description=description,
+            sym=symbol,
+            species=HCOP_TAXID_TO_SPECIES.get(str(obj.get("species")), str(obj.get("species") or "")),
+            taxid=taxid if taxid is not None else -1,
+            geneid=self._parse_optional_int(obj.get("entrez_gene_id")),
+            provenance=obj.get("provenance"),
+        )
+
+    def ortholog_converter(self, obj: dict) -> mysqlOrtholog | None:
+        sources = self._legacy_ortholog_sources_string(obj.get("support_sources"))
+        if sources is None:
+            return None
+
+        taxid = self._parse_optional_int(obj.get("species"))
+        db_id = None
+        source_db_ids = obj.get("source_db_ids") or []
+        if source_db_ids:
+            db_id = source_db_ids[0]
+
+        symbol = None
+        ortholog_symbols = obj.get("ortholog_symbols") or []
+        if ortholog_symbols:
+            symbol = ortholog_symbols[0]
+        if not symbol:
+            symbol = (obj.get("end_node") or {}).get("symbol")
+
+        name = None
+        ortholog_names = obj.get("ortholog_names") or []
+        if ortholog_names:
+            name = ortholog_names[0]
+        if not name:
+            name = (obj.get("end_node") or {}).get("name")
+
+        species_name = HCOP_TAXID_TO_SPECIES.get(str(obj.get("species")), str(obj.get("species") or ""))
+
+        return mysqlOrtholog(
+            protein_id=self.resolve_id("protein", obj["start_id"]),
+            taxid=taxid if taxid is not None else -1,
+            species=species_name,
+            db_id=db_id,
+            geneid=self._parse_optional_int((obj.get("end_node") or {}).get("entrez_gene_id")),
+            symbol=symbol or "",
+            name=name or "",
+            mod_url=self._legacy_ortholog_mod_url(taxid, db_id, symbol),
+            sources=sources,
+            provenance=obj.get("provenance"),
+        )
+
+    def phenotype_converter(self, obj: dict) -> List[mysqlPhenotype]:
+        protein_links = obj.get("protein_links") or []
+        term_name = (obj.get("end_node") or {}).get("name")
+        rows: List[mysqlPhenotype] = []
+
+        for detail in obj.get("details") or []:
+            source = detail.get("source") or DataSourceName.IMPC.value
+            if source == DataSourceName.MGI.value:
+                ptype = "JAX/MGI Human Ortholog Phenotype"
+                eligible_protein_ids = [
+                    link.get("protein_node_id")
+                    for link in protein_links
+                    if link.get("protein_node_id")
+                ]
+                nhprotein_id = None
+            else:
+                ptype = DataSourceName.IMPC.value
+                eligible_protein_ids = [
+                    link.get("protein_node_id")
+                    for link in protein_links
+                    if self._passes_legacy_ortholog_support_rule(link.get("support_sources"))
+                ]
+                nhprotein_id = self.resolve_id("nhprotein", obj["start_id"])
+
+            if not eligible_protein_ids:
+                continue
+
+            for protein_ifx_id in set(eligible_protein_ids):
+                rows.append(
+                    mysqlPhenotype(
+                        ptype=ptype,
+                        protein_id=self.resolve_id("protein", protein_ifx_id),
+                        nhprotein_id=nhprotein_id,
+                        trait=detail.get("trait"),
+                        top_level_term_id=detail.get("top_level_term_id"),
+                        top_level_term_name=detail.get("top_level_term_name"),
+                        term_id=obj["end_id"],
+                        term_name=term_name,
+                        term_description=None,
+                        p_value=detail.get("p_value"),
+                        percentage_change=detail.get("percentage_change"),
+                        effect_size=detail.get("effect_size"),
+                        procedure_name=detail.get("procedure_name"),
+                        parameter_name=detail.get("parameter_name"),
+                        gp_assoc=detail.get("gp_assoc"),
+                        statistical_method=detail.get("statistical_method"),
+                        sex=detail.get("sex"),
+                        original_id=None,
+                        provenance=obj.get("provenance"),
+                    )
+                )
+
+        return rows
+
+    def protein_mouse_phenotype_converter(self, obj: dict) -> List[mysqlPhenotype]:
+        term_name = (obj.get("end_node") or {}).get("name")
+        rows: List[mysqlPhenotype] = []
+        protein_id = self.resolve_id("protein", obj["start_id"])
+
+        for detail in obj.get("details") or []:
+            source = detail.get("source") or DataSourceName.MGI.value
+            ptype = "JAX/MGI Human Ortholog Phenotype" if source == DataSourceName.MGI.value else source
+            rows.append(
+                mysqlPhenotype(
+                    ptype=ptype,
+                    protein_id=protein_id,
+                    nhprotein_id=None,
+                    trait=detail.get("trait"),
+                    top_level_term_id=detail.get("top_level_term_id"),
+                    top_level_term_name=detail.get("top_level_term_name"),
+                    term_id=obj["end_id"],
+                    term_name=term_name,
+                    term_description=None,
+                    p_value=detail.get("p_value"),
+                    percentage_change=detail.get("percentage_change"),
+                    effect_size=detail.get("effect_size"),
+                    procedure_name=detail.get("procedure_name"),
+                    parameter_name=detail.get("parameter_name"),
+                    gp_assoc=detail.get("gp_assoc"),
+                    statistical_method=detail.get("statistical_method"),
+                    sex=detail.get("sex"),
+                    original_id=None,
+                    provenance=obj.get("provenance"),
+                )
+            )
+
+        return rows
 
     # --- GeneRif ---
 
