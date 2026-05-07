@@ -39,6 +39,8 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     database_name: str
     truncate_tables: bool
     output_converter: SQLOutputConverter
+    conversion_chunk_size: int = 500
+    insert_batch_size: int = 100_000
 
     def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True):
         self.database_name = database_name
@@ -102,6 +104,11 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
             f"Foreign key insert failed for {table_class.__name__}, but row-by-row replay did not isolate a bad row"
         )
 
+    @staticmethod
+    def _chunked(items, chunk_size: int):
+        for index in range(0, len(items), chunk_size):
+            yield items[index:index + chunk_size]
+
     def store(self, objects, single_source=False) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
@@ -120,39 +127,54 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
 
                 for converter in converters:
                     start_time = datetime.now()
-                    converted_objects = []
-                    for obj in obj_list:
-                        result = converter(obj)
-                        if isinstance(result, list):
-                            converted_objects.extend(result)
-                        elif result is not None:
-                            converted_objects.append(result)
+                    table_class = None
+                    stmt = None
+                    inserted_count = 0
 
-                    if not converted_objects:
+                    for obj_chunk in self._chunked(obj_list, self.conversion_chunk_size):
+                        converted_objects = []
+                        for obj in obj_chunk:
+                            result = converter(obj)
+                            if isinstance(result, list):
+                                converted_objects.extend(result)
+                            elif result is not None:
+                                converted_objects.append(result)
+
+                        if not converted_objects:
+                            continue
+
+                        if table_class is None:
+                            table_class = converted_objects[0].__class__
+                            stmt = mysql_insert(table_class.__table__)
+                            if table_class is TinxImportance:
+                                stmt = stmt.on_duplicate_key_update(
+                                    score=func.greatest(table_class.score, stmt.inserted.score),
+                                    doid=case(
+                                        (stmt.inserted.score > table_class.score, stmt.inserted.doid),
+                                        else_=table_class.doid,
+                                    ),
+                                )
+                            print(f"Inserting objects of type {table_class.__name__}")
+
+                        rows = self._serialize_rows(converted_objects)
+                        inserted_count += len(rows)
+
+                        for row_chunk in self._chunked(rows, self.insert_batch_size):
+                            try:
+                                session.execute(stmt, row_chunk)
+                                session.commit()
+                            except Exception as e:
+                                session.rollback()
+                                if self._is_fk_integrity_error(e):
+                                    self._diagnose_fk_batch_failure(table_class, row_chunk)
+                                raise
+
+                    if table_class is None:
                         continue
 
-                    table_class = converted_objects[0].__class__
-                    print(f"Inserting {len(converted_objects)} objects of type {table_class.__name__}")
-                    rows = self._serialize_rows(converted_objects)
-                    stmt = mysql_insert(table_class.__table__)
-                    if table_class is TinxImportance:
-                        stmt = stmt.on_duplicate_key_update(
-                            score=func.greatest(table_class.score, stmt.inserted.score),
-                            doid=case(
-                                (stmt.inserted.score > table_class.score, stmt.inserted.doid),
-                                else_=table_class.doid,
-                            ),
-                        )
-                    try:
-                        session.execute(stmt, rows)
-                        session.commit()
-                    except Exception as e:
-                        session.rollback()
-                        if self._is_fk_integrity_error(e):
-                            self._diagnose_fk_batch_failure(table_class, rows)
-                        raise
+                    print(f"Inserted {inserted_count} objects of type {table_class.__name__}")
                     duration = (datetime.now() - start_time).total_seconds()
-                    print(f"Processed {len(converted_objects)} objects in {duration:.2f} seconds.")
+                    print(f"Processed {inserted_count} objects in {duration:.2f} seconds.")
 
             return True
 

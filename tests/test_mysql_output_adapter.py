@@ -89,6 +89,61 @@ def test_mysql_output_adapter_store_does_not_use_insert_ignore():
     assert rows == [{"identifier": "pathway-1", "value": "demo"}]
 
 
+def test_mysql_output_adapter_store_inserts_in_chunks():
+    credentials = DBCredentials(
+        url="localhost",
+        user="tester",
+        password="secret",
+        schema=None,
+    )
+    adapter = MySQLOutputAdapter(credentials=credentials, database_name="pharos400", truncate_tables=False)
+    adapter.conversion_chunk_size = 2
+    adapter.insert_batch_size = 3
+
+    class FakeConverter:
+        def get_object_converters(self, _obj_cls):
+            return lambda obj: [
+                AutoIncNode(identifier=f"{obj['id']}-a", value="demo"),
+                AutoIncNode(identifier=f"{obj['id']}-b", value="demo"),
+            ]
+
+    class FakeSession:
+        def __init__(self):
+            self.executed = []
+            self.commit_calls = 0
+
+        def execute(self, stmt, rows):
+            self.executed.append((stmt, rows))
+
+        def commit(self):
+            self.commit_calls += 1
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    fake_session = FakeSession()
+    adapter.output_converter = FakeConverter()
+    adapter.get_session = lambda: fake_session
+    adapter.sort_and_convert_objects = lambda _objects, keep_nested_objects=True: {
+        "AutoIncNode": (
+            [{"id": "one"}, {"id": "two"}, {"id": "three"}],
+            ["AutoIncNode"],
+            False,
+            None,
+            None,
+            object,
+        )
+    }
+
+    adapter.store(["unused"])
+
+    assert [len(rows) for _, rows in fake_session.executed] == [3, 1, 2]
+    assert fake_session.commit_calls == 3
+
+
 def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
     credentials = DBCredentials(
         url="localhost",
