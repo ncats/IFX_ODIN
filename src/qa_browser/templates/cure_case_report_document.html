@@ -1,0 +1,1817 @@
+{% extends "base.html" %}
+{% block title %}Case Report {{ doc_key }} - {{ coll_name }} - QA Browser{% endblock %}
+
+{% block head %}
+<style>
+    .case-shell {
+        display: grid;
+        gap: 1rem;
+    }
+    .case-hero {
+        padding: 1.25rem 1.35rem;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background:
+            radial-gradient(circle at top left, rgba(202, 114, 47, 0.14), transparent 32%),
+            linear-gradient(145deg, rgba(32, 78, 133, 0.08), rgba(32, 78, 133, 0.02));
+    }
+    .case-kicker {
+        margin: 0 0 0.4rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .case-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .case-title-row h1 {
+        margin: 0;
+    }
+    .case-id {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+    .case-link-row {
+        margin-top: 0.8rem;
+    }
+    .case-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.6rem 0.85rem;
+        border: 1px solid rgba(32, 78, 133, 0.18);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.76);
+        color: rgb(32, 78, 133);
+        font-weight: 600;
+        text-decoration: none;
+        box-shadow: 0 6px 18px rgba(20, 24, 28, 0.05);
+    }
+    .case-link:hover {
+        background: rgba(255, 255, 255, 0.92);
+        text-decoration: none;
+    }
+    .case-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+    .stacked-card {
+        display: grid;
+        gap: 1rem;
+    }
+    .subcard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+        align-items: start;
+    }
+    .episode-three-column-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+        align-items: start;
+    }
+    .episode-two-column-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        align-items: start;
+    }
+    @media (max-width: 1180px) {
+        .episode-three-column-grid {
+            grid-template-columns: 1fr;
+        }
+        .episode-two-column-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    .case-metric {
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--card-bg);
+    }
+    .case-metric-label {
+        display: block;
+        margin-bottom: 0.35rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .case-metric-value {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text);
+    }
+    .case-section-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+    }
+    .linked-summary-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+    .linked-summary-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.65rem 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.02);
+    }
+    .linked-summary-item .tag {
+        white-space: nowrap;
+    }
+    .empty-note {
+        color: var(--text-muted);
+    }
+    .subcard {
+        padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)),
+            radial-gradient(circle at top left, rgba(32, 78, 133, 0.09), transparent 34%);
+        box-shadow: 0 8px 24px rgba(20, 24, 28, 0.06);
+    }
+    .subcard-header {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        margin-bottom: 1rem;
+    }
+    .subcard-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(32, 78, 133, 0.16), rgba(32, 78, 133, 0.06));
+        color: rgb(32, 78, 133);
+        flex-shrink: 0;
+    }
+    .subcard-icon svg {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+    .subcard h3 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+    .nested-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 0.9rem;
+    }
+    .nested-card {
+        padding: 0.95rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.76);
+    }
+    .nested-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.9rem;
+    }
+    .nested-card-badges {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.4rem;
+        flex-shrink: 0;
+    }
+    .nested-card-title {
+        margin: 0;
+        font-size: 1rem;
+    }
+    .nested-card-subtitle {
+        margin: 0.2rem 0 0;
+        font-size: 0.84rem;
+        color: var(--text-muted);
+    }
+    .nested-card-blurb {
+        margin: 0 0 0.9rem;
+        font-size: 0.92rem;
+        line-height: 1.5;
+        color: var(--text);
+    }
+    .nested-card-blurb .tag {
+        margin-right: 0.35rem;
+    }
+    .nested-card-section-title {
+        margin: 1rem 0 0.55rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .mini-card {
+        margin-top: 1rem;
+        padding: 0.85rem 0.95rem;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(32, 78, 133, 0.04);
+    }
+    .mini-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin-bottom: 0.75rem;
+    }
+    .mini-card-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 12px;
+        background: rgba(32, 78, 133, 0.12);
+        color: rgb(32, 78, 133);
+        flex-shrink: 0;
+    }
+    .mini-card-icon svg {
+        width: 1.1rem;
+        height: 1.1rem;
+    }
+    .mini-card h5 {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+    .event-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+    .event-item {
+        padding: 0.7rem 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.78);
+    }
+    .event-name {
+        margin: 0 0 0.45rem;
+        font-size: 0.92rem;
+        font-weight: 600;
+        line-height: 1.4;
+        color: var(--text);
+    }
+    .event-outcomes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+    .event-outcomes .tag {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        vertical-align: top;
+    }
+    .truncate-tag {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        vertical-align: top;
+    }
+    .pill-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.65rem;
+    }
+    .pill-card {
+        padding: 0.7rem 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.82);
+    }
+    .pill-card-title {
+        margin: 0;
+        font-size: 0.92rem;
+        font-weight: 600;
+        line-height: 1.35;
+    }
+    .pill-card-flag {
+        margin-top: 0.35rem;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .pill-card-unmatched {
+        border-color: rgba(180, 35, 24, 0.28);
+        background: rgba(180, 35, 24, 0.07);
+    }
+    .pill-card-unmatched .pill-card-flag {
+        color: #b42318;
+    }
+    .pill-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.6rem;
+    }
+    .inner-subcard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 0.8rem;
+        margin-top: 1rem;
+    }
+    .inner-subcard {
+        padding: 0.85rem 0.95rem;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.82);
+    }
+    .inner-subcard h5 {
+        margin: 0 0 0.75rem;
+        font-size: 0.95rem;
+    }
+    .subcard-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+    .subcard-title-row h5 {
+        margin: 0;
+    }
+    .mini-doc-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.1rem;
+        height: 1.1rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        text-decoration: none;
+    }
+    .mini-doc-link:hover {
+        color: var(--accent);
+        text-decoration: none;
+    }
+    .mini-doc-link svg {
+        width: 0.95rem;
+        height: 0.95rem;
+    }
+    .outcome-card-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.9rem;
+    }
+    .outcome-card-grid .nested-card {
+        border-width: 3px;
+        border-color: rgba(32, 78, 133, 0.34);
+        box-shadow: 0 10px 26px rgba(20, 24, 28, 0.08);
+    }
+    @media (max-width: 980px) {
+        .outcome-card-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    .outcome-meter {
+        margin: 0.55rem 0 0.9rem;
+    }
+    .outcome-meter-track {
+        width: 100%;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: rgba(20, 24, 28, 0.08);
+        overflow: hidden;
+    }
+    .outcome-meter-fill {
+        height: 100%;
+        border-radius: 999px;
+    }
+    .outcome-meter-fill-positive {
+        background: linear-gradient(90deg, #7ccf8a, #1a7f37);
+    }
+    .outcome-meter-fill-negative {
+        background: linear-gradient(90deg, #f19a8f, #b42318);
+    }
+    .outcome-meter-fill-neutral {
+        background: linear-gradient(90deg, #b8c0cc, #6b7280);
+    }
+    .outcome-meter-fill-unknown {
+        background: linear-gradient(90deg, #d9d9d9, #a0a0a0);
+    }
+    .episode-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-bottom: 0.9rem;
+    }
+    .episode-tab {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 0.55rem 0.85rem;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .episode-tab.is-active {
+        border-color: rgba(32, 78, 133, 0.34);
+        background: rgba(32, 78, 133, 0.12);
+        color: rgb(32, 78, 133);
+    }
+    .episode-panel {
+        display: none;
+    }
+    .episode-panel.is-active {
+        display: grid;
+        gap: 1rem;
+    }
+    .episode-relationship-box {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.85rem 1rem;
+        border: 1px solid rgba(32, 78, 133, 0.24);
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(32, 78, 133, 0.06), rgba(32, 78, 133, 0.02));
+    }
+    .episode-relationship-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.2rem;
+        height: 2.2rem;
+        border-radius: 999px;
+        background: rgba(32, 78, 133, 0.12);
+        color: rgb(32, 78, 133);
+        flex-shrink: 0;
+    }
+    .episode-relationship-copy {
+        min-width: 0;
+    }
+    .episode-relationship-title {
+        margin: 0;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .episode-relationship-text {
+        margin: 0.18rem 0 0;
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+    .episode-tab-relation {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.1rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}">{{ coll_name }}</a>
+<span class="sep">/</span>
+<span>{{ doc_key }}</span>
+{% endblock %}
+
+{% block content %}
+{% if doc %}
+{% set scalar_map = dict(scalar_fields) %}
+<div class="case-shell">
+    <script>
+        function setEpisodeTab(tabName) {
+            document.querySelectorAll('.episode-tab').forEach((button) => {
+                button.classList.toggle('is-active', button.dataset.tab === tabName);
+            });
+            document.querySelectorAll('.episode-panel').forEach((panel) => {
+                panel.classList.toggle('is-active', panel.dataset.tab === tabName);
+            });
+        }
+    </script>
+    <section class="case-hero">
+        <p class="case-kicker">CURE Case Report</p>
+        <div class="case-title-row">
+            <h1>{{ doc.get("name", doc.get("id", doc_key)) }}</h1>
+            <span class="badge badge-doc">{{ coll_name }}</span>
+        </div>
+        <p class="case-id">{{ doc.get("id", doc_key) }}</p>
+        <div class="case-link-row">
+            <a class="case-link" href="https://cure.ncats.io/explore/long-covid/case-reports/case-details/{{ doc.get('id', doc_key) }}" target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 3h7v7"></path>
+                    <path d="M10 14 21 3"></path>
+                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                </svg>
+                <span>View On CURE ID</span>
+            </a>
+        </div>
+    </section>
+
+    <section class="card stacked-card">
+        <h2>Case Report</h2>
+        <div class="episode-two-column-grid">
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+                            <path d="M14 3v5h5"></path>
+                            <path d="M9 13h6"></path>
+                            <path d="M9 17h6"></path>
+                            <path d="M9 9h1"></path>
+                        </svg>
+                    </div>
+                    <h3>Details</h3>
+                </div>
+                <div class="field-list">
+                    <div class="field-row">
+                        <span class="field-key">report_type</span>
+                        <span class="field-val">{{ scalar_map.get("report_type") or "null" }}</span>
+                    </div>
+                    <div class="field-row">
+                        <span class="field-key">status</span>
+                        <span class="field-val">{{ scalar_map.get("status") or "null" }}</span>
+                    </div>
+                    <div class="field-row">
+                        <span class="field-key">outcome_computed</span>
+                        <span class="field-val">{{ scalar_map.get("outcome_computed") or "null" }}</span>
+                    </div>
+                    <div class="field-row">
+                        <span class="field-key">percentage_completed</span>
+                        <span class="field-val">{{ scalar_map.get("percentage_completed") if scalar_map.get("percentage_completed") is not none else "null" }}</span>
+                    </div>
+                    <div class="field-row">
+                        <span class="field-key">comment_count</span>
+                        <span class="field-val">{{ scalar_map.get("comment_count") if scalar_map.get("comment_count") is not none else "null" }}</span>
+                    </div>
+                    <div class="field-row">
+                        <span class="field-key">anonymous</span>
+                        <span class="field-val">{{ scalar_map.get("anonymous") if scalar_map.get("anonymous") is not none else "null" }}</span>
+                    </div>
+                    {% if scalar_map.get("research_prioritizing") %}
+                    <div class="field-row">
+                        <span class="field-key">research_prioritizing</span>
+                        <span class="field-val">{{ scalar_map.get("research_prioritizing") }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21a8 8 0 0 0-16 0"></path>
+                            <circle cx="12" cy="8" r="4"></circle>
+                        </svg>
+                    </div>
+                    <div class="subcard-title-row" style="margin-bottom:0">
+                        <h3>Patient</h3>
+                        {% if patient_doc %}
+                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Person/doc/{{ patient_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open patient in new tab" aria-label="Open patient in new tab">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M14 3h7v7"></path>
+                                <path d="M10 14 21 3"></path>
+                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                            </svg>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if patient_doc %}
+                <div class="field-list">
+                    {% for key, val in patient_scalar_fields %}
+                    {% if key != 'id' %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% for key, val in patient_list_fields %}
+                    {% if key != 'resolved_ids' %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val">
+                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if patient_nested_fields %}
+                {% for key, val in patient_nested_fields %}
+                <details style="margin-top:0.8rem">
+                    <summary>{{ key }}</summary>
+                    <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                </details>
+                {% endfor %}
+                {% endif %}
+                {% if background_context_doc %}
+                <div class="mini-card">
+                    <div class="mini-card-header">
+                        <div class="mini-card-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 12h16"></path>
+                                <path d="M12 4v16"></path>
+                                <circle cx="12" cy="12" r="9"></circle>
+                            </svg>
+                        </div>
+                        <h5>Background Context</h5>
+                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/BackgroundContext/doc/{{ background_context_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open background context in new tab" aria-label="Open background context in new tab">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M14 3h7v7"></path>
+                                <path d="M10 14 21 3"></path>
+                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                            </svg>
+                        </a>
+                    </div>
+                    {% if background_context_scalar_fields or background_context_list_fields %}
+                    <div class="field-list">
+                        {% for key, val in background_context_scalar_fields %}
+                        {% if key not in ['id', 'resolved_ids', '_id', '_key', '_rev'] and val is not none %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in background_context_list_fields %}
+                        {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if patient_prior_condition_cards %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
+                                    <path d="M12 9v6"></path>
+                                    <path d="M9 12h6"></path>
+                                </svg>
+                            </div>
+                            <h5>Prior Conditions</h5>
+                        </div>
+                        <div class="pill-card-grid">
+                            {% for condition in patient_prior_condition_cards %}
+                            <div class="pill-card">
+                                <div class="pill-card-header">
+                                    <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
+                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ condition.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open condition in new tab" aria-label="Open condition in new tab">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M14 3h7v7"></path>
+                                            <path d="M10 14 21 3"></path>
+                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if background_regular_medicine_cards %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                                    <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                                    <path d="M10 15h4"></path>
+                                </svg>
+                            </div>
+                            <h5>Regular Medicines</h5>
+                        </div>
+                        <div class="pill-card-grid">
+                            {% for exposure in background_regular_medicine_cards %}
+                            {% set drug_doc = exposure.drug_doc %}
+                            <div class="pill-card">
+                                <div class="pill-card-header">
+                                    <div>
+                                        <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
+                                        {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                        <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
+                                        {% endif %}
+                                    </div>
+                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M14 3h7v7"></path>
+                                            <path d="M10 14 21 3"></path>
+                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if background_immunosuppressant_cards %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                                    <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                                    <path d="M10 15h4"></path>
+                                </svg>
+                            </div>
+                            <h5>Immunosuppressants</h5>
+                        </div>
+                        <div class="pill-card-grid">
+                            {% for exposure in background_immunosuppressant_cards %}
+                            {% set drug_doc = exposure.drug_doc %}
+                            <div class="pill-card">
+                                <div class="pill-card-header">
+                                    <div>
+                                        <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
+                                        {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                        <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
+                                        {% endif %}
+                                    </div>
+                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M14 3h7v7"></path>
+                                            <path d="M10 14 21 3"></path>
+                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if background_context_nested_fields %}
+                    {% for key, val in background_context_nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% else %}
+                <p class="empty-note">No linked patient document found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="card stacked-card">
+        <h2>Episodes</h2>
+        {% set precedes_relationship = (episode_relationship_cards | selectattr('label', 'equalto', 'precedes') | list | first) %}
+        {% set overlaps_relationship = (episode_relationship_cards | selectattr('label', 'equalto', 'overlaps') | list | first) %}
+        <div class="episode-tabs">
+            {% if acute_episode_doc %}
+            <button type="button" class="episode-tab" data-tab="acute-covid" onclick="setEpisodeTab('acute-covid')">Acute COVID Episode</button>
+            {% if precedes_relationship %}
+            <span class="episode-tab-relation">precedes</span>
+            {% endif %}
+            {% endif %}
+            <button type="button" class="episode-tab is-active" data-tab="long-covid" onclick="setEpisodeTab('long-covid')">Long COVID Episode</button>
+            {% if pregnancy_episode_doc %}
+            {% if overlaps_relationship %}
+            <span class="episode-tab-relation">overlaps</span>
+            {% endif %}
+            <button type="button" class="episode-tab" data-tab="pregnancy" onclick="setEpisodeTab('pregnancy')">Pregnancy Episode</button>
+            {% endif %}
+        </div>
+        <div class="episode-panel is-active" data-tab="long-covid">
+        <div class="episode-two-column-grid">
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 21s-6-4.35-8.5-8.09C1.53 9.9 3.14 6 6.91 6c2.08 0 3.43 1.15 4.09 2.24C11.66 7.15 13.01 6 15.09 6 18.86 6 20.47 9.9 20.5 12.91 18 16.65 12 21 12 21z"></path>
+                        </svg>
+                    </div>
+                    <div class="subcard-title-row" style="margin-bottom:0">
+                        <h3>Details</h3>
+                        {% if primary_episode_doc %}
+                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ primary_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open episode in new tab" aria-label="Open episode in new tab">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M14 3h7v7"></path>
+                                <path d="M10 14 21 3"></path>
+                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                            </svg>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if primary_episode_doc %}
+                <div class="field-list">
+                {% for key, val in primary_episode_scalar_fields %}
+                {% if key not in ['id', 'resolved_ids'] %}
+                <div class="field-row">
+                    <span class="field-key">{% if key == 'role' %}episode_role{% else %}{{ key }}{% endif %}</span>
+                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                    </span>
+                </div>
+                {% endif %}
+                    {% endfor %}
+                    {% for key, val in primary_episode_list_fields %}
+                    {% if key != 'resolved_ids' %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val">
+                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if primary_episode_nested_fields %}
+                {% for key, val in primary_episode_nested_fields %}
+                <details style="margin-top:0.8rem">
+                    <summary>{{ key }}</summary>
+                    <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                </details>
+                {% endfor %}
+                {% endif %}
+                {% else %}
+                <p class="empty-note">No linked primary episode document found.</p>
+                {% endif %}
+            </div>
+            {% if primary_episode_post_covid_condition_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
+                            <path d="M12 9v6"></path>
+                            <path d="M9 12h6"></path>
+                        </svg>
+                    </div>
+                    <h3>Post-COVID Conditions</h3>
+                </div>
+                <div class="pill-card-grid">
+                    {% for condition in primary_episode_post_covid_condition_cards %}
+                    <div class="pill-card">
+                        <div class="pill-card-header">
+                            <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ condition.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open condition in new tab" aria-label="Open condition in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="episode-three-column-grid">
+            {% if primary_episode_phenotype_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 12h6"></path>
+                            <path d="M12 9v6"></path>
+                            <circle cx="12" cy="12" r="9"></circle>
+                        </svg>
+                    </div>
+                    <h3>Phenotypes</h3>
+                </div>
+                <div class="nested-card-grid">
+                    {% for phenotype in primary_episode_phenotype_cards %}
+                    <div class="nested-card">
+                    <div class="nested-card-header">
+                        <div>
+                            <h4 class="nested-card-title">{{ phenotype.phenotype_doc.short_name or phenotype.phenotype_doc.name or phenotype.phenotype_doc.id or phenotype.phenotype_doc._key }}</h4>
+                            {% if phenotype.phenotype_doc.short_name and phenotype.phenotype_doc.name and phenotype.phenotype_doc.short_name != phenotype.phenotype_doc.name %}
+                            <p class="nested-card-subtitle">{{ phenotype.phenotype_doc.name }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="nested-card-badges">
+                            <span class="badge badge-doc">Phenotype</span>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Phenotype/doc/{{ phenotype.phenotype_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open phenotype in new tab" aria-label="Open phenotype in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                        {% if phenotype.severity %}
+                        <p class="nested-card-blurb">
+                            <span class="tag">severity: {{ phenotype.severity }}</span>
+                        </p>
+                        {% endif %}
+                        <div class="field-list">
+                            {% for key, val in phenotype.scalar_fields %}
+                            {% if key not in ['id', 'resolved_ids', 'name', 'short_name'] %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                    {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% for key, val in phenotype.list_fields %}
+                            {% if key != 'resolved_ids' %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val">
+                                    {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% if phenotype.nested_fields %}
+                        {% for key, val in phenotype.nested_fields %}
+                        <details style="margin-top:0.8rem">
+                            <summary>{{ key }}</summary>
+                            <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                        </details>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if primary_episode_exposure_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                            <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                            <path d="M10 15h4"></path>
+                        </svg>
+                    </div>
+                    <h3>Exposures</h3>
+                </div>
+                <div class="nested-card-grid">
+                    {% for exposure in primary_episode_exposure_cards %}
+                    {% set drug_doc = exposure.drug_doc %}
+                    <div class="nested-card">
+                    <div class="nested-card-header">
+                        <div>
+                            <h4 class="nested-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</h4>
+                            {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                            <p class="nested-card-subtitle">Reported as {{ exposure.exposure_doc.long_drug_name }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="nested-card-badges">
+                            <span class="badge badge-doc">Exposure</span>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    {% if drug_doc %}
+                    <div class="nested-card-section-title">Drug</div>
+                    <p class="nested-card-blurb">
+                        {% if drug_doc.category %}
+                        <span class="tag">{{ drug_doc.category }}</span>
+                        {% endif %}
+                        {% if drug_doc.category %}
+                        {% endif %}
+                        {% if drug_doc.rxnorm_id %}
+                        <span class="tag">RxNorm {{ drug_doc.rxnorm_id }}</span>
+                        {% endif %}
+                        {% if drug_doc.url %}
+                        {% if '://' in drug_doc.url %}
+                        {% set drug_url_href = drug_doc.url %}
+                        {% else %}
+                        {% set drug_url_href = 'https://' ~ drug_doc.url.lstrip('/') %}
+                        {% endif %}
+                        <span class="tag"><a href="{{ drug_url_href }}" target="_blank" rel="noopener noreferrer">{{ drug_doc.url }}</a></span>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                    <div class="nested-card-section-title">Exposure</div>
+                    <p class="nested-card-blurb">
+                        {% if exposure.exposure_doc.dose_amount or exposure.exposure_doc.unit_of_measurement %}
+                        <span class="tag">{{ exposure.exposure_doc.dose_amount or '?' }}{% if exposure.exposure_doc.unit_of_measurement %} {{ exposure.exposure_doc.unit_of_measurement }}{% endif %}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.frequency %}
+                        <span class="tag">{{ exposure.exposure_doc.frequency }}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.route %}
+                        <span class="tag">{{ exposure.exposure_doc.route }}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.treatment_begin or exposure.exposure_doc.treatment_begin_month %}
+                        <span class="tag">start: {{ exposure.exposure_doc.treatment_begin or exposure.exposure_doc.treatment_begin_month }}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.treatment_end or exposure.exposure_doc.treatment_end_month %}
+                        <span class="tag">end: {{ exposure.exposure_doc.treatment_end or exposure.exposure_doc.treatment_end_month }}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.treatment_on_going %}
+                        <span class="tag">ongoing: {{ exposure.exposure_doc.treatment_on_going }}</span>
+                        {% endif %}
+                        {% if exposure.exposure_doc.duration_amount or exposure.exposure_doc.unit_of_measurement_duration %}
+                        <span class="tag">duration: {{ exposure.exposure_doc.duration_amount or '?' }}{% if exposure.exposure_doc.unit_of_measurement_duration %} {{ exposure.exposure_doc.unit_of_measurement_duration }}{% endif %}</span>
+                        {% endif %}
+                    </p>
+                    <div class="field-list">
+                        {% for key, val in exposure.scalar_fields %}
+                        {% if key not in ['id', 'resolved_ids', 'long_drug_name', 'name', 'created', 'updated', 'source_regimen_id', 'dose_amount', 'unit_of_measurement', 'frequency', 'route', 'treatment_begin', 'treatment_begin_month', 'treatment_end', 'treatment_end_month', 'treatment_on_going', 'duration_amount', 'unit_of_measurement_duration', 'have_adverse_events', 'is_initial_regimen'] %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in exposure.list_fields %}
+                        {% if key not in ['resolved_ids', 'adverse_events', 'adverse_event_outcomes'] %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% if exposure.adverse_events %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 9v4"></path>
+                                    <path d="M12 17h.01"></path>
+                                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                </svg>
+                            </div>
+                            <h5>Adverse Events</h5>
+                        </div>
+                        <div class="event-stack">
+                            {% for adverse_event in exposure.adverse_events %}
+                            <div class="event-item">
+                                <p class="event-name">{{ adverse_event.name }}</p>
+                                <div class="event-outcomes">
+                                    {% if adverse_event.outcomes %}
+                                    {% for outcome in adverse_event.outcomes %}<span class="tag" title="{{ outcome }}">{{ outcome }}</span>{% endfor %}
+                                    {% else %}
+                                    <span class="null">none recorded</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if exposure.nested_fields %}
+                    {% for key, val in exposure.nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if primary_episode_therapy_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M7 12h10"></path>
+                            <path d="M12 7v10"></path>
+                            <path d="M5 5l14 14"></path>
+                        </svg>
+                    </div>
+                    <h3>Therapies</h3>
+                </div>
+                <div class="nested-card-grid">
+                    {% for therapy in primary_episode_therapy_cards %}
+                    <div class="nested-card">
+                        <div class="nested-card-header">
+                            <div>
+                                <h4 class="nested-card-title">{{ therapy.therapy_doc.name or therapy.therapy_doc.id or therapy.therapy_doc._key }}</h4>
+                            </div>
+                            <div class="nested-card-badges">
+                                <span class="badge badge-doc">Therapy</span>
+                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Therapy/doc/{{ therapy.therapy_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open therapy in new tab" aria-label="Open therapy in new tab">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 3h7v7"></path>
+                                        <path d="M10 14 21 3"></path>
+                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                        <div class="field-list">
+                            {% for key, val in therapy.scalar_fields %}
+                            {% if key not in ['id', 'resolved_ids', 'name', 'slug'] %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                    {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% for key, val in therapy.list_fields %}
+                            {% if key != 'resolved_ids' %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val">
+                                    {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% if therapy.nested_fields %}
+                        {% for key, val in therapy.nested_fields %}
+                        <details style="margin-top:0.8rem">
+                            <summary>{{ key }}</summary>
+                            <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                        </details>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% if primary_episode_outcome_cards %}
+        <div class="subcard">
+            <div class="subcard-header">
+                <div class="subcard-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M7 12h10"></path>
+                        <path d="M12 7v10"></path>
+                        <circle cx="12" cy="12" r="9"></circle>
+                    </svg>
+                </div>
+                <h3>Outcomes</h3>
+            </div>
+            <div class="outcome-card-grid">
+                {% for outcome in primary_episode_outcome_cards %}
+                <div class="nested-card">
+                    <div class="nested-card-header">
+                        <div>
+                            <h4 class="nested-card-title">{{ outcome.outcome_doc.effect or "No effect recorded" }}</h4>
+                            {% if outcome.outcome_doc.effect and outcome.outcome_doc.has_unmatched_phenotype and outcome.outcome_doc.raw_symptom_name %}
+                            <p class="nested-card-subtitle">{{ outcome.outcome_doc.raw_symptom_name }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="nested-card-badges">
+                            <span class="badge badge-doc">Outcome</span>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Outcome/doc/{{ outcome.outcome_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open outcome in new tab" aria-label="Open outcome in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="outcome-meter">
+                        <div class="outcome-meter-track">
+                            <div class="outcome-meter-fill outcome-meter-fill-{{ outcome.effect_tone }}" style="width: {{ outcome.effect_pct }}%"></div>
+                        </div>
+                    </div>
+                    <div class="field-list">
+                        {% for key, val in outcome.scalar_fields %}
+                        {% if key not in ['id', 'resolved_ids', 'effect', 'raw_symptom_name', 'has_unmatched_phenotype'] %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in outcome.list_fields %}
+                        {% if key != 'resolved_ids' %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    <div class="inner-subcard-grid">
+                        <div class="inner-subcard">
+                            <div class="subcard-title-row">
+                                <h5>Phenotype</h5>
+                                {% if outcome.phenotype_doc %}
+                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Phenotype/doc/{{ outcome.phenotype_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open phenotype in new tab" aria-label="Open phenotype in new tab">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 3h7v7"></path>
+                                        <path d="M10 14 21 3"></path>
+                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                    </svg>
+                                </a>
+                                {% endif %}
+                            </div>
+                            {% if outcome.phenotype_doc %}
+                            <div class="nested-card-header" style="margin-bottom:0.75rem">
+                                <div>
+                                    <h4 class="nested-card-title">{{ outcome.phenotype_doc.short_name or outcome.phenotype_doc.name or outcome.phenotype_doc.id or outcome.phenotype_doc._key }}</h4>
+                                    {% if outcome.phenotype_doc.short_name and outcome.phenotype_doc.name and outcome.phenotype_doc.short_name != outcome.phenotype_doc.name %}
+                                    <p class="nested-card-subtitle">{{ outcome.phenotype_doc.name }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if outcome.phenotype_severity %}
+                            <p class="nested-card-blurb">
+                                <span class="tag">severity: {{ outcome.phenotype_severity }}</span>
+                            </p>
+                            {% endif %}
+                            <div class="field-list">
+                                {% for key, val in outcome.phenotype_scalar_fields %}
+                                {% if key not in ['id', 'resolved_ids', 'name', 'short_name'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in outcome.phenotype_list_fields %}
+                                {% if key != 'resolved_ids' %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val">
+                                        {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="pill-card pill-card-unmatched">
+                                <p class="pill-card-title">{{ outcome.outcome_doc.raw_symptom_name or "No symptom text recorded" }}</p>
+                                <div class="pill-card-flag">Could not map to phenotype</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="inner-subcard">
+                            <div class="subcard-title-row">
+                                <h5>Treatment</h5>
+                                {% if outcome.treatment_doc %}
+                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Treatment/doc/{{ outcome.treatment_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open treatment in new tab" aria-label="Open treatment in new tab">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 3h7v7"></path>
+                                        <path d="M10 14 21 3"></path>
+                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                    </svg>
+                                </a>
+                                {% endif %}
+                            </div>
+                            {% if outcome.treatment_doc %}
+                            {% if outcome.mapped_exposures %}
+                            <div class="pill-card-grid">
+                                {% for exposure in outcome.mapped_exposures %}
+                                <div class="pill-card">
+                                    <div class="pill-card-header">
+                                        <div>
+                                            <p class="pill-card-title">{{ exposure.drug_doc.name if exposure.drug_doc and exposure.drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.drug_name }}</p>
+                                            {% if exposure.exposure_doc.long_drug_name and (not exposure.drug_doc or exposure.drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                            <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% if outcome.treatment_doc.unmatched_drug_names %}
+                            <div class="pill-card-grid" style="margin-top:0.7rem">
+                                {% for drug_name in outcome.treatment_doc.unmatched_drug_names %}
+                                <div class="pill-card pill-card-unmatched">
+                                    <p class="pill-card-title">{{ drug_name }}</p>
+                                    <div class="pill-card-flag">Could not map to exposure</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% else %}
+                            <p class="empty-note">No linked treatment found.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if outcome.nested_fields %}
+                    {% for key, val in outcome.nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        </div>
+        {% if acute_episode_doc %}
+        <div class="episode-panel" data-tab="acute-covid">
+            <div class="subcard-grid">
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 21s-6-4.35-8.5-8.09C1.53 9.9 3.14 6 6.91 6c2.08 0 3.43 1.15 4.09 2.24C11.66 7.15 13.01 6 15.09 6 18.86 6 20.47 9.9 20.5 12.91 18 16.65 12 21 12 21z"></path>
+                            </svg>
+                        </div>
+                        <div class="subcard-title-row" style="margin-bottom:0">
+                            <h3>Details</h3>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ acute_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open acute episode in new tab" aria-label="Open acute episode in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="field-list">
+                        {% for key, val in acute_episode_scalar_fields %}
+                        {% if key not in ['id', 'resolved_ids'] %}
+                        <div class="field-row">
+                            <span class="field-key">{% if key == 'role' %}episode_role{% else %}{{ key }}{% endif %}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in acute_episode_list_fields %}
+                        {% if key != 'resolved_ids' %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag {% if key == 'diagnosis_methods' %}truncate-tag{% endif %}" {% if key == 'diagnosis_methods' %}title="{{ item }}"{% endif %}>{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% if acute_episode_nested_fields %}
+                    {% for key, val in acute_episode_nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                {% if acute_episode_vaccination_card %}
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 3v6"></path>
+                                <path d="M15 3v6"></path>
+                                <path d="M12 9v12"></path>
+                                <path d="M8 21h8"></path>
+                                <path d="M7 9h10"></path>
+                            </svg>
+                        </div>
+                        <div class="subcard-title-row" style="margin-bottom:0">
+                            <h3>Vaccination History</h3>
+                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/VaccinationEvent/doc/{{ acute_episode_vaccination_card.vaccination_event_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open vaccination event in new tab" aria-label="Open vaccination event in new tab">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M14 3h7v7"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    <p class="nested-card-blurb">
+                        {% if acute_episode_vaccination_card.event_edge.relative_time_value or acute_episode_vaccination_card.event_edge.relative_time_unit %}
+                        <span class="tag">before acute symptoms: {{ acute_episode_vaccination_card.event_edge.relative_time_value or '?' }}{% if acute_episode_vaccination_card.event_edge.relative_time_unit %} {{ acute_episode_vaccination_card.event_edge.relative_time_unit }}{% endif %}</span>
+                        {% endif %}
+                    </p>
+                    <div class="field-list">
+                        {% for key, val in acute_episode_vaccination_card.scalar_fields %}
+                        {% if key not in ['id', 'resolved_ids'] %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in acute_episode_vaccination_card.list_fields %}
+                        {% if key != 'resolved_ids' %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% if acute_episode_vaccination_card.vaccines %}
+                    <div class="nested-card-section-title">Vaccines</div>
+                    <div class="pill-card-grid">
+                        {% for vaccine in acute_episode_vaccination_card.vaccines %}
+                        <div class="pill-card">
+                            <div class="pill-card-header">
+                                <p class="pill-card-title">{{ vaccine.name or vaccine.id or vaccine._key }}</p>
+                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Vaccine/doc/{{ vaccine._key }}" target="_blank" rel="noopener noreferrer" title="Open vaccine in new tab" aria-label="Open vaccine in new tab">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 3h7v7"></path>
+                                        <path d="M10 14 21 3"></path>
+                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if acute_episode_vaccination_card.nested_fields %}
+                    {% for key, val in acute_episode_vaccination_card.nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% if acute_episode_complication_cards or acute_episode_exposure_cards %}
+            <div class="subcard-grid">
+                {% if acute_episode_complication_cards %}
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
+                                <path d="M12 9v6"></path>
+                                <path d="M9 12h6"></path>
+                            </svg>
+                        </div>
+                        <h3>Complications</h3>
+                    </div>
+                    <div class="nested-card-grid">
+                        {% for complication in acute_episode_complication_cards %}
+                        <div class="nested-card">
+                            <div class="nested-card-header">
+                                <div>
+                                    <h4 class="nested-card-title">{{ complication.condition_doc.name or complication.condition_doc.id or complication.condition_doc._key }}</h4>
+                                    {% if complication.condition_doc.slug and complication.condition_doc.slug != complication.condition_doc.name %}
+                                    <p class="nested-card-subtitle">{{ complication.condition_doc.slug }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="nested-card-badges">
+                                    <span class="badge badge-doc">Condition</span>
+                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ complication.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open complication condition in new tab" aria-label="Open complication condition in new tab">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M14 3h7v7"></path>
+                                            <path d="M10 14 21 3"></path>
+                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="field-list">
+                                {% for key, val in complication.scalar_fields %}
+                                {% if key not in ['id', 'resolved_ids', 'name', 'slug'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in complication.list_fields %}
+                                {% if key != 'resolved_ids' %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val">
+                                        {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if acute_episode_exposure_cards %}
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                                <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                                <path d="M10 15h4"></path>
+                            </svg>
+                        </div>
+                        <h3>Exposures</h3>
+                    </div>
+                    <div class="nested-card-grid">
+                        {% for exposure in acute_episode_exposure_cards %}
+                        {% set drug_doc = exposure.drug_doc %}
+                        <div class="nested-card">
+                            <div class="nested-card-header">
+                                <div>
+                                    <h4 class="nested-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</h4>
+                                    {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                    <p class="nested-card-subtitle">Reported as {{ exposure.exposure_doc.long_drug_name }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="nested-card-badges">
+                                    <span class="badge badge-doc">Exposure</span>
+                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M14 3h7v7"></path>
+                                            <path d="M10 14 21 3"></path>
+                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                        </svg>
+                                    </a>
+                                </div>
+                            </div>
+                            {% if drug_doc %}
+                            <div class="nested-card-section-title">Drug</div>
+                            <p class="nested-card-blurb">
+                                {% if drug_doc.category %}
+                                <span class="tag">{{ drug_doc.category }}</span>
+                                {% endif %}
+                                {% if drug_doc.rxnorm_id %}
+                                <span class="tag">RxNorm {{ drug_doc.rxnorm_id }}</span>
+                                {% endif %}
+                                {% if drug_doc.url %}
+                                {% if '://' in drug_doc.url %}
+                                {% set drug_url_href = drug_doc.url %}
+                                {% else %}
+                                {% set drug_url_href = 'https://' ~ drug_doc.url.lstrip('/') %}
+                                {% endif %}
+                                <span class="tag"><a href="{{ drug_url_href }}" target="_blank" rel="noopener noreferrer">{{ drug_doc.url }}</a></span>
+                                {% endif %}
+                            </p>
+                            {% endif %}
+                            <div class="field-list">
+                                {% for key, val in exposure.scalar_fields %}
+                                {% if key not in ['id', 'resolved_ids', 'long_drug_name', 'name', 'created', 'updated', 'source_regimen_id', 'have_adverse_events', 'is_initial_regimen'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in exposure.list_fields %}
+                                {% if key not in ['resolved_ids', 'adverse_events', 'adverse_event_outcomes'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val">
+                                        {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if pregnancy_episode_doc %}
+        <div class="episode-panel" data-tab="pregnancy">
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 21c4.418 0 8-3.134 8-7 0-3.18-2.422-5.864-5.75-6.705A5 5 0 1 0 5 9.5c0 2.174 1.39 4.116 3.45 4.74"></path>
+                            <path d="M9 17c1.2-1.2 4.8-1.2 6 0"></path>
+                        </svg>
+                    </div>
+                    <div class="subcard-title-row" style="margin-bottom:0">
+                        <h3>Details</h3>
+                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ pregnancy_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open pregnancy episode in new tab" aria-label="Open pregnancy episode in new tab">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M14 3h7v7"></path>
+                                <path d="M10 14 21 3"></path>
+                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <p class="nested-card-blurb">
+                    {% if pregnancy_episode_doc.pregnancy_outcome %}
+                    <span class="tag">{{ pregnancy_episode_doc.pregnancy_outcome }}</span>
+                    {% endif %}
+                    {% if pregnancy_episode_doc.treatment_gestational_age %}
+                    <span class="tag">treatment at {{ pregnancy_episode_doc.treatment_gestational_age }}</span>
+                    {% endif %}
+                    {% if pregnancy_episode_doc.pregnancy_medications %}
+                    <span class="tag">pregnancy meds: {{ pregnancy_episode_doc.pregnancy_medications }}</span>
+                    {% endif %}
+                </p>
+                <div class="field-list">
+                    {% for key, val in pregnancy_episode_scalar_fields %}
+                    {% if key not in ['id', 'resolved_ids', 'pregnancy_outcome', 'treatment_gestational_age', 'pregnancy_medications'] %}
+                    <div class="field-row">
+                        <span class="field-key">{% if key == 'role' %}episode_role{% elif key == 'pregnancy_limited_access_to_treatment' %}limited_access_to_treatment{% elif key == 'pregnancy_impacted_ability_to_care_for_newborn' %}impacted_care_for_newborn{% else %}{{ key }}{% endif %}</span>
+                        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                {% for key, val in pregnancy_episode_list_fields %}
+                    {% if key not in ['resolved_ids', 'pregnancy_medication_names'] %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val">
+                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if pregnancy_episode_doc.pregnancy_medications == 'Yes' and not pregnancy_episode_exposure_cards %}
+                <div class="mini-card" style="border-color: rgba(180, 35, 24, 0.28); background: rgba(180, 35, 24, 0.07);">
+                    <div class="mini-card-header">
+                        <div class="mini-card-icon" aria-hidden="true" style="background: rgba(180, 35, 24, 0.12); color: #b42318;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 9v4"></path>
+                                <path d="M12 17h.01"></path>
+                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            </svg>
+                        </div>
+                        <h5>Pregnancy Medication Details Missing</h5>
+                    </div>
+                    <p class="empty-note" style="color:#b42318;">The case says medication(s) were taken during pregnancy, but no medication details were captured.</p>
+                </div>
+                {% endif %}
+                {% if pregnancy_episode_nested_fields %}
+                {% for key, val in pregnancy_episode_nested_fields %}
+                <details style="margin-top:0.8rem">
+                    <summary>{{ key }}</summary>
+                    <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                </details>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% if pregnancy_episode_exposure_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                            <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                            <path d="M10 15h4"></path>
+                        </svg>
+                    </div>
+                    <h3>Exposures</h3>
+                </div>
+                <div class="nested-card-grid">
+                    {% for exposure in pregnancy_episode_exposure_cards %}
+                    {% set drug_doc = exposure.drug_doc %}
+                    <div class="nested-card">
+                        <div class="nested-card-header">
+                            <div>
+                                <h4 class="nested-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</h4>
+                                {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                <p class="nested-card-subtitle">Reported as {{ exposure.exposure_doc.long_drug_name }}</p>
+                                {% endif %}
+                            </div>
+                            <div class="nested-card-badges">
+                                <span class="badge badge-doc">Exposure</span>
+                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 3h7v7"></path>
+                                        <path d="M10 14 21 3"></path>
+                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                        {% if drug_doc %}
+                        <div class="nested-card-section-title">Drug</div>
+                        <p class="nested-card-blurb">
+                            {% if drug_doc.category %}
+                            <span class="tag">{{ drug_doc.category }}</span>
+                            {% endif %}
+                            {% if drug_doc.rxnorm_id %}
+                            <span class="tag">RxNorm {{ drug_doc.rxnorm_id }}</span>
+                            {% endif %}
+                            {% if drug_doc.url %}
+                            {% if '://' in drug_doc.url %}
+                            {% set drug_url_href = drug_doc.url %}
+                            {% else %}
+                            {% set drug_url_href = 'https://' ~ drug_doc.url.lstrip('/') %}
+                            {% endif %}
+                            <span class="tag"><a href="{{ drug_url_href }}" target="_blank" rel="noopener noreferrer">{{ drug_doc.url }}</a></span>
+                            {% endif %}
+                        </p>
+                        {% endif %}
+                        <div class="field-list">
+                            {% for key, val in exposure.scalar_fields %}
+                            {% if key not in ['id', 'resolved_ids', 'long_drug_name', 'name', 'created', 'updated', 'source_regimen_id', 'have_adverse_events', 'is_initial_regimen'] %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                    {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% for key, val in exposure.list_fields %}
+                            {% if key not in ['resolved_ids', 'adverse_events', 'adverse_event_outcomes'] %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val">
+                                    {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </section>
+
+{% else %}
+<div class="empty-state">
+    <h1>Document not found</h1>
+    <p>No document with key <code>{{ doc_key }}</code> was found in <code>{{ coll_name }}</code>.</p>
+</div>
+{% endif %}
+{% endblock %}
