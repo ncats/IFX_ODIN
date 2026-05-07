@@ -1,0 +1,80 @@
+destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+
+input_adapters:
+  - import: ./src/input_adapters/cure/cure_adapter.py
+    class: CUREAdapter
+    kwargs:
+      file_path: ./input_files/manual/cure/reports.jsonl
+      form_type: pasc
+
+graph_views:
+  - id: cure_treatments_with_unmatched_drug_names
+    label: Treatments With Unmatched Drug Names
+    description: Treatments whose raw assessed drug names could not be matched back to regimen-backed exposures
+    type: export
+    output_format: csv
+    query_language: aql
+    columns:
+      - case_report_id
+      - treatment_id
+      - unmatched_drug_name
+      - mapped_exposure_count
+      - mapped_exposure_drug_names
+    query: |
+      FOR treatment IN `Treatment`
+        FILTER LENGTH(treatment.unmatched_drug_names || []) > 0
+        LET treatment_id_parts = SPLIT(treatment.id, ":treatment:")
+        LET case_report_id = treatment_id_parts[0]
+        LET mapped_exposure_drug_names = UNIQUE(
+          FOR exposure IN INBOUND treatment `TreatmentExposureEdge`
+            LET drug = FIRST(
+              FOR d IN OUTBOUND exposure `ExposureDrugEdge`
+                LIMIT 1
+                RETURN d
+            )
+            RETURN drug.name || exposure.long_drug_name || exposure.id
+        )
+        LET mapped_exposure_count = LENGTH(mapped_exposure_drug_names)
+        FOR unmatched_drug_name IN (treatment.unmatched_drug_names || [])
+          RETURN {
+            case_report_id: case_report_id,
+            treatment_id: treatment.id,
+            unmatched_drug_name: unmatched_drug_name,
+            mapped_exposure_count: mapped_exposure_count,
+            mapped_exposure_drug_names: mapped_exposure_drug_names
+          }
+
+  - id: cure_outcomes_with_unmatched_phenotypes
+    label: Outcomes With Unmatched Phenotypes
+    description: Outcome rows whose symptom text could not be matched to any phenotype listed for the case report
+    type: export
+    output_format: csv
+    query_language: aql
+    columns:
+      - case_report_id
+      - raw_symptom_name
+      - outcome
+      - treatment_drug_names
+    query: |
+      FOR outcome IN `Outcome`
+        FILTER outcome.has_unmatched_phenotype == true
+        LET outcome_id_parts = SPLIT(outcome.id, ":outcome:")
+        LET case_report_id = outcome_id_parts[0]
+        LET treatment = FIRST(
+          FOR t IN INBOUND outcome `TreatmentOutcomeEdge`
+            LIMIT 1
+            RETURN t
+        )
+        RETURN {
+          case_report_id: case_report_id,
+          raw_symptom_name: outcome.raw_symptom_name,
+          outcome: outcome.effect,
+          treatment_drug_names: treatment.drug_names
+        }
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: cure
+    credentials: *source_credentials

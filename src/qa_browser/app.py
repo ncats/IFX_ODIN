@@ -1218,28 +1218,7 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                 sources.append({"name": str(src), "version": "", "version_date": "", "download_date": ""})
 
     # Categorize fields for display
-    skip_keys = {"_key", "_id", "_rev", "_from", "_to", "sources", "provenance", "xref", "labels", "creation"}
-    scalar_fields = []
-    list_fields = []
-    nested_fields = []
-
-    if doc:
-        for key, val in doc.items():
-            if key in skip_keys or key.startswith("_"):
-                continue
-            if val is None or isinstance(val, (str, int, float, bool)):
-                scalar_fields.append((key, val))
-            elif isinstance(val, dict):
-                nested_fields.append((key, val))
-            elif isinstance(val, list):
-                if val and isinstance(val[0], dict):
-                    nested_fields.append((key, val))
-                elif val:
-                    list_fields.append((key, val))
-                else:
-                    scalar_fields.append((key, val))
-            else:
-                scalar_fields.append((key, val))
+    scalar_fields, list_fields, nested_fields = _categorize_document_fields(doc)
 
     # Find connected nodes via graph traversal (vertex nodes only)
     outgoing_linked_groups = []
@@ -1335,7 +1314,9 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         except Exception:
             pass
 
-    return templates.TemplateResponse(request, "document.html", {
+    template_name = _get_document_template(db_name, coll_name)
+
+    context = {
         "request": request,
         "db_name": db_name,
         "coll_name": coll_name,
@@ -1350,7 +1331,10 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "incoming_linked_groups": incoming_linked_groups,
         "linked_aql": linked_aql,
         "this_node_label": f"This {coll_name}",
-    })
+    }
+    if template_name == "cure_case_report_document.html":
+        context.update(_build_cure_case_report_context(db, doc))
+    return templates.TemplateResponse(request, template_name, context)
 
 
 @app.get("/db/{db_name}/schema", response_class=HTMLResponse)
@@ -1813,7 +1797,780 @@ def _normalize_csv_value(value):
     return value
 
 
+def _categorize_document_fields(doc: dict | None):
+    skip_keys = {"_key", "_id", "_rev", "_from", "_to", "sources", "provenance", "xref", "labels", "creation"}
+    scalar_fields = []
+    list_fields = []
+    nested_fields = []
+
+    if doc:
+        for key, val in doc.items():
+            if key in skip_keys or key.startswith("_"):
+                continue
+            if val is None or isinstance(val, (str, int, float, bool)):
+                scalar_fields.append((key, val))
+            elif isinstance(val, dict):
+                nested_fields.append((key, val))
+            elif isinstance(val, list):
+                if val and isinstance(val[0], dict):
+                    nested_fields.append((key, val))
+                elif val:
+                    list_fields.append((key, val))
+                else:
+                    scalar_fields.append((key, val))
+            else:
+                scalar_fields.append((key, val))
+
+    return scalar_fields, list_fields, nested_fields
+
+
+def _build_cure_case_report_context(db, doc: dict | None) -> dict:
+    if not doc or not db.has_graph("graph"):
+        return {}
+
+    try:
+        cursor = db.aql.execute(
+            """
+            FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(v._id, '/')[0] == 'Person'
+            FILTER SPLIT(e._id, '/')[0] == 'CaseReportPersonEdge'
+            LIMIT 1
+            RETURN v
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        patient_doc = next(iter(cursor), None)
+    except Exception:
+        patient_doc = None
+
+    try:
+        primary_episode_cursor = db.aql.execute(
+            """
+            FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(patient._id, '/')[0] == 'Person'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
+            FILTER SPLIT(episode._id, '/')[0] == 'Episode'
+            FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
+            FILTER episode.role == 'primary'
+            LIMIT 1
+            RETURN episode
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        primary_episode_doc = next(iter(primary_episode_cursor), None)
+    except Exception:
+        primary_episode_doc = None
+
+    try:
+        acute_episode_cursor = db.aql.execute(
+            """
+            FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(patient._id, '/')[0] == 'Person'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
+            FILTER SPLIT(episode._id, '/')[0] == 'Episode'
+            FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
+            FILTER episode.role == 'contextual'
+            FILTER LENGTH(
+                FOR condition, condition_edge IN 1..1 OUTBOUND episode._id GRAPH 'graph'
+                  FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                  FILTER SPLIT(condition_edge._id, '/')[0] == 'EpisodeConditionEdge'
+                  FILTER condition.slug == 'acute-covid-19'
+                  LIMIT 1
+                  RETURN 1
+            ) > 0
+            LIMIT 1
+            RETURN episode
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        acute_episode_doc = next(iter(acute_episode_cursor), None)
+    except Exception:
+        acute_episode_doc = None
+
+    try:
+        pregnancy_episode_cursor = db.aql.execute(
+            """
+            FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(patient._id, '/')[0] == 'Person'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
+            FILTER SPLIT(episode._id, '/')[0] == 'Episode'
+            FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
+            FILTER episode.role == 'contextual'
+            FILTER LENGTH(
+                FOR condition, condition_edge IN 1..1 OUTBOUND episode._id GRAPH 'graph'
+                  FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                  FILTER SPLIT(condition_edge._id, '/')[0] == 'EpisodeConditionEdge'
+                  FILTER condition.slug == 'pregnancy'
+                  LIMIT 1
+                  RETURN 1
+            ) > 0
+            LIMIT 1
+            RETURN episode
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        pregnancy_episode_doc = next(iter(pregnancy_episode_cursor), None)
+    except Exception:
+        pregnancy_episode_doc = None
+
+    patient_scalar_fields, patient_list_fields, patient_nested_fields = _categorize_document_fields(patient_doc)
+    primary_episode_scalar_fields, primary_episode_list_fields, primary_episode_nested_fields = _categorize_document_fields(primary_episode_doc)
+    acute_episode_scalar_fields, acute_episode_list_fields, acute_episode_nested_fields = _categorize_document_fields(acute_episode_doc)
+    pregnancy_episode_scalar_fields, pregnancy_episode_list_fields, pregnancy_episode_nested_fields = _categorize_document_fields(pregnancy_episode_doc)
+
+    episode_relationship_cards = []
+    background_context_doc = None
+    background_context_scalar_fields = []
+    background_context_list_fields = []
+    background_context_nested_fields = []
+    patient_prior_condition_cards = []
+    background_regular_medicine_cards = []
+    background_immunosuppressant_cards = []
+    primary_episode_post_covid_condition_cards = []
+    exposure_cards = []
+    acute_exposure_cards = []
+    pregnancy_exposure_cards = []
+    acute_complication_cards = []
+    acute_vaccination_card = None
+    phenotype_cards = []
+    therapy_cards = []
+    treatment_cards = []
+    outcome_cards = []
+    if primary_episode_doc:
+        if acute_episode_doc:
+            try:
+                episode_relationship_cursor = db.aql.execute(
+                    """
+                    FOR episode, episode_edge IN 1..1 OUTBOUND @acute_episode_id GRAPH 'graph'
+                    FILTER SPLIT(episode._id, '/')[0] == 'Episode'
+                    FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeEpisodeEdge'
+                    FILTER episode_edge.relationship_type == 'precedes'
+                    FILTER episode._id == @primary_episode_id
+                    LIMIT 1
+                    RETURN episode_edge
+                    """,
+                    bind_vars={
+                        "acute_episode_id": acute_episode_doc["_id"],
+                        "primary_episode_id": primary_episode_doc["_id"],
+                    },
+                    max_runtime=10,
+                )
+                relationship_doc = next(iter(episode_relationship_cursor), None)
+                if relationship_doc:
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(relationship_doc)
+                    episode_relationship_cards.append({
+                        "relationship_doc": relationship_doc,
+                        "label": "precedes",
+                        "left_tab": "acute-covid",
+                        "right_tab": "long-covid",
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                pass
+        if pregnancy_episode_doc:
+            try:
+                overlap_relationship_cursor = db.aql.execute(
+                    """
+                    FOR episode, episode_edge IN 1..1 OUTBOUND @pregnancy_episode_id GRAPH 'graph'
+                    FILTER SPLIT(episode._id, '/')[0] == 'Episode'
+                    FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeEpisodeEdge'
+                    FILTER episode_edge.relationship_type == 'overlaps'
+                    FILTER episode._id == @primary_episode_id
+                    LIMIT 1
+                    RETURN episode_edge
+                    """,
+                    bind_vars={
+                        "pregnancy_episode_id": pregnancy_episode_doc["_id"],
+                        "primary_episode_id": primary_episode_doc["_id"],
+                    },
+                    max_runtime=10,
+                )
+                relationship_doc = next(iter(overlap_relationship_cursor), None)
+                if relationship_doc:
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(relationship_doc)
+                    episode_relationship_cards.append({
+                        "relationship_doc": relationship_doc,
+                        "label": "overlaps",
+                        "left_tab": "long-covid",
+                        "right_tab": "pregnancy",
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                pass
+
+        if patient_doc:
+            try:
+                background_context_cursor = db.aql.execute(
+                    """
+                    FOR background_context, context_edge IN 1..1 OUTBOUND @person_id GRAPH 'graph'
+                    FILTER SPLIT(background_context._id, '/')[0] == 'BackgroundContext'
+                    FILTER SPLIT(context_edge._id, '/')[0] == 'PersonBackgroundContextEdge'
+                    LIMIT 1
+                    RETURN background_context
+                    """,
+                    bind_vars={"person_id": patient_doc["_id"]},
+                    max_runtime=15,
+                )
+                background_context_doc = next(iter(background_context_cursor), None)
+            except Exception:
+                background_context_doc = None
+
+            background_context_scalar_fields, background_context_list_fields, background_context_nested_fields = _categorize_document_fields(background_context_doc)
+
+            if background_context_doc:
+                try:
+                    patient_condition_cursor = db.aql.execute(
+                        """
+                        FOR condition, condition_edge IN 1..1 OUTBOUND @background_context_id GRAPH 'graph'
+                        FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                        FILTER SPLIT(condition_edge._id, '/')[0] == 'BackgroundContextConditionEdge'
+                        FILTER condition_edge.relationship_type == 'prior_comorbidity'
+                        SORT condition.name, condition._key
+                        RETURN condition
+                        """,
+                        bind_vars={"background_context_id": background_context_doc["_id"]},
+                        max_runtime=15,
+                    )
+                    for condition_doc in patient_condition_cursor:
+                        scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
+                        patient_prior_condition_cards.append({
+                            "condition_doc": condition_doc,
+                            "scalar_fields": scalar_fields,
+                            "list_fields": list_fields,
+                            "nested_fields": nested_fields,
+                        })
+                except Exception:
+                    patient_prior_condition_cards = []
+
+                try:
+                    background_exposure_cursor = db.aql.execute(
+                        """
+                        FOR exposure, context_edge IN 1..1 OUTBOUND @background_context_id GRAPH 'graph'
+                        FILTER SPLIT(exposure._id, '/')[0] == 'Exposure'
+                        FILTER SPLIT(context_edge._id, '/')[0] == 'BackgroundContextExposureEdge'
+                        LET drug_doc = FIRST(
+                            FOR drug, drug_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                            FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                            FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                            LIMIT 1
+                            RETURN drug
+                        )
+                        SORT context_edge.relationship_type, drug_doc.name, exposure.long_drug_name, exposure._key
+                        RETURN {
+                            exposure_doc: exposure,
+                            drug_doc: drug_doc,
+                            relationship_type: context_edge.relationship_type
+                        }
+                        """,
+                        bind_vars={"background_context_id": background_context_doc["_id"]},
+                        max_runtime=15,
+                    )
+                    for row in background_exposure_cursor:
+                        exposure_doc = row.get("exposure_doc")
+                        scalar_fields, list_fields, nested_fields = _categorize_document_fields(exposure_doc)
+                        card = {
+                            "exposure_doc": exposure_doc,
+                            "drug_doc": row.get("drug_doc"),
+                            "scalar_fields": scalar_fields,
+                            "list_fields": list_fields,
+                            "nested_fields": nested_fields,
+                        }
+                        if row.get("relationship_type") == "immunosuppressant":
+                            background_immunosuppressant_cards.append(card)
+                        else:
+                            background_regular_medicine_cards.append(card)
+                except Exception:
+                    background_regular_medicine_cards = []
+                    background_immunosuppressant_cards = []
+
+        try:
+            primary_post_covid_condition_cursor = db.aql.execute(
+                """
+                FOR condition, condition_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                FILTER SPLIT(condition_edge._id, '/')[0] == 'EpisodeConditionEdge'
+                FILTER condition_edge.relationship_type == 'comorbidity'
+                SORT condition.name, condition._key
+                RETURN condition
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=15,
+            )
+            for condition_doc in primary_post_covid_condition_cursor:
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
+                primary_episode_post_covid_condition_cards.append({
+                    "condition_doc": condition_doc,
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            primary_episode_post_covid_condition_cards = []
+
+        try:
+            exposure_cursor = db.aql.execute(
+                """
+                FOR exposure, episode_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(exposure._id, '/')[0] == 'Exposure'
+                FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeExposureEdge'
+                LET drug_doc = FIRST(
+                    FOR drug, drug_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                    FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                    FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                    LIMIT 1
+                    RETURN drug
+                )
+                LET adverse_events = (
+                    FOR ae, ae_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                    FILTER SPLIT(ae._id, '/')[0] == 'AdverseEvent'
+                    FILTER SPLIT(ae_edge._id, '/')[0] == 'ExposureAdverseEventEdge'
+                    SORT ae.name
+                    RETURN {
+                        id: ae._id,
+                        key: ae._key,
+                        name: ae.name,
+                        outcomes: ae_edge.outcomes || []
+                    }
+                )
+                SORT exposure.long_drug_name, exposure._key
+                RETURN {
+                    exposure_doc: exposure,
+                    drug_doc: drug_doc,
+                    adverse_events: adverse_events
+                }
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=15,
+            )
+            for row in exposure_cursor:
+                exposure_doc = row.get("exposure_doc")
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(exposure_doc)
+                exposure_cards.append({
+                    "exposure_doc": exposure_doc,
+                    "drug_doc": row.get("drug_doc"),
+                    "adverse_events": row.get("adverse_events", []),
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            exposure_cards = []
+
+        if acute_episode_doc:
+            try:
+                acute_exposure_cursor = db.aql.execute(
+                    """
+                    FOR exposure, episode_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                    FILTER SPLIT(exposure._id, '/')[0] == 'Exposure'
+                    FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeExposureEdge'
+                    LET drug_doc = FIRST(
+                        FOR drug, drug_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                        FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                        FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                        LIMIT 1
+                        RETURN drug
+                    )
+                    SORT exposure.long_drug_name, exposure._key
+                    RETURN {
+                        exposure_doc: exposure,
+                        drug_doc: drug_doc,
+                        adverse_events: []
+                    }
+                    """,
+                    bind_vars={"episode_id": acute_episode_doc["_id"]},
+                    max_runtime=15,
+                )
+                for row in acute_exposure_cursor:
+                    exposure_doc = row.get("exposure_doc")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(exposure_doc)
+                    acute_exposure_cards.append({
+                        "exposure_doc": exposure_doc,
+                        "drug_doc": row.get("drug_doc"),
+                        "adverse_events": [],
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                acute_exposure_cards = []
+
+            try:
+                acute_complication_cursor = db.aql.execute(
+                    """
+                    FOR condition, complication_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                    FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                    FILTER SPLIT(complication_edge._id, '/')[0] == 'EpisodeConditionEdge'
+                    FILTER complication_edge.relationship_type == 'complication'
+                    SORT condition.name, condition._key
+                    RETURN condition
+                    """,
+                    bind_vars={"episode_id": acute_episode_doc["_id"]},
+                    max_runtime=15,
+                )
+                for condition_doc in acute_complication_cursor:
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
+                    acute_complication_cards.append({
+                        "condition_doc": condition_doc,
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                acute_complication_cards = []
+
+            try:
+                acute_vaccination_cursor = db.aql.execute(
+                    """
+                    FOR vaccination_event, event_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                    FILTER SPLIT(vaccination_event._id, '/')[0] == 'VaccinationEvent'
+                    FILTER SPLIT(event_edge._id, '/')[0] == 'VaccinationEventEpisodeEdge'
+                    LET vaccines = (
+                        FOR vaccine, vaccine_edge IN 1..1 OUTBOUND vaccination_event._id GRAPH 'graph'
+                        FILTER SPLIT(vaccine._id, '/')[0] == 'Vaccine'
+                        FILTER SPLIT(vaccine_edge._id, '/')[0] == 'VaccinationEventVaccineEdge'
+                        SORT vaccine.name, vaccine._key
+                        RETURN vaccine
+                    )
+                    LIMIT 1
+                    RETURN {
+                        vaccination_event_doc: vaccination_event,
+                        event_edge: event_edge,
+                        vaccines: vaccines
+                    }
+                    """,
+                    bind_vars={"episode_id": acute_episode_doc["_id"]},
+                    max_runtime=15,
+                )
+                acute_vaccination_row = next(iter(acute_vaccination_cursor), None)
+                if acute_vaccination_row:
+                    vaccination_event_doc = acute_vaccination_row.get("vaccination_event_doc")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(vaccination_event_doc)
+                    acute_vaccination_card = {
+                        "vaccination_event_doc": vaccination_event_doc,
+                        "event_edge": acute_vaccination_row.get("event_edge") or {},
+                        "vaccines": acute_vaccination_row.get("vaccines", []),
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    }
+            except Exception:
+                acute_vaccination_card = None
+
+        if pregnancy_episode_doc:
+            try:
+                pregnancy_exposure_cursor = db.aql.execute(
+                    """
+                    FOR exposure, episode_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                    FILTER SPLIT(exposure._id, '/')[0] == 'Exposure'
+                    FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeExposureEdge'
+                    LET drug_doc = FIRST(
+                        FOR drug, drug_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                        FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                        FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                        LIMIT 1
+                        RETURN drug
+                    )
+                    SORT exposure.long_drug_name, exposure._key
+                    RETURN {
+                        exposure_doc: exposure,
+                        drug_doc: drug_doc,
+                        adverse_events: []
+                    }
+                    """,
+                    bind_vars={"episode_id": pregnancy_episode_doc["_id"]},
+                    max_runtime=15,
+                )
+                for row in pregnancy_exposure_cursor:
+                    exposure_doc = row.get("exposure_doc")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(exposure_doc)
+                    pregnancy_exposure_cards.append({
+                        "exposure_doc": exposure_doc,
+                        "drug_doc": row.get("drug_doc"),
+                        "adverse_events": [],
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                pregnancy_exposure_cards = []
+
+        try:
+            phenotype_cursor = db.aql.execute(
+                """
+                FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                FILTER SPLIT(phenotype_edge._id, '/')[0] == 'EpisodePhenotypeEdge'
+                SORT phenotype.name, phenotype._key
+                RETURN {
+                    phenotype_doc: phenotype,
+                    severity: phenotype_edge.severity
+                }
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=15,
+            )
+            for row in phenotype_cursor:
+                phenotype_doc = row.get("phenotype_doc")
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
+                phenotype_cards.append({
+                    "phenotype_doc": phenotype_doc,
+                    "severity": row.get("severity"),
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            phenotype_cards = []
+
+        try:
+            therapy_cursor = db.aql.execute(
+                """
+                FOR therapy, therapy_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(therapy._id, '/')[0] == 'Therapy'
+                FILTER SPLIT(therapy_edge._id, '/')[0] == 'EpisodeTherapyEdge'
+                SORT therapy.name, therapy._key
+                RETURN therapy
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=15,
+            )
+            for therapy_doc in therapy_cursor:
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(therapy_doc)
+                therapy_cards.append({
+                    "therapy_doc": therapy_doc,
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            therapy_cards = []
+
+        try:
+            treatment_cursor = db.aql.execute(
+                """
+                FOR exposure, episode_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(exposure._id, '/')[0] == 'Exposure'
+                FILTER SPLIT(episode_edge._id, '/')[0] == 'EpisodeExposureEdge'
+                FOR treatment, treatment_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
+                FILTER SPLIT(treatment._id, '/')[0] == 'Treatment'
+                FILTER SPLIT(treatment_edge._id, '/')[0] == 'TreatmentExposureEdge'
+                COLLECT treatment_id = treatment._id INTO grouped = {
+                    treatment: treatment,
+                    exposure: exposure
+                }
+                LET treatment_doc = FIRST(grouped[*].treatment)
+                LET mapped_exposures = (
+                    FOR row IN grouped
+                    LET drug_doc = FIRST(
+                        FOR drug, drug_edge IN 1..1 OUTBOUND row.exposure._id GRAPH 'graph'
+                        FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                        FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                        LIMIT 1
+                        RETURN drug
+                    )
+                    SORT drug_doc.name, row.exposure.long_drug_name, row.exposure._key
+                    RETURN {
+                        exposure_id: row.exposure._id,
+                        drug_name: drug_doc.name || row.exposure.long_drug_name || row.exposure._key
+                    }
+                )
+                SORT treatment_doc._key
+                RETURN {
+                    treatment_doc: treatment_doc,
+                    mapped_exposures: mapped_exposures
+                }
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=15,
+            )
+            for row in treatment_cursor:
+                treatment_doc = row.get("treatment_doc")
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(treatment_doc)
+                treatment_cards.append({
+                    "treatment_doc": treatment_doc,
+                    "mapped_exposures": row.get("mapped_exposures", []),
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            treatment_cards = []
+
+        try:
+            outcome_cursor = db.aql.execute(
+                """
+                FOR outcome, episode_outcome_edge IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                FILTER SPLIT(outcome._id, '/')[0] == 'Outcome'
+                FILTER SPLIT(episode_outcome_edge._id, '/')[0] == 'EpisodeOutcomeEdge'
+                LET treatment_doc = FIRST(
+                    FOR treatment, outcome_edge IN 1..1 INBOUND outcome._id GRAPH 'graph'
+                    FILTER SPLIT(treatment._id, '/')[0] == 'Treatment'
+                    FILTER SPLIT(outcome_edge._id, '/')[0] == 'TreatmentOutcomeEdge'
+                    LIMIT 1
+                    RETURN treatment
+                )
+                LET phenotype_doc = FIRST(
+                    FOR phenotype, phenotype_edge IN 1..1 OUTBOUND outcome._id GRAPH 'graph'
+                    FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'OutcomePhenotypeEdge'
+                    LIMIT 1
+                    RETURN phenotype
+                )
+                LET phenotype_severity = FIRST(
+                    FOR phenotype2, phenotype_edge2 IN 1..1 OUTBOUND @episode_id GRAPH 'graph'
+                    FILTER SPLIT(phenotype2._id, '/')[0] == 'Phenotype'
+                    FILTER SPLIT(phenotype_edge2._id, '/')[0] == 'EpisodePhenotypeEdge'
+                    FILTER phenotype_doc != null AND phenotype2._id == phenotype_doc._id
+                    LIMIT 1
+                    RETURN phenotype_edge2.severity
+                )
+                LET mapped_exposures = (
+                    FOR exposure2, exposure_edge2 IN 1..1 INBOUND treatment_doc._id GRAPH 'graph'
+                    FILTER SPLIT(exposure2._id, '/')[0] == 'Exposure'
+                    FILTER SPLIT(exposure_edge2._id, '/')[0] == 'TreatmentExposureEdge'
+                    LET drug_doc = FIRST(
+                        FOR drug, drug_edge IN 1..1 OUTBOUND exposure2._id GRAPH 'graph'
+                        FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                        FILTER SPLIT(drug_edge._id, '/')[0] == 'ExposureDrugEdge'
+                        LIMIT 1
+                        RETURN drug
+                    )
+                    SORT drug_doc.name, exposure2.long_drug_name, exposure2._key
+                    RETURN {
+                        exposure_id: exposure2._id,
+                        exposure_doc: exposure2,
+                        drug_doc: drug_doc,
+                        drug_name: drug_doc.name || exposure2.long_drug_name || exposure2._key
+                    }
+                )
+                SORT outcome._key
+                RETURN {
+                    outcome_doc: outcome,
+                    treatment_doc: treatment_doc,
+                    phenotype_doc: phenotype_doc,
+                    phenotype_severity: phenotype_severity,
+                    mapped_exposures: mapped_exposures
+                }
+                """,
+                bind_vars={"episode_id": primary_episode_doc["_id"]},
+                max_runtime=20,
+            )
+            for row in outcome_cursor:
+                outcome_doc = row.get("outcome_doc")
+                effect_display = _get_outcome_effect_display((outcome_doc or {}).get("effect"))
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(outcome_doc)
+                phenotype_doc = row.get("phenotype_doc")
+                phenotype_scalar_fields, phenotype_list_fields, phenotype_nested_fields = _categorize_document_fields(phenotype_doc)
+                treatment_doc = row.get("treatment_doc")
+                treatment_scalar_fields, treatment_list_fields, treatment_nested_fields = _categorize_document_fields(treatment_doc)
+                outcome_cards.append({
+                    "outcome_doc": outcome_doc,
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                    "treatment_doc": treatment_doc,
+                    "treatment_scalar_fields": treatment_scalar_fields,
+                    "treatment_list_fields": treatment_list_fields,
+                    "treatment_nested_fields": treatment_nested_fields,
+                    "mapped_exposures": row.get("mapped_exposures", []),
+                    "phenotype_doc": phenotype_doc,
+                    "phenotype_severity": row.get("phenotype_severity"),
+                    "phenotype_scalar_fields": phenotype_scalar_fields,
+                    "phenotype_list_fields": phenotype_list_fields,
+                    "phenotype_nested_fields": phenotype_nested_fields,
+                    "effect_rank": effect_display["rank"],
+                    "effect_tone": effect_display["tone"],
+                    "effect_pct": effect_display["pct"],
+                })
+            outcome_cards.sort(
+                key=lambda card: (
+                    card["effect_rank"],
+                    (card["outcome_doc"] or {}).get("effect") or "",
+                    (card["outcome_doc"] or {}).get("raw_symptom_name") or "",
+                    (card["outcome_doc"] or {}).get("_key") or "",
+                )
+            )
+        except Exception:
+            outcome_cards = []
+
+    return {
+        "patient_doc": patient_doc,
+        "patient_scalar_fields": patient_scalar_fields,
+        "patient_list_fields": patient_list_fields,
+        "patient_nested_fields": patient_nested_fields,
+        "background_context_doc": background_context_doc,
+        "background_context_scalar_fields": background_context_scalar_fields,
+        "background_context_list_fields": background_context_list_fields,
+        "background_context_nested_fields": background_context_nested_fields,
+        "episode_relationship_cards": episode_relationship_cards,
+        "patient_prior_condition_cards": patient_prior_condition_cards,
+        "background_regular_medicine_cards": background_regular_medicine_cards,
+        "background_immunosuppressant_cards": background_immunosuppressant_cards,
+        "primary_episode_doc": primary_episode_doc,
+        "primary_episode_scalar_fields": primary_episode_scalar_fields,
+        "primary_episode_list_fields": primary_episode_list_fields,
+        "primary_episode_nested_fields": primary_episode_nested_fields,
+        "primary_episode_post_covid_condition_cards": primary_episode_post_covid_condition_cards,
+        "acute_episode_doc": acute_episode_doc,
+        "acute_episode_scalar_fields": acute_episode_scalar_fields,
+        "acute_episode_list_fields": acute_episode_list_fields,
+        "acute_episode_nested_fields": acute_episode_nested_fields,
+        "pregnancy_episode_doc": pregnancy_episode_doc,
+        "pregnancy_episode_scalar_fields": pregnancy_episode_scalar_fields,
+        "pregnancy_episode_list_fields": pregnancy_episode_list_fields,
+        "pregnancy_episode_nested_fields": pregnancy_episode_nested_fields,
+        "pregnancy_episode_exposure_cards": pregnancy_exposure_cards,
+        "acute_episode_vaccination_card": acute_vaccination_card,
+        "acute_episode_exposure_cards": acute_exposure_cards,
+        "acute_episode_complication_cards": acute_complication_cards,
+        "primary_episode_exposure_cards": exposure_cards,
+        "primary_episode_phenotype_cards": phenotype_cards,
+        "primary_episode_therapy_cards": therapy_cards,
+        "primary_episode_treatment_cards": treatment_cards,
+        "primary_episode_outcome_cards": outcome_cards,
+    }
+
+
+def _get_outcome_effect_display(effect: str | None) -> dict:
+    normalized = (effect or "").strip().lower()
+    mapping = {
+        "complete symptom resolution": {"rank": 0, "tone": "positive", "pct": 100},
+        "significant symptom improvement": {"rank": 1, "tone": "positive", "pct": 82},
+        "moderate symptom improvement": {"rank": 2, "tone": "positive", "pct": 64},
+        "mild symptom improvement": {"rank": 3, "tone": "positive", "pct": 46},
+        "symptom was unchanged": {"rank": 4, "tone": "neutral", "pct": 0},
+        "unknown": {"rank": 5, "tone": "unknown", "pct": 0},
+        "mild symptom worsening": {"rank": 6, "tone": "negative", "pct": 40},
+        "moderate symptom worsening": {"rank": 7, "tone": "negative", "pct": 62},
+        "significant symptom worsening": {"rank": 8, "tone": "negative", "pct": 84},
+    }
+    default = {"rank": 9, "tone": "unknown", "pct": 0}
+    return mapping.get(normalized, default)
+
+
 templates.env.filters["truncate_val"] = _truncate
+
+
+# ── Document template dispatch ───────────────────────────────────────────────
+
+_DOCUMENT_TEMPLATE_REGISTRY: dict[tuple[str, str], str] = {
+    ("cure", "CaseReport"): "cure_case_report_document.html",
+}
+
+
+def _get_document_template(db_name: str, coll_name: str) -> str:
+    return _DOCUMENT_TEMPLATE_REGISTRY.get((db_name, coll_name), "document.html")
 
 
 # ── Demo routes ──────────────────────────────────────────────────────────────
