@@ -9,8 +9,13 @@ from src.models.protein import Protein
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
-def protein_query() -> str:
-    return """FOR pro IN `Protein`
+
+def protein_query(last_key: str = None, limit: int = 2000) -> str:
+    filter_clause = f'FILTER pro._key > "{last_key}"' if last_key else ""
+    return f"""FOR pro IN `Protein`
+    {filter_clause}
+    SORT pro._key
+    LIMIT {limit}
     RETURN pro
     """
 
@@ -48,10 +53,18 @@ class PharosArangoAdapter(InputAdapter, ArangoAdapter, ABC):
 
 
 class ProteinAdapter(PharosArangoAdapter):
+    batch_size = 2_000
 
     def get_version_info_query(self) -> DataSourceDetails:
         raw_version_info = self.runQuery(protein_version_query())[0]
         return DataSourceDetails.parse_tsv(raw_version_info)
 
     def get_all(self) -> Generator[List[Node], None, None]:
-        yield [Protein.from_dict(row) for row in self.runQuery(protein_query())]
+        last_key = None
+        while True:
+            rows = list(self.runQuery(protein_query(last_key=last_key, limit=self.batch_size)))
+            if not rows:
+                break
+
+            yield [Protein.from_dict(row) for row in rows]
+            last_key = rows[-1]["_key"]
