@@ -176,3 +176,35 @@ def test_list_update_audit_caps_added_entries_preview_at_five():
         'sources\t1 entries already there\tadding ["source-1", "source-2", "source-3", "source-4", "source-5"] (+1 more)\tsource-new'
     ]
 
+
+def test_record_merger_dedupes_list_of_dict_patent_family_mentions():
+    existing_record_map = {
+        "IFX1": {
+            "id": "IFX1",
+            "patent_family_mentions": [
+                "2020:1001",
+                "2021:1002",
+            ],
+            "resolved_ids": ["res-existing"],
+            "creation": "source-existing",
+            "updates": [],
+        }
+    }
+    records = [{
+        "id": "IFX1",
+        "patent_family_mentions": [
+            "2020:1001",
+            "2021:1003",
+        ],
+        "entity_resolution": "res-new",
+        "provenance": "source-new",
+    }]
+    merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
+
+    merged_records = merger.merge_records(records, existing_record_map)
+
+    assert merged_records[0]["patent_family_mentions"] == [
+        "2020:1001",
+        "2021:1002",
+        "2021:1003",
+    ]

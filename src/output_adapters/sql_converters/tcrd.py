@@ -29,7 +29,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
     Tiga as mysqlTiga, TigaProvenance, TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
-    Ortholog as mysqlOrtholog,
+    Ortholog as mysqlOrtholog, PatentCount,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -49,7 +49,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
                       self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter,
-                      self.pmscore_converter, self.generif_from_publications_converter,
+                      self.pmscore_converter, self.patent_count_converter, self.generif_from_publications_converter,
                       self.generif_assoc_from_publications_converter, self.p2p_from_publications_converter],
             # GeneRif
             GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
@@ -102,6 +102,16 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
         return self._converters.get(obj_cls)
+
+    @staticmethod
+    def _parse_patent_family_token(token: str) -> tuple[int, int] | None:
+        if not isinstance(token, str) or ":" not in token:
+            return None
+        year_str, family_id_str = token.split(":", 1)
+        try:
+            return int(year_str), int(family_id_str)
+        except ValueError:
+            return None
 
     def get_preload_queries(self, session):
         return [{
@@ -179,6 +189,18 @@ class TCRDOutputConverter(SQLOutputConverter):
                 protein_id=self.resolve_id('protein', obj['id']),
                 number_value=pm_score
             ))
+        if obj.get('patent_family_mentions') and len(obj['patent_family_mentions']) > 0:
+            unique_families = {
+                parsed[1]
+                for parsed in (self._parse_patent_family_token(token) for token in obj['patent_family_mentions'])
+                if parsed is not None
+            }
+            if unique_families:
+                tdl_infos.append(TDL_info(
+                    itype="SureChEMBL Patent Family Count",
+                    protein_id=self.resolve_id('protein', obj['id']),
+                    integer_value=len(unique_families)
+                ))
         return tdl_infos
 
     def protein_alias_converter(self, obj: dict) -> List[Alias]:
@@ -219,8 +241,27 @@ class TCRDOutputConverter(SQLOutputConverter):
                     year=int(year),
                     score=float(score),
                 )
-            )
+                )
         return rows
+
+    def patent_count_converter(self, obj: dict) -> List[PatentCount]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        counts_by_year = {}
+        for token in obj.get('patent_family_mentions') or []:
+            parsed = self._parse_patent_family_token(token)
+            if parsed is None:
+                continue
+            year, family_id = parsed
+            counts_by_year.setdefault(year, set()).add(family_id)
+
+        return [
+            PatentCount(
+                protein_id=protein_id,
+                year=year,
+                count=len(family_ids),
+            )
+            for year, family_ids in sorted(counts_by_year.items())
+        ]
 
     def t2tc_converter(self, obj: dict) -> T2TC:
         return T2TC(

@@ -232,13 +232,6 @@ input_adapters:
       file_path: ./input_files/auto/reactome/reactome.homo_sapiens.interactions.tab-delimited.txt
       version_file_path: ./input_files/auto/reactome/reactome_version.tsv
 
-  - import: ./src/input_adapters/ncbi/publications.py
-    class: NCBIPublicationAdapter
-    kwargs:
-      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
-      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
-      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
-
   - import: ./src/input_adapters/gtex/gtex_expression.py
     class: GTExExpressionAdapter
     kwargs:
@@ -314,12 +307,6 @@ input_adapters:
     kwargs:
       protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
       disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
-
-  - import: ./src/input_adapters/jensenlab/publications.py
-    class: JensenLabPublicationAdapter
-    kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
       version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
 
   - import: ./src/input_adapters/jensenlab/tissues_expression.py
@@ -459,6 +446,27 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: ProteinDTOClassAdapter
     credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+
+  - import: ./src/input_adapters/surechembl/patent_families.py
+    class: SureChEMBLPatentFamilyAdapter
+    kwargs:
+      patents_file_path: ./input_files/auto/surechembl/patents.parquet
+      biomedical_entities_file_path: ./input_files/auto/surechembl/biomedical_entities.parquet
+      biomedical_locations_file_path: ./input_files/auto/surechembl/biomedical_locations.parquet
+      version_file_path: ./input_files/auto/surechembl/surechembl_version.tsv
+
+  - import: ./src/input_adapters/ncbi/publications.py
+    class: NCBIPublicationAdapter
+    kwargs:
+      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
+      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
+      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
+
+  - import: ./src/input_adapters/jensenlab/publications.py
+    class: JensenLabPublicationAdapter
+    kwargs:
+      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
+      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

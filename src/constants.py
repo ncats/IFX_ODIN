@@ -56,6 +56,7 @@ class DataSourceName(SimpleEnum):
     UBERON = 'UBERON'
     PANTHERClasses = "PANTHER Protein Classes"
     TIGA = "TIGA"
+    SureChEMBL = "SureChEMBL"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
