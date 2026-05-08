@@ -30,15 +30,7 @@ def ortholog_phenotype_edge_query(last_key: str = None, limit: int = 5000) -> st
         {filter_clause}
         SORT rel._key
         LIMIT {limit}
-        LET phenotype = FIRST(
-            FOR mp IN `MousePhenotype`
-                FILTER mp.id == rel.end_id
-                LIMIT 1
-                RETURN mp
-        )
-        RETURN MERGE(rel, {{
-            end_node: phenotype
-        }})
+        RETURN rel
     """
 
 
@@ -70,15 +62,7 @@ def protein_phenotype_edge_query(last_key: str = None, limit: int = 5000) -> str
         {filter_clause}
         SORT rel._key
         LIMIT {limit}
-        LET phenotype = FIRST(
-            FOR mp IN `MousePhenotype`
-                FILTER mp.id == rel.end_id
-                LIMIT 1
-                RETURN mp
-        )
-        RETURN MERGE(rel, {{
-            end_node: phenotype
-        }})
+        RETURN rel
     """
 
 
@@ -93,15 +77,33 @@ def protein_ortholog_edge_query(last_key: str = None, limit: int = 5000) -> str:
         {filter_clause}
         SORT rel._key
         LIMIT {limit}
-        LET ortholog = FIRST(
-            FOR og IN `OrthologGene`
-                FILTER og.id == rel.end_id
-                LIMIT 1
-                RETURN og
-        )
-        RETURN MERGE(rel, {{
-            end_node: ortholog
-        }})
+        RETURN rel
+    """
+
+
+def ortholog_gene_map_query() -> str:
+    return """
+    FOR og IN `OrthologGene`
+        RETURN {
+            id: og.id,
+            species: og.species,
+            symbol: og.symbol,
+            name: og.name,
+            source_primary_id: og.source_primary_id,
+            source_db_id: og.source_db_id,
+            entrez_gene_id: og.entrez_gene_id,
+            ensembl_gene_id: og.ensembl_gene_id
+        }
+    """
+
+
+def mouse_phenotype_map_query() -> str:
+    return """
+    FOR mp IN `MousePhenotype`
+        RETURN {
+            id: mp.id,
+            name: mp.name
+        }
     """
 
 
@@ -124,6 +126,16 @@ class OrthologGeneAdapter(PharosArangoAdapter):
 
 class OrthologGeneMousePhenotypeAdapter(PharosArangoAdapter):
     batch_size = 5_000
+
+    def __init__(self, credentials, database_name: str):
+        super().__init__(credentials, database_name)
+        print("Preloading MousePhenotype lookup map for OrthologGeneMousePhenotypeAdapter")
+        self._mouse_phenotype_map = {
+            row["id"]: row
+            for row in self.runQuery(mouse_phenotype_map_query())
+            if row.get("id")
+        }
+        print(f"Loaded {len(self._mouse_phenotype_map)} MousePhenotype records into memory")
 
     def _load_protein_links(self, ortholog_ids: List[str]) -> dict[str, list[dict]]:
         if not ortholog_ids:
@@ -154,7 +166,7 @@ class OrthologGeneMousePhenotypeAdapter(PharosArangoAdapter):
                     start_node=OrthologGene(id=row["start_id"]),
                     end_node=MousePhenotype(
                         id=row["end_id"],
-                        name=(row.get("end_node") or {}).get("name"),
+                        name=(self._mouse_phenotype_map.get(row["end_id"]) or {}).get("name"),
                     ),
                     details=[MousePhenotypeDetail.from_dict(d) for d in (row.get("details") or [])],
                 )
@@ -171,6 +183,16 @@ class OrthologGeneMousePhenotypeAdapter(PharosArangoAdapter):
 class ProteinMousePhenotypeAdapter(PharosArangoAdapter):
     batch_size = 5_000
 
+    def __init__(self, credentials, database_name: str):
+        super().__init__(credentials, database_name)
+        print("Preloading MousePhenotype lookup map for ProteinMousePhenotypeAdapter")
+        self._mouse_phenotype_map = {
+            row["id"]: row
+            for row in self.runQuery(mouse_phenotype_map_query())
+            if row.get("id")
+        }
+        print(f"Loaded {len(self._mouse_phenotype_map)} MousePhenotype records into memory")
+
     def get_all(self) -> Generator[List[ProteinMousePhenotypeEdge], None, None]:
         last_key = None
         while True:
@@ -185,7 +207,7 @@ class ProteinMousePhenotypeAdapter(PharosArangoAdapter):
                         start_node=Protein(id=row["start_id"]),
                         end_node=MousePhenotype(
                             id=row["end_id"],
-                            name=(row.get("end_node") or {}).get("name"),
+                            name=(self._mouse_phenotype_map.get(row["end_id"]) or {}).get("name"),
                         ),
                         details=[MousePhenotypeDetail.from_dict(d) for d in (row.get("details") or [])],
                     )
@@ -201,6 +223,16 @@ class ProteinMousePhenotypeAdapter(PharosArangoAdapter):
 class ProteinOrthologGeneEdgeAdapter(PharosArangoAdapter):
     batch_size = 5_000
 
+    def __init__(self, credentials, database_name: str):
+        super().__init__(credentials, database_name)
+        print("Preloading OrthologGene lookup map for ProteinOrthologGeneEdgeAdapter")
+        self._ortholog_map = {
+            row["id"]: row
+            for row in self.runQuery(ortholog_gene_map_query())
+            if row.get("id")
+        }
+        print(f"Loaded {len(self._ortholog_map)} OrthologGene records into memory")
+
     def get_all(self) -> Generator[List[ProteinOrthologGeneEdge], None, None]:
         last_key = None
         while True:
@@ -213,13 +245,13 @@ class ProteinOrthologGeneEdgeAdapter(PharosArangoAdapter):
                     start_node=Protein(id=row["start_id"]),
                     end_node=OrthologGene(
                         id=row["end_id"],
-                        species=(row.get("end_node") or {}).get("species"),
-                        symbol=(row.get("end_node") or {}).get("symbol"),
-                        name=(row.get("end_node") or {}).get("name"),
-                        source_primary_id=(row.get("end_node") or {}).get("source_primary_id"),
-                        source_db_id=(row.get("end_node") or {}).get("source_db_id"),
-                        entrez_gene_id=(row.get("end_node") or {}).get("entrez_gene_id"),
-                        ensembl_gene_id=(row.get("end_node") or {}).get("ensembl_gene_id"),
+                        species=(self._ortholog_map.get(row["end_id"]) or {}).get("species"),
+                        symbol=(self._ortholog_map.get(row["end_id"]) or {}).get("symbol"),
+                        name=(self._ortholog_map.get(row["end_id"]) or {}).get("name"),
+                        source_primary_id=(self._ortholog_map.get(row["end_id"]) or {}).get("source_primary_id"),
+                        source_db_id=(self._ortholog_map.get(row["end_id"]) or {}).get("source_db_id"),
+                        entrez_gene_id=(self._ortholog_map.get(row["end_id"]) or {}).get("entrez_gene_id"),
+                        ensembl_gene_id=(self._ortholog_map.get(row["end_id"]) or {}).get("ensembl_gene_id"),
                     ),
                     species=row.get("species"),
                     support_sources=row.get("support_sources") or [],

@@ -25,6 +25,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DOParent,
     DTO,
     DTOParent,
+    ETLAdapterRun,
     ETLRun,
     Mondo,
     MondoParent,
@@ -41,10 +42,14 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     output_converter: SQLOutputConverter
     conversion_chunk_size: int = 500
     insert_batch_size: int = 100_000
+    adapter_run_model = None
 
     def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True):
         self.database_name = database_name
         self.truncate_tables = truncate_tables
+        self._current_run_id = None
+        self._current_adapter_name = None
+        self._current_adapter_stats = None
         OutputAdapter.__init__(self)
         MySqlAdapter.__init__(self, credentials)
         self.update_database(database_name)
@@ -109,9 +114,107 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         for index in range(0, len(items), chunk_size):
             yield items[index:index + chunk_size]
 
+    @staticmethod
+    def _new_adapter_stats() -> dict:
+        return {
+            "store_calls": 0,
+            "input_object_count": 0,
+            "converted_object_count": 0,
+            "inserted_row_count": 0,
+            "conversion_seconds": 0.0,
+            "serialization_seconds": 0.0,
+            "insert_seconds": 0.0,
+            "total_store_seconds": 0.0,
+        }
+
+    def _supports_adapter_run_metadata(self) -> bool:
+        return self.adapter_run_model is not None
+
+    def _get_or_create_adapter_run_row(self, session, run_id: str, adapter_name: str):
+        return (
+            session.query(self.adapter_run_model)
+            .filter(
+                self.adapter_run_model.run_id == run_id,
+                self.adapter_run_model.adapter_name == adapter_name,
+            )
+            .one_or_none()
+        ) or self.adapter_run_model(
+            run_id=run_id,
+            database_name=self.database_name,
+            adapter_name=adapter_name,
+            status="pending",
+        )
+
+    def _upsert_adapter_run_metadata(
+        self,
+        run_id: str,
+        adapter_name: str,
+        *,
+        status: str | None = None,
+        adapter_position: int | None = None,
+        adapter_total: int | None = None,
+        records_written: int | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        failed_at: datetime | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        if not self._supports_adapter_run_metadata():
+            return
+
+        session = self.get_session()
+        try:
+            row = self._get_or_create_adapter_run_row(session, run_id, adapter_name)
+            if row.id is None:
+                session.add(row)
+
+            row.database_name = self.database_name
+            if status is not None:
+                row.status = status
+            if adapter_position is not None:
+                row.adapter_position = adapter_position
+            if adapter_total is not None:
+                row.adapter_total = adapter_total
+            if records_written is not None:
+                row.records_written = records_written
+            if started_at is not None:
+                row.started_at = started_at
+            if completed_at is not None:
+                row.completed_at = completed_at
+            if failed_at is not None:
+                row.failed_at = failed_at
+            if error_message is not None:
+                row.error_message = error_message
+
+            stats = self._current_adapter_stats if (
+                run_id == self._current_run_id and adapter_name == self._current_adapter_name
+            ) else None
+            if stats:
+                row.store_calls = stats["store_calls"]
+                row.input_object_count = stats["input_object_count"]
+                row.converted_object_count = stats["converted_object_count"]
+                row.inserted_row_count = stats["inserted_row_count"]
+                row.conversion_seconds = stats["conversion_seconds"]
+                row.serialization_seconds = stats["serialization_seconds"]
+                row.insert_seconds = stats["insert_seconds"]
+                row.total_store_seconds = stats["total_store_seconds"]
+
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def store(self, objects, single_source=False) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
+
+        store_start = datetime.now()
+        stats = self._current_adapter_stats
+        if stats is not None:
+            stats["store_calls"] += 1
+            stats["input_object_count"] += len(objects)
 
         object_groups = self.sort_and_convert_objects(objects, keep_nested_objects=True)
         session = self.get_session()
@@ -132,6 +235,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                     inserted_count = 0
 
                     for obj_chunk in self._chunked(obj_list, self.conversion_chunk_size):
+                        conversion_start = datetime.now()
                         converted_objects = []
                         for obj in obj_chunk:
                             result = converter(obj)
@@ -139,6 +243,9 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                                 converted_objects.extend(result)
                             elif result is not None:
                                 converted_objects.append(result)
+                        if stats is not None:
+                            stats["conversion_seconds"] += (datetime.now() - conversion_start).total_seconds()
+                            stats["converted_object_count"] += len(converted_objects)
 
                         if not converted_objects:
                             continue
@@ -156,13 +263,20 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                                 )
                             print(f"Inserting objects of type {table_class.__name__}")
 
+                        serialization_start = datetime.now()
                         rows = self._serialize_rows(converted_objects)
+                        if stats is not None:
+                            stats["serialization_seconds"] += (datetime.now() - serialization_start).total_seconds()
                         inserted_count += len(rows)
 
                         for row_chunk in self._chunked(rows, self.insert_batch_size):
+                            insert_start = datetime.now()
                             try:
                                 session.execute(stmt, row_chunk)
                                 session.commit()
+                                if stats is not None:
+                                    stats["insert_seconds"] += (datetime.now() - insert_start).total_seconds()
+                                    stats["inserted_row_count"] += len(row_chunk)
                             except Exception as e:
                                 session.rollback()
                                 if self._is_fk_integrity_error(e):
@@ -184,12 +298,109 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
             raise
 
         finally:
+            if stats is not None:
+                stats["total_store_seconds"] += (datetime.now() - store_start).total_seconds()
             session.close()
 
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         effective_truncate = self.truncate_tables if truncate_tables is None else truncate_tables
         self.recreate_mysql_db(self.database_name, effective_truncate)
         return True
+
+    def get_completed_adapter_names(self, run_id: str) -> set[str]:
+        if not self._supports_adapter_run_metadata():
+            return set()
+
+        session = self.get_session()
+        try:
+            rows = (
+                session.query(self.adapter_run_model.adapter_name)
+                .filter(
+                    self.adapter_run_model.run_id == run_id,
+                    self.adapter_run_model.status == "completed",
+                )
+                .all()
+            )
+            return {row[0] for row in rows}
+        finally:
+            session.close()
+
+    def reset_run_state(self, run_id: str) -> None:
+        if not self._supports_adapter_run_metadata():
+            return
+
+        session = self.get_session()
+        try:
+            (
+                session.query(self.adapter_run_model)
+                .filter(self.adapter_run_model.run_id == run_id)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+        if self._current_run_id == run_id:
+            self._current_run_id = None
+            self._current_adapter_name = None
+            self._current_adapter_stats = None
+
+    def mark_adapter_running(self, run_id: str, adapter_name: str, adapter_position: int | None = None,
+                             adapter_total: int | None = None) -> None:
+        self._current_run_id = run_id
+        self._current_adapter_name = adapter_name
+        self._current_adapter_stats = self._new_adapter_stats()
+        self._upsert_adapter_run_metadata(
+            run_id,
+            adapter_name,
+            status="running",
+            adapter_position=adapter_position,
+            adapter_total=adapter_total,
+            started_at=datetime.utcnow(),
+        )
+
+    def mark_adapter_completed(self, run_id: str, adapter_name: str, records_written: int = 0,
+                               adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        self._upsert_adapter_run_metadata(
+            run_id,
+            adapter_name,
+            status="completed",
+            adapter_position=adapter_position,
+            adapter_total=adapter_total,
+            records_written=records_written,
+            completed_at=datetime.utcnow(),
+        )
+        if self._current_run_id == run_id and self._current_adapter_name == adapter_name:
+            self._current_run_id = None
+            self._current_adapter_name = None
+            self._current_adapter_stats = None
+
+    def mark_adapter_failed(self, run_id: str, adapter_name: str, error_message: str | None = None,
+                            adapter_position: int | None = None, adapter_total: int | None = None) -> None:
+        self._upsert_adapter_run_metadata(
+            run_id,
+            adapter_name,
+            status="failed",
+            adapter_position=adapter_position,
+            adapter_total=adapter_total,
+            failed_at=datetime.utcnow(),
+            error_message=error_message,
+        )
+        if self._current_run_id == run_id and self._current_adapter_name == adapter_name:
+            self._current_run_id = None
+            self._current_adapter_name = None
+            self._current_adapter_stats = None
+
+    def flush_incremental_metadata(self) -> None:
+        if self._current_run_id and self._current_adapter_name:
+            self._upsert_adapter_run_metadata(
+                self._current_run_id,
+                self._current_adapter_name,
+                status="running",
+            )
 
 
 class TestOutputAdapter(MySQLOutputAdapter):
@@ -207,6 +418,7 @@ class TestOutputAdapter(MySQLOutputAdapter):
 
 class TCRDOutputAdapter(MySQLOutputAdapter):
     output_converter = TCRDOutputConverter
+    adapter_run_model = ETLAdapterRun
 
     def __init__(
         self,

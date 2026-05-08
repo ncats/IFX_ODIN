@@ -887,6 +887,38 @@ class ETLRun(Base):
     platform_version = Column(String(255))
     python_version = Column(String(255))
 
+
+class ETLAdapterRun(Base):
+    __tablename__ = "etl_adapter_run"
+    __table_args__ = (
+        Index("etl_adapter_run_run_idx", "run_id"),
+        Index("etl_adapter_run_database_idx", "database_name"),
+        Index("etl_adapter_run_status_idx", "status"),
+        Index("etl_adapter_run_position_idx", "run_id", "adapter_position"),
+        UniqueConstraint("run_id", "adapter_name", name="etl_adapter_run_unique"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(255), nullable=False)
+    database_name = Column(String(255), nullable=False)
+    adapter_name = Column(String(255), nullable=False)
+    adapter_position = Column(Integer)
+    adapter_total = Column(Integer)
+    status = Column(String(32), nullable=False)
+    records_written = Column(Integer, nullable=False, default=0)
+    store_calls = Column(Integer, nullable=False, default=0)
+    input_object_count = Column(Integer, nullable=False, default=0)
+    converted_object_count = Column(Integer, nullable=False, default=0)
+    inserted_row_count = Column(Integer, nullable=False, default=0)
+    conversion_seconds = Column(Float, nullable=False, default=0)
+    serialization_seconds = Column(Float, nullable=False, default=0)
+    insert_seconds = Column(Float, nullable=False, default=0)
+    total_store_seconds = Column(Float, nullable=False, default=0)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    failed_at = Column(DateTime)
+    error_message = Column(Text)
+
 class NcatsDataSource(Base):
     __tablename__ = 'ncats_dataSource'
 
