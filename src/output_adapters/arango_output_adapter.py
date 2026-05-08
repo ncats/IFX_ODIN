@@ -476,6 +476,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             if len(records) == 1:
                 raise
             midpoint = len(records) // 2
+            print(
+                f"{kind} insert batch failed for {label}; "
+                f"splitting {len(records)} records into {midpoint} and {len(records) - midpoint}"
+            )
             self._insert_many_with_backoff(collection, records[:midpoint], overwrite=overwrite, label=label, kind=kind)
             self._insert_many_with_backoff(collection, records[midpoint:], overwrite=overwrite, label=label, kind=kind)
             return
@@ -508,6 +512,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             if len(records) == 1:
                 raise
             midpoint = len(records) // 2
+            print(
+                f"{kind} update batch failed for {label}; "
+                f"splitting {len(records)} records into {midpoint} and {len(records) - midpoint}"
+            )
             self._update_many_with_backoff(collection, records[:midpoint], label=label, kind=kind)
             self._update_many_with_backoff(collection, records[midpoint:], label=label, kind=kind)
             return

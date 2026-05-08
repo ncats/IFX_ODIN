@@ -23,7 +23,7 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD)                                                                                 |
 |---------|-----------------------|-------------|-------------------------------------------------------------------------------------------------------------|
-| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] TIN-X *(novelty)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore` |
+| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] SureChEMBL *(patent_family_mentions)*<br>[x] TIN-X *(novelty)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore`<br>[x] `patent_count` |
 | **Publications** | [x] NCBI `gene2pubmed.gz` *(gene-native, retyped/merged onto Protein in `pharos.yaml`)*<br>[x] NCBI `generifs_basic.gz` *(GeneRIF-enriched NCBI publication rows)*<br>[x] JensenLab text mining mentions | `publications` property on `Gene` / `Protein` | [x] `protein2pubmed`<br>[x] `generif`<br>[x] `generif2pubmed` |
 | **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon`                                                                                                |
 | **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent`                                                                                         |
@@ -79,11 +79,7 @@ These tables are populated directly from ontology source files during the TCRD b
 - maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
-- NIH Target Lists
 - Other Publication Statistics (PubTator)
-- Patent Counts
-- Orthologs — OMA, EggNOG, Inparanoid
-- Phenotype — IMPC, JAX/MGI
 - P-HIPSTer Viral PPIs
 - Nearest Tclin (computed from graph)
 
@@ -109,6 +105,7 @@ These tables are populated directly from ontology source files during the TCRD b
 - Monarch as a standalone disease-association source *(do not ingest the current dump as `Monarch`; the public file is a Translator-style aggregate whose primary sources are `infores:omim` and `infores:clingen`)*
 - Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
 - GWAS - gwas data is essentially duplicated in the old pharos, as it shows up in TIGA as well, and the UI exclusively uses the TIGA data, not the legacy direct GWAS data that was in there before TIGA was a thing
+- NIH Target Lists - IDG lists are obsolete, grant specific lists are not useful for most people
  
 ### Findings From Investigation
 - OMIM is not a legacy Pharos target-disease association source

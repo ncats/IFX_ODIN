@@ -92,7 +92,6 @@ class YearScore:
     def from_dict(cls, data: dict):
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
-
 @dataclass
 @facets(
     category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
@@ -117,6 +116,8 @@ class Protein(Audited, Analyte):
     idg_family: Optional[IDGFamily] = None
     pm_score: Optional[List[float]] = None
     pm_score_by_year: Optional[List[YearScore]] = None
+    patent_family_mentions: Optional[List[str]] = None
+    patent_identifier_sources: Optional[List[str]] = None
     novelty: Optional[List[float]] = None
     publications: Optional[List[PublicationReference]] = None
     uniprot_annotationScore: Optional[int] = None

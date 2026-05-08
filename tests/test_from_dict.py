@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from src.models.node import generate_class_from_dict, Node
+from src.models.protein import Protein
 
 
 @dataclass
@@ -179,3 +180,17 @@ def test_class_with_optionals():
     obj = generate_class_from_dict(cls, data)
     assert isinstance(obj, ClassWithOptionals)
 
+
+def test_protein_from_dict_parses_patent_family_mentions():
+    protein = Protein.from_dict({
+        "id": "IFX123",
+        "patent_family_mentions": [
+            "2020:1001",
+            "2021:1002",
+        ],
+        "patent_identifier_sources": ["HGNC", "UniProtKB"],
+    })
+
+    assert protein.id == "IFX123"
+    assert protein.patent_identifier_sources == ["HGNC", "UniProtKB"]
+    assert protein.patent_family_mentions == ["2020:1001", "2021:1002"]

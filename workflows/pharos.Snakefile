@@ -64,7 +64,14 @@ rule all:
         "../input_files/auto/panther/Protein_Class_19.0",
         "../input_files/auto/panther/Protein_class_relationship",
         "../input_files/auto/panther/PTHR19.0_human",
-        "../input_files/auto/panther/panther_classes_version.tsv"
+        "../input_files/auto/panther/panther_classes_version.tsv",
+        "../input_files/auto/surechembl/patents.parquet",
+        "../input_files/auto/surechembl/biomedical_entities.parquet",
+        "../input_files/auto/surechembl/biomedical_locations.parquet",
+        "../input_files/auto/surechembl/biomedical_types.parquet",
+        "../input_files/auto/surechembl/fields.parquet",
+        "../input_files/auto/surechembl/surechembl_version.tsv",
+        "../input_files/auto/surechembl/surechembl_file_sizes.tsv"
 
 rule download_ctd:
     output:
@@ -469,4 +476,52 @@ print(f'{{y}}-{{m}}-{{d}}')
 ")
         curl -fL -o {output[0]} "$url"
         printf 'version\tversion_date\n%s\t%s\n' "$date_str" "$date_str" > {output[1]}
+        """
+
+rule download_surechembl_patent_discovery:
+    output:
+        "../input_files/auto/surechembl/patents.parquet",
+        "../input_files/auto/surechembl/biomedical_entities.parquet",
+        "../input_files/auto/surechembl/biomedical_locations.parquet",
+        "../input_files/auto/surechembl/biomedical_types.parquet",
+        "../input_files/auto/surechembl/fields.parquet",
+        "../input_files/auto/surechembl/surechembl_version.tsv",
+        "../input_files/auto/surechembl/surechembl_file_sizes.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/surechembl
+        base_url='https://ftp.ebi.ac.uk/pub/databases/chembl/SureChEMBL/bulk_data/latest'
+
+        curl -fL -o {output[0]} "$base_url/patents.parquet"
+        curl -fL -o {output[1]} "$base_url/biomedical_entities.parquet"
+        curl -fL -o {output[2]} "$base_url/biomedical_locations.parquet"
+        curl -fL -o {output[3]} "$base_url/biomedical_types.parquet"
+        curl -fL -o {output[4]} "$base_url/fields.parquet"
+
+        resolved_url=$(curl -fsIL -o /dev/null -w '%{{url_effective}}' "$base_url/patents.parquet")
+        download_date=$(date -u +%F)
+
+        python3 -c "
+import os
+import sys
+
+resolved_url = sys.argv[1]
+version_out = sys.argv[2]
+sizes_out = sys.argv[3]
+download_date = sys.argv[4]
+files = sys.argv[5:]
+
+parts = [p for p in resolved_url.rstrip('/').split('/') if p]
+snapshot = parts[-2] if len(parts) >= 2 else ''
+version_date = snapshot if snapshot and snapshot != 'latest' else ''
+
+with open(version_out, 'w', encoding='utf-8') as out:
+    out.write('version\\tversion_date\\tdownload_date\\n')
+    out.write(snapshot + '\\t' + version_date + '\\t' + download_date + '\\n')
+
+with open(sizes_out, 'w', encoding='utf-8') as out:
+    out.write('file\\tsize_bytes\\n')
+    for path in files:
+        out.write(os.path.basename(path) + '\\t' + str(os.path.getsize(path)) + '\\n')
+        " "$resolved_url" {output[5]} {output[6]} "$download_date" {output[0]} {output[1]} {output[2]} {output[3]} {output[4]}
         """

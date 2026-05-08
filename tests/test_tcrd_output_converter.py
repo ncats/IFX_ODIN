@@ -64,6 +64,46 @@ def test_drgc_resource_converter_uses_target_mapping_by_uniprot():
     assert row.resource_type == "Genetic Construct"
 
 
+def test_tdl_info_converter_emits_surechembl_patent_family_total():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.tdl_info_converter({
+        "id": "IFX123",
+        "patent_family_mentions": [
+            "2020:1001",
+            "2020:1001",
+            "2021:1002",
+        ],
+    })
+
+    patent_rows = [row for row in rows if row.itype == "SureChEMBL Patent Family Count"]
+
+    assert len(patent_rows) == 1
+    assert patent_rows[0].protein_id == 123
+    assert patent_rows[0].integer_value == 2
+
+
+def test_patent_count_converter_groups_unique_families_by_year():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.patent_count_converter({
+        "id": "IFX123",
+        "patent_family_mentions": [
+            "2020:1001",
+            "2020:1001",
+            "2020:1002",
+            "2021:1002",
+        ],
+    })
+
+    assert [(row.protein_id, row.year, row.count) for row in rows] == [
+        (123, 2020, 2),
+        (123, 2021, 1),
+    ]
+
+
 def test_drgc_resource_converter_skips_missing_destination_target():
     converter = TCRDOutputConverter()
 
