@@ -8,7 +8,7 @@ from src.models.node import Node, Relationship
 
 
 @dataclass
-@facets(category_fields=["role", "problem_duration", "care_level", "onset_month", "onset_year"])
+@facets(category_fields=["role", "problem_duration", "care_level", "onset_month", "onset_year", 'pregnancy_medications'])
 class Episode(Node):
     role: Optional[str] = None
     problem_duration: Optional[str] = None
@@ -33,6 +33,7 @@ class PersonEpisodeEdge(Relationship):
 
 
 @dataclass
+@facets(category_fields=['relationship_type'])
 class EpisodeConditionEdge(Relationship):
     start_node: Episode = None
     end_node: Condition = None
@@ -40,6 +41,7 @@ class EpisodeConditionEdge(Relationship):
 
 
 @dataclass
+@facets(category_fields=['relationship_type'])
 class EpisodeEpisodeEdge(Relationship):
     start_node: Episode = None
     end_node: Episode = None

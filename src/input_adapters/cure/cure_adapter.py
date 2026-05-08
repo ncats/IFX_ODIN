@@ -651,6 +651,7 @@ class CUREAdapter(FlatFileAdapter):
                 elif exposure is None:
                     unmatched_drug_names.append(raw_name)
             treatment.unmatched_drug_names = unmatched_drug_names
+            treatment.has_unmatched_drug_names = bool(unmatched_drug_names)
             treatment_edges = [
                 TreatmentExposureEdge(start_node=exposure, end_node=None)
                 for exposure in matched_exposures

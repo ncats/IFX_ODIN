@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from src.core.decorators import facets
 from src.models.cure.pasc.episode import Episode
 from src.models.node import Node, Relationship
 
@@ -12,6 +13,7 @@ class Phenotype(Node):
 
 
 @dataclass
+@facets(category_fields=['severity'])
 class EpisodePhenotypeEdge(Relationship):
     start_node: Episode = None
     end_node: Phenotype = None

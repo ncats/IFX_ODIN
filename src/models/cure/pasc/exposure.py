@@ -2,12 +2,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
+from src.core.decorators import facets, search
 from src.models.cure.pasc.drug import Drug
 from src.models.cure.pasc.episode import Episode
 from src.models.node import Node, Relationship
 
 
 @dataclass
+@facets(category_fields=['adverse_events', 'adverse_event_outcomes'])
+@search(text_fields=['long_drug_name'])
 class Exposure(Node):
     source_regimen_id: Optional[int] = None
     created: Optional[datetime] = None
