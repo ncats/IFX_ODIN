@@ -49,6 +49,7 @@ class PubMedMirrorService:
         for archive in sorted(archives, key=lambda item: item.name):
             if remaining is not None and remaining <= 0:
                 break
+            archive_path: Path | None = None
             try:
                 with self.repository.transaction() as connection:
                     if self.state_repository.is_processed(archive.name, connection):
@@ -59,6 +60,8 @@ class PubMedMirrorService:
                     self.state_repository.mark_processed(archive, md5_value, connection)
                     if remaining is not None:
                         remaining -= 1
+                if archive_path is not None:
+                    self._cleanup_downloaded_archive(archive_path)
             except ValueError as exc:
                 with self.repository.transaction() as connection:
                     self.state_repository.mark_failure(
@@ -117,3 +120,8 @@ class PubMedMirrorService:
         if archive.remote_last_modified is not None:
             return archive.remote_last_modified.astimezone(timezone.utc).replace(tzinfo=None)
         return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def _cleanup_downloaded_archive(archive_path: Path) -> None:
+        archive_path.unlink(missing_ok=True)
+        archive_path.with_name(f"{archive_path.name}.md5").unlink(missing_ok=True)

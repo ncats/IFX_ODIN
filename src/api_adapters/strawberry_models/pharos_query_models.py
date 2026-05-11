@@ -411,7 +411,7 @@ ENDPOINTS: Dict[type, Dict[str, str]] = {
     Protein: {
         "list": "proteins",
         "details": "resolve_protein",
-        "sortby": {"uniprot_reviewed": "desc", "uniprot_canonical": "desc", "mapping_ratio": "desc"}
+        "sortby": {"uniprot_reviewed": "desc", "is_canonical": "desc", "mapping_ratio": "desc"}
     },
     Gene: {
         "list": "genes",

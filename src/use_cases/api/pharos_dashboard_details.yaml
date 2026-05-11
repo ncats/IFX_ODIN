@@ -49,13 +49,14 @@ models:
       - uniprot_id
       - symbol
       - name
+      - canonical_isoform_status
       - tdl
       - idg_family
       - uniprot_function
       - creation
     facets:
       - uniprot_reviewed
-      - uniprot_canonical
+      - canonical_isoform_status
       - tdl
       - creation
       - uniprot_entryType

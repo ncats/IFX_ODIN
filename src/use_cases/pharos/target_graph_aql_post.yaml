@@ -9,7 +9,7 @@ resolvers:
       no_match_behavior: Skip
       file_paths:
         - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
+      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
       types:
         - Protein
 
@@ -69,7 +69,7 @@ graph_views:
       - symbol
       - ncbi_id
       - ensembl_id
-      - uniprot_canonical
+      - canonical_isoform_status
       - uniprot_isoform
       - tdl_ligand_count
       - tdl_drug_count
@@ -92,7 +92,7 @@ graph_views:
           symbol: pro.symbol,
           ncbi_id: pro.ncbi_id,
           ensembl_id: pro.ensembl_id,
-          uniprot_canonical: pro.uniprot_canonical,
+          canonical_isoform_status: pro.canonical_isoform_status,
           uniprot_isoform: pro.uniprot_isoform,
           tdl_ligand_count: pro.tdl_ligand_count,
           tdl_drug_count: pro.tdl_drug_count,
