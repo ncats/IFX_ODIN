@@ -13,7 +13,7 @@ def test_working_pharos_compare_yaml_uses_tcrd_target_resolver():
     assert resolvers["tcrd_targets"]["class"] == "TCRDTargetResolver"
     assert resolvers["tcrd_targets"]["kwargs"]["types"] == ["Protein", "Gene", "Transcript"]
     assert resolvers["tcrd_targets"]["kwargs"]["canonical_type"] == "Protein"
-    assert resolvers["tcrd_targets"]["kwargs"]["collapse_reviewed_targets"] is True
+    assert resolvers["tcrd_targets"]["kwargs"]["canonical_only"] is True
     assert resolvers["tcrd_targets"]["kwargs"]["gene_file_path"] == "./input_files/manual/target_graph/gene_ids.tsv"
     assert resolvers["tcrd_targets"]["kwargs"]["transcript_file_path"] == "./input_files/manual/target_graph/transcript_ids.tsv"
     assert resolvers["tcrd_targets"]["kwargs"]["protein_file_paths"] == ["./input_files/manual/target_graph/protein_ids.tsv"]
@@ -21,7 +21,7 @@ def test_working_pharos_compare_yaml_uses_tcrd_target_resolver():
 
     assert input_adapters[0]["class"] == "ProteinNodeAdapter"
     assert input_adapters[0]["kwargs"]["file_path"] == "/Users/kelleherkj/Downloads/260401Targets/protein_ids.tsv"
-    assert input_adapters[0]["kwargs"]["collapse_reviewed_targets"] is True
+    assert input_adapters[0]["kwargs"]["canonical_only"] is True
 
 
 def test_working_target_graph_compare_yaml_uses_gene_and_protein_resolvers():

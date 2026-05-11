@@ -64,7 +64,7 @@ graph_views:
       - symbol
       - ncbi_id
       - ensembl_id
-      - uniprot_canonical
+      - canonical_isoform_status
       - uniprot_isoform
       - tdl_ligand_count
       - tdl_drug_count
@@ -87,7 +87,7 @@ graph_views:
           symbol: pro.symbol,
           ncbi_id: pro.ncbi_id,
           ensembl_id: pro.ensembl_id,
-          uniprot_canonical: pro.uniprot_canonical,
+          canonical_isoform_status: pro.canonical_isoform_status,
           uniprot_isoform: pro.uniprot_isoform,
           tdl_ligand_count: pro.tdl_ligand_count,
           tdl_drug_count: pro.tdl_drug_count,

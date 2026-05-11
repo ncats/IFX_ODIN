@@ -1,8 +1,7 @@
 import re
 from abc import abstractmethod, ABC
-from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Iterable
+from typing import Dict, List, Optional
 
 from src.constants import Prefix
 from src.models.gene import GeneticLocation, Strand
@@ -296,10 +295,19 @@ class TargetGraphProteinParser(TargetGraphParser):
     def __init__(self, file_path: str, additional_id_file_path: str = None):
         TargetGraphParser.__init__(self, file_path=file_path)
         self.additional_id_map = {}
+        self.additional_id_file_path = additional_id_file_path
+        self.additional_id_version_info = None
         if additional_id_file_path is not None:
             parser = TargetGraphAddtlProteinIDParser(file_path=additional_id_file_path)
+            self.additional_id_version_info = parser.get_version_info()
             for line in parser.all_rows():
                 self.additional_id_map[parser.get_main_id(line)] = parser.get_id_list(line)
+
+    def get_version_info(self):
+        version_info = [super().get_version_info()]
+        if self.additional_id_version_info is not None:
+            version_info.append(self.additional_id_version_info)
+        return '\t'.join(version_info)
 
     @staticmethod
     def get_id(prop_dict: Dict) -> str:
@@ -340,8 +348,12 @@ class TargetGraphProteinParser(TargetGraphParser):
         return ids
 
     @staticmethod
-    def get_uniprot_canonical(prop_dict: Dict) -> Optional[bool]:
-        return TargetGraphParser.get_boolean_or_none(prop_dict, 'uniprot_canonical')
+    def get_is_canonical(prop_dict: Dict) -> Optional[bool]:
+        return TargetGraphParser.get_boolean_or_none(prop_dict, 'is_canonical')
+
+    @staticmethod
+    def get_canonical_isoform_status(prop_dict: Dict) -> Optional[str]:
+        return prop_dict.get('canonical_isoform_status', None)
 
     @staticmethod
     def get_transcript_ids(prop_dict: Dict) -> List[str]:
@@ -362,60 +374,6 @@ class TargetGraphProteinParser(TargetGraphParser):
         if canonical_ifx_id is not None and len(canonical_ifx_id) > 0:
             return canonical_ifx_id
         return prop_dict.get('canonical_isoform', None)
-
-    @classmethod
-    def choose_reviewed_group_representative_id(cls, group_rows: List[Dict], row_map: Dict[str, Dict]) -> str:
-        canonical_rows = [row for row in group_rows if cls.get_uniprot_canonical(row) is True]
-        if len(canonical_rows) == 1:
-            return cls.get_id(canonical_rows[0])
-        if len(canonical_rows) > 1:
-            return sorted(cls.get_id(row) for row in canonical_rows)[0]
-
-        canonical_targets = {
-            target_id for row in group_rows
-            for target_id in [cls.get_isoform_id(row)]
-            if target_id and target_id.startswith('IFXProtein:')
-        }
-        if len(canonical_targets) == 1:
-            representative_id = next(iter(canonical_targets))
-            if representative_id in row_map:
-                return representative_id
-
-        return sorted(cls.get_id(row) for row in group_rows)[0]
-
-    @classmethod
-    def group_reviewed_rows_by_uniprot_id(cls, rows: Iterable[Dict]) -> Dict[str, List[Dict]]:
-        grouped_rows: Dict[str, List[Dict]] = defaultdict(list)
-        for row in rows:
-            if not cls.get_uniprot_reviewed(row):
-                continue
-            uniprot_id = cls.get_uniprot_id(row)
-            if not uniprot_id:
-                continue
-            grouped_rows[uniprot_id].append(row)
-        return grouped_rows
-
-    @classmethod
-    def build_reviewed_representative_groups(cls, rows: Iterable[Dict]) -> List[Dict]:
-        all_rows = list(rows)
-        row_map = {cls.get_id(row): row for row in all_rows}
-        grouped_rows = cls.group_reviewed_rows_by_uniprot_id(all_rows)
-        representative_group_map: Dict[str, Dict] = {}
-
-        for uniprot_id, group_rows in grouped_rows.items():
-            representative_id = cls.choose_reviewed_group_representative_id(group_rows, row_map)
-            representative_row = row_map[representative_id]
-            if representative_id not in representative_group_map:
-                representative_group_map[representative_id] = {
-                    "uniprot_ids": set(),
-                    "representative_id": representative_id,
-                    "representative_row": representative_row,
-                    "group_rows": [],
-                }
-            representative_group_map[representative_id]["uniprot_ids"].add(uniprot_id)
-            representative_group_map[representative_id]["group_rows"].extend(group_rows)
-
-        return list(representative_group_map.values())
 
 
 class TargetGraphGeneRIFParser(TargetGraphParser):

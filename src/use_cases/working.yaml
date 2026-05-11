@@ -1,45 +1,74 @@
-destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-minio_credentials: &minio_credentials ./src/use_cases/secrets/ifxdev_minio.yaml
-ramp_sqlite_file: &ramp_sqlite_file ./input_files/auto/ramp/RaMP_SQLite_v3.0.12.sqlite
+source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
 resolvers:
-  - label: tcrd_targets
+  - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
-    class: TCRDTargetResolver
+    class: TargetGraphGeneResolver
     kwargs:
-      canonical_type: Protein
-      collapse_reviewed_targets: true
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
-      protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260315.csv
+      file_path: /Users/kelleherkj/Downloads/260506targets/gene_ids.tsv
+      types:
+        - Gene
+
+  - label: tg_proteins
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphProteinResolver
+    kwargs:
+      no_match_behavior: Skip
+      file_paths:
+        - /Users/kelleherkj/Downloads/protein_ids.tsv
+      additional_ids: /Users/kelleherkj/Downloads/uniprotkb_mapping20260507.csv
       types:
         - Protein
-        - Gene
+
+  - label: tg_transcripts
+    import: ./src/id_resolvers/target_graph_resolver.py
+    class: TargetGraphTranscriptResolver
+    kwargs:
+      no_match_behavior: Skip
+      file_path: /Users/kelleherkj/Downloads/260506targets/transcript_ids.tsv
+      types:
         - Transcript
 
 input_adapters:
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
-      collapse_reviewed_targets: true
+      file_path: /Users/kelleherkj/Downloads/protein_ids.tsv
 
-  - import: ./src/input_adapters/surechembl/patent_families.py
-    class: SureChEMBLPatentFamilyAdapter
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: IsoformProteinEdgeAdapter
     kwargs:
-      patents_file_path: ./input_files/auto/surechembl/patents.parquet
-      biomedical_entities_file_path: ./input_files/auto/surechembl/biomedical_entities.parquet
-      biomedical_locations_file_path: ./input_files/auto/surechembl/biomedical_locations.parquet
-      version_file_path: ./input_files/auto/surechembl/surechembl_version.tsv
-      max_location_batches: 200
+      file_path: /Users/kelleherkj/Downloads/protein_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/gene_node.py
+    class: GeneNodeAdapter
+    kwargs:
+      file_path: /Users/kelleherkj/Downloads/260506targets/gene_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/transcript_node.py
+    class: TranscriptNodeAdapter
+    kwargs:
+      file_path: /Users/kelleherkj/Downloads/260506targets/transcript_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
+    class: GeneTranscriptEdgeAdapter
+    kwargs:
+      file_path: /Users/kelleherkj/Downloads/260506targets/transcript_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: TranscriptProteinEdgeAdapter
+    kwargs:
+      file_path: /Users/kelleherkj/Downloads/protein_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: GeneProteinEdgeAdapter
+    kwargs:
+      file_path: /Users/kelleherkj/Downloads/protein_ids.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: test_pharos
-      minio_credentials: *minio_credentials
-    credentials: *destination_credentials
+      database_name: test_target_graph
+    credentials: *source_credentials

@@ -94,7 +94,7 @@ class YearScore:
 
 @dataclass
 @facets(
-    category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "uniprot_canonical"],
+    category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "canonical_isoform_status"],
     numeric_fields=["pm_score", "antibody_count", "novelty"])
 @search(text_fields=["name", "symbol", "preferred_symbol", "description", "gene_name", "uniprot_id", "ensembl_id", "refseq_id", "ncbi_id"])
 class Protein(Audited, Analyte):
@@ -128,7 +128,9 @@ class Protein(Audited, Analyte):
     RefSeq_ID_Provenance: Optional[str] = None
     Uniprot_ID_Provenance: Optional[str] = None
     ensembl_canonical: Optional[str] = None
+    is_canonical: Optional[bool] = None
     uniprot_canonical: Optional[bool] = None
+    canonical_isoform_status: Optional[str] = None
     uniprot_entryType: Optional[str] = None
     mapping_ratio: Optional[float] = None
     protein_name_score: Optional[str] = None

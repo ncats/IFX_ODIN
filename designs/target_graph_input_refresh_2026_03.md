@@ -129,7 +129,7 @@ The currently preferred target graph manual inputs are:
 - `input_files/manual/target_graph/gene_ids.tsv`
 - `input_files/manual/target_graph/protein_ids.tsv`
 - `input_files/manual/target_graph/transcript_ids.tsv`
-- `input_files/manual/target_graph/uniprotkb_mapping_20260315.csv`
+- `input_files/manual/target_graph/uniprotkb_mapping_20260507.csv`
 
 The active TSVs came from:
 - `/Users/kelleherkj/Downloads/260325Targets/`
@@ -163,10 +163,26 @@ This keeps the prior package available for schema checks, regression comparisons
 For the first-pass working config:
 - keep the prior CSV inputs in place for existing YAMLs
 - copy in `gene_ids.tsv`, `protein_ids.tsv`, and `transcript_ids.tsv` alongside them
-- copy the refreshed mapping file as `uniprotkb_mapping_20260315.csv`
+- copy the refreshed mapping file as `uniprotkb_mapping_20260507.csv`
 
 ## Validation Notes
 
 - First-pass validation should use `src/use_cases/working.yaml`.
 - The user will run Snakemake and ETL steps.
 - After the user runs the build, compare target graph node and edge counts plus resolver coverage before promoting config changes into the Pharos YAMLs.
+
+## May 2026 Protein Refresh
+
+The May 2026 target graph protein refresh changed the Pharos-selection contract.
+
+Verified ingest rules:
+- `pharos.yaml` should keep only rows where `is_canonical == True`
+- `target_graph.yaml` should ingest all protein rows
+- `canonical_isoform_status` should be carried onto `Protein` nodes
+- `current_tdls.csv` should expose `canonical_isoform_status`
+- `uniprot_secondaryAccessions` remains part of `protein_ids.tsv` and should continue to feed resolver aliases
+
+As a result:
+- the older `collapse_reviewed_targets` heuristic is retired
+- Pharos protein selection is now a direct `canonical_only` filter
+- full target graph ingest preserves the upstream `canonical`, `isoform`, and `alternate_product` labeling without local collapse logic
