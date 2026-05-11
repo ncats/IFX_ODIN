@@ -14,7 +14,7 @@ rule all:
         "../input_files/manual/target_graph/gene_ids.tsv",
         "../input_files/manual/target_graph/protein_ids.tsv",
         "../input_files/manual/target_graph/transcript_ids.tsv",
-        "../input_files/manual/target_graph/uniprotkb_mapping_20260315.csv",
+        "../input_files/manual/target_graph/uniprotkb_mapping_20260507.csv",
         "../input_files/auto/go/go-basic.json",
         "../input_files/auto/jensenlab/protein_counts.tsv",
         "../input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv",
