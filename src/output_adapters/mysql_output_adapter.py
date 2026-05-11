@@ -29,6 +29,9 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     ETLRun,
     Mondo,
     MondoParent,
+    NcatsDisease,
+    PantherClass,
+    Tissue,
     TinxImportance,
     Uberon,
     UberonParent,
@@ -437,14 +440,102 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         session = self.get_session()
         try:
             self.output_converter.preload_id_mappings(session)
+            self._preload_graph_backed_id_mappings(session)
         finally:
             session.close()
 
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         super().create_or_truncate_datastore(truncate_tables=truncate_tables)
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
-        self.output_converter.preload_id_mappings(self.get_session())
+        session = self.get_session()
+        try:
+            self.output_converter.preload_id_mappings(session)
+            self._preload_graph_backed_id_mappings(session)
+        finally:
+            session.close()
         return True
+
+    def _preload_graph_backed_id_mappings(self, session) -> None:
+        if not isinstance(self.output_converter, TCRDOutputConverter):
+            return
+
+        converter = self.output_converter
+        ncats_mapping = converter.id_mapping.setdefault("ncats_disease", {})
+
+        # Direct MONDO-backed mapping is stable and should always win when available.
+        for disease_id, mondoid in session.query(NcatsDisease.id, NcatsDisease.mondoid).filter(
+            NcatsDisease.mondoid.isnot(None)
+        ):
+            if mondoid:
+                ncats_mapping[mondoid] = disease_id
+
+        # Resume-safe mappings for other generated IDs can come straight from MySQL.
+        converter.id_mapping["tissue"] = {
+            name: tissue_id
+            for tissue_id, name in session.query(Tissue.id, Tissue.name).all()
+            if name
+        }
+        converter.id_mapping["panther_class"] = {
+            pcid: class_id
+            for class_id, pcid in session.query(PantherClass.id, PantherClass.pcid).all()
+            if pcid
+        }
+
+        if self.source_graph_credentials is None or not self.source_graph_database:
+            return
+
+        existing_rows = session.query(
+            NcatsDisease.id,
+            NcatsDisease.name,
+            NcatsDisease.uniprot_description,
+            NcatsDisease.do_description,
+            NcatsDisease.mondo_description,
+            NcatsDisease.mondoid,
+        ).all()
+
+        signature_to_id = {}
+        ambiguous_signatures = set()
+        for row in existing_rows:
+            signature = (
+                row.name,
+                row.uniprot_description,
+                row.do_description,
+                row.mondo_description,
+            )
+            if signature in ambiguous_signatures:
+                continue
+            if signature in signature_to_id and signature_to_id[signature] != row.id:
+                ambiguous_signatures.add(signature)
+                del signature_to_id[signature]
+                continue
+            signature_to_id[signature] = row.id
+
+        adapter = ArangoAdapter(self.source_graph_credentials, self.source_graph_database)
+        disease_rows = adapter.runQuery("""
+            FOR d IN `Disease`
+                RETURN KEEP(d, "id", "name", "uniprot_description", "do_description", "mondo_description")
+        """)
+
+        mapped = 0
+        for row in disease_rows:
+            disease_id = row.get("id")
+            if not disease_id or disease_id in ncats_mapping:
+                continue
+
+            signature = (
+                row.get("name") or disease_id,
+                row.get("uniprot_description"),
+                row.get("do_description"),
+                row.get("mondo_description"),
+            )
+            existing_id = signature_to_id.get(signature)
+            if existing_id is None:
+                continue
+            ncats_mapping[disease_id] = existing_id
+            mapped += 1
+
+        if mapped:
+            print(f"Preloaded {mapped} graph-backed ncats_disease ids for resume safety")
 
     @staticmethod
     def _build_transitive_closure(node_ids, direct_edges):
