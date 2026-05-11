@@ -111,3 +111,19 @@ Validated in the working path:
 Notable downstream behavior:
 - `DiseaseAdapter(associated_only: true)` means the MySQL path only exports diseases that participate in exported associations
 - unresolved TIN-X diseases can remain canonical `DOID:*` diseases; resolved ones typically become `MONDO:*`
+
+## Refresh Failure Mode
+
+Observed during the 2026-05 Jensen refresh:
+- `input_files/auto/jensenlab/disease_textmining_mentions.tsv` contains a small number of extremely large disease rows
+- examples from the refreshed file:
+  - `DOID:4` with about 16.6M PMID tokens
+  - `DOID:7` with about 12.7M PMID tokens
+  - `DOID:77` with about 2.79M PMID tokens
+
+Operational consequence:
+- the direct `TINXImportanceFileAdapter` must stream PMID tokens into sqlite in bounded batches
+- sqlite temp structures for TIN-X importance should spill to disk instead of forcing large in-memory temp storage
+
+Rationale:
+- materializing a whole PMID token set or a whole `(entity, pmid)` tuple list for one oversized row can trigger an OOM kill during `build_tcrd.py`

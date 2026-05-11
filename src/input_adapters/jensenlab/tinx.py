@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
+from typing import Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
 
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
@@ -18,6 +18,7 @@ from src.models.protein import Protein
 class TINXAdapter(InputAdapter):
     progress_every = 1000
     batch_size = 1000
+    _pmid_token_pattern = re.compile(r"\S+")
 
     def __init__(
         self,
@@ -149,6 +150,12 @@ class TINXAdapter(InputAdapter):
             yield batch
 
     def _iter_protein_mentions(self) -> Generator[Tuple[str, Set[str]], None, None]:
+        for protein_id, raw_pmids in self._iter_protein_mention_fields():
+            pmids = self._parse_pmid_field(raw_pmids)
+            if pmids:
+                yield protein_id, pmids
+
+    def _iter_protein_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_proteins: Set[str] = set()
         with open(self.protein_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
             for raw_line in handle:
@@ -158,15 +165,18 @@ class TINXAdapter(InputAdapter):
                 protein_id = row[0].strip()
                 if not protein_id.startswith("ENSP") or protein_id in seen_proteins:
                     continue
-                pmids = self._parse_pmid_field(row[1])
-                if not pmids:
-                    continue
                 seen_proteins.add(protein_id)
-                yield protein_id, pmids
+                yield protein_id, row[1]
                 if self.max_proteins is not None and len(seen_proteins) >= self.max_proteins:
                     break
 
     def _iter_disease_mentions(self) -> Generator[Tuple[str, Set[str]], None, None]:
+        for doid, raw_pmids in self._iter_disease_mention_fields():
+            pmids = self._parse_pmid_field(raw_pmids)
+            if pmids:
+                yield doid, pmids
+
+    def _iter_disease_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_diseases: Set[str] = set()
         with open(self.disease_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
             for raw_line in handle:
@@ -176,11 +186,8 @@ class TINXAdapter(InputAdapter):
                 doid = self._normalize_doid(row[0].strip())
                 if doid is None or doid in seen_diseases:
                     continue
-                pmids = self._parse_pmid_field(row[1])
-                if not pmids:
-                    continue
                 seen_diseases.add(doid)
-                yield doid, pmids
+                yield doid, row[1]
                 if self.max_diseases is not None and len(seen_diseases) >= self.max_diseases:
                     break
 
@@ -198,7 +205,12 @@ class TINXAdapter(InputAdapter):
 
     @staticmethod
     def _parse_pmid_field(raw_pmids: str) -> Set[str]:
-        return {pmid for pmid in raw_pmids.strip().split() if pmid}
+        return {pmid for pmid in TINXAdapter._iter_pmid_tokens(raw_pmids)}
+
+    @classmethod
+    def _iter_pmid_tokens(cls, raw_pmids: str) -> Iterator[str]:
+        for match in cls._pmid_token_pattern.finditer(raw_pmids):
+            yield match.group(0)
 
     @staticmethod
     def _compute_novelty(entity_pmids: Iterable[str], pmid_counts: Dict[str, int]) -> Optional[float]:
@@ -251,7 +263,7 @@ class TINXImportanceFileAdapter(TINXAdapter):
     def _configure_sqlite(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode=OFF")
         conn.execute("PRAGMA synchronous=OFF")
-        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA temp_store=FILE")
         conn.execute("PRAGMA cache_size=-200000")
 
     @staticmethod
@@ -265,28 +277,26 @@ class TINXImportanceFileAdapter(TINXAdapter):
         batch: List[Tuple[str, str]] = []
         loaded_proteins = 0
         total_rows = 0
-        for protein_id, pmids in self._iter_protein_mentions():
+        for protein_id, raw_pmids in self._iter_protein_mention_fields():
             loaded_proteins += 1
-            batch.extend((protein_id, pmid) for pmid in pmids)
-            if len(batch) >= self.sqlite_batch_size:
-                conn.executemany(
-                    "INSERT INTO protein_mentions (protein_id, pmid) VALUES (?, ?)",
-                    batch,
-                )
-                total_rows += len(batch)
-                batch = []
-                conn.commit()
-                print(
-                    f"TIN-X importance: loaded {loaded_proteins} proteins and "
-                    f"{total_rows} protein-pmid rows"
-                )
+            for pmid in self._iter_pmid_tokens(raw_pmids):
+                batch.append((protein_id, pmid))
+                if len(batch) >= self.sqlite_batch_size:
+                    total_rows += self._flush_sqlite_mentions_batch(
+                        conn,
+                        "INSERT INTO protein_mentions (protein_id, pmid) VALUES (?, ?)",
+                        batch,
+                    )
+                    print(
+                        f"TIN-X importance: loaded {loaded_proteins} proteins and "
+                        f"{total_rows} protein-pmid rows"
+                    )
         if batch:
-            conn.executemany(
+            total_rows += self._flush_sqlite_mentions_batch(
+                conn,
                 "INSERT INTO protein_mentions (protein_id, pmid) VALUES (?, ?)",
                 batch,
             )
-            total_rows += len(batch)
-            conn.commit()
         print(
             f"TIN-X importance: finished protein load with {loaded_proteins} proteins "
             f"and {total_rows} protein-pmid rows"
@@ -299,28 +309,26 @@ class TINXImportanceFileAdapter(TINXAdapter):
         batch: List[Tuple[str, str]] = []
         loaded_diseases = 0
         total_rows = 0
-        for doid, pmids in self._iter_disease_mentions():
+        for doid, raw_pmids in self._iter_disease_mention_fields():
             loaded_diseases += 1
-            batch.extend((doid, pmid) for pmid in pmids)
-            if len(batch) >= self.sqlite_batch_size:
-                conn.executemany(
-                    "INSERT INTO disease_mentions (doid, pmid) VALUES (?, ?)",
-                    batch,
-                )
-                total_rows += len(batch)
-                batch = []
-                conn.commit()
-                print(
-                    f"TIN-X importance: loaded {loaded_diseases} diseases and "
-                    f"{total_rows} disease-pmid rows"
-                )
+            for pmid in self._iter_pmid_tokens(raw_pmids):
+                batch.append((doid, pmid))
+                if len(batch) >= self.sqlite_batch_size:
+                    total_rows += self._flush_sqlite_mentions_batch(
+                        conn,
+                        "INSERT INTO disease_mentions (doid, pmid) VALUES (?, ?)",
+                        batch,
+                    )
+                    print(
+                        f"TIN-X importance: loaded {loaded_diseases} diseases and "
+                        f"{total_rows} disease-pmid rows"
+                    )
         if batch:
-            conn.executemany(
+            total_rows += self._flush_sqlite_mentions_batch(
+                conn,
                 "INSERT INTO disease_mentions (doid, pmid) VALUES (?, ?)",
                 batch,
             )
-            total_rows += len(batch)
-            conn.commit()
         print(
             f"TIN-X importance: finished disease load with {loaded_diseases} diseases "
             f"and {total_rows} disease-pmid rows"
@@ -328,6 +336,20 @@ class TINXImportanceFileAdapter(TINXAdapter):
         conn.execute("CREATE INDEX disease_mentions_pmid_idx ON disease_mentions (pmid)")
         conn.execute("CREATE INDEX disease_mentions_doid_idx ON disease_mentions (doid)")
         conn.commit()
+
+    @staticmethod
+    def _flush_sqlite_mentions_batch(
+        conn: sqlite3.Connection,
+        insert_sql: str,
+        batch: List[Tuple[str, str]],
+    ) -> int:
+        if not batch:
+            return 0
+        row_count = len(batch)
+        conn.executemany(insert_sql, batch)
+        batch.clear()
+        conn.commit()
+        return row_count
 
     @staticmethod
     def _build_sqlite_count_tables(conn: sqlite3.Connection) -> None:
