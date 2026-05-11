@@ -118,6 +118,17 @@ class TCRDOutputConverter(SQLOutputConverter):
             "table": 'protein',
             "data": session.query(mysqlProtein.id, mysqlProtein.ifx_id).all()
         }, {
+            "table": 'ncats_disease_mondoid',
+            "data": session.query(NcatsDisease.id, NcatsDisease.mondoid)
+            .filter(NcatsDisease.mondoid.isnot(None))
+            .all()
+        }, {
+            "table": 'tissue',
+            "data": session.query(mysqlTissue.id, mysqlTissue.name).all()
+        }, {
+            "table": 'panther_class',
+            "data": session.query(mysqlPantherClass.id, mysqlPantherClass.pcid).all()
+        }, {
             "table": 'target_by_uniprot',
             "data": session.query(Target.id, mysqlProtein.uniprot)
             .join(T2TC, T2TC.target_id == Target.id)
