@@ -27,6 +27,9 @@ rule all:
         "../input_files/auto/ncbi/gene2pubmed.gz",
         "../input_files/auto/ncbi/generifs_basic.gz",
         "../input_files/auto/ncbi/ncbi_publications_version.tsv",
+        "../input_files/auto/pubtator/gene2pubtator3.gz",
+        "../input_files/auto/pubtator/README.txt",
+        "../input_files/auto/pubtator/pubtator_version.tsv",
         "../input_files/auto/tiga/tiga_gene-trait_stats.tsv",
         "../input_files/auto/tiga/tiga_gene-trait_provenance.tsv",
         "../input_files/auto/tiga/tiga_version.tsv",
@@ -237,6 +240,27 @@ rule download_ncbi_publications:
         download_date=$(date -u +%F)
 
         python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(sys.argv[3],'w').write('version\\tversion_date\\tdownload_date\\n\\t'+version_date+'\\t'+sys.argv[4]+'\\n')" "$gene2pubmed_lm" "$generif_lm" {output[2]} "$download_date"
+        """
+
+rule download_pubtator:
+    output:
+        "../input_files/auto/pubtator/gene2pubtator3.gz",
+        "../input_files/auto/pubtator/README.txt",
+        "../input_files/auto/pubtator/pubtator_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/pubtator
+        gene2pubtator_url='https://ftp.ncbi.nlm.nih.gov/pub/lu/PubTator3/gene2pubtator3.gz'
+        readme_url='https://ftp.ncbi.nlm.nih.gov/pub/lu/PubTator3/README.txt'
+
+        curl -fL -o {output[0]} "$gene2pubtator_url"
+        curl -fL -o {output[1]} "$readme_url"
+
+        gene2pubtator_lm=$(curl -fsI "$gene2pubtator_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        readme_lm=$(curl -fsI "$readme_url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+
+        python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(sys.argv[3],'w').write('version\\tversion_date\\tdownload_date\\n'+'gene2pubtator3.gz'+'\\t'+version_date+'\\t'+sys.argv[4]+'\\n')" "$gene2pubtator_lm" "$readme_lm" {output[2]} "$download_date"
         """
 
 rule download_tiga:

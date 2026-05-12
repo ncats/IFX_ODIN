@@ -23,7 +23,7 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 
 | Concept | Data Sources (→ graph) | Arango Type | MySQL Tables (graph → TCRD)                                                                                 |
 |---------|-----------------------|-------------|-------------------------------------------------------------------------------------------------------------|
-| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] SureChEMBL *(patent_family_mentions)*<br>[x] TIN-X *(novelty)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore`<br>[x] `patent_count` |
+| **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab *(pm_score)*<br>[x] PubTator *(pt_score)*<br>[x] SureChEMBL *(patent_family_mentions)*<br>[x] TIN-X *(novelty)*<br>[x] Antibodypedia *(antibody_count)*<br>[x] old Pharos MySQL *(idg_family)* | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore`<br>[x] `ptscore`<br>[x] `patent_count` |
 | **Publications** | [x] NCBI `gene2pubmed.gz` *(gene-native, retyped/merged onto Protein in `pharos.yaml`)*<br>[x] NCBI `generifs_basic.gz` *(GeneRIF-enriched NCBI publication rows)*<br>[x] JensenLab text mining mentions | `publications` property on `Gene` / `Protein` | [x] `protein2pubmed`<br>[x] `generif`<br>[x] `generif2pubmed` |
 | **Tissue** | [x] Uberon OBO | `Tissue` | [x] `uberon`                                                                                                |
 | **TissueParentEdge** | [x] Uberon OBO | `TissueParentEdge` | [x] `uberon_parent`                                                                                         |
@@ -79,7 +79,6 @@ These tables are populated directly from ontology source files during the TCRD b
 - maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
 ### New Concepts
-- Other Publication Statistics (PubTator)
 - P-HIPSTer Viral PPIs
 - Nearest Tclin (computed from graph)
 

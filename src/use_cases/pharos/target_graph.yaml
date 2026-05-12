@@ -344,6 +344,13 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/jensenlab/protein_counts.tsv
 
+  - import: ./src/input_adapters/pubtator/publication_statistics.py
+    class: PubTatorPublicationStatisticsAdapter
+    kwargs:
+      gene2pubtator3_file_path: ./input_files/auto/pubtator/gene2pubtator3.gz
+      version_file_path: ./input_files/auto/pubtator/pubtator_version.tsv
+    credentials: ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
+
   - import: ./src/input_adapters/jensenlab/tinx.py
     class: TINXAdapter
     kwargs:

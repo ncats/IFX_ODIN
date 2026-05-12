@@ -1,6 +1,6 @@
 destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos_write_credentials.yaml
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-source_database: &source_database pharos
+source_database: &source_database test_pharos
 legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/pharos_credentials.yaml
 
 resolvers:
@@ -33,21 +33,6 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: DiseaseAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      associated_only: false
-
-  # Direct source-file TIN-X importance load for working MySQL validation.
-  - import: ./src/input_adapters/jensenlab/tinx.py
-    class: TINXImportanceFileAdapter
-    kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
-      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py

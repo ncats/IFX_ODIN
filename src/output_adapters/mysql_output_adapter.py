@@ -511,6 +511,8 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
             signature_to_id[signature] = row.id
 
         adapter = ArangoAdapter(self.source_graph_credentials, self.source_graph_database)
+        if not adapter.get_db().has_collection("Disease"):
+            return
         disease_rows = adapter.runQuery("""
             FOR d IN `Disease`
                 RETURN KEEP(d, "id", "name", "uniprot_description", "do_description", "mondo_description")
