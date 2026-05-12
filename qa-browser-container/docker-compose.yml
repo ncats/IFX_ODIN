@@ -9,6 +9,12 @@ services:
     volumes:
       - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
       - ../input_files:/app/input_files
+    environment:
+      QA_BROWSER_JIRA_URL: "https://ncats-nih.atlassian.net"
+      QA_BROWSER_JIRA_USER: ""
+      QA_BROWSER_JIRA_API_TOKEN: ""
+      QA_BROWSER_JIRA_PROJECT_KEY: "ODIN"
+      QA_BROWSER_JIRA_ISSUE_TYPE: "Task"
     command:
       - python
       - -m
