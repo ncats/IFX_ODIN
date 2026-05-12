@@ -245,27 +245,7 @@ def _format_elapsed(started_at: Optional[str], finished_at: Optional[str] = None
     return _format_duration_seconds(max((end_dt - start_dt).total_seconds(), 0))
 
 
-def _get_build_status(db) -> Optional[dict]:
-    if not db.has_collection("metadata_store"):
-        return None
-    try:
-        cursor = db.aql.execute("""
-            FOR d IN metadata_store
-                FILTER d.type == "etl_checkpoint"
-                SORT d.last_updated DESC
-                RETURN d
-        """)
-        checkpoints = list(cursor)
-    except Exception:
-        return None
-
-    if not checkpoints:
-        return None
-
-    active = next((doc for doc in checkpoints if any(
-        meta.get("status") == "running" for meta in (doc.get("adapters") or {}).values()
-    )), None)
-    checkpoint = active or checkpoints[0]
+def _summarize_checkpoint(checkpoint: dict) -> dict:
     adapters = checkpoint.get("adapters") or {}
     rows = []
     completed = 0
@@ -306,6 +286,51 @@ def _get_build_status(db) -> Optional[dict]:
     if not total:
         total = len(rows)
 
+    run_id = checkpoint.get("run_id")
+    run_name = (run_id or checkpoint.get("_key") or "Unknown run").split("/")[-1]
+    run_name = run_name.replace(".yaml", "").replace("_", " ")
+
+    return {
+        "run_id": run_id,
+        "run_label": run_name,
+        "last_updated": checkpoint.get("last_updated"),
+        "adapters": rows,
+        "completed": completed,
+        "running": running,
+        "failed": failed,
+        "known_total": total,
+        "seen_total": len(rows),
+        "total_records": total_records,
+        "is_active": running > 0,
+        "status": (
+            "failed" if failed > 0 else
+            "running" if running > 0 else
+            "completed" if completed > 0 and completed >= total else
+            "partial" if completed > 0 else
+            "unknown"
+        ),
+    }
+
+
+def _get_build_status(db) -> Optional[dict]:
+    if not db.has_collection("metadata_store"):
+        return None
+    try:
+        cursor = db.aql.execute("""
+            FOR d IN metadata_store
+                FILTER d.type == "etl_checkpoint"
+                SORT d.last_updated DESC
+                RETURN d
+        """)
+        checkpoints = list(cursor)
+    except Exception:
+        return None
+
+    if not checkpoints:
+        return None
+
+    run_summaries = [_summarize_checkpoint(checkpoint) for checkpoint in checkpoints]
+
     etl_meta = None
     try:
         cursor = db.aql.execute('RETURN DOCUMENT("metadata_store", "etl_metadata").value')
@@ -315,41 +340,52 @@ def _get_build_status(db) -> Optional[dict]:
     except Exception:
         etl_meta = None
 
-    checkpoint_updated_dt = _parse_iso_datetime(checkpoint.get("last_updated"))
+    latest_checkpoint = checkpoints[0]
+    checkpoint_updated_dt = _parse_iso_datetime(latest_checkpoint.get("last_updated"))
     etl_run_dt = _parse_iso_datetime((etl_meta or {}).get("run_date"))
+    any_failed = any(summary["failed"] > 0 for summary in run_summaries)
+    any_running = any(summary["running"] > 0 for summary in run_summaries)
+    any_partial = any(
+        summary["completed"] > 0 and summary["completed"] < summary["known_total"]
+        for summary in run_summaries
+    )
+    all_complete = bool(run_summaries) and all(
+        summary["completed"] >= summary["known_total"] and summary["known_total"] > 0
+        for summary in run_summaries
+    )
 
-    if failed > 0:
+    if any_failed:
         overall_status = "failed"
-        overall_message = "One or more adapters failed."
-    elif running > 0:
+        overall_message = "One or more ETL runs have failed adapters."
+    elif any_running:
         overall_status = "running"
-        overall_message = "Adapters are still running."
-    elif completed > 0 and completed >= total:
+        overall_message = "One or more ETL runs are still running."
+    elif all_complete:
         if etl_run_dt and (checkpoint_updated_dt is None or etl_run_dt >= checkpoint_updated_dt):
             overall_status = "completed"
             overall_message = "ETL and post-processing completed."
         else:
             overall_status = "post_processing"
             overall_message = "Adapters completed. Post-processing or cleanup is still running."
-    elif completed > 0:
+    elif any_partial:
         overall_status = "partial"
-        overall_message = "Some adapters completed, but the build is not finished."
+        overall_message = "Some ETL runs are only partially complete."
     else:
         overall_status = "unknown"
         overall_message = "Build state is not yet clear from metadata."
 
     return {
-        "run_id": checkpoint.get("run_id"),
-        "last_updated": checkpoint.get("last_updated"),
+        "run_id": latest_checkpoint.get("run_id"),
+        "last_updated": latest_checkpoint.get("last_updated"),
         "etl_run_date": (etl_meta or {}).get("run_date"),
-        "adapters": rows,
-        "completed": completed,
-        "running": running,
-        "failed": failed,
-        "known_total": total,
-        "seen_total": len(rows),
-        "total_records": total_records,
-        "is_active": running > 0,
+        "runs": run_summaries,
+        "completed": sum(summary["completed"] for summary in run_summaries),
+        "running": sum(summary["running"] for summary in run_summaries),
+        "failed": sum(summary["failed"] for summary in run_summaries),
+        "known_total": sum(summary["known_total"] for summary in run_summaries),
+        "seen_total": sum(summary["seen_total"] for summary in run_summaries),
+        "total_records": sum(summary["total_records"] for summary in run_summaries),
+        "is_active": any_running,
         "overall_status": overall_status,
         "overall_message": overall_message,
     }

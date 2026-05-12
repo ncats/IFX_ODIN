@@ -29,7 +29,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
     Tiga as mysqlTiga, TigaProvenance, TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
-    Ortholog as mysqlOrtholog, PatentCount,
+    Ortholog as mysqlOrtholog, PatentCount, Ptscore,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -49,7 +49,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
                       self.protein_alias_converter, self.protein_xref_converter, self.tdl_info_converter,
-                      self.pmscore_converter, self.patent_count_converter, self.generif_from_publications_converter,
+                      self.pmscore_converter, self.ptscore_converter, self.patent_count_converter, self.generif_from_publications_converter,
                       self.generif_assoc_from_publications_converter, self.p2p_from_publications_converter],
             # GeneRif
             GeneGeneRifEdge: [self.generif_converter, self.generif_assoc_converter, self.p2p_converter],
@@ -200,6 +200,13 @@ class TCRDOutputConverter(SQLOutputConverter):
                 protein_id=self.resolve_id('protein', obj['id']),
                 number_value=pm_score
             ))
+        if obj.get('pt_score') and len(obj['pt_score']) > 0:
+            pt_score = max([float(p) for p in obj['pt_score']])
+            tdl_infos.append(TDL_info(
+                itype="PubTator Score",
+                protein_id=self.resolve_id('protein', obj['id']),
+                number_value=pt_score
+            ))
         if obj.get('patent_family_mentions') and len(obj['patent_family_mentions']) > 0:
             unique_families = {
                 parsed[1]
@@ -253,6 +260,23 @@ class TCRDOutputConverter(SQLOutputConverter):
                     score=float(score),
                 )
                 )
+        return rows
+
+    def ptscore_converter(self, obj: dict) -> List[Ptscore]:
+        protein_id = self.resolve_id('protein', obj['id'])
+        rows = []
+        for entry in obj.get('pt_score_by_year') or []:
+            year = entry.get('year')
+            score = entry.get('score')
+            if year is None or score is None:
+                continue
+            rows.append(
+                Ptscore(
+                    protein_id=protein_id,
+                    year=int(year),
+                    score=float(score),
+                )
+            )
         return rows
 
     def patent_count_converter(self, obj: dict) -> List[PatentCount]:

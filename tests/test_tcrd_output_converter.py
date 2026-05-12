@@ -6,6 +6,9 @@ class _FakeQuery:
     def __init__(self, rows):
         self._rows = rows
 
+    def filter(self, *_args, **_kwargs):
+        return self
+
     def join(self, *_args, **_kwargs):
         return self
 
@@ -28,7 +31,13 @@ class _FakeSession:
             return _FakeQuery([
                 (77, "LIGAND:EXISTING"),
             ])
+        if key == ("id", "name"):
+            return _FakeQuery([])
+        if key == ("id", "pcid"):
+            return _FakeQuery([])
         if key == ("name",):
+            return _FakeQuery([])
+        if key == ("id", "mondoid"):
             return _FakeQuery([])
         if key == ("mondoid",):
             return _FakeQuery([])
@@ -84,6 +93,20 @@ def test_tdl_info_converter_emits_surechembl_patent_family_total():
     assert patent_rows[0].integer_value == 2
 
 
+def test_tdl_info_converter_emits_pubtator_score():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.tdl_info_converter({
+        "id": "IFX123",
+        "pt_score": [4.25],
+    })
+
+    by_type = {row.itype: row for row in rows}
+    assert by_type["PubTator Score"].protein_id == 123
+    assert by_type["PubTator Score"].number_value == 4.25
+
+
 def test_patent_count_converter_groups_unique_families_by_year():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}
@@ -101,6 +124,24 @@ def test_patent_count_converter_groups_unique_families_by_year():
     assert [(row.protein_id, row.year, row.count) for row in rows] == [
         (123, 2020, 2),
         (123, 2021, 1),
+    ]
+
+
+def test_ptscore_converter_emits_yearly_rows():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.ptscore_converter({
+        "id": "IFX123",
+        "pt_score_by_year": [
+            {"year": 2020, "score": 1.5},
+            {"year": 2021, "score": 2.0},
+        ],
+    })
+
+    assert [(row.protein_id, row.year, float(row.score)) for row in rows] == [
+        (123, 2020, 1.5),
+        (123, 2021, 2.0),
     ]
 
 

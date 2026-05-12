@@ -44,6 +44,7 @@ class DataSourceName(SimpleEnum):
     Antibodypedia = "Antibodypedia.com"
     IUPHAR = "IUPHAR/BPS Guide to PHARMACOLOGY"
     NCBI = "NCBI"
+    PubTator = "PubTator"
     OldPharos = "Pharos 3.19"
     UniProt = "UniProt"
     Dummy = "Dummy DataSource"

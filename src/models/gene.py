@@ -6,6 +6,7 @@ from src.core.decorators import facets, search
 from src.interfaces.simple_enum import SimpleEnum
 from src.models.node import Node, Relationship
 from src.models.publication import PublicationReference
+from src.models.year_score import YearScore
 
 
 class Strand(SimpleEnum):
@@ -71,6 +72,8 @@ class Audited:
 class Gene(Audited, Node):
     location: Optional[GeneticLocation] = None
     publications: Optional[List[PublicationReference]] = None
+    pt_score: Optional[List[float]] = None
+    pt_score_by_year: Optional[List[YearScore]] = None
     mapping_ratio: Optional[float] = None
     symbol: Optional[str] = None
     biotype: Optional[str] = None

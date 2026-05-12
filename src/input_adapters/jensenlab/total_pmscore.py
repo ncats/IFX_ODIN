@@ -6,7 +6,8 @@ from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
-from src.models.protein import Protein, YearScore
+from src.models.protein import Protein
+from src.models.year_score import YearScore
 
 
 class TotalPMScoreAdapter(InputAdapter):
