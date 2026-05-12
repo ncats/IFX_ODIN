@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 import tempfile
+import time
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
@@ -236,7 +237,11 @@ class TINXAdapter(InputAdapter):
 
 
 class TINXImportanceFileAdapter(TINXAdapter):
+    batch_size = 100_000
     sqlite_batch_size = 100_000
+    sqlite_stage_disease_batch_size = 500
+    sqlite_progress_opcode_interval = 1_000_000
+    sqlite_progress_log_interval_seconds = 300.0
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         temp_db_path = None
@@ -249,9 +254,10 @@ class TINXImportanceFileAdapter(TINXAdapter):
             conn = sqlite3.connect(temp_db_path)
             self._configure_sqlite(conn)
             self._create_sqlite_tables(conn)
-            self._load_protein_mentions_into_sqlite(conn)
-            self._load_disease_mentions_into_sqlite(conn)
-            self._build_sqlite_count_tables(conn)
+            self._time_sqlite_phase("protein load", self._load_protein_mentions_into_sqlite, conn)
+            self._time_sqlite_phase("disease load", self._load_disease_mentions_into_sqlite, conn)
+            self._time_sqlite_phase("PMID count build", self._build_sqlite_count_tables, conn)
+            self._time_sqlite_phase("importance-stage build", self._build_importance_stage_table, conn)
             yield from self._yield_importance_edges(conn)
         finally:
             if conn is not None:
@@ -370,59 +376,135 @@ class TINXImportanceFileAdapter(TINXAdapter):
         conn.execute("CREATE UNIQUE INDEX pmid_disease_count_idx ON pmid_disease_count (pmid)")
         conn.commit()
 
-    def _yield_importance_edges(self, conn: sqlite3.Connection) -> Generator[List[TINXImportanceEdge], None, None]:
-        print("TIN-X importance: emitting importance edges")
-        disease_cursor = conn.execute("SELECT DISTINCT doid FROM disease_mentions ORDER BY doid")
-        batch: List[TINXImportanceEdge] = []
-        pair_count = 0
-        processed_diseases = 0
-        for (doid,) in disease_cursor:
-            rows = conn.execute(
-                """
+    @staticmethod
+    def _time_sqlite_phase(label: str, fn, conn: sqlite3.Connection) -> None:
+        start = time.monotonic()
+        fn(conn)
+        elapsed = time.monotonic() - start
+        print(f"TIN-X importance: {label} completed in {elapsed:.1f}s")
+
+    @staticmethod
+    def _build_importance_stage_table(conn: sqlite3.Connection) -> None:
+        print("TIN-X importance: building importance stage table")
+        conn.execute("""
+            CREATE TABLE tinx_importance_stage (
+                doid TEXT NOT NULL,
+                protein_id TEXT NOT NULL,
+                importance REAL NOT NULL
+            )
+        """)
+        conn.commit()
+
+        all_doids = [row[0] for row in conn.execute("SELECT DISTINCT doid FROM disease_mentions ORDER BY doid")]
+        total_diseases = len(all_doids)
+        if total_diseases == 0:
+            return
+
+        batch_size = TINXImportanceFileAdapter.sqlite_stage_disease_batch_size
+        total_batches = (total_diseases + batch_size - 1) // batch_size
+        started_at = time.monotonic()
+        stage_rows_total = 0
+
+        for batch_index, offset in enumerate(range(0, total_diseases, batch_size), start=1):
+            disease_batch = all_doids[offset:offset + batch_size]
+            placeholders = ", ".join("?" for _ in disease_batch)
+            before_changes = conn.total_changes
+            conn.execute(
+                f"""
+                INSERT INTO tinx_importance_stage (doid, protein_id, importance)
                 SELECT
-                    pm.protein_id,
+                    dm.doid AS doid,
+                    pm.protein_id AS protein_id,
                     SUM(1.0 / (ppc.n * dpc.n)) AS importance
                 FROM disease_mentions dm
                 JOIN protein_mentions pm ON pm.pmid = dm.pmid
                 JOIN pmid_protein_count ppc ON ppc.pmid = dm.pmid
                 JOIN pmid_disease_count dpc ON dpc.pmid = dm.pmid
-                WHERE dm.doid = ?
-                GROUP BY pm.protein_id
+                WHERE dm.doid IN ({placeholders})
+                GROUP BY dm.doid, pm.protein_id
                 HAVING importance > 0
                 """,
-                (doid,),
+                disease_batch,
             )
-            for protein_id, importance in rows:
-                batch.append(
-                    TINXImportanceEdge(
-                        start_node=Protein(id=EquivalentId(id=protein_id, type=Prefix.ENSEMBL).id_str()),
-                        end_node=Disease(id=doid),
-                        details=[
-                            DiseaseAssociationDetail(
-                                source="TIN-X",
-                                source_id=doid,
-                                doid=doid,
-                                importance=[float(importance)],
-                            )
-                        ],
-                    )
-                )
-                pair_count += 1
-                if len(batch) >= self.batch_size:
+            conn.commit()
+            inserted_rows = conn.total_changes - before_changes
+            stage_rows_total += inserted_rows
+            elapsed = time.monotonic() - started_at
+            processed_diseases = min(offset + batch_size, total_diseases)
+            print(
+                f"TIN-X importance: stage batch {batch_index}/{total_batches} committed "
+                f"({processed_diseases}/{total_diseases} diseases, "
+                f"{stage_rows_total} stage rows, +{inserted_rows} this batch, {elapsed:.1f}s elapsed)"
+            )
+
+        print("TIN-X importance: building stage-table index")
+        started_at = time.monotonic()
+        progress_state = {"last_log_at": started_at}
+
+        def progress_handler() -> int:
+            now = time.monotonic()
+            if now - progress_state["last_log_at"] >= TINXImportanceFileAdapter.sqlite_progress_log_interval_seconds:
+                elapsed = now - started_at
+                print(f"TIN-X importance: stage-table index build still running after {elapsed:.1f}s")
+                progress_state["last_log_at"] = now
+            return 0
+
+        conn.set_progress_handler(
+            progress_handler,
+            TINXImportanceFileAdapter.sqlite_progress_opcode_interval,
+        )
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX tinx_importance_stage_idx "
+                "ON tinx_importance_stage (doid, protein_id)"
+            )
+        finally:
+            conn.set_progress_handler(None, 0)
+        conn.commit()
+
+    def _yield_importance_edges(self, conn: sqlite3.Connection) -> Generator[List[TINXImportanceEdge], None, None]:
+        print("TIN-X importance: streaming importance edges from stage table")
+        start = time.monotonic()
+        row_cursor = conn.execute("""
+            SELECT doid, protein_id, importance
+            FROM tinx_importance_stage
+            ORDER BY doid, protein_id
+        """)
+        batch: List[TINXImportanceEdge] = []
+        pair_count = 0
+        processed_diseases = 0
+        last_doid = None
+        for doid, protein_id, importance in row_cursor:
+            if doid != last_doid:
+                processed_diseases += 1
+                last_doid = doid
+                if processed_diseases % self.progress_every == 0:
                     print(
-                        f"TIN-X importance: yielding {len(batch)} edges "
-                        f"after {processed_diseases + 1} diseases and {pair_count} total pairs"
+                        f"TIN-X importance: streamed {processed_diseases} diseases "
+                        f"and emitted {pair_count} total pairs"
                     )
-                    yield batch
-                    batch = []
-                if self.max_pairs is not None and pair_count >= self.max_pairs:
-                    break
-            processed_diseases += 1
-            if processed_diseases % self.progress_every == 0:
-                print(
-                    f"TIN-X importance: processed {processed_diseases} diseases "
-                    f"and emitted {pair_count} total pairs"
+            batch.append(
+                TINXImportanceEdge(
+                    start_node=Protein(id=EquivalentId(id=protein_id, type=Prefix.ENSEMBL).id_str()),
+                    end_node=Disease(id=doid),
+                    details=[
+                        DiseaseAssociationDetail(
+                            source="TIN-X",
+                            source_id=doid,
+                            doid=doid,
+                            importance=[float(importance)],
+                        )
+                    ],
                 )
+            )
+            pair_count += 1
+            if len(batch) >= self.batch_size:
+                print(
+                    f"TIN-X importance: yielding {len(batch)} staged edges "
+                    f"after {processed_diseases} diseases and {pair_count} total pairs"
+                )
+                yield batch
+                batch = []
             if self.max_pairs is not None and pair_count >= self.max_pairs:
                 break
         if batch:
@@ -431,3 +513,5 @@ class TINXImportanceFileAdapter(TINXAdapter):
                 f"after {processed_diseases} diseases and {pair_count} total pairs"
             )
             yield batch
+        elapsed = time.monotonic() - start
+        print(f"TIN-X importance: stage streaming completed in {elapsed:.1f}s")
