@@ -48,6 +48,7 @@ class PubTatorPublicationStatisticsAdapter(InputAdapter, MySqlAdapter):
         current_gene_counts: Counter[int] = Counter()
         processed_rows = 0
 
+        csv.field_size_limit(10_000_000)
         with gzip.open(self.gene2pubtator3_file_path, "rt", encoding="utf-8", newline="") as handle:
             reader = csv.reader(handle, delimiter="\t")
             for row in reader:
