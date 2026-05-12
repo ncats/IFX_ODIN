@@ -8,8 +8,8 @@ from src.core.validator import AllowedValuesValidator, ConditionalRequiredMapKey
 from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook, StatsResultsWorkbook
 from src.input_adapters.pounce_sheets.parsed_classes import (
     ParsedBiosample, ParsedBiospecimen, ParsedExperiment, ParsedExposure,
-    ParsedGene, ParsedMetab, ParsedPeakDataMeta, ParsedProject, ParsedRawDataMeta,
-    ParsedRunBiosample, ParsedStatsResultsMeta,
+    ParsedGene, ParsedMetab, ParsedPeakDataMeta, ParsedProject, ParsedProtein,
+    ParsedProteinDataMeta, ParsedRawDataMeta, ParsedRunBiosample, ParsedStatsResultsMeta,
 )
 from src.input_adapters.pounce_sheets.sheet_field import get_sheet_fields
 
@@ -22,8 +22,10 @@ _ENTITY_CLASSES = [
     ("exposures", ParsedExposure),
     ("experiments", ParsedExperiment),
     ("genes", ParsedGene),
+    ("proteins", ParsedProtein),
     ("metabolites", ParsedMetab),
     ("peak_data_meta", ParsedPeakDataMeta),
+    ("protein_data_meta", ParsedProteinDataMeta),
     ("raw_data_meta", ParsedRawDataMeta),
     ("run_biosamples", ParsedRunBiosample),
     ("stats_results", ParsedStatsResultsMeta),

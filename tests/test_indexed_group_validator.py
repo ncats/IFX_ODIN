@@ -246,3 +246,7 @@ class TestLoadValidatorsMapSheets:
         assert isinstance(validator, RequiredMapKeyValidator)
         assert validator.sheet == "ProteinMap"
         assert validator.field == "protein_id"
+
+    def test_full_pounce_validator_config_loads(self):
+        validators = load_validators("src/use_cases/pounce/pounce_validators.yaml")
+        assert validators
