@@ -42,6 +42,7 @@ _MAP_SHEETS: set = {
     ExperimentWorkbook.RunBioSampleMapSheet.name,
     ExperimentWorkbook.MetabMapSheet.name,
     ExperimentWorkbook.GeneMapSheet.name,
+    ExperimentWorkbook.ProteinMapSheet.name,
     StatsResultsWorkbook.EffectSizeMapSheet.name,
 }
 

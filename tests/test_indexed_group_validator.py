@@ -1,7 +1,7 @@
-"""Tests for IndexedGroupValidator and the indexed_group YAML loader."""
+"""Tests for map-sheet validators and the indexed_group YAML loader."""
 
 import pytest
-from src.core.validator import IndexedGroupValidator
+from src.core.validator import IndexedGroupValidator, RequiredMapKeyValidator
 from src.input_adapters.pounce_sheets.validator_loader import load_validators
 from src.input_adapters.pounce_sheets.parsed_pounce_data import ParsedPounceData
 
@@ -230,3 +230,19 @@ class TestLoadValidatorsIndexedGroup:
             "exposure1_category": "DrugCat",
         })
         assert v.validate(data) == []
+
+
+class TestLoadValidatorsMapSheets:
+
+    def test_protein_map_required_uses_map_key_validator(self):
+        config = {
+            "ProteinMap": {
+                "required": ["protein_id"],
+            }
+        }
+        validators = load_validators(config)
+        assert len(validators) == 1
+        validator = validators[0]
+        assert isinstance(validator, RequiredMapKeyValidator)
+        assert validator.sheet == "ProteinMap"
+        assert validator.field == "protein_id"
