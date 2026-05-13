@@ -4,9 +4,11 @@ import pandas as pd
 from datetime import date
 from unittest.mock import MagicMock
 
+from src.input_adapters.pounce_sheets.validator_loader import load_validators
 from src.input_adapters.excel_sheet_adapter import ExcelsheetParser
 from src.input_adapters.pounce_sheets.pounce_parser import PounceParser
 from src.input_adapters.pounce_sheets.parsed_classes import ParsedPerson
+from src.models.pounce.project import ProjectType
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +411,22 @@ class TestParseProject:
         parser = _make_project_parser({"project_type": ["Transcriptomics"]})
         data, _ = PounceParser().parse_project(parser)
         assert data.project.project_type == ["Transcriptomics"]
+
+    def test_project_type_validator_allows_new_exposure_characterization_value(self):
+        parser = _make_project_parser({"project_type": ["Drug or other Exposure Characterization"]})
+        data, _ = PounceParser().parse_project(parser)
+        validators = load_validators("src/use_cases/pounce/pounce_validators.yaml")
+
+        project_type_validator = next(
+            validator
+            for validator in validators
+            if validator.sheet == "ProjectMeta" and validator.column == "project_type"
+        )
+
+        assert project_type_validator.validate(data) == []
+        assert ProjectType.parse("Drug or other Exposure Characterization") is (
+            ProjectType.DRUG_OR_OTHER_EXPOSURE_CHARACTERIZATION
+        )
 
     def test_rd_tag_yes_is_true(self):
         parser = _make_project_parser({"RD_tag": "yes"})

@@ -118,6 +118,9 @@ Provide a repeatable workflow for adding a new data source to the target graph i
       - Any data quality issues encountered and how they were handled
       - Follow-up scope intentionally deferred from the first pass
     - Include the exact validation steps and comparison points used to accept the ingest.
+    - Keep the final design doc concise and end-state focused.
+    - Document where the implementation landed, not every exploratory branch or wrong turn from development.
+    - If investigation notes are worth keeping, summarize only the conclusions that materially explain the final design.
 
 14) **Update the playbook with reusable lessons learned**
    - After the ingest is working, capture any lessons that would help future ingests in the `Lessons Learned` section of this playbook.

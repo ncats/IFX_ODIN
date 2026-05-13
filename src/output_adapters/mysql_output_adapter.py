@@ -558,6 +558,16 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
             signature_to_id[signature] = row.id
 
         adapter = ArangoAdapter(self.source_graph_credentials, self.source_graph_database)
+        if adapter.get_db().has_collection("VirusViralProteinEdge"):
+            converter.id_mapping["viral_protein_to_virus"] = {
+                row["start_id"]: row["end_id"].split(":", 1)[1]
+                for row in adapter.runQuery("""
+                    FOR rel IN `VirusViralProteinEdge`
+                        RETURN KEEP(rel, "start_id", "end_id")
+                """)
+                if row.get("start_id") and row.get("end_id")
+            }
+
         if not adapter.get_db().has_collection("Disease"):
             return
         disease_rows = adapter.runQuery("""

@@ -20,6 +20,7 @@ from src.models.mouse_phenotype import OrthologGeneMousePhenotypeEdge, ProteinMo
 from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOTerm, DOTermParentEdge
 from src.models.tissue import Tissue, TissueParentEdge
 from src.models.ortholog import OrthologGene, ProteinOrthologGeneEdge
+from src.models.virus import Virus, ViralPPIDetail, ViralPPIEdge, ViralProtein
 from src.input_adapters.shared.hcop import HCOP_TAXID_TO_SPECIES
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DrgcResource as mysqlDrgcResource, Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
@@ -29,7 +30,8 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     NcatsDisease, NcatsD2DA, Pathway as mysqlPathway, PantherClass as mysqlPantherClass, P2PC, PPI as mysqlPPI,
     Tiga as mysqlTiga, TigaProvenance, TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
-    Ortholog as mysqlOrtholog, PatentCount, Ptscore,
+    Ortholog as mysqlOrtholog, PatentCount, Ptscore, Virus as mysqlVirus, ViralProtein as mysqlViralProtein,
+    ViralPPI as mysqlViralPPI,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -89,6 +91,10 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinPathwayEdge: [self.pathway_converter],
             # PPI
             PPIEdge: [self.ppi_converter],
+            # Viral PPI
+            Virus: [self.virus_converter],
+            ViralProtein: [self.viral_protein_converter],
+            ViralPPIEdge: [self.viral_ppi_converter],
             # Panther
             PantherClass: [self.panther_class_converter],
             ProteinPantherClassEdge: [self.p2pc_converter],
@@ -1181,6 +1187,83 @@ class TCRDOutputConverter(SQLOutputConverter):
                 **shared,
             ),
         ]
+
+    # --- Viral PPI ---
+
+    @staticmethod
+    def _viral_protein_pk(graph_id: str) -> int:
+        return int(graph_id.rsplit(":", 1)[1])
+
+    @staticmethod
+    def _virus_taxid(graph_id: str) -> str:
+        return graph_id.split(":", 1)[1]
+
+    def virus_converter(self, obj: dict) -> mysqlVirus:
+        return mysqlVirus(
+            virusTaxid=self._virus_taxid(obj["id"]),
+            nucleic1=obj.get("nucleic1"),
+            nucleic2=obj.get("nucleic2"),
+            order=obj.get("order"),
+            family=obj.get("family"),
+            subfamily=obj.get("subfamily"),
+            genus=obj.get("genus"),
+            species=obj.get("species"),
+            name=obj.get("name"),
+        )
+
+    def viral_protein_converter(self, obj: dict) -> mysqlViralProtein:
+        viral_protein_to_virus = self.id_mapping.get("viral_protein_to_virus", {})
+        return mysqlViralProtein(
+            id=self._viral_protein_pk(obj["id"]),
+            name=obj.get("name"),
+            ncbi=obj.get("ncbi"),
+            virus_id=viral_protein_to_virus.get(obj["id"]),
+        )
+
+    @staticmethod
+    def _viral_ppi_details(obj: dict) -> List[ViralPPIDetail]:
+        details = obj.get("details") or []
+        if details:
+            return [ViralPPIDetail.from_dict(detail) for detail in details]
+
+        # Backward-compatible fallback for older graph builds before PHIPSTER details
+        legacy_source = obj.get("data_source")
+        legacy_final_lr = obj.get("final_lr")
+        legacy_pdb_ids = obj.get("pdb_ids") or []
+        legacy_high_confidence = obj.get("high_confidence")
+        if (
+            legacy_source is None
+            and legacy_final_lr is None
+            and not legacy_pdb_ids
+            and legacy_high_confidence is None
+        ):
+            return []
+        return [
+            ViralPPIDetail(
+                source=legacy_source,
+                source_protein_id=obj.get("start_id"),
+                final_lr=legacy_final_lr,
+                pdb_ids=legacy_pdb_ids,
+                high_confidence=legacy_high_confidence,
+            )
+        ]
+
+    def viral_ppi_converter(self, obj: dict) -> List[mysqlViralPPI]:
+        protein_id = self.resolve_id("protein", obj["start_id"])
+        viral_protein_id = self._viral_protein_pk(obj["end_id"])
+        rows = []
+        for detail in self._viral_ppi_details(obj):
+            rows.append(
+                mysqlViralPPI(
+                    viral_protein_id=viral_protein_id,
+                    protein_id=protein_id,
+                    dataSource=detail.source or self._ppi_source_label(obj.get("provenance")),
+                    finalLR=detail.final_lr,
+                    pdbIDs=self._join_list(detail.pdb_ids),
+                    highConfidence=detail.high_confidence,
+                )
+            )
+        return rows
 
     # --- Panther ---
 

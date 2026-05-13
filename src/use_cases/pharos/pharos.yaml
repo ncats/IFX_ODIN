@@ -1,4 +1,5 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/pharos_credentials.yaml
 pchembl_cutoff: &pchembl_cutoff 5
 
 resolvers:
@@ -158,6 +159,10 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
+
+  - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
+    class: PHIPSTERLegacyLiftAdapter
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/hcop/orthologs.py
     class: HCOPOrthologAdapter
@@ -330,7 +335,7 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
-    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
@@ -444,15 +449,15 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassAdapter
-    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassParentEdgeAdapter
-    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: ProteinDTOClassAdapter
-    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
+    credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/surechembl/patent_families.py
     class: SureChEMBLPatentFamilyAdapter

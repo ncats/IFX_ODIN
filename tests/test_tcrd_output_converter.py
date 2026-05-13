@@ -586,6 +586,82 @@ def test_ppi_converter_maps_reactome_pmids_and_interaction_type_downstream():
     assert all(row.interaction_type == "physical association" for row in rows)
 
 
+def test_virus_converter_maps_graph_node_to_legacy_virus_row():
+    converter = TCRDOutputConverter()
+
+    row = converter.virus_converter({
+        "id": "NCBITaxon:1006008",
+        "nucleic1": "RNA",
+        "nucleic2": "ssRNA(+)",
+        "order": "Picornavirales",
+        "family": "Picornaviridae",
+        "subfamily": None,
+        "genus": "Enterovirus",
+        "species": "Enterovirus A",
+        "name": "Human enterovirus 71 HZ08/Hangzhou/2008",
+    })
+
+    assert row.virusTaxid == "1006008"
+    assert row.family == "Picornaviridae"
+    assert row.name == "Human enterovirus 71 HZ08/Hangzhou/2008"
+
+
+def test_viral_protein_converter_uses_preloaded_graph_edge_map_for_virus_id():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["viral_protein_to_virus"] = {
+        "PHIPSTER.ViralProtein:15": "1006008",
+    }
+
+    row = converter.viral_protein_converter({
+        "id": "PHIPSTER.ViralProtein:15",
+        "name": "full_polyprotein 1..2193",
+        "ncbi": "AEB71507.1",
+    })
+
+    assert row.id == 15
+    assert row.name == "full_polyprotein 1..2193"
+    assert row.ncbi == "AEB71507.1"
+    assert row.virus_id == "1006008"
+
+
+def test_viral_ppi_converter_round_trips_list_pdb_ids_to_legacy_scalar_column():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"UniProtKB:P19320": 123}
+
+    rows = converter.viral_ppi_converter({
+        "start_id": "UniProtKB:P19320",
+        "end_id": "PHIPSTER.ViralProtein:15",
+        "details": [
+            {
+                "source": "P-HIPSTer",
+                "source_protein_id": "UniProtKB:P19320",
+                "final_lr": 128.345190881009,
+                "pdb_ids": ["1z7z:3I(0.09,0.19,19/20,12,14)"],
+                "high_confidence": False,
+            },
+            {
+                "source": "P-HIPSTer",
+                "source_protein_id": "UniProtKB:P19320",
+                "final_lr": 408.948397259193,
+                "pdb_ids": [],
+                "high_confidence": True,
+            },
+        ],
+        "provenance": "P-HIPSTer\toriginal paper\t2019-09-05\t2026-05-13",
+    })
+
+    assert len(rows) == 2
+    assert rows[0].viral_protein_id == 15
+    assert rows[0].protein_id == 123
+    assert rows[0].dataSource == "P-HIPSTer"
+    assert rows[0].finalLR == 128.345190881009
+    assert rows[0].pdbIDs == "1z7z:3I(0.09,0.19,19/20,12,14)"
+    assert rows[0].highConfidence is False
+    assert rows[1].finalLR == 408.948397259193
+    assert rows[1].pdbIDs is None
+    assert rows[1].highConfidence is True
+
+
 def test_gtex_converter_branches_gtex_details_from_shared_expression_edge():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}
