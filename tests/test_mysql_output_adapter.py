@@ -1,4 +1,4 @@
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from datetime import datetime
 
 from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
@@ -142,6 +142,75 @@ def test_mysql_output_adapter_store_inserts_in_chunks():
 
     assert [len(rows) for _, rows in fake_session.executed] == [3, 1, 2]
     assert fake_session.commit_calls == 3
+
+
+def test_mysql_output_adapter_retries_disconnect_with_smaller_chunks():
+    credentials = DBCredentials(
+        url="localhost",
+        user="tester",
+        password="secret",
+        schema=None,
+    )
+    adapter = MySQLOutputAdapter(
+        credentials=credentials,
+        database_name="pharos400",
+        truncate_tables=False,
+    )
+    adapter.conversion_chunk_size = 10
+    adapter.insert_batch_size = 10
+    adapter.min_insert_batch_size = 1
+
+    class FakeConverter:
+        def get_object_converters(self, _obj_cls):
+            return lambda obj: AutoIncNode(identifier=obj["id"], value="demo")
+
+    class FakeSession:
+        def __init__(self, controller):
+            self.controller = controller
+
+        def execute(self, stmt, rows):
+            self.controller["executed"].append((stmt, rows))
+            if len(rows) > 2:
+                raise OperationalError(
+                    "stmt",
+                    rows,
+                    Exception(2013, "Lost connection to MySQL server during query ([Errno 110] Connection timed out)"),
+                )
+
+        def commit(self):
+            self.controller["commit_calls"] += 1
+
+        def rollback(self):
+            self.controller["rollback_calls"] += 1
+
+        def close(self):
+            self.controller["close_calls"] += 1
+
+    controller = {
+        "executed": [],
+        "commit_calls": 0,
+        "rollback_calls": 0,
+        "close_calls": 0,
+    }
+
+    adapter.output_converter = FakeConverter()
+    adapter.get_session = lambda: FakeSession(controller)
+    adapter.sort_and_convert_objects = lambda _objects, keep_nested_objects=True: {
+        "AutoIncNode": (
+            [{"id": "one"}, {"id": "two"}, {"id": "three"}, {"id": "four"}, {"id": "five"}],
+            ["AutoIncNode"],
+            False,
+            None,
+            None,
+            object,
+        )
+    }
+
+    adapter.store(["unused"])
+
+    assert [len(rows) for _, rows in controller["executed"]] == [5, 2, 2, 1]
+    assert controller["commit_calls"] == 3
+    assert controller["rollback_calls"] == 1
 
 
 def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
