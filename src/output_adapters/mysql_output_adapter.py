@@ -7,7 +7,7 @@ from src.interfaces.metadata import DatabaseMetadata, get_git_metadata
 from sqlalchemy import case, func
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -45,9 +45,15 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     output_converter: SQLOutputConverter
     conversion_chunk_size: int = 500
     insert_batch_size: int = 100_000
+    min_insert_batch_size: int = 100
     adapter_run_model = None
 
-    def __init__(self, credentials: DBCredentials, database_name: str, truncate_tables: bool = True):
+    def __init__(
+        self,
+        credentials: DBCredentials,
+        database_name: str,
+        truncate_tables: bool = True,
+    ):
         self.database_name = database_name
         self.truncate_tables = truncate_tables
         self._current_run_id = None
@@ -116,6 +122,57 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
     def _chunked(items, chunk_size: int):
         for index in range(0, len(items), chunk_size):
             yield items[index:index + chunk_size]
+
+    @staticmethod
+    def _is_retryable_disconnect_error(exc: Exception) -> bool:
+        if not isinstance(exc, OperationalError):
+            return False
+
+        message = str(exc).lower()
+        if "lost connection to mysql server during query" in message:
+            return True
+        if "server has gone away" in message:
+            return True
+        if "connection timed out" in message:
+            return True
+
+        orig = getattr(exc, "orig", None)
+        args = getattr(orig, "args", ())
+        code = args[0] if args else None
+        return code in {2006, 2013}
+
+    def _execute_insert_chunk(self, stmt, table_class, rows, stats, retry_depth: int = 0):
+        session = self.get_session()
+        try:
+            insert_start = datetime.now()
+            session.execute(stmt, rows)
+            session.commit()
+            if stats is not None:
+                stats["insert_seconds"] += (datetime.now() - insert_start).total_seconds()
+                stats["inserted_row_count"] += len(rows)
+            return
+        except Exception as exc:
+            session.rollback()
+            if self._is_fk_integrity_error(exc):
+                self._diagnose_fk_batch_failure(table_class, rows)
+            if self._is_retryable_disconnect_error(exc) and len(rows) > self.min_insert_batch_size:
+                next_chunk_size = max(self.min_insert_batch_size, len(rows) // 2)
+                print(
+                    f"Retryable MySQL insert failure for {table_class.__name__} "
+                    f"with {len(rows)} rows; retrying in chunks of {next_chunk_size}"
+                )
+                for row_chunk in self._chunked(rows, next_chunk_size):
+                    self._execute_insert_chunk(
+                        stmt,
+                        table_class,
+                        row_chunk,
+                        stats,
+                        retry_depth=retry_depth + 1,
+                    )
+                return
+            raise
+        finally:
+            session.close()
 
     @staticmethod
     def _new_adapter_stats() -> dict:
@@ -220,8 +277,6 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
             stats["input_object_count"] += len(objects)
 
         object_groups = self.sort_and_convert_objects(objects, keep_nested_objects=True)
-        session = self.get_session()
-
         try:
             for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
                 converters = self.output_converter.get_object_converters(obj_cls)
@@ -273,18 +328,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                         inserted_count += len(rows)
 
                         for row_chunk in self._chunked(rows, self.insert_batch_size):
-                            insert_start = datetime.now()
-                            try:
-                                session.execute(stmt, row_chunk)
-                                session.commit()
-                                if stats is not None:
-                                    stats["insert_seconds"] += (datetime.now() - insert_start).total_seconds()
-                                    stats["inserted_row_count"] += len(row_chunk)
-                            except Exception as e:
-                                session.rollback()
-                                if self._is_fk_integrity_error(e):
-                                    self._diagnose_fk_batch_failure(table_class, row_chunk)
-                                raise
+                            self._execute_insert_chunk(stmt, table_class, row_chunk, stats)
 
                     if table_class is None:
                         continue
@@ -296,14 +340,12 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
             return True
 
         except Exception as e:
-            session.rollback()
             print("Error during insert:", e)
             raise
 
         finally:
             if stats is not None:
                 stats["total_store_seconds"] += (datetime.now() - store_start).total_seconds()
-            session.close()
 
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         effective_truncate = self.truncate_tables if truncate_tables is None else truncate_tables
@@ -431,7 +473,12 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         source_graph_credentials: DBCredentials | dict | None = None,
         source_graph_database: str | None = None,
     ):
-        MySQLOutputAdapter.__init__(self, credentials, database_name, truncate_tables=truncate_tables)
+        MySQLOutputAdapter.__init__(
+            self,
+            credentials,
+            database_name,
+            truncate_tables=truncate_tables,
+        )
         self.output_converter = TCRDOutputConverter()
         self.source_graph_credentials = self._coerce_db_credentials(source_graph_credentials)
         self.source_graph_database = source_graph_database
