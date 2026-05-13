@@ -27,120 +27,120 @@ resolvers:
         - Gene
         - Transcript
 
-  - label: hcop_ortholog_genes
-    import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
-    class: HCOPOrthologGeneResolver
-    kwargs:
-      file_path: ./input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz
-      accepted_species:
-        - "9598"
-        - "9544"
-        - "10090"
-        - "10116"
-        - "9615"
-        - "9796"
-        - "9913"
-        - "9823"
-        - "13616"
-        - "9258"
-        - "9031"
-        - "28377"
-        - "8364"
-        - "7955"
-        - "6239"
-        - "7227"
-        - "4932"
-      drop_blank_ortholog_identity: true
-      types:
-        - OrthologGene
-
-  - label: tissue_ids
-    import: ./src/id_resolvers/tissue_resolver.py
-    class: TissueResolver
-    kwargs:
-      file_path: ./input_files/auto/uberon/uberon.obo
-      valid_ontologies:
-        - FMA
-        - EMAPA
-        - MA
-        - UMLS
-        - NCIT
-        - ZFA
-        - BTO
-        - CLDB
-        - EHDAA2
-        - BAMS
-        - neuronames
-        - VHOG
-        - MESH
-        - BIRNLEX
-        - TAO
-        - EHDAA
-        - GAID
-        - DHBA
-        - CALOHA
-        - EFO
-        - XAO
-        - HBA
-        - OpenCyc
-        - MBA
-        - galen
-        - FBbt
-        - GC_ID
-        - EV
-        - DMBA
-        - BM
-        - MAT
-        - MIAA
-        - NLXANAT
-        - VSAO
-        - AEO
-        - RETIRED_EHDAA2
-        - KUPO
-        - Wikipedia
-        - NLX
-        - ZFS
-        - UBERONTEMP
-        - UBERON
-        - TGMA
-        - TE
-        - TADS
-        - STID
-        - SPD
-        - SCTID
-        - SAO
-        - PHENOSCAPE
-        - PBA
-        - OGES
-        - OGEM
-        - NOID
-        - NIFSTD
-        - MURDOCH
-        - MPATH
-        - MP
-        - MFMO
-        - MAP
-        - ISBN
-        - HAO
-        - GOC
-        - GO
-        - FMAID
-        - FAO
-        - EVM
-        - ENVO
-        - EMAPS
-        - EHDA
-        - CP
-        - CL
-        - CARO
-        - BSA
-        - BILS
-        - BILA
-        - ANISEED
-        - ABA
-        - AAO
-      types:
-        - Tissue
+#  - label: hcop_ortholog_genes
+#    import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
+#    class: HCOPOrthologGeneResolver
+#    kwargs:
+#      file_path: ./input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz
+#      accepted_species:
+#        - "9598"
+#        - "9544"
+#        - "10090"
+#        - "10116"
+#        - "9615"
+#        - "9796"
+#        - "9913"
+#        - "9823"
+#        - "13616"
+#        - "9258"
+#        - "9031"
+#        - "28377"
+#        - "8364"
+#        - "7955"
+#        - "6239"
+#        - "7227"
+#        - "4932"
+#      drop_blank_ortholog_identity: true
+#      types:
+#        - OrthologGene
+#
+#  - label: tissue_ids
+#    import: ./src/id_resolvers/tissue_resolver.py
+#    class: TissueResolver
+#    kwargs:
+#      file_path: ./input_files/auto/uberon/uberon.obo
+#      valid_ontologies:
+#        - FMA
+#        - EMAPA
+#        - MA
+#        - UMLS
+#        - NCIT
+#        - ZFA
+#        - BTO
+#        - CLDB
+#        - EHDAA2
+#        - BAMS
+#        - neuronames
+#        - VHOG
+#        - MESH
+#        - BIRNLEX
+#        - TAO
+#        - EHDAA
+#        - GAID
+#        - DHBA
+#        - CALOHA
+#        - EFO
+#        - XAO
+#        - HBA
+#        - OpenCyc
+#        - MBA
+#        - galen
+#        - FBbt
+#        - GC_ID
+#        - EV
+#        - DMBA
+#        - BM
+#        - MAT
+#        - MIAA
+#        - NLXANAT
+#        - VSAO
+#        - AEO
+#        - RETIRED_EHDAA2
+#        - KUPO
+#        - Wikipedia
+#        - NLX
+#        - ZFS
+#        - UBERONTEMP
+#        - UBERON
+#        - TGMA
+#        - TE
+#        - TADS
+#        - STID
+#        - SPD
+#        - SCTID
+#        - SAO
+#        - PHENOSCAPE
+#        - PBA
+#        - OGES
+#        - OGEM
+#        - NOID
+#        - NIFSTD
+#        - MURDOCH
+#        - MPATH
+#        - MP
+#        - MFMO
+#        - MAP
+#        - ISBN
+#        - HAO
+#        - GOC
+#        - GO
+#        - FMAID
+#        - FAO
+#        - EVM
+#        - ENVO
+#        - EMAPS
+#        - EHDA
+#        - CP
+#        - CL
+#        - CARO
+#        - BSA
+#        - BILS
+#        - BILA
+#        - ANISEED
+#        - ABA
+#        - AAO
+#      types:
+#        - Tissue
 
 input_adapters:
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
@@ -149,13 +149,9 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
 
-  - import: ./src/input_adapters/pubtator/publication_statistics.py
-    class: PubTatorPublicationStatisticsAdapter
-    kwargs:
-      gene2pubtator3_file_path: ./input_files/auto/pubtator/gene2pubtator3.gz
-      version_file_path: ./input_files/auto/pubtator/pubtator_version.tsv
-      max_rows: 100000
-    credentials: ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
+  - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
+    class: PHIPSTERLegacyLiftAdapter
+    credentials: ./src/use_cases/secrets/pharos_credentials.yaml
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
