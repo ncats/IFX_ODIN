@@ -216,6 +216,29 @@
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 0.9rem;
     }
+    .nested-card-grid-three-up {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.9rem;
+    }
+    .nested-card-grid-two-up {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.9rem;
+    }
+    @media (max-width: 1180px) {
+        .nested-card-grid-three-up {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .nested-card-grid-two-up {
+            grid-template-columns: 1fr;
+        }
+    }
+    @media (max-width: 760px) {
+        .nested-card-grid-three-up {
+            grid-template-columns: 1fr;
+        }
+    }
     .nested-card {
         padding: 0.95rem 1rem;
         border: 1px solid var(--border);
@@ -551,6 +574,21 @@
         color: var(--text-muted);
         white-space: nowrap;
     }
+    .resolver-miss-badge {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 0.45rem;
+        padding: 0.18rem 0.45rem;
+        border-radius: 999px;
+        border: 1px solid rgba(180, 35, 24, 0.22);
+        background: rgba(180, 35, 24, 0.08);
+        color: #b42318;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
 </style>
 {% endblock %}
 
@@ -579,6 +617,11 @@
         </svg>
     </a>
 </span>
+{%- endmacro %}
+{% macro resolver_miss_badge(doc) -%}
+{%- if doc and doc.get("resolver_miss") is sameas true -%}
+<span class="resolver-miss-badge">Resolver Miss</span>
+{%- endif -%}
 {%- endmacro %}
 <div class="case-shell">
     <script>
@@ -789,6 +832,83 @@
                         <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
                     </details>
                     {% endfor %}
+                    {% endif %}
+                    {% if perinatal_context_doc %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12h14"></path>
+                                    <path d="M12 5v14"></path>
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                </svg>
+                            </div>
+                            <h5>Perinatal Context</h5>
+                            {{ node_doc_link("PerinatalContext", perinatal_context_doc._key, "Perinatal Context") }}
+                        </div>
+                        {% if perinatal_context_scalar_fields or perinatal_context_list_fields %}
+                        <div class="field-list">
+                            {% for key, val in perinatal_context_scalar_fields %}
+                            {% if key not in ['id', 'resolved_ids', '_id', '_key', '_rev', 'fetal_findings_details'] and val is not none %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                    {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% for key, val in perinatal_context_list_fields %}
+                            {% if key not in ['resolved_ids', '_id', '_key', '_rev', 'fetal_findings_details'] and val %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val">
+                                    {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if perinatal_context_nested_fields %}
+                        {% for key, val in perinatal_context_nested_fields %}
+                        <details style="margin-top:0.8rem">
+                            <summary>{{ key }}</summary>
+                            <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                        </details>
+                        {% endfor %}
+                        {% endif %}
+                        {% if perinatal_context_phenotype_cards %}
+                        <div class="mini-card">
+                            <div class="mini-card-header">
+                                <h5>Fetal Findings</h5>
+                            </div>
+                            <div class="nested-card-grid-two-up">
+                                {% for phenotype in perinatal_context_phenotype_cards %}
+                                <div class="nested-card">
+                                    <div class="nested-card-header">
+                                        <div>
+                                            <h4 class="nested-card-title">
+                                                {{ phenotype.phenotype_doc.name or phenotype.phenotype_doc.id or phenotype.phenotype_doc._key }}
+                                                {% if phenotype.phenotype_doc.id %}
+                                                <span class="case-id">({{ phenotype.phenotype_doc.id }})</span>
+                                                {% endif %}
+                                                {{ resolver_miss_badge(phenotype.phenotype_doc) }}
+                                            </h4>
+                                        </div>
+                                        <div class="nested-card-badges">
+                                            {{ node_doc_link("Phenotype", phenotype.phenotype_doc._key) }}
+                                            {% if phenotype.edge_doc and phenotype.edge_doc._key %}
+                                            {{ node_doc_link("PerinatalContextPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                     {% endif %}
                     {% if background_context_doc %}
                     <div class="mini-card">
@@ -1013,8 +1133,19 @@
                     {% for condition in presentation_condition_cards %}
                     <div class="pill-card">
                         <div class="pill-card-header">
-                            <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
-                            {{ node_doc_link("Condition", condition.condition_doc._key) }}
+                            <p class="pill-card-title">
+                                {{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}
+                                {% if condition.condition_doc.id %}
+                                <span class="case-id">({{ condition.condition_doc.id }})</span>
+                                {% endif %}
+                                {{ resolver_miss_badge(condition.condition_doc) }}
+                            </p>
+                            <div class="nested-card-badges">
+                                {{ node_doc_link("Condition", condition.condition_doc._key) }}
+                                {% if condition.condition_edge_doc and condition.condition_edge_doc._key %}
+                                {{ node_doc_link("PresentationConditionEdge", condition.condition_edge_doc._key, "Edge") }}
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
@@ -1023,7 +1154,7 @@
             {% endif %}
         </div>
 
-        {% if grouped_presentation_finding_cards %}
+        {% if grouped_presentation_phenotype_cards %}
         <div class="subcard">
             <div class="subcard-header">
                 <div class="subcard-icon" aria-hidden="true">
@@ -1033,46 +1164,55 @@
                         <circle cx="12" cy="12" r="9"></circle>
                     </svg>
                 </div>
-                <h3>Findings</h3>
+                <h3>Phenotypes (i.e. Findings)</h3>
             </div>
             <div class="stacked-card">
-                {% for finding_group in grouped_presentation_finding_cards %}
+                {% for phenotype_group in grouped_presentation_phenotype_cards %}
                 <div class="nested-card">
                     <div class="nested-card-header">
                         <div>
-                            <h4 class="nested-card-title">{{ finding_group.group_name }}</h4>
+                            <h4 class="nested-card-title">{{ phenotype_group.group_name }}</h4>
                         </div>
                     </div>
-                    <div class="nested-card-grid">
-                        {% for finding in finding_group.cards %}
+                    <div class="nested-card-grid-three-up">
+                        {% for phenotype in phenotype_group.cards %}
                         <div class="nested-card">
                             <div class="nested-card-header">
                                 <div>
-                                    <h4 class="nested-card-title">{{ finding.finding_doc.name or finding.finding_doc.text or finding.finding_doc.id or finding.finding_doc._key }}</h4>
+                                    <h4 class="nested-card-title">
+                                        {{ phenotype.phenotype_doc.name or phenotype.phenotype_doc.text or phenotype.phenotype_doc.id or phenotype.phenotype_doc._key }}
+                                        {% if phenotype.phenotype_doc.id %}
+                                        <span class="case-id">({{ phenotype.phenotype_doc.id }})</span>
+                                        {% endif %}
+                                        {{ resolver_miss_badge(phenotype.phenotype_doc) }}
+                                    </h4>
                                 </div>
                                 <div class="nested-card-badges">
-                                    {{ node_doc_link("Finding", finding.finding_doc._key) }}
+                                    {{ node_doc_link("Phenotype", phenotype.phenotype_doc._key) }}
+                                    {% if phenotype.edge_doc and phenotype.edge_doc._key %}
+                                    {{ node_doc_link("PresentationPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
+                                    {% endif %}
                                 </div>
                             </div>
-                            {% if finding.finding_doc.label or finding.finding_doc.selected is not none or finding.finding_doc.default is not none %}
+                            {% if phenotype.edge_doc.label or phenotype.edge_doc.selected is not none or phenotype.edge_doc.default is not none %}
                             <p class="nested-card-blurb">
-                                {% if finding.finding_doc.label %}
-                                <span class="tag">label: {{ finding.finding_doc.label }}</span>
+                                {% if phenotype.edge_doc.label %}
+                                <span class="tag">label: {{ phenotype.edge_doc.label }}</span>
                                 {% endif %}
-                                {% if finding.finding_doc.selected is sameas true %}
+                                {% if phenotype.edge_doc.selected is sameas true %}
                                 <span class="tag">selected</span>
                                 {% endif %}
-                                {% if finding.finding_doc.default is sameas true %}
+                                {% if phenotype.edge_doc.default is sameas true %}
                                 <span class="tag">default group</span>
                                 {% endif %}
                             </p>
                             {% endif %}
-                            {% if finding.finding_doc.text %}
-                            <p class="nested-card-blurb">{{ finding.finding_doc.text }}</p>
+                            {% if phenotype.edge_doc.text %}
+                            <p class="nested-card-blurb">{{ phenotype.edge_doc.text }}</p>
                             {% endif %}
                             <div class="field-list">
-                                {% for key, val in finding.scalar_fields %}
-                                {% if key not in ['id', '_id', '_key', '_rev', 'name', 'group', 'label', 'text', 'raw_text', 'selected', 'default'] %}
+                                {% for key, val in phenotype.scalar_fields %}
+                                {% if key not in ['id', '_id', '_key', '_rev', 'name'] %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
                                     <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
@@ -1081,7 +1221,27 @@
                                 </div>
                                 {% endif %}
                                 {% endfor %}
-                                {% for key, val in finding.list_fields %}
+                                {% for key, val in phenotype.edge_scalar_fields %}
+                                {% if key not in ['id', '_id', '_key', '_rev', 'start_id', 'end_id', 'group', 'label', 'text', 'raw_text', 'selected', 'default'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in phenotype.list_fields %}
+                                {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val">
+                                        {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in phenotype.edge_list_fields %}
                                 {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
@@ -1092,8 +1252,16 @@
                                 {% endif %}
                                 {% endfor %}
                             </div>
-                            {% if finding.nested_fields %}
-                            {% for key, val in finding.nested_fields %}
+                            {% if phenotype.nested_fields %}
+                            {% for key, val in phenotype.nested_fields %}
+                            <details style="margin-top:0.8rem">
+                                <summary>{{ key }}</summary>
+                                <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                            </details>
+                            {% endfor %}
+                            {% endif %}
+                            {% if phenotype.edge_nested_fields %}
+                            {% for key, val in phenotype.edge_nested_fields %}
                             <details style="margin-top:0.8rem">
                                 <summary>{{ key }}</summary>
                                 <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>

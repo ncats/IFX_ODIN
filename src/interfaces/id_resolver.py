@@ -213,7 +213,10 @@ class IdResolver(ABC):
                     match_map[key] = value
 
         if self.no_match_behavior == NoMatchBehavior.Allow:
-            unmatched_map = {k: [v] for k, v in entity_map[IdResolver.MatchKeys.unmatched].items()}
+            unmatched_map = {}
+            for k, v in entity_map[IdResolver.MatchKeys.unmatched].items():
+                v.resolver_miss = True
+                unmatched_map[k] = [v]
             for key, value in unmatched_map.items():
                 if key in match_map:
                     match_map[key].extend(value)
@@ -240,6 +243,8 @@ class IdResolver(ABC):
         if self.no_match_behavior == NoMatchBehavior.Skip:
             print(f"skipping {len(unmatched_entries)} unmatched ids - no_match_behavior = 'Skip'")
         elif self.no_match_behavior == NoMatchBehavior.Allow:
+            for entry in unmatched_entries:
+                entry.resolver_miss = True
             matched_entries.extend(unmatched_entries)
             print(f"passing along {len(unmatched_entries)} unmatched ids - no_match_behavior = 'Allow'")
         elif self.no_match_behavior == NoMatchBehavior.Error:

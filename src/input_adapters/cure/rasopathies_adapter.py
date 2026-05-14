@@ -6,7 +6,12 @@ from typing import Dict, Generator, List, Union
 from src.constants import DataSourceName
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.cure.pasc.condition import Condition
-from src.models.cure.rasopathies.finding import Finding, PresentationFindingEdge
+from src.models.cure.rasopathies.perinatal_context import (
+    PerinatalContext,
+    PatientPerinatalContextEdge,
+    PerinatalContextPhenotypeEdge,
+)
+from src.models.cure.rasopathies.phenotype import Phenotype, PresentationPhenotypeEdge
 from src.models.cure.rasopathies.presentation import (
     CaseReportPresentationEdge,
     Presentation,
@@ -22,7 +27,6 @@ from src.models.node import Node, Relationship
 class RasopathiesAdapter(FlatFileAdapter):
     def __init__(self, file_path: str):
         super().__init__(file_path=file_path)
-        self._emitted_condition_ids: set[str] = set()
         self._finding_group_lookup, self._finding_default_lookup = self._load_finding_group_lookup()
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
@@ -48,9 +52,6 @@ class RasopathiesAdapter(FlatFileAdapter):
 
                 condition = self._build_condition(row)
                 if condition is not None:
-                    if condition.id not in self._emitted_condition_ids:
-                        batch.append(condition)
-                        self._emitted_condition_ids.add(condition.id)
                     batch.append(
                         PresentationConditionEdge(
                             start_node=presentation,
@@ -58,13 +59,9 @@ class RasopathiesAdapter(FlatFileAdapter):
                         )
                     )
 
-                for finding in self._build_findings(row, case_report.id):
+                for finding, finding_edge in self._build_findings(row, case_report.id, presentation):
                     batch.extend([
-                        finding,
-                        PresentationFindingEdge(
-                            start_node=presentation,
-                            end_node=finding,
-                        ),
+                        finding_edge,
                     ])
 
                 patient = self._build_patient(row, case_report.id)
@@ -76,6 +73,20 @@ class RasopathiesAdapter(FlatFileAdapter):
                             end_node=patient,
                         ),
                     ])
+                    perinatal_context = self._build_perinatal_context(row, case_report.id)
+                    if perinatal_context is not None:
+                        batch.extend([
+                            perinatal_context,
+                            PatientPerinatalContextEdge(
+                                start_node=patient,
+                                end_node=perinatal_context,
+                            ),
+                        ])
+                        for fetal_phenotype, fetal_edge in self._build_fetal_finding_phenotypes(row, perinatal_context):
+                            batch.extend([
+                                fetal_phenotype,
+                                fetal_edge,
+                            ])
 
                 reporter = self._build_reporter(row, case_report.id)
                 if reporter is not None:
@@ -129,23 +140,14 @@ class RasopathiesAdapter(FlatFileAdapter):
     def _build_condition(self, row: dict) -> Condition | None:
         disease = (row.get("report") or {}).get("disease") or {}
         disease_name = self._normalize_optional_string(disease.get("name"))
-        disease_slug = self._normalize_optional_string(disease.get("url_name"))
-        disease_source_id = disease.get("id")
-        if disease_name is None and disease_slug is None and disease_source_id is None:
+        if disease_name is None:
             return None
-        condition_id = (
-            f"CURE-ID:Condition:{disease_source_id}"
-            if disease_source_id is not None
-            else f"CURE-ID:Condition:rasopathies:{self._slugify(disease_name or disease_slug or 'unknown')}"
-        )
         return Condition(
-            id=condition_id,
+            id=disease_name,
             name=disease_name,
-            slug=disease_slug,
-            source_id=disease_source_id,
         )
 
-    def _build_findings(self, row: dict, case_report_id: str) -> List[Finding]:
+    def _build_findings(self, row: dict, case_report_id: str, presentation: Presentation) -> List[tuple[Phenotype, PresentationPhenotypeEdge]]:
         findings = []
         raw_findings = (row.get("report") or {}).get("findings") or []
         if not isinstance(raw_findings, list):
@@ -167,19 +169,22 @@ class RasopathiesAdapter(FlatFileAdapter):
                 default = self._finding_default_lookup.get(raw_value)
 
             split_values = self._split_other_finding_values(raw_value, text, label)
-            for split_index, split_value in enumerate(split_values):
-                findings.append(
-                    Finding(
-                        id=f"{case_report_id}:presentation:finding:{index}:{split_index}",
-                        name=split_value,
-                        group=group,
-                        label=label,
-                        text=None if split_value == raw_value else split_value,
-                        raw_text=text if split_value != raw_value else None,
-                        selected=selected if isinstance(selected, bool) else None,
-                        default=default if isinstance(default, bool) else None,
-                    )
+            for split_value in split_values:
+                phenotype = Phenotype(
+                    id=split_value,
+                    name=split_value,
                 )
+                edge = PresentationPhenotypeEdge(
+                    start_node=presentation,
+                    end_node=phenotype,
+                    group=group,
+                    label=label,
+                    text=None if split_value == raw_value else split_value,
+                    raw_text=text if split_value != raw_value else None,
+                    selected=selected if isinstance(selected, bool) else None,
+                    default=default if isinstance(default, bool) else None,
+                )
+                findings.append((phenotype, edge))
         return findings
 
     def _build_patient(self, row: dict, case_report_id: str) -> Patient | None:
@@ -217,6 +222,37 @@ class RasopathiesAdapter(FlatFileAdapter):
             is_superuser=author.get("is_superuser"),
         )
 
+    def _build_perinatal_context(self, row: dict, case_report_id: str) -> PerinatalContext | None:
+        report = row.get("report") or {}
+        premature_birth = self._normalize_optional_string(report.get("premature_birth"))
+        fetal_findings = self._extract_value_list(report.get("fetal_findings"))
+        fetal_findings_details = self._extract_value_list(report.get("fetal_findings_details"))
+        if premature_birth is None and not fetal_findings and not fetal_findings_details:
+            return None
+        return PerinatalContext(
+            id=f"{case_report_id}:perinatal-context",
+            premature_birth=premature_birth,
+            fetal_findings=fetal_findings,
+            fetal_findings_details=fetal_findings_details,
+        )
+
+    def _build_fetal_finding_phenotypes(self, row: dict, perinatal_context: PerinatalContext) -> List[tuple[Phenotype, PerinatalContextPhenotypeEdge]]:
+        report = row.get("report") or {}
+        phenotypes = []
+        for value in self._extract_value_list(report.get("fetal_findings_details")):
+            phenotype = Phenotype(
+                id=value,
+                name=value,
+            )
+            phenotypes.append((
+                phenotype,
+                PerinatalContextPhenotypeEdge(
+                    start_node=perinatal_context,
+                    end_node=phenotype,
+                )
+            ))
+        return phenotypes
+
     @staticmethod
     def _normalize_optional_string(value):
         if value is None:
@@ -247,10 +283,6 @@ class RasopathiesAdapter(FlatFileAdapter):
             return None
         normalized = value.replace("Z", "+00:00")
         return datetime.fromisoformat(normalized).astimezone(timezone.utc).replace(tzinfo=None)
-
-    @staticmethod
-    def _slugify(value: str) -> str:
-        return value.lower().replace(" ", "-").replace("/", "-").replace(":", "").replace(",", "")
 
     @staticmethod
     def _split_other_finding_values(raw_value, text, label) -> List[str]:
