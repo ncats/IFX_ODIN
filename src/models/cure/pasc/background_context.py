@@ -4,7 +4,7 @@ from typing import Optional
 from src.core.decorators import facets
 from src.models.cure.pasc.condition import Condition
 from src.models.cure.pasc.exposure import Exposure
-from src.models.cure.pasc.person import Person
+from src.models.cure.shared.patient import Patient
 from src.models.node import Node, Relationship
 
 
@@ -16,7 +16,7 @@ class BackgroundContext(Node):
 
 @dataclass
 class PersonBackgroundContextEdge(Relationship):
-    start_node: Person = None
+    start_node: Patient = None
     end_node: BackgroundContext = None
 
 

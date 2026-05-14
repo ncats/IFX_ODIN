@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from src.core.decorators import facets
 from src.models.cure.pasc.condition import Condition
-from src.models.cure.pasc.person import Person
+from src.models.cure.shared.patient import Patient
 from src.models.node import Node, Relationship
 
 
@@ -28,7 +28,7 @@ class Episode(Node):
 
 @dataclass
 class PersonEpisodeEdge(Relationship):
-    start_node: Person = None
+    start_node: Patient = None
     end_node: Episode = None
 
 

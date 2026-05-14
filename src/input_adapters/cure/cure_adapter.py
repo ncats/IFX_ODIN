@@ -12,14 +12,15 @@ from src.models.cure.pasc.background_context import (
     BackgroundContextExposureEdge,
     PersonBackgroundContextEdge,
 )
-from src.models.cure.pasc.case_report import CaseReport
+from src.models.cure.shared.case_report import CaseReport
 from src.models.cure.pasc.condition import Condition
 from src.models.cure.pasc.drug import Drug
 from src.models.cure.pasc.episode import Episode, EpisodeConditionEdge, EpisodeEpisodeEdge, PersonEpisodeEdge
 from src.models.cure.pasc.exposure import EpisodeExposureEdge, Exposure, ExposureDrugEdge
 from src.models.cure.pasc.outcome import EpisodeOutcomeEdge, Outcome, OutcomePhenotypeEdge, TreatmentOutcomeEdge
 from src.models.cure.pasc.phenotype import EpisodePhenotypeEdge, Phenotype
-from src.models.cure.pasc.person import CaseReportPersonEdge, Person
+from src.models.cure.shared.patient import CaseReportPatientEdge, Patient
+from src.models.cure.shared.reporter import CaseReportReporterEdge, Reporter
 from src.models.cure.pasc.therapy import EpisodeTherapyEdge, Therapy
 from src.models.cure.pasc.treatment import Treatment, TreatmentExposureEdge
 from src.models.cure.pasc.vaccination import Vaccine, VaccinationEvent, VaccinationEventEpisodeEdge, VaccinationEventVaccineEdge
@@ -48,7 +49,8 @@ class CUREAdapter(FlatFileAdapter):
                     continue
 
                 case_report = self._build_case_report(row)
-                person = self._build_person(row)
+                patient = self._build_person(row)
+                reporter = self._build_reporter(row, case_report.id)
                 background_context = self._build_background_context(row, case_report.id)
                 primary_episode = self._build_primary_episode(row, case_report.id)
                 acute_episode = self._build_acute_episode(row, case_report.id)
@@ -73,28 +75,33 @@ class CUREAdapter(FlatFileAdapter):
                 outcomes = self._build_outcomes(row, case_report.id, treatment_map, phenotype_map)
                 batch.extend([
                     case_report,
-                    person,
+                    patient,
                     primary_episode,
-                    CaseReportPersonEdge(start_node=case_report, end_node=person),
-                    PersonEpisodeEdge(start_node=person, end_node=primary_episode),
+                    CaseReportPatientEdge(start_node=case_report, end_node=patient),
+                    PersonEpisodeEdge(start_node=patient, end_node=primary_episode),
                     EpisodeConditionEdge(start_node=primary_episode, end_node=condition, relationship_type="primary"),
                 ])
+                if reporter is not None:
+                    batch.extend([
+                        reporter,
+                        CaseReportReporterEdge(start_node=case_report, end_node=reporter),
+                    ])
                 if background_context is not None:
                     batch.extend([
                         background_context,
-                        PersonBackgroundContextEdge(start_node=person, end_node=background_context),
+                        PersonBackgroundContextEdge(start_node=patient, end_node=background_context),
                     ])
                 if acute_episode is not None:
                     batch.extend([
                         acute_episode,
-                        PersonEpisodeEdge(start_node=person, end_node=acute_episode),
+                        PersonEpisodeEdge(start_node=patient, end_node=acute_episode),
                         EpisodeConditionEdge(start_node=acute_episode, end_node=acute_condition, relationship_type="primary"),
                         EpisodeEpisodeEdge(start_node=acute_episode, end_node=primary_episode, relationship_type="precedes"),
                     ])
                 if pregnancy_episode is not None:
                     batch.extend([
                         pregnancy_episode,
-                        PersonEpisodeEdge(start_node=person, end_node=pregnancy_episode),
+                        PersonEpisodeEdge(start_node=patient, end_node=pregnancy_episode),
                         EpisodeConditionEdge(start_node=pregnancy_episode, end_node=pregnancy_condition, relationship_type="primary"),
                         EpisodeEpisodeEdge(start_node=pregnancy_episode, end_node=primary_episode, relationship_type="overlaps"),
                     ])
@@ -258,9 +265,9 @@ class CUREAdapter(FlatFileAdapter):
             research_prioritizing=self._normalize_optional_string(extra_fields.get("research_prioritizing")),
         )
 
-    def _build_person(self, row: dict) -> Person:
+    def _build_person(self, row: dict) -> Patient:
         patient = (row.get("report") or {}).get("patient") or {}
-        return Person(
+        return Patient(
             id=str(patient["id"]),
             sex=patient.get("sex"),
             gender=self._normalize_optional_string(patient.get("gender")),
@@ -270,6 +277,26 @@ class CUREAdapter(FlatFileAdapter):
             pregnant=self._normalize_optional_string(patient.get("pregnant")),
             country_treated=self._normalize_optional_string(patient.get("country_treated")),
             race=self._extract_race_list(patient),
+        )
+
+    def _build_reporter(self, row: dict, case_report_id: str) -> Optional[Reporter]:
+        report = row.get("report") or {}
+        author = report.get("author") or {}
+        top_level_report_type = self._normalize_optional_string(row.get("report_type"))
+        if not any(
+            author.get(key) not in (None, "", [], {})
+            for key in ["id", "qualification", "is_staff", "is_superuser"]
+        ) and top_level_report_type is None:
+            return None
+        author_id = author.get("id")
+        suffix = str(author_id) if author_id is not None else "reporter"
+        reporter_type = f"{top_level_report_type}_reporter" if top_level_report_type else "reporter"
+        return Reporter(
+            id=f"{case_report_id}:author:{suffix}",
+            reporter_type=reporter_type,
+            qualification=self._normalize_optional_string(author.get("qualification")),
+            is_staff=author.get("is_staff"),
+            is_superuser=author.get("is_superuser"),
         )
 
     def _build_primary_episode(self, row: dict, case_report_id: str) -> Episode:
