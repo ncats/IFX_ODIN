@@ -1,6 +1,23 @@
 destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
+resolvers:
+  - label: cure_id_labels
+    import: ./src/id_resolvers/cure_id_label_resolver.py
+    class: CureIdLabelResolver
+    kwargs:
+      tsv_file: ./input_files/manual/cure/cureid_data.tsv
+      no_match_behavior: Allow
+      multi_match_behavior: All
+      types:
+        - Condition
+        - Phenotype
+
 input_adapters:
+  - import: ./src/input_adapters/cure/cureid_curated_concepts_adapter.py
+    class: CureIdCuratedConceptsAdapter
+    kwargs:
+      file_path: ./input_files/manual/cure/cureid_data.tsv
+
   - import: ./src/input_adapters/cure/rasopathies_adapter.py
     class: RasopathiesAdapter
     kwargs:

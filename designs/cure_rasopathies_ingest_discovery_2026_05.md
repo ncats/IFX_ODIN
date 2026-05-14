@@ -258,6 +258,28 @@ Likely avoid in first pass:
 2. Reuse only the clearly generic concepts (`CaseReport`, `Person`, `Drug`) if they still fit.
 3. Add a minimal rasopathies model centered on case report, disease, findings, genes/variant fields, and treatments.
 4. Keep free-text findings and variant strings source-faithful in v1.
+
+## TSV-Backed Curated Concepts
+
+For rasopathies, the curated file `input_files/manual/cure/cureid_data.tsv` is now treated as the
+source of canonical concept nodes.
+
+Current scope:
+
+- emit shared `Condition` nodes from curated disease CURIE/label pairs
+- emit shared `Phenotype` nodes from curated phenotype/adverse-event CURIE/label pairs
+- use the JSONL adapter only for report-scoped structure and edge details
+
+Implementation consequence:
+
+- the TSV adapter owns canonical concept node names
+- the rasopathies JSONL adapter no longer owns `Condition` or `Phenotype` node records
+- the rasopathies JSONL adapter emits raw source labels as concept endpoint ids
+- the label-to-CURIE resolver normalizes those endpoint ids onto the canonical TSV-backed nodes
+- the JSONL adapter emits only `Presentation -> Condition` and `Presentation -> Phenotype` edges
+
+This prevents case-local source labels from repeatedly overwriting the names of shared
+CURIE-backed concept nodes.
 5. Validate on all 11 reports before expanding scope.
 
 ## Populated JSONL Field Inventory

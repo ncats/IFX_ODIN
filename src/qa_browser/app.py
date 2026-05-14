@@ -2041,11 +2041,16 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
 
     episode_relationship_cards = []
     presentation_condition_cards = []
-    presentation_finding_cards = []
+    presentation_phenotype_cards = []
     background_context_doc = None
     background_context_scalar_fields = []
     background_context_list_fields = []
     background_context_nested_fields = []
+    perinatal_context_doc = None
+    perinatal_context_scalar_fields = []
+    perinatal_context_list_fields = []
+    perinatal_context_nested_fields = []
+    perinatal_context_phenotype_cards = []
     patient_prior_condition_cards = []
     background_regular_medicine_cards = []
     background_immunosuppressant_cards = []
@@ -2068,15 +2073,21 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                 FILTER SPLIT(condition._id, '/')[0] == 'Condition'
                 FILTER SPLIT(condition_edge._id, '/')[0] == 'PresentationConditionEdge'
                 SORT condition.name, condition._key
-                RETURN condition
+                RETURN {
+                    condition: condition,
+                    condition_edge: condition_edge
+                }
                 """,
                 bind_vars={"presentation_id": presentation_doc["_id"]},
                 max_runtime=15,
             )
-            for condition_doc in presentation_condition_cursor:
+            for row in presentation_condition_cursor:
+                condition_doc = row.get("condition")
+                condition_edge_doc = row.get("condition_edge")
                 scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
                 presentation_condition_cards.append({
                     "condition_doc": condition_doc,
+                    "condition_edge_doc": condition_edge_doc,
                     "scalar_fields": scalar_fields,
                     "list_fields": list_fields,
                     "nested_fields": nested_fields,
@@ -2085,27 +2096,37 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
             presentation_condition_cards = []
 
         try:
-            presentation_finding_cursor = db.aql.execute(
+            presentation_phenotype_cursor = db.aql.execute(
                 """
-                FOR finding, finding_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
-                FILTER SPLIT(finding._id, '/')[0] == 'Finding'
-                FILTER SPLIT(finding_edge._id, '/')[0] == 'PresentationFindingEdge'
-                SORT finding.group, finding.name, finding._key
-                RETURN finding
+                FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PresentationPhenotypeEdge'
+                SORT phenotype_edge.group, phenotype.name, phenotype._key
+                RETURN {
+                    phenotype: phenotype,
+                    phenotype_edge: phenotype_edge
+                }
                 """,
                 bind_vars={"presentation_id": presentation_doc["_id"]},
                 max_runtime=15,
             )
-            for finding_doc in presentation_finding_cursor:
-                scalar_fields, list_fields, nested_fields = _categorize_document_fields(finding_doc)
-                presentation_finding_cards.append({
-                    "finding_doc": finding_doc,
+            for row in presentation_phenotype_cursor:
+                phenotype_doc = row.get("phenotype")
+                phenotype_edge_doc = row.get("phenotype_edge")
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
+                edge_scalar_fields, edge_list_fields, edge_nested_fields = _categorize_document_fields(phenotype_edge_doc)
+                presentation_phenotype_cards.append({
+                    "phenotype_doc": phenotype_doc,
                     "scalar_fields": scalar_fields,
                     "list_fields": list_fields,
                     "nested_fields": nested_fields,
+                    "edge_doc": phenotype_edge_doc,
+                    "edge_scalar_fields": edge_scalar_fields,
+                    "edge_list_fields": edge_list_fields,
+                    "edge_nested_fields": edge_nested_fields,
                 })
         except Exception:
-            presentation_finding_cards = []
+            presentation_phenotype_cards = []
 
     finding_group_order = [
         "Cardiac",
@@ -2118,20 +2139,20 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         "Diagnoses not listed above",
     ]
     finding_group_rank = {name: index for index, name in enumerate(finding_group_order)}
-    grouped_presentation_finding_cards = []
-    if presentation_finding_cards:
+    grouped_presentation_phenotype_cards = []
+    if presentation_phenotype_cards:
         grouped = {}
-        for card in presentation_finding_cards:
-            group_name = ((card.get("finding_doc") or {}).get("group") or "Ungrouped").strip()
+        for card in presentation_phenotype_cards:
+            group_name = ((card.get("edge_doc") or {}).get("group") or "Ungrouped").strip()
             grouped.setdefault(group_name, []).append(card)
         for group_name, cards in grouped.items():
             cards.sort(
                 key=lambda card: (
-                    ((card.get("finding_doc") or {}).get("name") or "").lower(),
-                    ((card.get("finding_doc") or {}).get("_key") or ""),
+                    ((card.get("phenotype_doc") or {}).get("name") or "").lower(),
+                    ((card.get("phenotype_doc") or {}).get("_key") or ""),
                 )
             )
-        grouped_presentation_finding_cards = [
+        grouped_presentation_phenotype_cards = [
             {
                 "group_name": group_name,
                 "cards": grouped[group_name],
@@ -2296,6 +2317,53 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                 except Exception:
                     background_regular_medicine_cards = []
                     background_immunosuppressant_cards = []
+
+    if patient_doc:
+        try:
+            perinatal_context_cursor = db.aql.execute(
+                """
+                FOR perinatal_context, context_edge IN 1..1 OUTBOUND @person_id GRAPH 'graph'
+                FILTER SPLIT(perinatal_context._id, '/')[0] == 'PerinatalContext'
+                FILTER SPLIT(context_edge._id, '/')[0] == 'PatientPerinatalContextEdge'
+                LIMIT 1
+                RETURN perinatal_context
+                """,
+                bind_vars={"person_id": patient_doc["_id"]},
+                max_runtime=15,
+            )
+            perinatal_context_doc = next(iter(perinatal_context_cursor), None)
+        except Exception:
+            perinatal_context_doc = None
+
+        perinatal_context_scalar_fields, perinatal_context_list_fields, perinatal_context_nested_fields = _categorize_document_fields(perinatal_context_doc)
+        if perinatal_context_doc:
+            try:
+                perinatal_phenotype_cursor = db.aql.execute(
+                    """
+                    FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @perinatal_context_id GRAPH 'graph'
+                    FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PerinatalContextPhenotypeEdge'
+                    SORT phenotype.name, phenotype._key
+                    RETURN {
+                        phenotype: phenotype,
+                        phenotype_edge: phenotype_edge
+                    }
+                    """,
+                    bind_vars={"perinatal_context_id": perinatal_context_doc["_id"]},
+                    max_runtime=15,
+                )
+                for row in perinatal_phenotype_cursor:
+                    phenotype_doc = row.get("phenotype")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
+                    perinatal_context_phenotype_cards.append({
+                        "phenotype_doc": phenotype_doc,
+                        "edge_doc": row.get("phenotype_edge"),
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+            except Exception:
+                perinatal_context_phenotype_cards = []
 
         try:
             primary_post_covid_condition_cursor = db.aql.execute(
@@ -2722,12 +2790,17 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         "presentation_list_fields": presentation_list_fields,
         "presentation_nested_fields": presentation_nested_fields,
         "presentation_condition_cards": presentation_condition_cards,
-        "presentation_finding_cards": presentation_finding_cards,
-        "grouped_presentation_finding_cards": grouped_presentation_finding_cards,
+        "presentation_phenotype_cards": presentation_phenotype_cards,
+        "grouped_presentation_phenotype_cards": grouped_presentation_phenotype_cards,
         "background_context_doc": background_context_doc,
         "background_context_scalar_fields": background_context_scalar_fields,
         "background_context_list_fields": background_context_list_fields,
         "background_context_nested_fields": background_context_nested_fields,
+        "perinatal_context_doc": perinatal_context_doc,
+        "perinatal_context_scalar_fields": perinatal_context_scalar_fields,
+        "perinatal_context_list_fields": perinatal_context_list_fields,
+        "perinatal_context_nested_fields": perinatal_context_nested_fields,
+        "perinatal_context_phenotype_cards": perinatal_context_phenotype_cards,
         "episode_relationship_cards": episode_relationship_cards,
         "patient_prior_condition_cards": patient_prior_condition_cards,
         "background_regular_medicine_cards": background_regular_medicine_cards,
