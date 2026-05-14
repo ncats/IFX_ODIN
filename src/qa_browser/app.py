@@ -1369,7 +1369,8 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "this_node_label": f"This {coll_name}",
     }
     if template_name == "cure_case_report_document.html":
-        context.update(_build_cure_case_report_context(db, doc))
+        context.update(_get_adjacent_collection_docs(db, coll_name, doc))
+        context.update(_build_cure_case_report_context(db_name, db, doc))
     return templates.TemplateResponse(request, template_name, context)
 
 
@@ -1860,16 +1861,59 @@ def _categorize_document_fields(doc: dict | None):
     return scalar_fields, list_fields, nested_fields
 
 
-def _build_cure_case_report_context(db, doc: dict | None) -> dict:
+def _get_adjacent_collection_docs(db, coll_name: str, doc: dict | None) -> dict:
+    if not doc:
+        return {"previous_doc": None, "next_doc": None, "adjacent_error": None}
+
+    current_key = doc.get("_key")
+    current_sort_value = doc.get("id") or current_key
+    if not current_key or current_sort_value is None:
+        return {"previous_doc": None, "next_doc": None, "adjacent_error": "missing _key or sort value"}
+
+    try:
+        cursor = db.aql.execute(
+            f"""
+            LET previous_doc = FIRST(
+                FOR d IN `{coll_name}`
+                LET sort_value = d.id != null && d.id != '' ? d.id : d._key
+                FILTER sort_value < @current_sort OR (sort_value == @current_sort AND d._key < @current_key)
+                SORT sort_value DESC, d._key DESC
+                LIMIT 1
+                RETURN KEEP(d, "_key", "id", "name")
+            )
+            LET next_doc = FIRST(
+                FOR d IN `{coll_name}`
+                LET sort_value = d.id != null && d.id != '' ? d.id : d._key
+                FILTER sort_value > @current_sort OR (sort_value == @current_sort AND d._key > @current_key)
+                SORT sort_value ASC, d._key ASC
+                LIMIT 1
+                RETURN KEEP(d, "_key", "id", "name")
+            )
+            RETURN {{
+                previous_doc: previous_doc,
+                next_doc: next_doc
+            }}
+            """,
+            bind_vars={"current_sort": current_sort_value, "current_key": current_key},
+            max_runtime=10,
+        )
+        result = next(iter(cursor), {"previous_doc": None, "next_doc": None})
+        result["adjacent_error"] = None
+        return result
+    except Exception as exc:
+        return {"previous_doc": None, "next_doc": None, "adjacent_error": str(exc)}
+
+
+def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
     if not doc or not db.has_graph("graph"):
-        return {}
+        return {"cure_case_url": _build_cure_case_url(db_name, doc)}
 
     try:
         cursor = db.aql.execute(
             """
             FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-            FILTER SPLIT(v._id, '/')[0] == 'Person'
-            FILTER SPLIT(e._id, '/')[0] == 'CaseReportPersonEdge'
+            FILTER SPLIT(v._id, '/')[0] == 'Patient'
+            FILTER SPLIT(e._id, '/')[0] == 'CaseReportPatientEdge'
             LIMIT 1
             RETURN v
             """,
@@ -1881,11 +1925,43 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
         patient_doc = None
 
     try:
+        reporter_cursor = db.aql.execute(
+            """
+            FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(v._id, '/')[0] == 'Reporter'
+            FILTER SPLIT(e._id, '/')[0] == 'CaseReportReporterEdge'
+            LIMIT 1
+            RETURN v
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        reporter_doc = next(iter(reporter_cursor), None)
+    except Exception:
+        reporter_doc = None
+
+    try:
+        presentation_cursor = db.aql.execute(
+            """
+            FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+            FILTER SPLIT(v._id, '/')[0] == 'Presentation'
+            FILTER SPLIT(e._id, '/')[0] == 'CaseReportPresentationEdge'
+            LIMIT 1
+            RETURN v
+            """,
+            bind_vars={"node_id": doc["_id"]},
+            max_runtime=10,
+        )
+        presentation_doc = next(iter(presentation_cursor), None)
+    except Exception:
+        presentation_doc = None
+
+    try:
         primary_episode_cursor = db.aql.execute(
             """
             FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-            FILTER SPLIT(patient._id, '/')[0] == 'Person'
-            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FILTER SPLIT(patient._id, '/')[0] == 'Patient'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPatientEdge'
             FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
             FILTER SPLIT(episode._id, '/')[0] == 'Episode'
             FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
@@ -1904,8 +1980,8 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
         acute_episode_cursor = db.aql.execute(
             """
             FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-            FILTER SPLIT(patient._id, '/')[0] == 'Person'
-            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FILTER SPLIT(patient._id, '/')[0] == 'Patient'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPatientEdge'
             FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
             FILTER SPLIT(episode._id, '/')[0] == 'Episode'
             FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
@@ -1932,8 +2008,8 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
         pregnancy_episode_cursor = db.aql.execute(
             """
             FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-            FILTER SPLIT(patient._id, '/')[0] == 'Person'
-            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPersonEdge'
+            FILTER SPLIT(patient._id, '/')[0] == 'Patient'
+            FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPatientEdge'
             FOR episode, patient_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
             FILTER SPLIT(episode._id, '/')[0] == 'Episode'
             FILTER SPLIT(patient_edge._id, '/')[0] == 'PersonEpisodeEdge'
@@ -1957,11 +2033,15 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
         pregnancy_episode_doc = None
 
     patient_scalar_fields, patient_list_fields, patient_nested_fields = _categorize_document_fields(patient_doc)
+    reporter_scalar_fields, reporter_list_fields, reporter_nested_fields = _categorize_document_fields(reporter_doc)
+    presentation_scalar_fields, presentation_list_fields, presentation_nested_fields = _categorize_document_fields(presentation_doc)
     primary_episode_scalar_fields, primary_episode_list_fields, primary_episode_nested_fields = _categorize_document_fields(primary_episode_doc)
     acute_episode_scalar_fields, acute_episode_list_fields, acute_episode_nested_fields = _categorize_document_fields(acute_episode_doc)
     pregnancy_episode_scalar_fields, pregnancy_episode_list_fields, pregnancy_episode_nested_fields = _categorize_document_fields(pregnancy_episode_doc)
 
     episode_relationship_cards = []
+    presentation_condition_cards = []
+    presentation_finding_cards = []
     background_context_doc = None
     background_context_scalar_fields = []
     background_context_list_fields = []
@@ -1979,6 +2059,93 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
     therapy_cards = []
     treatment_cards = []
     outcome_cards = []
+
+    if presentation_doc:
+        try:
+            presentation_condition_cursor = db.aql.execute(
+                """
+                FOR condition, condition_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                FILTER SPLIT(condition_edge._id, '/')[0] == 'PresentationConditionEdge'
+                SORT condition.name, condition._key
+                RETURN condition
+                """,
+                bind_vars={"presentation_id": presentation_doc["_id"]},
+                max_runtime=15,
+            )
+            for condition_doc in presentation_condition_cursor:
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
+                presentation_condition_cards.append({
+                    "condition_doc": condition_doc,
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            presentation_condition_cards = []
+
+        try:
+            presentation_finding_cursor = db.aql.execute(
+                """
+                FOR finding, finding_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FILTER SPLIT(finding._id, '/')[0] == 'Finding'
+                FILTER SPLIT(finding_edge._id, '/')[0] == 'PresentationFindingEdge'
+                SORT finding.group, finding.name, finding._key
+                RETURN finding
+                """,
+                bind_vars={"presentation_id": presentation_doc["_id"]},
+                max_runtime=15,
+            )
+            for finding_doc in presentation_finding_cursor:
+                scalar_fields, list_fields, nested_fields = _categorize_document_fields(finding_doc)
+                presentation_finding_cards.append({
+                    "finding_doc": finding_doc,
+                    "scalar_fields": scalar_fields,
+                    "list_fields": list_fields,
+                    "nested_fields": nested_fields,
+                })
+        except Exception:
+            presentation_finding_cards = []
+
+    finding_group_order = [
+        "Cardiac",
+        "Endocrine/Growth",
+        "Gastrointestinal",
+        "Hematologic/Oncologic",
+        "Lymphatic/Immunologic",
+        "Neurologic/Audiologic",
+        "Opthalmalogic",
+        "Diagnoses not listed above",
+    ]
+    finding_group_rank = {name: index for index, name in enumerate(finding_group_order)}
+    grouped_presentation_finding_cards = []
+    if presentation_finding_cards:
+        grouped = {}
+        for card in presentation_finding_cards:
+            group_name = ((card.get("finding_doc") or {}).get("group") or "Ungrouped").strip()
+            grouped.setdefault(group_name, []).append(card)
+        for group_name, cards in grouped.items():
+            cards.sort(
+                key=lambda card: (
+                    ((card.get("finding_doc") or {}).get("name") or "").lower(),
+                    ((card.get("finding_doc") or {}).get("_key") or ""),
+                )
+            )
+        grouped_presentation_finding_cards = [
+            {
+                "group_name": group_name,
+                "cards": grouped[group_name],
+            }
+            for group_name in sorted(
+                grouped.keys(),
+                key=lambda name: (
+                    finding_group_rank.get(name, 10_000),
+                    name == "Ungrouped",
+                    name.lower(),
+                ),
+            )
+        ]
+
     if primary_episode_doc:
         if acute_episode_doc:
             try:
@@ -2541,10 +2708,22 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
             outcome_cards = []
 
     return {
+        "cure_case_url": _build_cure_case_url(db_name, doc),
         "patient_doc": patient_doc,
         "patient_scalar_fields": patient_scalar_fields,
         "patient_list_fields": patient_list_fields,
         "patient_nested_fields": patient_nested_fields,
+        "reporter_doc": reporter_doc,
+        "reporter_scalar_fields": reporter_scalar_fields,
+        "reporter_list_fields": reporter_list_fields,
+        "reporter_nested_fields": reporter_nested_fields,
+        "presentation_doc": presentation_doc,
+        "presentation_scalar_fields": presentation_scalar_fields,
+        "presentation_list_fields": presentation_list_fields,
+        "presentation_nested_fields": presentation_nested_fields,
+        "presentation_condition_cards": presentation_condition_cards,
+        "presentation_finding_cards": presentation_finding_cards,
+        "grouped_presentation_finding_cards": grouped_presentation_finding_cards,
         "background_context_doc": background_context_doc,
         "background_context_scalar_fields": background_context_scalar_fields,
         "background_context_list_fields": background_context_list_fields,
@@ -2578,6 +2757,28 @@ def _build_cure_case_report_context(db, doc: dict | None) -> dict:
     }
 
 
+def _build_cure_case_url(db_name: str, doc: dict | None) -> str | None:
+    if not doc:
+        return None
+    report_id = doc.get("id") or doc.get("_key")
+    if not report_id:
+        return None
+
+    route_slug = {
+        "cure": "long-covid",
+        "cure_pasc": "long-covid",
+        "cure_rasopathies": "rasopathies",
+    }.get(db_name)
+    if not route_slug:
+        route_slug = {
+            "pasc": "long-covid",
+            "rasopathies": "rasopathies",
+        }.get((doc.get("form_type") or "").strip().lower())
+    if not route_slug:
+        return None
+    return f"https://cure.ncats.io/explore/{route_slug}/case-reports/case-details/{report_id}"
+
+
 def _get_outcome_effect_display(effect: str | None) -> dict:
     normalized = (effect or "").strip().lower()
     mapping = {
@@ -2602,6 +2803,8 @@ templates.env.filters["truncate_val"] = _truncate
 
 _DOCUMENT_TEMPLATE_REGISTRY: dict[tuple[str, str], str] = {
     ("cure", "CaseReport"): "cure_case_report_document.html",
+    ("cure_pasc", "CaseReport"): "cure_case_report_document.html",
+    ("cure_rasopathies", "CaseReport"): "cure_case_report_document.html",
 }
 
 

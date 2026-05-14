@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from src.core.decorators import facets, search
 from src.models.node import Node
@@ -11,6 +11,7 @@ from src.models.node import Node
 class CaseReport(Node):
     form_type: Optional[str] = None
     report_type: Optional[str] = None
+    backend_report_type: Optional[str] = None
     status: Optional[str] = None
     anonymous: Optional[bool] = None
     created: Optional[datetime] = None
@@ -20,3 +21,7 @@ class CaseReport(Node):
     outcome_computed: Optional[str] = None
     have_adverse_events_old: Optional[bool] = None
     research_prioritizing: Optional[str] = None
+    flagged: Optional[bool] = None
+    reminder: Optional[bool] = None
+    when_reminder: List[str] = field(default_factory=list)
+    previously_approved: Optional[bool] = None

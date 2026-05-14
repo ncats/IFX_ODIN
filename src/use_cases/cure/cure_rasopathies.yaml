@@ -1,0 +1,14 @@
+destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+
+input_adapters:
+  - import: ./src/input_adapters/cure/rasopathies_adapter.py
+    class: RasopathiesAdapter
+    kwargs:
+      file_path: ./input_files/manual/cure/reports.jsonl
+
+output_adapters:
+  - import: ./src/output_adapters/arango_output_adapter.py
+    class: ArangoOutputAdapter
+    kwargs:
+      database_name: cure_rasopathies
+    credentials: *source_credentials

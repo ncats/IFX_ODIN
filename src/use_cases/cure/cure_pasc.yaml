@@ -76,5 +76,5 @@ output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
     kwargs:
-      database_name: cure
+      database_name: cure_pasc
     credentials: *source_credentials

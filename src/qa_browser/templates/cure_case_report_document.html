@@ -39,6 +39,20 @@
     }
     .case-link-row {
         margin-top: 0.8rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .case-link-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        align-items: center;
+    }
+    .case-link-group-nav {
+        margin-left: auto;
     }
     .case-link {
         display: inline-flex;
@@ -56,6 +70,19 @@
     .case-link:hover {
         background: rgba(255, 255, 255, 0.92);
         text-decoration: none;
+    }
+    .case-link-nav {
+        background: rgba(255, 255, 255, 0.66);
+    }
+    .case-link-disabled {
+        opacity: 0.55;
+        cursor: default;
+        pointer-events: none;
+    }
+    .case-nav-debug {
+        margin-top: 0.5rem;
+        font-size: 0.82rem;
+        color: #b42318;
     }
     .case-summary-grid {
         display: grid;
@@ -84,11 +111,25 @@
         gap: 1rem;
         align-items: start;
     }
+    .case-top-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
+        gap: 1rem;
+        align-items: start;
+    }
+    .case-person-stack {
+        display: grid;
+        gap: 1rem;
+        align-items: start;
+    }
     @media (max-width: 1180px) {
         .episode-three-column-grid {
             grid-template-columns: 1fr;
         }
         .episode-two-column-grid {
+            grid-template-columns: 1fr;
+        }
+        .case-top-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -297,6 +338,14 @@
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 0.65rem;
     }
+    .pill-card-grid-compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    @media (max-width: 760px) {
+        .pill-card-grid-compact {
+            grid-template-columns: 1fr;
+        }
+    }
     .pill-card {
         padding: 0.7rem 0.8rem;
         border: 1px solid var(--border);
@@ -350,28 +399,39 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        flex: 1 1 auto;
+        min-width: 0;
         margin-bottom: 0.75rem;
     }
     .subcard-title-row h5 {
         margin: 0;
     }
-    .mini-doc-link {
+    .node-link-cluster {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        width: 1.1rem;
-        height: 1.1rem;
-        font-size: 0.78rem;
-        color: var(--text-muted);
+        margin-left: auto;
+    }
+    .node-type-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgb(32, 78, 133);
+        background: rgba(32, 78, 133, 0.10);
+        border: 1px solid rgba(32, 78, 133, 0.18);
         text-decoration: none;
     }
-    .mini-doc-link:hover {
-        color: var(--accent);
+    .node-type-tag:hover {
+        color: rgb(32, 78, 133);
+        background: rgba(32, 78, 133, 0.16);
         text-decoration: none;
     }
-    .mini-doc-link svg {
-        width: 0.95rem;
-        height: 0.95rem;
+    .node-type-tag svg {
+        width: 0.82rem;
+        height: 0.82rem;
     }
     .outcome-card-grid {
         display: grid;
@@ -508,6 +568,18 @@
 {% block content %}
 {% if doc %}
 {% set scalar_map = dict(scalar_fields) %}
+{% macro node_doc_link(collection_name, doc_key, label=None) -%}
+<span class="node-link-cluster">
+    <a class="tag node-type-tag" href="{{ root_path }}/db/{{ db_name }}/collection/{{ collection_name }}/doc/{{ doc_key }}" target="_blank" rel="noopener noreferrer" title="Open {{ (label or collection_name) | lower }} in new tab" aria-label="Open {{ (label or collection_name) | lower }} in new tab">
+        <span>{{ label or collection_name }}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3h7v7"></path>
+            <path d="M10 14 21 3"></path>
+            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+        </svg>
+    </a>
+</span>
+{%- endmacro %}
 <div class="case-shell">
     <script>
         function setEpisodeTab(tabName) {
@@ -527,63 +599,147 @@
         </div>
         <p class="case-id">{{ doc.get("id", doc_key) }}</p>
         <div class="case-link-row">
-            <a class="case-link" href="https://cure.ncats.io/explore/long-covid/case-reports/case-details/{{ doc.get('id', doc_key) }}" target="_blank" rel="noopener noreferrer">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M14 3h7v7"></path>
-                    <path d="M10 14 21 3"></path>
-                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                </svg>
-                <span>View On CURE ID</span>
-            </a>
+            <div class="case-link-group">
+                {% if cure_case_url %}
+                <a class="case-link" href="{{ cure_case_url }}" target="_blank" rel="noopener noreferrer">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M14 3h7v7"></path>
+                        <path d="M10 14 21 3"></path>
+                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
+                    </svg>
+                    <span>View On CURE ID</span>
+                </a>
+                {% endif %}
+            </div>
+            <div class="case-link-group case-link-group-nav">
+                {% if previous_doc %}
+                <a class="case-link case-link-nav" href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ previous_doc._key }}">
+                    <span>&larr;</span>
+                    <span>Previous</span>
+                </a>
+                {% else %}
+                <span class="case-link case-link-nav case-link-disabled">
+                    <span>&larr;</span>
+                    <span>No Previous</span>
+                </span>
+                {% endif %}
+                {% if next_doc %}
+                <a class="case-link case-link-nav" href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}/doc/{{ next_doc._key }}">
+                    <span>Next</span>
+                    <span>&rarr;</span>
+                </a>
+                {% else %}
+                <span class="case-link case-link-nav case-link-disabled">
+                    <span>No Next</span>
+                    <span>&rarr;</span>
+                </span>
+                {% endif %}
+            </div>
         </div>
+        {% if adjacent_error %}
+        <div class="case-nav-debug">Navigation lookup error: {{ adjacent_error }}</div>
+        {% endif %}
     </section>
 
     <section class="card stacked-card">
         <h2>Case Report</h2>
-        <div class="episode-two-column-grid">
-            <div class="subcard">
-                <div class="subcard-header">
-                    <div class="subcard-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
-                            <path d="M14 3v5h5"></path>
-                            <path d="M9 13h6"></path>
-                            <path d="M9 17h6"></path>
-                            <path d="M9 9h1"></path>
-                        </svg>
+        <div class="case-top-grid">
+            <div class="case-person-stack">
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="10" cy="7" r="4"></circle>
+                                <path d="M20 8v6"></path>
+                                <path d="M23 11h-6"></path>
+                            </svg>
+                        </div>
+                        <div class="subcard-title-row" style="margin-bottom:0">
+                            <h3>Reporter</h3>
+                            {% if reporter_doc %}
+                            {{ node_doc_link("Reporter", reporter_doc._key) }}
+                            {% endif %}
+                        </div>
                     </div>
-                    <h3>Details</h3>
+                    {% if reporter_doc %}
+                    <div class="field-list">
+                        {% for key, val in reporter_scalar_fields %}
+                        {% if key not in ['id', '_id', '_key', '_rev'] and val is not none %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in reporter_list_fields %}
+                        {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% if reporter_nested_fields %}
+                    {% for key, val in reporter_nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
+                    {% endif %}
+                    {% else %}
+                    <p class="empty-note">No reporter node available.</p>
+                    {% endif %}
                 </div>
-                <div class="field-list">
-                    <div class="field-row">
-                        <span class="field-key">report_type</span>
-                        <span class="field-val">{{ scalar_map.get("report_type") or "null" }}</span>
+
+                <div class="subcard">
+                    <div class="subcard-header">
+                        <div class="subcard-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+                                <path d="M14 3v5h5"></path>
+                                <path d="M9 13h6"></path>
+                                <path d="M9 17h6"></path>
+                                <path d="M9 9h1"></path>
+                            </svg>
+                        </div>
+                    <h3>Details</h3>
                     </div>
-                    <div class="field-row">
-                        <span class="field-key">status</span>
-                        <span class="field-val">{{ scalar_map.get("status") or "null" }}</span>
+                    <div class="field-list">
+                        {% for key, val in scalar_fields %}
+                        {% if key not in ['id', '_id', '_key', '_rev', 'created', 'updated'] %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        {% for key, val in list_fields %}
+                        {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                        <div class="field-row">
+                            <span class="field-key">{{ key }}</span>
+                            <span class="field-val">
+                                {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
                     </div>
-                    <div class="field-row">
-                        <span class="field-key">outcome_computed</span>
-                        <span class="field-val">{{ scalar_map.get("outcome_computed") or "null" }}</span>
-                    </div>
-                    <div class="field-row">
-                        <span class="field-key">percentage_completed</span>
-                        <span class="field-val">{{ scalar_map.get("percentage_completed") if scalar_map.get("percentage_completed") is not none else "null" }}</span>
-                    </div>
-                    <div class="field-row">
-                        <span class="field-key">comment_count</span>
-                        <span class="field-val">{{ scalar_map.get("comment_count") if scalar_map.get("comment_count") is not none else "null" }}</span>
-                    </div>
-                    <div class="field-row">
-                        <span class="field-key">anonymous</span>
-                        <span class="field-val">{{ scalar_map.get("anonymous") if scalar_map.get("anonymous") is not none else "null" }}</span>
-                    </div>
-                    {% if scalar_map.get("research_prioritizing") %}
-                    <div class="field-row">
-                        <span class="field-key">research_prioritizing</span>
-                        <span class="field-val">{{ scalar_map.get("research_prioritizing") }}</span>
-                    </div>
+                    {% if nested_fields %}
+                    {% for key, val in nested_fields %}
+                    <details style="margin-top:0.8rem">
+                        <summary>{{ key }}</summary>
+                        <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endfor %}
                     {% endif %}
                 </div>
             </div>
@@ -599,70 +755,14 @@
                     <div class="subcard-title-row" style="margin-bottom:0">
                         <h3>Patient</h3>
                         {% if patient_doc %}
-                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Person/doc/{{ patient_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open patient in new tab" aria-label="Open patient in new tab">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M14 3h7v7"></path>
-                                <path d="M10 14 21 3"></path>
-                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                            </svg>
-                        </a>
+                        {{ node_doc_link("Patient", patient_doc._key) }}
                         {% endif %}
                     </div>
                 </div>
                 {% if patient_doc %}
                 <div class="field-list">
-                    {% for key, val in patient_scalar_fields %}
-                    {% if key != 'id' %}
-                    <div class="field-row">
-                        <span class="field-key">{{ key }}</span>
-                        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
-                            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
-                        </span>
-                    </div>
-                    {% endif %}
-                    {% endfor %}
-                    {% for key, val in patient_list_fields %}
-                    {% if key != 'resolved_ids' %}
-                    <div class="field-row">
-                        <span class="field-key">{{ key }}</span>
-                        <span class="field-val">
-                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
-                        </span>
-                    </div>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-                {% if patient_nested_fields %}
-                {% for key, val in patient_nested_fields %}
-                <details style="margin-top:0.8rem">
-                    <summary>{{ key }}</summary>
-                    <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
-                </details>
-                {% endfor %}
-                {% endif %}
-                {% if background_context_doc %}
-                <div class="mini-card">
-                    <div class="mini-card-header">
-                        <div class="mini-card-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 12h16"></path>
-                                <path d="M12 4v16"></path>
-                                <circle cx="12" cy="12" r="9"></circle>
-                            </svg>
-                        </div>
-                        <h5>Background Context</h5>
-                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/BackgroundContext/doc/{{ background_context_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open background context in new tab" aria-label="Open background context in new tab">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M14 3h7v7"></path>
-                                <path d="M10 14 21 3"></path>
-                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                            </svg>
-                        </a>
-                    </div>
-                    {% if background_context_scalar_fields or background_context_list_fields %}
-                    <div class="field-list">
-                        {% for key, val in background_context_scalar_fields %}
-                        {% if key not in ['id', 'resolved_ids', '_id', '_key', '_rev'] and val is not none %}
+                        {% for key, val in patient_scalar_fields %}
+                        {% if key != 'id' %}
                         <div class="field-row">
                             <span class="field-key">{{ key }}</span>
                             <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
@@ -671,8 +771,8 @@
                         </div>
                         {% endif %}
                         {% endfor %}
-                        {% for key, val in background_context_list_fields %}
-                        {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                        {% for key, val in patient_list_fields %}
+                        {% if key != 'resolved_ids' %}
                         <div class="field-row">
                             <span class="field-key">{{ key }}</span>
                             <span class="field-val">
@@ -682,126 +782,336 @@
                         {% endif %}
                         {% endfor %}
                     </div>
-                    {% endif %}
-                    {% if patient_prior_condition_cards %}
-                    <div class="mini-card">
-                        <div class="mini-card-header">
-                            <div class="mini-card-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
-                                    <path d="M12 9v6"></path>
-                                    <path d="M9 12h6"></path>
-                                </svg>
-                            </div>
-                            <h5>Prior Conditions</h5>
-                        </div>
-                        <div class="pill-card-grid">
-                            {% for condition in patient_prior_condition_cards %}
-                            <div class="pill-card">
-                                <div class="pill-card-header">
-                                    <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
-                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ condition.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open condition in new tab" aria-label="Open condition in new tab">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M14 3h7v7"></path>
-                                            <path d="M10 14 21 3"></path>
-                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                        </svg>
-                                    </a>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% if background_regular_medicine_cards %}
-                    <div class="mini-card">
-                        <div class="mini-card-header">
-                            <div class="mini-card-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
-                                    <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
-                                    <path d="M10 15h4"></path>
-                                </svg>
-                            </div>
-                            <h5>Regular Medicines</h5>
-                        </div>
-                        <div class="pill-card-grid">
-                            {% for exposure in background_regular_medicine_cards %}
-                            {% set drug_doc = exposure.drug_doc %}
-                            <div class="pill-card">
-                                <div class="pill-card-header">
-                                    <div>
-                                        <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
-                                        {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
-                                        <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
-                                        {% endif %}
-                                    </div>
-                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M14 3h7v7"></path>
-                                            <path d="M10 14 21 3"></path>
-                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                        </svg>
-                                    </a>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% if background_immunosuppressant_cards %}
-                    <div class="mini-card">
-                        <div class="mini-card-header">
-                            <div class="mini-card-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
-                                    <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
-                                    <path d="M10 15h4"></path>
-                                </svg>
-                            </div>
-                            <h5>Immunosuppressants</h5>
-                        </div>
-                        <div class="pill-card-grid">
-                            {% for exposure in background_immunosuppressant_cards %}
-                            {% set drug_doc = exposure.drug_doc %}
-                            <div class="pill-card">
-                                <div class="pill-card-header">
-                                    <div>
-                                        <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
-                                        {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
-                                        <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
-                                        {% endif %}
-                                    </div>
-                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M14 3h7v7"></path>
-                                            <path d="M10 14 21 3"></path>
-                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                        </svg>
-                                    </a>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% if background_context_nested_fields %}
-                    {% for key, val in background_context_nested_fields %}
+                    {% if patient_nested_fields %}
+                    {% for key, val in patient_nested_fields %}
                     <details style="margin-top:0.8rem">
                         <summary>{{ key }}</summary>
                         <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
                     </details>
                     {% endfor %}
                     {% endif %}
+                    {% if background_context_doc %}
+                    <div class="mini-card">
+                        <div class="mini-card-header">
+                            <div class="mini-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 12h16"></path>
+                                    <path d="M12 4v16"></path>
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                </svg>
+                            </div>
+                            <h5>Background Context</h5>
+                            {{ node_doc_link("BackgroundContext", background_context_doc._key, "Background Context") }}
+                        </div>
+                        {% if background_context_scalar_fields or background_context_list_fields %}
+                        <div class="field-list">
+                            {% for key, val in background_context_scalar_fields %}
+                            {% if key not in ['id', 'resolved_ids', '_id', '_key', '_rev'] and val is not none %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                    {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% for key, val in background_context_list_fields %}
+                            {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                            <div class="field-row">
+                                <span class="field-key">{{ key }}</span>
+                                <span class="field-val">
+                                    {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if patient_prior_condition_cards %}
+                        <div class="mini-card">
+                            <div class="mini-card-header">
+                                <div class="mini-card-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
+                                        <path d="M12 9v6"></path>
+                                        <path d="M9 12h6"></path>
+                                    </svg>
+                                </div>
+                                <h5>Prior Co-morbidities</h5>
+                            </div>
+                            <div class="pill-card-grid pill-card-grid-compact">
+                                {% for condition in patient_prior_condition_cards %}
+                                <div class="pill-card">
+                                    <div class="pill-card-header">
+                                        <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
+                                        {{ node_doc_link("Condition", condition.condition_doc._key) }}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if background_regular_medicine_cards %}
+                        <div class="mini-card">
+                            <div class="mini-card-header">
+                                <div class="mini-card-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                                        <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                                        <path d="M10 15h4"></path>
+                                    </svg>
+                                </div>
+                                <h5>Regular Medicines</h5>
+                            </div>
+                            <div class="pill-card-grid pill-card-grid-compact">
+                                {% for exposure in background_regular_medicine_cards %}
+                                {% set drug_doc = exposure.drug_doc %}
+                                <div class="pill-card">
+                                    <div class="pill-card-header">
+                                        <div>
+                                            <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
+                                            {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                            <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
+                                            {% endif %}
+                                        </div>
+                                        {{ node_doc_link("Exposure", exposure.exposure_doc._key) }}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if background_immunosuppressant_cards %}
+                        <div class="mini-card">
+                            <div class="mini-card-header">
+                                <div class="mini-card-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9 3h6l1 4h3a2 2 0 0 1 2 2v2H3V9a2 2 0 0 1 2-2h3z"></path>
+                                        <path d="M5 11h14v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"></path>
+                                        <path d="M10 15h4"></path>
+                                    </svg>
+                                </div>
+                                <h5>Immunosuppressants</h5>
+                            </div>
+                            <div class="pill-card-grid">
+                                {% for exposure in background_immunosuppressant_cards %}
+                                {% set drug_doc = exposure.drug_doc %}
+                                <div class="pill-card">
+                                    <div class="pill-card-header">
+                                        <div>
+                                            <p class="pill-card-title">{{ drug_doc.name if drug_doc and drug_doc.name else exposure.exposure_doc.long_drug_name or exposure.exposure_doc.id or exposure.exposure_doc._key }}</p>
+                                            {% if exposure.exposure_doc.long_drug_name and (not drug_doc or drug_doc.name != exposure.exposure_doc.long_drug_name) %}
+                                            <div class="pill-card-flag">Reported as {{ exposure.exposure_doc.long_drug_name }}</div>
+                                            {% endif %}
+                                        </div>
+                                        {{ node_doc_link("Exposure", exposure.exposure_doc._key) }}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if background_context_nested_fields %}
+                        {% for key, val in background_context_nested_fields %}
+                        <details style="margin-top:0.8rem">
+                            <summary>{{ key }}</summary>
+                            <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                        </details>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <p class="empty-note">No linked patient document found.</p>
+                    {% endif %}
                 </div>
-                {% endif %}
-                {% else %}
-                <p class="empty-note">No linked patient document found.</p>
-                {% endif %}
             </div>
         </div>
     </section>
 
+    {% if presentation_doc %}
+    <section class="card stacked-card">
+        <h2>Presentation</h2>
+        <div class="subcard-grid">
+            {% set has_displayable_presentation_fields = false %}
+            {% for key, val in presentation_scalar_fields %}
+                {% if key not in ['id', '_id', '_key', '_rev'] %}
+                    {% set has_displayable_presentation_fields = true %}
+                {% endif %}
+            {% endfor %}
+            {% if not has_displayable_presentation_fields %}
+                {% for key, val in presentation_list_fields %}
+                    {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                        {% set has_displayable_presentation_fields = true %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            {% if not has_displayable_presentation_fields and presentation_nested_fields %}
+                {% set has_displayable_presentation_fields = true %}
+            {% endif %}
+            {% if has_displayable_presentation_fields %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 12h16"></path>
+                            <path d="M12 4v16"></path>
+                            <circle cx="12" cy="12" r="9"></circle>
+                        </svg>
+                    </div>
+                    <div class="subcard-title-row" style="margin-bottom:0">
+                        <h3>Presentation Details</h3>
+                        {{ node_doc_link("Presentation", presentation_doc._key) }}
+                    </div>
+                </div>
+                <div class="field-list">
+                    {% for key, val in presentation_scalar_fields %}
+                    {% if key not in ['id', '_id', '_key', '_rev'] %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% for key, val in presentation_list_fields %}
+                    {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val">
+                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if presentation_nested_fields %}
+                {% for key, val in presentation_nested_fields %}
+                <details style="margin-top:0.8rem">
+                    <summary>{{ key }}</summary>
+                    <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                </details>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if presentation_condition_cards %}
+            <div class="subcard">
+                <div class="subcard-header">
+                    <div class="subcard-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3h8l1 4h4l-3 5 3 5h-4l-1 4H8l-1-4H3l3-5-3-5h4z"></path>
+                            <path d="M12 9v6"></path>
+                            <path d="M9 12h6"></path>
+                        </svg>
+                    </div>
+                    <h3>Condition</h3>
+                </div>
+                <div class="pill-card-grid pill-card-grid-compact">
+                    {% for condition in presentation_condition_cards %}
+                    <div class="pill-card">
+                        <div class="pill-card-header">
+                            <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
+                            {{ node_doc_link("Condition", condition.condition_doc._key) }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if grouped_presentation_finding_cards %}
+        <div class="subcard">
+            <div class="subcard-header">
+                <div class="subcard-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 12h6"></path>
+                        <path d="M12 9v6"></path>
+                        <circle cx="12" cy="12" r="9"></circle>
+                    </svg>
+                </div>
+                <h3>Findings</h3>
+            </div>
+            <div class="stacked-card">
+                {% for finding_group in grouped_presentation_finding_cards %}
+                <div class="nested-card">
+                    <div class="nested-card-header">
+                        <div>
+                            <h4 class="nested-card-title">{{ finding_group.group_name }}</h4>
+                        </div>
+                    </div>
+                    <div class="nested-card-grid">
+                        {% for finding in finding_group.cards %}
+                        <div class="nested-card">
+                            <div class="nested-card-header">
+                                <div>
+                                    <h4 class="nested-card-title">{{ finding.finding_doc.name or finding.finding_doc.text or finding.finding_doc.id or finding.finding_doc._key }}</h4>
+                                </div>
+                                <div class="nested-card-badges">
+                                    {{ node_doc_link("Finding", finding.finding_doc._key) }}
+                                </div>
+                            </div>
+                            {% if finding.finding_doc.label or finding.finding_doc.selected is not none or finding.finding_doc.default is not none %}
+                            <p class="nested-card-blurb">
+                                {% if finding.finding_doc.label %}
+                                <span class="tag">label: {{ finding.finding_doc.label }}</span>
+                                {% endif %}
+                                {% if finding.finding_doc.selected is sameas true %}
+                                <span class="tag">selected</span>
+                                {% endif %}
+                                {% if finding.finding_doc.default is sameas true %}
+                                <span class="tag">default group</span>
+                                {% endif %}
+                            </p>
+                            {% endif %}
+                            {% if finding.finding_doc.text %}
+                            <p class="nested-card-blurb">{{ finding.finding_doc.text }}</p>
+                            {% endif %}
+                            <div class="field-list">
+                                {% for key, val in finding.scalar_fields %}
+                                {% if key not in ['id', '_id', '_key', '_rev', 'name', 'group', 'label', 'text', 'raw_text', 'selected', 'default'] %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                                        {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% for key, val in finding.list_fields %}
+                                {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                                <div class="field-row">
+                                    <span class="field-key">{{ key }}</span>
+                                    <span class="field-val">
+                                        {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% if finding.nested_fields %}
+                            {% for key, val in finding.nested_fields %}
+                            <details style="margin-top:0.8rem">
+                                <summary>{{ key }}</summary>
+                                <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
+                            </details>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    {% if primary_episode_doc or acute_episode_doc or pregnancy_episode_doc %}
     <section class="card stacked-card">
         <h2>Episodes</h2>
         {% set precedes_relationship = (episode_relationship_cards | selectattr('label', 'equalto', 'precedes') | list | first) %}
@@ -833,13 +1143,7 @@
                     <div class="subcard-title-row" style="margin-bottom:0">
                         <h3>Details</h3>
                         {% if primary_episode_doc %}
-                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ primary_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open episode in new tab" aria-label="Open episode in new tab">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M14 3h7v7"></path>
-                                <path d="M10 14 21 3"></path>
-                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                            </svg>
-                        </a>
+                        {{ node_doc_link("Episode", primary_episode_doc._key) }}
                         {% endif %}
                     </div>
                 </div>
@@ -888,20 +1192,14 @@
                             <path d="M9 12h6"></path>
                         </svg>
                     </div>
-                    <h3>Post-COVID Conditions</h3>
+                    <h3>Post-COVID Co-morbidities</h3>
                 </div>
-                <div class="pill-card-grid">
+                <div class="pill-card-grid pill-card-grid-compact">
                     {% for condition in primary_episode_post_covid_condition_cards %}
                     <div class="pill-card">
                         <div class="pill-card-header">
                             <p class="pill-card-title">{{ condition.condition_doc.name or condition.condition_doc.id or condition.condition_doc._key }}</p>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ condition.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open condition in new tab" aria-label="Open condition in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("Condition", condition.condition_doc._key) }}
                         </div>
                     </div>
                     {% endfor %}
@@ -934,14 +1232,7 @@
                             {% endif %}
                         </div>
                         <div class="nested-card-badges">
-                            <span class="badge badge-doc">Phenotype</span>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Phenotype/doc/{{ phenotype.phenotype_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open phenotype in new tab" aria-label="Open phenotype in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("Phenotype", phenotype.phenotype_doc._key) }}
                         </div>
                     </div>
                         {% if phenotype.severity %}
@@ -1008,14 +1299,7 @@
                             {% endif %}
                         </div>
                         <div class="nested-card-badges">
-                            <span class="badge badge-doc">Exposure</span>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("Exposure", exposure.exposure_doc._key) }}
                         </div>
                     </div>
                     {% if drug_doc %}
@@ -1146,14 +1430,7 @@
                                 <h4 class="nested-card-title">{{ therapy.therapy_doc.name or therapy.therapy_doc.id or therapy.therapy_doc._key }}</h4>
                             </div>
                             <div class="nested-card-badges">
-                                <span class="badge badge-doc">Therapy</span>
-                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Therapy/doc/{{ therapy.therapy_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open therapy in new tab" aria-label="Open therapy in new tab">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M14 3h7v7"></path>
-                                        <path d="M10 14 21 3"></path>
-                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                    </svg>
-                                </a>
+                                {{ node_doc_link("Therapy", therapy.therapy_doc._key) }}
                             </div>
                         </div>
                         <div class="field-list">
@@ -1215,14 +1492,7 @@
                             {% endif %}
                         </div>
                         <div class="nested-card-badges">
-                            <span class="badge badge-doc">Outcome</span>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Outcome/doc/{{ outcome.outcome_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open outcome in new tab" aria-label="Open outcome in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("Outcome", outcome.outcome_doc._key) }}
                         </div>
                     </div>
                     <div class="outcome-meter">
@@ -1257,13 +1527,7 @@
                             <div class="subcard-title-row">
                                 <h5>Phenotype</h5>
                                 {% if outcome.phenotype_doc %}
-                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Phenotype/doc/{{ outcome.phenotype_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open phenotype in new tab" aria-label="Open phenotype in new tab">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M14 3h7v7"></path>
-                                        <path d="M10 14 21 3"></path>
-                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                    </svg>
-                                </a>
+                                {{ node_doc_link("Phenotype", outcome.phenotype_doc._key) }}
                                 {% endif %}
                             </div>
                             {% if outcome.phenotype_doc %}
@@ -1313,13 +1577,7 @@
                             <div class="subcard-title-row">
                                 <h5>Treatment</h5>
                                 {% if outcome.treatment_doc %}
-                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Treatment/doc/{{ outcome.treatment_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open treatment in new tab" aria-label="Open treatment in new tab">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M14 3h7v7"></path>
-                                        <path d="M10 14 21 3"></path>
-                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                    </svg>
-                                </a>
+                                {{ node_doc_link("Treatment", outcome.treatment_doc._key) }}
                                 {% endif %}
                             </div>
                             {% if outcome.treatment_doc %}
@@ -1380,13 +1638,7 @@
                         </div>
                         <div class="subcard-title-row" style="margin-bottom:0">
                             <h3>Details</h3>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ acute_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open acute episode in new tab" aria-label="Open acute episode in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("Episode", acute_episode_doc._key) }}
                         </div>
                     </div>
                     <div class="field-list">
@@ -1434,13 +1686,7 @@
                         </div>
                         <div class="subcard-title-row" style="margin-bottom:0">
                             <h3>Vaccination History</h3>
-                            <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/VaccinationEvent/doc/{{ acute_episode_vaccination_card.vaccination_event_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open vaccination event in new tab" aria-label="Open vaccination event in new tab">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M14 3h7v7"></path>
-                                    <path d="M10 14 21 3"></path>
-                                    <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                </svg>
-                            </a>
+                            {{ node_doc_link("VaccinationEvent", acute_episode_vaccination_card.vaccination_event_doc._key, "Vaccination Event") }}
                         </div>
                     </div>
                     <p class="nested-card-blurb">
@@ -1477,13 +1723,7 @@
                         <div class="pill-card">
                             <div class="pill-card-header">
                                 <p class="pill-card-title">{{ vaccine.name or vaccine.id or vaccine._key }}</p>
-                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Vaccine/doc/{{ vaccine._key }}" target="_blank" rel="noopener noreferrer" title="Open vaccine in new tab" aria-label="Open vaccine in new tab">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M14 3h7v7"></path>
-                                        <path d="M10 14 21 3"></path>
-                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                    </svg>
-                                </a>
+                                {{ node_doc_link("Vaccine", vaccine._key) }}
                             </div>
                         </div>
                         {% endfor %}
@@ -1525,14 +1765,7 @@
                                     {% endif %}
                                 </div>
                                 <div class="nested-card-badges">
-                                    <span class="badge badge-doc">Condition</span>
-                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Condition/doc/{{ complication.condition_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open complication condition in new tab" aria-label="Open complication condition in new tab">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M14 3h7v7"></path>
-                                            <path d="M10 14 21 3"></path>
-                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                        </svg>
-                                    </a>
+                                    {{ node_doc_link("Condition", complication.condition_doc._key) }}
                                 </div>
                             </div>
                             <div class="field-list">
@@ -1586,14 +1819,7 @@
                                     {% endif %}
                                 </div>
                                 <div class="nested-card-badges">
-                                    <span class="badge badge-doc">Exposure</span>
-                                    <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M14 3h7v7"></path>
-                                            <path d="M10 14 21 3"></path>
-                                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                        </svg>
-                                    </a>
+                                    {{ node_doc_link("Exposure", exposure.exposure_doc._key) }}
                                 </div>
                             </div>
                             {% if drug_doc %}
@@ -1658,13 +1884,7 @@
                     </div>
                     <div class="subcard-title-row" style="margin-bottom:0">
                         <h3>Details</h3>
-                        <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Episode/doc/{{ pregnancy_episode_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open pregnancy episode in new tab" aria-label="Open pregnancy episode in new tab">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M14 3h7v7"></path>
-                                <path d="M10 14 21 3"></path>
-                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                            </svg>
-                        </a>
+                        {{ node_doc_link("Episode", pregnancy_episode_doc._key) }}
                     </div>
                 </div>
                 <p class="nested-card-blurb">
@@ -1748,14 +1968,7 @@
                                 {% endif %}
                             </div>
                             <div class="nested-card-badges">
-                                <span class="badge badge-doc">Exposure</span>
-                                <a class="mini-doc-link" href="{{ root_path }}/db/{{ db_name }}/collection/Exposure/doc/{{ exposure.exposure_doc._key }}" target="_blank" rel="noopener noreferrer" title="Open exposure in new tab" aria-label="Open exposure in new tab">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M14 3h7v7"></path>
-                                        <path d="M10 14 21 3"></path>
-                                        <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"></path>
-                                    </svg>
-                                </a>
+                                {{ node_doc_link("Exposure", exposure.exposure_doc._key) }}
                             </div>
                         </div>
                         {% if drug_doc %}
@@ -1807,6 +2020,7 @@
         </div>
         {% endif %}
     </section>
+    {% endif %}
 
 {% else %}
 <div class="empty-state">
