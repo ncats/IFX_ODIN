@@ -4,7 +4,6 @@ import calendar
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Iterable, List, Optional
 
 
@@ -20,6 +19,22 @@ class ArticleRecord:
     pub_year: Optional[int]
     authors: Optional[str]
     abstract: Optional[str]
+    pmc_id: Optional[str]
+    doi: Optional[str]
+    publication_status: Optional[str]
+    publication_type: Optional[str]
+    language: Optional[str]
+    mesh_assignments: List["MeshAssignment"]
+
+
+@dataclass(frozen=True)
+class MeshAssignment:
+    descriptor_ui: str
+    descriptor_name: str
+    descriptor_major_topic: bool
+    qualifier_ui: Optional[str]
+    qualifier_name: Optional[str]
+    qualifier_major_topic: Optional[bool]
 
 
 class PubMedParser:
@@ -33,6 +48,11 @@ class PubMedParser:
     journal_pub_date_selector = "Journal/JournalIssue/PubDate"
     abstract_text_selector = "Abstract/AbstractText"
     author_selector = "AuthorList/Author"
+    article_id_selector = "PubmedData/ArticleIdList/ArticleId"
+    publication_status_selector = "PubmedData/PublicationStatus"
+    publication_type_selector = "PublicationTypeList/PublicationType"
+    language_selector = "Language"
+    mesh_heading_selector = "MedlineCitation/MeshHeadingList/MeshHeading"
 
     @classmethod
     def parse_articles(cls, xml_text: str) -> List[ArticleRecord]:
@@ -78,6 +98,12 @@ class PubMedParser:
         pub_year = cls._derive_year(publication_date)
         authors = cls._format_authors(article_node.findall(cls.author_selector))
         abstract = cls._format_abstract(article_node.findall(cls.abstract_text_selector))
+        pmc_id = cls._find_article_id(pubmed_article_node.findall(cls.article_id_selector), "pmc")
+        doi = cls._find_article_id(pubmed_article_node.findall(cls.article_id_selector), "doi")
+        publication_status = cls._flatten_text(pubmed_article_node.find(cls.publication_status_selector))
+        publication_type = cls._join_unique_text(article_node.findall(cls.publication_type_selector))
+        language = cls._join_unique_text(article_node.findall(cls.language_selector))
+        mesh_assignments = cls._parse_mesh_assignments(pubmed_article_node.findall(cls.mesh_heading_selector))
 
         return ArticleRecord(
             pmid=pmid,
@@ -87,6 +113,12 @@ class PubMedParser:
             pub_year=pub_year,
             authors=authors,
             abstract=abstract,
+            pmc_id=pmc_id,
+            doi=doi,
+            publication_status=publication_status,
+            publication_type=publication_type,
+            language=language,
+            mesh_assignments=mesh_assignments,
         )
 
     @staticmethod
@@ -99,6 +131,30 @@ class PubMedParser:
             return None
         text = "".join(node.itertext()).strip()
         return text or None
+
+    @classmethod
+    def _join_unique_text(cls, nodes: Iterable[ET.Element]) -> Optional[str]:
+        ordered_values: List[str] = []
+        seen_values: set[str] = set()
+        for node in nodes:
+            value = cls._flatten_text(node)
+            if value is None or value in seen_values:
+                continue
+            seen_values.add(value)
+            ordered_values.append(value)
+        if not ordered_values:
+            return None
+        return "; ".join(ordered_values)
+
+    @classmethod
+    def _find_article_id(cls, nodes: Iterable[ET.Element], id_type: str) -> Optional[str]:
+        for node in nodes:
+            if node.attrib.get("IdType") != id_type:
+                continue
+            value = cls._flatten_text(node)
+            if value is not None:
+                return value
+        return None
 
     @classmethod
     def _parse_pmid(cls, node: Optional[ET.Element]) -> Optional[int]:
@@ -164,6 +220,48 @@ class PubMedParser:
             return None
         match = re.match(r"^(\d{4})", publication_date)
         return int(match.group(1)) if match else None
+
+    @classmethod
+    def _parse_mesh_assignments(cls, mesh_heading_nodes: Iterable[ET.Element]) -> List[MeshAssignment]:
+        assignments: List[MeshAssignment] = []
+        for mesh_heading in mesh_heading_nodes:
+            descriptor_node = mesh_heading.find("DescriptorName")
+            descriptor_ui = descriptor_node.attrib.get("UI") if descriptor_node is not None else None
+            descriptor_name = cls._flatten_text(descriptor_node)
+            if not descriptor_ui or not descriptor_name:
+                continue
+
+            descriptor_major_topic = descriptor_node.attrib.get("MajorTopicYN") == "Y"
+            qualifier_nodes = mesh_heading.findall("QualifierName")
+            if not qualifier_nodes:
+                assignments.append(
+                    MeshAssignment(
+                        descriptor_ui=descriptor_ui,
+                        descriptor_name=descriptor_name,
+                        descriptor_major_topic=descriptor_major_topic,
+                        qualifier_ui=None,
+                        qualifier_name=None,
+                        qualifier_major_topic=None,
+                    )
+                )
+                continue
+
+            for qualifier_node in qualifier_nodes:
+                qualifier_ui = qualifier_node.attrib.get("UI")
+                qualifier_name = cls._flatten_text(qualifier_node)
+                if not qualifier_ui or not qualifier_name:
+                    continue
+                assignments.append(
+                    MeshAssignment(
+                        descriptor_ui=descriptor_ui,
+                        descriptor_name=descriptor_name,
+                        descriptor_major_topic=descriptor_major_topic,
+                        qualifier_ui=qualifier_ui,
+                        qualifier_name=qualifier_name,
+                        qualifier_major_topic=qualifier_node.attrib.get("MajorTopicYN") == "Y",
+                    )
+                )
+        return assignments
 
     @classmethod
     def _format_abstract(cls, abstract_nodes: Iterable[ET.Element]) -> Optional[str]:
