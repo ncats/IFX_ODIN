@@ -273,7 +273,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     failed.append(result)
             return failed
 
-        merger = RecordMerger(field_conflict_behavior=FieldConflictBehavior.KeepLast)
+        merger = RecordMerger()
 
         if not isinstance(objects, list):
             objects = [objects]

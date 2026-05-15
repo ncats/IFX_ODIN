@@ -41,9 +41,18 @@ resolvers:
         - Protein
 
 input_adapters:
-  # Minimal target graph backbone required by target-graph TDL post-processing.
+  - import: ./src/input_adapters/go/go_term.py
+    class: GOTermAdapter
+    kwargs:
+      file_path: ./input_files/auto/go/go-basic.json
+
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: IsoformProteinEdgeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
@@ -72,30 +81,14 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: IsoformProteinEdgeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+  - import: ./src/input_adapters/drug_central/drug_node.py
+    class: DrugNodeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
-  # GO terms and evidence-backed protein annotations used for Tbio.
-  - import: ./src/input_adapters/go/go_term.py
-    class: GOTermAdapter
-    kwargs:
-      file_path: ./input_files/auto/go/go-basic.json
+  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
+    class: ProteinDrugEdgeAdapter
+    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
-  - import: ./src/input_adapters/go/go_gaf.py
-    class: ProteinGoTermEdgeAdapter
-    kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-uniprot.gaf.gz
-      source: UniProt
-
-  - import: ./src/input_adapters/go/go_gaf.py
-    class: ProteinGoTermEdgeAdapter
-    kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-go.gaf.gz
-      source: GO
-
-  # Ligand / drug evidence used for Tchem and Tclin.
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
@@ -120,15 +113,6 @@ input_adapters:
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
-  - import: ./src/input_adapters/drug_central/drug_node.py
-    class: DrugNodeAdapter
-    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-
-  - import: ./src/input_adapters/drug_central/protein_drug_edge.py
-    class: ProteinDrugEdgeAdapter
-    credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
-
-  # Tdark thresholds.
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
     kwargs:
@@ -139,18 +123,28 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv
 
-  # GeneRIF-backed publications used for Tdark thresholds.
+  - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
+    class: IDGFamilyAdapter
+    credentials: *legacy_pharos_credentials
+
+  - import: ./src/input_adapters/go/go_gaf.py
+    class: ProteinGoTermEdgeAdapter
+    kwargs:
+      gaf_file_name: ./input_files/auto/go/goa_human-uniprot.gaf.gz
+      source: UniProt
+
+  - import: ./src/input_adapters/go/go_gaf.py
+    class: ProteinGoTermEdgeAdapter
+    kwargs:
+      gaf_file_name: ./input_files/auto/go/goa_human-go.gaf.gz
+      source: GO
+
   - import: ./src/input_adapters/ncbi/publications.py
     class: NCBIPublicationAdapter
     kwargs:
       gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
       generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
       version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
-
-  # Family-specific ligand thresholds for the ligand cutoff post-processing pass.
-  - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
-    class: IDGFamilyAdapter
-    credentials: *legacy_pharos_credentials
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

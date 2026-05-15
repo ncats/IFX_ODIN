@@ -149,8 +149,8 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
 
-  - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
-    class: PHIPSTERLegacyLiftAdapter
+  - import: ./src/input_adapters/pharos_mysql/eram_disease_adapter.py
+    class: ERAMDiseaseAdapter
     credentials: ./src/use_cases/secrets/pharos_credentials.yaml
 
 output_adapters:

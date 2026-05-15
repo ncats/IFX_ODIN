@@ -123,7 +123,8 @@ def test_store_uses_update_many_for_existing_nodes_and_insert_many_for_new_nodes
     assert updated_docs[0]["creation"] == "creation-source"
     assert sorted(updated_docs[0]["resolved_ids"]) == ["resolver-new", "resolver-old"]
     assert "existing-update" in updated_docs[0]["updates"]
-    assert any("name\tOld name\tNew name\tsource-new\tKeepLast" == update for update in updated_docs[0]["updates"])
+    assert any("name\tOld name\tNew name\tsource-new\tKeepFirst" == update for update in updated_docs[0]["updates"])
+    assert updated_docs[0]["name"] == "Old name"
 
     assert len(inserted_docs) == 1
     assert inserted_docs[0]["_key"] == "IFXProtein:P2"
