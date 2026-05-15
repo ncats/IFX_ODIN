@@ -44,6 +44,7 @@ class DiseaseAssociationDetail:
     source: str
     source_id: Optional[str] = None
     importance: List[float] = field(default_factory=list)
+    original_sources: List[str] = field(default_factory=list)
     evidence_terms: List[str] = field(default_factory=list)
     pmids: List[str] = field(default_factory=list)
     evidence_codes: List[str] = field(default_factory=list)

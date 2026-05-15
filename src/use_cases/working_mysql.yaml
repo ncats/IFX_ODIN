@@ -28,14 +28,31 @@ resolvers:
         - Transcript
 
 input_adapters:
+  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+    class: MondoTableAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
+    class: MondoTableParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/phipster.py
-    class: PHIPSTERAdapter
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: DiseaseAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+      associated_only: false
+
+  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
+    class: ProteinDiseaseAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database

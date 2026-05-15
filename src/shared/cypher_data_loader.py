@@ -12,7 +12,7 @@ class GraphDBDataLoader(ABC):
     base_path: str
     merger: RecordMerger
 
-    def __init__(self, base_path: str = None, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast):
+    def __init__(self, base_path: str = None, field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst):
         self.base_path = base_path
         self.merger = RecordMerger(field_conflict_behavior=field_conflict_behavior)
 

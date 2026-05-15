@@ -1024,6 +1024,7 @@ class TCRDOutputConverter(SQLOutputConverter):
                 conf=detail.get('confidence'),
                 reference=detail.get('url'),
                 drug_name=detail.get('drug_name'),
+                source="|".join(detail.get('original_sources') or []) or None,
                 mondoid=mondoid,
                 provenance=obj['provenance'],
             ))

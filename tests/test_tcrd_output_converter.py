@@ -829,6 +829,30 @@ def test_disease_converter_prefers_detail_source_id_and_keeps_resolved_mondoid()
     assert row.reference == "https://example.org/jensen"
 
 
+def test_disease_converter_carries_original_sources_into_mysql_source():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"UniProtKB:P11111": 123}
+
+    rows = converter.disease_converter({
+        "start_id": "UniProtKB:P11111",
+        "end_id": "DOID:1",
+        "end_node": {"name": "Disease One"},
+        "details": [{
+            "source": "eRAM",
+            "source_id": "DOID:1",
+            "original_sources": ["CTD_human", "ORPHANET", "CLINVAR"],
+        }],
+        "provenance": "Pharos 3.19\t3.19\t2024-02-15\tNone",
+    })
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.dtype == "eRAM"
+    assert row.did == "DOID:1"
+    assert row.evidence is None
+    assert row.source == "CTD_human|ORPHANET|CLINVAR"
+
+
 def test_ncats_d2da_converter_keys_links_off_resolved_disease_id():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

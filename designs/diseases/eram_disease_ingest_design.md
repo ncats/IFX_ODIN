@@ -2,224 +2,109 @@
 
 ## Status
 
-Discovery only. No code changes yet.
+Implemented as a legacy Pharos carry-forward and promoted from `working.yaml` into:
 
-Current recommendation: do **not** build a fresh ERAM ingest from the public downloadable files unless there is a strong requirement to reconstruct the source from scratch. The public ERAM payload appears stale and partially malformed. If ERAM coverage is needed in current Pharos/TCRD outputs, prefer copying or migrating the legacy `eRAM` rows already present in `pharos319`.
+- `src/use_cases/pharos/pharos.yaml`
+- `src/use_cases/pharos/target_graph.yaml`
 
-## Goal
+No ERAM-specific changes were needed in `src/use_cases/pharos/tcrd.yaml`.
 
-Add ERAM rare-disease target associations into the Pharos graph as disease associations, then make them available to the TCRD MySQL export path.
+## Decision
 
-First-pass scope should stay narrow:
+Do not build a fresh ingest from the public ERAM downloads.
 
-- ingest ERAM disease associations only
-- preserve source-specific payload needed for `disease` rows
-- avoid speculative normalization beyond what the raw payload clearly provides
+Use the already transformed legacy `pharos319.disease` rows with `dtype='eRAM'` as the source of truth for ERAM coverage in the current Pharos graph and downstream MySQL export.
 
-Given the discovery results below, this goal is now probably better treated as a **legacy-data carry-forward task** rather than a new-source ingest task.
+Why:
 
-## Discovery Findings
+- the public ERAM files appear stale and partially malformed
+- the legacy Pharos rows already contain the shape we want
+- the legacy rows already carry stable `DOID:*` disease IDs
+- the legacy rows already carry the embedded ERAM provenance/source list
 
-### Repo state
+## Source Shape
 
-- No ERAM adapter exists in this repo yet.
-- No ERAM files are currently present under `input_files/`.
-- `src/use_cases/pharos/TCRD_TODO.md` already lists ERAM under planned additional disease associations.
+Legacy source table: `pharos319.disease`
 
-### Historical TCRD / Pharos evidence
+Relevant legacy fields:
 
-Read-only queries against `pharos319` show that ERAM previously populated the `disease` table:
+- `dtype = 'eRAM'`
+- `protein_id`
+- `did` as `DOID:*`
+- `ncats_name`
+- `source` as a pipe-delimited ERAM provenance/source list
 
-- `dtype='eRAM'`
-- row count: 14,660
-- distinct diseases: 1,380
-- distinct proteins: 5,139
+Representative legacy counts observed during implementation:
 
-Observed field shape in `pharos319` sample rows:
+- `14660` total ERAM rows
+- `14428` distinct `(protein_id, did)` pairs
+- `1380` distinct `did`
+- `5139` distinct `protein_id`
 
-- `did` is consistently `DOID:*`
-- `name` is populated
-- `source` is populated, often as pipe-delimited provenance such as:
-  - `CTD_human`
-  - `UniProtKB-KW`
-  - `GHR`
-  - `GWASCAT`
-  - `ORPHANET`
-  - combinations of the above
-- `evidence` is `NULL` in sampled rows
-- `description` is `NULL` in sampled rows
+## Graph Mapping
 
-Top historical `source` values seen in `pharos319`:
+Adapter: `src/input_adapters/pharos_mysql/eram_disease_adapter.py`
 
-- `CTD_human`
-- `UniProtKB-KW`
-- `GHR`
-- `GWASCAT`
-- `ORPHANET`
-- `UNIPROT`
-- `CLINVAR`
+The adapter emits:
 
-Current `pharos400` status:
+- `Disease`
+  - `id = did`
+  - `name = ncats_name`
+- `ProteinDiseaseEdge`
+  - one edge per `(UniProtKB, DOID)` pair
+  - one or more `DiseaseAssociationDetail` entries as needed after graph merge
 
-- `disease` rows with `dtype='eRAM'`: 0
+ERAM detail payload:
 
-### External source discovery
+- `source = "eRAM"`
+- `source_id = DOID`
+- `original_sources = [...]`
 
-- The original eRAM publication is:
-  - Jia et al., NAR 2018, "eRAM: encyclopedia of Rare disease Annotations for Precision Medicine"
-- The paper describes eRAM as an integrated rare-disease resource assembled from multiple upstream sources.
-- A current downloadable page is available at:
-  - `http://119.3.41.228/eram/download.php`
-- The download page advertises:
-  - `eRAM Gene.zip` — version `v2.00`
-  - `eRAM Integrated Phenotype.txt` — version `v2.00`
-  - `eRAM Integrated Symptom.txt` — version `v2.00`
-  - `Text Mining Test Set.zip` — version `v2.00`
-- `eRAM Gene.zip` HTTP metadata:
-  - `Last-Modified: 2019-03-28`
-  - `Content-Length: 806420`
+`original_sources` is the deduped list parsed from the legacy pipe-delimited `disease.source` field.
 
-### Real payload shape from `eRAM Gene.zip`
+ERAM intentionally does not use:
 
-The archive contains three files:
+- `evidence_terms`
+- `evidence_codes`
+- legacy `mondoid` as the primary graph disease ID
 
-- `eRAM Text Mined Gene.txt`
-- `eRAM Curated Gene.txt`
-- `eRAM Inferring Gene.txt`
+## MySQL Mapping
 
-#### `eRAM Text Mined Gene.txt`
+The existing TCRD converter path is reused.
 
-- Header: `Disease<TAB>Text Mined Gene`
-- One tab-delimited row per disease.
-- No stable disease identifier column was observed.
-- The gene field is a semicolon-delimited list of entries shaped like:
-  - `95|ACY1`
-  - `538|ATP7A`
-- This appears to be `NCBI Gene ID|symbol`.
+ERAM-specific downstream expectations:
 
-#### `eRAM Curated Gene.txt`
+- `disease.dtype = 'eRAM'`
+- `disease.did = detail.source_id`
+- `disease.source = '|'.join(detail.original_sources)`
+- `disease.evidence` remains driven by actual evidence fields, which ERAM does not populate here
 
-- Header: `Disease<TAB>Curated Gene`
-- One tab-delimited row per disease.
-- No stable disease identifier column was observed.
-- The gene field is a `#`-delimited list of entries shaped like:
-  - `BTD|686|CLINVAR;GHR;ORPHANET;UNIPROT`
-  - `GBA|2629|CLINVAR;GHR;UNIPROT;UniProtKB-KW`
-- This appears to be:
-  - gene symbol
-  - NCBI Gene ID
-  - semicolon-delimited ERAM integrated provenance sources
+## Validation Summary
 
-#### `eRAM Inferring Gene.txt`
+Working graph (`test_pharos`) checks showed:
 
-- Header: `Disease<TAB>Inferring Gene`
-- The data rows inspected do **not** contain the tab delimiter advertised by the header.
-- Example rows look like:
-  - `biotinidase deficiencyBTD|CIPHER;CTD_human|686`
-  - `rett syndromeAPOE|CIPHER|348#BDNF|CIPHER|627#...`
-- This file appears malformed or at least inconsistently encoded.
-- The gene entries appear to mix:
-  - gene symbol
-  - provenance source list such as `CIPHER;CTD_human`
-  - NCBI Gene ID
-- Because the disease name is concatenated directly to the first gene token, disease/gene boundary recovery will need explicit parsing and validation if this file is included.
+- ERAM `ProteinDiseaseEdge` rows landed with `detail.source = 'eRAM'`
+- `detail.source_id` preserved the legacy `DOID:*`
+- `detail.original_sources` preserved the legacy embedded source list
+- most disease endpoints resolved to canonical `MONDO:*`, while the source DOID remained on the detail payload
 
-## Initial Mapping Hypothesis
+Working MySQL (`pharos400_working`) checks showed:
 
-If a current ERAM file can be obtained and its payload matches the historical Pharos use case, first-pass graph output should likely be:
+- `disease.dtype = 'eRAM'`
+- `disease.did` populated from the source DOID
+- `disease.source` populated from `original_sources`
+- `disease.evidence` remained null, which is expected for this ERAM shape
 
-- `Disease` nodes
-- disease association edges, ideally compatible with current `ProteinDiseaseEdge.details`
+## Known Caveats
 
-Likely detail fields of interest, based on historical MySQL output:
+- Legacy ERAM UniProt accessions do not all exist as direct lookup aliases in the current `TCRDTargetResolver` cache.
+- Most of the dropped legacy accessions correspond to proteins that still exist in the current Pharos protein universe under a different canonical accession.
+- A small number of legacy ERAM proteins appear absent from the current canonical Pharos protein set entirely.
+- Because graph node scalar merge is last-write-wins, ERAM disease names can still overwrite other disease node names if they resolve onto the same canonical disease node and ERAM is loaded later.
 
-- source-specific provenance string or source list
-- disease label
-- possibly a subtype such as curated / inferred / text-mined if we decide to preserve file-of-origin
+## Scope Kept Out
 
-## Likely Normalization Expectations
-
-- Historical `pharos319` output used `DOID:*` in `disease.did`.
-- The current downloadable gene files do **not** expose a disease ID column in the rows inspected.
-- Historical `pharos319` DOID values therefore almost certainly came from an additional mapping or normalization step outside these files.
-- This must be verified against the real raw payload before deciding whether the new ingest should:
-  - emit canonical `Disease(id='DOID:...')` nodes directly
-  - preserve another source disease identifier and rely on later normalization
-  - derive DOID mappings from another ERAM file or a separate lookup resource
-
-## Open Questions
-
-- What is the current authoritative ERAM download source?
-- Is ERAM still publicly accessible as raw downloadable tables?
-- What exact file contains the disease-to-gene or disease-to-target associations?
-- Is there a separate ERAM disease metadata file with disease identifiers that is not exposed on the main gene download page?
-- Does the raw payload use genes, proteins, or mixed identifiers?
-- Does the raw payload already provide DOID disease identifiers somewhere else, or is disease-name normalization required?
-- How should the multi-source ERAM provenance string be represented in `DiseaseAssociationDetail`?
-  - current detail model supports `source`, `source_id`, `evidence_terms`, `pmids`, `evidence_codes`
-  - it does not yet have a dedicated field for an ERAM-integrated source list
-- Should first pass include all three files, or only the well-formed `Curated` and `Text Mined` files while `Inferring` is profiled further?
-
-## Risks
-
-- The current ERAM site or download endpoints may no longer be available.
-- Historical `pharos319` rows may reflect a loader-specific transformed export rather than a still-available raw ERAM table.
-- If the source is gene-based, the Pharos build may rely on resolver side-lifting into protein-facing disease associations.
-- If ERAM provenance is important and more complex than the current detail model allows, a small model extension may be needed.
-- The current downloadable files are disease-name keyed rather than disease-ID keyed, so naïve ingest would create unstable disease nodes.
-- `eRAM Inferring Gene.txt` currently appears malformed and may require custom repair logic or temporary exclusion.
-
-## Recommendation
-
-Do not spend implementation effort re-parsing the public ERAM download unless a concrete requirement depends on rebuilding from source files.
-
-Preferred path if ERAM is still desired:
-
-1. Treat ERAM as a legacy backfill/migration problem.
-2. Reuse the already transformed `eRAM` rows from `pharos319`.
-3. Map those legacy rows into the current `pharos400` / graph-derived output model as directly as possible.
-
-Rationale:
-
-- `pharos319` already contains the shape we actually want:
-  - protein-linked disease associations
-  - `DOID:*` disease identifiers
-  - populated source strings
-- the public ERAM files are older than the historical Pharos rows and do not expose stable disease IDs in the inspected gene files
-- at least one downloadable gene file appears malformed
-- rebuilding the old normalization pipeline from these files would be high-effort and brittle relative to the likely value
-
-## Minimal Implementation Plan
-
-If this work is revived despite the recommendation above, the source-ingest path would be:
-
-1. Add ERAM download rules and version capture for the current files.
-2. Profile the real files:
-   - columns
-   - disease ID family
-   - target ID family
-   - provenance/source fields
-   - row counts
-3. Decide the first-pass scope:
-   - likely start with `Curated` and `Text Mined`
-   - defer `Inferring` unless its row structure can be recovered cleanly
-4. Define a disease normalization strategy before graph emission.
-5. Compare payload shape against historical `pharos319` ERAM rows.
-6. Implement a minimal ERAM adapter in `src/use_cases/working.yaml` first.
-7. Validate the working graph before any promotion into `src/use_cases/pharos/target_graph.yaml`.
-
-The more pragmatic plan is:
-
-1. Profile legacy `eRAM` rows in `pharos319`.
-2. Decide the minimal target schema/output we still want in current Pharos/TCRD.
-3. Implement a carry-forward or migration path from `pharos319` instead of re-parsing ERAM downloads.
-
-## Validation Targets Once Files Exist
-
-- Representative ERAM records land in the working graph with the expected disease IDs and association details.
-- Resolver behavior correctly maps source targets into Pharos protein-facing associations.
-- Working MySQL output can reproduce at least the core historical shape:
-  - `dtype='eRAM'`
-  - disease name
-  - disease identifier
-  - source/provenance handling
+- no ERAM raw-file download workflow
+- no reconstruction of the historical normalization pipeline from public ERAM files
+- no new `tcrd.yaml` direct-load adapter
+- no special-case legacy protein remapping beyond the current Pharos resolver behavior
