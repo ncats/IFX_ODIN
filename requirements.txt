@@ -13,6 +13,7 @@ psycopg2-binary
 cwltool
 snakemake
 pandas
+matplotlib
 GEOparse
 pyyaml
 ijson

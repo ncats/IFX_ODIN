@@ -267,6 +267,10 @@ class MondoParent(Base):
 
 class Mondo(Base):
     __tablename__ = "mondo"
+    __table_args__ = (
+        Index("mondo_name_index", "name", mysql_length={"name": 191}),
+    )
+
     mondoid = Column(String(20), primary_key=True, nullable=False)
     name = Column(Text, nullable=False)
     def_ = Column("def", Text)  # 'def' is a Python keyword
@@ -338,6 +342,7 @@ class NcatsDisease(Base):
     __table_args__ = (
         Index("ncats_disease_mondoid_foreign", "mondoid"),
         Index("ncats_disease_gard_rare_index", "gard_rare"),
+        Index("ncats_disease_name_index", "name"),
         Index(
             "ncats_disease_fulltext_idx",
             "name", "uniprot_description", "do_description", "mondo_description",
