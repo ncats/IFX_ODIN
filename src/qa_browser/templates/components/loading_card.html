@@ -1,0 +1,9 @@
+<div class="card qa-loading-card {{ loading_class | default('') }}" role="status" aria-live="polite">
+    <span class="qa-loading-spinner" aria-hidden="true"></span>
+    <span>
+        <span class="qa-loading-title">{{ loading_title }}</span>
+        {% if loading_subtitle %}
+        <span class="qa-loading-subtitle">{{ loading_subtitle }}</span>
+        {% endif %}
+    </span>
+</div>

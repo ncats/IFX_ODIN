@@ -33,6 +33,14 @@ rule all:
         "../input_files/auto/tiga/tiga_gene-trait_stats.tsv",
         "../input_files/auto/tiga/tiga_gene-trait_provenance.tsv",
         "../input_files/auto/tiga/tiga_version.tsv",
+        "../input_files/auto/pharos_linkouts/glygen_proteins.csv",
+        "../input_files/auto/pharos_linkouts/glygen_version.tsv",
+        "../input_files/auto/pharos_linkouts/dark_kinome_kinases.tsv",
+        "../input_files/auto/pharos_linkouts/dark_kinome_version.tsv",
+        "../input_files/auto/pharos_linkouts/resolute_genes.tsv",
+        "../input_files/auto/pharos_linkouts/resolute_version.tsv",
+        "../input_files/auto/pharos_linkouts/linkedomics_genes.tsv",
+        "../input_files/auto/pharos_linkouts/linkedomics_version.tsv",
         "../input_files/auto/go/goa_human-uniprot.gaf.gz",
         "../input_files/auto/go/goa_human-go.gaf.gz",
         "../input_files/auto/uniprot/uniprot-human.json.gz",
@@ -285,6 +293,34 @@ rule download_tiga:
 
         python3 -c "import email.utils,sys; version,stats_lm,prov_lm,out_path,download_date=sys.argv[1:6]; vals=[v for v in (stats_lm, prov_lm) if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(out_path,'w').write('version\\tversion_date\\tdownload_date\\n'+version+'\\t'+version_date+'\\t'+download_date+'\\n')" "$version" "$stats_lm" "$provenance_lm" {output[2]} "$download_date"
         """
+
+rule download_pharos_linkout_glygen:
+    output:
+        "../input_files/auto/pharos_linkouts/glygen_proteins.csv",
+        "../input_files/auto/pharos_linkouts/glygen_version.tsv"
+    shell:
+        "python3 scripts/pharos_linkouts.py glygen --output {output[0]} --version {output[1]}"
+
+rule download_pharos_linkout_dark_kinome:
+    output:
+        "../input_files/auto/pharos_linkouts/dark_kinome_kinases.tsv",
+        "../input_files/auto/pharos_linkouts/dark_kinome_version.tsv"
+    shell:
+        "python3 scripts/pharos_linkouts.py dark-kinome --output {output[0]} --version {output[1]}"
+
+rule download_pharos_linkout_resolute:
+    output:
+        "../input_files/auto/pharos_linkouts/resolute_genes.tsv",
+        "../input_files/auto/pharos_linkouts/resolute_version.tsv"
+    shell:
+        "python3 scripts/pharos_linkouts.py resolute --output {output[0]} --version {output[1]}"
+
+rule download_pharos_linkout_linkedomics:
+    output:
+        "../input_files/auto/pharos_linkouts/linkedomics_genes.tsv",
+        "../input_files/auto/pharos_linkouts/linkedomics_version.tsv"
+    shell:
+        "python3 scripts/pharos_linkouts.py linkedomics --output {output[0]} --version {output[1]}"
 
 rule download_uberon:
     output:

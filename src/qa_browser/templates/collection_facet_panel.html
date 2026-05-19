@@ -1,0 +1,24 @@
+<div class="card" style="padding:0.75rem 0">
+    <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); margin-bottom:0.25rem">
+        {{ panel["title"] }}
+    </div>
+    <ul style="list-style:none; margin:0; padding:0">
+        {% for value in panel["values"] %}
+        <li>
+            <a href="{{ value.href }}"
+               style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none; color:{% if value.selected %}var(--accent){% else %}var(--text){% endif %}; background:{% if value.selected %}var(--accent-light){% else %}transparent{% endif %}; font-weight:{% if value.selected %}600{% else %}400{% endif %}">
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0">{{ value.label }}</span>
+                <span style="color:var(--text-muted); font-size:0.8rem; flex-shrink:0">{{ "{:,}".format(value.count) }}</span>
+            </a>
+        </li>
+        {% endfor %}
+        {% if panel["selected_values"] %}
+        <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
+            <a href="{{ panel["clear_href"] }}"
+               style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
+                clear {{ panel["field"] }}
+            </a>
+        </li>
+        {% endif %}
+    </ul>
+</div>

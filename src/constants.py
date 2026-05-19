@@ -57,6 +57,7 @@ class DataSourceName(SimpleEnum):
     UBERON = 'UBERON'
     PANTHERClasses = "PANTHER Protein Classes"
     TIGA = "TIGA"
+    PharosLinkouts = "Pharos Simple Linkouts"
     SureChEMBL = "SureChEMBL"
     PHIPSTER = "P-HIPSTer"
 

@@ -896,6 +896,48 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .htmx-request .htmx-indicator { display: inline; }
 .htmx-request.htmx-indicator { display: inline; }
 
+.qa-loading-card {
+    min-height: 6.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 1rem;
+    color: var(--text);
+    border-style: dashed;
+}
+
+.qa-loading-card--table {
+    min-height: 12rem;
+    justify-content: center;
+}
+
+.qa-loading-card--compact {
+    min-height: 4.5rem;
+}
+
+.qa-loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid var(--accent-light);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+.qa-loading-title {
+    display: block;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.qa-loading-subtitle {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
 /* Schema table */
 .schema-table td { font-family: var(--mono); font-size: 12px; }
 

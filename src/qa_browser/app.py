@@ -544,6 +544,33 @@ def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dic
     return f"{base_url}?{query_string}" if query_string else base_url
 
 
+def _build_collection_facets_url(db_name: str, coll_name: str, facet_filters: Dict[str, List[str]],
+                                 search_term: str = "", page_size: int = 25) -> str:
+    params = [("page_size", page_size)]
+    if search_term:
+        params.append(("q", search_term))
+    for field in sorted(facet_filters):
+        for value in facet_filters[field]:
+            params.append((f"facet_{field}", value))
+    query_string = urlencode(params, doseq=True)
+    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/facets"
+    return f"{base_url}?{query_string}" if query_string else base_url
+
+
+def _build_collection_facet_url(db_name: str, coll_name: str, field: str,
+                                facet_filters: Dict[str, List[str]],
+                                search_term: str = "", page_size: int = 25) -> str:
+    params = [("page_size", page_size)]
+    if search_term:
+        params.append(("q", search_term))
+    for filter_field in sorted(facet_filters):
+        for value in facet_filters[filter_field]:
+            params.append((f"facet_{filter_field}", value))
+    query_string = urlencode(params, doseq=True)
+    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/facet/{url_quote(field, safe='')}"
+    return f"{base_url}?{query_string}" if query_string else base_url
+
+
 def _build_collection_download_url(db_name: str, coll_name: str, page: int, page_size: int,
                                    facet_filters: Dict[str, List[str]], search_term: str = "") -> str:
     params = _build_collection_query_params(page, page_size, facet_filters, search_term=search_term)
@@ -645,70 +672,87 @@ def _build_collection_facet_panels(db, db_name: str, coll_name: str, page_size: 
                                    category_fields: List[str], active_filters: Dict[str, List[str]],
                                    search_fields: List[str], search_term: str,
                                    top: int = 20) -> List[dict]:
-    panels = []
     ordered_fields = sorted(
         category_fields,
         key=lambda field: (0 if active_filters.get(field) else 1, field),
     )
-    for field in ordered_fields:
-        other_filters = {k: v for k, v in active_filters.items() if k != field}
-        bind_vars = {
-            "facet_field": field,
-            "facet_top": top,
-        }
-        filter_clause = _build_collection_constraints(
-            active_filters=other_filters,
+    return [
+        _build_collection_facet_panel(
+            db=db,
+            db_name=db_name,
+            coll_name=coll_name,
+            page_size=page_size,
+            field=field,
+            active_filters=active_filters,
             search_fields=search_fields,
             search_term=search_term,
-            bind_vars=bind_vars,
+            top=top,
         )
-        query = f"""
-            FOR doc IN `{coll_name}`
-                {f"FILTER {filter_clause}" if filter_clause else ""}
-                {_get_facet_clause('facet_field', 'facet_top')}
-        """
-        rows = list(db.aql.execute(query, bind_vars=bind_vars))
-        selected_values = set(active_filters.get(field, []))
-        facet_values = []
-        for row in rows:
-            normalized_value = _normalize_facet_value(row.get("value"))
-            updated_values = sorted(selected_values ^ {normalized_value})
-            overrides = dict(active_filters)
-            if updated_values:
-                overrides[field] = updated_values
-            else:
-                overrides[field] = []
-            facet_values.append({
-                "value": normalized_value,
-                "label": _format_facet_value(row.get("value")),
-                "count": row.get("count", 0),
-                "selected": normalized_value in selected_values,
-                "href": _build_collection_url(
-                    db_name=db_name,
-                    coll_name=coll_name,
-                    page=1,
-                    page_size=page_size,
-                    facet_filters=active_filters,
-                    search_term=search_term,
-                    overrides=overrides,
-                ),
-            })
-        panels.append({
-            "field": field,
-            "title": field.replace("_", " "),
-            "values": facet_values,
-            "selected_values": sorted(selected_values),
-            "clear_href": _build_collection_url(
+        for field in ordered_fields
+    ]
+
+
+def _build_collection_facet_panel(db, db_name: str, coll_name: str, page_size: int,
+                                  field: str, active_filters: Dict[str, List[str]],
+                                  search_fields: List[str], search_term: str,
+                                  top: int = 20) -> dict:
+    other_filters = {k: v for k, v in active_filters.items() if k != field}
+    bind_vars = {
+        "facet_field": field,
+        "facet_top": top,
+    }
+    filter_clause = _build_collection_constraints(
+        active_filters=other_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+        bind_vars=bind_vars,
+    )
+    query = f"""
+        FOR doc IN `{coll_name}`
+            {f"FILTER {filter_clause}" if filter_clause else ""}
+            {_get_facet_clause('facet_field', 'facet_top')}
+    """
+    rows = list(db.aql.execute(query, bind_vars=bind_vars))
+    selected_values = set(active_filters.get(field, []))
+    facet_values = []
+    for row in rows:
+        normalized_value = _normalize_facet_value(row.get("value"))
+        updated_values = sorted(selected_values ^ {normalized_value})
+        overrides = dict(active_filters)
+        if updated_values:
+            overrides[field] = updated_values
+        else:
+            overrides[field] = []
+        facet_values.append({
+            "value": normalized_value,
+            "label": _format_facet_value(row.get("value")),
+            "count": row.get("count", 0),
+            "selected": normalized_value in selected_values,
+            "href": _build_collection_url(
                 db_name=db_name,
                 coll_name=coll_name,
                 page=1,
                 page_size=page_size,
                 facet_filters=active_filters,
                 search_term=search_term,
-                overrides={field: []},
+                overrides=overrides,
             ),
         })
-    return panels
+    return {
+        "field": field,
+        "title": field.replace("_", " "),
+        "values": facet_values,
+        "selected_values": sorted(selected_values),
+        "clear_href": _build_collection_url(
+            db_name=db_name,
+            coll_name=coll_name,
+            page=1,
+            page_size=page_size,
+            facet_filters=active_filters,
+            search_term=search_term,
+            overrides={field: []},
+        ),
+    }
 
 
 def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
@@ -750,6 +794,93 @@ def _build_active_filter_summary(db_name: str, coll_name: str, page_size: int,
             ),
         })
     return summaries
+
+
+def _get_collection_preview_fields(is_edge: bool, facet_metadata: dict, search_metadata: dict) -> List[str]:
+    """Fields to show in collection tables without loading every large document field."""
+    fields = ["_key"]
+    if is_edge:
+        fields.extend(["_from", "_to"])
+    priority = [
+        "id",
+        "name",
+        "symbol",
+        "preferred_symbol",
+        "type",
+        "description",
+        "label",
+        "gene_name",
+        "uniprot_id",
+        "ensembl_id",
+        "refseq_id",
+        "ncbi_id",
+    ]
+    fields.extend(priority)
+    fields.extend(sorted(facet_metadata.get("category_fields") or []))
+    fields.extend(sorted(facet_metadata.get("numeric_fields") or []))
+    fields.extend(search_metadata.get("text_fields") or [])
+    return list(dict.fromkeys(fields))
+
+
+def _build_collection_facet_loaders(db_name: str, coll_name: str, page_size: int,
+                                    category_fields: List[str],
+                                    active_filters: Dict[str, List[str]],
+                                    search_term: str = "") -> List[dict]:
+    ordered_fields = sorted(
+        category_fields,
+        key=lambda field: (0 if active_filters.get(field) else 1, field),
+    )
+    return [
+        {
+            "field": field,
+            "title": field.replace("_", " "),
+            "url": _build_collection_facet_url(
+                db_name=db_name,
+                coll_name=coll_name,
+                field=field,
+                facet_filters=active_filters,
+                search_term=search_term,
+                page_size=page_size,
+            ),
+        }
+        for field in ordered_fields
+    ]
+
+
+def _get_dashboard_collection_summaries(db) -> List[dict]:
+    collections = []
+    for coll in db.collections():
+        if coll["name"].startswith("_"):
+            continue
+        coll_type = coll.get("type")
+        is_edge = coll_type in ("edge", 3)
+        count_cursor = db.aql.execute(
+            f"FOR doc IN `{coll['name']}` COLLECT WITH COUNT INTO c RETURN c"
+        )
+        count = list(count_cursor)[0]
+        collections.append({
+            "name": coll["name"],
+            "type": "edge" if is_edge else "document",
+            "count": count,
+        })
+    collections.sort(key=lambda c: c["name"])
+    return collections
+
+
+def _get_dashboard_collection_shell(db) -> List[dict]:
+    collections = []
+    for coll in db.collections():
+        if coll["name"].startswith("_"):
+            continue
+        coll_type = coll.get("type")
+        is_edge = coll_type in ("edge", 3)
+        collections.append({
+            "name": coll["name"],
+            "type": "edge" if is_edge else "document",
+            "count": None,
+        })
+    collections.sort(key=lambda c: c["name"])
+    return collections
 
 
 def _build_browser_home_context(request: Request) -> dict:
@@ -820,25 +951,9 @@ async def qa_browser_home(request: Request):
 
 
 @app.get("/db/{db_name}", response_class=HTMLResponse)
-async def dashboard(request: Request, db_name: str):
+def dashboard(request: Request, db_name: str):
     db = get_db(db_name)
-    collections_raw = db.collections()
-    collections = []
-    for coll in collections_raw:
-        if coll["name"].startswith("_"):
-            continue
-        coll_type = coll.get("type")
-        is_edge = coll_type in ("edge", 3)
-        count_cursor = db.aql.execute(
-            f"FOR doc IN `{coll['name']}` COLLECT WITH COUNT INTO c RETURN c"
-        )
-        count = list(count_cursor)[0]
-        collections.append({
-            "name": coll["name"],
-            "type": "edge" if is_edge else "document",
-            "count": count,
-        })
-    collections.sort(key=lambda c: c["name"])
+    collections = _get_dashboard_collection_shell(db)
 
     # Edge definitions for schema summary
     edge_defs = []
@@ -865,6 +980,20 @@ async def dashboard(request: Request, db_name: str):
         "edge_defs": edge_defs,
         "etl_meta": etl_meta,
         "graph_views": graph_views,
+        "doc_count": None,
+        "edge_count": None,
+        "counts_url": f"{templates.env.globals['root_path']}/db/{db_name}/collections",
+    })
+
+
+@app.get("/db/{db_name}/collections", response_class=HTMLResponse)
+def dashboard_collections(request: Request, db_name: str):
+    db = get_db(db_name)
+    collections = _get_dashboard_collection_summaries(db)
+    return templates.TemplateResponse(request, "dashboard_collections.html", {
+        "request": request,
+        "db_name": db_name,
+        "collections": collections,
         "doc_count": sum(c["count"] for c in collections if c["type"] == "document"),
         "edge_count": sum(c["count"] for c in collections if c["type"] == "edge"),
     })
@@ -930,8 +1059,8 @@ async def execute_graph_view(db_name: str, view_id: str):
 
 
 @app.get("/db/{db_name}/collection/{coll_name}", response_class=HTMLResponse)
-async def collection_browser(request: Request, db_name: str, coll_name: str,
-                              page: int = 1, page_size: int = 25):
+def collection_browser(request: Request, db_name: str, coll_name: str,
+                       page: int = 1, page_size: int = 25):
     db = get_db(db_name)
     skip = (page - 1) * page_size
     facet_metadata = _get_collection_facet_metadata(db, coll_name)
@@ -947,6 +1076,85 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         search_term=search_term,
         bind_vars=filter_bind_vars,
     )
+    htmx = request.headers.get("HX-Request") == "true"
+
+    if not htmx:
+        coll = db.collection(coll_name)
+        is_edge = coll.properties().get("type") in ("edge", 3)
+        active_filter_summary = _build_active_filter_summary(
+            db_name=db_name,
+            coll_name=coll_name,
+            page_size=page_size,
+            active_filters=active_filters,
+            search_term=search_term,
+        )
+        stats_url = _build_collection_stats_url(db_name, coll_name, active_filters, search_term=search_term)
+        facets_url = _build_collection_facets_url(
+            db_name=db_name,
+            coll_name=coll_name,
+            facet_filters=active_filters,
+            search_term=search_term,
+            page_size=page_size,
+        )
+        facet_loaders = _build_collection_facet_loaders(
+            db_name=db_name,
+            coll_name=coll_name,
+            page_size=page_size,
+            category_fields=category_fields,
+            active_filters=active_filters,
+            search_term=search_term,
+        )
+        rows_url = _build_collection_url(
+            db_name=db_name,
+            coll_name=coll_name,
+            page=page,
+            page_size=page_size,
+            facet_filters=active_filters,
+            search_term=search_term,
+        )
+        download_url = _build_collection_download_url(
+            db_name=db_name,
+            coll_name=coll_name,
+            page=page,
+            page_size=page_size,
+            facet_filters=active_filters,
+            search_term=search_term,
+        )
+        clear_search_url = _build_collection_url(
+            db_name=db_name,
+            coll_name=coll_name,
+            page=1,
+            page_size=page_size,
+            facet_filters=active_filters,
+            search_term="",
+        )
+        return templates.TemplateResponse(request, "collection.html", {
+            "request": request,
+            "db_name": db_name,
+            "coll_name": coll_name,
+            "docs": [],
+            "columns": [],
+            "is_edge": is_edge,
+            "total": None,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1,
+            "has_facets": bool(category_fields),
+            "facet_panels": [],
+            "facet_loaders": facet_loaders,
+            "active_filters": active_filters,
+            "active_filter_summary": active_filter_summary,
+            "search_term": search_term,
+            "search_fields": search_fields,
+            "stats_url": stats_url,
+            "facets_url": facets_url,
+            "download_url": download_url,
+            "clear_search_url": clear_search_url,
+            "rows_url": rows_url,
+            "loading_table": True,
+            "prev_url": None,
+            "next_url": None,
+        })
 
     # Use AQL for both count and list so they always agree
     count_query = f"""
@@ -964,28 +1172,24 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
 
     coll = db.collection(coll_name)
     is_edge = coll.properties().get("type") in ("edge", 3)
+    preview_fields = _get_collection_preview_fields(
+        is_edge=is_edge,
+        facet_metadata=facet_metadata,
+        search_metadata=search_metadata,
+    )
+    list_bind_vars["return_fields"] = preview_fields
 
     # Fetch documents
     query = f"""
         FOR doc IN `{coll_name}`
             {f"FILTER {filter_clause}" if filter_clause else ""}
             LIMIT @skip, @top
-            RETURN doc
+            RETURN KEEP(doc, @return_fields)
     """
     cursor = db.aql.execute(query, bind_vars=list_bind_vars)
     docs = list(cursor)
     # Discover columns from this page of results
     columns = _discover_columns(docs, is_edge)
-    facet_panels = _build_collection_facet_panels(
-        db=db,
-        db_name=db_name,
-        coll_name=coll_name,
-        page_size=page_size,
-        category_fields=category_fields,
-        active_filters=active_filters,
-        search_fields=search_fields,
-        search_term=search_term,
-    )
     active_filter_summary = _build_active_filter_summary(
         db_name=db_name,
         coll_name=coll_name,
@@ -994,6 +1198,21 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         search_term=search_term,
     )
     stats_url = _build_collection_stats_url(db_name, coll_name, active_filters, search_term=search_term)
+    facets_url = _build_collection_facets_url(
+        db_name=db_name,
+        coll_name=coll_name,
+        facet_filters=active_filters,
+        search_term=search_term,
+        page_size=page_size,
+    )
+    facet_loaders = _build_collection_facet_loaders(
+        db_name=db_name,
+        coll_name=coll_name,
+        page_size=page_size,
+        category_fields=category_fields,
+        active_filters=active_filters,
+        search_term=search_term,
+    )
     download_url = _build_collection_download_url(db_name, coll_name, page, page_size, active_filters, search_term=search_term)
     clear_search_url = _build_collection_url(
         db_name=db_name,
@@ -1010,11 +1229,7 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
     if page < total_pages:
         next_url = _build_collection_url(db_name, coll_name, page + 1, page_size, active_filters, search_term=search_term)
 
-    # HTMX partial rendering
-    htmx = request.headers.get("HX-Request") == "true"
-    template = "collection_rows.html" if htmx else "collection.html"
-
-    return templates.TemplateResponse(request, template, {
+    return templates.TemplateResponse(request, "collection_rows.html", {
         "request": request,
         "db_name": db_name,
         "coll_name": coll_name,
@@ -1025,14 +1240,19 @@ async def collection_browser(request: Request, db_name: str, coll_name: str,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages,
-        "facet_panels": facet_panels,
+        "has_facets": bool(category_fields),
+        "facet_panels": [],
+        "facet_loaders": facet_loaders,
         "active_filters": active_filters,
         "active_filter_summary": active_filter_summary,
         "search_term": search_term,
         "search_fields": search_fields,
         "stats_url": stats_url,
+        "facets_url": facets_url,
         "download_url": download_url,
         "clear_search_url": clear_search_url,
+        "rows_url": "",
+        "loading_table": False,
         "prev_url": prev_url,
         "next_url": next_url,
     })
@@ -1058,18 +1278,23 @@ async def collection_download(request: Request, db_name: str, coll_name: str,
 
     coll = db.collection(coll_name)
     is_edge = coll.properties().get("type") in ("edge", 3)
+    preview_fields = _get_collection_preview_fields(
+        is_edge=is_edge,
+        facet_metadata=facet_metadata,
+        search_metadata=search_metadata,
+    )
 
     # Match the export columns to the current list-page view by rediscovering
     # columns from the currently visible page, then export all filtered rows.
     page = max(page, 1)
     page_size = max(page_size, 1)
     skip = (page - 1) * page_size
-    preview_bind_vars = {**filter_bind_vars, "skip": skip, "top": page_size}
+    preview_bind_vars = {**filter_bind_vars, "skip": skip, "top": page_size, "return_fields": preview_fields}
     preview_query = f"""
         FOR doc IN `{coll_name}`
             {f"FILTER {filter_clause}" if filter_clause else ""}
             LIMIT @skip, @top
-            RETURN doc
+            RETURN KEEP(doc, @return_fields)
     """
     preview_docs = list(db.aql.execute(preview_query, bind_vars=preview_bind_vars))
     columns = _discover_columns(preview_docs, is_edge)
@@ -1106,8 +1331,71 @@ async def collection_download(request: Request, db_name: str, coll_name: str,
     )
 
 
+@app.get("/db/{db_name}/collection/{coll_name}/facets", response_class=HTMLResponse)
+def collection_facets(request: Request, db_name: str, coll_name: str, page_size: int = 25):
+    """Facet panels for a collection (loaded after the main table)."""
+    db = get_db(db_name)
+    facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    search_metadata = _get_collection_search_metadata(db, coll_name)
+    category_fields = sorted(facet_metadata.get("category_fields") or [])
+    search_fields = list(search_metadata.get("text_fields") or [])
+    active_filters = _parse_collection_facet_filters(request, category_fields)
+    search_term = _parse_collection_search_term(request)
+    facet_panels = _build_collection_facet_panels(
+        db=db,
+        db_name=db_name,
+        coll_name=coll_name,
+        page_size=page_size,
+        category_fields=category_fields,
+        active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+    )
+    return templates.TemplateResponse(request, "collection_facets.html", {
+        "request": request,
+        "facet_panels": facet_panels,
+    })
+
+
+@app.get("/db/{db_name}/collection/{coll_name}/facet/{field}", response_class=HTMLResponse)
+def collection_facet(request: Request, db_name: str, coll_name: str, field: str, page_size: int = 25):
+    """Single facet panel for a collection (loaded independently via HTMX)."""
+    db = get_db(db_name)
+    facet_metadata = _get_collection_facet_metadata(db, coll_name)
+    search_metadata = _get_collection_search_metadata(db, coll_name)
+    category_fields = sorted(facet_metadata.get("category_fields") or [])
+    if field not in category_fields:
+        return templates.TemplateResponse(request, "collection_facet_panel.html", {
+            "request": request,
+            "panel": {
+                "field": field,
+                "title": field.replace("_", " "),
+                "values": [],
+                "selected_values": [],
+                "clear_href": "#",
+            },
+        })
+    search_fields = list(search_metadata.get("text_fields") or [])
+    active_filters = _parse_collection_facet_filters(request, category_fields)
+    search_term = _parse_collection_search_term(request)
+    panel = _build_collection_facet_panel(
+        db=db,
+        db_name=db_name,
+        coll_name=coll_name,
+        page_size=page_size,
+        field=field,
+        active_filters=active_filters,
+        search_fields=search_fields,
+        search_term=search_term,
+    )
+    return templates.TemplateResponse(request, "collection_facet_panel.html", {
+        "request": request,
+        "panel": panel,
+    })
+
+
 @app.get("/db/{db_name}/collection/{coll_name}/stats", response_class=HTMLResponse)
-async def collection_stats(request: Request, db_name: str, coll_name: str):
+def collection_stats(request: Request, db_name: str, coll_name: str):
     """Field coverage stats for a collection (loaded via HTMX)."""
     db = get_db(db_name)
     facet_metadata = _get_collection_facet_metadata(db, coll_name)

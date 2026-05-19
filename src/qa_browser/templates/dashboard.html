@@ -13,15 +13,19 @@
 
 <div class="stats-row">
     <div class="stat-box">
-        <div class="value">{{ collections|length }}</div>
+        <div id="dashboard-collection-count" class="value">{{ collections|length }}</div>
         <div class="label">Collections</div>
     </div>
     <div class="stat-box">
-        <div class="value">{{ "{:,}".format(doc_count) }}</div>
+        <div id="dashboard-doc-count" class="value">
+            {% if doc_count is not none %}{{ "{:,}".format(doc_count) }}{% else %}...{% endif %}
+        </div>
         <div class="label">Documents</div>
     </div>
     <div class="stat-box nerd-only">
-        <div class="value">{{ "{:,}".format(edge_count) }}</div>
+        <div id="dashboard-edge-count" class="value">
+            {% if edge_count is not none %}{{ "{:,}".format(edge_count) }}{% else %}...{% endif %}
+        </div>
         <div class="label">Edges</div>
     </div>
 </div>
@@ -30,24 +34,15 @@
     <div>
         <div class="card">
             <h2>Collections</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th style="text-align:right">Count</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for coll in collections %}
-                    <tr class="{{ 'nerd-only' if coll.type == 'edge' }}">
-                        <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
-                        <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
-                        <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div id="dashboard-collections"
+                 hx-get="{{ counts_url }}"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+                {% set loading_title = "Loading collection counts" %}
+                {% set loading_subtitle = "Counting ArangoDB collections" %}
+                {% set loading_class = "qa-loading-card--table" %}
+                {% include "components/loading_card.html" %}
+            </div>
         </div>
     </div>
 

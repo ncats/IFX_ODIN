@@ -1092,7 +1092,7 @@ class ExtLink(Base):
     source = Column(
         Enum(
             "GlyGen", "Prokino", "Dark Kinome", "Reactome", "ClinGen", "GENEVA",
-            "TIGA", "RESOLUTE", "ARCHS4", "LinkedOmicsKB",
+            "TIGA", "RESOLUTE", "ARCHS4", "LinkedOmicsKB", "PubChem",
             name="extlink_source_enum"
         ),
         nullable=False
