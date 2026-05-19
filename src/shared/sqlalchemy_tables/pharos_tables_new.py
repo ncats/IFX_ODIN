@@ -1139,14 +1139,7 @@ class ExtLink(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False)
-    source = Column(
-        Enum(
-            "GlyGen", "Prokino", "Dark Kinome", "Reactome", "ClinGen", "GENEVA",
-            "TIGA", "RESOLUTE", "ARCHS4", "LinkedOmicsKB",
-            name="extlink_source_enum"
-        ),
-        nullable=False
-    )
+    source = Column(String(255), ForeignKey("affiliate.source"), nullable=False)
     url = Column(Text, nullable=False)
 
     # Index
@@ -1158,9 +1151,10 @@ class Affiliate(Base):
     __tablename__ = "affiliate"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source = Column(String(255), nullable=False)
+    source = Column(String(255), nullable=False, unique=True)
     display_name = Column(String(255), nullable=False)
     description = Column(String(255), nullable=False)
+    link_count = Column(Integer, nullable=False, default=0)
 
 class NcatsP2DA(Base):
     __tablename__ = "ncats_p2da"

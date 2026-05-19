@@ -78,11 +78,30 @@ These tables are populated directly from ontology source files during the TCRD b
 ---
 
 ## Planned Data Sources
-### Target Disease Associations
-- maybe ClinGen - old pharos didn't have it, but maybe it's useful
 
-### New Concepts
+### New Features
 - Nearest Tclin (computed from graph)
+- NCBI Gene Summary
+- Word Cloud
+- Typeahead
+- Disease
+  - associated target counts
+  - rare disease badge
+  - highest TDL
+  - Disease
+  - mondo and do descriptions
+- Ligand
+  - Target Counts
+  - Activity Value Counts
+
+### Bugs
+- Anatomogram not showing tissues
+- GWAS Traits not showing - maybe no link to protein anymore 
+- Disease Heirarchy / Disease Ancestry not working
+
+### Larger Efforts
+- Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
+- Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
 
 ### Simple Linkouts
 - Dark Kinase Knowledgebase — understudied kinases compendium
@@ -101,9 +120,8 @@ These tables are populated directly from ontology source files during the TCRD b
 - OMIM investigation follow-up *(low priority: legacy TCRD/Pharos loaded licensed OMIM files into `omim`, `omim_ps`, and `phenotype` with `ptype='OMIM'`, and the frontend did not surface that content. Revisit only if we explicitly want a phenotype/trait ingest, not as a target-disease source.)*
 
 ### Punted / Not Doing Right Now
-- Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
+- maybe ClinGen - old pharos didn't have it, but maybe it's useful
 - Monarch as a standalone disease-association source *(do not ingest the current dump as `Monarch`; the public file is a Translator-style aggregate whose primary sources are `infores:omim` and `infores:clingen`)*
-- Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
 - GWAS - gwas data is essentially duplicated in the old pharos, as it shows up in TIGA as well, and the UI exclusively uses the TIGA data, not the legacy direct GWAS data that was in there before TIGA was a thing
 - NIH Target Lists - IDG lists are obsolete, grant specific lists are not useful for most people
  

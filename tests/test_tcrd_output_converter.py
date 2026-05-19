@@ -880,3 +880,43 @@ def test_ncats_d2da_converter_keys_links_off_resolved_disease_id():
     assert len(link_rows) == 1
     assert link_rows[0].ncats_disease_id == 456
     assert link_rows[0].disease_assoc_id == disease_rows[0].id
+
+
+def test_affiliate_converter_uses_provider_name_for_display_name():
+    converter = TCRDOutputConverter()
+
+    row = converter.affiliate_converter({
+        "source": "TIGA",
+        "name": "Target Illumination GWAS Analytics (TIGA)",
+        "description": "TIGA scores and ranks GWAS discovered associations.",
+        "link_count": 18721,
+    })
+
+    assert row.source == "TIGA"
+    assert row.display_name == "Target Illumination GWAS Analytics (TIGA)"
+    assert row.description == "TIGA scores and ranks GWAS discovered associations."
+    assert row.link_count == 18721
+
+
+def test_extlink_converter_picks_lexicographically_first_source_id_detail():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFXProtein:1": 123}
+
+    row = converter.extlink_converter({
+        "start_id": "IFXProtein:1",
+        "source": "TIGA",
+        "details": [
+            {
+                "source_id": "ENSG000002",
+                "url": "https://unmtid-shinyapps.net/shiny/tiga/?gene=ENSG000002",
+            },
+            {
+                "source_id": "ENSG000001",
+                "url": "https://unmtid-shinyapps.net/shiny/tiga/?gene=ENSG000001",
+            },
+        ],
+    })
+
+    assert row.protein_id == 123
+    assert row.source == "TIGA"
+    assert row.url == "https://unmtid-shinyapps.net/shiny/tiga/?gene=ENSG000001"

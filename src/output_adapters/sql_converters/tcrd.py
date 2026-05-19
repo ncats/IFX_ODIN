@@ -6,6 +6,7 @@ from src.models.drgc_resource import DRGCResource
 from src.models.disease import Disease, DiseaseParentEdge, DODiseaseParentEdge, ProteinDiseaseEdge, TINXImportanceEdge
 from src.models.dto_class import DTOClass, DTOClassParentEdge, ProteinDTOClassEdge
 from src.models.expression import ProteinTissueExpressionEdge
+from src.models.external_link import ExternalLinkProvider, ProteinExternalLinkEdge
 from src.models.generif import GeneGeneRifEdge
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
 from src.models.keyword import ProteinKeywordEdge
@@ -31,7 +32,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Tiga as mysqlTiga, TigaProvenance, TinxImportance,
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
     Ortholog as mysqlOrtholog, PatentCount, Ptscore, Virus as mysqlVirus, ViralProtein as mysqlViralProtein,
-    ViralPPI as mysqlViralPPI,
+    ViralPPI as mysqlViralPPI, Affiliate, ExtLink,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -104,6 +105,9 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinDTOClassEdge: [self.p2dto_converter],
             # Keyword
             ProteinKeywordEdge: [self.keyword_xref_converter],
+            # Simple linkouts
+            ExternalLinkProvider: [self.affiliate_converter],
+            ProteinExternalLinkEdge: [self.extlink_converter],
         }
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
@@ -1315,4 +1319,37 @@ class TCRDOutputConverter(SQLOutputConverter):
             value=end.get('source_id') or end.get('value') or end.get('name') or '',
             xtra=end.get('value') or end.get('name'),
             provenance=obj['provenance'],
+        )
+
+    # --- Simple Linkouts ---
+
+    def affiliate_converter(self, obj: dict) -> Affiliate:
+        source = obj.get("source")
+        return Affiliate(
+            source=source,
+            display_name=obj.get("name") or source,
+            description=obj.get("description") or "",
+            link_count=obj.get("link_count") or 0,
+        )
+
+    @staticmethod
+    def _pick_extlink_detail(obj: dict) -> dict:
+        details = obj.get("details") or []
+        if details:
+            return sorted(details, key=lambda detail: detail.get("source_id") or "")[0]
+        return {
+            "url": obj.get("url"),
+            "source_id": obj.get("source_id"),
+            "source_id_type": obj.get("source_id_type"),
+        }
+
+    def extlink_converter(self, obj: dict) -> Optional[ExtLink]:
+        detail = self._pick_extlink_detail(obj)
+        url = detail.get("url")
+        if not url:
+            return None
+        return ExtLink(
+            protein_id=self.resolve_id("protein", obj["start_id"]),
+            source=obj.get("source"),
+            url=url,
         )

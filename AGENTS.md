@@ -19,6 +19,16 @@
 - Emit ingest output in type-grouped batches (for example: primary nodes, related nodes, then edges).
 - When validating a new source, compare against any prior TCRD or legacy ETL only after confirming what the current raw payload actually contains.
 
+## Adapter vs Resolver Boundary
+
+- Adapters parse source payloads and emit graph structure using the identifiers the source actually provides.
+- Adapters may normalize identifier syntax only within the same identifier family when the transformation is lossless and source-defined, for example trimming whitespace or converting `DOID_1234` to `DOID:1234`.
+- Adapters must not perform cross-identifier reconciliation, for example symbol-to-UniProt, UniProt-isoform-to-canonical-accession, Entrez-to-Ensembl, disease-xref-to-MONDO, or source-specific IDs to IFX canonical IDs.
+- Cross-identifier reconciliation belongs in `IdResolver` implementations and resolver configuration. If a source ID needs to map to an existing `Protein`, `Gene`, `Disease`, `Tissue`, or other canonical node, emit the source ID and add or configure the resolver path.
+- Adapters should not invent `xref` values to make downstream joins work. Canonical/equivalent `xref` content should come from resolver matches unless the source explicitly provides those exact equivalent IDs.
+- Filtering is different from resolving. Adapters should still apply source-scope filters that decide whether a row belongs in the ingest at all, such as human-only filters, evidence thresholds, or source-declared subsets.
+- If implementation feels like it needs a lookup table from one identifier family to another, stop and decide whether that lookup belongs in a resolver, a converter, or a documented post-processing step rather than inside the adapter.
+
 ## Profiling And Planning Tools
 
 - Examine the old Pharos loader code when relevant, usually under `https://github.com/unmtransinfo/TCRD/tree/master/loaders`.

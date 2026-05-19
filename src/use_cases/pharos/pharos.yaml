@@ -155,17 +155,17 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/go/go-basic.json
 
-  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
-    class: ProteinAdapter
-    kwargs:
-      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
-      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
-
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
+
+  - import: ./src/input_adapters/file_uniprot/protein_adapter.py
+    class: ProteinAdapter
+    kwargs:
+      file_path: ./input_files/auto/uniprot/uniprot-human-reviewed.json.gz
+      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
 
   - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
     class: PHIPSTERLegacyLiftAdapter
@@ -397,6 +397,22 @@ input_adapters:
       stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
       provenance_file_path: ./input_files/auto/tiga/tiga_gene-trait_provenance.tsv
       version_file_path: ./input_files/auto/tiga/tiga_version.tsv
+
+  - import: ./src/input_adapters/pharos_linkouts/linkouts.py
+    class: PharosExternalLinkAdapter
+    kwargs:
+      protein_file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      glygen_file_path: ./input_files/auto/pharos_linkouts/glygen_proteins.csv
+      glygen_version_file_path: ./input_files/auto/pharos_linkouts/glygen_version.tsv
+      dark_kinome_file_path: ./input_files/auto/pharos_linkouts/dark_kinome_kinases.tsv
+      dark_kinome_version_file_path: ./input_files/auto/pharos_linkouts/dark_kinome_version.tsv
+      resolute_file_path: ./input_files/auto/pharos_linkouts/resolute_genes.tsv
+      resolute_version_file_path: ./input_files/auto/pharos_linkouts/resolute_version.tsv
+      linkedomics_file_path: ./input_files/auto/pharos_linkouts/linkedomics_genes.tsv
+      linkedomics_version_file_path: ./input_files/auto/pharos_linkouts/linkedomics_version.tsv
+      tiga_stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
+      tiga_version_file_path: ./input_files/auto/tiga/tiga_version.tsv
+      canonical_only: true
 
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomePathwayAdapter

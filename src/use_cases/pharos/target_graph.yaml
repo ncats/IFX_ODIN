@@ -167,16 +167,16 @@ input_adapters:
     kwargs:
       file_path: ./input_files/auto/go/go-basic.json
 
+  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
+    class: ProteinNodeAdapter
+    kwargs:
+      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinAdapter
     kwargs:
       file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
       version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: IsoformProteinEdgeAdapter
