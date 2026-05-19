@@ -146,9 +146,18 @@ def download_dark_kinome(args):
     parser = DarkKinomeParser()
     parser.feed(html)
 
+    regex_rows = [
+        {
+            "symbol": urllib.parse.unquote(symbol).strip(),
+            "url": f"https://darkkinome.org/kinase/{urllib.parse.quote(urllib.parse.unquote(symbol).strip())}",
+        }
+        for symbol in re.findall(r"""href=["'](?:https://darkkinome\.org)?/kinase/([^"'/\s?#]+)["']""", html)
+        if urllib.parse.unquote(symbol).strip()
+    ]
+
     seen = set()
     rows = []
-    for row in parser.rows:
+    for row in [*parser.rows, *regex_rows]:
         if row["symbol"] in seen:
             continue
         seen.add(row["symbol"])
