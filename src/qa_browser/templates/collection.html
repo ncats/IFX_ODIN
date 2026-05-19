@@ -204,7 +204,11 @@
         <h1 class="collection-hero-title">{{ coll_name }}</h1>
         <div class="collection-hero-meta">
             <span class="badge {% if is_edge %}badge-edge{% else %}badge-doc{% endif %}">{{ "edge" if is_edge else "document" }}</span>
-            <span class="collection-total">{{ "{:,}".format(total) }} records</span>
+            {% if total is not none %}
+            <span id="collection-total-value" class="collection-total">{{ "{:,}".format(total) }} records</span>
+            {% else %}
+            <span id="collection-total-value" class="collection-total">Loading records...</span>
+            {% endif %}
             <span>{{ db_name }}</span>
         </div>
         <form method="get" action="{{ root_path }}/db/{{ db_name }}/collection/{{ coll_name }}" class="collection-search">
@@ -264,40 +268,36 @@
 {% endif %}
 
 <div class="collection-main">
-    {% if facet_panels %}
+    {% if has_facets %}
     <div class="collection-facets">
-        {% for panel in facet_panels %}
-        <div class="card" style="padding:0.75rem 0">
-            <div style="padding:0 0.75rem 0.5rem; font-size:0.7rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); margin-bottom:0.25rem">
-                {{ panel["title"] }}
-            </div>
-            <ul style="list-style:none; margin:0; padding:0">
-                {% for value in panel["values"] %}
-                <li>
-                    <a href="{{ value.href }}"
-                       style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.35rem 0.75rem; font-size:0.875rem; text-decoration:none; color:{% if value.selected %}var(--accent){% else %}var(--text){% endif %}; background:{% if value.selected %}var(--accent-light){% else %}transparent{% endif %}; font-weight:{% if value.selected %}600{% else %}400{% endif %}">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0">{{ value.label }}</span>
-                        <span style="color:var(--text-muted); font-size:0.8rem; flex-shrink:0">{{ "{:,}".format(value.count) }}</span>
-                    </a>
-                </li>
-                {% endfor %}
-                {% if panel["selected_values"] %}
-                <li style="padding:0.5rem 0.75rem 0; border-top:1px solid var(--border); margin-top:0.25rem">
-                    <a href="{{ panel["clear_href"] }}"
-                       style="font-size:0.8rem; color:var(--text-muted); text-decoration:none">
-                        clear {{ panel["field"] }}
-                    </a>
-                </li>
-                {% endif %}
-            </ul>
+        {% for loader in facet_loaders %}
+        <div hx-get="{{ loader.url }}"
+             hx-trigger="load"
+             hx-swap="outerHTML">
+            {% set loading_title = "Loading " ~ loader.title %}
+            {% set loading_subtitle = "Calculating facet counts" %}
+            {% set loading_class = "qa-loading-card--compact" %}
+            {% include "components/loading_card.html" %}
         </div>
         {% endfor %}
     </div>
     {% endif %}
 
     <div class="card collection-table">
-        <div id="table-container">
+        <div id="table-container"
+             {% if loading_table %}
+             hx-get="{{ rows_url }}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+            {% endif %}>
+            {% if loading_table %}
+            {% set loading_title = "Loading table rows" %}
+            {% set loading_subtitle = "Fetching records from ArangoDB" %}
+            {% set loading_class = "qa-loading-card--table" %}
+            {% include "components/loading_card.html" %}
+            {% else %}
             {% include "collection_rows.html" %}
+            {% endif %}
         </div>
     </div>
 </div>
@@ -307,7 +307,10 @@
     <div hx-get="{{ stats_url }}"
          hx-trigger="toggle once from:closest details"
          hx-swap="innerHTML">
-        <span class="htmx-indicator">Loading stats...</span>
+        {% set loading_title = "Loading field coverage" %}
+        {% set loading_subtitle = "Sampling collection records" %}
+        {% set loading_class = "qa-loading-card--compact" %}
+        {% include "components/loading_card.html" %}
     </div>
 </details>
 {% endblock %}

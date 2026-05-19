@@ -1,0 +1,22 @@
+<div id="dashboard-collection-count" class="value" hx-swap-oob="true">{{ collections|length }}</div>
+<div id="dashboard-doc-count" class="value" hx-swap-oob="true">{{ "{:,}".format(doc_count) }}</div>
+<div id="dashboard-edge-count" class="value" hx-swap-oob="true">{{ "{:,}".format(edge_count) }}</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th style="text-align:right">Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for coll in collections %}
+        <tr class="{{ 'nerd-only' if coll.type == 'edge' }}">
+            <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
+            <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
+            <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
