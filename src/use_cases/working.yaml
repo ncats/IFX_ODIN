@@ -149,21 +149,11 @@ input_adapters:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
 
-  - import: ./src/input_adapters/pharos_linkouts/linkouts.py
-    class: PharosExternalLinkAdapter
+  - import: ./src/input_adapters/ncbi/gene_summary.py
+    class: NCBIGeneSummaryAdapter
     kwargs:
-      protein_file_path: ./input_files/manual/target_graph/protein_ids.tsv
-      glygen_file_path: ./input_files/auto/pharos_linkouts/glygen_proteins.csv
-      glygen_version_file_path: ./input_files/auto/pharos_linkouts/glygen_version.tsv
-      dark_kinome_file_path: ./input_files/auto/pharos_linkouts/dark_kinome_kinases.tsv
-      dark_kinome_version_file_path: ./input_files/auto/pharos_linkouts/dark_kinome_version.tsv
-      resolute_file_path: ./input_files/auto/pharos_linkouts/resolute_genes.tsv
-      resolute_version_file_path: ./input_files/auto/pharos_linkouts/resolute_version.tsv
-      linkedomics_file_path: ./input_files/auto/pharos_linkouts/linkedomics_genes.tsv
-      linkedomics_version_file_path: ./input_files/auto/pharos_linkouts/linkedomics_version.tsv
-      tiga_stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
-      tiga_version_file_path: ./input_files/auto/tiga/tiga_version.tsv
-      canonical_only: true
+      gene_summary_file_path: ./input_files/auto/ncbi/gene_summary.gz
+      version_file_path: ./input_files/auto/ncbi/ncbi_gene_summary_version.tsv
 
 
 output_adapters:

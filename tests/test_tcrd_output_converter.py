@@ -476,6 +476,21 @@ def test_tdl_info_converter_exports_uniprot_function_as_legacy_uniprot_function(
     assert by_type["UniProt Function"].string_value == "Long UniProt-derived descriptive text"
 
 
+def test_tdl_info_converter_exports_ncbi_gene_summary_as_legacy_summary():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+
+    rows = converter.tdl_info_converter({
+        "id": "IFX123",
+        "ncbi_gene_summary": "NCBI-provided gene summary text",
+        "provenance": "test",
+    })
+
+    by_type = {row.itype: row for row in rows}
+    assert by_type["NCBI Gene Summary"].protein_id == 123
+    assert by_type["NCBI Gene Summary"].string_value == "NCBI-provided gene summary text"
+
+
 def test_ligand_edge_converter_uses_same_integer_ligand_id():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

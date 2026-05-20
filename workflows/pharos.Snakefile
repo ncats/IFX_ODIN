@@ -27,6 +27,8 @@ rule all:
         "../input_files/auto/ncbi/gene2pubmed.gz",
         "../input_files/auto/ncbi/generifs_basic.gz",
         "../input_files/auto/ncbi/ncbi_publications_version.tsv",
+        "../input_files/auto/ncbi/gene_summary.gz",
+        "../input_files/auto/ncbi/ncbi_gene_summary_version.tsv",
         "../input_files/auto/pubtator/gene2pubtator3.gz",
         "../input_files/auto/pubtator/README.txt",
         "../input_files/auto/pubtator/pubtator_version.tsv",
@@ -248,6 +250,22 @@ rule download_ncbi_publications:
         download_date=$(date -u +%F)
 
         python3 -c "import email.utils,sys; vals=[v for v in sys.argv[1:3] if v.strip()]; dates=[email.utils.parsedate_to_datetime(v).date().isoformat() for v in vals]; version_date=max(dates) if dates else ''; open(sys.argv[3],'w').write('version\\tversion_date\\tdownload_date\\n\\t'+version_date+'\\t'+sys.argv[4]+'\\n')" "$gene2pubmed_lm" "$generif_lm" {output[2]} "$download_date"
+        """
+
+rule download_ncbi_gene_summary:
+    output:
+        "../input_files/auto/ncbi/gene_summary.gz",
+        "../input_files/auto/ncbi/ncbi_gene_summary_version.tsv"
+    shell:
+        """
+        mkdir -p ../input_files/auto/ncbi
+        url='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_summary.gz'
+        curl -fL -o {output[0]} "$url"
+
+        last_modified=$(curl -fsI "$url" | awk -F': ' 'tolower($1)=="last-modified"{{print $2}}')
+        download_date=$(date -u +%F)
+
+        python3 -c "import email.utils,sys; val=sys.argv[1].strip(); version_date=email.utils.parsedate_to_datetime(val).date().isoformat() if val else ''; open(sys.argv[2],'w').write('version\\tversion_date\\tdownload_date\\n\\t'+version_date+'\\t'+sys.argv[3]+'\\n')" "$last_modified" {output[1]} "$download_date"
         """
 
 rule download_pubtator:
