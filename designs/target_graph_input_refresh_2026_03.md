@@ -184,5 +184,33 @@ Verified ingest rules:
 
 As a result:
 - the older `collapse_reviewed_targets` heuristic is retired
-- Pharos protein selection is now a direct `canonical_only` filter
+- Pharos protein node selection is now a direct `canonical_only` adapter filter
 - full target graph ingest preserves the upstream `canonical`, `isoform`, and `alternate_product` labeling without local collapse logic
+
+### May 19 protein_ids.tsv replacement
+
+Source file:
+- `/Users/kelleherkj/Downloads/protein_ids_2026-05-19.tsv`
+
+Active replacement:
+- `input_files/manual/target_graph/protein_ids.tsv`
+
+Archived prior active file:
+- `input_files/manual/target_graph/archive/2026_05_19_pre_protein_refresh/protein_ids.tsv`
+
+Payload profile:
+- Row count stayed stable at `166,833` data rows.
+- Primary `ncats_protein_id` key set stayed stable: no added IDs, removed IDs, or duplicate primary IDs.
+- The refreshed file adds `uniprot_uniProtkbId` and `uniprot_sequence_length`.
+- `uniprot_uniProtkbId` is already consumed by `TargetGraphProteinParser.get_equivalent_ids()`, so no parser change is needed for that restored alias field.
+- `uniprot_sequence_length` is currently extra payload and is not consumed by target graph parsing.
+- Drift in shared columns is mostly timestamp refresh. Resolver-relevant drift observed during profiling:
+  - `92` rows changed `is_canonical`
+  - `370` rows changed `canonical_ifx_id`
+  - `345` rows changed `protein_grouping_reason`
+
+Validation should start with the existing narrow target graph working path before broader Pharos rebuilds.
+
+### Pharos canonical target alias handling
+
+For Pharos/TCRD target resolution, `collapse_to_canonical` keeps canonical proteins as the only output target IDs but allows non-canonical rows to contribute aliases to their mapped canonical target. If a non-canonical protein row has a `canonical_ifx_id` that points to a protein row surviving the canonical collapse filter, the resolver maps that row's protein aliases plus linked transcript and gene aliases to the canonical `IFXProtein` ID. Non-canonical rows without a valid canonical target are still dropped.

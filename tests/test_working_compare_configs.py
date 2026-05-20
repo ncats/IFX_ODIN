@@ -13,7 +13,7 @@ def test_working_pharos_compare_yaml_uses_tcrd_target_resolver():
     assert resolvers["tcrd_targets"]["class"] == "TCRDTargetResolver"
     assert resolvers["tcrd_targets"]["kwargs"]["types"] == ["Protein", "Gene", "Transcript"]
     assert resolvers["tcrd_targets"]["kwargs"]["canonical_type"] == "Protein"
-    assert resolvers["tcrd_targets"]["kwargs"]["canonical_only"] is True
+    assert resolvers["tcrd_targets"]["kwargs"]["collapse_to_canonical"] is True
     assert resolvers["tcrd_targets"]["kwargs"]["gene_file_path"] == "./input_files/manual/target_graph/gene_ids.tsv"
     assert resolvers["tcrd_targets"]["kwargs"]["transcript_file_path"] == "./input_files/manual/target_graph/transcript_ids.tsv"
     assert resolvers["tcrd_targets"]["kwargs"]["protein_file_paths"] == ["./input_files/manual/target_graph/protein_ids.tsv"]

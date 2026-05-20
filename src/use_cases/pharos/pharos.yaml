@@ -17,7 +17,7 @@ resolvers:
     class: TCRDTargetResolver
     kwargs:
       canonical_type: Protein
-      canonical_only: true
+      collapse_to_canonical: true
       no_match_behavior: Skip
       gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
       transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
