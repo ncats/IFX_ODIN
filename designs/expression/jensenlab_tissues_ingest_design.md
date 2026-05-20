@@ -106,7 +106,7 @@ The adapter emits:
 ### ExpressionDetail fields
 | Field | Value |
 |-------|-------|
-| `source` | `"JensenLab"` |
+| `source` | `"JensenLab TISSUES"` |
 | `tissue` | BTO tissue name string |
 | `source_id` | ENSP or ENSG ID from the file |
 | `source_tissue_id` | BTO ID (e.g. `BTO:0000567`); `TissueResolver` maps it to UBERON on the node |
@@ -146,7 +146,7 @@ equivalent, and CLDB IDs resolve similarly where mappings exist.
 | Tau | Not computed | Not computed — BTO tissue set is non-curated, multi-granular, mixed with cell lines |
 | Rank | Not computed | `source_rank` via `ExpressionAdapterBase._normalized_rank()` |
 | Expressed flag | `confidence > 0` | Same ✓ |
-| Source string | `'JensenLab'` | Same ✓ |
+| Source string | `'JensenLab TISSUES'` | Same ✓ |
 
 ---
 

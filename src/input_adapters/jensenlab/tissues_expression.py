@@ -139,7 +139,7 @@ class JensenLabTissuesExpressionAdapter(InputAdapter):
             for tissue, (bto_id, confidence) in tissue_data.items():
                 tissue_id = bto_id if bto_id else tissue
                 detail = ExpressionDetail(
-                    source="JensenLab",
+                    source=DataSourceName.JensenLabTissues.value,
                     tissue=tissue,
                     source_id=gene_id,
                     source_tissue_id=bto_id if bto_id else None,
