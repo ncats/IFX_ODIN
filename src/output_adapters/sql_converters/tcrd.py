@@ -195,6 +195,13 @@ class TCRDOutputConverter(SQLOutputConverter):
                 protein_id=self.resolve_id('protein', obj['id']),
                 string_value=uniprot_description
             ))
+        ncbi_gene_summary = obj.get('ncbi_gene_summary')
+        if ncbi_gene_summary:
+            tdl_infos.append(TDL_info(
+                itype="NCBI Gene Summary",
+                protein_id=self.resolve_id('protein', obj['id']),
+                string_value=ncbi_gene_summary
+            ))
         if obj.get('antibody_count') and len(obj['antibody_count']) > 0:
             antibody_count = max([int(p) for p in obj['antibody_count']])
             if antibody_count > 0:

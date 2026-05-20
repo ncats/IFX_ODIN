@@ -85,7 +85,7 @@ class IDGFamily(SimpleEnum):
 @facets(
     category_fields=["protein_type", "tdl", "idg_family", "uniprot_reviewed", "canonical_isoform_status"],
     numeric_fields=["pm_score", "pt_score", "antibody_count", "novelty"])
-@search(text_fields=["name", "symbol", "preferred_symbol", "description", "gene_name", "uniprot_id", "ensembl_id", "refseq_id", "ncbi_id"])
+@search(text_fields=["name", "symbol", "preferred_symbol", "description", "gene_name", "uniprot_id", "ensembl_id", "refseq_id", "ncbi_id", "ncbi_gene_summary"])
 class Protein(Audited, Analyte):
     preferred_symbol: Optional[str] = None
     protein_type: Optional[str] = None
@@ -111,6 +111,7 @@ class Protein(Audited, Analyte):
     patent_identifier_sources: Optional[List[str]] = None
     novelty: Optional[List[float]] = None
     publications: Optional[List[PublicationReference]] = None
+    ncbi_gene_summary: Optional[str] = None
     uniprot_annotationScore: Optional[int] = None
     uniprot_reviewed: Optional[bool] = None
     uniprot_function: Optional[str] = None

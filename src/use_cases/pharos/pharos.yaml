@@ -491,6 +491,12 @@ input_adapters:
       generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
       version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
 
+  - import: ./src/input_adapters/ncbi/gene_summary.py
+    class: NCBIGeneSummaryAdapter
+    kwargs:
+      gene_summary_file_path: ./input_files/auto/ncbi/gene_summary.gz
+      version_file_path: ./input_files/auto/ncbi/ncbi_gene_summary_version.tsv
+
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
     credentials: *legacy_pharos_credentials

@@ -68,10 +68,11 @@ class Audited:
 
 @dataclass
 @facets(category_fields=["symbol"])
-@search(text_fields=["symbol"])
+@search(text_fields=["symbol", "ncbi_gene_summary"])
 class Gene(Audited, Node):
     location: Optional[GeneticLocation] = None
     publications: Optional[List[PublicationReference]] = None
+    ncbi_gene_summary: Optional[str] = None
     pt_score: Optional[List[float]] = None
     pt_score_by_year: Optional[List[YearScore]] = None
     mapping_ratio: Optional[float] = None
