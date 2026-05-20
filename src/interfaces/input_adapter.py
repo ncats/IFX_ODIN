@@ -19,6 +19,7 @@ class InputAdapter(ABC):
         from src.models.mouse_phenotype import GeneMousePhenotypeEdge, ProteinMousePhenotypeEdge
         from src.models.ortholog import GeneOrthologGeneEdge, ProteinOrthologGeneEdge
         from src.models.pathway import GenePathwayEdge, ProteinPathwayEdge
+        from src.models.gwas_trait import GeneGwasTraitEdge, GwasTrait, ProteinGwasTraitEdge
         from src.models.protein import Protein
         from src.models.tissue import Tissue
         from src.models.disease import Disease
@@ -32,6 +33,7 @@ class InputAdapter(ABC):
             (GenePathwayEdge, Protein, Pathway): ProteinPathwayEdge,
             (GeneOrthologGeneEdge, Protein, OrthologGene): ProteinOrthologGeneEdge,
             (GeneMousePhenotypeEdge, Protein, MousePhenotype): ProteinMousePhenotypeEdge,
+            (GeneGwasTraitEdge, Protein, GwasTrait): ProteinGwasTraitEdge,
         }
 
         target_cls = mapping.get((type(rel), type(start_node), type(end_node)))

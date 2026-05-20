@@ -143,6 +143,12 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_arango/tcrd/tiga.py
+    class: ProteinGwasTraitAdapter
+    credentials: *source_credentials
+    kwargs:
+      database_name: *source_database
+
   # Direct source-file TIN-X importance load.
   # This intentionally bypasses graph TINXImportanceEdge materialization to avoid
   # very large edge volume in pharos.yaml, but it creates a short-term dependency
