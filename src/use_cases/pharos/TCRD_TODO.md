@@ -81,7 +81,6 @@ These tables are populated directly from ontology source files during the TCRD b
 
 ### New Features
 - Nearest Tclin (computed from graph)
-- NCBI Gene Summary
 - Word Cloud
 - Typeahead
 - Disease
@@ -102,17 +101,6 @@ These tables are populated directly from ontology source files during the TCRD b
 ### Larger Efforts
 - Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
 - Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
-
-### Simple Linkouts
-- Dark Kinase Knowledgebase — understudied kinases compendium
-- RESOLUTE — solute carrier (SLC) target class resource
-- ProKinO — protein kinase ontology (sequence, structure, function, mutation, pathway)
-- TIGA — GWAS-based target-disease importance scores
-- GENEVA — RNA-seq datasets from GEO for gene expression variance analysis
-- LinkedOmicsKB — CPTAC multi-omics data for cancer research
-- GlyGen — carbohydrate and glycoconjugate data
-- ARCHS4 — RNA-seq co-expression gene-function predictions and expression levels
-- PubChem — open chemistry database with protein/gene cross-references
 
 ### Requires License
 - DisGeNET Disease Associations

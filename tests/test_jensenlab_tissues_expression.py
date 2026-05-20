@@ -49,7 +49,7 @@ def test_jensenlab_adapter_emits_protein_tissue_edges(tmp_path):
     assert all(isinstance(edge, ProteinTissueExpressionEdge) for edge in edges)
     assert {edge.start_node.id for edge in edges} == {"ENSEMBL:ENSP00000000001", "ENSEMBL:ENSP00000000002"}
     assert {edge.end_node.id for edge in edges} == {"BTO:0000107", "BTO:0000089"}
-    assert all(detail.source == "JensenLab" for edge in edges for detail in edge.details)
+    assert all(detail.source == "JensenLab TISSUES" for edge in edges for detail in edge.details)
 
 
 def test_jensenlab_adapter_honors_max_rows(tmp_path):

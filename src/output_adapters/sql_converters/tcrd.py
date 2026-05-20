@@ -789,6 +789,7 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def expression_converter(self, obj: dict) -> List[Expression]:
         protein_id = self.resolve_id('protein', obj['start_id'])
+        resolved_tissue_ontology_id = obj.get('end_id')
         rows = []
         for detail in obj.get('details', []):
             if detail.get('source') == 'GTEx':
@@ -806,7 +807,7 @@ class TCRDOutputConverter(SQLOutputConverter):
                 expressed=1 if detail.get('expressed') else 0,
                 source_rank=detail.get('source_rank'),
                 evidence=detail.get('evidence'),
-                uberon_id=detail.get('source_tissue_id'),
+                uberon_id=resolved_tissue_ontology_id or detail.get('source_tissue_id'),
                 provenance=obj['provenance'],
             ))
         return rows

@@ -727,6 +727,33 @@ def test_gtex_converter_branches_gtex_details_from_shared_expression_edge():
     assert row.tpm_female == 9.0
 
 
+def test_expression_converter_uses_resolved_tissue_id_for_uberon_id():
+    converter = TCRDOutputConverter()
+    converter.id_mapping["protein"] = {"IFX123": 123}
+    converter.id_mapping["tissue"] = {"Brain": 85}
+
+    rows = converter.expression_converter({
+        "start_id": "IFX123",
+        "end_id": "UBERON:0000955",
+        "details": [
+            {
+                "source": "JensenLab TISSUES",
+                "tissue": "Brain",
+                "source_id": "ENSP00000000001",
+                "source_tissue_id": "BTO:0000142",
+                "number_value": 3.5,
+                "expressed": True,
+            },
+        ],
+        "provenance": "JensenLab TISSUES\tNone\t2026-01-01\t2026-01-02",
+    })
+
+    assert len(rows) == 1
+    assert rows[0].etype == "JensenLab TISSUES"
+    assert rows[0].tissue_id == 85
+    assert rows[0].uberon_id == "UBERON:0000955"
+
+
 def test_mondo_xref_converter_marks_exact_matches():
     converter = TCRDOutputConverter()
 
