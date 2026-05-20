@@ -171,9 +171,12 @@ Implication:
 
 ## Implemented Graph Model
 
-The working graph now uses three TIGA-related graph structures:
+The working graph now uses TIGA-related graph structures that preserve the
+source identifier family first, then allow Pharos-specific canonicalization when
+configured:
 
 - `GwasTrait`
+- `GeneGwasTraitEdge`
 - `ProteinGwasTraitEdge`
 - `GwasTraitDiseaseEdge`
 
@@ -183,9 +186,17 @@ The working graph now uses three TIGA-related graph structures:
 - stores the source trait label in `name`
 - stores `trait_uri` from the provenance file when available
 
+### `GeneGwasTraitEdge`
+
+- connects the source-provided Ensembl gene endpoint to the raw `GwasTrait`
+- carries the TIGA GWAS association payload in `details`
+- each `details` entry is a `GwasAssociationDetail`
+- each detail contains the grouped TIGA metrics plus nested `provenance_details`
+
 ### `ProteinGwasTraitEdge`
 
-- connects the resolved protein endpoint to the raw `GwasTrait`
+- connects the resolved protein endpoint to the raw `GwasTrait` when the build
+  uses a target resolver that canonicalizes gene identifiers to proteins
 - carries the TIGA GWAS association payload in `details`
 - each `details` entry is a `GwasAssociationDetail`
 - each detail contains the grouped TIGA metrics plus nested `provenance_details`

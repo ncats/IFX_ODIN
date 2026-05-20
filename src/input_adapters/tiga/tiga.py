@@ -9,14 +9,14 @@ from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.disease import Disease
+from src.models.gene import Gene
 from src.models.node import EquivalentId, Node, Relationship
-from src.models.protein import Protein
 from src.models.gwas_trait import (
+    GeneGwasTraitEdge,
     GwasAssociationDetail,
     GwasAssociationProvenance,
     GwasTrait,
     GwasTraitDiseaseEdge,
-    ProteinGwasTraitEdge,
 )
 
 
@@ -104,7 +104,7 @@ class TIGAAdapter(InputAdapter):
 
         traits_by_id: OrderedDict[str, GwasTrait] = OrderedDict()
         trait_disease_edges_by_key: OrderedDict[str, GwasTraitDiseaseEdge] = OrderedDict()
-        edges_by_key: OrderedDict[tuple[str, str], ProteinGwasTraitEdge] = OrderedDict()
+        edges_by_key: OrderedDict[tuple[str, str], GeneGwasTraitEdge] = OrderedDict()
         seen_detail_keys: set[tuple[str, str, str]] = set()
         emitted_rows = 0
 
@@ -134,8 +134,8 @@ class TIGAAdapter(InputAdapter):
             detail_key = self._detail_key(trait_id, detail)
 
             if edge_key not in edges_by_key:
-                edges_by_key[edge_key] = ProteinGwasTraitEdge(
-                    start_node=Protein(id=EquivalentId(id=ensg, type=Prefix.ENSEMBL).id_str()),
+                edges_by_key[edge_key] = GeneGwasTraitEdge(
+                    start_node=Gene(id=EquivalentId(id=ensg, type=Prefix.ENSEMBL).id_str()),
                     end_node=traits_by_id[trait_id],
                     details=[],
                 )

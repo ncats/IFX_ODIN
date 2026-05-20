@@ -2,6 +2,7 @@ from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
 from src.models.disease import Disease
+from src.models.gene import Gene
 from src.models.node import Node, Relationship
 from src.models.protein import Protein
 
@@ -64,6 +65,14 @@ class GwasAssociationDetail:
     @classmethod
     def from_dict(cls, data: dict):
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class GeneGwasTraitEdge(Relationship):
+    start_node: Gene = None
+    end_node: GwasTrait = None
+    details: List[GwasAssociationDetail] = field(default_factory=list)
+    disease_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

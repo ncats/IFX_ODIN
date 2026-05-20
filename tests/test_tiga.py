@@ -1,9 +1,11 @@
 from pathlib import Path
 
+from src.interfaces.input_adapter import InputAdapter
 from src.input_adapters.tiga.tiga import TIGAAdapter
 from src.models.disease import Disease
+from src.models.gene import Gene
+from src.models.gwas_trait import GwasTrait, GwasTraitDiseaseEdge, GeneGwasTraitEdge, ProteinGwasTraitEdge
 from src.models.protein import Protein
-from src.models.gwas_trait import GwasTrait, GwasTraitDiseaseEdge, ProteinGwasTraitEdge
 
 
 def _write_fixture(path: Path, content: str) -> None:
@@ -61,9 +63,9 @@ def test_tiga_adapter_emits_traits_and_edges(tmp_path):
     assert trait_disease_edge.end_node.id == "EFO:0001"
     assert trait_disease_edge.end_node.name == "Trait One"
 
-    assert isinstance(edge.start_node, Protein)
+    assert isinstance(edge.start_node, Gene)
     assert edge.start_node.id == "ENSEMBL:ENSG0001"
-    assert isinstance(edge, ProteinGwasTraitEdge)
+    assert isinstance(edge, GeneGwasTraitEdge)
     assert edge.end_node.id == trait.id
     assert len(edge.details) == 1
     assert edge.disease_ids == []
@@ -109,9 +111,27 @@ def test_tiga_adapter_honors_max_rows(tmp_path):
     batches = list(adapter.get_all())
     traits = [obj for obj in batches[0] if isinstance(obj, GwasTrait)]
     trait_disease_edges = [obj for obj in batches[1] if isinstance(obj, GwasTraitDiseaseEdge)]
-    edges = [obj for obj in batches[2] if isinstance(obj, ProteinGwasTraitEdge)]
+    edges = [obj for obj in batches[2] if isinstance(obj, GeneGwasTraitEdge)]
 
     assert len(traits) == 1
     assert len(trait_disease_edges) == 1
     assert len(edges) == 1
     assert traits[0].id == "EFO_0001"
+
+
+def test_gene_gwas_trait_edge_canonicalizes_to_protein_edge():
+    trait = GwasTrait(id="EFO_0001", name="Trait One")
+    edge = GeneGwasTraitEdge(
+        start_node=Gene(id="ENSEMBL:ENSG0001"),
+        end_node=trait,
+    )
+
+    remapped = InputAdapter._canonicalize_relationship_class(
+        edge,
+        Protein(id="IFXProtein:1"),
+        trait,
+    )
+
+    assert isinstance(remapped, ProteinGwasTraitEdge)
+    assert remapped.start_node.id == "IFXProtein:1"
+    assert remapped.end_node.id == "EFO_0001"
