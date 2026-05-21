@@ -6,7 +6,7 @@ from pathlib import Path
 SOURCE_DIR = Path("/Users/kelleherkj/IdeaProjects/project-cure-backend/server/apps/ui_forms/json_data")
 FORM_PATH = SOURCE_DIR / "rasopathies.json"
 MENU_PATH = SOURCE_DIR / "rasopathies-menu.json"
-OUTPUT_PATH = Path("/Users/kelleherkj/IdeaProjects/IFX_ODIN/designs/rasopathies_form_preview.html")
+OUTPUT_PATH = Path("/Users/kelleherkj/IdeaProjects/IFX_ODIN/designs/cure/rasopathies_form_preview.html")
 
 
 def esc(value):

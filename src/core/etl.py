@@ -63,7 +63,11 @@ class ETL:
                     count += len(resolved_list)
                     for output_adapter in self.output_adapters:
                         resolved_list = output_adapter.preprocess_objects(resolved_list)
-                        output_adapter.store(resolved_list, single_source=input_adapter.is_single_source())
+                        output_adapter.store(
+                            resolved_list,
+                            single_source=input_adapter.is_single_source(),
+                            field_conflict_behavior=input_adapter.get_field_conflict_behavior(),
+                        )
             except Exception as exc:
                 for output_adapter in self.output_adapters:
                     output_adapter.mark_adapter_failed(

@@ -94,8 +94,6 @@ These tables are populated directly from ontology source files during the TCRD b
   - Activity Value Counts
 
 ### Bugs
-- Anatomogram not showing tissues
-- GWAS Traits not showing - maybe no link to protein anymore 
 - Disease Heirarchy / Disease Ancestry not working
 
 ### Larger Efforts

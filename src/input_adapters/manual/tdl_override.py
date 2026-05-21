@@ -6,10 +6,12 @@ from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId
 from src.models.protein import Protein
 from src.shared.csv_parser import CSVParser
+from src.shared.record_merger import FieldConflictBehavior
 
 
 class TDLOverrideAdapter(InputAdapter, CSVParser):
     batch_size: int = 1000
+    field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast
     def __init__(self, file_path: str):
         InputAdapter.__init__(self)
         CSVParser.__init__(self, file_path=file_path)

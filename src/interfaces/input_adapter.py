@@ -6,11 +6,13 @@ from src.constants import DataSourceName
 from src.interfaces.id_resolver import IdResolver
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node, Relationship
+from src.shared.record_merger import FieldConflictBehavior
 
 
 class InputAdapter(ABC):
     batch_size = 25000
     single_source: bool = False
+    field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst
 
     @staticmethod
     def _canonicalize_relationship_class(rel: Relationship, start_node: Node, end_node: Node) -> Relationship:
@@ -59,6 +61,9 @@ class InputAdapter(ABC):
     def set_single_source(self, single_source: bool) -> 'InputAdapter':
         self.single_source = single_source
         return self
+
+    def get_field_conflict_behavior(self) -> FieldConflictBehavior:
+        return self.field_conflict_behavior
 
     @abstractmethod
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:

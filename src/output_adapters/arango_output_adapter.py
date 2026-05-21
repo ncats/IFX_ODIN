@@ -256,7 +256,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 collection.add_persistent_index(fields=[field], sparse=True)
 
 
-    def store(self, objects, single_source = False) -> bool:
+    def store(self, objects, single_source = False,
+              field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst) -> bool:
 
         def generate_edge_key(from_node, to_node, edge_type):
             edge_hash = hashlib.sha256(f"{from_node}|{to_node}".encode("utf-8")).hexdigest()
@@ -273,7 +274,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     failed.append(result)
             return failed
 
-        merger = RecordMerger()
+        merger = RecordMerger(field_conflict_behavior=field_conflict_behavior)
 
         if not isinstance(objects, list):
             objects = [objects]

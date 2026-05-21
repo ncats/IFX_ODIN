@@ -5,6 +5,7 @@ from src.interfaces.output_adapter import OutputAdapter
 
 from src.shared.db_credentials import DBCredentials
 from src.shared.cypher_data_loader import GraphDBDataLoader, Neo4jDataLoader, MemgraphDataLoader
+from src.shared.record_merger import FieldConflictBehavior, RecordMerger
 
 
 class GraphDBOutputAdapter(OutputAdapter, ABC):
@@ -19,10 +20,12 @@ class GraphDBOutputAdapter(OutputAdapter, ABC):
         return self.loader.delete_all_data_and_indexes()
 
 
-    def store(self, objects, single_source = True) -> bool:
+    def store(self, objects, single_source = True,
+              field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
 
+        self.loader.merger = RecordMerger(field_conflict_behavior=field_conflict_behavior)
         object_groups = self.sort_and_convert_objects(objects)
         for obj_list, labels, is_relationship, start_labels, end_labels, obj_cls in object_groups.values():
             if is_relationship:
