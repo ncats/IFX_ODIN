@@ -1,6 +1,7 @@
 from src.models.protein import Protein
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
 from arango.exceptions import DocumentUpdateError
+from src.shared.record_merger import FieldConflictBehavior
 
 
 class FakeDocumentUpdateError(DocumentUpdateError):
@@ -134,6 +135,32 @@ def test_store_uses_update_many_for_existing_nodes_and_insert_many_for_new_nodes
     assert collection.update_calls[0]["merge"] is True
     assert collection.update_calls[0]["keep_none"] is False
     assert collection.update_calls[0]["check_rev"] is False
+
+
+def test_store_uses_requested_field_conflict_behavior_for_existing_nodes():
+    existing_nodes = [{
+        "_key": "IFXProtein:P1",
+        "id": "IFXProtein:P1",
+        "name": "Old name",
+        "creation": "creation-source",
+        "updates": [],
+        "resolved_ids": ["resolver-old"],
+    }]
+    collection = FakeCollection()
+    adapter = build_adapter(existing_nodes, collection)
+
+    incoming = make_protein("IFXProtein:P1", "New name", "resolver-new", "source-new")
+
+    adapter.store(
+        [incoming],
+        single_source=False,
+        field_conflict_behavior=FieldConflictBehavior.KeepLast,
+    )
+
+    updated_docs = collection.update_calls[0]["docs"]
+
+    assert updated_docs[0]["name"] == "New name"
+    assert any("name\tOld name\tNew name\tsource-new\tKeepLast" == update for update in updated_docs[0]["updates"])
 
 
 def test_update_many_with_backoff_splits_on_document_update_error():

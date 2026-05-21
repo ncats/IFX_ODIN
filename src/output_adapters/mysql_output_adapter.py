@@ -266,7 +266,7 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
         finally:
             session.close()
 
-    def store(self, objects, single_source=False) -> bool:
+    def store(self, objects, single_source=False, field_conflict_behavior=None) -> bool:
         if not isinstance(objects, list):
             objects = [objects]
 

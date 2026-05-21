@@ -6,13 +6,15 @@ from typing import List, Union
 
 from src.interfaces.metadata import DatabaseMetadata
 from src.models.node import Node, Relationship
+from src.shared.record_merger import FieldConflictBehavior
 
 
 class OutputAdapter(ABC):
     name: str
 
     @abstractmethod
-    def store(self, objects, single_source=False) -> bool:
+    def store(self, objects, single_source=False,
+              field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst) -> bool:
         pass
 
     def do_post_processing(self, clean_edges: bool = True) -> None:
