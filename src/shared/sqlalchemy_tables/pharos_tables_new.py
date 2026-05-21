@@ -700,18 +700,6 @@ class DrgcResource(Base):
         Index("drgc_resource_idx1", "target_id"),
     )
 
-class NcatsDiseaseAncestry(Base):
-    __tablename__ = "ncats_disease_ancestry"
-
-    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    ncats_disease_id = Column(Integer, ForeignKey("ncats_disease.id"), nullable=False)
-    ancestor = Column(String(256), nullable=False)
-    mondoid = Column(String(20), nullable=False)
-
-    __table_args__ = (
-        Index("ncats_disease_ancestry_ncats_disease_id_foreign", "ncats_disease_id"),
-    )
-
 class TinxImportance(Base):
     __tablename__ = "tinx_importance"
 
@@ -1155,21 +1143,6 @@ class Affiliate(Base):
     display_name = Column(String(255), nullable=False)
     description = Column(String(255), nullable=False)
     link_count = Column(Integer, nullable=False, default=0)
-
-class NcatsP2DA(Base):
-    __tablename__ = "ncats_p2da"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(Text, nullable=False)
-    protein_id = Column(Integer, ForeignKey("protein.id"), nullable=False)
-    disease_assoc_id = Column(Integer, ForeignKey("disease.id"))
-    direct = Column(Boolean)
-
-    __table_args__ = (
-        Index(
-            "ncats_p2da_name_protein_id_index",
-            text("name(256)"), "protein_id"),
-    )
 
 class NcatsTypeaheadIndex(Base):
     __tablename__ = "ncats_typeahead_index"
