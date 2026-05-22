@@ -3521,19 +3521,28 @@ def _build_cure_case_url(db_name: str, doc: dict | None) -> str | None:
     if not report_id:
         return None
 
-    route_slug = {
-        "cure": "long-covid",
-        "cure_pasc": "long-covid",
-        "cure_rasopathies": "rasopathies",
-    }.get(db_name)
-    if not route_slug:
-        route_slug = {
-            "pasc": "long-covid",
-            "rasopathies": "rasopathies",
-        }.get((doc.get("form_type") or "").strip().lower())
+    route_slug = _get_cure_route_slug(db_name, doc.get("form_type"))
     if not route_slug:
         return None
     return f"https://cure.ncats.io/explore/{route_slug}/case-reports/case-details/{report_id}"
+
+
+def _is_cure_db(db_name: str) -> bool:
+    normalized = (db_name or "").strip().lower()
+    return normalized == "cure" or normalized.startswith("cure_")
+
+
+def _get_cure_route_slug(db_name: str, form_type: str | None = None) -> str | None:
+    normalized_db_name = (db_name or "").strip().lower()
+    if normalized_db_name == "cure" or normalized_db_name.startswith("cure_pasc"):
+        return "long-covid"
+    if normalized_db_name.startswith("cure_rasopathies"):
+        return "rasopathies"
+
+    return {
+        "pasc": "long-covid",
+        "rasopathies": "rasopathies",
+    }.get((form_type or "").strip().lower())
 
 
 def _get_outcome_effect_display(effect: str | None) -> dict:
@@ -3558,15 +3567,10 @@ templates.env.filters["truncate_val"] = _truncate
 
 # ── Document template dispatch ───────────────────────────────────────────────
 
-_DOCUMENT_TEMPLATE_REGISTRY: dict[tuple[str, str], str] = {
-    ("cure", "CaseReport"): "cure_case_report_document.html",
-    ("cure_pasc", "CaseReport"): "cure_case_report_document.html",
-    ("cure_rasopathies", "CaseReport"): "cure_case_report_document.html",
-}
-
-
 def _get_document_template(db_name: str, coll_name: str) -> str:
-    return _DOCUMENT_TEMPLATE_REGISTRY.get((db_name, coll_name), "document.html")
+    if coll_name == "CaseReport" and _is_cure_db(db_name):
+        return "cure_case_report_document.html"
+    return "document.html"
 
 
 # ── Demo routes ──────────────────────────────────────────────────────────────

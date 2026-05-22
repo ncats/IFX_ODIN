@@ -10,6 +10,23 @@ resolvers:
       multi_match_behavior: All
       label_field_by_type:
         Gene: symbol
+      manual_label_map:
+        Gene:
+          Syngap:
+            - NCBIGene:8831
+          SYNGAP1:
+            - NCBIGene:8831
+        Drug:
+          Epidiolex:
+            - RXCUI:2058901
+          Tanganil:
+            - CHEBI:17786
+          Sertraline:
+            - RXCUI:36437
+          Sertraline 25 Mg Oral Tablet [Zoloft]:
+            - RXCUI:36437
+          Clobazam:
+            - RXCUI:21241
       types:
         - Condition
         - Drug
@@ -25,9 +42,54 @@ input_adapters:
   - import: ./src/input_adapters/cure/rasopathies_adapter.py
     class: RasopathiesAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/reports.jsonl
+      file_path: ./input_files/manual/cure/reports_20260518T211409Z.jsonl
 
 graph_views:
+  - id: rasopathies_translator_version_info
+    label: "Translator: RAS Version Info"
+    description: Source version and scope metadata for the rasopathies Translator exports.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      LET approved_case_reports = (
+        FOR report IN `CaseReport`
+          FILTER report.form_type == "rasopathies"
+          FILTER report.status == "Approved"
+          SORT report.id
+          RETURN report
+      )
+      LET source_versions = (
+        FOR source IN UNIQUE(FLATTEN(approved_case_reports[*].sources || []))
+          LET parts = SPLIT(source, "\t")
+          SORT parts[0], parts[1]
+          RETURN {
+            name: parts[0],
+            version: parts[1] == "None" ? null : parts[1],
+            version_date: parts[2] == "None" ? null : parts[2],
+            download_date: parts[3] == "None" ? null : parts[3]
+          }
+      )
+      RETURN {
+        id: "cure_rasopathies_translator",
+        label: "Translator: RAS",
+        scope: {
+          form_type: "rasopathies",
+          status: "Approved",
+          case_report_count: LENGTH(approved_case_reports)
+        },
+        source_versions: source_versions,
+        association_view_ids: [
+          "rasopathies_condition_has_phenotype",
+          "rasopathies_drug_applied_to_treat_condition",
+          "rasopathies_drug_applied_to_treat_phenotype",
+          "rasopathies_drug_has_adverse_event",
+          "rasopathies_gene_associated_with_condition",
+          "rasopathies_gene_has_sequence_variant",
+          "rasopathies_sequence_variant_genetically_associated_with_condition"
+        ]
+      }
+
   - id: rasopathies_condition_has_phenotype
     label: "Translator: RAS Condition Has Phenotype"
     description: One JSONL record per condition-phenotype pair, with clinical finding and patient evidence preserved.

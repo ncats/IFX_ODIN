@@ -2,13 +2,13 @@
 
 ## Scope
 
-- Source file: `input_files/manual/cure/reports.jsonl`
+- Initial discovery source file: `input_files/manual/cure/reports.jsonl`
 - Ingest scope: only `form_type == "rasopathies"`
 - Goal for first pass: preserve the compact rasopathies case-report structure without forcing it into the PASC episode model
 
 ## Source Facts
 
-- `reports.jsonl` currently contains `11` rasopathies reports
+- The initial `reports.jsonl` discovery file contained `11` rasopathies reports
 - All `11` reports are `Approved`
 - Report types:
   - `clinician`: `10`
@@ -298,9 +298,47 @@ This prevents case-local source labels from repeatedly overwriting the names of 
 CURIE-backed concept nodes.
 5. Validate on all 11 reports before expanding scope.
 
+## Source Refresh 2026-05-22
+
+The active raw report source is now
+`input_files/manual/cure/reports_20260518T211409Z.jsonl`.
+
+Refresh profile:
+
+- `13` rasopathies rows, all with top-level `status = Approved`
+- `616` PASC rows, all with top-level `status = Approved`
+- filename timestamp `20260518T211409Z` is used by the CURE adapters as
+  `version_date = 2026-05-18`
+- both CURE adapters now filter to `status == Approved` before emitting graph content
+
+The refreshed rasopathies JSONL contains two approved reports that are not represented in the
+older curated TSV:
+
+- `1301dd3d-9cc2-4a40-a5b7-bd0cc0083968`
+- `16397f81-5bc3-47e3-8135-82e11ca3ad44`
+
+Both are SYNGAP1-related reports. The disease label still resolves through the curated TSV, but
+the refreshed rows introduce source labels that the older TSV-backed resolver does not normalize
+yet:
+
+- drugs: `Tanganil`, `Sertraline 25 Mg Oral Tablet [Zoloft]`, `Epidiolex`, `Clobazam`
+- finding phenotype: `Anxiety`
+
+The short-lived `CureIdLabelResolver` supports a YAML manual label overlay for these refresh gaps.
+For this source version, `Syngap` and `SYNGAP1` are manually mapped to `NCBIGene:8831`.
+
+Until CURE ID publishes refreshed normalized IDs for these concepts, the graph keeps those values
+without temporary manual mappings as source-label nodes. TSV reconstruction tests therefore treat
+`cureid_data.tsv` as a legacy subset that must be covered by the refreshed JSONL graph, rather than
+as an exact equality target.
+
+The rasopathies YAML also includes a `rasopathies_translator_version_info` graph view. It emits one
+JSONL metadata record for the Translator export scope, including report-source and curated-concept
+source versions, approved case ids, and the association view ids included in the export package.
+
 ## Populated JSONL Field Inventory
 
-This section is the raw "must-account-for" checklist from the `rasopathies` rows in
+This section is the initial raw "must-account-for" checklist from the `rasopathies` rows in
 `input_files/manual/cure/reports.jsonl`. Only paths with at least one non-empty value are listed.
 
 Counts below are record-level or item-level counts observed during recursive profiling of the 11
