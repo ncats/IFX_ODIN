@@ -8,8 +8,12 @@ resolvers:
       tsv_file: ./input_files/manual/cure/cureid_data.tsv
       no_match_behavior: Allow
       multi_match_behavior: All
+      label_field_by_type:
+        Gene: symbol
       types:
         - Condition
+        - Drug
+        - Gene
         - Phenotype
 
 input_adapters:

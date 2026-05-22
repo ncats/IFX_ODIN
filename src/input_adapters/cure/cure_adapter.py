@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from typing import Generator, List, Optional, Union
 
 from src.constants import DataSourceName
+from src.input_adapters.cure.case_report_url import build_cure_case_report_url
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
-from src.models.cure.pasc.adverse_event import AdverseEvent, ExposureAdverseEventEdge
+from src.models.cure.pasc.adverse_event import ExposureAdverseEventEdge
 from src.models.cure.pasc.background_context import (
     BackgroundContext,
     BackgroundContextConditionEdge,
@@ -32,7 +33,6 @@ class CUREAdapter(FlatFileAdapter):
     def __init__(self, file_path: str, form_type: str = "pasc"):
         super().__init__(file_path=file_path)
         self.form_type = form_type
-        self._emitted_adverse_event_ids = set()
         self._emitted_condition_ids = set()
         self._emitted_drug_ids = set()
         self._emitted_phenotype_ids = set()
@@ -179,9 +179,9 @@ class CUREAdapter(FlatFileAdapter):
                     exposure_drug_edge.end_node = drug
                     batch.extend([episode_exposure_edge, exposure_drug_edge])
                     for adverse_event, adverse_event_edge in adverse_events:
-                        if adverse_event.id not in self._emitted_adverse_event_ids:
+                        if adverse_event.id not in self._emitted_phenotype_ids:
                             batch.append(adverse_event)
-                            self._emitted_adverse_event_ids.add(adverse_event.id)
+                            self._emitted_phenotype_ids.add(adverse_event.id)
                         adverse_event_edge.start_node = exposure
                         adverse_event_edge.end_node = adverse_event
                         batch.append(adverse_event_edge)
@@ -254,6 +254,7 @@ class CUREAdapter(FlatFileAdapter):
             id=row["id"],
             form_type=row.get("form_type"),
             report_type=row.get("report_type"),
+            case_report_url=build_cure_case_report_url(row.get("id"), row.get("form_type")),
             status=row.get("status"),
             anonymous=row.get("anonymous"),
             created=self._parse_utc_datetime(row.get("created")),
@@ -479,7 +480,7 @@ class CUREAdapter(FlatFileAdapter):
 
         return vaccination_event, event_episode_edge, vaccines, event_vaccine_edges
 
-    def _build_episode_exposures(self, row: dict) -> List[tuple[Exposure, Drug, List[tuple[AdverseEvent, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
+    def _build_episode_exposures(self, row: dict) -> List[tuple[Exposure, Drug, List[tuple[Phenotype, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
         regimens = ((row.get("report") or {}).get("regimens") or [])
         exposure_rows = []
         for regimen in regimens:
@@ -520,7 +521,7 @@ class CUREAdapter(FlatFileAdapter):
             ))
         return exposure_rows
 
-    def _build_acute_episode_exposures(self, row: dict, case_report_id: str) -> List[tuple[Exposure, Drug, List[tuple[AdverseEvent, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
+    def _build_acute_episode_exposures(self, row: dict, case_report_id: str) -> List[tuple[Exposure, Drug, List[tuple[Phenotype, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
         acute_drugs = (((row.get("report") or {}).get("extra_fields") or {}).get("drugs_acute_covid")) or []
         if isinstance(acute_drugs, str):
             acute_drugs = [{"name": acute_drugs}]
@@ -600,7 +601,7 @@ class CUREAdapter(FlatFileAdapter):
             ))
         return exposure_rows
 
-    def _build_pregnancy_episode_exposures(self, row: dict, case_report_id: str) -> List[tuple[Exposure, Drug, List[tuple[AdverseEvent, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
+    def _build_pregnancy_episode_exposures(self, row: dict, case_report_id: str) -> List[tuple[Exposure, Drug, List[tuple[Phenotype, ExposureAdverseEventEdge]], EpisodeExposureEdge, ExposureDrugEdge]]:
         pregnancy_drugs = (((row.get("report") or {}).get("extra_fields") or {}).get("pregnancy_medications_details")) or []
         exposure_rows = []
         for index, item in enumerate(pregnancy_drugs):
@@ -622,11 +623,11 @@ class CUREAdapter(FlatFileAdapter):
             ))
         return exposure_rows
 
-    def _build_exposure_adverse_events(self, exposure: Exposure) -> List[tuple[AdverseEvent, ExposureAdverseEventEdge]]:
+    def _build_exposure_adverse_events(self, exposure: Exposure) -> List[tuple[Phenotype, ExposureAdverseEventEdge]]:
         adverse_event_rows = []
         for adverse_event_name in exposure.adverse_events:
-            adverse_event = AdverseEvent(
-                id=self._build_adverse_event_id(adverse_event_name),
+            adverse_event = Phenotype(
+                id=self._build_phenotype_id(adverse_event_name),
                 name=adverse_event_name,
             )
             adverse_event_rows.append((
@@ -922,11 +923,6 @@ class CUREAdapter(FlatFileAdapter):
     def _build_phenotype_id(name: str) -> str:
         digest = hashlib.md5(name.encode("utf-8")).hexdigest()
         return f"CURE-ID:Phenotype:{digest}"
-
-    @staticmethod
-    def _build_adverse_event_id(name: str) -> str:
-        digest = hashlib.md5(name.encode("utf-8")).hexdigest()
-        return f"CURE-ID:AdverseEvent:{digest}"
 
     @staticmethod
     def _build_vaccine_id(name: str) -> str:

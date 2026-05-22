@@ -292,6 +292,48 @@
         border-radius: 14px;
         background: rgba(32, 78, 133, 0.04);
     }
+    .mini-card-alert {
+        border-width: 2px;
+        border-color: rgba(180, 35, 24, 0.34);
+        background: linear-gradient(180deg, rgba(180, 35, 24, 0.10), rgba(180, 35, 24, 0.045));
+        box-shadow: 0 10px 24px rgba(180, 35, 24, 0.10);
+    }
+    .mini-card-alert .mini-card-header {
+        color: #8a1f11;
+    }
+    .mini-card-alert .event-item {
+        border-color: rgba(180, 35, 24, 0.26);
+        background: rgba(255, 255, 255, 0.88);
+    }
+    .mini-card-alert .event-name {
+        color: #8a1f11;
+    }
+    .alert-tag {
+        border-color: rgba(180, 35, 24, 0.24);
+        background: rgba(180, 35, 24, 0.10);
+        color: #8a1f11;
+    }
+    .outcome-tag {
+        border-color: rgba(32, 78, 133, 0.28);
+        background: rgba(32, 78, 133, 0.12);
+        color: rgb(32, 78, 133);
+        font-weight: 700;
+    }
+    .outcome-tag-positive {
+        border-color: rgba(26, 127, 55, 0.28);
+        background: rgba(26, 127, 55, 0.12);
+        color: #176f32;
+    }
+    .outcome-tag-negative {
+        border-color: rgba(180, 35, 24, 0.28);
+        background: rgba(180, 35, 24, 0.10);
+        color: #8a1f11;
+    }
+    .outcome-tag-neutral {
+        border-color: rgba(107, 114, 128, 0.28);
+        background: rgba(107, 114, 128, 0.12);
+        color: #4b5563;
+    }
     .mini-card-header {
         display: flex;
         align-items: center;
@@ -897,12 +939,20 @@
                                             </h4>
                                         </div>
                                         <div class="nested-card-badges">
+                                            {% if phenotype.finding_doc and phenotype.finding_doc._key %}
+                                            {{ node_doc_link("Finding", phenotype.finding_doc._key) }}
+                                            {% endif %}
                                             {{ node_doc_link("Phenotype", phenotype.phenotype_doc._key) }}
-                                            {% if phenotype.edge_doc and phenotype.edge_doc._key %}
+                                            {% if phenotype.phenotype_edge_doc and phenotype.phenotype_edge_doc._key %}
+                                            {{ node_doc_link("FindingPhenotypeEdge", phenotype.phenotype_edge_doc._key, "Edge") }}
+                                            {% elif phenotype.edge_doc and phenotype.edge_doc._key %}
                                             {{ node_doc_link("PerinatalContextPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
                                             {% endif %}
                                         </div>
                                     </div>
+                                    {% if phenotype.finding_doc and phenotype.finding_doc.source_value %}
+                                    <p class="nested-card-blurb">{{ phenotype.finding_doc.source_value }}</p>
+                                    {% endif %}
                                 </div>
                                 {% endfor %}
                             </div>
@@ -1154,6 +1204,124 @@
             {% endif %}
         </div>
 
+        {% if rasopathies_diagnosis_cards %}
+        <div class="subcard">
+            <div class="subcard-header">
+                <div class="subcard-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 7h8"></path>
+                        <path d="M8 12h8"></path>
+                        <path d="M8 17h5"></path>
+                        <path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path>
+                    </svg>
+                </div>
+                <h3>Diagnosis</h3>
+            </div>
+            <div class="nested-card-grid">
+                {% for diagnosis in rasopathies_diagnosis_cards %}
+                {% set diagnosis_doc = diagnosis.diagnosis_doc %}
+                <div class="nested-card">
+                    <div class="nested-card-header">
+                        <div>
+                            <h4 class="nested-card-title">Diagnostic Evidence</h4>
+                            {% if diagnosis_doc.diagnosis_methods %}
+                            <p class="nested-card-subtitle">
+                                {% for method in diagnosis_doc.diagnosis_methods %}
+                                <span class="tag">{{ method }}</span>
+                                {% endfor %}
+                            </p>
+                            {% endif %}
+                        </div>
+                        <div class="nested-card-badges">
+                            {% if diagnosis_doc and diagnosis_doc._key %}
+                            {{ node_doc_link("Diagnosis", diagnosis_doc._key) }}
+                            {% endif %}
+                            {% if diagnosis.diagnosis_edge_doc and diagnosis.diagnosis_edge_doc._key %}
+                            {{ node_doc_link("PresentationDiagnosisEdge", diagnosis.diagnosis_edge_doc._key, "Edge") }}
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if diagnosis.condition_cards %}
+                    <div class="nested-card-section-title">Condition</div>
+                    <div class="event-outcomes">
+                        {% for condition in diagnosis.condition_cards %}
+                        {% set condition_doc = condition.condition_doc %}
+                        <span class="tag">
+                            {{ condition_doc.name or condition_doc.id or condition_doc._key }}
+                            {% if condition_doc.id %}({{ condition_doc.id }}){% endif %}
+                            {{ resolver_miss_badge(condition_doc) }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if diagnosis.gene_cards %}
+                    <div class="nested-card-section-title">Genes</div>
+                    <div class="pill-card-grid pill-card-grid-compact">
+                        {% for gene in diagnosis.gene_cards %}
+                        {% set gene_doc = gene.gene_doc %}
+                        <div class="pill-card">
+                            <div class="pill-card-header">
+                                <p class="pill-card-title">
+                                    {{ gene_doc.symbol or gene_doc.name or gene_doc.id or gene_doc._key }}
+                                    {% if gene_doc.id %}<span class="case-id">({{ gene_doc.id }})</span>{% endif %}
+                                    {{ resolver_miss_badge(gene_doc) }}
+                                </p>
+                                <div class="nested-card-badges">
+                                    {{ node_doc_link("Gene", gene_doc._key) }}
+                                    {% if gene.gene_edge_doc and gene.gene_edge_doc._key %}
+                                    {{ node_doc_link("DiagnosisGeneEdge", gene.gene_edge_doc._key, "Edge") }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if diagnosis.variant_cards %}
+                    <div class="nested-card-section-title">Variants</div>
+                    <div class="nested-card-grid">
+                        {% for variant in diagnosis.variant_cards %}
+                        {% set variant_doc = variant.variant_doc %}
+                        <div class="nested-card">
+                            <div class="nested-card-header">
+                                <div>
+                                    <h4 class="nested-card-title">{{ variant_doc.variant_label or variant_doc.protein_change or variant_doc.nucleotide_change or variant_doc._key }}</h4>
+                                    {% if variant_doc.source_gene_symbol %}
+                                    <p class="nested-card-subtitle">{{ variant_doc.source_gene_symbol }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="nested-card-badges">
+                                    {{ node_doc_link("GeneVariant", variant_doc._key) }}
+                                    {% if variant.variant_edge_doc and variant.variant_edge_doc._key %}
+                                    {{ node_doc_link("DiagnosisGeneVariantEdge", variant.variant_edge_doc._key, "Edge") }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <p class="nested-card-blurb">
+                                {% if variant_doc.nucleotide_change %}
+                                <span class="tag">nucleotide: {{ variant_doc.nucleotide_change }}</span>
+                                {% endif %}
+                                {% if variant_doc.protein_change %}
+                                <span class="tag">protein: {{ variant_doc.protein_change }}</span>
+                                {% endif %}
+                                {% for linked_gene in variant.linked_gene_cards %}
+                                {% set linked_gene_doc = linked_gene.gene_doc %}
+                                <span class="tag">gene: {{ linked_gene_doc.symbol or linked_gene_doc.name or linked_gene_doc.id or linked_gene_doc._key }}</span>
+                                {% endfor %}
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if grouped_presentation_phenotype_cards %}
         <div class="subcard">
             <div class="subcard-header">
@@ -1164,7 +1332,7 @@
                         <circle cx="12" cy="12" r="9"></circle>
                     </svg>
                 </div>
-                <h3>Phenotypes (i.e. Findings)</h3>
+                <h3>Findings</h3>
             </div>
             <div class="stacked-card">
                 {% for phenotype_group in grouped_presentation_phenotype_cards %}
@@ -1180,16 +1348,23 @@
                             <div class="nested-card-header">
                                 <div>
                                     <h4 class="nested-card-title">
-                                        {{ phenotype.phenotype_doc.name or phenotype.phenotype_doc.text or phenotype.phenotype_doc.id or phenotype.phenotype_doc._key }}
-                                        {% if phenotype.phenotype_doc.id %}
-                                        <span class="case-id">({{ phenotype.phenotype_doc.id }})</span>
+                                        {{ phenotype.edge_doc.source_value or phenotype.edge_doc.text or phenotype.phenotype_doc.name or phenotype.phenotype_doc.id or phenotype.phenotype_doc._key }}
+                                        {% if phenotype.phenotype_doc.name and phenotype.edge_doc.source_value and phenotype.phenotype_doc.name != phenotype.edge_doc.source_value %}
+                                        <span class="case-id">phenotype: {{ phenotype.phenotype_doc.name }}</span>
+                                        {% elif phenotype.phenotype_doc.id %}
+                                        <span class="case-id">phenotype: {{ phenotype.phenotype_doc.id }}</span>
                                         {% endif %}
                                         {{ resolver_miss_badge(phenotype.phenotype_doc) }}
                                     </h4>
                                 </div>
                                 <div class="nested-card-badges">
+                                    {% if phenotype.finding_doc and phenotype.finding_doc._key %}
+                                    {{ node_doc_link("Finding", phenotype.finding_doc._key) }}
+                                    {% endif %}
                                     {{ node_doc_link("Phenotype", phenotype.phenotype_doc._key) }}
-                                    {% if phenotype.edge_doc and phenotype.edge_doc._key %}
+                                    {% if phenotype.phenotype_edge_doc and phenotype.phenotype_edge_doc._key %}
+                                    {{ node_doc_link("FindingPhenotypeEdge", phenotype.phenotype_edge_doc._key, "Edge") }}
+                                    {% elif phenotype.edge_doc and phenotype.edge_doc._key %}
                                     {{ node_doc_link("PresentationPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
                                     {% endif %}
                                 </div>
@@ -1207,12 +1382,14 @@
                                 {% endif %}
                             </p>
                             {% endif %}
-                            {% if phenotype.edge_doc.text %}
-                            <p class="nested-card-blurb">{{ phenotype.edge_doc.text }}</p>
+                            {% if phenotype.phenotype_doc.id %}
+                            <p class="nested-card-blurb">
+                                <span class="tag">harmonized phenotype: {{ phenotype.phenotype_doc.id }}</span>
+                            </p>
                             {% endif %}
                             <div class="field-list">
                                 {% for key, val in phenotype.scalar_fields %}
-                                {% if key not in ['id', '_id', '_key', '_rev', 'name'] %}
+                                {% if key not in ['id', '_id', '_key', '_rev', 'name', 'updates'] %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
                                     <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
@@ -1222,7 +1399,7 @@
                                 {% endif %}
                                 {% endfor %}
                                 {% for key, val in phenotype.edge_scalar_fields %}
-                                {% if key not in ['id', '_id', '_key', '_rev', 'start_id', 'end_id', 'group', 'label', 'text', 'raw_text', 'selected', 'default'] %}
+                                {% if key not in ['id', '_id', '_key', '_rev', 'start_id', 'end_id', 'finding_context', 'group', 'label', 'text', 'source_value', 'source_text', 'raw_text', 'selected', 'default', 'updates'] %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
                                     <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
@@ -1232,7 +1409,7 @@
                                 {% endif %}
                                 {% endfor %}
                                 {% for key, val in phenotype.list_fields %}
-                                {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                                {% if key not in ['resolved_ids', '_id', '_key', '_rev', 'updates'] and val %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
                                     <span class="field-val">
@@ -1242,7 +1419,7 @@
                                 {% endif %}
                                 {% endfor %}
                                 {% for key, val in phenotype.edge_list_fields %}
-                                {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
+                                {% if key not in ['resolved_ids', '_id', '_key', '_rev', 'updates'] and val %}
                                 <div class="field-row">
                                     <span class="field-key">{{ key }}</span>
                                     <span class="field-val">
@@ -1276,6 +1453,210 @@
             </div>
         </div>
         {% endif %}
+    </section>
+    {% endif %}
+
+    {% if rasopathies_drug_treatment_cards %}
+    <section class="card stacked-card">
+        <h2>Treatment Experiences</h2>
+        <div class="nested-card-grid">
+            {% for treatment in rasopathies_drug_treatment_cards %}
+            {% set treatment_doc = treatment.treatment_doc %}
+            {% set drug_doc = treatment.drug_doc %}
+            <div class="nested-card">
+                <div class="nested-card-header">
+                    <div>
+                        <h3 class="nested-card-title">
+                            {{ drug_doc.name if drug_doc and drug_doc.name else treatment_doc.id or treatment_doc._key }}
+                            {% if drug_doc and drug_doc.id %}
+                            <span class="case-id">({{ drug_doc.id }})</span>
+                            {% endif %}
+                        </h3>
+                        {% if treatment_doc.source_treatment_index is not none %}
+                        <p class="nested-card-subtitle">Treatment {{ treatment_doc.source_treatment_index + 1 }}</p>
+                        {% endif %}
+                    </div>
+                    <div class="nested-card-badges">
+                        {% if treatment_doc and treatment_doc._key %}
+                        {{ node_doc_link("DrugTreatment", treatment_doc._key) }}
+                        {% endif %}
+                        {% if drug_doc and drug_doc._key %}
+                        {{ node_doc_link("Drug", drug_doc._key) }}
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="nested-card-section-title">Regimen</div>
+                <p class="nested-card-blurb">
+                    {% if treatment_doc.initial_dose_amount or treatment_doc.initial_unit_of_measurement %}
+                    <span class="tag">initial: {{ treatment_doc.initial_dose_amount or '?' }}{% if treatment_doc.initial_unit_of_measurement %} {{ treatment_doc.initial_unit_of_measurement }}{% endif %}</span>
+                    {% endif %}
+                    {% if treatment_doc.initial_frequency %}
+                    <span class="tag">initial frequency: {{ treatment_doc.initial_frequency }}</span>
+                    {% endif %}
+                    {% if treatment_doc.initial_route %}
+                    <span class="tag">initial route: {{ treatment_doc.initial_route }}</span>
+                    {% endif %}
+                    {% if treatment_doc.current_dose_amount or treatment_doc.current_unit_of_measurement %}
+                    <span class="tag">current: {{ treatment_doc.current_dose_amount or '?' }}{% if treatment_doc.current_unit_of_measurement %} {{ treatment_doc.current_unit_of_measurement }}{% endif %}</span>
+                    {% endif %}
+                    {% if treatment_doc.current_frequency %}
+                    <span class="tag">current frequency: {{ treatment_doc.current_frequency }}</span>
+                    {% endif %}
+                    {% if treatment_doc.current_route %}
+                    <span class="tag">current route: {{ treatment_doc.current_route }}</span>
+                    {% endif %}
+                    {% if treatment_doc.current_dose_change %}
+                    <span class="tag">dose changed: {{ treatment_doc.current_dose_change }}</span>
+                    {% endif %}
+                    {% if treatment_doc.duration_amount or treatment_doc.unit_of_measurement_duration %}
+                    <span class="tag">duration: {{ treatment_doc.duration_amount or '?' }}{% if treatment_doc.unit_of_measurement_duration %} {{ treatment_doc.unit_of_measurement_duration }}{% endif %}</span>
+                    {% endif %}
+                    {% if treatment_doc.treatment_begin or treatment_doc.treatment_begin_month %}
+                    <span class="tag">start: {{ treatment_doc.treatment_begin_month or '' }} {{ treatment_doc.treatment_begin or '' }}</span>
+                    {% endif %}
+                    {% if treatment_doc.treatment_end or treatment_doc.treatment_end_month %}
+                    <span class="tag">end: {{ treatment_doc.treatment_end_month or '' }} {{ treatment_doc.treatment_end or '' }}</span>
+                    {% endif %}
+                    {% if treatment_doc.treatment_on_going %}
+                    <span class="tag">ongoing: {{ treatment_doc.treatment_on_going }}</span>
+                    {% endif %}
+                    {% for severity in treatment_doc.severity or [] %}
+                    <span class="tag">{{ severity }}</span>
+                    {% endfor %}
+                </p>
+
+                {% if treatment.response_cards %}
+                <div class="mini-card">
+                    <div class="mini-card-header">
+                        <h5>Target Responses</h5>
+                    </div>
+                    <div class="event-stack">
+                        {% for response in treatment.response_cards %}
+                        {% set response_doc = response.response_doc %}
+                        {% set finding_doc = response.finding_doc %}
+                        <div class="event-item">
+                            <div class="nested-card-header" style="margin-bottom:0.5rem">
+                                <div>
+                                    <p class="event-name">
+                                        {{ finding_doc.source_value if finding_doc and finding_doc.source_value else finding_doc.id if finding_doc else "No target finding recorded" }}
+                                    </p>
+                                    <div class="event-outcomes">
+                                        {% if response_doc.target_role %}
+                                        <span class="tag">{{ response_doc.target_role }}</span>
+                                        {% endif %}
+                                        {% if response_doc.outcome %}
+                                        {% set outcome_text = response_doc.outcome | lower %}
+                                        <span class="tag outcome-tag {% if 'improv' in outcome_text or 'resolved' in outcome_text or 'partial response' in outcome_text or 'complete response' in outcome_text %}outcome-tag-positive{% elif 'worse' in outcome_text or 'deterior' in outcome_text or 'progress' in outcome_text or 'died' in outcome_text %}outcome-tag-negative{% elif 'unknown' in outcome_text or 'not determined' in outcome_text or 'no change' in outcome_text %}outcome-tag-neutral{% endif %}">{{ response_doc.outcome }}</span>
+                                        {% endif %}
+                                        {% if response_doc.time_to_improvement %}
+                                        <span class="tag">time: {{ response_doc.time_to_improvement }}</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="nested-card-badges">
+                                    {% if response_doc and response_doc._key %}
+                                    {{ node_doc_link("TreatmentResponse", response_doc._key) }}
+                                    {% endif %}
+                                    {% if finding_doc and finding_doc._key %}
+                                    {{ node_doc_link("Finding", finding_doc._key) }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if response_doc.outcome_details %}
+                            <p class="nested-card-blurb">{{ response_doc.outcome_details }}</p>
+                            {% endif %}
+                            {% if response.phenotype_cards %}
+                            <div class="event-outcomes">
+                                {% for phenotype in response.phenotype_cards %}
+                                {% set phenotype_doc = phenotype.phenotype_doc %}
+                                <span class="tag">
+                                    {{ phenotype_doc.name or phenotype_doc.id or phenotype_doc._key }}
+                                    {% if phenotype_doc.id %}({{ phenotype_doc.id }}){% endif %}
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if treatment.adverse_event_cards %}
+                <div class="mini-card mini-card-alert">
+                    <div class="mini-card-header">
+                        <h5>Adverse Events</h5>
+                    </div>
+                    <div class="event-stack">
+                        {% for adverse_event in treatment.adverse_event_cards %}
+                        {% set phenotype_doc = adverse_event.phenotype_doc %}
+                        {% set adverse_event_edge_doc = adverse_event.adverse_event_edge_doc %}
+                        <div class="event-item">
+                            <div class="nested-card-header" style="margin-bottom:0.5rem">
+                                <div>
+                                    <p class="event-name">
+                                        {{ adverse_event_edge_doc.source_label or phenotype_doc.name or phenotype_doc.id or phenotype_doc._key }}
+                                        {% if phenotype_doc.id %}
+                                        <span class="case-id">({{ phenotype_doc.id }})</span>
+                                        {% endif %}
+                                        {{ resolver_miss_badge(phenotype_doc) }}
+                                    </p>
+                                    <div class="event-outcomes">
+                                        {% if adverse_event_edge_doc.have_adverse_events %}
+                                        <span class="tag alert-tag">reported: {{ adverse_event_edge_doc.have_adverse_events }}</span>
+                                        {% endif %}
+                                        {% for outcome in adverse_event_edge_doc.outcomes or [] %}
+                                        <span class="tag alert-tag">{{ outcome }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                <div class="nested-card-badges">
+                                    {% if phenotype_doc and phenotype_doc._key %}
+                                    {{ node_doc_link("Phenotype", phenotype_doc._key) }}
+                                    {% endif %}
+                                    {% if adverse_event_edge_doc and adverse_event_edge_doc._key %}
+                                    {{ node_doc_link("DrugTreatmentAdverseEventEdge", adverse_event_edge_doc._key, "Edge") }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="field-list">
+                    {% for key, val in treatment.treatment_scalar_fields %}
+                    {% if key not in ['id', '_id', '_key', '_rev', 'source_treatment_index', 'initial_dose_amount', 'initial_unit_of_measurement', 'initial_frequency', 'initial_route', 'current_dose_amount', 'current_unit_of_measurement', 'current_frequency', 'current_route', 'current_dose_change', 'duration_amount', 'unit_of_measurement_duration', 'treatment_begin', 'treatment_begin_month', 'treatment_end', 'treatment_end_month', 'treatment_on_going', 'additional_drug_info'] and val is not none %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
+                            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% for key, val in treatment.treatment_list_fields %}
+                    {% if key not in ['resolved_ids', '_id', '_key', '_rev', 'severity'] and val %}
+                    <div class="field-row">
+                        <span class="field-key">{{ key }}</span>
+                        <span class="field-val">
+                            {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if treatment_doc.additional_drug_info %}
+                <details style="margin-top:0.8rem">
+                    <summary>Additional treatment notes</summary>
+                    <p class="nested-card-blurb">{{ treatment_doc.additional_drug_info }}</p>
+                </details>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
     </section>
     {% endif %}
 

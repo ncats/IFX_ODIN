@@ -167,6 +167,9 @@ Important note:
 ### Diagnosis
 
 `how_diagnosis` is a list of selected values, not a scalar.
+The graph models this as a presentation-scoped `Diagnosis` node so diagnosis methods can stay with
+the patient-specific diagnostic event while `Gene`, `GeneVariant`, and `Condition` remain separate
+endpoints.
 
 Observed combinations:
 - `Gene sequencing | Imaging` (`5`)
@@ -276,7 +279,20 @@ Implementation consequence:
 - the rasopathies JSONL adapter no longer owns `Condition` or `Phenotype` node records
 - the rasopathies JSONL adapter emits raw source labels as concept endpoint ids
 - the label-to-CURIE resolver normalizes those endpoint ids onto the canonical TSV-backed nodes
-- the JSONL adapter emits only `Presentation -> Condition` and `Presentation -> Phenotype` edges
+- the JSONL adapter emits `Presentation -> Finding -> Phenotype` and
+  `PerinatalContext -> Finding -> Phenotype` paths so patient-specific source findings remain
+  distinct from harmonized phenotype concepts
+- the JSONL adapter emits `Patient -> DrugTreatment -> Drug` plus
+  `DrugTreatment -> TreatmentResponse -> Finding` so drug use, regimen context, and finding-specific
+  responses remain case-scoped
+- the JSONL adapter emits `DrugTreatment -> Phenotype` through `DrugTreatmentAdverseEventEdge` for
+  treatment adverse events
+- the JSONL adapter emits `Presentation -> Diagnosis` for diagnosis methods and links that
+  diagnosis to `Condition`, `Gene`, and case-scoped `GeneVariant` endpoints
+- the JSONL adapter emits `Presentation -> Condition` edges for report-level disease identity
+- the JSONL adapter anchors presentation through `CaseReport -> Patient -> Presentation`, using
+  `PatientPresentationEdge`, because the clinical presentation belongs to the patient rather than to
+  the report container
 
 This prevents case-local source labels from repeatedly overwriting the names of shared
 CURIE-backed concept nodes.
