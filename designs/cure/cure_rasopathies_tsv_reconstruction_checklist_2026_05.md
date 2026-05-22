@@ -129,6 +129,27 @@ The two TSV paths above were byte-for-byte identical when checked during this re
   - Regression coverage:
     - `test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples`
 
+- `[x]` Drug has adverse event JSONL graph view
+  - Added `rasopathies_drug_has_adverse_event` to `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `has_adverse_event`
+    - `label`: `has adverse event`
+  - It traverses:
+    - `Drug <- DrugTreatment`
+    - `DrugTreatment -> Phenotype` through `DrugTreatmentAdverseEventEdge`
+  - It uses `ClinicalContext -> DrugTreatment`, `Patient -> ClinicalContext`, and
+    `CaseReport -> Patient` only for aggregate counts and case-report evidence.
+  - Each row includes:
+    - `drug` with `id`, `xref`, `name`, `url`
+    - `phenotype` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `outcomes`, preserving the adverse-event outcome labels from supporting evidence
+    - `evidence[]` objects with adverse-event `source_label`, `have_adverse_events`, `outcomes`,
+      selected `DrugTreatment` fields, selected `Patient` fields, and the CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_drug_has_adverse_event_graph_view_shape`
+
 - `[x]` Gene facts
   - TSV has `10` `gene_associated_with_condition` rows and `6` unique genes.
   - JSONL contains genes under `report.gene_sequencing`.
@@ -140,6 +161,27 @@ The two TSV paths above were byte-for-byte identical when checked during this re
     `NCBIGene` CURIEs.
   - After gene and condition resolver expansion, the graph reconstructs all `10` TSV
     `gene_associated_with_condition` triples.
+
+- `[x]` Gene associated-with condition JSONL graph view
+  - Added `rasopathies_gene_associated_with_condition` to
+    `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `gene_associated_with_condition`
+    - `label`: `gene associated with condition`
+  - It traverses:
+    - `Gene <- Diagnosis`
+    - `Diagnosis -> Condition`
+  - It uses `ClinicalContext -> Diagnosis`, `Patient -> ClinicalContext`, and
+    `CaseReport -> Patient` only for aggregate counts and case-report evidence.
+  - Each row includes:
+    - `gene` with `id`, `xref`, `symbol`
+    - `condition` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `evidence[]` objects with `Diagnosis.diagnosis_methods`, selected `Patient` fields, and the
+      CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_gene_associated_with_condition_graph_view_shape`
 
 - `[x]` Variant facts
   - TSV has `10` `has_sequence_variant` rows and `10` `genetically_associated_with` rows.
@@ -159,6 +201,49 @@ The two TSV paths above were byte-for-byte identical when checked during this re
     `genetically_associated_with` triples.
   - Regression coverage:
     - `test_rasopathies_genetics_cover_tsv_genetic_predicates`
+
+- `[x]` Gene has sequence variant JSONL graph view
+  - Added `rasopathies_gene_has_sequence_variant` to `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `has_sequence_variant`
+    - `label`: `has sequence variant`
+  - It traverses:
+    - `Gene -> GeneVariant`
+    - `Diagnosis -> GeneVariant` for case-level evidence
+  - It uses `ClinicalContext -> Diagnosis`, `Patient -> ClinicalContext`, and
+    `CaseReport -> Patient` only for aggregate counts and case-report evidence.
+  - Each row includes:
+    - `gene` with `id`, `xref`, `symbol`
+    - `gene_variant` with `id`, `xref`, `source_gene_symbol`, `nucleotide_change`,
+      `protein_change`, and `variant_label`
+    - `patient_count`
+    - `case_report_count`
+    - `evidence[]` objects with `Diagnosis.diagnosis_methods`, selected `Patient` fields, and the
+      CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_gene_has_sequence_variant_graph_view_shape`
+
+- `[x]` Sequence variant genetically associated-with condition JSONL graph view
+  - Added `rasopathies_sequence_variant_genetically_associated_with_condition` to
+    `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `genetically_associated_with`
+    - `label`: `genetically associated with`
+  - It traverses:
+    - `GeneVariant <- Diagnosis`
+    - `Diagnosis -> Condition`
+  - It uses `ClinicalContext -> Diagnosis`, `Patient -> ClinicalContext`, and
+    `CaseReport -> Patient` only for aggregate counts and case-report evidence.
+  - Each row includes:
+    - `gene_variant` with `id`, `xref`, `source_gene_symbol`, `nucleotide_change`,
+      `protein_change`, and `variant_label`
+    - `condition` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `evidence[]` objects with `Diagnosis.diagnosis_methods`, selected `Patient` fields, and the
+      CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_sequence_variant_genetically_associated_with_condition_graph_view_shape`
 
 - `[x]` Flat `report.drugs`
   - JSONL has both a flat `report.drugs` list and richer embedded
@@ -215,21 +300,78 @@ The two TSV paths above were byte-for-byte identical when checked during this re
   - Regression coverage:
     - `test_rasopathies_graph_reconstructs_tsv_association_set`
 
-- `[ ]` Normalized condition-phenotype aggregate graph view
-  - Add a second `graph_views` CSV export for the more correct graph-native summary.
-  - This view should produce one row per resolved `(Condition, Phenotype)` pair.
-  - It should aggregate report evidence rather than preserve one row per source mention.
-  - Expected fields:
-    - `condition_id`
-    - `condition_name`
-    - `phenotype_id`
-    - `phenotype_name`
-    - `case_count`
-    - `report_ids`
-    - optionally `source_labels` / `source_label_count` if edge details preserve original labels.
-  - For the current phenotype graph, this should group `ClinicalContextConditionEdge` plus
-    `ClinicalContext -> Finding -> Phenotype` by resolved condition and phenotype, counting distinct
-    case reports.
+- `[x]` Condition has phenotype JSONL graph view
+  - Added `rasopathies_condition_has_phenotype` to `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `has_phenotype`
+    - `label`: `has phenotype`
+  - It produces one row per resolved `(Condition, Phenotype)` pair.
+  - It traverses:
+    - `Condition <- ClinicalContext`
+    - `ClinicalContext -> Finding`
+    - `Finding -> Phenotype`
+  - It uses `Patient -> ClinicalContext` and `CaseReport -> Patient` only for aggregate counts and
+    case-report evidence.
+  - Each row includes:
+    - `condition` with `id`, `xref`, `name`
+    - `phenotype` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `evidence[]` objects with `Finding.source_value`, `Finding.source_text`, `Finding.group`,
+      selected `Patient` fields, and the CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_condition_has_phenotype_graph_view_shape`
+
+- `[x]` Drug applied-to-treat condition JSONL graph view
+  - Added `rasopathies_drug_applied_to_treat_condition` to
+    `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses local predicate metadata:
+    - `id`: `applied_to_treat`
+    - `label`: `applied to treat`
+  - It traverses only:
+    - `Drug <- DrugTreatment`
+    - `DrugTreatment <- ClinicalContext`
+    - `ClinicalContext -> Condition`
+  - It uses `Patient -> ClinicalContext` and `CaseReport -> Patient` only for aggregate counts and
+    case-report evidence.
+  - Each row includes:
+    - `drug` with `id`, `xref`, `name`, `url`
+    - `condition` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `evidence[]` objects with selected `DrugTreatment` fields, selected `Patient` fields, and the
+      CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_drug_applied_to_treat_condition_graph_view_shape`
+
+- `[x]` Drug applied-to-treat phenotype JSONL graph view
+  - Added `rasopathies_drug_applied_to_treat_phenotype` to
+    `src/use_cases/cure/cure_rasopathies.yaml`.
+  - The view is predicate-specific but not Biolink-specific. It uses the same local predicate
+    metadata as the condition view:
+    - `id`: `applied_to_treat`
+    - `label`: `applied to treat`
+  - It traverses:
+    - `Drug <- DrugTreatment`
+    - `DrugTreatment -> TreatmentResponse`
+    - `TreatmentResponse -> Finding`
+    - `Finding -> Phenotype`
+  - It includes both primary and secondary treatment-response targets.
+  - It uses `ClinicalContext -> DrugTreatment`, `Patient -> ClinicalContext`, and
+    `CaseReport -> Patient` only for aggregate counts and case-report evidence.
+  - Each row includes:
+    - `drug` with `id`, `xref`, `name`, `url`
+    - `phenotype` with `id`, `xref`, `name`
+    - `patient_count`
+    - `case_report_count`
+    - `outcomes`, the list of non-empty `TreatmentResponse.outcome` values across the supporting
+      evidence, preserving repeated outcome labels when multiple evidence rows report the same
+      outcome
+    - `evidence[]` objects with selected `DrugTreatment` fields, selected `TreatmentResponse`
+      fields, `Finding.source_value`, `Finding.source_text`, selected `Patient` fields, and the
+      CURE ID case-report URL.
+  - Regression coverage:
+    - `test_rasopathies_drug_applied_to_treat_phenotype_graph_view_shape`
 
 ## Phenotype Edge Reconciliation Details
 
@@ -345,13 +487,78 @@ this path exactly matches all TSV genetics triples.
 
 ## Next Implementation Slices
 
-1. Re-run this checklist after each remaining slice.
+1. Build aggregate query 1: condition to phenotype.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> Condition
+     ClinicalContext -> Finding -> Phenotype
+     ```
+   - Output one row per resolved `(Condition, Phenotype)` pair.
+   - Include `patient_count`, `case_report_count`, `patient_ids`, `report_ids`, `finding_ids`, and
+     source finding labels.
+   - This is the first persistent aggregate view candidate.
+
+2. Build aggregate query 2: drug to treated phenotype.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> DrugTreatment -> Drug
+     DrugTreatment -> TreatmentResponse -> Finding -> Phenotype
+     ```
+   - Output one row per resolved `(Drug, Phenotype)` pair, preserving response outcomes as aggregate
+     fields.
+
+3. Build aggregate query 3: drug to treated condition.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> DrugTreatment -> Drug
+     ClinicalContext -> Condition
+     ```
+   - Output one row per resolved `(Drug, Condition)` pair.
+
+4. Build aggregate query 4: drug to adverse-event phenotype.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> DrugTreatment -> Drug
+     DrugTreatment -> Phenotype
+     ```
+   - Output one row per resolved `(Drug, adverse-event Phenotype)` pair, aggregating adverse-event
+     outcomes.
+
+5. Build aggregate query 5: gene to condition.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> Diagnosis -> Gene
+     Diagnosis -> Condition
+     ```
+   - Output one row per resolved `(Gene, Condition)` pair.
+
+6. Build aggregate query 6: gene to sequence variant.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> Diagnosis -> Gene
+     Diagnosis -> GeneVariant
+     Gene -> GeneVariant
+     ```
+   - Output one row per `(Gene, GeneVariant)` pair. Keep variants source-scoped unless/until CURE ID
+     provides canonical variant identifiers.
+
+7. Build aggregate query 7: sequence variant to condition.
+   - Traversal:
+     ```text
+     Patient -> ClinicalContext -> Diagnosis -> GeneVariant
+     Diagnosis -> Condition
+     ```
+   - Output one row per `(GeneVariant, Condition)` pair.
+
+8. Re-run this checklist after each remaining slice.
    - Compare by report-scoped concept pairs where the graph intentionally collapses duplicate rows.
    - Preserve source-level details on treatment/edge payloads where exact TSV row reconstruction would
      otherwise lose information.
 
-2. Add the normalized graph view after the core data-bearing edges are in place.
-   - Persistent view: normalized condition-phenotype aggregate export with one row per concept pair
-     and a distinct patient/case count.
+9. Add persistent normalized graph view exports after query shape stabilizes.
+   - First persistent view: normalized condition-phenotype aggregate export with one row per concept
+     pair and distinct patient/case counts.
+   - Additional persistent views can follow for treatment, adverse-event, and genetics aggregates if
+     the query output proves useful.
    - TSV-like report-scoped reconstruction should remain a one-time validation/test path, not a
      durable graph view.

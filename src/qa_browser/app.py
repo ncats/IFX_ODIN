@@ -1010,6 +1010,66 @@ async def build_status_page(request: Request, db_name: str):
     })
 
 
+@app.get("/db/{db_name}/view/{view_id}/preview", response_class=HTMLResponse)
+async def preview_graph_view(request: Request, db_name: str, view_id: str, limit: int = 50):
+    db = get_db(db_name)
+    graph_views = _get_graph_views(db)
+    graph_view = graph_views.get(view_id)
+
+    if not graph_view:
+        return HTMLResponse(f"Graph view '{view_id}' not found.", status_code=404)
+
+    if graph_view.get("query_language") != "aql":
+        return HTMLResponse("Only AQL graph views are supported.", status_code=400)
+
+    if graph_view.get("output_format") != "jsonl":
+        return HTMLResponse("Only JSONL graph views can be previewed.", status_code=400)
+
+    query = graph_view.get("query")
+    if not query:
+        return HTMLResponse("Graph view is missing query metadata.", status_code=400)
+
+    preview_limit = max(1, min(limit, 200))
+    preview_query = f"""
+    LET graph_view_rows = (
+      {query}
+    )
+    RETURN {{
+      total_count: LENGTH(graph_view_rows),
+      rows: (
+        FOR row IN graph_view_rows
+          LIMIT @limit
+          RETURN row
+      )
+    }}
+    """
+
+    try:
+        result = next(iter(db.aql.execute(preview_query, bind_vars={"limit": preview_limit}, max_runtime=60)), None)
+    except Exception as exc:
+        return templates.TemplateResponse(request, "graph_view_preview.html", {
+            "request": request,
+            "db_name": db_name,
+            "view_id": view_id,
+            "graph_view": graph_view,
+            "rows": [],
+            "total_count": None,
+            "preview_limit": preview_limit,
+            "error": str(exc),
+        })
+
+    return templates.TemplateResponse(request, "graph_view_preview.html", {
+        "request": request,
+        "db_name": db_name,
+        "view_id": view_id,
+        "graph_view": graph_view,
+        "rows": (result or {}).get("rows") or [],
+        "total_count": (result or {}).get("total_count"),
+        "preview_limit": preview_limit,
+        "error": None,
+    })
+
+
 @app.get("/db/{db_name}/view/{view_id}")
 async def execute_graph_view(db_name: str, view_id: str):
     db = get_db(db_name)
@@ -1022,18 +1082,32 @@ async def execute_graph_view(db_name: str, view_id: str):
     if graph_view.get("query_language") != "aql":
         return HTMLResponse("Only AQL graph views are supported.", status_code=400)
 
-    if graph_view.get("output_format") != "csv":
-        return HTMLResponse("Only CSV graph views are supported.", status_code=400)
+    output_format = graph_view.get("output_format")
+    if output_format not in {"csv", "jsonl"}:
+        return HTMLResponse("Only CSV and JSONL graph views are supported.", status_code=400)
 
     query = graph_view.get("query")
     columns = graph_view.get("columns") or []
-    if not query or not columns:
-        return HTMLResponse("Graph view is missing query or columns metadata.", status_code=400)
+    if not query:
+        return HTMLResponse("Graph view is missing query metadata.", status_code=400)
+    if output_format == "csv" and not columns:
+        return HTMLResponse("CSV graph view is missing columns metadata.", status_code=400)
 
     try:
         rows = list(db.aql.execute(query, max_runtime=60))
     except Exception as exc:
         return HTMLResponse(f"Failed to execute graph view '{view_id}': {exc}", status_code=500)
+
+    if output_format == "jsonl":
+        def generate_jsonl():
+            for row in rows:
+                yield json.dumps(row, default=str) + "\n"
+
+        return StreamingResponse(
+            generate_jsonl(),
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": f"attachment; filename={view_id}.jsonl"},
+        )
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
