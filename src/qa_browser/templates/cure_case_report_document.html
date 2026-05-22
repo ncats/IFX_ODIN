@@ -1099,27 +1099,27 @@
         </div>
     </section>
 
-    {% if presentation_doc %}
+    {% if clinical_context_doc %}
     <section class="card stacked-card">
-        <h2>Presentation</h2>
+        <h2>Clinical Context</h2>
         <div class="subcard-grid">
-            {% set has_displayable_presentation_fields = false %}
-            {% for key, val in presentation_scalar_fields %}
+            {% set has_displayable_clinical_context_fields = false %}
+            {% for key, val in clinical_context_scalar_fields %}
                 {% if key not in ['id', '_id', '_key', '_rev'] %}
-                    {% set has_displayable_presentation_fields = true %}
+                    {% set has_displayable_clinical_context_fields = true %}
                 {% endif %}
             {% endfor %}
-            {% if not has_displayable_presentation_fields %}
-                {% for key, val in presentation_list_fields %}
+            {% if not has_displayable_clinical_context_fields %}
+                {% for key, val in clinical_context_list_fields %}
                     {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
-                        {% set has_displayable_presentation_fields = true %}
+                        {% set has_displayable_clinical_context_fields = true %}
                     {% endif %}
                 {% endfor %}
             {% endif %}
-            {% if not has_displayable_presentation_fields and presentation_nested_fields %}
-                {% set has_displayable_presentation_fields = true %}
+            {% if not has_displayable_clinical_context_fields and clinical_context_nested_fields %}
+                {% set has_displayable_clinical_context_fields = true %}
             {% endif %}
-            {% if has_displayable_presentation_fields %}
+            {% if has_displayable_clinical_context_fields %}
             <div class="subcard">
                 <div class="subcard-header">
                     <div class="subcard-icon" aria-hidden="true">
@@ -1130,12 +1130,12 @@
                         </svg>
                     </div>
                     <div class="subcard-title-row" style="margin-bottom:0">
-                        <h3>Presentation Details</h3>
-                        {{ node_doc_link("Presentation", presentation_doc._key) }}
+                        <h3>Clinical Context Details</h3>
+                        {{ node_doc_link("ClinicalContext", clinical_context_doc._key) }}
                     </div>
                 </div>
                 <div class="field-list">
-                    {% for key, val in presentation_scalar_fields %}
+                    {% for key, val in clinical_context_scalar_fields %}
                     {% if key not in ['id', '_id', '_key', '_rev'] %}
                     <div class="field-row">
                         <span class="field-key">{{ key }}</span>
@@ -1145,7 +1145,7 @@
                     </div>
                     {% endif %}
                     {% endfor %}
-                    {% for key, val in presentation_list_fields %}
+                    {% for key, val in clinical_context_list_fields %}
                     {% if key not in ['resolved_ids', '_id', '_key', '_rev'] and val %}
                     <div class="field-row">
                         <span class="field-key">{{ key }}</span>
@@ -1156,8 +1156,8 @@
                     {% endif %}
                     {% endfor %}
                 </div>
-                {% if presentation_nested_fields %}
-                {% for key, val in presentation_nested_fields %}
+                {% if clinical_context_nested_fields %}
+                {% for key, val in clinical_context_nested_fields %}
                 <details style="margin-top:0.8rem">
                     <summary>{{ key }}</summary>
                     <pre class="raw-json">{{ val | tojson(indent=2) }}</pre>
@@ -1167,7 +1167,7 @@
             </div>
             {% endif %}
 
-            {% if presentation_condition_cards %}
+            {% if clinical_context_condition_cards %}
             <div class="subcard">
                 <div class="subcard-header">
                     <div class="subcard-icon" aria-hidden="true">
@@ -1180,7 +1180,7 @@
                     <h3>Condition</h3>
                 </div>
                 <div class="pill-card-grid pill-card-grid-compact">
-                    {% for condition in presentation_condition_cards %}
+                    {% for condition in clinical_context_condition_cards %}
                     <div class="pill-card">
                         <div class="pill-card-header">
                             <p class="pill-card-title">
@@ -1193,7 +1193,7 @@
                             <div class="nested-card-badges">
                                 {{ node_doc_link("Condition", condition.condition_doc._key) }}
                                 {% if condition.condition_edge_doc and condition.condition_edge_doc._key %}
-                                {{ node_doc_link("PresentationConditionEdge", condition.condition_edge_doc._key, "Edge") }}
+                                {{ node_doc_link("ClinicalContextConditionEdge", condition.condition_edge_doc._key, "Edge") }}
                                 {% endif %}
                             </div>
                         </div>
@@ -1237,7 +1237,7 @@
                             {{ node_doc_link("Diagnosis", diagnosis_doc._key) }}
                             {% endif %}
                             {% if diagnosis.diagnosis_edge_doc and diagnosis.diagnosis_edge_doc._key %}
-                            {{ node_doc_link("PresentationDiagnosisEdge", diagnosis.diagnosis_edge_doc._key, "Edge") }}
+                            {{ node_doc_link("ClinicalContextDiagnosisEdge", diagnosis.diagnosis_edge_doc._key, "Edge") }}
                             {% endif %}
                         </div>
                     </div>
@@ -1322,7 +1322,7 @@
         </div>
         {% endif %}
 
-        {% if grouped_presentation_phenotype_cards %}
+        {% if grouped_clinical_context_phenotype_cards %}
         <div class="subcard">
             <div class="subcard-header">
                 <div class="subcard-icon" aria-hidden="true">
@@ -1335,7 +1335,7 @@
                 <h3>Findings</h3>
             </div>
             <div class="stacked-card">
-                {% for phenotype_group in grouped_presentation_phenotype_cards %}
+                {% for phenotype_group in grouped_clinical_context_phenotype_cards %}
                 <div class="nested-card">
                     <div class="nested-card-header">
                         <div>
@@ -1365,7 +1365,7 @@
                                     {% if phenotype.phenotype_edge_doc and phenotype.phenotype_edge_doc._key %}
                                     {{ node_doc_link("FindingPhenotypeEdge", phenotype.phenotype_edge_doc._key, "Edge") }}
                                     {% elif phenotype.edge_doc and phenotype.edge_doc._key %}
-                                    {{ node_doc_link("PresentationPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
+                                    {{ node_doc_link("ClinicalContextPhenotypeEdge", phenotype.edge_doc._key, "Edge") }}
                                     {% endif %}
                                 </div>
                             </div>

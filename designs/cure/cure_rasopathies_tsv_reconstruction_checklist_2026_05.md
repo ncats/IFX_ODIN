@@ -40,7 +40,7 @@ The two TSV paths above were byte-for-byte identical when checked during this re
 
 - `[x]` Patient anchor
   - Graph emits `11` `Patient` nodes and `11` `CaseReportPatientEdge` edges.
-  - Graph emits `11` `PatientPresentationEdge` edges, so clinical presentation hangs from the
+  - Graph emits `11` `PatientClinicalContextEdge` edges, so clinical clinical_context hangs from the
     patient rather than directly from the report.
   - This includes reports with empty demographics, so downstream case-scoped data has a stable
     patient anchor.
@@ -53,19 +53,19 @@ The two TSV paths above were byte-for-byte identical when checked during this re
     - `MONDO:0007893` Noonan syndrome with multiple lentigines
     - `MONDO:0009026` Costello syndrome
     - `ORPHA:544254` SYNGAP1-related developmental and epileptic encephalopathy
-  - JSONL emits `11` `PresentationConditionEdge` records from report disease labels; resolver
+  - JSONL emits `11` `ClinicalContextConditionEdge` records from report disease labels; resolver
     normalization collapses those report-level disease mentions to the same `5` concepts.
 
-- `[x]` Presentation findings needed for TSV `has_phenotype_of`
-  - JSONL adapter emits `125` raw presentation `Finding` nodes through `PresentationFindingEdge`.
+- `[x]` ClinicalContext findings needed for TSV `has_phenotype_of`
+  - JSONL adapter emits `125` raw clinical_context `Finding` nodes through `ClinicalContextFindingEdge`.
   - Each `Finding` points to a raw phenotype endpoint through `FindingPhenotypeEdge`.
-  - The CURE label resolver expands those presentation finding phenotype endpoints to `141`
+  - The CURE label resolver expands those clinical_context finding phenotype endpoints to `141`
     resolved `Finding -> Phenotype` links.
-  - Four resolved links collapse to duplicate `(Presentation, Phenotype)` pairs when summarized at
+  - Four resolved links collapse to duplicate `(ClinicalContext, Phenotype)` pairs when summarized at
     the report-concept level, yielding `137` unique report-to-phenotype concept relationships.
   - The TSV has `140` `has_phenotype_of` rows, but only `137` unique `(report_id, phenotype CURIE)`
     pairs.
-  - Traversing `Presentation -> Finding -> Phenotype` can reconstruct those same `137` unique TSV
+  - Traversing `ClinicalContext -> Finding -> Phenotype` can reconstruct those same `137` unique TSV
     `(report_id, phenotype CURIE)` pairs.
 
 - `[x]` Perinatal / fetal phenotype context
@@ -98,7 +98,7 @@ The two TSV paths above were byte-for-byte identical when checked during this re
   - JSONL contains richer treatment blocks, including regimen, duration, care setting, primary
     target, secondary targets, outcome labels, time to improvement, and free-text notes.
   - The graph now models the CURE-ID treatment-response structure as:
-    - `Patient -> DrugTreatment`
+    - `ClinicalContext -> DrugTreatment`
     - `DrugTreatment -> Drug`
     - `DrugTreatment -> TreatmentResponse`
     - `TreatmentResponse -> Finding`
@@ -107,8 +107,8 @@ The two TSV paths above were byte-for-byte identical when checked during this re
   - JSONL emits `39` `TreatmentResponse` nodes.
   - After drug and phenotype resolver expansion, this path reconstructs all `40` unique TSV
     drug-to-phenotype `applied_to_treat` concept triples.
-  - After drug and condition resolver expansion, each treatment's patient/report context plus
-    `Presentation -> Condition` reconstructs all `23` TSV drug-to-disease `applied_to_treat`
+  - After drug and condition resolver expansion, each treatment's clinical context plus
+    `ClinicalContext -> Condition` reconstructs all `23` TSV drug-to-disease `applied_to_treat`
     concept triples.
   - Regression coverage:
     - `test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs`
@@ -132,7 +132,7 @@ The two TSV paths above were byte-for-byte identical when checked during this re
 - `[x]` Gene facts
   - TSV has `10` `gene_associated_with_condition` rows and `6` unique genes.
   - JSONL contains genes under `report.gene_sequencing`.
-  - JSONL emits `10` `Diagnosis` nodes under presentations. Each `Diagnosis` preserves
+  - JSONL emits `10` `Diagnosis` nodes under clinical_contexts. Each `Diagnosis` preserves
     `how_diagnosis[]` as `diagnosis_methods`.
   - JSONL emits `10` source gene mentions as `Gene` endpoints under `DiagnosisGeneEdge`.
   - JSONL emits `10` `DiagnosisConditionEdge` records.
@@ -227,8 +227,8 @@ The two TSV paths above were byte-for-byte identical when checked during this re
     - `case_count`
     - `report_ids`
     - optionally `source_labels` / `source_label_count` if edge details preserve original labels.
-  - For the current phenotype graph, this should group `PresentationConditionEdge` plus
-    `Presentation -> Finding -> Phenotype` by resolved condition and phenotype, counting distinct
+  - For the current phenotype graph, this should group `ClinicalContextConditionEdge` plus
+    `ClinicalContext -> Finding -> Phenotype` by resolved condition and phenotype, counting distinct
     case reports.
 
 ## Phenotype Edge Reconciliation Details
@@ -237,24 +237,24 @@ The apparent mismatch is explained by resolver expansion and duplicate edge coll
 
 Raw local adapter output:
 
-- `125` presentation `Finding` nodes and `PresentationFindingEdge` records
+- `125` clinical_context `Finding` nodes and `ClinicalContextFindingEdge` records
 - `9` perinatal `Finding` nodes and `PerinatalContextFindingEdge` records
 - `134` raw `FindingPhenotypeEdge` records
 
-After applying the CURE label resolver to presentation finding phenotype endpoints:
+After applying the CURE label resolver to clinical_context finding phenotype endpoints:
 
-- `141` resolved presentation `Finding -> Phenotype` links are produced.
-- `4` collapse to duplicate `(Presentation, Phenotype)` pairs when summarized at the report-concept
+- `141` resolved clinical_context `Finding -> Phenotype` links are produced.
+- `4` collapse to duplicate `(ClinicalContext, Phenotype)` pairs when summarized at the report-concept
   level.
-- Report-concept exports should collapse these to `137` unique presentation phenotype pairs, while
+- Report-concept exports should collapse these to `137` unique clinical_context phenotype pairs, while
   the graph preserves source-specific `Finding` nodes.
 
-The four duplicate presentation pairs are:
+The four duplicate clinical_context pairs are:
 
-- `eea4b243-b0b6-4c80-86ab-87251498a107:presentation` -> `HP:0001263`
-- `032af03c-721e-47ec-aa6b-eebd100c6b2b:presentation` -> `HP:0001382`
-- `3d83a833-ced8-4c7d-ad9b-c9863273e0bf:presentation` -> `HP:0004927`
-- `3d83a833-ced8-4c7d-ad9b-c9863273e0bf:presentation` -> `HP:0012418`
+- `eea4b243-b0b6-4c80-86ab-87251498a107:clinical_context` -> `HP:0001263`
+- `032af03c-721e-47ec-aa6b-eebd100c6b2b:clinical_context` -> `HP:0001382`
+- `3d83a833-ced8-4c7d-ad9b-c9863273e0bf:clinical_context` -> `HP:0004927`
+- `3d83a833-ced8-4c7d-ad9b-c9863273e0bf:clinical_context` -> `HP:0012418`
 
 The TSV has:
 
@@ -265,13 +265,13 @@ The TSV has:
   - `032af03c-721e-47ec-aa6b-eebd100c6b2b` -> `HP:0001382`
   - `3d83a833-ced8-4c7d-ad9b-c9863273e0bf` -> `HP:0012418`
 
-The graph's `Presentation -> Finding -> Phenotype` path exactly matches the TSV's `137` unique
+The graph's `ClinicalContext -> Finding -> Phenotype` path exactly matches the TSV's `137` unique
 `(report_id, object_final_curie)` pairs when summarized at the report-concept level.
 
 One duplicate resolved graph pair, `3d83a833-ced8-4c7d-ad9b-c9863273e0bf -> HP:0004927`, is not a
 duplicate TSV `(report_id, object_final_curie)` row. It arises during resolver expansion from JSONL
-source labels. It remains part of the same final set of `137` unique TSV-matching presentation
-phenotype pairs when the graph is summarized at the presentation/phenotype concept level.
+source labels. It remains part of the same final set of `137` unique TSV-matching clinical_context
+phenotype pairs when the graph is summarized at the clinical_context/phenotype concept level.
 
 ## Applied-To-Treat Reconciliation Details
 
@@ -285,7 +285,7 @@ The graph represents these through the CURE-ID case structure rather than as fla
 Drug-to-phenotype reconstruction path:
 
 ```text
-Patient -> DrugTreatment -> Drug
+ClinicalContext -> DrugTreatment -> Drug
 DrugTreatment -> TreatmentResponse -> Finding -> Phenotype
 ```
 
@@ -295,8 +295,8 @@ After `Drug` and `Phenotype` resolver expansion, this path exactly matches all `
 Drug-to-disease reconstruction path:
 
 ```text
-Patient -> DrugTreatment -> Drug
-Patient -> Presentation -> Condition
+ClinicalContext -> DrugTreatment -> Drug
+ClinicalContext -> Condition
 ```
 
 After `Drug` and `Condition` resolver expansion, this path exactly matches all `23` unique TSV
@@ -310,7 +310,7 @@ label maps to two curated adverse-event concepts.
 The graph represents adverse events as phenotype-like concepts linked directly to the treatment:
 
 ```text
-Patient -> DrugTreatment -> Drug
+ClinicalContext -> DrugTreatment -> Drug
 DrugTreatment -> Phenotype
 ```
 
@@ -329,7 +329,7 @@ The TSV has three genetics predicates:
 The graph represents these through diagnosis-scoped genetic evidence:
 
 ```text
-Patient -> Presentation -> Diagnosis -> Condition
+Patient -> ClinicalContext -> Diagnosis -> Condition
 Diagnosis -> Gene
 Diagnosis -> GeneVariant
 Gene -> GeneVariant

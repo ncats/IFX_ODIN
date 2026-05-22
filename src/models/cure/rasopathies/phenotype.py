@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.core.decorators import facets, search
-from src.models.cure.rasopathies.presentation import Presentation
+from src.models.cure.rasopathies.clinical_context import ClinicalContext
 from src.models.node import Node, Relationship
 
 
@@ -14,8 +14,8 @@ class Phenotype(Node):
 
 @dataclass
 @facets(category_fields=["group", "label"])
-class PresentationPhenotypeEdge(Relationship):
-    start_node: Presentation = None
+class ClinicalContextPhenotypeEdge(Relationship):
+    start_node: ClinicalContext = None
     end_node: Phenotype = None
     group: Optional[str] = None
     label: Optional[str] = None

@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.core.decorators import facets, search
+from src.models.cure.rasopathies.clinical_context import ClinicalContext
 from src.models.cure.rasopathies.phenotype import Phenotype
 from src.models.cure.rasopathies.perinatal_context import PerinatalContext
-from src.models.cure.rasopathies.presentation import Presentation
 from src.models.node import Node, Relationship
 
 
@@ -23,8 +23,8 @@ class Finding(Node):
 
 
 @dataclass
-class PresentationFindingEdge(Relationship):
-    start_node: Presentation = None
+class ClinicalContextFindingEdge(Relationship):
+    start_node: ClinicalContext = None
     end_node: Finding = None
 
 
