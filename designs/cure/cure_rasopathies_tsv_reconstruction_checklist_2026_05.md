@@ -11,12 +11,14 @@ content or explicitly marked as deferred.
 
 Reference files:
 
-- Raw-ish case-report source: `input_files/manual/cure/reports.jsonl`
+- Raw-ish case-report source: `input_files/manual/cure/reports_20260518T211409Z.jsonl`
 - Curated association/concept source: `input_files/manual/cure/cureid_data.tsv`
 - Equivalent external copy:
   `/Users/kelleherkj/IdeaProjects/translator-ingests/data/cureid/2025-12-17/source_data/cureid_data.tsv`
 
 The two TSV paths above were byte-for-byte identical when checked during this review.
+The JSONL source is now newer than the TSV: it has `13` approved rasopathies reports, while the
+legacy TSV still covers the earlier `11` report set.
 
 ## Current TSV Shape
 
@@ -271,9 +273,13 @@ The two TSV paths above were byte-for-byte identical when checked during this re
   - It is report-scoped and mention-preserving where the graph has enough detail.
   - This does not need to be a persistent `graph_views` export. It is a parity/QA harness to confirm
     the graph contains everything needed for the Translator-style output CURE ID used to send.
-  - The validation reconstructs `237` unique TSV-style association rows from graph traversals.
+  - Against the refreshed JSONL, the validation reconstructs `266` unique TSV-style association rows
+    from graph traversals.
   - The physical TSV has `240` rows; the difference is the three duplicate disease/phenotype rows
-    already documented in the phenotype reconciliation.
+    already documented in the phenotype reconciliation plus the two approved reports that are present
+    in refreshed JSONL but absent from the older TSV.
+  - The automated test now asserts that the legacy TSV facts are a subset of the refreshed graph facts,
+    rather than asserting exact equality.
   - Expected columns should stay close to:
     - `subject_label_original`
     - `subject_label`

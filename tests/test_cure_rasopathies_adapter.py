@@ -1,5 +1,7 @@
 import csv
+import json
 from collections import Counter
+from datetime import date
 
 from src.id_resolvers.cure_id_label_resolver import CureIdLabelResolver
 from src.input_adapters.cure.cure_adapter import CUREAdapter
@@ -27,10 +29,15 @@ from src.models.cure.pasc.adverse_event import ExposureAdverseEventEdge
 from src.models.cure.pasc.phenotype import Phenotype as PascPhenotype
 from src.models.cure.shared.case_report import CaseReport
 from src.models.cure.shared.patient import Patient
+from src.models.gene import Gene
+
+
+CURE_REPORTS_FILE = "./input_files/manual/cure/reports_20260518T211409Z.jsonl"
+CURE_TSV_FILE = "./input_files/manual/cure/cureid_data.tsv"
 
 
 def _adapter_entries():
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     return [entry for batch in adapter.get_all() for entry in batch]
 
 
@@ -38,33 +45,33 @@ def test_rasopathies_adapter_emits_patient_for_each_case_report():
     entries = _adapter_entries()
     counts = Counter(entry.__class__.__name__ for entry in entries)
 
-    assert counts["CaseReport"] == 11
-    assert counts["Patient"] == 11
-    assert counts["CaseReportPatientEdge"] == 11
-    assert counts["PatientClinicalContextEdge"] == 11
+    assert counts["CaseReport"] == 13
+    assert counts["Patient"] == 13
+    assert counts["CaseReportPatientEdge"] == 13
+    assert counts["PatientClinicalContextEdge"] == 13
     assert counts["CaseReportClinicalContextEdge"] == 0
-    assert counts["Finding"] == 134
-    assert counts["ClinicalContextFindingEdge"] == 125
+    assert counts["Finding"] == 140
+    assert counts["ClinicalContextFindingEdge"] == 131
     assert counts["PerinatalContextFindingEdge"] == 9
-    assert counts["FindingPhenotypeEdge"] == 134
+    assert counts["FindingPhenotypeEdge"] == 140
     assert counts["ClinicalContextPhenotypeEdge"] == 0
     assert counts["PerinatalContextPhenotypeEdge"] == 0
-    assert counts["DrugTreatment"] == 23
-    assert counts["ClinicalContextDrugTreatmentEdge"] == 23
-    assert counts["Drug"] == 23
-    assert counts["DrugTreatmentDrugEdge"] == 23
-    assert counts["TreatmentResponse"] == 39
-    assert counts["DrugTreatmentResponseEdge"] == 39
-    assert counts["TreatmentResponseFindingEdge"] == 39
-    assert counts["DrugTreatmentAdverseEventEdge"] == 6
-    assert counts["Diagnosis"] == 10
-    assert counts["ClinicalContextDiagnosisEdge"] == 10
-    assert counts["DiagnosisConditionEdge"] == 10
-    assert counts["DiagnosisGeneEdge"] == 10
-    assert counts["DiagnosisGeneVariantEdge"] == 10
-    assert counts["Gene"] == 10
-    assert counts["GeneVariant"] == 10
-    assert counts["GeneGeneVariantEdge"] == 10
+    assert counts["DrugTreatment"] == 28
+    assert counts["ClinicalContextDrugTreatmentEdge"] == 28
+    assert counts["Drug"] == 28
+    assert counts["DrugTreatmentDrugEdge"] == 28
+    assert counts["TreatmentResponse"] == 46
+    assert counts["DrugTreatmentResponseEdge"] == 46
+    assert counts["TreatmentResponseFindingEdge"] == 46
+    assert counts["DrugTreatmentAdverseEventEdge"] == 7
+    assert counts["Diagnosis"] == 12
+    assert counts["ClinicalContextDiagnosisEdge"] == 12
+    assert counts["DiagnosisConditionEdge"] == 12
+    assert counts["DiagnosisGeneEdge"] == 12
+    assert counts["DiagnosisGeneVariantEdge"] == 12
+    assert counts["Gene"] == 12
+    assert counts["GeneVariant"] == 12
+    assert counts["GeneGeneVariantEdge"] == 12
     assert counts["ClinicalContextGeneEdge"] == 0
     assert counts["ClinicalContextGeneVariantEdge"] == 0
     assert counts["GeneConditionEdge"] == 0
@@ -76,8 +83,108 @@ def test_rasopathies_adapter_emits_patient_for_each_case_report():
     )
 
 
+def test_rasopathies_adapter_reads_version_date_from_file_name():
+    version = RasopathiesAdapter(CURE_REPORTS_FILE).get_version()
+
+    assert version.version == "reports_20260518T211409Z"
+    assert version.version_date == date(2026, 5, 18)
+
+
+def test_cure_pasc_adapter_reads_version_date_from_file_name():
+    version = CUREAdapter(CURE_REPORTS_FILE, form_type="pasc").get_version()
+
+    assert version.version == "reports_20260518T211409Z"
+    assert version.version_date == date(2026, 5, 18)
+
+
+def test_cure_id_label_resolver_applies_manual_yaml_style_label_map():
+    resolver = CureIdLabelResolver(
+        CURE_TSV_FILE,
+        types=["Gene"],
+        label_field_by_type={"Gene": "symbol"},
+        manual_label_map={
+            "Gene": {
+                "Syngap": ["NCBIGene:8831"],
+                "SYNGAP1": ["NCBIGene:8831"],
+            }
+        },
+        no_match_behavior=NoMatchBehavior.Allow,
+        multi_match_behavior=MultiMatchBehavior.All,
+    )
+
+    resolved = resolver.resolve_internal([
+        Gene(id="Syngap", symbol="Syngap"),
+        Gene(id="SYNGAP1", symbol="SYNGAP1"),
+    ])
+
+    assert [match.match for match in resolved["Syngap"]] == ["NCBIGene:8831"]
+    assert [match.match for match in resolved["SYNGAP1"]] == ["NCBIGene:8831"]
+
+
+def test_rasopathies_adapter_only_emits_approved_cases(tmp_path):
+    with open(CURE_REPORTS_FILE, "r", encoding="utf-8") as handle:
+        for line in handle:
+            approved_row = json.loads(line)
+            if approved_row.get("form_type") == "rasopathies":
+                break
+        else:
+            raise AssertionError("expected at least one rasopathies row")
+    rejected_row = dict(approved_row)
+    rejected_row["id"] = "not-approved-rasopathies-case"
+    rejected_row["status"] = "Rejected"
+
+    test_file = tmp_path / "reports_20260518T211409Z.jsonl"
+    test_file.write_text(
+        "\n".join(json.dumps(row) for row in [approved_row, rejected_row]) + "\n",
+        encoding="utf-8",
+    )
+
+    entries = [
+        entry
+        for batch in RasopathiesAdapter(str(test_file)).get_all()
+        for entry in batch
+    ]
+
+    assert {
+        entry.id
+        for entry in entries
+        if isinstance(entry, CaseReport)
+    } == {approved_row["id"]}
+
+
+def test_cure_pasc_adapter_only_emits_approved_cases(tmp_path):
+    with open(CURE_REPORTS_FILE, "r", encoding="utf-8") as handle:
+        for line in handle:
+            approved_row = json.loads(line)
+            if approved_row.get("form_type") == "pasc":
+                break
+        else:
+            raise AssertionError("expected at least one pasc row")
+    rejected_row = dict(approved_row)
+    rejected_row["id"] = "not-approved-pasc-case"
+    rejected_row["status"] = "Rejected"
+
+    test_file = tmp_path / "reports_20260518T211409Z.jsonl"
+    test_file.write_text(
+        "\n".join(json.dumps(row) for row in [approved_row, rejected_row]) + "\n",
+        encoding="utf-8",
+    )
+
+    entries = [
+        entry
+        for batch in CUREAdapter(str(test_file), form_type="pasc").get_all()
+        for entry in batch
+    ]
+
+    assert {
+        entry.id
+        for entry in entries
+        if isinstance(entry, CaseReport)
+    } == {approved_row["id"]}
+
+
 def test_cure_pasc_case_reports_include_original_cure_id_url():
-    adapter = CUREAdapter("./input_files/manual/cure/reports.jsonl", form_type="pasc")
+    adapter = CUREAdapter(CURE_REPORTS_FILE, form_type="pasc")
     case_report = next(
         entry
         for batch in adapter.get_all()
@@ -93,13 +200,13 @@ def test_cure_pasc_case_reports_include_original_cure_id_url():
 def test_cure_pasc_adverse_events_are_modeled_as_phenotypes():
     entries = [
         entry
-        for batch in CUREAdapter("./input_files/manual/cure/reports.jsonl", form_type="pasc").get_all()
+        for batch in CUREAdapter(CURE_REPORTS_FILE, form_type="pasc").get_all()
         for entry in batch
     ]
     counts = Counter(entry.__class__.__name__ for entry in entries)
 
     assert counts["AdverseEvent"] == 0
-    assert counts["ExposureAdverseEventEdge"] == 1224
+    assert counts["ExposureAdverseEventEdge"] == 1228
     assert all(
         isinstance(edge.end_node, PascPhenotype)
         for edge in entries
@@ -126,13 +233,13 @@ def test_rasopathies_adapter_keeps_empty_demographic_patient_anchor():
 def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
     resolver_map = {
         "Phenotype": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         )
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -150,7 +257,7 @@ def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
         and edge.start_node.id in finding_to_report
     }
 
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         tsv_pairs = {
             (row["report_id"], row["object_final_curie"])
@@ -158,26 +265,27 @@ def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
             if row["predicate_raw"] == "has_phenotype_of"
         }
 
-    assert len(graph_pairs) == 137
-    assert graph_pairs == tsv_pairs
+    assert len(tsv_pairs) == 137
+    assert len(graph_pairs) == 145
+    assert tsv_pairs <= graph_pairs
 
 
 def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
     resolver_map = {
         "Drug": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Phenotype": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -226,7 +334,7 @@ def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
         for phenotype_id in finding_to_phenotypes.get(finding_id, []):
             graph_pairs.add((report_id, drug_id, phenotype_id))
 
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         tsv_pairs = {
             (row["report_id"], row["subject_final_curie"], row["object_final_curie"])
@@ -235,26 +343,27 @@ def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
             and row["object_type"] == "PhenotypicFeature"
         }
 
-    assert len(graph_pairs) == 40
-    assert graph_pairs == tsv_pairs
+    assert len(tsv_pairs) == 40
+    assert len(graph_pairs) == 49
+    assert tsv_pairs <= graph_pairs
 
 
 def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
     resolver_map = {
         "Condition": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Drug": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -287,7 +396,7 @@ def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
         for condition_id in report_to_conditions.get(report_id, set()):
             graph_triples.add((report_id, drug_id, condition_id))
 
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         tsv_triples = {
             (row["report_id"], row["subject_final_curie"], row["object_final_curie"])
@@ -296,26 +405,27 @@ def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
             and row["object_type"] == "Disease"
         }
 
-    assert len(graph_triples) == 23
-    assert graph_triples == tsv_triples
+    assert len(tsv_triples) == 23
+    assert len(graph_triples) == 28
+    assert tsv_triples <= graph_triples
 
 
 def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
     resolver_map = {
         "Drug": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Phenotype": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -348,7 +458,7 @@ def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
         if isinstance(edge, DrugTreatmentAdverseEventEdge)
     }
 
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         tsv_triples = {
             (row["report_id"], row["subject_final_curie"], row["object_final_curie"], row["outcome"])
@@ -356,27 +466,28 @@ def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
             if row["predicate_raw"] == "has_adverse_events"
         }
 
-    assert len(graph_triples) == 7
-    assert graph_triples == tsv_triples
+    assert len(tsv_triples) == 7
+    assert len(graph_triples) == 8
+    assert tsv_triples <= graph_triples
 
 
 def test_rasopathies_genetics_cover_tsv_genetic_predicates():
     resolver_map = {
         "Condition": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Gene": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Gene"],
             label_field_by_type={"Gene": "symbol"},
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -434,7 +545,7 @@ def test_rasopathies_genetics_cover_tsv_genetic_predicates():
     }
 
     tsv_by_predicate = {}
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             if row["predicate_raw"] not in {
@@ -449,40 +560,40 @@ def test_rasopathies_genetics_cover_tsv_genetic_predicates():
                 row["object_final_curie"] or row["object_label_original"],
             ))
 
-    assert graph_gene_condition == tsv_by_predicate["gene_associated_with_condition"]
-    assert graph_gene_variant == tsv_by_predicate["has_sequence_variant"]
-    assert graph_variant_condition == tsv_by_predicate["genetically_associated_with"]
+    assert tsv_by_predicate["gene_associated_with_condition"] <= graph_gene_condition
+    assert tsv_by_predicate["has_sequence_variant"] <= graph_gene_variant
+    assert tsv_by_predicate["genetically_associated_with"] <= graph_variant_condition
 
 
 def test_rasopathies_graph_reconstructs_tsv_association_set():
     resolver_map = {
         "Condition": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Drug": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Gene": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Gene"],
             label_field_by_type={"Gene": "symbol"},
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
         "Phenotype": CureIdLabelResolver(
-            "./input_files/manual/cure/cureid_data.tsv",
+            CURE_TSV_FILE,
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter("./input_files/manual/cure/reports.jsonl")
+    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -657,7 +768,7 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
                 "",
             ))
 
-    with open("./input_files/manual/cure/cureid_data.tsv", newline="") as handle:
+    with open(CURE_TSV_FILE, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         tsv_rows = {
             (
@@ -673,5 +784,5 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
         }
 
     assert len(tsv_rows) == 237
-    assert len(graph_rows) == 237
-    assert graph_rows == tsv_rows
+    assert len(graph_rows) == 266
+    assert tsv_rows <= graph_rows

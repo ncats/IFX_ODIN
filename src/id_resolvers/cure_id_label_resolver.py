@@ -1,6 +1,6 @@
 import csv
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from src.interfaces.id_resolver import IdMatch, IdResolver
 from src.models.node import Node
@@ -22,11 +22,13 @@ class CureIdLabelResolver(IdResolver):
         types: List[str],
         label_field_by_type: Optional[Dict[str, str]] = None,
         node_type_to_source_types: Optional[Dict[str, List[str]]] = None,
+        manual_label_map: Optional[Dict[str, Dict[str, Union[List[str], str]]]] = None,
         **kwargs,
     ):
         super().__init__(types=types, **kwargs)
         self.tsv_file = tsv_file
         self.label_field_by_type = label_field_by_type or {}
+        self.manual_label_map = manual_label_map or {}
         raw_mapping = node_type_to_source_types or self.DEFAULT_NODE_TYPE_TO_SOURCE_TYPES
         self.node_type_to_source_types = {
             node_type: {value.strip() for value in values}
@@ -34,6 +36,7 @@ class CureIdLabelResolver(IdResolver):
         }
         self.label_map: Dict[str, Dict[str, List[str]]] = self._load_label_map()
         self.curie_map: Dict[str, set[str]] = self._load_curie_map()
+        self._apply_manual_label_map()
 
     @staticmethod
     def _normalize_label(value: Optional[str]) -> Optional[str]:
@@ -100,6 +103,30 @@ class CureIdLabelResolver(IdResolver):
                         if source_type in allowed_source_types:
                             curie_map.setdefault(node_type, set()).add(curie)
         return curie_map
+
+    def _apply_manual_label_map(self) -> None:
+        for node_type, label_to_curies in self.manual_label_map.items():
+            if node_type not in self.types:
+                continue
+            for raw_label, raw_curies in label_to_curies.items():
+                label = self._normalize_label(raw_label)
+                if label is None:
+                    continue
+                if isinstance(raw_curies, str):
+                    curies = [raw_curies]
+                else:
+                    curies = list(raw_curies or [])
+                normalized_curies = [
+                    curie
+                    for curie in (self._normalize_label(curie) for curie in curies)
+                    if curie is not None
+                ]
+                if not normalized_curies:
+                    continue
+                existing_curies = set(self.label_map.setdefault(node_type, {}).get(label, []))
+                existing_curies.update(normalized_curies)
+                self.label_map[node_type][label] = sorted(existing_curies)
+                self.curie_map.setdefault(node_type, set()).update(normalized_curies)
 
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         result: Dict[str, List[IdMatch]] = {}

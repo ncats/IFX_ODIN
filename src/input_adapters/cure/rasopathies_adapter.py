@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timezone
+import re
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Dict, Generator, List, Union
 
@@ -51,6 +52,8 @@ from src.models.node import Node, Relationship
 
 
 class RasopathiesAdapter(FlatFileAdapter):
+    _VERSION_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}Z")
+
     def __init__(self, file_path: str):
         super().__init__(file_path=file_path)
         self._finding_group_lookup, self._finding_default_lookup = self._load_finding_group_lookup()
@@ -62,6 +65,8 @@ class RasopathiesAdapter(FlatFileAdapter):
             for line in handle:
                 row = json.loads(line)
                 if row.get("form_type") != "rasopathies":
+                    continue
+                if row.get("status") != "Approved":
                     continue
 
                 case_report = self._build_case_report(row)
@@ -146,9 +151,16 @@ class RasopathiesAdapter(FlatFileAdapter):
 
     def get_version(self) -> DatasourceVersionInfo:
         return DatasourceVersionInfo(
-            version="manual-rasopathies",
+            version=Path(self.file_path).stem,
+            version_date=self._parse_version_date_from_file_name(),
             download_date=self.download_date,
         )
+
+    def _parse_version_date_from_file_name(self) -> date | None:
+        match = self._VERSION_DATE_PATTERN.search(Path(self.file_path).name)
+        if match is None:
+            return None
+        return datetime.strptime(match.group(1), "%Y%m%d").date()
 
     def _build_case_report(self, row: dict) -> CaseReport:
         report = row.get("report") or {}

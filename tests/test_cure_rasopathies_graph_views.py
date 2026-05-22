@@ -15,7 +15,50 @@ def test_rasopathies_graph_views_only_include_final_exports():
         "rasopathies_gene_associated_with_condition",
         "rasopathies_gene_has_sequence_variant",
         "rasopathies_sequence_variant_genetically_associated_with_condition",
+        "rasopathies_translator_version_info",
     }
+
+
+def test_rasopathies_resolver_config_includes_temporary_manual_gene_map():
+    with open("./src/use_cases/cure/cure_rasopathies.yaml", "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+
+    resolver = config["resolvers"][0]
+    manual_gene_map = resolver["kwargs"]["manual_label_map"]["Gene"]
+    manual_drug_map = resolver["kwargs"]["manual_label_map"]["Drug"]
+
+    assert manual_gene_map["Syngap"] == ["NCBIGene:8831"]
+    assert manual_gene_map["SYNGAP1"] == ["NCBIGene:8831"]
+    assert manual_drug_map["Epidiolex"] == ["RXCUI:2058901"]
+    assert manual_drug_map["Tanganil"] == ["CHEBI:17786"]
+    assert manual_drug_map["Sertraline"] == ["RXCUI:36437"]
+    assert manual_drug_map["Sertraline 25 Mg Oral Tablet [Zoloft]"] == ["RXCUI:36437"]
+    assert manual_drug_map["Clobazam"] == ["RXCUI:21241"]
+
+
+def test_rasopathies_translator_version_info_graph_view_shape():
+    with open("./src/use_cases/cure/cure_rasopathies.yaml", "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+
+    graph_views = {view["id"]: view for view in config["graph_views"]}
+    view = graph_views["rasopathies_translator_version_info"]
+    query = view["query"]
+
+    assert view["output_format"] == "jsonl"
+    assert view["query_language"] == "aql"
+    assert "columns" not in view
+    assert 'label: "Translator: RAS"' in query
+    assert "source_versions" in query
+    assert "version_date" in query
+    assert "download_date" in query
+    assert 'form_type: "rasopathies"' in query
+    assert 'status: "Approved"' in query
+    assert "case_report_count" in query
+    assert "case_report_ids" not in query
+    assert "association_view_ids" in query
+    assert "manual-cureid-curated-concepts" not in query
+    assert "reports_20260518T211409Z" not in query
+    assert "biolink" not in query.lower()
 
 
 def test_rasopathies_condition_has_phenotype_graph_view_shape():

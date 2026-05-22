@@ -4,7 +4,7 @@ input_adapters:
   - import: ./src/input_adapters/cure/cure_adapter.py
     class: CUREAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/reports.jsonl
+      file_path: ./input_files/manual/cure/reports_20260518T211409Z.jsonl
       form_type: pasc
 
 graph_views:
