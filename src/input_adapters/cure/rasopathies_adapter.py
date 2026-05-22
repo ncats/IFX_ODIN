@@ -13,7 +13,7 @@ from src.models.cure.rasopathies.drug_treatment import (
     DrugTreatmentAdverseEventEdge,
     DrugTreatmentDrugEdge,
     DrugTreatmentResponseEdge,
-    PatientDrugTreatmentEdge,
+    ClinicalContextDrugTreatmentEdge,
     TreatmentResponse,
     TreatmentResponseFindingEdge,
 )
@@ -21,7 +21,7 @@ from src.models.cure.rasopathies.finding import (
     Finding,
     FindingPhenotypeEdge,
     PerinatalContextFindingEdge,
-    PresentationFindingEdge,
+    ClinicalContextFindingEdge,
 )
 from src.models.cure.rasopathies.genetics import (
     Diagnosis,
@@ -30,17 +30,17 @@ from src.models.cure.rasopathies.genetics import (
     DiagnosisGeneVariantEdge,
     GeneGeneVariantEdge,
     GeneVariant,
-    PresentationDiagnosisEdge,
+    ClinicalContextDiagnosisEdge,
 )
 from src.models.cure.rasopathies.perinatal_context import (
     PerinatalContext,
     PatientPerinatalContextEdge,
 )
 from src.models.cure.rasopathies.phenotype import Phenotype
-from src.models.cure.rasopathies.presentation import (
-    PatientPresentationEdge,
-    Presentation,
-    PresentationConditionEdge,
+from src.models.cure.rasopathies.clinical_context import (
+    PatientClinicalContextEdge,
+    ClinicalContext,
+    ClinicalContextConditionEdge,
 )
 from src.models.cure.shared.case_report import CaseReport
 from src.models.cure.shared.patient import CaseReportPatientEdge, Patient
@@ -67,29 +67,29 @@ class RasopathiesAdapter(FlatFileAdapter):
                 case_report = self._build_case_report(row)
                 batch.append(case_report)
 
-                presentation = self._build_presentation(case_report.id)
-                batch.append(presentation)
+                clinical_context = self._build_clinical_context(case_report.id)
+                batch.append(clinical_context)
 
                 condition = self._build_condition(row)
                 if condition is not None:
                     batch.append(
-                        PresentationConditionEdge(
-                            start_node=presentation,
+                        ClinicalContextConditionEdge(
+                            start_node=clinical_context,
                             end_node=condition,
                         )
                     )
-                    batch.extend(self._build_genetics(row, case_report.id, presentation, condition))
+                    batch.extend(self._build_genetics(row, case_report.id, clinical_context, condition))
 
-                presentation_finding_lookup = {}
-                for finding, finding_edge, phenotype_edge in self._build_findings(row, case_report.id, presentation):
+                clinical_context_finding_lookup = {}
+                for finding, finding_edge, phenotype_edge in self._build_findings(row, case_report.id, clinical_context):
                     batch.extend([
                         finding,
                         finding_edge,
                         phenotype_edge,
                     ])
                     lookup_key = self._finding_lookup_key(finding.source_value)
-                    if lookup_key is not None and lookup_key not in presentation_finding_lookup:
-                        presentation_finding_lookup[lookup_key] = finding
+                    if lookup_key is not None and lookup_key not in clinical_context_finding_lookup:
+                        clinical_context_finding_lookup[lookup_key] = finding
 
                 patient = self._build_patient(row, case_report.id)
                 if patient is not None:
@@ -99,12 +99,12 @@ class RasopathiesAdapter(FlatFileAdapter):
                             start_node=case_report,
                             end_node=patient,
                         ),
-                        PatientPresentationEdge(
+                        PatientClinicalContextEdge(
                             start_node=patient,
-                            end_node=presentation,
+                            end_node=clinical_context,
                         ),
                     ])
-                    for treatment_entries in self._build_drug_treatments(row, case_report.id, patient, presentation_finding_lookup):
+                    for treatment_entries in self._build_drug_treatments(row, case_report.id, clinical_context, clinical_context_finding_lookup):
                         batch.extend(treatment_entries)
 
                     perinatal_context = self._build_perinatal_context(row, case_report.id)
@@ -171,8 +171,8 @@ class RasopathiesAdapter(FlatFileAdapter):
         )
 
     @staticmethod
-    def _build_presentation(case_report_id: str) -> Presentation:
-        return Presentation(id=f"{case_report_id}:presentation")
+    def _build_clinical_context(case_report_id: str) -> ClinicalContext:
+        return ClinicalContext(id=f"{case_report_id}:clinical_context")
 
     def _build_condition(self, row: dict) -> Condition | None:
         disease = (row.get("report") or {}).get("disease") or {}
@@ -188,7 +188,7 @@ class RasopathiesAdapter(FlatFileAdapter):
         self,
         row: dict,
         case_report_id: str,
-        presentation: Presentation,
+        clinical_context: ClinicalContext,
         condition: Condition,
     ) -> List[Union[Node, Relationship]]:
         report = row.get("report") or {}
@@ -216,8 +216,8 @@ class RasopathiesAdapter(FlatFileAdapter):
         entries: List[Union[Node, Relationship]] = []
         entries.extend([
             diagnosis,
-            PresentationDiagnosisEdge(
-                start_node=presentation,
+            ClinicalContextDiagnosisEdge(
+                start_node=clinical_context,
                 end_node=diagnosis,
             ),
             DiagnosisConditionEdge(
@@ -259,7 +259,7 @@ class RasopathiesAdapter(FlatFileAdapter):
             ])
         return entries
 
-    def _build_findings(self, row: dict, case_report_id: str, presentation: Presentation) -> List[tuple[Finding, PresentationFindingEdge, FindingPhenotypeEdge]]:
+    def _build_findings(self, row: dict, case_report_id: str, clinical_context: ClinicalContext) -> List[tuple[Finding, ClinicalContextFindingEdge, FindingPhenotypeEdge]]:
         findings = []
         raw_findings = (row.get("report") or {}).get("findings") or []
         if not isinstance(raw_findings, list):
@@ -283,8 +283,8 @@ class RasopathiesAdapter(FlatFileAdapter):
             split_values = self._split_other_finding_values(raw_value, text, label)
             for split_index, split_value in enumerate(split_values):
                 finding = Finding(
-                    id=f"{case_report_id}:presentation:finding:{index}:{split_index}",
-                    finding_context="presentation",
+                    id=f"{case_report_id}:clinical_context:finding:{index}:{split_index}",
+                    finding_context="clinical_context",
                     source_value=split_value,
                     source_text=text or raw_value,
                     raw_text=text if split_value != raw_value else None,
@@ -297,8 +297,8 @@ class RasopathiesAdapter(FlatFileAdapter):
                     id=split_value,
                     name=split_value,
                 )
-                finding_edge = PresentationFindingEdge(
-                    start_node=presentation,
+                finding_edge = ClinicalContextFindingEdge(
+                    start_node=clinical_context,
                     end_node=finding,
                 )
                 phenotype_edge = FindingPhenotypeEdge(
@@ -312,8 +312,8 @@ class RasopathiesAdapter(FlatFileAdapter):
         self,
         row: dict,
         case_report_id: str,
-        patient: Patient,
-        presentation_finding_lookup: Dict[str, Finding],
+        clinical_context: ClinicalContext,
+        clinical_context_finding_lookup: Dict[str, Finding],
     ) -> List[List[Union[Node, Relationship]]]:
         treatment_batches = []
         treatments = (row.get("report") or {}).get("treatments") or []
@@ -326,8 +326,8 @@ class RasopathiesAdapter(FlatFileAdapter):
             treatment = self._build_drug_treatment(case_report_id, treatment_index, treatment_payload)
             treatment_entries: List[Union[Node, Relationship]] = [
                 treatment,
-                PatientDrugTreatmentEdge(
-                    start_node=patient,
+                ClinicalContextDrugTreatmentEdge(
+                    start_node=clinical_context,
                     end_node=treatment,
                 ),
             ]
@@ -348,7 +348,7 @@ class RasopathiesAdapter(FlatFileAdapter):
                     treatment_index=treatment_index,
                     treatment=treatment,
                     treatment_payload=treatment_payload,
-                    presentation_finding_lookup=presentation_finding_lookup,
+                    clinical_context_finding_lookup=clinical_context_finding_lookup,
                 )
             )
             treatment_entries.extend(
@@ -408,7 +408,7 @@ class RasopathiesAdapter(FlatFileAdapter):
         treatment_index: int,
         treatment: DrugTreatment,
         treatment_payload: dict,
-        presentation_finding_lookup: Dict[str, Finding],
+        clinical_context_finding_lookup: Dict[str, Finding],
     ) -> List[Union[Node, Relationship]]:
         entries: List[Union[Node, Relationship]] = []
         treatment_time = treatment_payload.get("treatment_time") or {}
@@ -427,7 +427,7 @@ class RasopathiesAdapter(FlatFileAdapter):
                     outcome_details=self._normalize_optional_string(primary_target.get("outcome_primary_target_details")),
                     time_to_improvement=time_to_improvement,
                     treatment=treatment,
-                    presentation_finding_lookup=presentation_finding_lookup,
+                    clinical_context_finding_lookup=clinical_context_finding_lookup,
                 )
             )
 
@@ -452,7 +452,7 @@ class RasopathiesAdapter(FlatFileAdapter):
                     outcome_details=self._normalize_optional_string(target_payload.get("outcome_details")),
                     time_to_improvement=time_to_improvement,
                     treatment=treatment,
-                    presentation_finding_lookup=presentation_finding_lookup,
+                    clinical_context_finding_lookup=clinical_context_finding_lookup,
                 )
             )
         return entries
@@ -468,7 +468,7 @@ class RasopathiesAdapter(FlatFileAdapter):
         outcome_details: str | None,
         time_to_improvement: str | None,
         treatment: DrugTreatment,
-        presentation_finding_lookup: Dict[str, Finding],
+        clinical_context_finding_lookup: Dict[str, Finding],
     ) -> List[Union[Node, Relationship]]:
         response = TreatmentResponse(
             id=f"{case_report_id}:drug-treatment:{treatment_index}:response:{target_index}",
@@ -486,7 +486,7 @@ class RasopathiesAdapter(FlatFileAdapter):
                 end_node=response,
             ),
         ]
-        finding = presentation_finding_lookup.get(self._finding_lookup_key(target_label))
+        finding = clinical_context_finding_lookup.get(self._finding_lookup_key(target_label))
         if finding is None:
             finding = Finding(
                 id=f"{case_report_id}:drug-treatment:{treatment_index}:target-finding:{target_index}",
@@ -678,7 +678,7 @@ class RasopathiesAdapter(FlatFileAdapter):
         group_lookup: Dict[str, str] = {}
         default_lookup: Dict[str, bool] = {}
         for page_name, page_spec in form_spec.items():
-            if not page_name.startswith("presentation-"):
+            if not page_name.startswith("clinical_context-"):
                 continue
             for control in page_spec.get("formControls") or []:
                 if control.get("key") != "findings":

@@ -4,8 +4,8 @@ from typing import List, Optional
 from src.core.decorators import facets, search
 from src.models.cure.rasopathies.drug import Drug
 from src.models.cure.rasopathies.finding import Finding
+from src.models.cure.rasopathies.clinical_context import ClinicalContext
 from src.models.cure.rasopathies.phenotype import Phenotype
-from src.models.cure.shared.patient import Patient
 from src.models.node import Node, Relationship
 
 
@@ -35,8 +35,8 @@ class DrugTreatment(Node):
 
 
 @dataclass
-class PatientDrugTreatmentEdge(Relationship):
-    start_node: Patient = None
+class ClinicalContextDrugTreatmentEdge(Relationship):
+    start_node: ClinicalContext = None
     end_node: DrugTreatment = None
 
 

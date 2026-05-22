@@ -75,7 +75,7 @@ The `final-review-*` accordion in the backend form spec is especially revealing 
 what the form considers the canonical summary of a case. Its sections are:
 
 - Case Characteristics
-- Clinical Presentation
+- Clinical ClinicalContext
 - Fetal findings
 - Diagnosis
 - Medications
@@ -167,7 +167,7 @@ Important note:
 ### Diagnosis
 
 `how_diagnosis` is a list of selected values, not a scalar.
-The graph models this as a presentation-scoped `Diagnosis` node so diagnosis methods can stay with
+The graph models this as a clinical_context-scoped `Diagnosis` node so diagnosis methods can stay with
 the patient-specific diagnostic event while `Gene`, `GeneVariant`, and `Condition` remain separate
 endpoints.
 
@@ -279,19 +279,19 @@ Implementation consequence:
 - the rasopathies JSONL adapter no longer owns `Condition` or `Phenotype` node records
 - the rasopathies JSONL adapter emits raw source labels as concept endpoint ids
 - the label-to-CURIE resolver normalizes those endpoint ids onto the canonical TSV-backed nodes
-- the JSONL adapter emits `Presentation -> Finding -> Phenotype` and
+- the JSONL adapter emits `ClinicalContext -> Finding -> Phenotype` and
   `PerinatalContext -> Finding -> Phenotype` paths so patient-specific source findings remain
   distinct from harmonized phenotype concepts
-- the JSONL adapter emits `Patient -> DrugTreatment -> Drug` plus
+- the JSONL adapter emits `ClinicalContext -> DrugTreatment -> Drug` plus
   `DrugTreatment -> TreatmentResponse -> Finding` so drug use, regimen context, and finding-specific
   responses remain case-scoped
 - the JSONL adapter emits `DrugTreatment -> Phenotype` through `DrugTreatmentAdverseEventEdge` for
   treatment adverse events
-- the JSONL adapter emits `Presentation -> Diagnosis` for diagnosis methods and links that
+- the JSONL adapter emits `ClinicalContext -> Diagnosis` for diagnosis methods and links that
   diagnosis to `Condition`, `Gene`, and case-scoped `GeneVariant` endpoints
-- the JSONL adapter emits `Presentation -> Condition` edges for report-level disease identity
-- the JSONL adapter anchors presentation through `CaseReport -> Patient -> Presentation`, using
-  `PatientPresentationEdge`, because the clinical presentation belongs to the patient rather than to
+- the JSONL adapter emits `ClinicalContext -> Condition` edges for report-level disease identity
+- the JSONL adapter anchors clinical_context through `CaseReport -> Patient -> ClinicalContext`, using
+  `PatientClinicalContextEdge`, because the clinical clinical_context belongs to the patient rather than to
   the report container
 
 This prevents case-local source labels from repeatedly overwriting the names of shared
@@ -362,7 +362,7 @@ rasopathies reports.
 - `report.patient.race` (`4/11`)
 - `report.patient.race[].value` (`4 item occurrences`)
 
-### Presentation / findings
+### ClinicalContext / findings
 
 - `report.findings` (`11/11`)
 - `report.findings[]` (`66 item occurrences`)

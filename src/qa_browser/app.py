@@ -2229,33 +2229,33 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         reporter_doc = None
 
     try:
-        presentation_cursor = db.aql.execute(
+        clinical_context_cursor = db.aql.execute(
             """
             LET via_patient = (
               FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
                 FILTER SPLIT(patient._id, '/')[0] == 'Patient'
                 FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPatientEdge'
-                FOR presentation, presentation_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
-                  FILTER SPLIT(presentation._id, '/')[0] == 'Presentation'
-                  FILTER SPLIT(presentation_edge._id, '/')[0] == 'PatientPresentationEdge'
+                FOR clinical_context, clinical_context_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
+                  FILTER SPLIT(clinical_context._id, '/')[0] == 'ClinicalContext'
+                  FILTER SPLIT(clinical_context_edge._id, '/')[0] == 'PatientClinicalContextEdge'
                   LIMIT 1
-                  RETURN presentation
+                  RETURN clinical_context
             )
             LET via_report = (
-              FOR presentation, presentation_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-                FILTER SPLIT(presentation._id, '/')[0] == 'Presentation'
-                FILTER SPLIT(presentation_edge._id, '/')[0] == 'CaseReportPresentationEdge'
+              FOR clinical_context, clinical_context_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+                FILTER SPLIT(clinical_context._id, '/')[0] == 'ClinicalContext'
+                FILTER SPLIT(clinical_context_edge._id, '/')[0] == 'CaseReportClinicalContextEdge'
                 LIMIT 1
-                RETURN presentation
+                RETURN clinical_context
             )
             RETURN FIRST(APPEND(via_patient, via_report))
             """,
             bind_vars={"node_id": doc["_id"]},
             max_runtime=10,
         )
-        presentation_doc = next(iter(presentation_cursor), None)
+        clinical_context_doc = next(iter(clinical_context_cursor), None)
     except Exception:
-        presentation_doc = None
+        clinical_context_doc = None
 
     try:
         primary_episode_cursor = db.aql.execute(
@@ -2335,14 +2335,14 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
 
     patient_scalar_fields, patient_list_fields, patient_nested_fields = _categorize_document_fields(patient_doc)
     reporter_scalar_fields, reporter_list_fields, reporter_nested_fields = _categorize_document_fields(reporter_doc)
-    presentation_scalar_fields, presentation_list_fields, presentation_nested_fields = _categorize_document_fields(presentation_doc)
+    clinical_context_scalar_fields, clinical_context_list_fields, clinical_context_nested_fields = _categorize_document_fields(clinical_context_doc)
     primary_episode_scalar_fields, primary_episode_list_fields, primary_episode_nested_fields = _categorize_document_fields(primary_episode_doc)
     acute_episode_scalar_fields, acute_episode_list_fields, acute_episode_nested_fields = _categorize_document_fields(acute_episode_doc)
     pregnancy_episode_scalar_fields, pregnancy_episode_list_fields, pregnancy_episode_nested_fields = _categorize_document_fields(pregnancy_episode_doc)
 
     episode_relationship_cards = []
-    presentation_condition_cards = []
-    presentation_phenotype_cards = []
+    clinical_context_condition_cards = []
+    clinical_context_phenotype_cards = []
     background_context_doc = None
     background_context_scalar_fields = []
     background_context_list_fields = []
@@ -2368,27 +2368,27 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
     treatment_cards = []
     outcome_cards = []
 
-    if presentation_doc:
+    if clinical_context_doc:
         try:
-            presentation_condition_cursor = db.aql.execute(
+            clinical_context_condition_cursor = db.aql.execute(
                 """
-                FOR condition, condition_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FOR condition, condition_edge IN 1..1 OUTBOUND @clinical_context_id GRAPH 'graph'
                 FILTER SPLIT(condition._id, '/')[0] == 'Condition'
-                FILTER SPLIT(condition_edge._id, '/')[0] == 'PresentationConditionEdge'
+                FILTER SPLIT(condition_edge._id, '/')[0] == 'ClinicalContextConditionEdge'
                 SORT condition.name, condition._key
                 RETURN {
                     condition: condition,
                     condition_edge: condition_edge
                 }
                 """,
-                bind_vars={"presentation_id": presentation_doc["_id"]},
+                bind_vars={"clinical_context_id": clinical_context_doc["_id"]},
                 max_runtime=15,
             )
-            for row in presentation_condition_cursor:
+            for row in clinical_context_condition_cursor:
                 condition_doc = row.get("condition")
                 condition_edge_doc = row.get("condition_edge")
                 scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
-                presentation_condition_cards.append({
+                clinical_context_condition_cards.append({
                     "condition_doc": condition_doc,
                     "condition_edge_doc": condition_edge_doc,
                     "scalar_fields": scalar_fields,
@@ -2396,15 +2396,15 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                     "nested_fields": nested_fields,
                 })
         except Exception:
-            presentation_condition_cards = []
+            clinical_context_condition_cards = []
 
         try:
-            presentation_phenotype_cursor = db.aql.execute(
+            clinical_context_phenotype_cursor = db.aql.execute(
                 """
                 LET via_finding = (
-                  FOR finding, finding_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                  FOR finding, finding_edge IN 1..1 OUTBOUND @clinical_context_id GRAPH 'graph'
                     FILTER SPLIT(finding._id, '/')[0] == 'Finding'
-                    FILTER SPLIT(finding_edge._id, '/')[0] == 'PresentationFindingEdge'
+                    FILTER SPLIT(finding_edge._id, '/')[0] == 'ClinicalContextFindingEdge'
                     FOR phenotype, phenotype_edge IN 1..1 OUTBOUND finding._id GRAPH 'graph'
                       FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
                       FILTER SPLIT(phenotype_edge._id, '/')[0] == 'FindingPhenotypeEdge'
@@ -2418,9 +2418,9 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                       }
                 )
                 LET direct = (
-                  FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                  FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @clinical_context_id GRAPH 'graph'
                     FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
-                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PresentationPhenotypeEdge'
+                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'ClinicalContextPhenotypeEdge'
                     RETURN {
                       phenotype: phenotype,
                       finding: null,
@@ -2434,10 +2434,10 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                   SORT row.sort_group, row.sort_name, row.phenotype._key
                   RETURN row
                 """,
-                bind_vars={"presentation_id": presentation_doc["_id"]},
+                bind_vars={"clinical_context_id": clinical_context_doc["_id"]},
                 max_runtime=15,
             )
-            for row in presentation_phenotype_cursor:
+            for row in clinical_context_phenotype_cursor:
                 phenotype_doc = row.get("phenotype")
                 finding_doc = row.get("finding")
                 finding_edge_doc = row.get("finding_edge")
@@ -2445,7 +2445,7 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                 display_edge_doc = finding_doc or phenotype_edge_doc
                 scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
                 edge_scalar_fields, edge_list_fields, edge_nested_fields = _categorize_document_fields(display_edge_doc)
-                presentation_phenotype_cards.append({
+                clinical_context_phenotype_cards.append({
                     "phenotype_doc": phenotype_doc,
                     "finding_doc": finding_doc,
                     "finding_edge_doc": finding_edge_doc,
@@ -2459,14 +2459,14 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                     "edge_nested_fields": edge_nested_fields,
                 })
         except Exception:
-            presentation_phenotype_cards = []
+            clinical_context_phenotype_cards = []
 
         try:
             diagnosis_cursor = db.aql.execute(
                 """
-                FOR diagnosis, diagnosis_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FOR diagnosis, diagnosis_edge IN 1..1 OUTBOUND @clinical_context_id GRAPH 'graph'
                 FILTER SPLIT(diagnosis._id, '/')[0] == 'Diagnosis'
-                FILTER SPLIT(diagnosis_edge._id, '/')[0] == 'PresentationDiagnosisEdge'
+                FILTER SPLIT(diagnosis_edge._id, '/')[0] == 'ClinicalContextDiagnosisEdge'
                 LET conditions = (
                   FOR condition, condition_edge IN 1..1 OUTBOUND diagnosis._id GRAPH 'graph'
                     FILTER SPLIT(condition._id, '/')[0] == 'Condition'
@@ -2517,7 +2517,7 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                   variants: variants
                 }
                 """,
-                bind_vars={"presentation_id": presentation_doc["_id"]},
+                bind_vars={"clinical_context_id": clinical_context_doc["_id"]},
                 max_runtime=15,
             )
             for row in diagnosis_cursor:
@@ -2588,10 +2588,10 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         "Diagnoses not listed above",
     ]
     finding_group_rank = {name: index for index, name in enumerate(finding_group_order)}
-    grouped_presentation_phenotype_cards = []
-    if presentation_phenotype_cards:
+    grouped_clinical_context_phenotype_cards = []
+    if clinical_context_phenotype_cards:
         grouped = {}
-        for card in presentation_phenotype_cards:
+        for card in clinical_context_phenotype_cards:
             group_name = ((card.get("edge_doc") or {}).get("group") or "Ungrouped").strip()
             grouped.setdefault(group_name, []).append(card)
         for group_name, cards in grouped.items():
@@ -2601,7 +2601,7 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                     ((card.get("phenotype_doc") or {}).get("_key") or ""),
                 )
             )
-        grouped_presentation_phenotype_cards = [
+        grouped_clinical_context_phenotype_cards = [
             {
                 "group_name": group_name,
                 "cards": grouped[group_name],
@@ -2842,9 +2842,9 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         try:
             rasopathies_treatment_cursor = db.aql.execute(
                 """
-                FOR treatment, treatment_edge IN 1..1 OUTBOUND @patient_id GRAPH 'graph'
+                FOR treatment, treatment_edge IN 1..1 OUTBOUND @clinical_context_id GRAPH 'graph'
                 FILTER SPLIT(treatment._id, '/')[0] == 'DrugTreatment'
-                FILTER SPLIT(treatment_edge._id, '/')[0] == 'PatientDrugTreatmentEdge'
+                FILTER SPLIT(treatment_edge._id, '/')[0] == 'ClinicalContextDrugTreatmentEdge'
                 LET drug_doc = FIRST(
                   FOR drug, drug_edge IN 1..1 OUTBOUND treatment._id GRAPH 'graph'
                     FILTER SPLIT(drug._id, '/')[0] == 'Drug'
@@ -2901,7 +2901,7 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                   adverse_events: adverse_events
                 }
                 """,
-                bind_vars={"patient_id": patient_doc["_id"]},
+                bind_vars={"clinical_context_id": clinical_context_doc["_id"]},
                 max_runtime=20,
             )
             for row in rasopathies_treatment_cursor:
@@ -3391,13 +3391,13 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         "reporter_scalar_fields": reporter_scalar_fields,
         "reporter_list_fields": reporter_list_fields,
         "reporter_nested_fields": reporter_nested_fields,
-        "presentation_doc": presentation_doc,
-        "presentation_scalar_fields": presentation_scalar_fields,
-        "presentation_list_fields": presentation_list_fields,
-        "presentation_nested_fields": presentation_nested_fields,
-        "presentation_condition_cards": presentation_condition_cards,
-        "presentation_phenotype_cards": presentation_phenotype_cards,
-        "grouped_presentation_phenotype_cards": grouped_presentation_phenotype_cards,
+        "clinical_context_doc": clinical_context_doc,
+        "clinical_context_scalar_fields": clinical_context_scalar_fields,
+        "clinical_context_list_fields": clinical_context_list_fields,
+        "clinical_context_nested_fields": clinical_context_nested_fields,
+        "clinical_context_condition_cards": clinical_context_condition_cards,
+        "clinical_context_phenotype_cards": clinical_context_phenotype_cards,
+        "grouped_clinical_context_phenotype_cards": grouped_clinical_context_phenotype_cards,
         "background_context_doc": background_context_doc,
         "background_context_scalar_fields": background_context_scalar_fields,
         "background_context_list_fields": background_context_list_fields,

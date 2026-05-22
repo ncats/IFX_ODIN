@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from src.core.decorators import search
 from src.models.cure.pasc.condition import Condition
-from src.models.cure.rasopathies.presentation import Presentation
+from src.models.cure.rasopathies.clinical_context import ClinicalContext
 from src.models.gene import Gene
 from src.models.node import Node, Relationship
 
@@ -24,8 +24,8 @@ class GeneVariant(Node):
 
 
 @dataclass
-class PresentationDiagnosisEdge(Relationship):
-    start_node: Presentation = None
+class ClinicalContextDiagnosisEdge(Relationship):
+    start_node: ClinicalContext = None
     end_node: Diagnosis = None
 
 

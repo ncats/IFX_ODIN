@@ -6,17 +6,17 @@ from src.models.node import Node, Relationship
 
 
 @dataclass
-class Presentation(Node):
+class ClinicalContext(Node):
     pass
 
 
 @dataclass
-class PatientPresentationEdge(Relationship):
+class PatientClinicalContextEdge(Relationship):
     start_node: Patient = None
-    end_node: Presentation = None
+    end_node: ClinicalContext = None
 
 
 @dataclass
-class PresentationConditionEdge(Relationship):
-    start_node: Presentation = None
+class ClinicalContextConditionEdge(Relationship):
+    start_node: ClinicalContext = None
     end_node: Condition = None

@@ -9,20 +9,20 @@ from src.models.cure.rasopathies.drug_treatment import (
     DrugTreatmentAdverseEventEdge,
     DrugTreatmentDrugEdge,
     DrugTreatmentResponseEdge,
-    PatientDrugTreatmentEdge,
+    ClinicalContextDrugTreatmentEdge,
     TreatmentResponse,
     TreatmentResponseFindingEdge,
 )
-from src.models.cure.rasopathies.finding import FindingPhenotypeEdge, PresentationFindingEdge
+from src.models.cure.rasopathies.finding import FindingPhenotypeEdge, ClinicalContextFindingEdge
 from src.models.cure.rasopathies.genetics import (
     DiagnosisConditionEdge,
     DiagnosisGeneEdge,
     DiagnosisGeneVariantEdge,
     GeneGeneVariantEdge,
     GeneVariant,
-    PresentationDiagnosisEdge,
+    ClinicalContextDiagnosisEdge,
 )
-from src.models.cure.rasopathies.presentation import PatientPresentationEdge, PresentationConditionEdge
+from src.models.cure.rasopathies.clinical_context import PatientClinicalContextEdge, ClinicalContextConditionEdge
 from src.models.cure.pasc.adverse_event import ExposureAdverseEventEdge
 from src.models.cure.pasc.phenotype import Phenotype as PascPhenotype
 from src.models.cure.shared.case_report import CaseReport
@@ -41,16 +41,16 @@ def test_rasopathies_adapter_emits_patient_for_each_case_report():
     assert counts["CaseReport"] == 11
     assert counts["Patient"] == 11
     assert counts["CaseReportPatientEdge"] == 11
-    assert counts["PatientPresentationEdge"] == 11
-    assert counts["CaseReportPresentationEdge"] == 0
+    assert counts["PatientClinicalContextEdge"] == 11
+    assert counts["CaseReportClinicalContextEdge"] == 0
     assert counts["Finding"] == 134
-    assert counts["PresentationFindingEdge"] == 125
+    assert counts["ClinicalContextFindingEdge"] == 125
     assert counts["PerinatalContextFindingEdge"] == 9
     assert counts["FindingPhenotypeEdge"] == 134
-    assert counts["PresentationPhenotypeEdge"] == 0
+    assert counts["ClinicalContextPhenotypeEdge"] == 0
     assert counts["PerinatalContextPhenotypeEdge"] == 0
     assert counts["DrugTreatment"] == 23
-    assert counts["PatientDrugTreatmentEdge"] == 23
+    assert counts["ClinicalContextDrugTreatmentEdge"] == 23
     assert counts["Drug"] == 23
     assert counts["DrugTreatmentDrugEdge"] == 23
     assert counts["TreatmentResponse"] == 39
@@ -58,15 +58,15 @@ def test_rasopathies_adapter_emits_patient_for_each_case_report():
     assert counts["TreatmentResponseFindingEdge"] == 39
     assert counts["DrugTreatmentAdverseEventEdge"] == 6
     assert counts["Diagnosis"] == 10
-    assert counts["PresentationDiagnosisEdge"] == 10
+    assert counts["ClinicalContextDiagnosisEdge"] == 10
     assert counts["DiagnosisConditionEdge"] == 10
     assert counts["DiagnosisGeneEdge"] == 10
     assert counts["DiagnosisGeneVariantEdge"] == 10
     assert counts["Gene"] == 10
     assert counts["GeneVariant"] == 10
     assert counts["GeneGeneVariantEdge"] == 10
-    assert counts["PresentationGeneEdge"] == 0
-    assert counts["PresentationGeneVariantEdge"] == 0
+    assert counts["ClinicalContextGeneEdge"] == 0
+    assert counts["ClinicalContextGeneVariantEdge"] == 0
     assert counts["GeneConditionEdge"] == 0
     assert counts["GeneVariantConditionEdge"] == 0
 
@@ -123,7 +123,7 @@ def test_rasopathies_adapter_keeps_empty_demographic_patient_anchor():
     assert patient.race == []
 
 
-def test_rasopathies_presentation_findings_cover_tsv_phenotype_pairs():
+def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
     resolver_map = {
         "Phenotype": CureIdLabelResolver(
             "./input_files/manual/cure/cureid_data.tsv",
@@ -139,9 +139,9 @@ def test_rasopathies_presentation_findings_cover_tsv_phenotype_pairs():
         for entry in batch
     ]
     finding_to_report = {
-        edge.end_node.id: edge.start_node.id.replace(":presentation", "")
+        edge.end_node.id: edge.start_node.id.replace(":clinical_context", "")
         for edge in entries
-        if isinstance(edge, PresentationFindingEdge)
+        if isinstance(edge, ClinicalContextFindingEdge)
     }
     graph_pairs = {
         (finding_to_report[edge.start_node.id], edge.end_node.id)
@@ -183,10 +183,15 @@ def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
         for entry in batch
     ]
-    treatment_to_report = {
+    clinical_context_to_report = {
         edge.end_node.id: edge.start_node.id.replace(":patient", "")
         for edge in entries
-        if isinstance(edge, PatientDrugTreatmentEdge)
+        if isinstance(edge, PatientClinicalContextEdge)
+    }
+    treatment_to_report = {
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
+        for edge in entries
+        if isinstance(edge, ClinicalContextDrugTreatmentEdge)
     }
     treatment_to_drug = {
         edge.start_node.id: edge.end_node.id
@@ -255,25 +260,25 @@ def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
         for entry in batch
     ]
-    treatment_to_report = {
+    clinical_context_to_report = {
         edge.end_node.id: edge.start_node.id.replace(":patient", "")
         for edge in entries
-        if isinstance(edge, PatientDrugTreatmentEdge)
+        if isinstance(edge, PatientClinicalContextEdge)
+    }
+    treatment_to_report = {
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
+        for edge in entries
+        if isinstance(edge, ClinicalContextDrugTreatmentEdge)
     }
     treatment_to_drug = {
         edge.start_node.id: edge.end_node.id
         for edge in entries
         if isinstance(edge, DrugTreatmentDrugEdge)
     }
-    presentation_to_report = {
-        edge.end_node.id: edge.start_node.id.replace(":patient", "")
-        for edge in entries
-        if isinstance(edge, PatientPresentationEdge)
-    }
     report_to_conditions = {}
     for edge in entries:
-        if isinstance(edge, PresentationConditionEdge):
-            report_id = presentation_to_report[edge.start_node.id]
+        if isinstance(edge, ClinicalContextConditionEdge):
+            report_id = clinical_context_to_report[edge.start_node.id]
             report_to_conditions.setdefault(report_id, set()).add(edge.end_node.id)
 
     graph_triples = set()
@@ -316,10 +321,15 @@ def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
         for entry in batch
     ]
-    treatment_to_report = {
+    clinical_context_to_report = {
         edge.end_node.id: edge.start_node.id.replace(":patient", "")
         for edge in entries
-        if isinstance(edge, PatientDrugTreatmentEdge)
+        if isinstance(edge, PatientClinicalContextEdge)
+    }
+    treatment_to_report = {
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
+        for edge in entries
+        if isinstance(edge, ClinicalContextDrugTreatmentEdge)
     }
     treatment_to_drug = {
         edge.start_node.id: edge.end_node.id
@@ -372,15 +382,15 @@ def test_rasopathies_genetics_cover_tsv_genetic_predicates():
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
         for entry in batch
     ]
-    presentation_to_report = {
+    clinical_context_to_report = {
         edge.end_node.id: edge.start_node.id.replace(":patient", "")
         for edge in entries
-        if isinstance(edge, PatientPresentationEdge)
+        if isinstance(edge, PatientClinicalContextEdge)
     }
     diagnosis_to_report = {
-        edge.end_node.id: presentation_to_report[edge.start_node.id]
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
         for edge in entries
-        if isinstance(edge, PresentationDiagnosisEdge)
+        if isinstance(edge, ClinicalContextDiagnosisEdge)
     }
     diagnosis_to_conditions = {}
     for edge in entries:
@@ -479,23 +489,23 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
         for entry in batch
     ]
 
-    presentation_to_report = {
+    clinical_context_to_report = {
         edge.end_node.id: edge.start_node.id.replace(":patient", "")
         for edge in entries
-        if isinstance(edge, PatientPresentationEdge)
+        if isinstance(edge, PatientClinicalContextEdge)
     }
     report_to_conditions = {}
-    presentation_to_conditions = {}
+    clinical_context_to_conditions = {}
     for edge in entries:
-        if isinstance(edge, PresentationConditionEdge):
-            presentation_to_conditions.setdefault(edge.start_node.id, set()).add(edge.end_node.id)
-            report_id = presentation_to_report[edge.start_node.id]
+        if isinstance(edge, ClinicalContextConditionEdge):
+            clinical_context_to_conditions.setdefault(edge.start_node.id, set()).add(edge.end_node.id)
+            report_id = clinical_context_to_report[edge.start_node.id]
             report_to_conditions.setdefault(report_id, set()).add(edge.end_node.id)
 
-    finding_to_presentation = {
+    finding_to_clinical_context = {
         edge.end_node.id: edge.start_node.id
         for edge in entries
-        if isinstance(edge, PresentationFindingEdge)
+        if isinstance(edge, ClinicalContextFindingEdge)
     }
     finding_to_phenotypes = {}
     for edge in entries:
@@ -503,9 +513,9 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
             finding_to_phenotypes.setdefault(edge.start_node.id, set()).add(edge.end_node.id)
 
     treatment_to_report = {
-        edge.end_node.id: edge.start_node.id.replace(":patient", "")
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
         for edge in entries
-        if isinstance(edge, PatientDrugTreatmentEdge)
+        if isinstance(edge, ClinicalContextDrugTreatmentEdge)
     }
     treatment_to_drug = {
         edge.start_node.id: edge.end_node.id
@@ -529,9 +539,9 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
     }
 
     diagnosis_to_report = {
-        edge.end_node.id: presentation_to_report[edge.start_node.id]
+        edge.end_node.id: clinical_context_to_report[edge.start_node.id]
         for edge in entries
-        if isinstance(edge, PresentationDiagnosisEdge)
+        if isinstance(edge, ClinicalContextDiagnosisEdge)
     }
     diagnosis_to_conditions = {}
     for edge in entries:
@@ -555,9 +565,9 @@ def test_rasopathies_graph_reconstructs_tsv_association_set():
 
     graph_rows = set()
 
-    for finding_id, presentation_id in finding_to_presentation.items():
-        report_id = presentation_to_report[presentation_id]
-        for condition_id in presentation_to_conditions.get(presentation_id, set()):
+    for finding_id, clinical_context_id in finding_to_clinical_context.items():
+        report_id = clinical_context_to_report[clinical_context_id]
+        for condition_id in clinical_context_to_conditions.get(clinical_context_id, set()):
             for phenotype_id in finding_to_phenotypes.get(finding_id, set()):
                 graph_rows.add((
                     report_id,
