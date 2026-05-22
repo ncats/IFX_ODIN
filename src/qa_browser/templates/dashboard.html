@@ -89,9 +89,9 @@
                 <thead>
                     <tr>
                         <th>View</th>
+                        <th>Actions</th>
                         <th>Type</th>
                         <th>Format</th>
-                        <th>Source</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -103,9 +103,15 @@
                             <div class="subtle">{{ view.description }}</div>
                             {% endif %}
                         </td>
+                        <td>
+                            {% if view.output_format == "jsonl" %}
+                            <a href="{{ root_path }}/db/{{ db_name }}/view/{{ view_id }}/preview">Preview</a>
+                            {% else %}
+                            <span class="subtle">-</span>
+                            {% endif %}
+                        </td>
                         <td>{{ view.type or "" }}</td>
                         <td>{{ view.output_format or "" }}</td>
-                        <td class="mono subtle">{{ view.defined_in_yaml or "" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

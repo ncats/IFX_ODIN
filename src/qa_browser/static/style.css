@@ -711,6 +711,96 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     line-height: 1.5;
 }
 
+/* Graph view JSONL preview */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.page-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.graph-view-results {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.json-row-card {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+}
+
+.json-row-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.json-row-index {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.json-field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.65rem;
+}
+
+.json-field {
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.65rem;
+}
+
+.json-field-key {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+}
+
+.json-field-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.json-scalar {
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.json-null {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.json-detail summary,
+.json-raw-detail summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.json-raw-detail {
+    margin-top: 0.75rem;
+}
+
 /* Legacy doc-table (still used by ETL metadata on dashboard) */
 .doc-table { margin-top: 0.5rem; }
 

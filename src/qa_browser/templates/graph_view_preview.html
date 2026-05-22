@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}{{ graph_view.label or view_id }} · Graph View Preview{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/db/{{ db_name }}">{{ db_name }}</a>
+<span class="sep">/</span>
+<span>{{ graph_view.label or view_id }}</span>
+{% endblock %}
+
+{% macro value_summary(value) -%}
+    {%- if value is mapping -%}
+        {%- if value.name and value.id -%}
+            {{ value.name }} · {{ value.id }}
+        {%- elif value.name -%}
+            {{ value.name }}
+        {%- elif value.id -%}
+            {{ value.id }}
+        {%- else -%}
+            object · {{ value|length }} field{{ "s" if value|length != 1 }}
+        {%- endif -%}
+    {%- elif value is iterable and value is not string -%}
+        array · {{ value|length }} item{{ "s" if value|length != 1 }}
+    {%- elif value is none -%}
+        null
+    {%- elif value is boolean -%}
+        {{ value }}
+    {%- else -%}
+        {{ value }}
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro render_value(value) %}
+    {% if value is mapping %}
+        <details class="json-detail">
+            <summary>{{ value_summary(value) }}</summary>
+            <pre class="raw-json">{{ value | json_pretty }}</pre>
+        </details>
+    {% elif value is iterable and value is not string %}
+        <details class="json-detail">
+            <summary>{{ value_summary(value) }}</summary>
+            <pre class="raw-json">{{ value | json_pretty }}</pre>
+        </details>
+    {% elif value is none %}
+        <span class="json-null">null</span>
+    {% elif value is boolean %}
+        <span class="json-scalar">{{ value }}</span>
+    {% else %}
+        <span class="json-scalar">{{ value }}</span>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ graph_view.label or view_id }}</h1>
+        {% if graph_view.description %}
+        <p class="subtle">{{ graph_view.description }}</p>
+        {% endif %}
+    </div>
+    <div class="page-actions">
+        <a class="btn" href="{{ root_path }}/db/{{ db_name }}/view/{{ view_id }}">Download JSONL</a>
+    </div>
+</div>
+
+<div class="stats-row">
+    <div class="stat-box">
+        <div class="value">{{ total_count if total_count is not none else "?" }}</div>
+        <div class="label">Total Rows</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ rows|length }}</div>
+        <div class="label">Shown</div>
+    </div>
+    <div class="stat-box">
+        <div class="value">{{ preview_limit }}</div>
+        <div class="label">Preview Limit</div>
+    </div>
+</div>
+
+{% if error %}
+<div class="card error-box">
+    <h2>Preview Error</h2>
+    <pre class="raw-json">{{ error }}</pre>
+</div>
+{% elif rows|length == 0 %}
+<div class="card">
+    <p class="subtle">The graph view returned no rows.</p>
+</div>
+{% else %}
+<div class="graph-view-results">
+    {% for row in rows %}
+    <article class="json-row-card">
+        <div class="json-row-header">
+            <span class="json-row-index">#{{ loop.index }}</span>
+            {% if row is mapping %}
+            <span class="subtle">{{ row|length }} top-level field{{ "s" if row|length != 1 }}</span>
+            {% endif %}
+        </div>
+
+        {% if row is mapping %}
+        <div class="json-field-grid">
+            {% for key, value in row.items() %}
+            <div class="json-field">
+                <div class="json-field-key">{{ key }}</div>
+                <div class="json-field-value">{{ render_value(value) }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <pre class="raw-json">{{ row | json_pretty }}</pre>
+        {% endif %}
+
+        <details class="json-raw-detail nerd-only">
+            <summary>Raw row JSON</summary>
+            <pre class="raw-json">{{ row | json_pretty }}</pre>
+        </details>
+    </article>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

@@ -27,6 +27,716 @@ input_adapters:
     kwargs:
       file_path: ./input_files/manual/cure/reports.jsonl
 
+graph_views:
+  - id: rasopathies_condition_has_phenotype
+    label: "Translator: RAS Condition Has Phenotype"
+    description: One JSONL record per condition-phenotype pair, with clinical finding and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR condition IN `Condition`
+        FOR clinical_context IN INBOUND condition `ClinicalContextConditionEdge`
+          FOR finding IN OUTBOUND clinical_context `ClinicalContextFindingEdge`
+            FOR phenotype IN OUTBOUND finding `FindingPhenotypeEdge`
+              LET patient = FIRST(
+                FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                  LIMIT 1
+                  RETURN p
+              )
+              LET case_report = patient == null ? null : FIRST(
+                FOR report IN INBOUND patient `CaseReportPatientEdge`
+                  LIMIT 1
+                  RETURN report
+              )
+              COLLECT
+                condition_id = condition.id,
+                phenotype_id = phenotype.id
+              INTO grouped = {
+                condition: condition,
+                phenotype: phenotype,
+                finding: finding,
+                patient: patient,
+                case_report: case_report
+              }
+              LET condition_doc = FIRST(grouped[*].condition)
+              LET phenotype_doc = FIRST(grouped[*].phenotype)
+              LET patient_ids = UNIQUE(
+                FOR row IN grouped
+                  FILTER row.patient != null
+                  RETURN row.patient.id
+              )
+              LET case_report_ids = UNIQUE(
+                FOR row IN grouped
+                  FILTER row.case_report != null
+                  RETURN row.case_report.id
+              )
+              LET patient_count = LENGTH(patient_ids)
+              LET case_report_count = LENGTH(case_report_ids)
+              SORT patient_count DESC, case_report_count DESC, condition_doc.name, phenotype_doc.name
+              RETURN {
+                condition: {
+                  id: condition_doc.id,
+                  xref: condition_doc.xref,
+                  name: condition_doc.name
+                },
+                predicate: {
+                  id: "has_phenotype",
+                  label: "has phenotype"
+                },
+                phenotype: {
+                  id: phenotype_doc.id,
+                  xref: phenotype_doc.xref,
+                  name: phenotype_doc.name
+                },
+                patient_count: patient_count,
+                case_report_count: case_report_count,
+                evidence: (
+                  FOR row IN grouped
+                    SORT row.case_report.id, row.finding.id
+                    RETURN {
+                      case_report: {
+                        id: row.case_report.id,
+                        url: row.case_report.case_report_url
+                      },
+                      finding: {
+                        source_value: row.finding.source_value,
+                        source_text: row.finding.source_text,
+                        group: row.finding.group
+                      },
+                      patient: {
+                        sex: row.patient.sex,
+                        age_group: row.patient.age_group,
+                        ethnicity: row.patient.ethnicity,
+                        country_treated: row.patient.country_treated,
+                        race: row.patient.race
+                      }
+                    }
+                )
+              }
+
+  - id: rasopathies_drug_applied_to_treat_condition
+    label: "Translator: RAS Drug Applied To Treat Condition"
+    description: One JSONL record per drug-condition pair, with treatment and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR drug IN `Drug`
+        FOR drug_treatment IN INBOUND drug `DrugTreatmentDrugEdge`
+          FOR clinical_context IN INBOUND drug_treatment `ClinicalContextDrugTreatmentEdge`
+            FOR condition IN OUTBOUND clinical_context `ClinicalContextConditionEdge`
+              LET patient = FIRST(
+                FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                  LIMIT 1
+                  RETURN p
+              )
+              LET case_report = patient == null ? null : FIRST(
+                FOR report IN INBOUND patient `CaseReportPatientEdge`
+                  LIMIT 1
+                  RETURN report
+              )
+              COLLECT
+                drug_id = drug.id,
+                condition_id = condition.id
+              INTO grouped = {
+                drug: drug,
+                drug_treatment: drug_treatment,
+                clinical_context: clinical_context,
+                condition: condition,
+                patient: patient,
+                case_report: case_report
+              }
+              LET drug_doc = FIRST(grouped[*].drug)
+              LET condition_doc = FIRST(grouped[*].condition)
+              LET patient_ids = UNIQUE(
+                FOR row IN grouped
+                  FILTER row.patient != null
+                  RETURN row.patient.id
+              )
+              LET case_report_ids = UNIQUE(
+                FOR row IN grouped
+                  FILTER row.case_report != null
+                  RETURN row.case_report.id
+              )
+              LET patient_count = LENGTH(patient_ids)
+              LET case_report_count = LENGTH(case_report_ids)
+              SORT patient_count DESC, case_report_count DESC, drug_doc.name, condition_doc.name
+              RETURN {
+                drug: {
+                  id: drug_doc.id,
+                  xref: drug_doc.xref,
+                  name: drug_doc.name,
+                  url: drug_doc.url
+                },
+                predicate: {
+                  id: "applied_to_treat",
+                  label: "applied to treat"
+                },
+                condition: {
+                  id: condition_doc.id,
+                  xref: condition_doc.xref,
+                  name: condition_doc.name
+                },
+                patient_count: patient_count,
+                case_report_count: case_report_count,
+                evidence: (
+                  FOR row IN grouped
+                    SORT row.case_report.id, row.drug_treatment.id
+                    RETURN {
+                      case_report: {
+                        id: row.case_report.id,
+                        url: row.case_report.case_report_url
+                      },
+                      drug_treatment: {
+                        initial_dose_amount: row.drug_treatment.initial_dose_amount,
+                        initial_unit_of_measurement: row.drug_treatment.initial_unit_of_measurement,
+                        initial_frequency: row.drug_treatment.initial_frequency,
+                        initial_route: row.drug_treatment.initial_route,
+                        current_dose_amount: row.drug_treatment.current_dose_amount,
+                        current_unit_of_measurement: row.drug_treatment.current_unit_of_measurement,
+                        current_frequency: row.drug_treatment.current_frequency,
+                        current_route: row.drug_treatment.current_route,
+                        current_dose_change: row.drug_treatment.current_dose_change,
+                        duration_amount: row.drug_treatment.duration_amount,
+                        unit_of_measurement_duration: row.drug_treatment.unit_of_measurement_duration,
+                        treatment_begin: row.drug_treatment.treatment_begin,
+                        treatment_begin_month: row.drug_treatment.treatment_begin_month,
+                        treatment_end: row.drug_treatment.treatment_end,
+                        treatment_end_month: row.drug_treatment.treatment_end_month,
+                        treatment_on_going: row.drug_treatment.treatment_on_going,
+                        severity: row.drug_treatment.severity,
+                        additional_drug_info: row.drug_treatment.additional_drug_info
+                      },
+                      patient: {
+                        sex: row.patient.sex,
+                        age_group: row.patient.age_group,
+                        ethnicity: row.patient.ethnicity,
+                        country_treated: row.patient.country_treated,
+                        race: row.patient.race
+                      }
+                    }
+                )
+              }
+
+  - id: rasopathies_drug_applied_to_treat_phenotype
+    label: "Translator: RAS Drug Applied To Treat Phenotype"
+    description: One JSONL record per drug-phenotype pair, with treatment response and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR drug IN `Drug`
+        FOR drug_treatment IN INBOUND drug `DrugTreatmentDrugEdge`
+          FOR treatment_response IN OUTBOUND drug_treatment `DrugTreatmentResponseEdge`
+            FOR finding IN OUTBOUND treatment_response `TreatmentResponseFindingEdge`
+              FOR phenotype IN OUTBOUND finding `FindingPhenotypeEdge`
+                LET clinical_context = FIRST(
+                  FOR context IN INBOUND drug_treatment `ClinicalContextDrugTreatmentEdge`
+                    LIMIT 1
+                    RETURN context
+                )
+                LET patient = clinical_context == null ? null : FIRST(
+                  FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                    LIMIT 1
+                    RETURN p
+                )
+                LET case_report = patient == null ? null : FIRST(
+                  FOR report IN INBOUND patient `CaseReportPatientEdge`
+                    LIMIT 1
+                    RETURN report
+                )
+                COLLECT
+                  drug_id = drug.id,
+                  phenotype_id = phenotype.id
+                INTO grouped = {
+                  drug: drug,
+                  drug_treatment: drug_treatment,
+                  treatment_response: treatment_response,
+                  finding: finding,
+                  phenotype: phenotype,
+                  patient: patient,
+                  case_report: case_report
+                }
+                LET drug_doc = FIRST(grouped[*].drug)
+                LET phenotype_doc = FIRST(grouped[*].phenotype)
+                LET patient_ids = UNIQUE(
+                  FOR row IN grouped
+                    FILTER row.patient != null
+                    RETURN row.patient.id
+                )
+                LET case_report_ids = UNIQUE(
+                  FOR row IN grouped
+                    FILTER row.case_report != null
+                    RETURN row.case_report.id
+                )
+                LET outcomes = (
+                  FOR row IN grouped
+                    FILTER row.treatment_response.outcome != null AND row.treatment_response.outcome != ""
+                    RETURN row.treatment_response.outcome
+                )
+                LET patient_count = LENGTH(patient_ids)
+                LET case_report_count = LENGTH(case_report_ids)
+                SORT patient_count DESC, case_report_count DESC, drug_doc.name, phenotype_doc.name
+                RETURN {
+                  drug: {
+                    id: drug_doc.id,
+                    xref: drug_doc.xref,
+                    name: drug_doc.name,
+                    url: drug_doc.url
+                  },
+                  predicate: {
+                    id: "applied_to_treat",
+                    label: "applied to treat"
+                  },
+                  phenotype: {
+                    id: phenotype_doc.id,
+                    xref: phenotype_doc.xref,
+                    name: phenotype_doc.name
+                  },
+                  patient_count: patient_count,
+                  case_report_count: case_report_count,
+                  outcomes: outcomes,
+                  evidence: (
+                    FOR row IN grouped
+                      SORT row.case_report.id, row.drug_treatment.id, row.treatment_response.id
+                      RETURN {
+                        case_report: {
+                          id: row.case_report.id,
+                          url: row.case_report.case_report_url
+                        },
+                        drug_treatment: {
+                          initial_dose_amount: row.drug_treatment.initial_dose_amount,
+                          initial_unit_of_measurement: row.drug_treatment.initial_unit_of_measurement,
+                          initial_frequency: row.drug_treatment.initial_frequency,
+                          initial_route: row.drug_treatment.initial_route,
+                          current_dose_amount: row.drug_treatment.current_dose_amount,
+                          current_unit_of_measurement: row.drug_treatment.current_unit_of_measurement,
+                          current_frequency: row.drug_treatment.current_frequency,
+                          current_route: row.drug_treatment.current_route,
+                          current_dose_change: row.drug_treatment.current_dose_change,
+                          duration_amount: row.drug_treatment.duration_amount,
+                          unit_of_measurement_duration: row.drug_treatment.unit_of_measurement_duration,
+                          treatment_begin: row.drug_treatment.treatment_begin,
+                          treatment_begin_month: row.drug_treatment.treatment_begin_month,
+                          treatment_end: row.drug_treatment.treatment_end,
+                          treatment_end_month: row.drug_treatment.treatment_end_month,
+                          treatment_on_going: row.drug_treatment.treatment_on_going,
+                          severity: row.drug_treatment.severity,
+                          additional_drug_info: row.drug_treatment.additional_drug_info
+                        },
+                        treatment_response: {
+                          target_role: row.treatment_response.target_role,
+                          outcome: row.treatment_response.outcome,
+                          outcome_details: row.treatment_response.outcome_details,
+                          time_to_improvement: row.treatment_response.time_to_improvement
+                        },
+                        finding: {
+                          source_value: row.finding.source_value,
+                          source_text: row.finding.source_text
+                        },
+                        patient: {
+                          sex: row.patient.sex,
+                          age_group: row.patient.age_group,
+                          ethnicity: row.patient.ethnicity,
+                          country_treated: row.patient.country_treated,
+                          race: row.patient.race
+                        }
+                      }
+                  )
+                }
+
+  - id: rasopathies_gene_associated_with_condition
+    label: "Translator: RAS Gene Associated With Condition"
+    description: One JSONL record per gene-condition pair, with diagnosis and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR gene IN `Gene`
+        FOR diagnosis IN INBOUND gene `DiagnosisGeneEdge`
+          FOR condition IN OUTBOUND diagnosis `DiagnosisConditionEdge`
+            LET clinical_context = FIRST(
+              FOR context IN INBOUND diagnosis `ClinicalContextDiagnosisEdge`
+                LIMIT 1
+                RETURN context
+            )
+            LET patient = clinical_context == null ? null : FIRST(
+              FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                LIMIT 1
+                RETURN p
+            )
+            LET case_report = patient == null ? null : FIRST(
+              FOR report IN INBOUND patient `CaseReportPatientEdge`
+                LIMIT 1
+                RETURN report
+            )
+            COLLECT
+              gene_id = gene.id,
+              condition_id = condition.id
+            INTO grouped = {
+              gene: gene,
+              diagnosis: diagnosis,
+              condition: condition,
+              patient: patient,
+              case_report: case_report
+            }
+            LET gene_doc = FIRST(grouped[*].gene)
+            LET condition_doc = FIRST(grouped[*].condition)
+            LET patient_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.patient != null
+                RETURN row.patient.id
+            )
+            LET case_report_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.case_report != null
+                RETURN row.case_report.id
+            )
+            LET patient_count = LENGTH(patient_ids)
+            LET case_report_count = LENGTH(case_report_ids)
+            SORT patient_count DESC, case_report_count DESC, gene_doc.symbol, condition_doc.name
+            RETURN {
+              gene: {
+                id: gene_doc.id,
+                xref: gene_doc.xref,
+                symbol: gene_doc.symbol
+              },
+              predicate: {
+                id: "gene_associated_with_condition",
+                label: "gene associated with condition"
+              },
+              condition: {
+                id: condition_doc.id,
+                xref: condition_doc.xref,
+                name: condition_doc.name
+              },
+              patient_count: patient_count,
+              case_report_count: case_report_count,
+              evidence: (
+                FOR row IN grouped
+                  SORT row.case_report.id, row.diagnosis.id
+                  RETURN {
+                    case_report: {
+                      id: row.case_report.id,
+                      url: row.case_report.case_report_url
+                    },
+                    diagnosis: {
+                      diagnosis_methods: row.diagnosis.diagnosis_methods
+                    },
+                    patient: {
+                      sex: row.patient.sex,
+                      age_group: row.patient.age_group,
+                      ethnicity: row.patient.ethnicity,
+                      country_treated: row.patient.country_treated,
+                      race: row.patient.race
+                    }
+                  }
+                  )
+                }
+
+  - id: rasopathies_drug_has_adverse_event
+    label: "Translator: RAS Drug Has Adverse Event"
+    description: One JSONL record per drug-adverse-event phenotype pair, with treatment and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR drug IN `Drug`
+        FOR drug_treatment IN INBOUND drug `DrugTreatmentDrugEdge`
+          FOR phenotype, adverse_event_edge IN 1..1 OUTBOUND drug_treatment `DrugTreatmentAdverseEventEdge`
+            LET clinical_context = FIRST(
+              FOR context IN INBOUND drug_treatment `ClinicalContextDrugTreatmentEdge`
+                LIMIT 1
+                RETURN context
+            )
+            LET patient = clinical_context == null ? null : FIRST(
+              FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                LIMIT 1
+                RETURN p
+            )
+            LET case_report = patient == null ? null : FIRST(
+              FOR report IN INBOUND patient `CaseReportPatientEdge`
+                LIMIT 1
+                RETURN report
+            )
+            COLLECT
+              drug_id = drug.id,
+              phenotype_id = phenotype.id
+            INTO grouped = {
+              drug: drug,
+              drug_treatment: drug_treatment,
+              adverse_event_edge: adverse_event_edge,
+              phenotype: phenotype,
+              patient: patient,
+              case_report: case_report
+            }
+            LET drug_doc = FIRST(grouped[*].drug)
+            LET phenotype_doc = FIRST(grouped[*].phenotype)
+            LET patient_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.patient != null
+                RETURN row.patient.id
+            )
+            LET case_report_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.case_report != null
+                RETURN row.case_report.id
+            )
+            LET outcomes = FLATTEN(
+              FOR row IN grouped
+                RETURN row.adverse_event_edge.outcomes || []
+            )
+            LET patient_count = LENGTH(patient_ids)
+            LET case_report_count = LENGTH(case_report_ids)
+            SORT patient_count DESC, case_report_count DESC, drug_doc.name, phenotype_doc.name
+            RETURN {
+              drug: {
+                id: drug_doc.id,
+                xref: drug_doc.xref,
+                name: drug_doc.name,
+                url: drug_doc.url
+              },
+              predicate: {
+                id: "has_adverse_event",
+                label: "has adverse event"
+              },
+              phenotype: {
+                id: phenotype_doc.id,
+                xref: phenotype_doc.xref,
+                name: phenotype_doc.name
+              },
+              patient_count: patient_count,
+              case_report_count: case_report_count,
+              outcomes: outcomes,
+              evidence: (
+                FOR row IN grouped
+                  SORT row.case_report.id, row.drug_treatment.id, row.adverse_event_edge.source_adverse_event_index
+                  RETURN {
+                    case_report: {
+                      id: row.case_report.id,
+                      url: row.case_report.case_report_url
+                    },
+                    adverse_event: {
+                      source_label: row.adverse_event_edge.source_label,
+                      have_adverse_events: row.adverse_event_edge.have_adverse_events,
+                      outcomes: row.adverse_event_edge.outcomes
+                    },
+                    drug_treatment: {
+                      initial_dose_amount: row.drug_treatment.initial_dose_amount,
+                      initial_unit_of_measurement: row.drug_treatment.initial_unit_of_measurement,
+                      initial_frequency: row.drug_treatment.initial_frequency,
+                      initial_route: row.drug_treatment.initial_route,
+                      current_dose_amount: row.drug_treatment.current_dose_amount,
+                      current_unit_of_measurement: row.drug_treatment.current_unit_of_measurement,
+                      current_frequency: row.drug_treatment.current_frequency,
+                      current_route: row.drug_treatment.current_route,
+                      current_dose_change: row.drug_treatment.current_dose_change,
+                      duration_amount: row.drug_treatment.duration_amount,
+                      unit_of_measurement_duration: row.drug_treatment.unit_of_measurement_duration,
+                      treatment_begin: row.drug_treatment.treatment_begin,
+                      treatment_begin_month: row.drug_treatment.treatment_begin_month,
+                      treatment_end: row.drug_treatment.treatment_end,
+                      treatment_end_month: row.drug_treatment.treatment_end_month,
+                      treatment_on_going: row.drug_treatment.treatment_on_going,
+                      severity: row.drug_treatment.severity,
+                      additional_drug_info: row.drug_treatment.additional_drug_info
+                    },
+                    patient: {
+                      sex: row.patient.sex,
+                      age_group: row.patient.age_group,
+                      ethnicity: row.patient.ethnicity,
+                      country_treated: row.patient.country_treated,
+                      race: row.patient.race
+                    }
+                  }
+              )
+            }
+
+  - id: rasopathies_gene_has_sequence_variant
+    label: "Translator: RAS Gene Has Sequence Variant"
+    description: One JSONL record per gene-sequence-variant pair, with diagnosis and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR gene IN `Gene`
+        FOR gene_variant IN OUTBOUND gene `GeneGeneVariantEdge`
+          FOR diagnosis IN INBOUND gene_variant `DiagnosisGeneVariantEdge`
+            LET clinical_context = FIRST(
+              FOR context IN INBOUND diagnosis `ClinicalContextDiagnosisEdge`
+                LIMIT 1
+                RETURN context
+            )
+            LET patient = clinical_context == null ? null : FIRST(
+              FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                LIMIT 1
+                RETURN p
+            )
+            LET case_report = patient == null ? null : FIRST(
+              FOR report IN INBOUND patient `CaseReportPatientEdge`
+                LIMIT 1
+                RETURN report
+            )
+            COLLECT
+              gene_id = gene.id,
+              gene_variant_id = gene_variant.id
+            INTO grouped = {
+              gene: gene,
+              gene_variant: gene_variant,
+              diagnosis: diagnosis,
+              patient: patient,
+              case_report: case_report
+            }
+            LET gene_doc = FIRST(grouped[*].gene)
+            LET gene_variant_doc = FIRST(grouped[*].gene_variant)
+            LET patient_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.patient != null
+                RETURN row.patient.id
+            )
+            LET case_report_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.case_report != null
+                RETURN row.case_report.id
+            )
+            LET patient_count = LENGTH(patient_ids)
+            LET case_report_count = LENGTH(case_report_ids)
+            SORT patient_count DESC, case_report_count DESC, gene_doc.symbol, gene_variant_doc.variant_label
+            RETURN {
+              gene: {
+                id: gene_doc.id,
+                xref: gene_doc.xref,
+                symbol: gene_doc.symbol
+              },
+              predicate: {
+                id: "has_sequence_variant",
+                label: "has sequence variant"
+              },
+              gene_variant: {
+                id: gene_variant_doc.id,
+                xref: gene_variant_doc.xref,
+                source_gene_symbol: gene_variant_doc.source_gene_symbol,
+                nucleotide_change: gene_variant_doc.nucleotide_change,
+                protein_change: gene_variant_doc.protein_change,
+                variant_label: gene_variant_doc.variant_label
+              },
+              patient_count: patient_count,
+              case_report_count: case_report_count,
+              evidence: (
+                FOR row IN grouped
+                  SORT row.case_report.id, row.diagnosis.id
+                  RETURN {
+                    case_report: {
+                      id: row.case_report.id,
+                      url: row.case_report.case_report_url
+                    },
+                    diagnosis: {
+                      diagnosis_methods: row.diagnosis.diagnosis_methods
+                    },
+                    patient: {
+                      sex: row.patient.sex,
+                      age_group: row.patient.age_group,
+                      ethnicity: row.patient.ethnicity,
+                      country_treated: row.patient.country_treated,
+                      race: row.patient.race
+                    }
+                  }
+              )
+            }
+
+  - id: rasopathies_sequence_variant_genetically_associated_with_condition
+    label: "Translator: RAS Sequence Variant Genetically Associated With Condition"
+    description: One JSONL record per sequence-variant-condition pair, with diagnosis and patient evidence preserved.
+    type: export
+    output_format: jsonl
+    query_language: aql
+    query: |
+      FOR gene_variant IN `GeneVariant`
+        FOR diagnosis IN INBOUND gene_variant `DiagnosisGeneVariantEdge`
+          FOR condition IN OUTBOUND diagnosis `DiagnosisConditionEdge`
+            LET clinical_context = FIRST(
+              FOR context IN INBOUND diagnosis `ClinicalContextDiagnosisEdge`
+                LIMIT 1
+                RETURN context
+            )
+            LET patient = clinical_context == null ? null : FIRST(
+              FOR p IN INBOUND clinical_context `PatientClinicalContextEdge`
+                LIMIT 1
+                RETURN p
+            )
+            LET case_report = patient == null ? null : FIRST(
+              FOR report IN INBOUND patient `CaseReportPatientEdge`
+                LIMIT 1
+                RETURN report
+            )
+            COLLECT
+              gene_variant_id = gene_variant.id,
+              condition_id = condition.id
+            INTO grouped = {
+              gene_variant: gene_variant,
+              diagnosis: diagnosis,
+              condition: condition,
+              patient: patient,
+              case_report: case_report
+            }
+            LET gene_variant_doc = FIRST(grouped[*].gene_variant)
+            LET condition_doc = FIRST(grouped[*].condition)
+            LET patient_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.patient != null
+                RETURN row.patient.id
+            )
+            LET case_report_ids = UNIQUE(
+              FOR row IN grouped
+                FILTER row.case_report != null
+                RETURN row.case_report.id
+            )
+            LET patient_count = LENGTH(patient_ids)
+            LET case_report_count = LENGTH(case_report_ids)
+            SORT patient_count DESC, case_report_count DESC, gene_variant_doc.variant_label, condition_doc.name
+            RETURN {
+              gene_variant: {
+                id: gene_variant_doc.id,
+                xref: gene_variant_doc.xref,
+                source_gene_symbol: gene_variant_doc.source_gene_symbol,
+                nucleotide_change: gene_variant_doc.nucleotide_change,
+                protein_change: gene_variant_doc.protein_change,
+                variant_label: gene_variant_doc.variant_label
+              },
+              predicate: {
+                id: "genetically_associated_with",
+                label: "genetically associated with"
+              },
+              condition: {
+                id: condition_doc.id,
+                xref: condition_doc.xref,
+                name: condition_doc.name
+              },
+              patient_count: patient_count,
+              case_report_count: case_report_count,
+              evidence: (
+                FOR row IN grouped
+                  SORT row.case_report.id, row.diagnosis.id
+                  RETURN {
+                    case_report: {
+                      id: row.case_report.id,
+                      url: row.case_report.case_report_url
+                    },
+                    diagnosis: {
+                      diagnosis_methods: row.diagnosis.diagnosis_methods
+                    },
+                    patient: {
+                      sex: row.patient.sex,
+                      age_group: row.patient.age_group,
+                      ethnicity: row.patient.ethnicity,
+                      country_treated: row.patient.country_treated,
+                      race: row.patient.race
+                    }
+                  }
+              )
+            }
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter
