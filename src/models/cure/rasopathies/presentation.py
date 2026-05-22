@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from src.models.cure.pasc.condition import Condition
-from src.models.cure.shared.case_report import CaseReport
+from src.models.cure.shared.patient import Patient
 from src.models.node import Node, Relationship
 
 
@@ -11,8 +11,8 @@ class Presentation(Node):
 
 
 @dataclass
-class CaseReportPresentationEdge(Relationship):
-    start_node: CaseReport = None
+class PatientPresentationEdge(Relationship):
+    start_node: Patient = None
     end_node: Presentation = None
 
 

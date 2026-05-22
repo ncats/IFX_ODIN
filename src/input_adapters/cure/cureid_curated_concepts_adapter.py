@@ -5,6 +5,7 @@ from src.constants import DataSourceName
 from src.input_adapters.cure.cureid_tsv_lookup import normalize_cureid_label
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
 from src.models.cure.pasc.condition import Condition
+from src.models.cure.rasopathies.drug import Drug
 from src.models.cure.rasopathies.phenotype import Phenotype
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import Node
@@ -28,6 +29,8 @@ class CureIdCuratedConceptsAdapter(FlatFileAdapter):
                     node = None
                     if source_type == "Disease":
                         node = Condition(id=curie, name=final_label)
+                    elif source_type == "Drug":
+                        node = Drug(id=curie, name=final_label)
                     elif source_type in {"PhenotypicFeature", "AdverseEvent"}:
                         node = Phenotype(id=curie, name=final_label)
 

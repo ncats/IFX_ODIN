@@ -1183,6 +1183,7 @@ def collection_browser(request: Request, db_name: str, coll_name: str,
     query = f"""
         FOR doc IN `{coll_name}`
             {f"FILTER {filter_clause}" if filter_clause else ""}
+            SORT doc._key ASC
             LIMIT @skip, @top
             RETURN KEEP(doc, @return_fields)
     """
@@ -1293,6 +1294,7 @@ async def collection_download(request: Request, db_name: str, coll_name: str,
     preview_query = f"""
         FOR doc IN `{coll_name}`
             {f"FILTER {filter_clause}" if filter_clause else ""}
+            SORT doc._key ASC
             LIMIT @skip, @top
             RETURN KEEP(doc, @return_fields)
     """
@@ -1304,6 +1306,7 @@ async def collection_download(request: Request, db_name: str, coll_name: str,
     export_query = f"""
         FOR doc IN `{coll_name}`
             {f"FILTER {filter_clause}" if filter_clause else ""}
+            SORT doc._key ASC
             RETURN doc
     """
     cursor = db.aql.execute(export_query, bind_vars=filter_bind_vars)
@@ -2154,26 +2157,23 @@ def _get_adjacent_collection_docs(db, coll_name: str, doc: dict | None) -> dict:
         return {"previous_doc": None, "next_doc": None, "adjacent_error": None}
 
     current_key = doc.get("_key")
-    current_sort_value = doc.get("id") or current_key
-    if not current_key or current_sort_value is None:
-        return {"previous_doc": None, "next_doc": None, "adjacent_error": "missing _key or sort value"}
+    if not current_key:
+        return {"previous_doc": None, "next_doc": None, "adjacent_error": "missing _key"}
 
     try:
         cursor = db.aql.execute(
             f"""
             LET previous_doc = FIRST(
                 FOR d IN `{coll_name}`
-                LET sort_value = d.id != null && d.id != '' ? d.id : d._key
-                FILTER sort_value < @current_sort OR (sort_value == @current_sort AND d._key < @current_key)
-                SORT sort_value DESC, d._key DESC
+                FILTER d._key < @current_key
+                SORT d._key DESC
                 LIMIT 1
                 RETURN KEEP(d, "_key", "id", "name")
             )
             LET next_doc = FIRST(
                 FOR d IN `{coll_name}`
-                LET sort_value = d.id != null && d.id != '' ? d.id : d._key
-                FILTER sort_value > @current_sort OR (sort_value == @current_sort AND d._key > @current_key)
-                SORT sort_value ASC, d._key ASC
+                FILTER d._key > @current_key
+                SORT d._key ASC
                 LIMIT 1
                 RETURN KEEP(d, "_key", "id", "name")
             )
@@ -2182,7 +2182,7 @@ def _get_adjacent_collection_docs(db, coll_name: str, doc: dict | None) -> dict:
                 next_doc: next_doc
             }}
             """,
-            bind_vars={"current_sort": current_sort_value, "current_key": current_key},
+            bind_vars={"current_key": current_key},
             max_runtime=10,
         )
         result = next(iter(cursor), {"previous_doc": None, "next_doc": None})
@@ -2231,11 +2231,24 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
     try:
         presentation_cursor = db.aql.execute(
             """
-            FOR v, e IN 1..1 OUTBOUND @node_id GRAPH 'graph'
-            FILTER SPLIT(v._id, '/')[0] == 'Presentation'
-            FILTER SPLIT(e._id, '/')[0] == 'CaseReportPresentationEdge'
-            LIMIT 1
-            RETURN v
+            LET via_patient = (
+              FOR patient, report_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+                FILTER SPLIT(patient._id, '/')[0] == 'Patient'
+                FILTER SPLIT(report_edge._id, '/')[0] == 'CaseReportPatientEdge'
+                FOR presentation, presentation_edge IN 1..1 OUTBOUND patient._id GRAPH 'graph'
+                  FILTER SPLIT(presentation._id, '/')[0] == 'Presentation'
+                  FILTER SPLIT(presentation_edge._id, '/')[0] == 'PatientPresentationEdge'
+                  LIMIT 1
+                  RETURN presentation
+            )
+            LET via_report = (
+              FOR presentation, presentation_edge IN 1..1 OUTBOUND @node_id GRAPH 'graph'
+                FILTER SPLIT(presentation._id, '/')[0] == 'Presentation'
+                FILTER SPLIT(presentation_edge._id, '/')[0] == 'CaseReportPresentationEdge'
+                LIMIT 1
+                RETURN presentation
+            )
+            RETURN FIRST(APPEND(via_patient, via_report))
             """,
             bind_vars={"node_id": doc["_id"]},
             max_runtime=10,
@@ -2339,6 +2352,8 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
     perinatal_context_list_fields = []
     perinatal_context_nested_fields = []
     perinatal_context_phenotype_cards = []
+    rasopathies_diagnosis_cards = []
+    rasopathies_drug_treatment_cards = []
     patient_prior_condition_cards = []
     background_regular_medicine_cards = []
     background_immunosuppressant_cards = []
@@ -2386,35 +2401,181 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         try:
             presentation_phenotype_cursor = db.aql.execute(
                 """
-                FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
-                FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
-                FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PresentationPhenotypeEdge'
-                SORT phenotype_edge.group, phenotype.name, phenotype._key
-                RETURN {
-                    phenotype: phenotype,
-                    phenotype_edge: phenotype_edge
-                }
+                LET via_finding = (
+                  FOR finding, finding_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                    FILTER SPLIT(finding._id, '/')[0] == 'Finding'
+                    FILTER SPLIT(finding_edge._id, '/')[0] == 'PresentationFindingEdge'
+                    FOR phenotype, phenotype_edge IN 1..1 OUTBOUND finding._id GRAPH 'graph'
+                      FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                      FILTER SPLIT(phenotype_edge._id, '/')[0] == 'FindingPhenotypeEdge'
+                      RETURN {
+                        phenotype: phenotype,
+                        finding: finding,
+                        finding_edge: finding_edge,
+                        phenotype_edge: phenotype_edge,
+                        sort_group: finding.group,
+                        sort_name: phenotype.name
+                      }
+                )
+                LET direct = (
+                  FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                    FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PresentationPhenotypeEdge'
+                    RETURN {
+                      phenotype: phenotype,
+                      finding: null,
+                      finding_edge: null,
+                      phenotype_edge: phenotype_edge,
+                      sort_group: phenotype_edge.group,
+                      sort_name: phenotype.name
+                    }
+                )
+                FOR row IN (LENGTH(via_finding) > 0 ? via_finding : direct)
+                  SORT row.sort_group, row.sort_name, row.phenotype._key
+                  RETURN row
                 """,
                 bind_vars={"presentation_id": presentation_doc["_id"]},
                 max_runtime=15,
             )
             for row in presentation_phenotype_cursor:
                 phenotype_doc = row.get("phenotype")
+                finding_doc = row.get("finding")
+                finding_edge_doc = row.get("finding_edge")
                 phenotype_edge_doc = row.get("phenotype_edge")
+                display_edge_doc = finding_doc or phenotype_edge_doc
                 scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
-                edge_scalar_fields, edge_list_fields, edge_nested_fields = _categorize_document_fields(phenotype_edge_doc)
+                edge_scalar_fields, edge_list_fields, edge_nested_fields = _categorize_document_fields(display_edge_doc)
                 presentation_phenotype_cards.append({
                     "phenotype_doc": phenotype_doc,
+                    "finding_doc": finding_doc,
+                    "finding_edge_doc": finding_edge_doc,
                     "scalar_fields": scalar_fields,
                     "list_fields": list_fields,
                     "nested_fields": nested_fields,
-                    "edge_doc": phenotype_edge_doc,
+                    "edge_doc": display_edge_doc,
+                    "phenotype_edge_doc": phenotype_edge_doc,
                     "edge_scalar_fields": edge_scalar_fields,
                     "edge_list_fields": edge_list_fields,
                     "edge_nested_fields": edge_nested_fields,
                 })
         except Exception:
             presentation_phenotype_cards = []
+
+        try:
+            diagnosis_cursor = db.aql.execute(
+                """
+                FOR diagnosis, diagnosis_edge IN 1..1 OUTBOUND @presentation_id GRAPH 'graph'
+                FILTER SPLIT(diagnosis._id, '/')[0] == 'Diagnosis'
+                FILTER SPLIT(diagnosis_edge._id, '/')[0] == 'PresentationDiagnosisEdge'
+                LET conditions = (
+                  FOR condition, condition_edge IN 1..1 OUTBOUND diagnosis._id GRAPH 'graph'
+                    FILTER SPLIT(condition._id, '/')[0] == 'Condition'
+                    FILTER SPLIT(condition_edge._id, '/')[0] == 'DiagnosisConditionEdge'
+                    SORT condition.name, condition._key
+                    RETURN {
+                      condition: condition,
+                      condition_edge: condition_edge
+                    }
+                )
+                LET genes = (
+                  FOR gene, gene_edge IN 1..1 OUTBOUND diagnosis._id GRAPH 'graph'
+                    FILTER SPLIT(gene._id, '/')[0] == 'Gene'
+                    FILTER SPLIT(gene_edge._id, '/')[0] == 'DiagnosisGeneEdge'
+                    SORT gene.symbol, gene.name, gene._key
+                    RETURN {
+                      gene: gene,
+                      gene_edge: gene_edge
+                    }
+                )
+                LET variants = (
+                  FOR variant, variant_edge IN 1..1 OUTBOUND diagnosis._id GRAPH 'graph'
+                    FILTER SPLIT(variant._id, '/')[0] == 'GeneVariant'
+                    FILTER SPLIT(variant_edge._id, '/')[0] == 'DiagnosisGeneVariantEdge'
+                    LET linked_genes = (
+                      FOR gene, gene_variant_edge IN 1..1 INBOUND variant._id GRAPH 'graph'
+                        FILTER SPLIT(gene._id, '/')[0] == 'Gene'
+                        FILTER SPLIT(gene_variant_edge._id, '/')[0] == 'GeneGeneVariantEdge'
+                        SORT gene.symbol, gene.name, gene._key
+                        RETURN {
+                          gene: gene,
+                          gene_variant_edge: gene_variant_edge
+                        }
+                    )
+                    SORT variant.source_gene_symbol, variant.variant_label, variant._key
+                    RETURN {
+                      variant: variant,
+                      variant_edge: variant_edge,
+                      linked_genes: linked_genes
+                    }
+                )
+                SORT diagnosis._key
+                RETURN {
+                  diagnosis: diagnosis,
+                  diagnosis_edge: diagnosis_edge,
+                  conditions: conditions,
+                  genes: genes,
+                  variants: variants
+                }
+                """,
+                bind_vars={"presentation_id": presentation_doc["_id"]},
+                max_runtime=15,
+            )
+            for row in diagnosis_cursor:
+                diagnosis_doc = row.get("diagnosis")
+                diagnosis_scalar_fields, diagnosis_list_fields, diagnosis_nested_fields = _categorize_document_fields(diagnosis_doc)
+                condition_cards = []
+                for condition_row in row.get("conditions") or []:
+                    condition_doc = condition_row.get("condition")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(condition_doc)
+                    condition_cards.append({
+                        "condition_doc": condition_doc,
+                        "condition_edge_doc": condition_row.get("condition_edge"),
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+                gene_cards = []
+                for gene_row in row.get("genes") or []:
+                    gene_doc = gene_row.get("gene")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(gene_doc)
+                    gene_cards.append({
+                        "gene_doc": gene_doc,
+                        "gene_edge_doc": gene_row.get("gene_edge"),
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+                variant_cards = []
+                for variant_row in row.get("variants") or []:
+                    variant_doc = variant_row.get("variant")
+                    scalar_fields, list_fields, nested_fields = _categorize_document_fields(variant_doc)
+                    linked_gene_cards = []
+                    for linked_gene_row in variant_row.get("linked_genes") or []:
+                        gene_doc = linked_gene_row.get("gene")
+                        linked_gene_cards.append({
+                            "gene_doc": gene_doc,
+                            "gene_variant_edge_doc": linked_gene_row.get("gene_variant_edge"),
+                        })
+                    variant_cards.append({
+                        "variant_doc": variant_doc,
+                        "variant_edge_doc": variant_row.get("variant_edge"),
+                        "linked_gene_cards": linked_gene_cards,
+                        "scalar_fields": scalar_fields,
+                        "list_fields": list_fields,
+                        "nested_fields": nested_fields,
+                    })
+                rasopathies_diagnosis_cards.append({
+                    "diagnosis_doc": diagnosis_doc,
+                    "diagnosis_edge_doc": row.get("diagnosis_edge"),
+                    "diagnosis_scalar_fields": diagnosis_scalar_fields,
+                    "diagnosis_list_fields": diagnosis_list_fields,
+                    "diagnosis_nested_fields": diagnosis_nested_fields,
+                    "condition_cards": condition_cards,
+                    "gene_cards": gene_cards,
+                    "variant_cards": variant_cards,
+                })
+        except Exception:
+            rasopathies_diagnosis_cards = []
 
     finding_group_order = [
         "Cardiac",
@@ -2628,14 +2789,36 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
             try:
                 perinatal_phenotype_cursor = db.aql.execute(
                     """
-                    FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @perinatal_context_id GRAPH 'graph'
-                    FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
-                    FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PerinatalContextPhenotypeEdge'
-                    SORT phenotype.name, phenotype._key
-                    RETURN {
-                        phenotype: phenotype,
-                        phenotype_edge: phenotype_edge
-                    }
+                    LET via_finding = (
+                      FOR finding, finding_edge IN 1..1 OUTBOUND @perinatal_context_id GRAPH 'graph'
+                        FILTER SPLIT(finding._id, '/')[0] == 'Finding'
+                        FILTER SPLIT(finding_edge._id, '/')[0] == 'PerinatalContextFindingEdge'
+                        FOR phenotype, phenotype_edge IN 1..1 OUTBOUND finding._id GRAPH 'graph'
+                          FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                          FILTER SPLIT(phenotype_edge._id, '/')[0] == 'FindingPhenotypeEdge'
+                          RETURN {
+                            phenotype: phenotype,
+                            finding: finding,
+                            finding_edge: finding_edge,
+                            phenotype_edge: phenotype_edge,
+                            sort_name: phenotype.name
+                          }
+                    )
+                    LET direct = (
+                      FOR phenotype, phenotype_edge IN 1..1 OUTBOUND @perinatal_context_id GRAPH 'graph'
+                        FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                        FILTER SPLIT(phenotype_edge._id, '/')[0] == 'PerinatalContextPhenotypeEdge'
+                        RETURN {
+                          phenotype: phenotype,
+                          finding: null,
+                          finding_edge: null,
+                          phenotype_edge: phenotype_edge,
+                          sort_name: phenotype.name
+                        }
+                    )
+                    FOR row IN (LENGTH(via_finding) > 0 ? via_finding : direct)
+                      SORT row.sort_name, row.phenotype._key
+                      RETURN row
                     """,
                     bind_vars={"perinatal_context_id": perinatal_context_doc["_id"]},
                     max_runtime=15,
@@ -2645,13 +2828,147 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                     scalar_fields, list_fields, nested_fields = _categorize_document_fields(phenotype_doc)
                     perinatal_context_phenotype_cards.append({
                         "phenotype_doc": phenotype_doc,
-                        "edge_doc": row.get("phenotype_edge"),
+                        "finding_doc": row.get("finding"),
+                        "finding_edge_doc": row.get("finding_edge"),
+                        "edge_doc": row.get("finding") or row.get("phenotype_edge"),
+                        "phenotype_edge_doc": row.get("phenotype_edge"),
                         "scalar_fields": scalar_fields,
                         "list_fields": list_fields,
                         "nested_fields": nested_fields,
                     })
             except Exception:
                 perinatal_context_phenotype_cards = []
+
+        try:
+            rasopathies_treatment_cursor = db.aql.execute(
+                """
+                FOR treatment, treatment_edge IN 1..1 OUTBOUND @patient_id GRAPH 'graph'
+                FILTER SPLIT(treatment._id, '/')[0] == 'DrugTreatment'
+                FILTER SPLIT(treatment_edge._id, '/')[0] == 'PatientDrugTreatmentEdge'
+                LET drug_doc = FIRST(
+                  FOR drug, drug_edge IN 1..1 OUTBOUND treatment._id GRAPH 'graph'
+                    FILTER SPLIT(drug._id, '/')[0] == 'Drug'
+                    FILTER SPLIT(drug_edge._id, '/')[0] == 'DrugTreatmentDrugEdge'
+                    LIMIT 1
+                    RETURN drug
+                )
+                LET responses = (
+                  FOR response, response_edge IN 1..1 OUTBOUND treatment._id GRAPH 'graph'
+                    FILTER SPLIT(response._id, '/')[0] == 'TreatmentResponse'
+                    FILTER SPLIT(response_edge._id, '/')[0] == 'DrugTreatmentResponseEdge'
+                    LET finding_doc = FIRST(
+                      FOR finding, finding_edge IN 1..1 OUTBOUND response._id GRAPH 'graph'
+                        FILTER SPLIT(finding._id, '/')[0] == 'Finding'
+                        FILTER SPLIT(finding_edge._id, '/')[0] == 'TreatmentResponseFindingEdge'
+                        LIMIT 1
+                        RETURN finding
+                    )
+                    LET phenotype_docs = (
+                      FOR phenotype, phenotype_edge IN 1..1 OUTBOUND finding_doc._id GRAPH 'graph'
+                        FILTER finding_doc != null
+                        FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                        FILTER SPLIT(phenotype_edge._id, '/')[0] == 'FindingPhenotypeEdge'
+                        SORT phenotype.name, phenotype._key
+                        RETURN {
+                          phenotype: phenotype,
+                          phenotype_edge: phenotype_edge
+                        }
+                    )
+                    SORT response.source_target_index, response._key
+                    RETURN {
+                      response_doc: response,
+                      response_edge_doc: response_edge,
+                      finding_doc: finding_doc,
+                      phenotype_docs: phenotype_docs
+                    }
+                )
+                LET adverse_events = (
+                  FOR phenotype, adverse_event_edge IN 1..1 OUTBOUND treatment._id GRAPH 'graph'
+                    FILTER SPLIT(phenotype._id, '/')[0] == 'Phenotype'
+                    FILTER SPLIT(adverse_event_edge._id, '/')[0] == 'DrugTreatmentAdverseEventEdge'
+                    SORT adverse_event_edge.source_adverse_event_index, phenotype.name, phenotype._key
+                    RETURN {
+                      phenotype: phenotype,
+                      adverse_event_edge: adverse_event_edge
+                    }
+                )
+                SORT treatment.source_treatment_index, drug_doc.name, treatment._key
+                RETURN {
+                  treatment_doc: treatment,
+                  treatment_edge_doc: treatment_edge,
+                  drug_doc: drug_doc,
+                  responses: responses,
+                  adverse_events: adverse_events
+                }
+                """,
+                bind_vars={"patient_id": patient_doc["_id"]},
+                max_runtime=20,
+            )
+            for row in rasopathies_treatment_cursor:
+                treatment_doc = row.get("treatment_doc")
+                treatment_scalar_fields, treatment_list_fields, treatment_nested_fields = _categorize_document_fields(treatment_doc)
+                drug_doc = row.get("drug_doc")
+                drug_scalar_fields, drug_list_fields, drug_nested_fields = _categorize_document_fields(drug_doc)
+                response_cards = []
+                for response_row in row.get("responses") or []:
+                    response_doc = response_row.get("response_doc")
+                    response_scalar_fields, response_list_fields, response_nested_fields = _categorize_document_fields(response_doc)
+                    finding_doc = response_row.get("finding_doc")
+                    finding_scalar_fields, finding_list_fields, finding_nested_fields = _categorize_document_fields(finding_doc)
+                    phenotype_cards = []
+                    for phenotype_row in response_row.get("phenotype_docs") or []:
+                        phenotype_doc = phenotype_row.get("phenotype")
+                        phenotype_scalar_fields, phenotype_list_fields, phenotype_nested_fields = _categorize_document_fields(phenotype_doc)
+                        phenotype_cards.append({
+                            "phenotype_doc": phenotype_doc,
+                            "phenotype_edge_doc": phenotype_row.get("phenotype_edge"),
+                            "scalar_fields": phenotype_scalar_fields,
+                            "list_fields": phenotype_list_fields,
+                            "nested_fields": phenotype_nested_fields,
+                        })
+                    response_cards.append({
+                        "response_doc": response_doc,
+                        "response_edge_doc": response_row.get("response_edge_doc"),
+                        "scalar_fields": response_scalar_fields,
+                        "list_fields": response_list_fields,
+                        "nested_fields": response_nested_fields,
+                        "finding_doc": finding_doc,
+                        "finding_scalar_fields": finding_scalar_fields,
+                        "finding_list_fields": finding_list_fields,
+                        "finding_nested_fields": finding_nested_fields,
+                        "phenotype_cards": phenotype_cards,
+                    })
+                adverse_event_cards = []
+                for adverse_event_row in row.get("adverse_events") or []:
+                    adverse_event_doc = adverse_event_row.get("phenotype")
+                    adverse_event_edge_doc = adverse_event_row.get("adverse_event_edge")
+                    adverse_event_scalar_fields, adverse_event_list_fields, adverse_event_nested_fields = _categorize_document_fields(adverse_event_doc)
+                    adverse_event_edge_scalar_fields, adverse_event_edge_list_fields, adverse_event_edge_nested_fields = _categorize_document_fields(adverse_event_edge_doc)
+                    adverse_event_cards.append({
+                        "phenotype_doc": adverse_event_doc,
+                        "adverse_event_edge_doc": adverse_event_edge_doc,
+                        "scalar_fields": adverse_event_scalar_fields,
+                        "list_fields": adverse_event_list_fields,
+                        "nested_fields": adverse_event_nested_fields,
+                        "edge_scalar_fields": adverse_event_edge_scalar_fields,
+                        "edge_list_fields": adverse_event_edge_list_fields,
+                        "edge_nested_fields": adverse_event_edge_nested_fields,
+                    })
+                rasopathies_drug_treatment_cards.append({
+                    "treatment_doc": treatment_doc,
+                    "treatment_edge_doc": row.get("treatment_edge_doc"),
+                    "drug_doc": drug_doc,
+                    "treatment_scalar_fields": treatment_scalar_fields,
+                    "treatment_list_fields": treatment_list_fields,
+                    "treatment_nested_fields": treatment_nested_fields,
+                    "drug_scalar_fields": drug_scalar_fields,
+                    "drug_list_fields": drug_list_fields,
+                    "drug_nested_fields": drug_nested_fields,
+                    "response_cards": response_cards,
+                    "adverse_event_cards": adverse_event_cards,
+                })
+        except Exception:
+            rasopathies_drug_treatment_cards = []
 
         try:
             primary_post_covid_condition_cursor = db.aql.execute(
@@ -2692,12 +3009,13 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
                 )
                 LET adverse_events = (
                     FOR ae, ae_edge IN 1..1 OUTBOUND exposure._id GRAPH 'graph'
-                    FILTER SPLIT(ae._id, '/')[0] == 'AdverseEvent'
+                    FILTER SPLIT(ae._id, '/')[0] IN ['Phenotype', 'AdverseEvent']
                     FILTER SPLIT(ae_edge._id, '/')[0] == 'ExposureAdverseEventEdge'
                     SORT ae.name
                     RETURN {
                         id: ae._id,
                         key: ae._key,
+                        collection: SPLIT(ae._id, '/')[0],
                         name: ae.name,
                         outcomes: ae_edge.outcomes || []
                     }
@@ -3089,6 +3407,8 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
         "perinatal_context_list_fields": perinatal_context_list_fields,
         "perinatal_context_nested_fields": perinatal_context_nested_fields,
         "perinatal_context_phenotype_cards": perinatal_context_phenotype_cards,
+        "rasopathies_diagnosis_cards": rasopathies_diagnosis_cards,
+        "rasopathies_drug_treatment_cards": rasopathies_drug_treatment_cards,
         "episode_relationship_cards": episode_relationship_cards,
         "patient_prior_condition_cards": patient_prior_condition_cards,
         "background_regular_medicine_cards": background_regular_medicine_cards,
@@ -3121,6 +3441,8 @@ def _build_cure_case_report_context(db_name: str, db, doc: dict | None) -> dict:
 def _build_cure_case_url(db_name: str, doc: dict | None) -> str | None:
     if not doc:
         return None
+    if doc.get("case_report_url"):
+        return doc.get("case_report_url")
     report_id = doc.get("id") or doc.get("_key")
     if not report_id:
         return None

@@ -12,6 +12,7 @@ class CaseReport(Node):
     form_type: Optional[str] = None
     report_type: Optional[str] = None
     backend_report_type: Optional[str] = None
+    case_report_url: Optional[str] = None
     status: Optional[str] = None
     anonymous: Optional[bool] = None
     created: Optional[datetime] = None
