@@ -4,7 +4,7 @@ import os
 import platform
 import socket
 from src.interfaces.metadata import DatabaseMetadata, get_git_metadata
-from sqlalchemy import case, func
+from sqlalchemy import case, func, text
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -761,6 +761,135 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 [{"dtoid": dtoid, "parent_id": parent_id} for dtoid, parent_id in direct_edges],
             )
 
+    @staticmethod
+    def _populate_ncats_disease_summary_fields(session):
+        session.execute(text("""
+            UPDATE `ncats_disease`
+            SET
+              `target_count` = 0,
+              `direct_target_count` = 0,
+              `maxTDL` = NULL
+        """))
+
+        session.execute(text("""
+            UPDATE `ncats_disease` n
+            JOIN (
+              SELECT
+                x.`ncats_disease_id`,
+                COUNT(DISTINCT d.`protein_id`) AS `direct_target_count`
+              FROM `ncats_d2da` x
+              JOIN `disease` d
+                ON d.`id` = x.`disease_assoc_id`
+              WHERE x.`direct` = 1
+                AND d.`protein_id` IS NOT NULL
+              GROUP BY x.`ncats_disease_id`
+            ) q
+              ON q.`ncats_disease_id` = n.`id`
+            SET n.`direct_target_count` = q.`direct_target_count`
+        """))
+
+        session.execute(text("DROP TEMPORARY TABLE IF EXISTS `ncats_disease_descendant_stage`"))
+        session.execute(text("""
+            CREATE TEMPORARY TABLE `ncats_disease_descendant_stage` (
+              `ancestor_id` INT NOT NULL,
+              `descendant_id` INT NOT NULL,
+              PRIMARY KEY (`ancestor_id`, `descendant_id`)
+            )
+        """))
+        session.execute(text("""
+            INSERT IGNORE INTO `ncats_disease_descendant_stage`
+              (`ancestor_id`, `descendant_id`)
+            SELECT `id`, `id`
+            FROM `ncats_disease`
+        """))
+        session.execute(text("""
+            INSERT IGNORE INTO `ncats_disease_descendant_stage`
+              (`ancestor_id`, `descendant_id`)
+            SELECT
+              parent.`id` AS `ancestor_id`,
+              child.`id` AS `descendant_id`
+            FROM `ncats_disease` parent
+            JOIN `ancestry_mondo` ancestry
+              ON ancestry.`ancestor_id` = parent.`mondoid`
+            JOIN `ncats_disease` child
+              ON child.`mondoid` = ancestry.`oid`
+            WHERE parent.`mondoid` IS NOT NULL
+        """))
+        session.execute(text("""
+            UPDATE `ncats_disease` n
+            JOIN (
+              SELECT
+                stage.`ancestor_id` AS `ncats_disease_id`,
+                COUNT(DISTINCT d.`protein_id`) AS `target_count`
+              FROM `ncats_disease_descendant_stage` stage
+              JOIN `ncats_d2da` x
+                ON x.`ncats_disease_id` = stage.`descendant_id`
+              JOIN `disease` d
+                ON d.`id` = x.`disease_assoc_id`
+              WHERE d.`protein_id` IS NOT NULL
+              GROUP BY stage.`ancestor_id`
+            ) q
+              ON q.`ncats_disease_id` = n.`id`
+            SET n.`target_count` = q.`target_count`
+        """))
+        session.execute(text("DROP TEMPORARY TABLE IF EXISTS `ncats_disease_descendant_stage`"))
+
+        session.execute(text("""
+            UPDATE `ncats_disease` n
+            JOIN (
+              SELECT
+                n2.`id`,
+                MAX(CASE
+                  WHEN tgt.`tdl` = 'Tclin' THEN 4
+                  WHEN tgt.`tdl` = 'Tchem' THEN 3
+                  WHEN tgt.`tdl` = 'Tbio' THEN 2
+                  ELSE 1
+                END) AS `tempTDL`
+              FROM `ncats_disease` n2
+              JOIN `ncats_d2da` x
+                ON n2.`id` = x.`ncats_disease_id`
+              JOIN `disease` d
+                ON x.`disease_assoc_id` = d.`id`
+              JOIN `t2tc`
+                ON d.`protein_id` = `t2tc`.`protein_id`
+              JOIN `target` tgt
+                ON `t2tc`.`target_id` = tgt.`id`
+              WHERE x.`direct` = 1
+              GROUP BY n2.`id`
+            ) q
+              ON q.`id` = n.`id`
+            SET n.`maxTDL` = CASE
+              WHEN q.`tempTDL` = 4 THEN 'Tclin'
+              WHEN q.`tempTDL` = 3 THEN 'Tchem'
+              WHEN q.`tempTDL` = 2 THEN 'Tbio'
+              ELSE 'Tdark'
+            END
+        """))
+
+    @staticmethod
+    def _populate_ncats_ligand_summary_fields(session):
+        session.execute(text("""
+            UPDATE `ncats_ligands`
+            SET
+              `actCnt` = 0,
+              `targetCount` = 0
+        """))
+        session.execute(text("""
+            UPDATE `ncats_ligands` l
+            JOIN (
+              SELECT
+                a.`ncats_ligand_id`,
+                COUNT(a.`id`) AS `actCnt`,
+                COUNT(DISTINCT a.`target_id`) AS `targetCount`
+              FROM `ncats_ligand_activity` a
+              GROUP BY a.`ncats_ligand_id`
+            ) q
+              ON q.`ncats_ligand_id` = l.`id`
+            SET
+              l.`actCnt` = q.`actCnt`,
+              l.`targetCount` = q.`targetCount`
+        """))
+
     def do_post_processing(self, clean_edges: bool = True) -> None:
         session = self.get_session()
         try:
@@ -799,6 +928,8 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 node_key="uid",
                 parent_key="parent_id",
             )
+            self._populate_ncats_disease_summary_fields(session)
+            self._populate_ncats_ligand_summary_fields(session)
             session.commit()
         except Exception:
             session.rollback()

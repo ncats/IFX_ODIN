@@ -331,6 +331,62 @@ def test_tcrd_output_adapter_builds_deduped_data_source_version_rows():
     ]
 
 
+class FakeExecuteSession:
+    def __init__(self):
+        self.statements = []
+
+    def execute(self, stmt):
+        self.statements.append(str(stmt))
+
+
+def test_tcrd_output_adapter_populates_disease_summary_fields_with_idempotent_sql():
+    session = FakeExecuteSession()
+
+    TCRDOutputAdapter._populate_ncats_disease_summary_fields(session)
+
+    assert len(session.statements) == 9
+    assert "SET\n              `target_count` = 0" in session.statements[0]
+    assert "`direct_target_count` = 0" in session.statements[0]
+    assert "`maxTDL` = NULL" in session.statements[0]
+    assert "COUNT(DISTINCT d.`protein_id`) AS `direct_target_count`" in session.statements[1]
+    assert "DROP TEMPORARY TABLE IF EXISTS `ncats_disease_descendant_stage`" in session.statements[2]
+    assert "CREATE TEMPORARY TABLE `ncats_disease_descendant_stage`" in session.statements[3]
+    assert "FROM `ncats_disease`" in session.statements[4]
+    assert "JOIN `ancestry_mondo` ancestry" in session.statements[5]
+    assert "COUNT(DISTINCT d.`protein_id`) AS `target_count`" in session.statements[6]
+    assert "DROP TEMPORARY TABLE IF EXISTS `ncats_disease_descendant_stage`" in session.statements[7]
+    assert "SET n.`maxTDL` = CASE" in session.statements[8]
+
+
+def test_tcrd_output_adapter_populates_disease_summary_fields_max_tdl_from_direct_targets():
+    session = FakeExecuteSession()
+
+    TCRDOutputAdapter._populate_ncats_disease_summary_fields(session)
+
+    max_tdl_sql = session.statements[-1]
+    assert "JOIN `ncats_d2da` x" in max_tdl_sql
+    assert "JOIN `disease` d" in max_tdl_sql
+    assert "JOIN `t2tc`" in max_tdl_sql
+    assert "JOIN `target` tgt" in max_tdl_sql
+    assert "WHERE x.`direct` = 1" in max_tdl_sql
+    assert "WHEN tgt.`tdl` = 'Tclin' THEN 4" in max_tdl_sql
+    assert "WHEN tgt.`tdl` = 'Tchem' THEN 3" in max_tdl_sql
+    assert "WHEN tgt.`tdl` = 'Tbio' THEN 2" in max_tdl_sql
+
+
+def test_tcrd_output_adapter_populates_ligand_summary_fields_with_idempotent_sql():
+    session = FakeExecuteSession()
+
+    TCRDOutputAdapter._populate_ncats_ligand_summary_fields(session)
+
+    assert len(session.statements) == 2
+    assert "SET\n              `actCnt` = 0" in session.statements[0]
+    assert "`targetCount` = 0" in session.statements[0]
+    assert "FROM `ncats_ligand_activity` a" in session.statements[1]
+    assert "COUNT(a.`id`) AS `actCnt`" in session.statements[1]
+    assert "COUNT(DISTINCT a.`target_id`) AS `targetCount`" in session.statements[1]
+
+
 def test_tcrd_output_adapter_builds_etl_run_rows():
     graph_etl = {
         "run_date": "2026-04-04T11:49:01.558897",
