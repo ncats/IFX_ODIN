@@ -30,6 +30,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Mondo,
     MondoParent,
     NcatsDisease,
+    NcatsTypeaheadIndex,
     PantherClass,
     Tissue,
     TinxImportance,
@@ -37,6 +38,120 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     UberonParent,
 )
 from src.shared.sqlalchemy_tables.test_tables import Base as TestBase
+
+
+TYPEAHEAD_INSERTS = [
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT DISTINCT 'Diseases', LEFT(`ncats_name`, 255), LEFT(`ncats_name`, 255)
+    FROM `disease`
+    WHERE `ncats_name` IS NOT NULL
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT DISTINCT 'Drugs', LEFT(`name`, 255), LEFT(`name`, 255)
+    FROM `ncats_ligands`
+    WHERE `isDrug` = 1
+      AND `name` IS NOT NULL
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT
+      'Family',
+      CASE `fam`
+        WHEN 'IC' THEN 'Ion Channel'
+        WHEN 'TF; Epigenetic' THEN 'TF-Epigenetic'
+        WHEN 'TF' THEN 'Transcription Factor'
+        WHEN 'NR' THEN 'Nuclear Receptor'
+        ELSE LEFT(`fam`, 255)
+      END,
+      NULL
+    FROM `target`
+    WHERE `fam` IS NOT NULL
+    GROUP BY `fam`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT
+      'Genes',
+      `sym`,
+      CASE WHEN COUNT(*) = 1 THEN MAX(`sym`) ELSE MAX(`uniprot`) END
+    FROM `protein`
+    WHERE `sym` IS NOT NULL
+    GROUP BY `sym`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT DISTINCT CONCAT('GO ', `go_type`), LEFT(`go_term_text`, 255), NULL
+    FROM `goa`
+    WHERE `go_type` IN ('Function', 'Process')
+      AND `go_term_text` IS NOT NULL
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT 'GWAS', `trait`, NULL
+    FROM `tiga`
+    WHERE `trait` IS NOT NULL
+    GROUP BY `trait`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT 'IMPC Phenotype', `term_name`, NULL
+    FROM `phenotype`
+    WHERE `ptype` = 'IMPC'
+      AND `term_name` IS NOT NULL
+    GROUP BY `term_name`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT 'Interacting Virus', v.`name`, NULL
+    FROM `viral_ppi` p
+    JOIN `viral_protein` vp
+      ON p.`viral_protein_id` = vp.`id`
+    JOIN `virus` v
+      ON vp.`virus_id` = v.`virusTaxid`
+    WHERE p.`finalLR` >= 500
+      AND v.`name` IS NOT NULL
+    GROUP BY v.`virusTaxid`, v.`name`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT 'JAX/MGI Phenotype', `term_name`, NULL
+    FROM `phenotype`
+    WHERE `ptype` = 'JAX/MGI Human Ortholog Phenotype'
+      AND `term_name` IS NOT NULL
+    GROUP BY `term_name`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT DISTINCT CONCAT(`pwtype`, ' Pathway'), LEFT(`name`, 255), NULL
+    FROM `pathway`
+    WHERE `pwtype` IN ('WikiPathways', 'KEGG', 'Reactome')
+      AND `name` IS NOT NULL
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT 'UniProt Keyword', `xtra`, NULL
+    FROM `xref`
+    WHERE `xtype` = 'UniProt Keyword'
+      AND `xtra` IS NOT NULL
+    GROUP BY `xtra`
+    """,
+    """
+    INSERT INTO `ncats_typeahead_index` (`category`, `value`, `reference_id`)
+    SELECT
+      'Targets',
+      t.`name`,
+      COALESCE(MAX(p.`sym`), MAX(p.`uniprot`))
+    FROM `target` t
+    JOIN `t2tc` x
+      ON x.`target_id` = t.`id`
+    JOIN `protein` p
+      ON x.`protein_id` = p.`id`
+    WHERE t.`name` IS NOT NULL
+    GROUP BY t.`name`
+    """,
+]
 
 
 class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
@@ -890,7 +1005,14 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
               l.`targetCount` = q.`targetCount`
         """))
 
+    @staticmethod
+    def _populate_typeahead_index(session):
+        session.execute(text("DELETE FROM `ncats_typeahead_index`"))
+        for insert_sql in TYPEAHEAD_INSERTS:
+            session.execute(text(insert_sql))
+
     def do_post_processing(self, clean_edges: bool = True) -> None:
+        NcatsTypeaheadIndex.__table__.create(self.get_engine(), checkfirst=True)
         session = self.get_session()
         try:
             self._populate_data_source_version_table(session)
@@ -930,6 +1052,7 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
             )
             self._populate_ncats_disease_summary_fields(session)
             self._populate_ncats_ligand_summary_fields(session)
+            self._populate_typeahead_index(session)
             session.commit()
         except Exception:
             session.rollback()

@@ -334,9 +334,21 @@ def test_tcrd_output_adapter_builds_deduped_data_source_version_rows():
 class FakeExecuteSession:
     def __init__(self):
         self.statements = []
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.close_calls = 0
 
     def execute(self, stmt):
         self.statements.append(str(stmt))
+
+    def commit(self):
+        self.commit_calls += 1
+
+    def rollback(self):
+        self.rollback_calls += 1
+
+    def close(self):
+        self.close_calls += 1
 
 
 def test_tcrd_output_adapter_populates_disease_summary_fields_with_idempotent_sql():
@@ -385,6 +397,18 @@ def test_tcrd_output_adapter_populates_ligand_summary_fields_with_idempotent_sql
     assert "FROM `ncats_ligand_activity` a" in session.statements[1]
     assert "COUNT(a.`id`) AS `actCnt`" in session.statements[1]
     assert "COUNT(DISTINCT a.`target_id`) AS `targetCount`" in session.statements[1]
+
+
+def test_tcrd_output_adapter_populates_typeahead_index_with_idempotent_sql():
+    session = FakeExecuteSession()
+
+    TCRDOutputAdapter._populate_typeahead_index(session)
+
+    assert session.statements[0] == "DELETE FROM `ncats_typeahead_index`"
+    assert len(session.statements) == 13
+    assert all("`category`, `value`, `reference_id`" in stmt for stmt in session.statements[1:])
+    assert any("'Targets'" in stmt for stmt in session.statements)
+    assert any("'Diseases'" in stmt for stmt in session.statements)
 
 
 def test_tcrd_output_adapter_builds_etl_run_rows():
