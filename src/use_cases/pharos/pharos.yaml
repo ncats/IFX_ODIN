@@ -9,7 +9,15 @@ resolvers:
     class: TranslatorNodeNormResolver
     kwargs:
       types:
-        - Ligand
+        - Ligand  # change to compounds
+
+  - label: disease_ids
+    import: ./src/id_resolvers/disease_resolver.py
+    class: DiseaseIdResolver
+    kwargs:
+      file_path: ./input_files/manual/target_graph/disease_ids.tsv
+      multi_match_behavior: All
+      types:
         - Disease
 
   - label: tcrd_targets
@@ -358,6 +366,9 @@ input_adapters:
     class: DODiseaseParentEdgeAdapter
     kwargs:
       file_path: ./input_files/auto/disease_ontology/doid.json
+
+  - import: ./src/input_adapters/rdas/diseases.py
+    class: RDASRareDiseaseAdapter
 
   - import: ./src/input_adapters/jensenlab/diseases.py
     class: JensenLabDiseasesAdapter

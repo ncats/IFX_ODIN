@@ -2,6 +2,15 @@ source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.
 database_name: &database_name test_pharos
 
 resolvers:
+  - label: disease_ids
+    import: ./src/id_resolvers/disease_resolver.py
+    class: DiseaseIdResolver
+    kwargs:
+      file_path: ./input_files/manual/target_graph/disease_ids.tsv
+      multi_match_behavior: All
+      types:
+        - Disease
+
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
@@ -20,20 +29,35 @@ resolvers:
         - Protein
 
 input_adapters:
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/mondo/mondo_adapter.py
+    class: MondoDiseaseParentEdgeAdapter
+    kwargs:
+      file_path: ./input_files/auto/mondo/mondo.json
+
+  - import: ./src/input_adapters/disease_ontology/do_adapter.py
+    class: DODiseaseAdapter
+    kwargs:
+      file_path: ./input_files/auto/disease_ontology/doid.json
+
+  - import: ./src/input_adapters/rdas/diseases.py
+    class: RDASRareDiseaseAdapter
+
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
       file_path: ./input_files/manual/target_graph/protein_ids.tsv
       canonical_only: true
 
-  - import: ./src/input_adapters/ncbi/publications.py
-    class: NCBIPublicationAdapter
+  - import: ./src/input_adapters/ctd/ctd_gene_disease.py
+    class: CTDGeneDiseaseAdapter
     kwargs:
-      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
-      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
-      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
-      max_gene2pubmed_rows: 10000
-      max_generif_rows: 10000
+      file_path: ./input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz
+      version_file_path: ./input_files/auto/ctd/ctd_version.tsv
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

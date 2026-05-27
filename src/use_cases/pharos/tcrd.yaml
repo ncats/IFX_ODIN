@@ -9,10 +9,12 @@ meets_idg_cutoff: &meets_idg_cutoff true
 resolvers:
   # Important: keep Disease resolution and Target resolution aligned with src/use_cases/pharos/pharos.yaml.
   # otherwise, IDs could drift between pharos.yaml and tcrd.yaml.
-  - label: translator_nn
-    import: ./src/id_resolvers/node_normalizer.py
-    class: TranslatorNodeNormResolver
+  - label: disease_ids
+    import: ./src/id_resolvers/disease_resolver.py
+    class: DiseaseIdResolver
     kwargs:
+      file_path: ./input_files/manual/target_graph/disease_ids.tsv
+      multi_match_behavior: All
       types:
         - Disease
 

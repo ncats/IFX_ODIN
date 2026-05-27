@@ -840,6 +840,19 @@ def test_ncats_disease_converter_only_keeps_loaded_mondo_ids():
     assert known.mondoid == "MONDO:0000001"
 
 
+def test_ncats_disease_converter_maps_rare_disease_to_gard_rare():
+    converter = TCRDOutputConverter()
+
+    row = converter.ncats_disease_converter({
+        "id": "MONDO:0000001",
+        "name": "rare disease",
+        "rare_disease": True,
+        "provenance": "RDAS\trdas-diseases-graphql\tNone\t2026-05-27",
+    })
+
+    assert row.gard_rare is True
+
+
 def test_disease_converter_prefers_detail_source_id_and_keeps_resolved_mondoid():
     converter = TCRDOutputConverter()
     converter.id_mapping["protein"] = {"IFX123": 123}

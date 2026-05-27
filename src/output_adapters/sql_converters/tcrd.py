@@ -1016,6 +1016,7 @@ class TCRDOutputConverter(SQLOutputConverter):
             do_description=obj.get('do_description'),
             mondo_description=obj.get('mondo_description'),
             mondoid=mondoid,
+            gard_rare=obj.get('rare_disease'),
             novelty=min(obj.get('novelty') or []) if obj.get('novelty') else None,
             provenance=obj['provenance'],
         )
