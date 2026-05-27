@@ -1,4 +1,4 @@
-from typing import Dict, List, Iterable, Set
+from typing import Dict, List, Set
 
 from src.input_adapters.shared.hcop import HCOPRecordHelper
 from src.id_resolvers.node_normalizer import TranslatorNodeNormResolver
@@ -65,22 +65,3 @@ class HCOPOrthologGeneResolver(TranslatorNodeNormResolver):
         for row in self.hcop_helper.iter_accepted_rows():
             allowed_ids.update(self.hcop_helper.ortholog_curies_from_row(row))
         return allowed_ids
-
-    def _post_to_node_normalizer(self, curies: Iterable[str]):
-        batch = list(curies)
-        post_body = {
-            "curies": batch,
-            "conflate": self.conflate_genes_and_proteins,
-            "description": False,
-            "drug_chemical_conflate": False
-        }
-
-        import requests
-        response = requests.post(self.node_norm_url(), json=post_body)
-
-        if response.status_code != 200:
-            print(f"Failed to resolve IDs: {response.status_code} {response.text}")
-            raise Exception(response)
-
-        print(f"Resolved {len(batch)} from Translator Node Normalizer")
-        return response.json()
