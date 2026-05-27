@@ -60,6 +60,7 @@ class DataSourceName(SimpleEnum):
     PharosLinkouts = "Pharos Simple Linkouts"
     SureChEMBL = "SureChEMBL"
     PHIPSTER = "P-HIPSTer"
+    RDAS = "RDAS"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN
@@ -80,13 +81,16 @@ class Prefix(SimpleEnum):
     FBbt = 'FBbt'                       	# from TNN
     FMA = 'FMA'
     GO = 'GO'                           	# from TNN
+    GARD = 'GARD'
     GTOPDB = 'GTOPDB'                   	# from TNN
     HGNC = 'HGNC'                       	# from TNN
     HGNC_FAMILY = 'HGNC.FAMILY'         	# from TNN
     HMDB = 'HMDB'                       	# from TNN
     HP = 'HP'                           	# from TNN
     ICD10 = 'ICD10'                     	# from TNN
+    ICD10CM = 'ICD10CM'
     ICD9 = 'ICD9'                       	# from TNN
+    ICDO = 'ICDO'
     INCHIKEY = 'INCHIKEY'               	# from TNN
     KEGG_COMPOUND = 'KEGG.COMPOUND'        	# from TNN
     KEGG_DISEASE = 'KEGG.DISEASE'          	# from TNN
@@ -101,6 +105,7 @@ class Prefix(SimpleEnum):
     NCBITaxon = 'NCBITaxon'             	# from TNN
     NCIT = 'NCIT'                       	# from TNN
     OMIM = 'OMIM'                       	# from TNN
+    OMIMPS = 'OMIMPS'
     OMIM_PS = 'OMIM.PS'                 	# from TNN
     orphanet = 'orphanet'               	# from TNN
     PANTHER_CLASS = 'PANTHER.CLASS'

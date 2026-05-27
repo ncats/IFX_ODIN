@@ -17,6 +17,7 @@ class Disease(Node):
     subsets: Optional[List[str]] = None
     synonyms: Optional[List[str]] = None
     comments: Optional[List[str]] = None
+    rare_disease: Optional[bool] = None
 
 
 @dataclass
