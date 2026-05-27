@@ -7,7 +7,6 @@ Status: [ ] not started | [~] in progress | [x] done
 
 ## Code Style TODOs
 
-- [x] Standardize edge/relationship class names — pick one convention (e.g. always end with `Edge`, drop `Relationship`)
 - [ ] `ProteinAdapter` (UniProt) yields `Pathway` nodes and `ProteinPathwayRelationship` edges in addition to `Protein` — consider splitting into separate adapters to make intent clear
 - [ ] Normalize old `pharos_mysql` adapters to use `EquivalentId(...).id_str()` consistently instead of manual `f"{Prefix...}:{...}"` string construction where they emit graph IDs.
 
@@ -81,7 +80,6 @@ These tables are populated directly from ontology source files during the TCRD b
 
 ### New Features
 - Nearest Tclin (computed from graph)
-- Word Cloud
 - Disease
   - rare disease badge
 
