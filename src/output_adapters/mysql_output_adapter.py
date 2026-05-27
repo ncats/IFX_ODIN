@@ -36,6 +36,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     TinxImportance,
     Uberon,
     UberonParent,
+    WordCount,
 )
 from src.shared.sqlalchemy_tables.test_tables import Base as TestBase
 
@@ -434,6 +435,8 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                                         else_=table_class.doid,
                                     ),
                                 )
+                            if table_class is WordCount:
+                                stmt = stmt.on_duplicate_key_update(count=stmt.inserted.count)
                             print(f"Inserting objects of type {table_class.__name__}")
 
                         serialization_start = datetime.now()
