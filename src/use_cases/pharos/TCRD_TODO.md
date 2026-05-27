@@ -82,16 +82,8 @@ These tables are populated directly from ontology source files during the TCRD b
 ### New Features
 - Nearest Tclin (computed from graph)
 - Word Cloud
-- Typeahead
 - Disease
-  - associated target counts
   - rare disease badge
-  - highest TDL
-  - Disease
-  - mondo and do descriptions
-- Ligand
-  - Target Counts
-  - Activity Value Counts
 
 ### Bugs
 - Disease Heirarchy / Disease Ancestry not working
