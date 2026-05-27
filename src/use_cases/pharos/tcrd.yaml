@@ -2,6 +2,7 @@ destination_credentials: &destination_credentials ./src/use_cases/secrets/pharos
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 source_database: &source_database pharos
 legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/pharos_credentials.yaml
+pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
 
 meets_idg_cutoff: &meets_idg_cutoff true
 
@@ -57,6 +58,13 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
+
+  - import: ./src/input_adapters/pharos_source_tcrd/word_count.py
+    class: WordCountAdapter
+    credentials: *destination_credentials
+    kwargs:
+      database_name: pharos400
+      pubmed_credentials: *pubmed_credentials
 
   - import: ./src/input_adapters/pharos_arango/tcrd/phipster.py
     class: PHIPSTERAdapter

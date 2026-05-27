@@ -22,6 +22,7 @@ from src.models.tcrd_disease_ontology import MondoTerm, MondoTermParentEdge, DOT
 from src.models.tissue import Tissue, TissueParentEdge
 from src.models.ortholog import OrthologGene, ProteinOrthologGeneEdge
 from src.models.virus import Virus, ViralPPIDetail, ViralPPIEdge, ViralProtein
+from src.models.word_count import WordCount
 from src.input_adapters.shared.hcop import HCOP_TAXID_TO_SPECIES
 from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DrgcResource as mysqlDrgcResource, Protein as mysqlProtein, Xref, Alias, Target, TDL_info, T2TC, GO, GOParent, GoA,
@@ -33,6 +34,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
     Ortholog as mysqlOrtholog, PatentCount, Ptscore, Virus as mysqlVirus, ViralProtein as mysqlViralProtein,
     ViralPPI as mysqlViralPPI, Affiliate, ExtLink,
+    WordCount as mysqlWordCount,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.shared.sqlalchemy_tables.pharos_tables_new import Base as TCRDBase
@@ -108,10 +110,15 @@ class TCRDOutputConverter(SQLOutputConverter):
             # Simple linkouts
             ExternalLinkProvider: [self.affiliate_converter],
             ProteinExternalLinkEdge: [self.extlink_converter],
+            # Publication word-cloud background
+            WordCount: [self.word_count_converter],
         }
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
         return self._converters.get(obj_cls)
+
+    def word_count_converter(self, obj: dict) -> mysqlWordCount:
+        return mysqlWordCount(word=obj["word"], count=obj["count"])
 
     @staticmethod
     def _parse_patent_family_token(token: str) -> tuple[int, int] | None:
