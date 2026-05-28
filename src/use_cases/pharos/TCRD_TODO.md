@@ -76,14 +76,8 @@ These tables are populated directly from ontology source files during the TCRD b
 
 ---
 
-## Planned Data Sources
-
-### New Features
-- Nearest Tclin (computed from graph)
-- Disease
-  - rare disease badge
-
 ### Larger Efforts
+- Nearest Tclin (computed from graph) *(likely Reactome replacement for legacy KEGG-derived `kegg_distance` / `kegg_nearest_tclin`; see `designs/pharos/pathways/reactome_nearest_tclin_design.md`)*
 - Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
 - Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
 
