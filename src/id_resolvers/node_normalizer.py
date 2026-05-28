@@ -17,8 +17,8 @@ class TranslatorNodeNormResolver(IdResolver):
                  types: List[str],
                  batch_size: int = 50000,
                  request_timeout: int = 120,
-                 max_retries: int = 4,
-                 retry_backoff_seconds: int = 10,
+                 max_retries: int = 10,
+                 retry_backoff_seconds: int = 60,
                  **kwargs):
         super().__init__(types=types, **kwargs)
         self.batch_size = batch_size
