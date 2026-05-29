@@ -61,6 +61,14 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
+  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
+    class: HarmonizomeGeneAttributeTypeAdapter
+    credentials: *legacy_pharos_credentials
+
+  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
+    class: HarmonizomeHgramCDFAdapter
+    credentials: *legacy_pharos_credentials
+
   - import: ./src/input_adapters/pharos_source_tcrd/word_count.py
     class: WordCountAdapter
     credentials: *destination_credentials

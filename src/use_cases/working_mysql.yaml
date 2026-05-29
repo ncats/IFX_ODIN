@@ -22,44 +22,20 @@ resolvers:
         - Transcript
 
 input_adapters:
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: MondoTableAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: MondoTableParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: DOTableAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
-    class: DOTableParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: DiseaseAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
-      associated_only: false
+  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
+    class: HarmonizomeGeneAttributeTypeAdapter
+    credentials: *legacy_pharos_credentials
 
-  - import: ./src/input_adapters/pharos_arango/tcrd/disease.py
-    class: ProteinDiseaseAdapter
-    credentials: *source_credentials
-    kwargs:
-      database_name: *source_database
+  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
+    class: HarmonizomeHgramCDFAdapter
+    credentials: *legacy_pharos_credentials
+
 
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
