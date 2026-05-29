@@ -24,6 +24,7 @@ Each row is a protein-facing Pharos/TCRD concept. Data source checkboxes = inges
 |---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|-------------------------------------------------------------------------------------------------------------|
 | **Protein** | [x] target_graph CSV<br>[x] UniProt reviewed<br>[x] JensenLab<br>[x] PubTator<br>[x] SureChEMBL<br>[x] TIN-X<br>[x] Antibodypedia<br>[x] old Pharos MySQL                | `Protein` | [x] `protein`<br>[x] `target`<br>[x] `t2tc`<br>[x] `alias`<br>[x] `xref`<br>[x] `tdl_info`<br>[x] `pmscore`<br>[x] `ptscore`<br>[x] `patent_count` |
 | **Publications** | [x] NCBI `gene2pubmed.gz`<br>[x] NCBI `generifs_basic.gz`<br>[x] JensenLab text mining mentions                                                                          | `publications` property on `Gene` / `Protein` | [x] `protein2pubmed`<br>[x] `generif`<br>[x] `generif2pubmed` |
+| **Harmonizome Metrics** | [x] old Pharos MySQL `gene_attribute_type` / `hgram_cdf`                                                                                                                 | not materialized in graph; loaded directly from legacy Pharos MySQL in `tcrd.yaml`; legacy `gene_attribute` rows are skipped because Pharos reads CDF summaries only | [x] `gene_attribute_type`<br>[x] `hgram_cdf` |
 | **Tissue** | [x] Uberon OBO                                                                                                                                                           | `Tissue` | [x] `uberon`                                                                                                |
 | **TissueParentEdge** | [x] Uberon OBO                                                                                                                                                           | `TissueParentEdge` | [x] `uberon_parent`                                                                                         |
 | **ProteinTissueExpressionEdge** | [x] GTEx<br>[x] HPA protein (IHC)<br>[x] HPA RNA<br>[x] HPM<br>[x] JensenLab TISSUES                                                                                     | `ProteinTissueExpressionEdge` | [x] `tissue`<br>[x] `expression`<br>[x] `gtex`                                                              |
@@ -79,7 +80,7 @@ These tables are populated directly from ontology source files during the TCRD b
 ### Larger Efforts
 - Nearest Tclin (computed from graph) *(likely Reactome replacement for legacy KEGG-derived `kegg_distance` / `kegg_nearest_tclin`; see `designs/pharos/pathways/reactome_nearest_tclin_design.md`)*
 - Expression Atlas *(punt for now: old TCRD used a bulk Atlas export plus custom preprocessing, but current Atlas appears to require per-experiment harvesting from FTP; revisit only as a larger dedicated project, not a quick ingest)*
-- Harmonizome: pharos shows high-level summary stats for different types of data - it's basically a summary of relations in their KG, when we should probalby just use summary stats from our own KG
+- Harmonizome replacement: show metrics from our own graph
 
 ### Requires License
 - DisGeNET Disease Associations

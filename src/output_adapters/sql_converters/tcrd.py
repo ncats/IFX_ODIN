@@ -9,6 +9,7 @@ from src.models.expression import ProteinTissueExpressionEdge
 from src.models.external_link import ExternalLinkProvider, ProteinExternalLinkEdge
 from src.models.generif import GeneGeneRifEdge
 from src.models.go_term import GoType, GoTerm, GoTermHasParent, ProteinGoTermEdge
+from src.models.harmonizome import HarmonizomeGeneAttributeType, HarmonizomeHgramCDF
 from src.models.keyword import ProteinKeywordEdge
 from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
@@ -34,6 +35,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     DTO as mysqlDTO, DTOParent, P2DTO, Pmscore, NhProtein as mysqlNhProtein, Phenotype as mysqlPhenotype,
     Ortholog as mysqlOrtholog, PatentCount, Ptscore, Virus as mysqlVirus, ViralProtein as mysqlViralProtein,
     ViralPPI as mysqlViralPPI, Affiliate, ExtLink,
+    GeneAttributeType as mysqlGeneAttributeType, HgramCDF as mysqlHgramCDF,
     WordCount as mysqlWordCount,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -50,6 +52,12 @@ class TCRDOutputConverter(SQLOutputConverter):
         self._seen_protein2pubmed: set[tuple[int, str, int | None, str]] = set()
         self._target_id_by_uniprot: dict[str, int] = {}
         self._warned_missing_drgc_targets: set[tuple[str, str | None]] = set()
+        self._protein_id_by_uniprot: dict[str, int] = {}
+        self._protein_id_by_geneid: dict[int, int] = {}
+        self._ambiguous_protein_geneids: set[int] = set()
+        self._protein_id_by_symbol: dict[str, int] = {}
+        self._ambiguous_protein_symbols: set[str] = set()
+        self._warned_missing_harmonizome_proteins: set[tuple[int | None, str | None, int | None, str | None]] = set()
         self._converters = {
             # Protein
             Protein: [self.protein_converter, self.target_converter, self.t2tc_converter,
@@ -73,6 +81,8 @@ class TCRDOutputConverter(SQLOutputConverter):
                                           self.gtex_converter],
             # Direct MySQL side-loads
             DRGCResource: [self.drgc_resource_converter],
+            HarmonizomeGeneAttributeType: [self.harmonizome_gene_attribute_type_converter],
+            HarmonizomeHgramCDF: [self.harmonizome_hgram_cdf_converter],
             OrthologGene: [self.nhprotein_converter],
             ProteinOrthologGeneEdge: [self.ortholog_converter],
             OrthologGeneMousePhenotypeEdge: [self.phenotype_converter],
@@ -146,6 +156,9 @@ class TCRDOutputConverter(SQLOutputConverter):
             "table": 'panther_class',
             "data": session.query(mysqlPantherClass.id, mysqlPantherClass.pcid).all()
         }, {
+            "table": 'protein_by_uniprot',
+            "data": session.query(mysqlProtein.id, mysqlProtein.uniprot).filter(mysqlProtein.uniprot.isnot(None)).all()
+        }, {
             "table": 'target_by_uniprot',
             "data": session.query(Target.id, mysqlProtein.uniprot)
             .join(T2TC, T2TC.target_id == Target.id)
@@ -159,12 +172,93 @@ class TCRDOutputConverter(SQLOutputConverter):
     def preload_id_mappings(self, session):
         super().preload_id_mappings(session)
         self._target_id_by_uniprot = dict(self.id_mapping.get("target_by_uniprot", {}))
+        self._protein_id_by_uniprot = dict(self.id_mapping.get("protein_by_uniprot", {}))
+        self._protein_id_by_geneid, self._ambiguous_protein_geneids = self._build_unambiguous_geneid_map(session)
+        self._protein_id_by_symbol, self._ambiguous_protein_symbols = self._build_unambiguous_symbol_map(session)
         self._known_disease_types = {
             row[0] for row in session.query(DiseaseType.name).all() if row[0]
         }
         self._known_mondo_ids = {
             row[0] for row in session.query(Mondo.mondoid).all() if row[0]
         }
+
+    @staticmethod
+    def _build_unambiguous_geneid_map(session) -> tuple[dict[int, int], set[int]]:
+        geneid_rows = (
+            session.query(mysqlProtein.geneid, mysqlProtein.id)
+            .filter(mysqlProtein.geneid.isnot(None))
+            .all()
+        )
+        geneid_to_id: dict[int, int] = {}
+        ambiguous: set[int] = set()
+        for geneid, protein_id in geneid_rows:
+            if geneid is None:
+                continue
+            key = int(geneid)
+            if key in ambiguous:
+                continue
+            if key in geneid_to_id and geneid_to_id[key] != protein_id:
+                ambiguous.add(key)
+                del geneid_to_id[key]
+                continue
+            geneid_to_id[key] = protein_id
+        return geneid_to_id, ambiguous
+
+    @staticmethod
+    def _build_unambiguous_symbol_map(session) -> tuple[dict[str, int], set[str]]:
+        symbol_rows = (
+            session.query(mysqlProtein.sym, mysqlProtein.id)
+            .filter(mysqlProtein.sym.isnot(None))
+            .all()
+        )
+        symbol_to_id: dict[str, int] = {}
+        ambiguous: set[str] = set()
+        for symbol, protein_id in symbol_rows:
+            if not symbol:
+                continue
+            key = symbol.upper()
+            if key in ambiguous:
+                continue
+            if key in symbol_to_id and symbol_to_id[key] != protein_id:
+                ambiguous.add(key)
+                del symbol_to_id[key]
+                continue
+            symbol_to_id[key] = protein_id
+        return symbol_to_id, ambiguous
+
+    def _resolve_legacy_harmonizome_protein_id(self, obj: dict) -> int | None:
+        uniprot = obj.get("legacy_uniprot")
+        if uniprot and uniprot in self._protein_id_by_uniprot:
+            return self._protein_id_by_uniprot[uniprot]
+
+        geneid = obj.get("legacy_geneid")
+        if geneid is not None:
+            try:
+                geneid_key = int(geneid)
+            except (TypeError, ValueError):
+                geneid_key = None
+            if (
+                geneid_key is not None
+                and geneid_key not in self._ambiguous_protein_geneids
+                and geneid_key in self._protein_id_by_geneid
+            ):
+                return self._protein_id_by_geneid[geneid_key]
+
+        symbol = obj.get("legacy_symbol")
+        if symbol:
+            symbol_key = symbol.upper()
+            if symbol_key not in self._ambiguous_protein_symbols and symbol_key in self._protein_id_by_symbol:
+                return self._protein_id_by_symbol[symbol_key]
+
+        warning_key = (obj.get("legacy_protein_id"), uniprot, geneid, symbol)
+        if warning_key not in self._warned_missing_harmonizome_proteins:
+            self._warned_missing_harmonizome_proteins.add(warning_key)
+            print(
+                "Skipping Harmonizome row with no destination protein match "
+                f"(legacy protein_id={obj.get('legacy_protein_id')}, "
+                f"uniprot={uniprot}, geneid={geneid}, symbol={symbol})"
+            )
+        return None
 
     # --- Protein ---
 
@@ -176,6 +270,23 @@ class TCRDOutputConverter(SQLOutputConverter):
         protein_id = self.resolve_id('protein', obj['id'])
         uniprot_id = obj['uniprot_id']
         self._target_id_by_uniprot[uniprot_id] = protein_id
+        self._protein_id_by_uniprot[uniprot_id] = protein_id
+        if gene_id is not None:
+            geneid_key = int(gene_id)
+            existing_id = self._protein_id_by_geneid.get(geneid_key)
+            if existing_id is not None and existing_id != protein_id:
+                self._ambiguous_protein_geneids.add(geneid_key)
+                del self._protein_id_by_geneid[geneid_key]
+            elif geneid_key not in self._ambiguous_protein_geneids:
+                self._protein_id_by_geneid[geneid_key] = protein_id
+        if obj.get('symbol'):
+            symbol_key = obj['symbol'].upper()
+            existing_id = self._protein_id_by_symbol.get(symbol_key)
+            if existing_id is not None and existing_id != protein_id:
+                self._ambiguous_protein_symbols.add(symbol_key)
+                del self._protein_id_by_symbol[symbol_key]
+            elif symbol_key not in self._ambiguous_protein_symbols:
+                self._protein_id_by_symbol[symbol_key] = protein_id
         return mysqlProtein(
             id=protein_id,
             ifx_id=obj['id'],
@@ -191,6 +302,37 @@ class TCRDOutputConverter(SQLOutputConverter):
             provenance=obj['provenance'],
             preferred_symbol=obj.get('preferred_symbol'),
             novelty=min(obj.get('novelty') or []) if obj.get('novelty') else None,
+        )
+
+    # --- Harmonizome compatibility tables ---
+
+    @staticmethod
+    def harmonizome_gene_attribute_type_converter(obj: dict) -> mysqlGeneAttributeType:
+        return mysqlGeneAttributeType(
+            id=obj["legacy_id"],
+            name=obj["name"],
+            association=obj["association"],
+            description=obj["description"],
+            resource_group=obj["resource_group"],
+            measurement=obj["measurement"],
+            attribute_group=obj["attribute_group"],
+            attribute_type=obj["attribute_type"],
+            pubmed_ids=obj.get("pubmed_ids"),
+            url=obj.get("url"),
+            provenance=obj["provenance"],
+        )
+
+    def harmonizome_hgram_cdf_converter(self, obj: dict) -> mysqlHgramCDF | None:
+        protein_id = self._resolve_legacy_harmonizome_protein_id(obj)
+        if protein_id is None:
+            return None
+
+        return mysqlHgramCDF(
+            protein_id=protein_id,
+            type=obj["type"],
+            attr_count=obj["attr_count"],
+            attr_cdf=obj["attr_cdf"],
+            provenance=obj["provenance"],
         )
 
     def tdl_info_converter(self, obj: dict) -> List[TDL_info]:
