@@ -4,7 +4,7 @@ source_database: &source_database pharos
 legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/pharos_credentials.yaml
 pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
 
-meets_idg_cutoff: &meets_idg_cutoff true
+meets_idg_criteria: &meets_idg_criteria true
 
 resolvers:
   # Important: keep Disease resolution and Target resolution aligned with src/use_cases/pharos/pharos.yaml.
@@ -127,14 +127,14 @@ input_adapters:
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
+      meets_idg_criteria: *meets_idg_criteria
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ligand_node.py
     class: LigandEdgeAdapter
     credentials: *source_credentials
     kwargs:
       database_name: *source_database
-      meets_idg_cutoff: *meets_idg_cutoff
+      meets_idg_criteria: *meets_idg_criteria
 
   - import: ./src/input_adapters/pharos_arango/tcrd/tissue.py
     class: TissueAdapter
