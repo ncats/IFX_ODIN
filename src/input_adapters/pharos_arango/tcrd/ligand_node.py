@@ -7,15 +7,13 @@ from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DataSourceDetails
 from src.models.ligand import Ligand, ProteinLigandEdge
 
-def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
+def ligand_edge_query(meets_idg_criteria: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER rel._key > "{last_key}"' if last_key else ""
-    cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
     trimmed_sources = [DataSourceName.ChEMBL.value, DataSourceName.IUPHAR.value]
-    if not meets_idg_cutoff:
+    if not meets_idg_criteria:
         return f"""
         FOR rel IN `ProteinLigandEdge`
             {pagination_filter}
-            {cutoff_clause}
             SORT rel._key
             LIMIT {limit}
             RETURN rel
@@ -24,8 +22,8 @@ def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int =
     return f"""
     FOR rel IN `ProteinLigandEdge`
         {pagination_filter}
-        {cutoff_clause}
         LET pro = DOCUMENT(rel._from)
+        LET lig = DOCUMENT(rel._to)
         LET cutoff = (
             pro.idg_family == "Kinase" ? 7.52288 :
             pro.idg_family == "Ion Channel" ? 5 :
@@ -34,8 +32,16 @@ def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int =
         )
         LET filtered_details = (
             FOR detail IN (rel.details || [])
-                FILTER detail.activity_source NOT IN {trimmed_sources}
-                    OR (detail.act_value != null AND detail.act_value >= cutoff)
+                FILTER (
+                    rel.meets_idg_cutoff == true
+                    AND (
+                        detail.activity_source NOT IN {trimmed_sources}
+                        OR (detail.act_value != null AND detail.act_value >= cutoff)
+                    )
+                ) OR (
+                    lig.isDrug == true
+                    AND detail.has_moa
+                )
                 RETURN detail
         )
         FILTER LENGTH(filtered_details) > 0
@@ -45,9 +51,23 @@ def ligand_edge_query(meets_idg_cutoff: bool, last_key: str = None, limit: int =
     """
 
 
-def ligand_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 10000) -> str:
+def ligand_query(meets_idg_criteria: bool, last_key: str = None, limit: int = 10000) -> str:
     pagination_filter = f'FILTER lig._key > "{last_key}"' if last_key else ""
-    cutoff_clause = f'FILTER rel.meets_idg_cutoff == {meets_idg_cutoff}' if meets_idg_cutoff else ""
+    if not meets_idg_criteria:
+        return f"""
+        FOR lig IN `Ligand`
+            {pagination_filter}
+            SORT lig._key
+            LIMIT {limit}
+            LET proteins = (
+                FOR rel IN `ProteinLigandEdge`
+                    FILTER rel._to == lig._id
+                    RETURN rel
+            )
+            FILTER LENGTH(proteins) > 0
+            RETURN lig
+        """
+
     return f"""
     FOR lig IN `Ligand`
         {pagination_filter}
@@ -56,7 +76,13 @@ def ligand_query(meets_idg_cutoff: bool, last_key: str = None, limit: int = 1000
         LET proteins = (
             FOR rel IN `ProteinLigandEdge`
                 FILTER rel._to == lig._id
-                {cutoff_clause}
+                FILTER rel.meets_idg_cutoff == true
+                    OR (
+                        lig.isDrug == true
+                        AND LENGTH(
+                            rel.details[* FILTER CURRENT.has_moa]
+                        ) > 0
+                    )
                 RETURN rel
         )
         FILTER LENGTH(proteins) > 0
@@ -71,16 +97,16 @@ def ligand_version_query():
         """
 
 class LigandBaseAdapter(PharosArangoAdapter, InputAdapter, ABC):
-    meets_idg_cutoff: bool
+    meets_idg_criteria: bool
 
     def get_version_info_query(self):
         raw_version_info = self.runQuery(ligand_version_query())[0]
         return DataSourceDetails.parse_tsv(raw_version_info)
 
-    def __init__(self, credentials, database_name: str, meets_idg_cutoff: bool = True):
+    def __init__(self, credentials, database_name: str, meets_idg_criteria: bool = True):
         PharosArangoAdapter.__init__(self, credentials, database_name)
         InputAdapter.__init__(self)
-        self.meets_idg_cutoff = meets_idg_cutoff
+        self.meets_idg_criteria = meets_idg_criteria
 
 
 class LigandEdgeAdapter(LigandBaseAdapter):
@@ -89,7 +115,7 @@ class LigandEdgeAdapter(LigandBaseAdapter):
         batch_size = self.batch_size
 
         while True:
-            query = ligand_edge_query(self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
+            query = ligand_edge_query(self.meets_idg_criteria, last_key=last_key, limit=batch_size)
             start_time = time.time()
             rows = list(self.runQuery(query))
 
@@ -116,7 +142,7 @@ class LigandNodeAdapter(LigandBaseAdapter):
         batch_size = self.batch_size
 
         while True:
-            query = ligand_query(self.meets_idg_cutoff, last_key=last_key, limit=batch_size)
+            query = ligand_query(self.meets_idg_criteria, last_key=last_key, limit=batch_size)
             start_time = time.time()
             rows = list(self.runQuery(query))
 
