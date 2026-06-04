@@ -28,15 +28,6 @@ input_adapters:
     kwargs:
       database_name: *source_database
 
-  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
-    class: HarmonizomeGeneAttributeTypeAdapter
-    credentials: *legacy_pharos_credentials
-
-  - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
-    class: HarmonizomeHgramCDFAdapter
-    credentials: *legacy_pharos_credentials
-
-
 output_adapters:
   - import: ./src/output_adapters/mysql_output_adapter.py
     class: TCRDOutputAdapter
