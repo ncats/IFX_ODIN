@@ -9,6 +9,7 @@ Status: [ ] not started | [~] in progress | [x] done
 
 - [ ] `ProteinAdapter` (UniProt) yields `Pathway` nodes and `ProteinPathwayRelationship` edges in addition to `Protein` — consider splitting into separate adapters to make intent clear
 - [ ] Normalize old `pharos_mysql` adapters to use `EquivalentId(...).id_str()` consistently instead of manual `f"{Prefix...}:{...}"` string construction where they emit graph IDs.
+- [ ] Drop `protein.stringid` from the new TCRD export/schema. It is currently populated as a fallback from an `ENSEMBL:ENSP...` xref only when no NCBI Gene ID is present, which is not a meaningful STRING datasource signal; STRING contribution should come from `ncats_ppi` / `STRINGDB`.
 
 ## POUNCE Code Style TODOs
 

@@ -13,6 +13,7 @@ from src.models.harmonizome import HarmonizomeGeneAttributeType, HarmonizomeHgra
 from src.models.keyword import ProteinKeywordEdge
 from src.models.ligand import Ligand, ProteinLigandEdge
 from src.models.node import EquivalentId
+from src.models.ncats_datasource import NcatsDataSourceInfo, NcatsDataSourceMapEntry
 from src.models.panther_class import PantherClass, ProteinPantherClassEdge
 from src.models.pathway import ProteinPathwayEdge
 from src.models.ppi import PPIEdge
@@ -36,6 +37,7 @@ from src.shared.sqlalchemy_tables.pharos_tables_new import (
     Ortholog as mysqlOrtholog, PatentCount, Ptscore, Virus as mysqlVirus, ViralProtein as mysqlViralProtein,
     ViralPPI as mysqlViralPPI, Affiliate, ExtLink,
     GeneAttributeType as mysqlGeneAttributeType, HgramCDF as mysqlHgramCDF,
+    NcatsDataSource, NcatsDataSourceMap,
     WordCount as mysqlWordCount,
 )
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
@@ -122,6 +124,9 @@ class TCRDOutputConverter(SQLOutputConverter):
             ProteinExternalLinkEdge: [self.extlink_converter],
             # Publication word-cloud background
             WordCount: [self.word_count_converter],
+            # Pharos compatibility datasource tables
+            NcatsDataSourceInfo: [self.ncats_datasource_converter],
+            NcatsDataSourceMapEntry: [self.ncats_datasource_map_converter],
         }
 
     def get_object_converters(self, obj_cls) -> Union[callable, List[callable], None]:
@@ -129,6 +134,35 @@ class TCRDOutputConverter(SQLOutputConverter):
 
     def word_count_converter(self, obj: dict) -> mysqlWordCount:
         return mysqlWordCount(word=obj["word"], count=obj["count"])
+
+    def ncats_datasource_converter(self, obj: dict) -> NcatsDataSource:
+        return NcatsDataSource(
+            dataSource=obj["dataSource"],
+            dataSourceDescription=obj.get("dataSourceDescription"),
+            url=obj.get("url"),
+            license=obj.get("license"),
+            licenseURL=obj.get("licenseURL"),
+            citation=obj.get("citation"),
+        )
+
+    def ncats_datasource_map_converter(self, obj: dict) -> NcatsDataSourceMap:
+        protein_id = obj.get("protein_id")
+        if protein_id is None and obj.get("protein_ifx_id"):
+            protein_id = self.resolve_id("protein", obj["protein_ifx_id"])
+
+        ligand_id = obj.get("ncats_ligand_id")
+        if ligand_id is None and obj.get("ligand_identifier"):
+            ligand_id = self.resolve_id("ligand", obj["ligand_identifier"])
+
+        return NcatsDataSourceMap(
+            dataSource=obj["dataSource"],
+            url=obj.get("url"),
+            license=obj.get("license"),
+            licenseURL=obj.get("licenseURL"),
+            protein_id=protein_id,
+            ncats_ligand_id=ligand_id,
+            disease_name=obj.get("disease_name"),
+        )
 
     @staticmethod
     def _parse_patent_family_token(token: str) -> tuple[int, int] | None:

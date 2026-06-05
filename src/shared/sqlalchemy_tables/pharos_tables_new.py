@@ -1083,45 +1083,6 @@ class Gtex(Base):
     )
 
 
-class Gwas(Base):
-    __tablename__ = "gwas"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    protein_id = Column(Integer, ForeignKey("protein.id", ondelete="CASCADE"), nullable=False, index=True)
-    disease_trait = Column(String(255), nullable=False)
-    snps = Column(Text, nullable=True)
-    pmid = Column(Integer, nullable=True)
-    study = Column(Text, nullable=True)
-    context = Column(Text, nullable=True)
-    intergenic = Column(Boolean, nullable=True)
-    p_value = Column(Double, nullable=True, index=True)
-    or_beta = Column(Float, nullable=True)
-    cnv = Column(String(1), nullable=True)
-    mapped_trait = Column(Text, nullable=True)
-    mapped_trait_uri = Column(Text, nullable=True)
-
-    __table_args__ = (
-        Index("gwas_idx1", "protein_id"),
-        Index(
-            "gwas_idx2",
-              text("context(256)")),
-        Index("gwas_idx3", "p_value"),
-        Index("gwas_idx4", "disease_trait"),
-        Index(
-            "gwas_idx5",
-            text("snps(256)")),
-        Index(
-            "gwas_text_idx",
-            "disease_trait","mapped_trait","study",
-            mysql_prefix="FULLTEXT"
-        ),
-        Index(
-            "gwas_text_idx2",
-            "snps",
-            mysql_prefix="FULLTEXT"
-        )
-    )
-
 class ExtLink(Base):
     __tablename__ = "extlink"
 
