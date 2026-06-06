@@ -1,6 +1,7 @@
 from src.core.config import ETL_Config, Dashboard_Config
 from src.core.etl import ETL
 from src.interfaces.data_api_adapter import APIAdapter
+from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 
 
 def preload_core_model_modules():
@@ -41,9 +42,15 @@ class BuildGraphFromYaml:
         self.configuration = ETL_Config(yaml_file)
         output_adapters = self.configuration.create_output_adapters()
         graph_views = self.configuration.config_dict.get("graph_views", [])
+        resolver_fingerprints = resolver_fingerprints_by_type(self.configuration.config_dict.get("resolvers"))
         for output_adapter in output_adapters:
             if hasattr(output_adapter, "set_graph_views_metadata"):
                 output_adapter.set_graph_views_metadata(graph_views=graph_views, source_yaml=yaml_file)
+            if hasattr(output_adapter, "set_resolver_metadata"):
+                output_adapter.set_resolver_metadata(
+                    resolver_fingerprints_by_type=resolver_fingerprints,
+                    source_yaml=yaml_file,
+                )
         input_adapters = self.configuration.create_input_adapters()
         resolver_map = {}
         for resolver in self.configuration.resolvers.values():

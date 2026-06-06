@@ -10,6 +10,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.output_adapter import OutputAdapter
+from src.interfaces.resolver_metadata import resolver_fingerprint_summary
 from src.output_adapters.sql_converters.output_converter_base import SQLOutputConverter
 from src.output_adapters.sql_converters.tcrd import TCRDOutputConverter
 from src.output_adapters.sql_converters.test import TestSQLOutputConverter
@@ -600,8 +601,15 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         self.output_converter = TCRDOutputConverter()
         self.source_graph_credentials = self._coerce_db_credentials(source_graph_credentials)
         self.source_graph_database = source_graph_database
+        self._resolver_fingerprints_by_type = {}
+        self._resolver_source_yaml = None
+
+    def set_resolver_metadata(self, resolver_fingerprints_by_type=None, source_yaml=None):
+        self._resolver_fingerprints_by_type = resolver_fingerprints_by_type or {}
+        self._resolver_source_yaml = source_yaml
 
     def do_pre_processing(self) -> None:
+        self._validate_source_graph_resolver_metadata()
         session = self.get_session()
         try:
             self.output_converter.preload_id_mappings(session)
@@ -612,6 +620,7 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         super().create_or_truncate_datastore(truncate_tables=truncate_tables)
         self.output_converter.sql_base.metadata.create_all(self.get_engine())
+        self._validate_source_graph_resolver_metadata()
         session = self.get_session()
         try:
             self.output_converter.preload_id_mappings(session)
@@ -619,6 +628,51 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
         finally:
             session.close()
         return True
+
+    def _validate_source_graph_resolver_metadata(self) -> None:
+        if self.source_graph_credentials is None or not self.source_graph_database:
+            return
+        if not self._resolver_fingerprints_by_type:
+            return
+
+        graph_etl_metadata = self._load_graph_etl_metadata()
+        graph_resolver_metadata = graph_etl_metadata.get("resolver_metadata") or {}
+        graph_fingerprints = graph_resolver_metadata.get("by_type")
+        if not graph_fingerprints:
+            raise RuntimeError(
+                "Source graph resolver metadata is missing. Rebuild the source graph with resolver "
+                "fingerprint metadata before running TCRD MySQL conversion, or disable resume and "
+                "use a graph whose resolver provenance is known."
+            )
+
+        mismatches = []
+        for node_type, expected in self._resolver_fingerprints_by_type.items():
+            actual = graph_fingerprints.get(node_type)
+            if actual is None:
+                mismatches.append({
+                    "type": node_type,
+                    "expected": expected,
+                    "actual": None,
+                })
+                continue
+            if actual.get("fingerprint") != expected.get("fingerprint"):
+                mismatches.append({
+                    "type": node_type,
+                    "expected": expected,
+                    "actual": actual,
+                })
+
+        if mismatches:
+            expected_summary = resolver_fingerprint_summary(self._resolver_fingerprints_by_type)
+            actual_summary = resolver_fingerprint_summary(graph_fingerprints)
+            raise RuntimeError(
+                "Source graph resolver metadata does not match this MySQL conversion config. "
+                f"source_graph={self.source_graph_database}; "
+                f"source_graph_yaml={graph_resolver_metadata.get('source_yaml') or graph_etl_metadata.get('source_yaml')}; "
+                f"mysql_yaml={self._resolver_source_yaml}; "
+                f"mismatched_types={[row['type'] for row in mismatches]}; "
+                f"graph_resolvers={actual_summary}; mysql_resolvers={expected_summary}"
+            )
 
     def _preload_graph_backed_id_mappings(self, session) -> None:
         if not isinstance(self.output_converter, TCRDOutputConverter):

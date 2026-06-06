@@ -1,4 +1,5 @@
 from src.models.protein import Protein
+from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
 from arango.exceptions import DocumentUpdateError
 from src.shared.record_merger import FieldConflictBehavior
@@ -70,6 +71,32 @@ def build_adapter(existing_nodes, collection):
     adapter.create_indexes = lambda obj_cls, coll: None
     adapter.get_existing_nodes = lambda db, label, obj_list, skip_merge=False: (collection, existing_nodes)
     return adapter
+
+
+def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    resolver_metadata = resolver_fingerprints_by_type([{
+        "label": "disease_ids",
+        "import": "./src/id_resolvers/disease_resolver.py",
+        "class": "DiseaseIdResolver",
+        "kwargs": {
+            "file_path": "./input_files/manual/target_graph/disease_ids.tsv",
+            "multi_match_behavior": "All",
+            "types": ["Disease"],
+        },
+    }])
+    adapter.set_resolver_metadata(
+        resolver_fingerprints_by_type=resolver_metadata,
+        source_yaml="./src/use_cases/pharos/pharos.yaml",
+    )
+
+    metadata = adapter.get_etl_metadata()
+
+    disease_metadata = metadata["resolver_metadata"]["by_type"]["Disease"]
+    assert metadata["resolver_metadata"]["source_yaml"] == "./src/use_cases/pharos/pharos.yaml"
+    assert disease_metadata["class"] == "DiseaseIdResolver"
+    assert disease_metadata["kwargs"]["file_path"] == "./input_files/manual/target_graph/disease_ids.tsv"
+    assert disease_metadata["fingerprint"]
 
 
 def test_get_node_merge_fetch_fields_keeps_only_merge_relevant_fields():

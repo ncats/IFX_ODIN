@@ -41,6 +41,10 @@ class _FakeSession:
             return _FakeQuery([])
         if key == ("mondoid",):
             return _FakeQuery([])
+        if key == ("geneid", "id"):
+            return _FakeQuery([])
+        if key == ("sym", "id"):
+            return _FakeQuery([])
         raise AssertionError(f"Unexpected query columns: {key}")
 
 
