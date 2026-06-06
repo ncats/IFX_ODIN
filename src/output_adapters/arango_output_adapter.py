@@ -12,6 +12,7 @@ from arango.exceptions import DocumentInsertError, DocumentUpdateError
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
 from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
 from src.interfaces.output_adapter import OutputAdapter
+from src.interfaces.resolver_metadata import resolver_fingerprint_summary
 from src.models.datasource_version_info import DataSourceDetails
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
@@ -25,12 +26,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         self._collection_schemas = {}
         self._graph_views = []
         self._graph_view_source_yaml = None
+        self._resolver_fingerprints_by_type = {}
+        self._resolver_source_yaml = None
         self.minio_creds = DBCredentials(**minio_credentials) if minio_credentials else None
         super().__init__(credentials=credentials, database_name=database_name)
 
     def set_graph_views_metadata(self, graph_views=None, source_yaml=None):
         self._graph_views = graph_views or []
         self._graph_view_source_yaml = source_yaml
+
+    def set_resolver_metadata(self, resolver_fingerprints_by_type=None, source_yaml=None):
+        self._resolver_fingerprints_by_type = resolver_fingerprints_by_type or {}
+        self._resolver_source_yaml = source_yaml
 
     @staticmethod
     def _introspect_dataclass(cls) -> dict:
@@ -801,6 +808,12 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "_key": f"etl_run_{datetime.now().isoformat()}",
             "type": "etl_run",
             "run_date": datetime.now().isoformat(),
+            "source_yaml": self._resolver_source_yaml,
+            "resolver_metadata": {
+                "source_yaml": self._resolver_source_yaml,
+                "by_type": self._resolver_fingerprints_by_type,
+                "summary": resolver_fingerprint_summary(self._resolver_fingerprints_by_type),
+            },
             "runner": os.getenv("USER", "unknown"),
             "git_info": git_info,
             "hostname": socket.gethostname(),

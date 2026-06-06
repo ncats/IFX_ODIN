@@ -1,7 +1,10 @@
 from sqlalchemy.exc import IntegrityError, OperationalError
 from datetime import datetime
 
+import pytest
+
 from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
+from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.models.datasource_version_info import DataSourceDetails
 from src.output_adapters.mysql_output_adapter import MySQLOutputAdapter, TCRDOutputAdapter
 from src.shared.db_credentials import DBCredentials
@@ -245,6 +248,67 @@ def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
 
     assert fake_converter.sessions == [fake_session]
     assert fake_session.closed is True
+
+
+def _resolver_config(class_name="DiseaseIdResolver", file_path="./input_files/manual/target_graph/disease_ids.tsv"):
+    return [{
+        "label": "disease_ids",
+        "import": "./src/id_resolvers/disease_resolver.py",
+        "class": class_name,
+        "kwargs": {
+            "file_path": file_path,
+            "multi_match_behavior": "All",
+            "types": ["Disease"],
+        },
+    }]
+
+
+def _adapter_with_resolver_metadata(expected_metadata, graph_metadata):
+    adapter = TCRDOutputAdapter.__new__(TCRDOutputAdapter)
+    adapter.source_graph_credentials = object()
+    adapter.source_graph_database = "pharos"
+    adapter._resolver_fingerprints_by_type = expected_metadata
+    adapter._resolver_source_yaml = "./src/use_cases/pharos/tcrd.yaml"
+    adapter._load_graph_etl_metadata = lambda: graph_metadata
+    return adapter
+
+
+def test_tcrd_output_adapter_accepts_matching_source_graph_resolver_metadata():
+    metadata = resolver_fingerprints_by_type(_resolver_config())
+    adapter = _adapter_with_resolver_metadata(metadata, {
+        "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+        "resolver_metadata": {
+            "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+            "by_type": metadata,
+        },
+    })
+
+    adapter._validate_source_graph_resolver_metadata()
+
+
+def test_tcrd_output_adapter_requires_source_graph_resolver_metadata():
+    metadata = resolver_fingerprints_by_type(_resolver_config())
+    adapter = _adapter_with_resolver_metadata(metadata, {
+        "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+    })
+
+    with pytest.raises(RuntimeError, match="resolver metadata is missing"):
+        adapter._validate_source_graph_resolver_metadata()
+
+
+def test_tcrd_output_adapter_rejects_mismatched_source_graph_resolver_metadata():
+    expected = resolver_fingerprints_by_type(_resolver_config())
+    actual = resolver_fingerprints_by_type(_resolver_config(class_name="TranslatorNodeNormResolver"))
+    adapter = _adapter_with_resolver_metadata(expected, {
+        "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+        "resolver_metadata": {
+            "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+            "by_type": actual,
+        },
+    })
+
+    with pytest.raises(RuntimeError, match="mismatched_types=\\['Disease'\\]"):
+        adapter._validate_source_graph_resolver_metadata()
 
 
 def test_tcrd_output_adapter_builds_transitive_closure_with_self_rows():
