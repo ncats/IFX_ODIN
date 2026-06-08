@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rasopathies Form To Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #596377;
+      --line: #d9e0ea;
+      --panel: #ffffff;
+      --page: #f5f7fb;
+      --blue: #2f6fbd;
+      --teal: #16817a;
+      --green: #4f7d2b;
+      --gold: #9a6a10;
+      --rose: #a83c57;
+      --violet: #7257a7;
+      --active: #ffb84d;
+      --shadow: 0 12px 32px rgba(23, 32, 51, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.25fr);
+      min-height: 100vh;
+    }
+
+    .form-panel,
+    .schema-panel {
+      min-width: 0;
+      padding: 22px;
+    }
+
+    .form-panel {
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+      overflow-y: auto;
+      max-height: 100vh;
+    }
+
+    .schema-panel {
+      display: grid;
+      grid-template-rows: auto minmax(760px, auto);
+      gap: 14px;
+      align-content: start;
+      overflow-y: auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 70ch;
+    }
+
+    .section {
+      margin-top: 22px;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      color: #263148;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .question-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .question {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-left: 4px solid transparent;
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px 12px 11px;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 2px 9px rgba(23, 32, 51, 0.04);
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .question:hover,
+    .question:focus-visible {
+      border-color: #a9bdd8;
+      box-shadow: 0 8px 20px rgba(23, 32, 51, 0.1);
+      outline: none;
+      transform: translateY(-1px);
+    }
+
+    .question.is-active {
+      border-color: #f3b24e;
+      border-left-color: var(--active);
+      background: #fffaf0;
+      box-shadow: 0 9px 24px rgba(154, 106, 16, 0.16);
+    }
+
+    .question .meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .question .field {
+      display: inline-flex;
+      min-width: 0;
+      border-radius: 999px;
+      background: #eef3f8;
+      padding: 4px 8px;
+      color: #445169;
+      text-transform: none;
+      white-space: nowrap;
+    }
+
+    .question .text {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.32;
+    }
+
+    .question .hint {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .schema-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .schema-header h2 {
+      font-size: 24px;
+      line-height: 1.15;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--active);
+    }
+
+    .graph-wrap {
+      min-height: 580px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: auto;
+    }
+
+    .mermaid-host {
+      min-width: 860px;
+      min-height: 580px;
+      padding: 18px;
+    }
+
+    .mermaid-host svg {
+      display: block;
+      width: 860px !important;
+      height: auto !important;
+      max-width: none !important;
+      background: #ffffff;
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .form-panel,
+      .schema-panel {
+        max-height: none;
+      }
+
+      .form-panel {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .schema-panel {
+        overflow: visible;
+      }
+
+      .schema-header {
+        grid-template-columns: 1fr;
+      }
+
+      .legend {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="form-panel" aria-label="CURE ID questions">
+      <p class="eyebrow">CURE ID rasopathies form</p>
+      <h1>Questions as the user sees them</h1>
+      <p class="intro">Select a form prompt to show where that answer lands in the graph.</p>
+
+      <div id="questionSections"></div>
+    </section>
+
+    <section class="schema-panel" aria-label="Graph schema">
+      <header class="schema-header">
+        <div>
+          <p class="eyebrow">Rasopathies graph schema</p>
+          <h2 id="activeTitle">Disease answers define the clinical condition context</h2>
+          <p class="intro" id="activeSummary">The disease prompt links a CaseReport through Patient and ClinicalContext to a resolved Condition. This graph view highlights the field that receives the selected answer.</p>
+        </div>
+        <div class="legend" aria-label="Schema highlighting">
+          <span><i class="swatch"></i>Selected field</span>
+        </div>
+      </header>
+
+      <div class="graph-wrap">
+        <div id="schemaMermaid" class="mermaid-host" role="img" aria-label="Rasopathies graph schema"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const mappingTemplates = {
+      disease: {
+        nodes: ["CaseReport", "Patient", "ClinicalContext", "Condition"],
+        edges: ["case-patient", "patient-context", "context-condition"],
+        nodeFields: { Condition: ["id", "name"] },
+      },
+      patient: {
+        nodes: ["CaseReport", "Patient", "ClinicalContext"],
+        edges: ["case-patient", "patient-context"],
+        nodeFields: { Patient: [] },
+      },
+      findings: {
+        nodes: ["CaseReport", "Patient", "ClinicalContext", "Finding", "Phenotype"],
+        edges: ["case-patient", "patient-context", "context-finding", "finding-phenotype"],
+        nodeFields: { Finding: ["finding_context", "source_value", "source_text", "group", "label", "selected", "default"] },
+      },
+      perinatalFlag: {
+        nodes: ["Patient", "PerinatalContext"],
+        edges: ["patient-perinatal"],
+        nodeFields: {},
+      },
+      perinatalFinding: {
+        nodes: ["Patient", "PerinatalContext", "Finding", "Phenotype"],
+        edges: ["patient-perinatal", "perinatal-finding", "finding-phenotype"],
+        nodeFields: { Finding: ["finding_context=perinatal", "source_value", "source_text"] },
+      },
+      diagnosis: {
+        nodes: ["ClinicalContext", "Diagnosis", "Condition"],
+        edges: ["context-diagnosis", "diagnosis-condition"],
+        nodeFields: { Diagnosis: ["diagnosis_methods"] },
+      },
+      gene: {
+        nodes: ["ClinicalContext", "Diagnosis", "Gene", "Condition"],
+        edges: ["context-diagnosis", "diagnosis-gene", "diagnosis-condition"],
+        nodeFields: { Gene: ["id", "symbol"] },
+      },
+      variant: {
+        nodes: ["ClinicalContext", "Diagnosis", "Gene", "GeneVariant", "Condition"],
+        edges: ["context-diagnosis", "diagnosis-variant", "gene-variant", "diagnosis-condition"],
+        nodeFields: { GeneVariant: ["source_gene_symbol", "nucleotide_change", "protein_change", "variant_label"] },
+      },
+      drug: {
+        nodes: ["ClinicalContext", "DrugTreatment", "Drug"],
+        edges: ["context-treatment", "treatment-drug"],
+        nodeFields: { Drug: ["id", "name", "url", "source_id"] },
+      },
+      treatment: {
+        nodes: ["ClinicalContext", "DrugTreatment"],
+        edges: ["context-treatment"],
+        nodeFields: { DrugTreatment: [] },
+      },
+      adverse: {
+        nodes: ["ClinicalContext", "DrugTreatment", "Phenotype"],
+        edges: ["context-treatment", "treatment-adverse"],
+        nodeFields: {},
+      },
+      response: {
+        nodes: ["ClinicalContext", "DrugTreatment", "TreatmentResponse", "Finding", "Phenotype"],
+        edges: ["context-treatment", "treatment-response", "response-finding", "finding-phenotype"],
+        nodeFields: { TreatmentResponse: [] },
+      },
+      caseReport: {
+        nodes: ["CaseReport"],
+        edges: [],
+        nodeFields: { CaseReport: [] },
+      },
+      attachment: {
+        nodes: ["CaseReport"],
+        edges: [],
+        nodeFields: { CaseReport: ["not currently emitted"] },
+      }
+    };
+
+    function makeQuestion(id, section, label, field, text, templateName, fieldTargets, extra = {}) {
+      const template = mappingTemplates[templateName];
+      const nodeFields = mergeNodeFields(template.nodeFields, extra.nodeFields);
+      const directNodes = Object.keys(nodeFields).filter((node) => !node.endsWith("Edge"));
+      return {
+        id,
+        section,
+        label,
+        field,
+        text,
+        title: text,
+        summary: extra.summary || `Form field: ${field}. Graph field: ${fieldTargets.join(", ")}.`,
+        nodes: extra.highlightNodes || directNodes,
+        edges: extra.highlightEdges || [],
+        nodeFields,
+        contextNodes: template.nodes,
+        contextEdges: template.edges,
+        hint: extra.hint || ""
+      };
+    }
+
+    function mergeNodeFields(base, extra) {
+      const merged = {};
+      for (const [node, fields] of Object.entries(base || {})) {
+        merged[node] = [...fields];
+      }
+      for (const [node, fields] of Object.entries(extra || {})) {
+        merged[node] = Array.from(new Set([...(merged[node] || []), ...fields]));
+      }
+      return merged;
+    }
+
+    const questionDefinitions = [
+      makeQuestion("disease", "Disease", "Disease", "disease", "What disease did your patient have?", "disease", ["Condition.id", "Condition.name"]),
+      makeQuestion("patient-age", "Case Characteristics", "Patient", "patient__age_group", "How old is the patient?", "patient", ["Patient.age_group"], { nodeFields: { Patient: ["age_group"] } }),
+      makeQuestion("premature-birth", "Case Characteristics", "Perinatal", "premature_birth", "Was the patient born prematurely? (Prior to 37 weeks of pregnancy)", "perinatalFlag", ["PerinatalContext.premature_birth"], { nodeFields: { PerinatalContext: ["premature_birth"] } }),
+      makeQuestion("patient-sex", "Case Characteristics", "Patient", "patient__sex", "What sex was the patient assigned at birth?", "patient", ["Patient.sex"], { nodeFields: { Patient: ["sex"] } }),
+      makeQuestion("patient-country", "Country", "Patient", "patient__country_treated", "What country was the patient's disease treated in?", "patient", ["Patient.country_treated"], { nodeFields: { Patient: ["country_treated"] } }),
+      makeQuestion("patient-race", "Country", "Patient", "patient__race", "What race does the patient identify as? (Select all that apply)", "patient", ["Patient.race"], { nodeFields: { Patient: ["race"] } }),
+      makeQuestion("patient-ethnicity", "Country", "Patient", "patient__ethnicity", "What is the patient's ethnicity? Do they identify as:", "patient", ["Patient.ethnicity"], { nodeFields: { Patient: ["ethnicity"] } }),
+      makeQuestion("findings", "Presentation", "Finding", "findings", "What findings did the patient present with? (Select all that apply)", "findings", ["Finding.source_value", "Finding.source_text", "Finding.group", "Finding.label", "Finding.selected", "Finding.default", "Phenotype.id/name"]),
+      makeQuestion("fetal-findings", "Fetal Findings", "Perinatal", "fetal_findings", "Were there fetal findings?", "perinatalFlag", ["PerinatalContext.fetal_findings"], { nodeFields: { PerinatalContext: ["fetal_findings"] } }),
+      makeQuestion("fetal-findings-details", "Fetal Findings", "Perinatal finding", "fetal_findings_details", "What were the fetal findings? (Select all that apply)", "perinatalFinding", ["PerinatalContext.fetal_findings_details", "Finding.source_value", "Phenotype.id/name"], { nodeFields: { PerinatalContext: ["fetal_findings_details"] } }),
+      makeQuestion("how-diagnosis", "Diagnosis", "Diagnosis", "how_diagnosis", "How did you make the diagnosis? (Select all that apply)", "diagnosis", ["Diagnosis.diagnosis_methods"]),
+      makeQuestion("gene-sequencing", "Diagnosis", "Gene", "gene_sequencing", "What is the specific gene mutation? (Select all that apply)", "gene", ["Gene.id", "Gene.symbol"]),
+      makeQuestion("nucleotide-change", "Gene Changes", "Variant", "nucleotide_change", "What is the specific nucleotide change (e.g., c.188A>G)?", "variant", ["GeneVariant.nucleotide_change", "GeneVariant.variant_label"]),
+      makeQuestion("protein-change", "Gene Changes", "Variant", "protein_change", "What is the specific protein change (e.g., p.Tyr63Cys or p.Y63C)?", "variant", ["GeneVariant.protein_change", "GeneVariant.variant_label"]),
+      makeQuestion("treatment-drug", "Medications", "Drug", "treatment_drug", "What drugs did you use to address your patient's disease or its symptoms?", "drug", ["Drug.id", "Drug.name", "Drug.url", "Drug.source_id"]),
+      makeQuestion("treatment-begin-month", "Treatment Length", "Regimen", "treatment_begin_month", "treatment_begin_month", "treatment", ["DrugTreatment.treatment_begin_month"], { nodeFields: { DrugTreatment: ["treatment_begin_month"] } }),
+      makeQuestion("treatment-begin", "Treatment Length", "Regimen", "treatment_begin", "treatment_begin", "treatment", ["DrugTreatment.treatment_begin"], { nodeFields: { DrugTreatment: ["treatment_begin"] } }),
+      makeQuestion("treatment-ongoing", "Treatment Length", "Regimen", "treatment_on_going", "Is the patient still taking {drug}?", "treatment", ["DrugTreatment.treatment_on_going"], { nodeFields: { DrugTreatment: ["treatment_on_going"] } }),
+      makeQuestion("treatment-end-month", "Treatment Length", "Regimen", "treatment_end_month", "treatment_end_month", "treatment", ["DrugTreatment.treatment_end_month"], { nodeFields: { DrugTreatment: ["treatment_end_month"] } }),
+      makeQuestion("treatment-end", "Treatment Length", "Regimen", "treatment_end", "treatment_end", "treatment", ["DrugTreatment.treatment_end"], { nodeFields: { DrugTreatment: ["treatment_end"] } }),
+      makeQuestion("duration-amount", "Treatment Length", "Regimen", "duration_amount", "duration_amount", "treatment", ["DrugTreatment.duration_amount"], { nodeFields: { DrugTreatment: ["duration_amount"] } }),
+      makeQuestion("duration-unit", "Treatment Length", "Regimen", "unit_of_measurement_duration", "unit_of_measurement_duration", "treatment", ["DrugTreatment.unit_of_measurement_duration"], { nodeFields: { DrugTreatment: ["unit_of_measurement_duration"] } }),
+      makeQuestion("initial-dose", "Initial Treatment", "Regimen", "dose_amount", "dose_amount", "treatment", ["DrugTreatment.initial_dose_amount"], { nodeFields: { DrugTreatment: ["initial_dose_amount"] } }),
+      makeQuestion("initial-unit", "Initial Treatment", "Regimen", "unit_of_measurement", "unit_of_measurement", "treatment", ["DrugTreatment.initial_unit_of_measurement"], { nodeFields: { DrugTreatment: ["initial_unit_of_measurement"] } }),
+      makeQuestion("initial-frequency", "Initial Treatment", "Regimen", "frequency", "Frequency", "treatment", ["DrugTreatment.initial_frequency"], { nodeFields: { DrugTreatment: ["initial_frequency"] } }),
+      makeQuestion("initial-route", "Initial Treatment", "Regimen", "route", "Route of Administration", "treatment", ["DrugTreatment.initial_route"], { nodeFields: { DrugTreatment: ["initial_route"] } }),
+      makeQuestion("dose-change", "Current or Final Treatment", "Regimen", "dose_change", "Did the patient's dosage of {drug} change?", "treatment", ["DrugTreatment.current_dose_change"], { nodeFields: { DrugTreatment: ["current_dose_change"] } }),
+      makeQuestion("current-dose", "Current or Final Treatment", "Regimen", "dose_amount", "dose_amount", "treatment", ["DrugTreatment.current_dose_amount"], { nodeFields: { DrugTreatment: ["current_dose_amount"] } }),
+      makeQuestion("current-unit", "Current or Final Treatment", "Regimen", "unit_of_measurement", "unit_of_measurement", "treatment", ["DrugTreatment.current_unit_of_measurement"], { nodeFields: { DrugTreatment: ["current_unit_of_measurement"] } }),
+      makeQuestion("current-frequency", "Current or Final Treatment", "Regimen", "frequency", "Frequency", "treatment", ["DrugTreatment.current_frequency"], { nodeFields: { DrugTreatment: ["current_frequency"] } }),
+      makeQuestion("current-route", "Current or Final Treatment", "Regimen", "route", "Route of Administration", "treatment", ["DrugTreatment.current_route"], { nodeFields: { DrugTreatment: ["current_route"] } }),
+      makeQuestion("have-adverse-events", "Adverse Events", "Adverse event", "have_adverse_events", "Did the patient experience an adverse event with {drug}?", "adverse", ["DrugTreatmentAdverseEventEdge.have_adverse_events"], { highlightEdges: ["treatment-adverse"], nodeFields: { DrugTreatmentAdverseEventEdge: ["have_adverse_events"] } }),
+      makeQuestion("adverse-events-generic", "Adverse Events", "Adverse event", "adverse_events_generic", "What adverse events did the patient experience during treatment with {drug}?", "adverse", ["DrugTreatmentAdverseEventEdge.source_label", "Phenotype.id/name"], { highlightNodes: ["Phenotype"], highlightEdges: ["treatment-adverse"], nodeFields: { DrugTreatmentAdverseEventEdge: ["source_label"], Phenotype: ["id", "name"] } }),
+      makeQuestion("adverse-events-outcome", "Adverse Events", "Adverse event", "adverse_events_outcome", "What was the outcome attributed to this adverse event (Select all that apply)?", "adverse", ["DrugTreatmentAdverseEventEdge.outcomes"], { highlightEdges: ["treatment-adverse"], nodeFields: { DrugTreatmentAdverseEventEdge: ["outcomes"] } }),
+      makeQuestion("severity", "Treatment Setting", "Regimen", "severity", "What was the setting in which {drug} was used? (Select all that apply)", "treatment", ["DrugTreatment.severity"], { nodeFields: { DrugTreatment: ["severity"] } }),
+      makeQuestion("primary-target", "Primary Target and Response", "Response", "primary_drug_target", "What was the primary treatment target of {drug}?", "response", ["TreatmentResponse.target_role=primary", "Finding.source_value", "Phenotype.id/name"], { nodeFields: { TreatmentResponse: ["target_role=primary"], Finding: ["finding_context=treatment_target", "source_value", "source_text"] } }),
+      makeQuestion("primary-outcome", "Primary Target and Response", "Response", "outcome_primary_target", "What was the effect of {drug} on the patient's primary target?", "response", ["TreatmentResponse.outcome"], { nodeFields: { TreatmentResponse: ["outcome"] } }),
+      makeQuestion("primary-outcome-details", "Primary Target and Response", "Response", "outcome_primary_target_details", "What were the initial clinical markers of improvement?", "response", ["TreatmentResponse.outcome_details"], { nodeFields: { TreatmentResponse: ["outcome_details"] } }),
+      makeQuestion("has-secondary-target", "Secondary Target and Response", "Response", "has_secondary_drug_target", "Did {drug} affect other findings your patient had?", "response", ["controls whether secondary TreatmentResponse records are present"], { nodeFields: { TreatmentResponse: ["secondary records conditional"] } }),
+      makeQuestion("secondary-target", "Secondary Target and Response", "Response", "target", "What off target finding in your patient did {drug} affect?", "response", ["TreatmentResponse.target_role=secondary", "Finding.source_value", "Phenotype.id/name"], { nodeFields: { TreatmentResponse: ["target_role=secondary"], Finding: ["finding_context=treatment_target", "source_value", "source_text"] } }),
+      makeQuestion("secondary-outcome", "Secondary Target and Response", "Response", "outcome", "What was the effect of {drug} on the target finding in your patient?", "response", ["TreatmentResponse.outcome"], { nodeFields: { TreatmentResponse: ["outcome"] } }),
+      makeQuestion("secondary-outcome-details", "Secondary Target and Response", "Response", "outcome_details", "What were the initial clinical markers of improvement?", "response", ["TreatmentResponse.outcome_details"], { nodeFields: { TreatmentResponse: ["outcome_details"] } }),
+      makeQuestion("time-to-improvement", "Time to Response", "Response", "time_to_improvement", "How long after initiation of {drug} was a response appreciated?", "response", ["TreatmentResponse.time_to_improvement"], { nodeFields: { TreatmentResponse: ["time_to_improvement"] } }),
+      makeQuestion("additional-drug-info", "Miscellaneous Treatment", "Regimen", "additional_drug_info_non_ID", "Is there any important information about the patient's experience taking {drug} that you want to add?", "treatment", ["DrugTreatment.additional_drug_info"], { nodeFields: { DrugTreatment: ["additional_drug_info"] } }),
+      makeQuestion("when-reminder", "Additional Details", "Case report", "when_reminder", "Would you like a reminder to update the information on this patient? (Select all that apply)", "caseReport", ["CaseReport.when_reminder"], { nodeFields: { CaseReport: ["when_reminder"] } }),
+      makeQuestion("attached-images", "Additional Details", "Attachment", "attached_images", "You now have the option to upload images or other relevant documents.", "attachment", ["not currently emitted"]),
+      makeQuestion("anonymous", "Final Submission", "Case report", "anonymous", "anonymous", "caseReport", ["CaseReport.anonymous"], { nodeFields: { CaseReport: ["anonymous"] } })
+    ];
+
+    const questionContext = {
+      disease: { input: "Autocomplete. Users may add a term not currently in the list." },
+      "patient-age": { options: ["Unknown", "< 1 month", "1 - 3 months", "4 - 6 months", "7 - 11 months", "1 - 5 years", "6 - 10 years", "11 - 15 years", "16 - 20 years", "21 - 30 years", "31 - 40 years", "41 - 50 years", "51 - 60 years", "61 - 70 years", "71 - 80 years", "81 - 89 years", "90+ years"] },
+      "premature-birth": { options: ["Yes", "No", "I don't know"] },
+      "patient-sex": { options: ["Male", "Female", "Unknown"] },
+      "patient-country": { input: "Autocomplete country field." },
+      "patient-race": { options: ["American Indian or Alaskan Native", "Asian", "Black or African American", "Native Hawaiian or Other Pacific Islander", "White", "Unknown"] },
+      "patient-ethnicity": { options: ["Hispanic/Latino", "Not Hispanic/Latino", "Unknown"] },
+      findings: { options: ["Hypertrophic cardiomyopathy", "Pulmonary valvular stenosis", "Arrhythmia", "Failure to thrive", "Short stature", "Seizures", "Developmental delay", "Other"], more: "many checklist findings plus free-text Other entries" },
+      "fetal-findings": { options: ["Yes", "No", "Unknown"] },
+      "fetal-findings-details": { options: ["Fetal cardiac anomaly", "Fetal pleural effusion", "Hydops fetalis", "Increased fetal nuchal translucency", "Polyhydramnios", "Poor growth", "Unknown"] },
+      "how-diagnosis": { options: ["Doctor suspected in utero", "Gene sequencing", "Imaging", "Unknown"] },
+      "gene-sequencing": { options: ["BRAF", "CBL", "HRAS", "KRAS", "MAP2K1 (MEK 1)", "MAP2K2 (MEK 2)", "NF1", "PTPN11", "RAF1", "RIT1", "SOS1"], more: "additional RAS/MAPK pathway genes" },
+      "nucleotide-change": { input: "Free text, for example c.188A>G." },
+      "protein-change": { input: "Free text, for example p.Tyr63Cys or p.Y63C." },
+      "treatment-drug": { input: "Autocomplete. Users may add a term not currently in the dropdown list." },
+      "treatment-begin-month": { options: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] },
+      "treatment-begin": { input: "Year dropdown." },
+      "treatment-ongoing": { options: ["Yes", "No", "Unknown"] },
+      "treatment-end-month": { options: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] },
+      "treatment-end": { input: "Year dropdown." },
+      "duration-amount": { input: "Numeric value." },
+      "duration-unit": { options: ["As Needed / When Needed (PRN)", "Day(s)", "Week(s)", "Month(s)", "Year(s)", "Unknown"] },
+      "initial-dose": { input: "Numeric dose value." },
+      "initial-unit": { options: ["milligram (mg)", "grams (g)", "micrograms (mcg)", "mg/kg", "mL", "Unknown", "Other"], more: "additional dose units" },
+      "initial-frequency": { options: ["As Needed / PRN", "Daily", "2 times a day (BID)", "3 times a day (TID)", "4 times a day (QID)", "Weekly", "Monthly", "Unknown"], more: "additional schedule choices" },
+      "initial-route": { options: ["Oral", "Intravenous", "Intramuscular", "Subcutaneous", "Inhaled", "Topical", "Nasal", "Rectal", "Unknown"] },
+      "dose-change": { options: ["Yes", "No", "Unknown"] },
+      "current-dose": { input: "Numeric dose value." },
+      "current-unit": { options: ["milligram (mg)", "grams (g)", "micrograms (mcg)", "mg/kg", "mL", "Unknown", "Other"], more: "additional dose units" },
+      "current-frequency": { options: ["As Needed / PRN", "Daily", "2 times a day (BID)", "3 times a day (TID)", "4 times a day (QID)", "Weekly", "Monthly", "Unknown"], more: "additional schedule choices" },
+      "current-route": { options: ["Oral", "Intravenous", "Intramuscular", "Subcutaneous", "Inhaled", "Topical", "Nasal", "Rectal", "Unknown"] },
+      "have-adverse-events": { options: ["Yes", "No", "Unknown"] },
+      "adverse-events-generic": { input: "Autocomplete. Users may add a term not currently in the dropdown list." },
+      "adverse-events-outcome": { options: ["Death", "Life-threatening", "Hospitalization", "Disability or Permanent Damage", "Congenital Anomaly/Birth Defects", "Treatment was Discontinued", "Unknown"], more: "additional seriousness/outcome categories" },
+      severity: { options: ["Outpatient", "Inpatient", "ICU/Critical Care", "Unknown"] },
+      "primary-target": { input: "Dropdown populated from the patient's selected findings." },
+      "primary-outcome": { options: ["Patient fully recovered", "Patient improved", "Patient's condition was unchanged", "Patient deteriorated", "Patient died", "Outcome unknown/not yet determined", "Patient was lost to follow-up"] },
+      "primary-outcome-details": { input: "Free text clinical markers." },
+      "has-secondary-target": { options: ["Yes", "No", "Unknown"] },
+      "secondary-target": { input: "Dropdown populated from the patient's selected findings." },
+      "secondary-outcome": { options: ["Patient fully recovered", "Patient improved", "Patient's condition was unchanged", "Patient deteriorated", "Patient died", "Outcome unknown/not yet determined", "Patient was lost to follow-up"] },
+      "secondary-outcome-details": { input: "Free text clinical markers." },
+      "time-to-improvement": { options: ["< 1 week", "1-3 weeks", "1-3 months", "4-7 months", "8-11 months", "1 year", "More than one year", "Unknown"] },
+      "additional-drug-info": { input: "Free text treatment-experience note." },
+      "when-reminder": { options: ["1 week", "2 weeks", "3 weeks", "1 month", "3 months", "6 months", "1 year"] },
+      "attached-images": { input: "Optional upload area for images, PDFs, or documents." },
+      anonymous: { options: ["I do not want to appear publicly as the author of this case"] }
+    };
+
+    function describeQuestionContext(question) {
+      const context = questionContext[question.id];
+      if (!context) {
+        return "";
+      }
+      if (context.input) {
+        return context.input;
+      }
+      const options = context.options || [];
+      const suffix = context.more ? `; ${context.more}` : "";
+      return `Options: ${options.join("; ")}${suffix}.`;
+    }
+
+    questionDefinitions.forEach((question) => {
+      question.hint = describeQuestionContext(question);
+    });
+
+    const topics = Object.fromEntries(questionDefinitions.map((question) => [question.id, question]));
+
+    const schemaEdges = [
+      { id: "case-patient", from: "CaseReport", edge: "CaseReportPatientEdge", to: "Patient" },
+      { id: "case-reporter", from: "CaseReport", edge: "CaseReportReporterEdge", to: "Reporter" },
+      { id: "context-condition", from: "ClinicalContext", edge: "ClinicalContextConditionEdge", to: "Condition" },
+      { id: "context-diagnosis", from: "ClinicalContext", edge: "ClinicalContextDiagnosisEdge", to: "Diagnosis" },
+      { id: "context-treatment", from: "ClinicalContext", edge: "ClinicalContextDrugTreatmentEdge", to: "DrugTreatment" },
+      { id: "context-finding", from: "ClinicalContext", edge: "ClinicalContextFindingEdge", to: "Finding" },
+      { id: "diagnosis-condition", from: "Diagnosis", edge: "DiagnosisConditionEdge", to: "Condition" },
+      { id: "diagnosis-gene", from: "Diagnosis", edge: "DiagnosisGeneEdge", to: "Gene" },
+      { id: "diagnosis-variant", from: "Diagnosis", edge: "DiagnosisGeneVariantEdge", to: "GeneVariant" },
+      { id: "treatment-adverse", from: "DrugTreatment", edge: "DrugTreatmentAdverseEventEdge", to: "Phenotype" },
+      { id: "treatment-drug", from: "DrugTreatment", edge: "DrugTreatmentDrugEdge", to: "Drug" },
+      { id: "treatment-response", from: "DrugTreatment", edge: "DrugTreatmentResponseEdge", to: "TreatmentResponse" },
+      { id: "finding-phenotype", from: "Finding", edge: "FindingPhenotypeEdge", to: "Phenotype" },
+      { id: "gene-variant", from: "Gene", edge: "GeneGeneVariantEdge", to: "GeneVariant" },
+      { id: "patient-context", from: "Patient", edge: "PatientClinicalContextEdge", to: "ClinicalContext" },
+      { id: "patient-perinatal", from: "Patient", edge: "PatientPerinatalContextEdge", to: "PerinatalContext" },
+      { id: "perinatal-finding", from: "PerinatalContext", edge: "PerinatalContextFindingEdge", to: "Finding" },
+      { id: "response-finding", from: "TreatmentResponse", edge: "TreatmentResponseFindingEdge", to: "Finding" }
+    ];
+
+    function renderQuestionSections() {
+      const container = document.getElementById("questionSections");
+      const sections = [];
+      questionDefinitions.forEach((question) => {
+        let section = sections.find((entry) => entry.name === question.section);
+        if (!section) {
+          section = { name: question.section, questions: [] };
+          sections.push(section);
+        }
+        section.questions.push(question);
+      });
+      container.replaceChildren(...sections.map((section) => {
+        const sectionEl = document.createElement("div");
+        sectionEl.className = "section";
+        const heading = document.createElement("h2");
+        heading.className = "section-title";
+        heading.textContent = section.name;
+        const list = document.createElement("div");
+        list.className = "question-list";
+        section.questions.forEach((question) => {
+          const button = document.createElement("button");
+          button.className = "question";
+          button.dataset.topic = question.id;
+          button.innerHTML = `
+            <span class="meta"><span>${question.label}</span><span class="field">${question.field}</span></span>
+            <span class="text">${question.text}</span>
+            ${question.hint ? `<span class="hint">${question.hint}</span>` : ""}
+          `;
+          list.appendChild(button);
+        });
+        sectionEl.append(heading, list);
+        return sectionEl;
+      }));
+    }
+
+    renderQuestionSections();
+
+    const questions = Array.from(document.querySelectorAll(".question"));
+    const formPanel = document.querySelector(".form-panel");
+    const activeTitle = document.getElementById("activeTitle");
+    const activeSummary = document.getElementById("activeSummary");
+    const schemaMermaid = document.getElementById("schemaMermaid");
+    let renderCounter = 0;
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "default",
+      flowchart: {
+        curve: "basis",
+        padding: 15,
+        nodeSpacing: 55,
+        rankSpacing: 70,
+        htmlLabels: true
+      }
+    });
+
+    function buildMermaid(topic) {
+      const activeNodes = new Set(topic.nodes);
+      const activeEdges = new Set(topic.edges);
+      const allNodes = Array.from(new Set(schemaEdges.flatMap((edge) => [edge.from, edge.to])));
+      const nodeLabel = (node) => {
+        const fields = (topic.nodeFields || {})[node] || [];
+        if (!activeNodes.has(node) || fields.length === 0) {
+          return node;
+        }
+        return `${node}<br/><small>${fields.join("<br/>")}</small>`;
+      };
+      const edgeLabel = (edge) => {
+        const fields = (topic.nodeFields || {})[edge.edge] || [];
+        return fields.length > 0 ? ` -->|${fields.join("<br/>")}| ` : " --> ";
+      };
+      const lines = [
+        "graph TB",
+        ...schemaEdges.map((edge) => `    ${edge.from}["${nodeLabel(edge.from)}"]${edgeLabel(edge)}${edge.to}["${nodeLabel(edge.to)}"]`),
+        "    classDef neutralNode fill:#f8fafc,stroke:#b8c2d0,stroke-width:2px,color:#172033;",
+        "    classDef activeNode fill:#fff0cf,stroke:#ffb84d,stroke-width:5px,color:#172033;"
+      ];
+
+      allNodes.forEach((node) => {
+        lines.push(`    class ${node} ${activeNodes.has(node) ? "activeNode" : "neutralNode"};`);
+      });
+
+      schemaEdges.forEach((edge, index) => {
+        if (activeEdges.has(edge.id)) {
+          lines.push(`    linkStyle ${index} stroke:#ffb84d,stroke-width:5px;`);
+        }
+      });
+
+      return lines.join("\n");
+    }
+
+    async function renderSchema(topic) {
+      const id = `rasopathies_schema_${++renderCounter}`;
+      try {
+        const { svg } = await mermaid.render(id, buildMermaid(topic));
+        schemaMermaid.innerHTML = svg;
+      } catch (error) {
+        schemaMermaid.innerHTML = `<pre>${buildMermaid(topic)}</pre>`;
+      }
+    }
+
+    async function render(topicId) {
+      const topic = topics[topicId];
+      const activeQuestion = questions.find((question) => question.dataset.topic === topicId);
+      questions.forEach((question) => {
+        question.classList.toggle("is-active", question.dataset.topic === topicId);
+      });
+      if (activeQuestion && formPanel) {
+        formPanel.scrollTop = activeQuestion.offsetTop - (formPanel.clientHeight / 2) + (activeQuestion.clientHeight / 2);
+      }
+
+      activeTitle.textContent = topic.title;
+      activeSummary.textContent = topic.summary;
+      await renderSchema(topic);
+    }
+
+    questions.forEach((question) => {
+      question.addEventListener("click", () => {
+        history.replaceState(null, "", `#${question.dataset.topic}`);
+        render(question.dataset.topic);
+      });
+    });
+
+    const initialTopic = window.location.hash ? window.location.hash.slice(1) : "disease";
+    render(topics[initialTopic] ? initialTopic : "disease");
+  </script>
+</body>
+</html>
