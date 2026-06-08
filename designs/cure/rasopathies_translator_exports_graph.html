@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rasopathies Graph To Translator Exports</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #596377;
+      --line: #d9e0ea;
+      --panel: #ffffff;
+      --page: #f5f7fb;
+      --blue: #2f6fbd;
+      --teal: #16817a;
+      --green: #4f7d2b;
+      --gold: #9a6a10;
+      --rose: #a83c57;
+      --violet: #7257a7;
+      --active: #ffb84d;
+      --shadow: 0 12px 32px rgba(23, 32, 51, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.25fr);
+      min-height: 100vh;
+    }
+
+    .form-panel,
+    .schema-panel {
+      min-width: 0;
+      padding: 22px;
+    }
+
+    .form-panel {
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+      overflow-y: auto;
+      max-height: 100vh;
+    }
+
+    .schema-panel {
+      display: grid;
+      grid-template-rows: auto minmax(760px, auto);
+      gap: 14px;
+      align-content: start;
+      overflow-y: auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 70ch;
+    }
+
+    .section {
+      margin-top: 22px;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      color: #263148;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .question-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .question {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-left: 4px solid transparent;
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px 12px 11px;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 2px 9px rgba(23, 32, 51, 0.04);
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .question:hover,
+    .question:focus-visible {
+      border-color: #a9bdd8;
+      box-shadow: 0 8px 20px rgba(23, 32, 51, 0.1);
+      outline: none;
+      transform: translateY(-1px);
+    }
+
+    .question.is-active {
+      border-color: #f3b24e;
+      border-left-color: var(--active);
+      background: #fffaf0;
+      box-shadow: 0 9px 24px rgba(154, 106, 16, 0.16);
+    }
+
+    .question .meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .question .field {
+      display: inline-flex;
+      min-width: 0;
+      border-radius: 999px;
+      background: #eef3f8;
+      padding: 4px 8px;
+      color: #445169;
+      text-transform: none;
+      white-space: nowrap;
+    }
+
+    .question .text {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.32;
+    }
+
+    .question .hint {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .schema-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .schema-header h2 {
+      font-size: 24px;
+      line-height: 1.15;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--active);
+    }
+
+    .swatch.secondary {
+      background: #b88322;
+      opacity: 0.9;
+    }
+
+    .graph-wrap {
+      min-height: 580px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: auto;
+    }
+
+    .mermaid-host {
+      min-width: 860px;
+      min-height: 580px;
+      padding: 18px;
+    }
+
+    .mermaid-host svg {
+      display: block;
+      width: 860px !important;
+      height: auto !important;
+      max-width: none !important;
+      background: #ffffff;
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .form-panel,
+      .schema-panel {
+        max-height: none;
+      }
+
+      .form-panel {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .schema-panel {
+        overflow: visible;
+      }
+
+      .schema-header {
+        grid-template-columns: 1fr;
+      }
+
+      .legend {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="form-panel" aria-label="Graph to Translator exports">
+      <p class="eyebrow">CURE ID rasopathies graph views</p>
+      <h1>Graph to Translator exports</h1>
+      <p class="intro">Select an export to show the graph nodes and paths used to produce that view.</p>
+
+      <div id="questionSections"></div>
+    </section>
+
+    <section class="schema-panel" aria-label="Graph schema">
+      <header class="schema-header">
+        <div>
+          <p class="eyebrow">Rasopathies graph schema</p>
+          <h2 id="activeTitle">Condition to phenotype</h2>
+          <p class="intro" id="activeSummary">This export follows each case condition to the patient's resolved phenotype findings.</p>
+        </div>
+        <div class="legend" aria-label="Schema highlighting">
+          <span><i class="swatch"></i>Export path</span>
+          <span><i class="swatch secondary"></i>Aggregation path</span>
+        </div>
+      </header>
+
+      <div class="graph-wrap">
+        <div id="schemaMermaid" class="mermaid-host" role="img" aria-label="Rasopathies graph schema"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const exportDefinitions = [
+      {
+        id: "condition-has-phenotype",
+        section: "Phenotype exports",
+        label: "Condition -> Phenotype",
+        field: "condition_has_phenotype",
+        text: "Condition has phenotype",
+        title: "Condition to phenotype",
+        summary: "This export follows each case condition to resolved phenotype findings and aggregates by patient and case report.",
+        nodes: ["ClinicalContext", "Condition", "Finding", "Phenotype"],
+        edges: ["context-condition", "context-finding", "finding-phenotype"],
+        evidenceNodes: ["CaseReport", "Patient"],
+        evidenceEdges: ["case-patient", "patient-context"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Condition: ["id", "name"], Finding: ["source_value", "source_text", "group"], Phenotype: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> Condition and ClinicalContext -> Finding -> Phenotype."
+      },
+      {
+        id: "drug-applied-to-treat-condition",
+        section: "Treatment exports",
+        label: "Drug -> Condition",
+        field: "drug_applied_to_treat_condition",
+        text: "Drug applied to treat condition",
+        title: "Drug to treated condition",
+        summary: "This export connects a treatment drug to the condition in the same clinical context and aggregates by patient and case report.",
+        nodes: ["ClinicalContext", "Condition", "DrugTreatment", "Drug"],
+        edges: ["context-condition", "context-treatment", "treatment-drug"],
+        evidenceNodes: ["CaseReport", "Patient"],
+        evidenceEdges: ["case-patient", "patient-context"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Condition: ["id", "name"], DrugTreatment: ["treatment fields"], Drug: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> DrugTreatment -> Drug, with ClinicalContext -> Condition."
+      },
+      {
+        id: "drug-applied-to-treat-phenotype",
+        section: "Treatment exports",
+        label: "Drug -> Phenotype",
+        field: "drug_applied_to_treat_phenotype",
+        text: "Drug applied to treat phenotype",
+        title: "Drug to treated phenotype",
+        summary: "This export follows treatment response targets from a drug treatment to a resolved phenotype and aggregates by patient and case report.",
+        nodes: ["DrugTreatment", "Drug", "TreatmentResponse", "Finding", "Phenotype"],
+        edges: ["treatment-drug", "treatment-response", "response-finding", "finding-phenotype"],
+        evidenceNodes: ["CaseReport", "Patient", "ClinicalContext"],
+        evidenceEdges: ["case-patient", "patient-context", "context-treatment"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Drug: ["id", "name"], TreatmentResponse: ["outcome", "time_to_improvement"], Finding: ["source_value", "source_text"], Phenotype: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> DrugTreatment -> TreatmentResponse -> Finding -> Phenotype."
+      },
+      {
+        id: "drug-has-adverse-event",
+        section: "Treatment exports",
+        label: "Drug -> Adverse event",
+        field: "drug_has_adverse_event",
+        text: "Drug has adverse event",
+        title: "Drug to adverse event",
+        summary: "This export maps drug treatments to resolved adverse-event phenotypes and aggregates by patient and case report.",
+        nodes: ["DrugTreatment", "Drug", "Phenotype"],
+        edges: ["treatment-drug", "treatment-adverse"],
+        evidenceNodes: ["CaseReport", "Patient", "ClinicalContext"],
+        evidenceEdges: ["case-patient", "patient-context", "context-treatment"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Drug: ["id", "name"], DrugTreatmentAdverseEventEdge: ["source_label", "have_adverse_events", "outcomes"], Phenotype: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> DrugTreatment -> Drug and DrugTreatment -> Phenotype."
+      },
+      {
+        id: "gene-associated-with-condition",
+        section: "Genetic exports",
+        label: "Gene -> Condition",
+        field: "gene_associated_with_condition",
+        text: "Gene associated with condition",
+        title: "Gene to condition",
+        summary: "This export uses the diagnosis event to connect reported genes to the condition and aggregates by patient and case report.",
+        nodes: ["Diagnosis", "Gene", "Condition"],
+        edges: ["diagnosis-gene", "diagnosis-condition"],
+        evidenceNodes: ["CaseReport", "Patient", "ClinicalContext"],
+        evidenceEdges: ["case-patient", "patient-context", "context-diagnosis"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Diagnosis: ["diagnosis_methods"], Gene: ["id", "symbol"], Condition: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> Diagnosis -> Gene and Diagnosis -> Condition."
+      },
+      {
+        id: "gene-has-sequence-variant",
+        section: "Genetic exports",
+        label: "Gene -> Variant",
+        field: "gene_has_sequence_variant",
+        text: "Gene has sequence variant",
+        title: "Gene to sequence variant",
+        summary: "This export connects each gene to its sequence variant, then uses diagnosis and case context for patient and case-report aggregation.",
+        nodes: ["Gene", "GeneVariant"],
+        edges: ["gene-variant"],
+        evidenceNodes: ["CaseReport", "Patient", "ClinicalContext", "Diagnosis"],
+        evidenceEdges: ["case-patient", "patient-context", "context-diagnosis", "diagnosis-variant"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Diagnosis: ["diagnosis_methods"], Gene: ["id", "symbol"], GeneVariant: ["nucleotide_change", "protein_change", "variant_label"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> Diagnosis -> GeneVariant, plus Gene -> GeneVariant."
+      },
+      {
+        id: "variant-genetically-associated-with-condition",
+        section: "Genetic exports",
+        label: "Variant -> Condition",
+        field: "variant_genetically_associated_with_condition",
+        text: "Variant genetically associated with condition",
+        title: "Variant to condition",
+        summary: "This export uses the diagnosis event to connect a reported variant to the condition and aggregates by patient and case report.",
+        nodes: ["Diagnosis", "GeneVariant", "Condition"],
+        edges: ["diagnosis-variant", "diagnosis-condition"],
+        evidenceNodes: ["CaseReport", "Patient", "ClinicalContext"],
+        evidenceEdges: ["case-patient", "patient-context", "context-diagnosis"],
+        nodeFields: { CaseReport: ["case_report_url"], Patient: ["evidence fields"], Diagnosis: ["diagnosis_methods"], GeneVariant: ["nucleotide_change", "protein_change", "variant_label"], Condition: ["id", "name"] },
+        hint: "CaseReport -> Patient -> ClinicalContext -> Diagnosis -> GeneVariant and Diagnosis -> Condition."
+      }
+    ];
+
+    const topics = Object.fromEntries(exportDefinitions.map((exportView) => [exportView.id, exportView]));
+
+    const schemaEdges = [
+      { id: "case-patient", from: "CaseReport", edge: "CaseReportPatientEdge", to: "Patient" },
+      { id: "case-reporter", from: "CaseReport", edge: "CaseReportReporterEdge", to: "Reporter" },
+      { id: "context-condition", from: "ClinicalContext", edge: "ClinicalContextConditionEdge", to: "Condition" },
+      { id: "context-diagnosis", from: "ClinicalContext", edge: "ClinicalContextDiagnosisEdge", to: "Diagnosis" },
+      { id: "context-treatment", from: "ClinicalContext", edge: "ClinicalContextDrugTreatmentEdge", to: "DrugTreatment" },
+      { id: "context-finding", from: "ClinicalContext", edge: "ClinicalContextFindingEdge", to: "Finding" },
+      { id: "diagnosis-condition", from: "Diagnosis", edge: "DiagnosisConditionEdge", to: "Condition" },
+      { id: "diagnosis-gene", from: "Diagnosis", edge: "DiagnosisGeneEdge", to: "Gene" },
+      { id: "diagnosis-variant", from: "Diagnosis", edge: "DiagnosisGeneVariantEdge", to: "GeneVariant" },
+      { id: "treatment-adverse", from: "DrugTreatment", edge: "DrugTreatmentAdverseEventEdge", to: "Phenotype" },
+      { id: "treatment-drug", from: "DrugTreatment", edge: "DrugTreatmentDrugEdge", to: "Drug" },
+      { id: "treatment-response", from: "DrugTreatment", edge: "DrugTreatmentResponseEdge", to: "TreatmentResponse" },
+      { id: "finding-phenotype", from: "Finding", edge: "FindingPhenotypeEdge", to: "Phenotype" },
+      { id: "gene-variant", from: "Gene", edge: "GeneGeneVariantEdge", to: "GeneVariant" },
+      { id: "patient-context", from: "Patient", edge: "PatientClinicalContextEdge", to: "ClinicalContext" },
+      { id: "patient-perinatal", from: "Patient", edge: "PatientPerinatalContextEdge", to: "PerinatalContext" },
+      { id: "perinatal-finding", from: "PerinatalContext", edge: "PerinatalContextFindingEdge", to: "Finding" },
+      { id: "response-finding", from: "TreatmentResponse", edge: "TreatmentResponseFindingEdge", to: "Finding" }
+    ];
+
+    function renderQuestionSections() {
+      const container = document.getElementById("questionSections");
+      const sections = [];
+      exportDefinitions.forEach((exportView) => {
+        let section = sections.find((entry) => entry.name === exportView.section);
+        if (!section) {
+          section = { name: exportView.section, questions: [] };
+          sections.push(section);
+        }
+        section.questions.push(exportView);
+      });
+      container.replaceChildren(...sections.map((section) => {
+        const sectionEl = document.createElement("div");
+        sectionEl.className = "section";
+        const heading = document.createElement("h2");
+        heading.className = "section-title";
+        heading.textContent = section.name;
+        const list = document.createElement("div");
+        list.className = "question-list";
+        section.questions.forEach((exportView) => {
+          const button = document.createElement("button");
+          button.className = "question";
+          button.dataset.topic = exportView.id;
+          button.innerHTML = `
+            <span class="meta"><span>${exportView.label}</span><span class="field">${exportView.field}</span></span>
+            <span class="text">${exportView.text}</span>
+            ${exportView.hint ? `<span class="hint">${exportView.hint}</span>` : ""}
+          `;
+          list.appendChild(button);
+        });
+        sectionEl.append(heading, list);
+        return sectionEl;
+      }));
+    }
+
+    renderQuestionSections();
+
+    const questions = Array.from(document.querySelectorAll(".question"));
+    const formPanel = document.querySelector(".form-panel");
+    const activeTitle = document.getElementById("activeTitle");
+    const activeSummary = document.getElementById("activeSummary");
+    const schemaMermaid = document.getElementById("schemaMermaid");
+    let renderCounter = 0;
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "default",
+      flowchart: {
+        curve: "basis",
+        padding: 15,
+        nodeSpacing: 55,
+        rankSpacing: 70,
+        htmlLabels: true
+      }
+    });
+
+    function buildMermaid(topic) {
+      const primaryNodes = new Set(topic.nodes);
+      const primaryEdges = new Set(topic.edges);
+      const evidenceNodes = new Set(topic.evidenceNodes || []);
+      const evidenceEdges = new Set(topic.evidenceEdges || []);
+      const activeNodes = new Set([...primaryNodes, ...evidenceNodes]);
+      const allNodes = Array.from(new Set(schemaEdges.flatMap((edge) => [edge.from, edge.to])));
+      const nodeLabel = (node) => {
+        const fields = (topic.nodeFields || {})[node] || [];
+        if (!activeNodes.has(node) || fields.length === 0) {
+          return node;
+        }
+        return `${node}<br/><small>${fields.join("<br/>")}</small>`;
+      };
+      const edgeLabel = (edge) => {
+        const fields = (topic.nodeFields || {})[edge.edge] || [];
+        return fields.length > 0 ? ` -->|${fields.join("<br/>")}| ` : " --> ";
+      };
+      const lines = [
+        "graph TB",
+        ...schemaEdges.map((edge) => `    ${edge.from}["${nodeLabel(edge.from)}"]${edgeLabel(edge)}${edge.to}["${nodeLabel(edge.to)}"]`),
+        "    classDef neutralNode fill:#f8fafc,stroke:#b8c2d0,stroke-width:2px,color:#172033;",
+        "    classDef activeNode fill:#fff0cf,stroke:#ffb84d,stroke-width:5px,color:#172033;",
+        "    classDef evidenceNode fill:#fffaf0,stroke:#b88322,stroke-width:4px,color:#172033;"
+      ];
+
+      allNodes.forEach((node) => {
+        let className = "neutralNode";
+        if (primaryNodes.has(node)) {
+          className = "activeNode";
+        } else if (evidenceNodes.has(node)) {
+          className = "evidenceNode";
+        }
+        lines.push(`    class ${node} ${className};`);
+      });
+
+      schemaEdges.forEach((edge, index) => {
+        if (primaryEdges.has(edge.id)) {
+          lines.push(`    linkStyle ${index} stroke:#ffb84d,stroke-width:5px;`);
+        } else if (evidenceEdges.has(edge.id)) {
+          lines.push(`    linkStyle ${index} stroke:#b88322,stroke-width:4px,stroke-dasharray:7 4;`);
+        }
+      });
+
+      return lines.join("\n");
+    }
+
+    async function renderSchema(topic) {
+      const id = `rasopathies_schema_${++renderCounter}`;
+      try {
+        const { svg } = await mermaid.render(id, buildMermaid(topic));
+        schemaMermaid.innerHTML = svg;
+      } catch (error) {
+        schemaMermaid.innerHTML = `<pre>${buildMermaid(topic)}</pre>`;
+      }
+    }
+
+    async function render(topicId) {
+      const topic = topics[topicId];
+      const activeQuestion = questions.find((question) => question.dataset.topic === topicId);
+      questions.forEach((question) => {
+        question.classList.toggle("is-active", question.dataset.topic === topicId);
+      });
+      if (activeQuestion && formPanel) {
+        formPanel.scrollTop = activeQuestion.offsetTop - (formPanel.clientHeight / 2) + (activeQuestion.clientHeight / 2);
+      }
+
+      activeTitle.textContent = topic.title;
+      activeSummary.textContent = topic.summary;
+      await renderSchema(topic);
+    }
+
+    questions.forEach((question) => {
+      question.addEventListener("click", () => {
+        history.replaceState(null, "", `#${question.dataset.topic}`);
+        render(question.dataset.topic);
+      });
+    });
+
+    const initialTopic = window.location.hash ? window.location.hash.slice(1) : "condition-has-phenotype";
+    render(topics[initialTopic] ? initialTopic : "condition-has-phenotype");
+  </script>
+</body>
+</html>
