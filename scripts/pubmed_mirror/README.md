@@ -83,6 +83,10 @@ Use the wrapper script:
 scripts/pubmed_mirror/run_weekly_update.sh
 ```
 
+The wrapper uses `bash` so it can run on Linux hosts that do not have `zsh`
+installed. If cron logs `run_weekly_update.sh: not found` even though the file
+exists, check that the script interpreter exists on the host.
+
 Example cron setup:
 
 ```
@@ -100,3 +104,7 @@ crontab -e
 ```
 crontab -l
 ```
+
+Use `crontab -e` for the `kelleherkj` user job. `sudo crontab -e` edits
+root's crontab, which will also create `cron.log` as root unless ownership is
+changed separately.

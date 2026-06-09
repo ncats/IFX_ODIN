@@ -99,6 +99,48 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     assert disease_metadata["fingerprint"]
 
 
+def test_arango_output_adapter_merges_existing_resolver_metadata_for_post_processing():
+    existing = resolver_fingerprints_by_type([{
+        "label": "disease_ids",
+        "import": "./src/id_resolvers/disease_resolver.py",
+        "class": "DiseaseIdResolver",
+        "kwargs": {
+            "file_path": "./input_files/manual/target_graph/disease_ids.tsv",
+            "multi_match_behavior": "All",
+            "types": ["Disease"],
+        },
+    }])
+    current = resolver_fingerprints_by_type([{
+        "label": "tcrd_targets",
+        "import": "./src/id_resolvers/target_graph_resolver.py",
+        "class": "TCRDTargetResolver",
+        "kwargs": {
+            "canonical_type": "Protein",
+            "collapse_to_canonical": True,
+            "types": ["Protein", "Gene", "Transcript"],
+        },
+    }])
+
+    merged = ArangoOutputAdapter._merge_resolver_metadata(
+        {
+            "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+            "by_type": existing,
+        },
+        {
+            "source_yaml": "./src/use_cases/pharos/pharos_aql_post.yaml",
+            "by_type": current,
+        },
+    )
+
+    assert sorted(merged["by_type"]) == ["Disease", "Gene", "Protein", "Transcript"]
+    assert merged["source_yamls"] == [
+        "./src/use_cases/pharos/pharos.yaml",
+        "./src/use_cases/pharos/pharos_aql_post.yaml",
+    ]
+    assert merged["summary"]["Disease"]["class"] == "DiseaseIdResolver"
+    assert merged["summary"]["Protein"]["class"] == "TCRDTargetResolver"
+
+
 def test_get_node_merge_fetch_fields_keeps_only_merge_relevant_fields():
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
     obj_list = [{
