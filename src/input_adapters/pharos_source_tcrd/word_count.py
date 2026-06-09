@@ -90,26 +90,30 @@ class WordCountAdapter(InputAdapter):
 
     def _iter_pmid_chunks(self) -> Generator[List[int], None, None]:
         emitted = 0
-        chunk: List[int] = []
-        query = text("SELECT DISTINCT pubmed_id FROM protein2pubmed WHERE source = 'NCBI'")
+        last_pmid = -1
+        query = text(
+            "SELECT DISTINCT pubmed_id FROM protein2pubmed "
+            "WHERE source = 'NCBI' AND pubmed_id IS NOT NULL AND pubmed_id > :last_pmid "
+            "ORDER BY pubmed_id "
+            "LIMIT :limit"
+        )
 
-        with self.target_adapter.get_engine().connect() as conn:
-            result = conn.execution_options(stream_results=True).execute(query)
-            for row in result:
-                pmid = row[0]
-                if pmid is None:
-                    continue
-                chunk.append(int(pmid))
-                emitted += 1
+        while True:
+            remaining = None if self.max_pmids is None else self.max_pmids - emitted
+            if remaining is not None and remaining <= 0:
+                return
 
-                if self.max_pmids is not None and emitted >= self.max_pmids:
-                    break
+            limit = min(self.pmid_batch_size, remaining) if remaining is not None else self.pmid_batch_size
 
-                if len(chunk) >= self.pmid_batch_size:
-                    yield chunk
-                    chunk = []
+            with self.target_adapter.get_engine().connect() as conn:
+                rows = conn.execute(query, {"last_pmid": last_pmid, "limit": limit}).fetchall()
 
-        if chunk:
+            if not rows:
+                return
+
+            chunk = [int(row[0]) for row in rows]
+            emitted += len(chunk)
+            last_pmid = chunk[-1]
             yield chunk
 
     def _get_abstracts(self, pmids: Iterable[int]) -> Generator[str, None, None]:
