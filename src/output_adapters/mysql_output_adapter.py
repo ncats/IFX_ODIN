@@ -669,6 +669,7 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 "Source graph resolver metadata does not match this MySQL conversion config. "
                 f"source_graph={self.source_graph_database}; "
                 f"source_graph_yaml={graph_resolver_metadata.get('source_yaml') or graph_etl_metadata.get('source_yaml')}; "
+                f"source_graph_resolver_yamls={graph_resolver_metadata.get('source_yamls') or []}; "
                 f"mysql_yaml={self._resolver_source_yaml}; "
                 f"mismatched_types={[row['type'] for row in mismatches]}; "
                 f"graph_resolvers={actual_summary}; mysql_resolvers={expected_summary}"

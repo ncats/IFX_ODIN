@@ -758,6 +758,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
         existing_store = self.get_metadata_store(truncate=False)
         existing_graph_views = {}
+        existing_resolver_metadata = {}
         try:
             existing_doc = existing_store.get("collection_schemas")
             if existing_doc:
@@ -770,6 +771,12 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 existing_graph_views = existing_doc.get("value", {}).get("views", {}) or {}
         except Exception:
             pass
+        try:
+            existing_doc = existing_store.get("etl_metadata")
+            if existing_doc:
+                existing_resolver_metadata = existing_doc.get("value", {}).get("resolver_metadata", {}) or {}
+        except Exception:
+            pass
 
         metadata_store = self.get_metadata_store(truncate=False)
 
@@ -780,6 +787,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         }, overwrite=True)
 
         etl_metadata = self.get_etl_metadata()
+        etl_metadata["resolver_metadata"] = self._merge_resolver_metadata(
+            existing_resolver_metadata,
+            etl_metadata.get("resolver_metadata", {}),
+        )
         metadata_store.insert({
             "_key": "etl_metadata",
             "value": etl_metadata
@@ -822,6 +833,28 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "python_version": platform.python_version(),
         }
         return etl_metadata
+
+    @staticmethod
+    def _merge_resolver_metadata(existing_metadata=None, current_metadata=None):
+        existing_metadata = existing_metadata or {}
+        current_metadata = current_metadata or {}
+
+        merged_by_type = {
+            **(existing_metadata.get("by_type") or {}),
+            **(current_metadata.get("by_type") or {}),
+        }
+        source_yamls = []
+        for metadata in (existing_metadata, current_metadata):
+            source_yaml = metadata.get("source_yaml")
+            if source_yaml and source_yaml not in source_yamls:
+                source_yamls.append(source_yaml)
+
+        return {
+            "source_yaml": current_metadata.get("source_yaml") or existing_metadata.get("source_yaml"),
+            "source_yamls": source_yamls,
+            "by_type": merged_by_type,
+            "summary": resolver_fingerprint_summary(merged_by_type),
+        }
 
     def get_graph_views_metadata(self, existing_graph_views=None):
         existing_graph_views = existing_graph_views or {}
