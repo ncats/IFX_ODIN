@@ -950,6 +950,65 @@ async def qa_browser_home(request: Request):
     )
 
 
+@app.get("/registry", response_class=HTMLResponse)
+async def registry_home(request: Request):
+    snapshots = []
+    grouped_sources = {}
+    registry_error = None
+    if _minio_credentials:
+        try:
+            from src.registry.catalog import list_source_snapshots
+            from src.registry.storage import MinioStorage
+            from src.shared.db_credentials import DBCredentials
+
+            storage = MinioStorage(DBCredentials.from_yaml(_minio_credentials))
+            snapshots = list_source_snapshots(storage)
+            for snapshot in snapshots:
+                source = snapshot.get("source") or ""
+                dataset = snapshot.get("dataset") or ""
+                source_group = grouped_sources.setdefault(source, {
+                    "source": snapshot.get("source"),
+                    "datasets": {},
+                })
+                dataset_group = source_group["datasets"].setdefault(dataset, {
+                    "dataset": snapshot.get("dataset"),
+                    "snapshots": [],
+                })
+                dataset_group["snapshots"].append(snapshot)
+        except Exception as exc:
+            registry_error = str(exc)
+    else:
+        registry_error = "MinIO credentials are not configured for this QA Browser instance."
+
+    grouped_source_list = []
+    registry_stats = {
+        "source_count": 0,
+        "dataset_count": 0,
+        "total_size": "",
+    }
+    if _minio_credentials and not registry_error:
+        from src.registry.catalog import format_size
+
+        for source_group in grouped_sources.values():
+            grouped_source_list.append({
+                "source": source_group["source"],
+                "datasets": list(source_group["datasets"].values()),
+            })
+        registry_stats = {
+            "source_count": len(grouped_source_list),
+            "dataset_count": sum(len(group["datasets"]) for group in grouped_source_list),
+            "total_size": format_size(sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in snapshots)),
+        }
+
+    return templates.TemplateResponse(request, "registry_home.html", {
+        "request": request,
+        "snapshots": snapshots,
+        "grouped_sources": grouped_source_list,
+        "registry_stats": registry_stats,
+        "registry_error": registry_error,
+    })
+
+
 @app.get("/db/{db_name}", response_class=HTMLResponse)
 def dashboard(request: Request, db_name: str):
     db = get_db(db_name)
