@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}IFX Datasource Registry{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>IFX Datasource Registry</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero registry-hero">
+    <div class="hero-text">
+        <h1 class="hero-title">IFX Datasource Registry</h1>
+        <p class="hero-subtitle">Versioned source files and manifests stored in MinIO for reproducible ETL inputs.</p>
+    </div>
+</div>
+
+<div class="engine-section">
+    {% if not registry_error %}
+    <div class="registry-stats">
+        <div class="registry-stat">
+            <span>{{ registry_stats.source_count }}</span>
+            <label>Sources</label>
+        </div>
+        <div class="registry-stat">
+            <span>{{ registry_stats.dataset_count }}</span>
+            <label>Datasets</label>
+        </div>
+        <div class="registry-stat">
+            <span>{{ registry_stats.total_size }}</span>
+            <label>Total Size</label>
+        </div>
+    </div>
+    {% endif %}
+    <div class="engine-header">
+        <span style="font-weight:600">Registered Snapshots</span>
+    </div>
+    {% if registry_error %}
+    <div class="card">
+        <p>{{ registry_error }}</p>
+    </div>
+    {% elif grouped_sources %}
+        {% for source_group in grouped_sources %}
+        <div class="card registry-source-group">
+            <div class="registry-source-header">
+                <h2>{{ source_group.source }}</h2>
+                <span>{{ source_group.datasets|length }} datasets</span>
+            </div>
+            <div class="registry-downloads">
+                {% for dataset_group in source_group.datasets %}
+                <section class="registry-download-group">
+                    <div class="registry-download-header">
+                        <h3>{{ dataset_group.dataset }}</h3>
+                    </div>
+                    <div class="registry-table-wrap">
+                        <table class="registry-table">
+                            <thead>
+                            <tr>
+                                <th>Snapshot</th>
+                                <th>Version</th>
+                                <th>Version Date</th>
+                                <th>Downloaded</th>
+                                <th>Files</th>
+                                <th>Size</th>
+                                <th>Version Method</th>
+                                <th>Manifest</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for snapshot in dataset_group.snapshots %}
+                            <tr>
+                                <td class="mono">{{ snapshot.snapshot_id }}</td>
+                                <td>{{ snapshot.version }}</td>
+                                <td>{{ snapshot.version_date or "" }}</td>
+                                <td>{{ snapshot.download_date or "" }}</td>
+                                <td>{{ snapshot.files|length }}</td>
+                                <td class="mono">{{ snapshot.total_size or "" }}</td>
+                                <td>{{ snapshot.version_method.type or "" }}</td>
+                                <td class="mono registry-uri">{{ snapshot.manifest_uri }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="card">
+        <p>No source snapshots found in MinIO.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

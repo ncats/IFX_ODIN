@@ -465,8 +465,14 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 }
 
 .workflow-grid {
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.25rem;
+}
+
+@media (max-width: 760px) {
+    .workflow-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .workflow-card {
@@ -506,6 +512,150 @@ td.mono { font-family: var(--mono); font-size: 12px; }
         linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.02)),
         linear-gradient(120deg, transparent 0%, transparent 56%, rgba(37, 99, 235, 0.12) 56%, rgba(37, 99, 235, 0.12) 62%, transparent 62%),
         var(--bg-alt);
+}
+
+.workflow-card-registry {
+    color: #ffffff;
+    background:
+        linear-gradient(90deg, rgba(7, 13, 26, 0.76) 0%, rgba(7, 13, 26, 0.48) 42%, rgba(7, 13, 26, 0.08) 100%),
+        url("images/ifx-registry.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-color: rgba(37, 99, 235, 0.35);
+}
+
+.workflow-card-registry .db-name,
+.workflow-card-registry .db-card-footer {
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.workflow-card-registry:hover {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22);
+    text-decoration: none;
+}
+
+.registry-hero {
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.64) 42%, rgba(255, 255, 255, 0.08) 100%),
+        url("images/ifx-registry.png");
+    background-size: cover;
+    background-position: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+}
+
+.registry-source-group {
+    padding: 0;
+    overflow: hidden;
+}
+
+.registry-stats {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.registry-stat {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+}
+
+.registry-stat span {
+    color: var(--text);
+    display: block;
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.registry-stat label {
+    color: var(--text-muted);
+    display: block;
+    font-size: 12px;
+    margin-top: 0.2rem;
+    text-transform: uppercase;
+}
+
+.registry-source-header {
+    align-items: baseline;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+}
+
+.registry-source-header h2 {
+    color: var(--text);
+    margin: 0;
+    text-transform: none;
+}
+
+.registry-source-header span {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.registry-downloads {
+    display: grid;
+    gap: 0;
+}
+
+.registry-download-group {
+    border-top: 1px solid var(--border);
+}
+
+.registry-download-group:first-child {
+    border-top: 0;
+}
+
+.registry-download-header {
+    background: rgba(148, 163, 184, 0.08);
+    padding: 0.65rem 1rem;
+}
+
+.registry-download-header h3 {
+    color: var(--text);
+    font-size: 14px;
+    margin: 0;
+    text-transform: none;
+}
+
+.registry-table-wrap {
+    overflow-x: auto;
+}
+
+.registry-table th,
+.registry-table td {
+    vertical-align: top;
+}
+
+.registry-table .registry-uri {
+    max-width: 420px;
+    white-space: normal;
+    word-break: break-all;
+}
+
+@media (prefers-color-scheme: dark) {
+    .registry-hero {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(15, 23, 42, 0.86) 42%, rgba(15, 23, 42, 0.25) 100%),
+            url("images/ifx-registry.png");
+        background-size: cover;
+        background-position: center;
+    }
+}
+
+@media (max-width: 720px) {
+    .registry-stats {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (prefers-color-scheme: dark) {
