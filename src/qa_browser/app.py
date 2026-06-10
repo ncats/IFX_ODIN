@@ -4,6 +4,7 @@ import io
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
@@ -40,6 +41,12 @@ _mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
+_registry_catalog_cache: dict = {
+    "loaded_at": 0.0,
+    "snapshots": None,
+    "error": None,
+}
+_REGISTRY_CATALOG_TTL_SECONDS = 60
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
@@ -932,6 +939,40 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
+def _load_registry_snapshots_cached() -> tuple[List[dict], Optional[str]]:
+    now = time.time()
+    cached_snapshots = _registry_catalog_cache.get("snapshots")
+    cached_error = _registry_catalog_cache.get("error")
+    loaded_at = _registry_catalog_cache.get("loaded_at") or 0.0
+    if cached_snapshots is not None and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS:
+        return cached_snapshots, cached_error
+
+    if not _minio_credentials:
+        return [], "MinIO credentials are not configured for this QA Browser instance."
+
+    try:
+        from src.registry.catalog import list_source_snapshots
+        from src.registry.storage import MinioStorage
+        from src.shared.db_credentials import DBCredentials
+
+        storage = MinioStorage(DBCredentials.from_yaml(_minio_credentials))
+        snapshots = list_source_snapshots(storage)
+        _registry_catalog_cache.update({
+            "loaded_at": now,
+            "snapshots": snapshots,
+            "error": None,
+        })
+        return snapshots, None
+    except Exception as exc:
+        error = str(exc)
+        _registry_catalog_cache.update({
+            "loaded_at": now,
+            "snapshots": [],
+            "error": error,
+        })
+        return [], error
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -951,34 +992,21 @@ async def qa_browser_home(request: Request):
 
 
 @app.get("/registry", response_class=HTMLResponse)
-async def registry_home(request: Request):
-    snapshots = []
+def registry_home(request: Request):
+    snapshots, registry_error = _load_registry_snapshots_cached()
     grouped_sources = {}
-    registry_error = None
-    if _minio_credentials:
-        try:
-            from src.registry.catalog import list_source_snapshots
-            from src.registry.storage import MinioStorage
-            from src.shared.db_credentials import DBCredentials
-
-            storage = MinioStorage(DBCredentials.from_yaml(_minio_credentials))
-            snapshots = list_source_snapshots(storage)
-            for snapshot in snapshots:
-                source = snapshot.get("source") or ""
-                dataset = snapshot.get("dataset") or ""
-                source_group = grouped_sources.setdefault(source, {
-                    "source": snapshot.get("source"),
-                    "datasets": {},
-                })
-                dataset_group = source_group["datasets"].setdefault(dataset, {
-                    "dataset": snapshot.get("dataset"),
-                    "snapshots": [],
-                })
-                dataset_group["snapshots"].append(snapshot)
-        except Exception as exc:
-            registry_error = str(exc)
-    else:
-        registry_error = "MinIO credentials are not configured for this QA Browser instance."
+    for snapshot in snapshots:
+        source = snapshot.get("source") or ""
+        dataset = snapshot.get("dataset") or ""
+        source_group = grouped_sources.setdefault(source, {
+            "source": snapshot.get("source"),
+            "datasets": {},
+        })
+        dataset_group = source_group["datasets"].setdefault(dataset, {
+            "dataset": snapshot.get("dataset"),
+            "snapshots": [],
+        })
+        dataset_group["snapshots"].append(snapshot)
 
     grouped_source_list = []
     registry_stats = {
@@ -986,7 +1014,7 @@ async def registry_home(request: Request):
         "dataset_count": 0,
         "total_size": "",
     }
-    if _minio_credentials and not registry_error:
+    if not registry_error:
         from src.registry.catalog import format_size
 
         for source_group in grouped_sources.values():
