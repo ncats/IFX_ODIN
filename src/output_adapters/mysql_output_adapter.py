@@ -436,8 +436,6 @@ class MySQLOutputAdapter(OutputAdapter, MySqlAdapter, ABC):
                                         else_=table_class.doid,
                                     ),
                                 )
-                            if table_class is NcatsDisease:
-                                stmt = stmt.on_duplicate_key_update(id=table_class.id)
                             if table_class is WordCount:
                                 stmt = stmt.on_duplicate_key_update(count=stmt.inserted.count)
                             print(f"Inserting objects of type {table_class.__name__}")
