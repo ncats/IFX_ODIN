@@ -24,10 +24,14 @@ class MinioStorage:
         credentials: DBCredentials,
         bucket: Optional[str] = DEFAULT_REGISTRY_BUCKET,
         use_internal_url: bool = False,
+        connect_timeout: int = 5,
+        read_timeout: int = 30,
     ):
         self.credentials = credentials
         self._bucket = bucket or DEFAULT_REGISTRY_BUCKET or credentials.schema
         self.use_internal_url = use_internal_url
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
         if not self._bucket:
             raise ValueError("MinIO credentials must include schema as bucket name, or bucket must be provided")
 
@@ -45,7 +49,12 @@ class MinioStorage:
             endpoint_url=endpoint,
             aws_access_key_id=self.credentials.user,
             aws_secret_access_key=self.credentials.password,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+            ),
             verify=False,
         )
 

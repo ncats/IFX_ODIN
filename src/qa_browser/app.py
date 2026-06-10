@@ -955,8 +955,13 @@ def _load_registry_snapshots_cached() -> tuple[List[dict], Optional[str]]:
         from src.registry.storage import MinioStorage
         from src.shared.db_credentials import DBCredentials
 
-        storage = MinioStorage(DBCredentials.from_yaml(_minio_credentials), use_internal_url=True)
-        snapshots = list_source_snapshots(storage)
+        credentials = DBCredentials.from_yaml(_minio_credentials)
+        try:
+            storage = MinioStorage(credentials, use_internal_url=True, connect_timeout=2, read_timeout=10)
+            snapshots = list_source_snapshots(storage)
+        except Exception:
+            storage = MinioStorage(credentials, use_internal_url=False, connect_timeout=2, read_timeout=10)
+            snapshots = list_source_snapshots(storage)
         _registry_catalog_cache.update({
             "loaded_at": now,
             "snapshots": snapshots,
