@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -22,6 +22,17 @@ class SourceSnapshot:
     files: List[SnapshotFile]
     extra: Dict = field(default_factory=dict)
     downloaded_by: str = "ifx-registry"
+
+
+@dataclass
+class ExternalSourceRegistration:
+    source: str
+    dataset: str
+    version: str
+    version_date: Optional[str]
+    connection: Dict[str, Any]
+    access: Dict[str, Any]
+    extra: Dict[str, Any] = field(default_factory=dict)
 
 
 class SourceFetcher(ABC):
@@ -61,3 +72,12 @@ class SourceFunctionFetcher(SourceFetcher):
 
     def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
         return self.latest_version_function(timeout=timeout)
+
+
+class ExternalSourceProvider(ABC):
+    source: str
+    dataset: str
+
+    @abstractmethod
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        raise NotImplementedError

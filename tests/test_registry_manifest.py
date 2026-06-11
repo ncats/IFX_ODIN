@@ -14,7 +14,7 @@ from src.registry.manifest import (
     verify_manifest_files,
     write_manifest,
 )
-from src.registry.fetchers import SnapshotFile, SourceFetcher, SourceSnapshot
+from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, SnapshotFile, SourceFetcher, SourceSnapshot
 from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage
 from src.registry.sources.ctd import extract_report_created
 from src.registry.sources.hcop import HCOP_FILE_NAME
@@ -23,7 +23,7 @@ from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TIN
 from src.registry.sources.mgi import MGI_HMD_FILE_NAME
 from src.registry.sources.mp import MP_FILE_NAME, extract_obo_data_version
 from src.registry.sources.ncbi import NCBI_GENE_SUMMARY_URLS, NCBI_PUBLICATION_URLS
-from src.registry.sources.external_pharos import _version_token
+from src.registry.sources.external_sources import _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
 from src.registry.sources.pathway_sources import latest_panther_version
@@ -1136,6 +1136,269 @@ def test_data_registry_local_instance_cannot_upload(tmp_path: Path):
 
     with pytest.raises(ValueError, match="not connected to MinIO"):
         registry.upload_snapshot(manifest_path)
+
+
+def test_data_registry_registers_external_source_from_config(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    credentials_path = tmp_path / "credentials.yaml"
+    credentials_path.write_text("url: example.org\nschema: example_schema\n", encoding="utf-8")
+    config_path.write_text(
+        f"""
+sources:
+  example_external:
+    datasets:
+      database:
+        external:
+          module: fake_external_module
+          class: ExampleExternalSource
+          credentials: {credentials_path}
+""",
+        encoding="utf-8",
+    )
+    calls = []
+
+    class ExampleExternalSource(ExternalSourceProvider):
+        source = "example_external"
+        dataset = "database"
+
+        def build_registration(self, *, config):
+            calls.append(config)
+            return ExternalSourceRegistration(
+                source=self.source,
+                dataset=self.dataset,
+                version="v1",
+                version_date="2026-06-11",
+                connection={
+                    "type": "mysql",
+                    "host": "example.org",
+                    "schema": "example_schema",
+                    "credential_ref": str(config["credentials"]),
+                },
+                access={
+                    "mode": "query",
+                    "interface": "sql",
+                    "database_type": "mysql",
+                },
+                extra={
+                    "version_method": {
+                        "type": "test_probe",
+                    },
+                },
+            )
+
+    class UploadStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = []
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded.append((Path(local_path).name, key, content_type))
+            return f"s3://ifx-registry/{key}"
+
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(ExampleExternalSource=ExampleExternalSource),
+    )
+    storage = UploadStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    manifest_path = registry.register_external_source(
+        "example_external",
+        "database",
+        dest=tmp_path / "cache",
+    )
+    manifest = read_manifest(manifest_path)
+
+    assert calls == [{
+        "module": "fake_external_module",
+        "class": "ExampleExternalSource",
+        "credentials": str(credentials_path),
+    }]
+    assert manifest_path == tmp_path / "cache" / "example_external" / "database" / "v1" / "manifest.yaml"
+    assert manifest["kind"] == "external_source_registration"
+    assert manifest["registration_id"] == "example_external:database:v1"
+    assert manifest["manifest_uri"] == "s3://ifx-registry/external/example_external/database/v1/manifest.yaml"
+    assert storage.uploaded == [
+        ("manifest.yaml", "external/example_external/database/v1/manifest.yaml", "application/x-yaml"),
+    ]
+
+
+def test_data_registry_latest_checks_skip_external_sources(tmp_path: Path):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  example_external:
+    datasets:
+      database:
+        external:
+          module: fake_external_module
+          class: ExampleExternalSource
+          credentials: src/use_cases/secrets/example.yaml
+""",
+        encoding="utf-8",
+    )
+    registry = DataRegistry(FakeStorageForRegistry(), sources_config_path=config_path)
+
+    assert registry.check_all_latest_registered() == []
+
+
+def test_data_registry_checks_external_registrations(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  example_external:
+    datasets:
+      registered:
+        external:
+          module: fake_external_module
+          class: RegisteredExternalSource
+          credentials: src/use_cases/secrets/example.yaml
+      missing:
+        external:
+          module: fake_external_module
+          class: MissingExternalSource
+          credentials: src/use_cases/secrets/example.yaml
+""",
+        encoding="utf-8",
+    )
+
+    class RegisteredExternalSource(ExternalSourceProvider):
+        source = "example_external"
+        dataset = "registered"
+
+        def build_registration(self, *, config):
+            return ExternalSourceRegistration(
+                source=self.source,
+                dataset=self.dataset,
+                version="v1",
+                version_date="2026-06-11",
+                connection={},
+                access={},
+            )
+
+    class MissingExternalSource(ExternalSourceProvider):
+        source = "example_external"
+        dataset = "missing"
+
+        def build_registration(self, *, config):
+            return ExternalSourceRegistration(
+                source=self.source,
+                dataset=self.dataset,
+                version="v2",
+                version_date="2026-06-11",
+                connection={},
+                access={},
+            )
+
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return []
+            if prefix == "external/":
+                return ["external/example_external/registered/v1/manifest.yaml"]
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            return """
+kind: external_source_registration
+schema_version: 1
+source: example_external
+dataset: registered
+registration_id: example_external:registered:v1
+version: v1
+connection: {}
+access: {}
+"""
+
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(
+            RegisteredExternalSource=RegisteredExternalSource,
+            MissingExternalSource=MissingExternalSource,
+        ),
+    )
+    registry = DataRegistry(FakeStorage(), sources_config_path=config_path)
+
+    statuses = registry.check_external_registrations()
+
+    assert [(entry["dataset"], entry["latest_version"], entry["is_latest_registered"]) for entry in statuses] == [
+        ("missing", "v2", False),
+        ("registered", "v1", True),
+    ]
+
+
+def test_data_registry_sync_external_sources_dry_run_and_registers(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  example_external:
+    datasets:
+      database:
+        external:
+          module: fake_external_module
+          class: ExampleExternalSource
+          credentials: src/use_cases/secrets/example.yaml
+""",
+        encoding="utf-8",
+    )
+
+    class ExampleExternalSource(ExternalSourceProvider):
+        source = "example_external"
+        dataset = "database"
+
+        def build_registration(self, *, config):
+            return ExternalSourceRegistration(
+                source=self.source,
+                dataset=self.dataset,
+                version="v1",
+                version_date="2026-06-11",
+                connection={"type": "mysql"},
+                access={"mode": "query"},
+            )
+
+    class UploadStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return []
+            if prefix == "external/":
+                return sorted(self.uploaded)
+            raise AssertionError(prefix)
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded[key] = Path(local_path).read_text(encoding="utf-8")
+            return f"s3://ifx-registry/{key}"
+
+        def read_text(self, key):
+            return self.uploaded[key]
+
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(ExampleExternalSource=ExampleExternalSource),
+    )
+    storage = UploadStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    dry_run = registry.sync_external_sources()
+
+    assert [(entry["dataset"], entry["sync_reason"], entry["sync_action"]) for entry in dry_run] == [
+        ("database", "missing", "would_register"),
+    ]
+
+    result = registry.sync_external_sources(dest=tmp_path / "cache", dry_run=False)
+
+    assert result[0]["sync_action"] == "registered"
+    assert result[0]["manifest_path"] == str(tmp_path / "cache" / "example_external" / "database" / "v1" / "manifest.yaml")
+    assert sorted(storage.uploaded) == [
+        "external/example_external/database/v1/manifest.yaml",
+    ]
+    assert registry.is_external_source("example_external", "database", "v1")
 
 
 def test_data_registry_refresh_fetches_then_uploads(tmp_path: Path, monkeypatch):

@@ -169,6 +169,37 @@ For these, register metadata rather than pretending MinIO owns the raw source:
 
 If reproducibility or speed requires it, create a derived export and register that under `derived/...`.
 
+External sources are configured in `src/registry/registry_sources.yaml` with an `external:` block:
+
+```yaml
+sources:
+  chembl:
+    datasets:
+      activity_database:
+        external:
+          module: src.registry.sources.external_sources
+          class: ChemblActivityDatabaseExternalSource
+          credentials: src/use_cases/secrets/chembl_credentials.yaml
+```
+
+The external source class probes source-specific version metadata and returns an `ExternalSourceRegistration`. `DataRegistry` writes the manifest and uploads it to MinIO.
+
+Check configured external sources:
+
+```python
+from src.core.data_registry import DataRegistry
+
+registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
+statuses = registry.check_external_registrations()
+```
+
+Dry-run or sync external sources:
+
+```python
+plan = registry.sync_external_sources(dry_run=True)
+results = registry.sync_external_sources(dest="/tmp/ifx-registry-cache", dry_run=False)
+```
+
 External registrations use:
 
 ```text

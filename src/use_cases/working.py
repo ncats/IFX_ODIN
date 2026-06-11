@@ -8,14 +8,29 @@ from src.registry.manifest import read_manifest
 
 registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
 
-results = registry.sync_latest_snapshots(
-    dest="/private/tmp/ifx-registry-cache",
-    min_days_since_last_update=7,
-    dry_run=False,
+statuses = registry.check_external_registrations()
+for status in statuses:
+    print(status)
+
+registry.register_external_sources(
+    dest="/tmp/ifx-registry-cache",
+    upload=True
 )
 
-if len(results) == 0:
-    print("everything's sync'd yo")
+statuses = registry.check_external_registrations()
+for status in statuses:
+    print(status)
 
-for row in results:
-    print(row)
+# results = registry.sync_latest_snapshots(
+#     dest="/private/tmp/ifx-registry-cache",
+#     min_days_since_last_update=7,
+#     dry_run=False,
+# )
+#
+# results = registry.sync_ex
+#
+# if len(results) == 0:
+#     print("everything's sync'd yo")
+#
+# for row in results:
+#     print(row)

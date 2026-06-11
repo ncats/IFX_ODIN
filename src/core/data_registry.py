@@ -8,14 +8,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from src.registry.fetchers import SourceFetcher, SourceSnapshot
+from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, SourceFetcher, SourceSnapshot
 from src.registry.manifest import (
     MANIFEST_FILENAME,
     build_source_snapshot_manifest,
     file_entry,
+    iso_timestamp,
     manifest_checksum,
     read_manifest,
     storage_prefix,
+    today_utc,
     verify_manifest_files,
     write_manifest,
 )
@@ -352,6 +354,186 @@ class DataRegistry:
         self.upload_snapshot(manifest_path)
         return manifest_path
 
+    def register_external_source(
+        self,
+        source: str,
+        dataset: str,
+        *,
+        dest: str | Path,
+        upload: bool = True,
+    ) -> Path:
+        registration = self.build_external_registration(source, dataset)
+        manifest_path = self.write_external_registration(registration, dest=dest)
+        if upload:
+            self.upload_external_registration(manifest_path)
+        return manifest_path
+
+    def register_external_sources(
+        self,
+        *,
+        dest: str | Path,
+        upload: bool = True,
+    ) -> List[Path]:
+        paths = []
+        for source, source_config in sorted((self._load_sources_config().get("sources") or {}).items()):
+            for dataset, dataset_config in sorted((source_config.get("datasets") or {}).items()):
+                if "external" not in dataset_config:
+                    continue
+                paths.append(self.register_external_source(source, dataset, dest=dest, upload=upload))
+        return paths
+
+    def check_external_registrations(self) -> List[RegistryEntry]:
+        self._require_storage()
+        statuses: List[RegistryEntry] = []
+        for source, source_config in sorted((self._load_sources_config().get("sources") or {}).items()):
+            for dataset, dataset_config in sorted((source_config.get("datasets") or {}).items()):
+                external_config = dataset_config.get("external") or {}
+                if not external_config:
+                    continue
+                registered_versions = self.list_versions(source, dataset)
+                status: RegistryEntry = {
+                    "source": source,
+                    "dataset": dataset,
+                    "latest_version": None,
+                    "latest_version_date": None,
+                    "registered_versions": registered_versions,
+                    "latest_registered_version": registered_versions[-1] if registered_versions else None,
+                    "days_since_last_update": self._days_since_version(registered_versions[-1]) if registered_versions else None,
+                    "is_latest_registered": False,
+                    "error": None,
+                }
+                try:
+                    registration = self.build_external_registration(source, dataset)
+                    status["latest_version"] = registration.version
+                    status["latest_version_date"] = registration.version_date
+                    status["is_latest_registered"] = registration.version in registered_versions
+                except Exception as exc:
+                    status["error"] = str(exc)
+                statuses.append(status)
+        return statuses
+
+    def sync_external_sources(
+        self,
+        *,
+        dest: Optional[str | Path] = None,
+        min_days_since_last_update: int = 0,
+        dry_run: bool = True,
+    ) -> List[RegistryEntry]:
+        """
+        Register missing or stale external source pointers.
+
+        With dry_run=True, this returns the external registrations that would
+        be written/uploaded without mutating MinIO.
+        """
+        if not dry_run and dest is None:
+            raise ValueError("dest is required when dry_run=False")
+        results: List[RegistryEntry] = []
+        for status in self.check_external_registrations():
+            reason = self._sync_candidate_reason(
+                status,
+                min_days_since_last_update=min_days_since_last_update,
+            )
+            if reason is None:
+                continue
+            result = dict(status)
+            result["sync_reason"] = reason
+            result["sync_action"] = "would_register" if dry_run else "register"
+            result["manifest_path"] = None
+            result["sync_error"] = None
+            if not dry_run:
+                try:
+                    print(
+                        f"Registering external source {status['source']}/{status['dataset']} "
+                        f"(reason: {reason})",
+                        flush=True,
+                    )
+                    manifest_path = self.register_external_source(
+                        status["source"],
+                        status["dataset"],
+                        dest=dest,
+                        upload=True,
+                    )
+                    result["sync_action"] = "registered"
+                    result["manifest_path"] = str(manifest_path)
+                    print(
+                        f"Registered external source {status['source']}/{status['dataset']} -> {manifest_path}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    result["sync_action"] = "failed"
+                    result["sync_error"] = str(exc)
+                    print(
+                        f"Failed registering external source {status['source']}/{status['dataset']}: {exc}",
+                        flush=True,
+                    )
+            results.append(result)
+        return results
+
+    def build_external_registration(self, source: str, dataset: str) -> ExternalSourceRegistration:
+        dataset_config = self.get_dataset_config(source, dataset)
+        external_config = dataset_config.get("external") or {}
+        provider = self._load_external_provider(source, dataset, external_config)
+        registration = provider.build_registration(config=external_config)
+        if not isinstance(registration, ExternalSourceRegistration):
+            raise TypeError(
+                f"External provider for {source}/{dataset} returned {type(registration).__name__}; "
+                "expected ExternalSourceRegistration"
+            )
+        return registration
+
+    def write_external_registration(
+        self,
+        registration: ExternalSourceRegistration,
+        *,
+        dest: str | Path,
+    ) -> Path:
+        manifest = self._build_external_manifest(registration)
+        final_dir = Path(dest) / registration.source / registration.dataset / registration.version
+        manifest_path = final_dir / MANIFEST_FILENAME
+        write_manifest(manifest, manifest_path)
+        print(f"Wrote {manifest_path}")
+        print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
+        return manifest_path
+
+    def upload_external_registration(self, manifest_path: str | Path) -> List[str]:
+        self._require_storage()
+        manifest_path = Path(manifest_path)
+        manifest = read_manifest(manifest_path)
+        source = manifest["source"]
+        dataset = manifest["dataset"]
+        version = manifest["version"]
+        prefix = self.external_storage_prefix(source, dataset, version)
+        manifest["manifest_uri"] = s3_uri(self.storage.bucket, f"{prefix}/{MANIFEST_FILENAME}")
+        write_manifest(manifest, manifest_path)
+        uploaded_manifest_uri = self.storage.upload_file(
+            manifest_path,
+            f"{prefix}/{MANIFEST_FILENAME}",
+            "application/x-yaml",
+        )
+        self.refresh_catalog()
+        return [uploaded_manifest_uri]
+
+    @staticmethod
+    def external_storage_prefix(source: str, dataset: str, version: str) -> str:
+        return f"external/{source}/{dataset}/{version}"
+
+    @staticmethod
+    def _build_external_manifest(registration: ExternalSourceRegistration) -> RegistryEntry:
+        return {
+            "kind": "external_source_registration",
+            "schema_version": 1,
+            "source": registration.source,
+            "dataset": registration.dataset,
+            "registration_id": f"{registration.source}:{registration.dataset}:{registration.version}",
+            "version": registration.version,
+            "version_date": registration.version_date,
+            "registered_date": today_utc(),
+            "created_at": iso_timestamp(),
+            "connection": registration.connection,
+            "access": registration.access,
+            "extra": registration.extra,
+        }
+
     def get_latest_version(self, source: str, dataset: str, *, timeout: Optional[int] = None) -> Optional[str]:
         dataset_config = self.get_dataset_config(source, dataset)
         fetch_config = dataset_config.get("fetch") or {}
@@ -372,6 +554,8 @@ class DataRegistry:
         for source, source_config in sorted((self._load_sources_config().get("sources") or {}).items()):
             for dataset, dataset_config in sorted((source_config.get("datasets") or {}).items()):
                 fetch_config = dataset_config.get("fetch") or {}
+                if not fetch_config:
+                    continue
                 version_strategy = fetch_config.get("version_strategy")
                 dataset_timeout = timeout if timeout is not None else DEFAULT_FETCH_TIMEOUT
                 registered_versions = self.list_versions(source, dataset)
@@ -510,6 +694,22 @@ class DataRegistry:
         if getattr(fetcher, "source", None) != source or getattr(fetcher, "dataset", None) != dataset:
             raise ValueError(f"Fetcher {class_name} does not match configured dataset {source}/{dataset}")
         return fetcher
+
+    def _load_external_provider(self, source: str, dataset: str, external_config: dict) -> ExternalSourceProvider:
+        module_name = external_config.get("module")
+        if not module_name:
+            raise ValueError(f"Missing external source module for {source}/{dataset}")
+        module = importlib.import_module(module_name)
+
+        class_name = external_config.get("class")
+        if not class_name:
+            raise ValueError(f"Missing external source class for {source}/{dataset}")
+        provider = getattr(module, class_name)()
+        if not isinstance(provider, ExternalSourceProvider):
+            raise TypeError(f"External source provider {class_name} must implement ExternalSourceProvider")
+        if getattr(provider, "source", None) != source or getattr(provider, "dataset", None) != dataset:
+            raise ValueError(f"External source provider {class_name} does not match configured dataset {source}/{dataset}")
+        return provider
 
     def get_dataset_config(self, source: str, dataset: str) -> dict:
         source_config = (self._load_sources_config().get("sources") or {}).get(source)

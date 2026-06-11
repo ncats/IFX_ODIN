@@ -1,17 +1,12 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 from sqlalchemy import text
 
 from src.input_adapters.sql_adapter import MySqlAdapter, PostgreSqlAdapter
-from src.registry.manifest import MANIFEST_FILENAME, iso_timestamp, manifest_checksum, today_utc, write_manifest
-from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage, load_minio_credentials, s3_uri
+from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration
 from src.shared.db_credentials import DBCredentials
-
-
-def external_storage_prefix(source: str, dataset: str, version: str) -> str:
-    return f"external/{source}/{dataset}/{version}"
 
 
 def _safe_credentials_summary(credentials_path: Path, database_type: str) -> Dict[str, Any]:
@@ -148,147 +143,96 @@ def _ifx_pubmed_version_info(credentials_path: Path) -> Dict[str, Any]:
     }
 
 
-def _build_external_manifest(
-    *,
-    source: str,
-    dataset: str,
-    version: str,
-    version_date: Optional[str],
-    connection: Dict[str, Any],
-    access: Dict[str, Any],
-    extra: Dict[str, Any],
-) -> Dict[str, Any]:
+def _credentials_path(config: Dict[str, Any]) -> Path:
+    credentials = config.get("credentials")
+    if not credentials:
+        raise ValueError("External source config requires credentials")
+    return Path(credentials)
+
+
+def _sql_access(database_type: str) -> Dict[str, str]:
     return {
-        "kind": "external_source_registration",
-        "schema_version": 1,
-        "source": source,
-        "dataset": dataset,
-        "registration_id": f"{source}:{dataset}:{version}",
-        "version": version,
-        "version_date": version_date,
-        "registered_date": today_utc(),
-        "created_at": iso_timestamp(),
-        "connection": connection,
-        "access": access,
-        "extra": extra,
+        "mode": "query",
+        "interface": "sql",
+        "database_type": database_type,
     }
 
 
-def _register_external_manifest(
-    *,
-    manifest: Dict[str, Any],
-    dest: Path,
-    minio_credentials: Optional[Path],
-    upload: bool,
-    bucket: str = DEFAULT_REGISTRY_BUCKET,
-) -> Path:
-    source = manifest["source"]
-    dataset = manifest["dataset"]
-    version = manifest["version"]
-    final_dir = dest / source / dataset / version
-    manifest_path = final_dir / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
+class ChemblActivityDatabaseExternalSource(ExternalSourceProvider):
+    source = "chembl"
+    dataset = "activity_database"
 
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials), bucket=bucket)
-        object_prefix = external_storage_prefix(source, dataset, version)
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
-        print(f"Uploaded external registration to s3://{storage.bucket}/{object_prefix}/")
-
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    return manifest_path
-
-
-def register_pharos_external_sources(
-    *,
-    dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
-    chembl_credentials: Path = Path("src/use_cases/secrets/chembl_credentials.yaml"),
-    drugcentral_credentials: Path = Path("src/use_cases/secrets/drugcentral_credentials.yaml"),
-    pubmed_credentials: Path = Path("src/use_cases/secrets/ifx_pubmed_credentials.yaml"),
-    legacy_pharos_credentials: Path = Path("src/use_cases/secrets/pharos_credentials.yaml"),
-) -> List[Path]:
-    drugcentral_info = _drugcentral_version_info(drugcentral_credentials)
-    pubmed_info = _ifx_pubmed_version_info(pubmed_credentials)
-
-    registrations = [
-        _build_external_manifest(
-            source="chembl",
-            dataset="activity_database",
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        credentials_path = _credentials_path(config)
+        return ExternalSourceRegistration(
+            source=self.source,
+            dataset=self.dataset,
             version="chembl36",
             version_date=None,
-            connection=_safe_credentials_summary(chembl_credentials, "mysql"),
-            access={
-                "mode": "query",
-                "interface": "sql",
-                "database_type": "mysql",
-            },
+            connection=_safe_credentials_summary(credentials_path, "mysql"),
+            access=_sql_access("mysql"),
             extra={
                 "version_method": {
                     "type": "database_schema_and_chembl_version_table",
                     "description": "Configured schema is chembl36; adapters also read the ChEMBL Version table at runtime.",
                 },
             },
-        ),
-        _build_external_manifest(
-            source="drugcentral",
-            dataset="drug_database",
-            version=drugcentral_info["version"],
-            version_date=drugcentral_info["version_date"],
-            connection=_safe_credentials_summary(drugcentral_credentials, "postgresql"),
-            access={
-                "mode": "query",
-                "interface": "sql",
-                "database_type": "postgresql",
-            },
-            extra={"version_method": drugcentral_info["version_method"]},
-        ),
-        _build_external_manifest(
-            source="ifx_pubmed",
-            dataset="pubmed_mirror",
-            version=pubmed_info["version"],
-            version_date=pubmed_info["version_date"],
-            connection=_safe_credentials_summary(pubmed_credentials, "mysql"),
-            access={
-                "mode": "query",
-                "interface": "sql",
-                "database_type": "mysql",
-            },
-            extra={"version_method": pubmed_info["version_method"]},
-        ),
-        _build_external_manifest(
-            source="legacy_pharos",
-            dataset="pharos319_mysql",
+        )
+
+
+class DrugcentralDrugDatabaseExternalSource(ExternalSourceProvider):
+    source = "drugcentral"
+    dataset = "drug_database"
+
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        credentials_path = _credentials_path(config)
+        version_info = _drugcentral_version_info(credentials_path)
+        return ExternalSourceRegistration(
+            source=self.source,
+            dataset=self.dataset,
+            version=version_info["version"],
+            version_date=version_info["version_date"],
+            connection=_safe_credentials_summary(credentials_path, "postgresql"),
+            access=_sql_access("postgresql"),
+            extra={"version_method": version_info["version_method"]},
+        )
+
+
+class IfxPubmedMirrorExternalSource(ExternalSourceProvider):
+    source = "ifx_pubmed"
+    dataset = "pubmed_mirror"
+
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        credentials_path = _credentials_path(config)
+        version_info = _ifx_pubmed_version_info(credentials_path)
+        return ExternalSourceRegistration(
+            source=self.source,
+            dataset=self.dataset,
+            version=version_info["version"],
+            version_date=version_info["version_date"],
+            connection=_safe_credentials_summary(credentials_path, "mysql"),
+            access=_sql_access("mysql"),
+            extra={"version_method": version_info["version_method"]},
+        )
+
+
+class LegacyPharosMysqlExternalSource(ExternalSourceProvider):
+    source = "legacy_pharos"
+    dataset = "pharos319_mysql"
+
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        credentials_path = _credentials_path(config)
+        return ExternalSourceRegistration(
+            source=self.source,
+            dataset=self.dataset,
             version="pharos319",
             version_date=None,
-            connection=_safe_credentials_summary(legacy_pharos_credentials, "mysql"),
-            access={
-                "mode": "query",
-                "interface": "sql",
-                "database_type": "mysql",
-            },
+            connection=_safe_credentials_summary(credentials_path, "mysql"),
+            access=_sql_access("mysql"),
             extra={
                 "version_method": {
                     "type": "configured_legacy_database",
                     "description": "No file snapshot is downloaded; adapters query the legacy Pharos/TCRD database.",
                 },
             },
-        ),
-    ]
-
-    paths = []
-    for manifest in registrations:
-        if upload:
-            source = manifest["source"]
-            dataset = manifest["dataset"]
-            version = manifest["version"]
-            manifest["manifest_uri"] = s3_uri(DEFAULT_REGISTRY_BUCKET, f"{external_storage_prefix(source, dataset, version)}/{MANIFEST_FILENAME}")
-        paths.append(_register_external_manifest(
-            manifest=manifest,
-            dest=dest,
-        ))
-    return paths
+        )

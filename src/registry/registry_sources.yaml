@@ -246,3 +246,31 @@ sources:
           module: src.registry.sources.manual_pharos
           class: ManualAntibodypediaScrapedResultsFetcher
           version_strategy: filename_timestamp
+  chembl:
+    datasets:
+      activity_database:
+        external:
+          module: src.registry.sources.external_sources
+          class: ChemblActivityDatabaseExternalSource
+          credentials: src/use_cases/secrets/chembl_credentials.yaml
+  drugcentral:
+    datasets:
+      drug_database:
+        external:
+          module: src.registry.sources.external_sources
+          class: DrugcentralDrugDatabaseExternalSource
+          credentials: src/use_cases/secrets/drugcentral_credentials.yaml
+  ifx_pubmed:
+    datasets:
+      pubmed_mirror:
+        external:
+          module: src.registry.sources.external_sources
+          class: IfxPubmedMirrorExternalSource
+          credentials: src/use_cases/secrets/ifx_pubmed_credentials.yaml
+  legacy_pharos:
+    datasets:
+      pharos319_mysql:
+        external:
+          module: src.registry.sources.external_sources
+          class: LegacyPharosMysqlExternalSource
+          credentials: src/use_cases/secrets/pharos_credentials.yaml
