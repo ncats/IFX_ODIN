@@ -1,0 +1,248 @@
+sources:
+  ctd:
+    datasets:
+      curated_genes_diseases:
+        fetch:
+          module: src.registry.sources.ctd
+          class: CtdCuratedGenesDiseasesFetcher
+          version_strategy: ctd_report_created_header
+  hcop:
+    datasets:
+      human_all_sixteen_column:
+        fetch:
+          module: src.registry.sources.hcop
+          class: HcopHumanAllSixteenColumnFetcher
+          version_strategy: single_file_last_modified
+  impc:
+    datasets:
+      genotype_phenotype_assertions:
+        fetch:
+          module: src.registry.sources.impc
+          class: ImpcGenotypePhenotypeAssertionsFetcher
+          version_strategy: single_file_last_modified
+  mgi:
+    datasets:
+      hmd_human_phenotype:
+        fetch:
+          module: src.registry.sources.mgi
+          class: MgiHmdHumanPhenotypeFetcher
+          version_strategy: single_file_last_modified
+  mp:
+    datasets:
+      ontology:
+        fetch:
+          module: src.registry.sources.mp
+          class: MpOntologyFetcher
+          version_strategy: obo_data_version
+  jensenlab:
+    datasets:
+      tissues:
+        fetch:
+          module: src.registry.sources.jensenlab
+          class: JensenlabTissuesFetcher
+          version_strategy: single_file_last_modified
+      diseases:
+        fetch:
+          module: src.registry.sources.jensenlab
+          class: JensenlabDiseasesFetcher
+          version_strategy: multi_file_max_last_modified
+      tinx:
+        fetch:
+          module: src.registry.sources.jensenlab
+          class: JensenlabTinxFetcher
+          version_strategy: multi_file_max_last_modified
+      protein_counts:
+        fetch:
+          module: src.registry.sources.jensenlab
+          class: JensenlabProteinCountsFetcher
+          version_strategy: single_file_last_modified
+  ncbi:
+    datasets:
+      publications:
+        fetch:
+          module: src.registry.sources.ncbi
+          class: NcbiPublicationsFetcher
+          version_strategy: multi_file_max_last_modified
+      gene_summary:
+        fetch:
+          module: src.registry.sources.ncbi
+          class: NcbiGeneSummaryFetcher
+          version_strategy: single_file_last_modified
+  pubtator:
+    datasets:
+      gene2pubtator3:
+        fetch:
+          module: src.registry.sources.pubtator
+          class: PubtatorGene2Pubtator3Fetcher
+          version_strategy: single_file_last_modified
+  tiga:
+    datasets:
+      gene_trait:
+        fetch:
+          module: src.registry.sources.tiga
+          class: TigaGeneTraitFetcher
+          version_strategy: latest_release_directory_and_max_last_modified
+  glygen:
+    datasets:
+      proteins:
+        fetch:
+          module: src.registry.sources.pharos_linkouts
+          class: GlygenPharosLinkoutFetcher
+          version_strategy: api_listcache_id
+  dark_kinome:
+    datasets:
+      kinases:
+        fetch:
+          module: src.registry.sources.pharos_linkouts
+          class: DarkKinomePharosLinkoutFetcher
+          version_strategy: download_date
+  resolute:
+    datasets:
+      genes:
+        fetch:
+          module: src.registry.sources.pharos_linkouts
+          class: ResolutePharosLinkoutFetcher
+          version_strategy: download_date
+  linkedomics:
+    datasets:
+      genes:
+        fetch:
+          module: src.registry.sources.pharos_linkouts
+          class: LinkedomicsPharosLinkoutFetcher
+          version_strategy: download_date
+  uberon:
+    datasets:
+      ontology:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: UberonOntologyFetcher
+          version_strategy: single_file_last_modified
+  go:
+    datasets:
+      ontology:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: GoBasicOntologyFetcher
+          version_strategy: single_file_last_modified
+      goa_human_go:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: GoaHumanGoFetcher
+          version_strategy: single_file_last_modified
+      goa_human_uniprot:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: EbiGoaHumanUniprotFetcher
+          version_strategy: single_file_last_modified
+  mondo:
+    datasets:
+      ontology:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: MondoOntologyFetcher
+          version_strategy: single_file_last_modified
+  disease_ontology:
+    datasets:
+      ontology:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: DiseaseOntologyFetcher
+          version_strategy: owl_version_info
+  reactome:
+    datasets:
+      pathways:
+        fetch:
+          module: src.registry.sources.pathway_sources
+          class: ReactomePathwaysFetcher
+          version_strategy: reactome_database_version
+  pathwaycommons:
+    datasets:
+      pc_hgnc:
+        fetch:
+          module: src.registry.sources.pathway_sources
+          class: PathwaycommonsPathwaysFetcher
+          version_strategy: pathwaycommons_datasources_txt
+  panther:
+    datasets:
+      protein_classes:
+        fetch:
+          module: src.registry.sources.pathway_sources
+          class: PantherClassesFetcher
+          version_strategy: explicit_release_and_max_last_modified
+  wikipathways:
+    datasets:
+      human_gmt:
+        fetch:
+          module: src.registry.sources.pathway_sources
+          class: WikipathwaysHumanGmtFetcher
+          version_strategy: filename_date
+  iuphar:
+    datasets:
+      ligands_interactions:
+        fetch:
+          module: src.registry.sources.iuphar
+          class: IupharLigandInteractionsFetcher
+          version_strategy: multi_file_max_last_modified
+  uniprot:
+    datasets:
+      human:
+        fetch:
+          module: src.registry.sources.uniprot
+          class: UniprotHumanFetcher
+          version_strategy: uniprot_release_headers
+  bioplex:
+    datasets:
+      ppi:
+        fetch:
+          module: src.registry.sources.bioplex
+          class: BioplexPpiFetcher
+          version_strategy: explicit_release_and_max_last_modified
+  string:
+    datasets:
+      protein_links_human:
+        fetch:
+          module: src.registry.sources.string
+          class: StringHumanProteinLinksFetcher
+          version_strategy: explicit_release_and_last_modified
+  gtex:
+    datasets:
+      expression_v11:
+        fetch:
+          module: src.registry.sources.gtex
+          class: GtexTissueExpressionFetcher
+          version_strategy: explicit_gtex_v11_release
+  hpa:
+    datasets:
+      tissue_expression:
+        fetch:
+          module: src.registry.sources.hpa
+          class: HpaTissueExpressionFetcher
+          version_strategy: hpa_download_page_version
+  surechembl:
+    datasets:
+      patent_discovery:
+        fetch:
+          module: src.registry.sources.surechembl
+          class: SurechemblPatentDiscoveryFetcher
+          version_strategy: latest_dated_bulk_data_directory
+  target_graph:
+    datasets:
+      tdl_updates:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTdlUpdatesFetcher
+          version_strategy: local_file_mtime
+  hpm:
+    datasets:
+      protein_expression:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualHpmProteinExpressionFetcher
+          version_strategy: companion_version_file
+  antibodypedia:
+    datasets:
+      scraped_results:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualAntibodypediaScrapedResultsFetcher
+          version_strategy: filename_timestamp

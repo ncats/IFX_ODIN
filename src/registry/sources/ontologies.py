@@ -1,179 +1,143 @@
 from pathlib import Path
-from typing import Optional
 import json
+import tempfile
 
 from src.registry.download import download_url
-from src.registry.manifest import (
-    MANIFEST_FILENAME,
-    build_source_snapshot_manifest,
-    file_entry,
-    manifest_checksum,
-    storage_prefix,
-    write_manifest,
-)
-from src.registry.storage import MinioStorage, load_minio_credentials, s3_uri
-from src.registry.sources.common import register_multi_file_last_modified_snapshot
+from src.registry.fetchers import SnapshotFile, SourceFunctionFetcher, SourceSnapshot
+from src.registry.sources.common import latest_version_from_last_modified_urls, fetch_multi_file_last_modified_snapshot
 
 
-def register_uberon(
+UBERON_URLS = ["http://purl.obolibrary.org/obo/uberon.obo"]
+GO_BASIC_URLS = ["https://current.geneontology.org/ontology/go-basic.json"]
+EBI_GOA_HUMAN_UNIPROT_URLS = ["https://ftp.ebi.ac.uk/pub/databases/GO/goa/HUMAN/goa_human.gaf.gz"]
+GOA_HUMAN_GO_URLS = ["https://current.geneontology.org/annotations/goa_human.gaf.gz"]
+MONDO_URLS = ["https://purl.obolibrary.org/obo/mondo.json"]
+DISEASE_ONTOLOGY_URL = "https://purl.obolibrary.org/obo/doid.json"
+
+
+def extract_disease_ontology_version(payload: dict) -> str:
+    graph_meta = ((payload.get("graphs") or [{}])[0].get("meta") or {})
+    basic_values = graph_meta.get("basicPropertyValues") or []
+    for entry in basic_values:
+        if entry.get("pred") == "http://www.w3.org/2002/07/owl#versionInfo" and entry.get("val"):
+            return entry["val"]
+    version_uri = graph_meta.get("version")
+    if version_uri:
+        return version_uri.rstrip("/").rsplit("/", 2)[-2]
+    raise ValueError("Could not determine Disease Ontology version from doid.json metadata")
+
+
+def latest_disease_ontology_version(timeout: int = 60) -> str:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local_path, _ = download_url(DISEASE_ONTOLOGY_URL, Path(temp_dir), timeout=timeout, verbose=False)
+        with local_path.open("r", encoding="utf-8") as handle:
+            return extract_disease_ontology_version(json.load(handle))
+
+
+def fetch_uberon(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
-    return register_multi_file_last_modified_snapshot(
+) -> SourceSnapshot:
+    return fetch_multi_file_last_modified_snapshot(
         source="uberon",
         dataset="ontology",
-        urls=["http://purl.obolibrary.org/obo/uberon.obo"],
+        urls=UBERON_URLS,
         dest=dest,
         homepage="https://obofoundry.org/ontology/uberon.html",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version_description="Use the Uberon OBO HTTP Last-Modified header as version and version_date.",
     )
 
 
-def register_go_basic(
+def fetch_go_basic(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
-    return register_multi_file_last_modified_snapshot(
+    return fetch_multi_file_last_modified_snapshot(
         source="go",
         dataset="ontology",
-        urls=["https://current.geneontology.org/ontology/go-basic.json"],
+        urls=GO_BASIC_URLS,
         dest=dest,
         homepage="https://geneontology.org/",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version_description="Use the GO go-basic.json HTTP Last-Modified header as version and version_date.",
     )
 
 
-def register_goa_human_uniprot(
+def fetch_goa_human_uniprot(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
-    return register_multi_file_last_modified_snapshot(
+    return fetch_multi_file_last_modified_snapshot(
         source="go",
         dataset="goa_human_uniprot",
-        urls=["https://ftp.ebi.ac.uk/pub/databases/GO/goa/HUMAN/goa_human.gaf.gz"],
+        urls=EBI_GOA_HUMAN_UNIPROT_URLS,
         dest=dest,
         homepage="https://geneontology.org/",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version_description="Use the EBI GOA human GAF HTTP Last-Modified header as version and version_date.",
     )
 
 
-def register_goa_human_go(
+def fetch_goa_human_go(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
-    return register_multi_file_last_modified_snapshot(
+    return fetch_multi_file_last_modified_snapshot(
         source="go",
         dataset="goa_human_go",
-        urls=["https://current.geneontology.org/annotations/goa_human.gaf.gz"],
+        urls=GOA_HUMAN_GO_URLS,
         dest=dest,
         homepage="https://geneontology.org/",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version_description="Use the GO-hosted human GAF HTTP Last-Modified header as version and version_date.",
     )
 
 
-def register_mondo(
+def fetch_mondo(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
-    return register_multi_file_last_modified_snapshot(
+    return fetch_multi_file_last_modified_snapshot(
         source="mondo",
         dataset="ontology",
-        urls=["https://purl.obolibrary.org/obo/mondo.json"],
+        urls=MONDO_URLS,
         dest=dest,
         homepage="https://mondo.monarchinitiative.org/",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version_description="Use the MONDO JSON HTTP Last-Modified header as version and version_date.",
     )
 
 
-def register_disease_ontology(
+def fetch_disease_ontology(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
     source = "disease_ontology"
     dataset = "ontology"
-    url = "https://purl.obolibrary.org/obo/doid.json"
+    url = DISEASE_ONTOLOGY_URL
     work_dir = dest / source / dataset / "pending"
     local_path, metadata = download_url(url, work_dir, timeout=timeout)
 
     with local_path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     graph_meta = ((payload.get("graphs") or [{}])[0].get("meta") or {})
-    basic_values = graph_meta.get("basicPropertyValues") or []
-    version = None
-    for entry in basic_values:
-        if entry.get("pred") == "http://www.w3.org/2002/07/owl#versionInfo":
-            version = entry.get("val")
-            break
-    if not version:
-        version_uri = graph_meta.get("version")
-        if version_uri:
-            version = version_uri.rstrip("/").rsplit("/", 2)[-2]
-    if not version:
-        raise ValueError("Could not determine Disease Ontology version from doid.json metadata")
+    version = extract_disease_ontology_version(payload)
 
-    final_dir = dest / source / dataset / version
-    final_dir.mkdir(parents=True, exist_ok=True)
-    final_path = final_dir / local_path.name
-    if final_path != local_path:
-        local_path.replace(final_path)
-    if work_dir.exists():
-        try:
-            work_dir.rmdir()
-        except OSError:
-            pass
-
-    storage = None
-    bucket = None
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials))
-        bucket = storage.bucket
-
-    object_prefix = storage_prefix(source, dataset, version)
-    storage_uri = s3_uri(bucket, f"{object_prefix}/{final_path.name}") if bucket else None
-    manifest = build_source_snapshot_manifest(
+    return SourceSnapshot(
         source=source,
         dataset=dataset,
         version=version,
         version_date=version,
-        download_date=None,
         homepage="https://disease-ontology.org/",
         upstream_urls=[url],
-        files=[file_entry(final_path, metadata.get("final_url") or url, storage_uri, metadata.get("content_type"))],
+        files=[SnapshotFile(local_path, metadata.get("final_url") or url, metadata.get("content_type"))],
         extra={
             "version_method": {
                 "type": "owl_version_info",
@@ -186,15 +150,65 @@ def register_disease_ontology(
             }
         },
     )
-    manifest_path = final_dir / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
 
-    if storage:
-        storage.upload_file(final_path, f"{object_prefix}/{final_path.name}", manifest["files"][0]["content_type"])
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
 
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    if bucket:
-        print(f"Uploaded snapshot to s3://{bucket}/{object_prefix}/")
-    return manifest_path
+def latest_uberon_version(timeout: int = 60) -> str:
+    return latest_version_from_last_modified_urls(UBERON_URLS, timeout=timeout)
+
+
+def latest_go_basic_version(timeout: int = 60) -> str:
+    return latest_version_from_last_modified_urls(GO_BASIC_URLS, timeout=timeout)
+
+
+def latest_goa_human_uniprot_version(timeout: int = 60) -> str:
+    return latest_version_from_last_modified_urls(EBI_GOA_HUMAN_UNIPROT_URLS, timeout=timeout)
+
+
+def latest_goa_human_go_version(timeout: int = 60) -> str:
+    return latest_version_from_last_modified_urls(GOA_HUMAN_GO_URLS, timeout=timeout)
+
+
+def latest_mondo_version(timeout: int = 60) -> str:
+    return latest_version_from_last_modified_urls(MONDO_URLS, timeout=timeout)
+
+
+class UberonOntologyFetcher(SourceFunctionFetcher):
+    source = "uberon"
+    dataset = "ontology"
+    fetch_function = staticmethod(fetch_uberon)
+    latest_version_function = staticmethod(latest_uberon_version)
+
+
+class GoBasicOntologyFetcher(SourceFunctionFetcher):
+    source = "go"
+    dataset = "ontology"
+    fetch_function = staticmethod(fetch_go_basic)
+    latest_version_function = staticmethod(latest_go_basic_version)
+
+
+class GoaHumanGoFetcher(SourceFunctionFetcher):
+    source = "go"
+    dataset = "goa_human_go"
+    fetch_function = staticmethod(fetch_goa_human_go)
+    latest_version_function = staticmethod(latest_goa_human_go_version)
+
+
+class EbiGoaHumanUniprotFetcher(SourceFunctionFetcher):
+    source = "go"
+    dataset = "goa_human_uniprot"
+    fetch_function = staticmethod(fetch_goa_human_uniprot)
+    latest_version_function = staticmethod(latest_goa_human_uniprot_version)
+
+
+class MondoOntologyFetcher(SourceFunctionFetcher):
+    source = "mondo"
+    dataset = "ontology"
+    fetch_function = staticmethod(fetch_mondo)
+    latest_version_function = staticmethod(latest_mondo_version)
+
+
+class DiseaseOntologyFetcher(SourceFunctionFetcher):
+    source = "disease_ontology"
+    dataset = "ontology"
+    fetch_function = staticmethod(fetch_disease_ontology)
+    latest_version_function = staticmethod(latest_disease_ontology_version)

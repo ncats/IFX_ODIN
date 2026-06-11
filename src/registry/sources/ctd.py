@@ -1,19 +1,12 @@
 import gzip
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from src.registry.download import download_url
-from src.registry.manifest import (
-    MANIFEST_FILENAME,
-    build_source_snapshot_manifest,
-    file_entry,
-    manifest_checksum,
-    storage_prefix,
-    write_manifest,
-)
-from src.registry.storage import MinioStorage, load_minio_credentials, s3_uri
+from src.registry.fetchers import SnapshotFile, SourceFetcher, SourceSnapshot
 
 
 CTD_CURATED_GENES_DISEASES_URL = "https://ctdbase.org/reports/CTD_curated_genes_diseases.tsv.gz"
@@ -44,13 +37,11 @@ def extract_report_created(path: Path) -> tuple[str, str]:
     return report_created, version_date
 
 
-def register_curated_genes_diseases(
+def fetch_curated_genes_diseases(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
+) -> SourceSnapshot:
     source = "ctd"
     dataset = "curated_genes_diseases"
     work_dir = dest / source / dataset / "pending"
@@ -58,64 +49,44 @@ def register_curated_genes_diseases(
     report_created, version_date = extract_report_created(local_path)
     version = version_date
 
-    final_dir = dest / source / dataset / version
-    final_dir.mkdir(parents=True, exist_ok=True)
-    final_path = final_dir / local_path.name
-    if final_path != local_path:
-        local_path.replace(final_path)
-    if work_dir.exists():
-        try:
-            work_dir.rmdir()
-        except OSError:
-            pass
-
-    storage = None
-    bucket = None
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials))
-        bucket = storage.bucket
-
-    object_prefix = storage_prefix(source, dataset, version)
-    storage_uri = s3_uri(bucket, f"{object_prefix}/{final_path.name}") if bucket else None
-    manifest = build_source_snapshot_manifest(
+    return SourceSnapshot(
         source=source,
         dataset=dataset,
         version=version,
         version_date=version_date,
-        download_date=None,
         homepage=CTD_HOMEPAGE,
         upstream_urls=[CTD_CURATED_GENES_DISEASES_URL],
-        files=[
-            file_entry(
-                local_path=final_path,
-                source_url=metadata.get("final_url") or CTD_CURATED_GENES_DISEASES_URL,
-                storage_uri=storage_uri,
-                content_type=metadata.get("content_type"),
-            )
-        ],
+        files=[SnapshotFile(local_path, metadata.get("final_url") or CTD_CURATED_GENES_DISEASES_URL, metadata.get("content_type"))],
         extra={
             "version_method": {
                 "type": "downloaded_file_header",
                 "description": "Parse '# Report created:' from the CTD curated genes-diseases gzip header.",
                 "evidence": {
-                    "file": final_path.name,
+                    "file": local_path.name,
                     "report_created": report_created,
                 },
             }
         },
     )
-    manifest_path = final_dir / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
 
-    if storage:
-        storage.upload_file(final_path, f"{object_prefix}/{final_path.name}", manifest["files"][0]["content_type"])
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
 
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    if bucket:
-        print(f"Uploaded snapshot to s3://{bucket}/{object_prefix}/")
-    return manifest_path
+class CtdCuratedGenesDiseasesFetcher(SourceFetcher):
+    source = "ctd"
+    dataset = "curated_genes_diseases"
 
+    def fetch(
+        self,
+        *,
+        dest: Path,
+        timeout: int = 60,
+    ) -> SourceSnapshot:
+        return fetch_curated_genes_diseases(
+            dest=dest,
+            timeout=timeout,
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_path, _ = download_url(CTD_CURATED_GENES_DISEASES_URL, Path(temp_dir), timeout=timeout, verbose=False)
+            _, version = extract_report_created(local_path)
+            return version

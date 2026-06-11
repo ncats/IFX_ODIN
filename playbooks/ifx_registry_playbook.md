@@ -1,6 +1,6 @@
 # IFX Registry Playbook
 
-Use this workflow when adding, refreshing, browsing, or consuming datasets in the IFX Datasource Registry.
+Use this workflow when adding, refreshing, browsing, or consuming datasets in the IFX Data Source Registry.
 
 The registry stores versioned source snapshots and manifests in MinIO. It is not just a GUI over a bucket: it is the shared contract for reproducible ETL inputs, local build caches, future derived artifacts, and resolver artifacts.
 
@@ -8,6 +8,7 @@ The registry stores versioned source snapshots and manifests in MinIO. It is not
 
 - MinIO stores immutable files and manifests.
 - Source snapshots live under `sources/<source>/<dataset>/<version>/`.
+- External source registrations live under `external/<source>/<dataset>/<version>/`.
 - Derived artifacts live under `derived/<source>/<dataset>/<version>/`.
 - The default bucket is `ifx-registry`.
 - Builds should download files into a local cache, then adapters read local paths.
@@ -90,13 +91,12 @@ Examples:
 2. Identify the exact upstream files and whether the current adapter uses all of them.
 3. Inspect real payload shape when the source is new or uncertain.
 4. Decide `source`, `dataset`, and `version` names.
-5. Implement a source-specific registry command under `src/registry/sources/`.
-6. Add a CLI command in `src/registry/cli.py`.
-7. Download to a local cache under `/private/tmp/ifx-registry-cache` or another disposable cache.
-8. Write `manifest.yaml` next to the cached files.
-9. Upload files and manifest to `s3://ifx-registry/sources/...`.
-10. Verify the MinIO catalog and QA Browser entry.
-11. Ask the user before purging local cache files.
+5. Implement a source-specific registry fetcher under `src/registry/sources/`.
+6. Add the dataset and fetcher metadata to `src/registry/registry_sources.yaml`.
+7. Use `DataRegistry.fetch_dataset(...)` to download to a local cache under `/private/tmp/ifx-registry-cache` or another disposable cache.
+8. Use `DataRegistry.upload_snapshot(...)`, `DataRegistry.refresh_dataset(...)`, or `DataRegistry.sync_latest_snapshots(...)` to upload files and manifests to `s3://ifx-registry/sources/...`.
+9. Verify the MinIO catalog and QA Browser entry.
+10. Ask the user before purging local cache files.
 
 Do not purge anything under `input_files` unless explicitly instructed.
 
@@ -143,7 +143,7 @@ The QA Browser should be a read-only view over registry contents.
 
 Current expected language:
 
-- Page title: `IFX Datasource Registry`
+- Page title: `IFX Data Source Registry`
 - Group first by source.
 - Then show datasets under each source.
 - Show snapshots horizontally in tables.
@@ -168,6 +168,38 @@ For these, register metadata rather than pretending MinIO owns the raw source:
 - optional derived export files if created
 
 If reproducibility or speed requires it, create a derived export and register that under `derived/...`.
+
+External registrations use:
+
+```text
+external/<source>/<dataset>/<version>/manifest.yaml
+```
+
+Example:
+
+```yaml
+kind: external_source_registration
+schema_version: 1
+source: chembl
+dataset: activity_database
+registration_id: chembl:activity_database:chembl36
+version: chembl36
+registered_date: "2026-06-10"
+connection:
+  type: mysql
+  host: chembl.ncats.io
+  schema: chembl36
+  credential_ref: src/use_cases/secrets/chembl_credentials.yaml
+access:
+  mode: query
+  interface: sql
+  database_type: mysql
+extra:
+  version_method:
+    type: database_schema_and_chembl_version_table
+```
+
+Do not store usernames, passwords, tokens, or other secret values in registry manifests.
 
 ## Derived Artifacts
 
