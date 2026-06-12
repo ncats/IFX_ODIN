@@ -13,12 +13,17 @@ class HCOPOrthologAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
     def __init__(self,
-                 file_path: str,
+                 file_path: str = None,
                  version_file_path: Optional[str] = None,
+                 data_source=None,
                  accepted_species: List[str] = None,
                  drop_blank_ortholog_identity: bool = True):
+        if data_source is not None:
+            file_path = str(data_source.file("human_all_hcop_sixteen_column.txt.gz"))
+        if file_path is None:
+            raise ValueError("HCOPOrthologAdapter requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
         self.hcop_helper = HCOPRecordHelper(
             file_path=file_path,
             accepted_species=accepted_species,

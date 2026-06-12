@@ -1,4 +1,5 @@
 import csv
+import gzip
 import os
 from datetime import date, datetime
 from typing import Dict, Generator, List, Optional, Set, Tuple
@@ -16,14 +17,19 @@ class JensenLabPublicationAdapter(InputAdapter):
 
     def __init__(
         self,
-        protein_mentions_file_path: str,
+        protein_mentions_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_proteins: Optional[int] = None,
     ):
+        if data_source is not None:
+            protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
+        if protein_mentions_file_path is None:
+            raise ValueError("JensenLabPublicationAdapter requires protein_mentions_file_path or data_source")
         self.protein_mentions_file_path = protein_mentions_file_path
         self.version_file_path = version_file_path
         self.max_proteins = max_proteins
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.JensenLabTextMining
@@ -48,7 +54,7 @@ class JensenLabPublicationAdapter(InputAdapter):
 
     def _iter_protein_publications(self) -> Generator[Tuple[str, List[PublicationReference]], None, None]:
         emitted = 0
-        with open(self.protein_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.protein_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -98,6 +104,12 @@ class JensenLabPublicationAdapter(InputAdapter):
     @staticmethod
     def _parse_pmid_field(raw_pmids: str) -> Set[str]:
         return {pmid for pmid in raw_pmids.strip().split() if pmid}
+
+    @staticmethod
+    def _open_text(file_path: str):
+        if file_path.endswith(".gz"):
+            return gzip.open(file_path, "rt", encoding="utf-8", errors="replace")
+        return open(file_path, "r", encoding="utf-8", errors="replace")
 
     @staticmethod
     def _parse_date(raw_value: Optional[str]) -> Optional[date]:

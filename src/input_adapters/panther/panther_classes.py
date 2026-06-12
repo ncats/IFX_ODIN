@@ -32,22 +32,32 @@ def _panther_family_node_id(panther_family_id: str) -> str:
 class PantherClassesAdapter(InputAdapter):
     def __init__(
         self,
-        class_file_path: str,
-        relationship_file_path: str,
-        sequence_classification_file_path: str,
+        class_file_path: str = None,
+        relationship_file_path: str = None,
+        sequence_classification_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_rows: Optional[int] = None,
     ):
+        if data_source is not None:
+            class_file_path = str(data_source.file("Protein_Class_19.0"))
+            relationship_file_path = str(data_source.file("Protein_class_relationship"))
+            sequence_classification_file_path = str(data_source.file("PTHR19.0_human"))
+        if class_file_path is None or relationship_file_path is None or sequence_classification_file_path is None:
+            raise ValueError("PantherClassesAdapter requires class, relationship, and sequence files or data_source")
         self.class_file_path = class_file_path
         self.relationship_file_path = relationship_file_path
         self.sequence_classification_file_path = sequence_classification_file_path
         self.version_file_path = version_file_path
+        self.version_info = data_source.version_info() if data_source is not None else None
         self.max_rows = max_rows
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PANTHERClasses
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         version = None
         version_date = None
         download_date = None

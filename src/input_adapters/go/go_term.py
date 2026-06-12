@@ -18,15 +18,23 @@ class GOTermAdapter(InputAdapter):
         return DataSourceName.GO
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str = None, data_source=None):
         InputAdapter.__init__(self)
+        self.version_info = (
+            data_source.version_info() if data_source is not None
+            else DatasourceVersionInfo()
+        )
+        if data_source is not None:
+            file_path = str(data_source.file("go-basic.json"))
+        if file_path is None:
+            raise ValueError("GOTermAdapter requires file_path or data_source")
         self.file_path = file_path
         self.file_name = os.path.basename(file_path)
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
+        if data_source is None:
+            self.version_info.download_date = self.download_date
 
     def get_all(self) -> Generator[List[Union[GoTerm, GoTermHasParent]], None, None]:
         go_terms: List[GoTerm] = []
@@ -82,8 +90,6 @@ class GOTermAdapter(InputAdapter):
                     end_node=GoTerm(id=obj_id_obj.id_str())
                 ))
             yield go_term_edges
-
-
 
 
 

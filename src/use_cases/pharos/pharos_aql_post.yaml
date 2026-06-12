@@ -1,6 +1,10 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 database_name: &database_name pharos
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
@@ -9,11 +13,10 @@ resolvers:
       canonical_type: Protein
       collapse_to_canonical: true
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
-      protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
+      gene_data_source: target_graph:gene_ids:2026-05-11
+      transcript_data_source: target_graph:transcript_ids:2026-05-11
+      protein_data_source: target_graph:protein_ids:2026-05-20
+      uniprot_mapping_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
         - Gene
@@ -49,7 +52,7 @@ input_adapters:
   - import: ./src/input_adapters/manual/tdl_override.py
     class: TDLOverrideAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/tdl_updates.csv
+      data_source: target_graph:tdl_updates:2025-06-24
 
 graph_views:
   - id: current_tdls

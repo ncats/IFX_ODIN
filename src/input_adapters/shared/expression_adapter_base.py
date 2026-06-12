@@ -16,11 +16,16 @@ class ExpressionAdapterBase(InputAdapter):
     tau (tissue specificity) calculation, and normalized rank.
     """
 
-    def __init__(self, data_file_path: str, version_file_path: str, uberon_map_file_path: str):
+    def __init__(self, data_file_path: str = None, version_file_path: str = None,
+                 uberon_map_file_path: str = None, data_source=None, data_file_name: str = None):
+        if data_source is not None:
+            data_file_path = str(data_source.file(data_file_name))
+        if data_file_path is None:
+            raise ValueError("ExpressionAdapterBase requires data_file_path or data_source")
         self.data_file_path = data_file_path
         self.version_file_path = version_file_path
         self.uberon_map_file_path = uberon_map_file_path
-        self.version_info = self._load_version_info()
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info()
 
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info

@@ -15,8 +15,16 @@ from src.models.protein import Protein
 class ReactomeBaseAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
+                 data_source=None, file_name: Optional[str] = None):
+        if data_source is not None:
+            file_path = str(data_source.file(file_name))
+        if file_path is None:
+            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
+        if data_source is not None:
+            self.version_info = data_source.version_info()
+            return
         version = None
         version_date = None
         if version_file_path:
@@ -41,8 +49,14 @@ class ReactomeBaseAdapter(FlatFileAdapter):
 
 class ReactomePathwayAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, gmt_file_path: str, version_file_path: Optional[str] = None):
-        ReactomeBaseAdapter.__init__(self, file_path=gmt_file_path, version_file_path=version_file_path)
+    def __init__(self, gmt_file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+        ReactomeBaseAdapter.__init__(
+            self,
+            file_path=gmt_file_path,
+            version_file_path=version_file_path,
+            data_source=data_source,
+            file_name="ReactomePathways.gmt.zip",
+        )
 
     def get_all(self) -> Generator[List[Pathway], None, None]:
         pathways: List[Pathway] = []
@@ -81,8 +95,14 @@ class ReactomePathwayAdapter(ReactomeBaseAdapter):
 
 class ReactomePathwayParentEdgeAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
-        ReactomeBaseAdapter.__init__(self, file_path=file_path, version_file_path=version_file_path)
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+        ReactomeBaseAdapter.__init__(
+            self,
+            file_path=file_path,
+            version_file_path=version_file_path,
+            data_source=data_source,
+            file_name="ReactomePathwaysRelation.txt",
+        )
 
     def get_all(self) -> Generator[List[PathwayParentEdge], None, None]:
         edges: List[PathwayParentEdge] = []
@@ -107,8 +127,14 @@ class ReactomePathwayParentEdgeAdapter(ReactomeBaseAdapter):
 
 class ReactomeProteinPathwayEdgeAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
-        ReactomeBaseAdapter.__init__(self, file_path=file_path, version_file_path=version_file_path)
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+        ReactomeBaseAdapter.__init__(
+            self,
+            file_path=file_path,
+            version_file_path=version_file_path,
+            data_source=data_source,
+            file_name="UniProt2Reactome_All_Levels.txt",
+        )
 
     def get_all(self) -> Generator[List[ProteinPathwayEdge], None, None]:
         edges: List[ProteinPathwayEdge] = []

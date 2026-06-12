@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -120,7 +120,17 @@ class MaterializedDataset:
     def _parse_date(value: Optional[str]) -> Optional[date]:
         if not value:
             return None
-        return date.fromisoformat(str(value)[:10])
+        text = str(value).strip()
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            pass
+        for date_format in ("%d-%B-%Y", "%d-%B-%y", "%d-%b-%Y", "%d-%b-%y"):
+            try:
+                return datetime.strptime(text, date_format).date()
+            except ValueError:
+                pass
+        return None
 
 
 @dataclass

@@ -13,9 +13,13 @@ from src.models.ortholog import OrthologGene
 class IMPCPhenotypeAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None):
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+        if data_source is not None:
+            file_path = str(data_source.file("genotype-phenotype-assertions-IMPC.csv.gz"))
+        if file_path is None:
+            raise ValueError("IMPCPhenotypeAdapter requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.IMPC

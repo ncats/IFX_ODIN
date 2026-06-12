@@ -73,19 +73,25 @@ def _parse_data_source_ref(ref: str) -> tuple[str, str, str]:
     return parts[0], parts[1], parts[2]
 
 
+def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, ref: str):
+    source, dataset, version = _parse_data_source_ref(ref)
+    try:
+        return registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
+    except LookupError:
+        return registry.materialize_derived_artifact(source, dataset, version, dest=cache_dir)
+
+
 def _resolve_registry_data_sources(config_node: Any, registry: DataRegistry, cache_dir: Path, parent_key: str | None = None):
     if isinstance(config_node, dict):
         if parent_key != "kwargs" and set(config_node.keys()).issubset({"data_source", "file"}) and "data_source" in config_node:
-            source, dataset, version = _parse_data_source_ref(config_node["data_source"])
-            materialized = registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
+            materialized = _materialize_registry_data_source(registry, cache_dir, config_node["data_source"])
             if "file" in config_node:
                 return str(materialized.file(config_node["file"]))
             return materialized
         resolved = {}
         for key, value in config_node.items():
-            if key == "data_source" and isinstance(value, str):
-                source, dataset, version = _parse_data_source_ref(value)
-                resolved[key] = registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
+            if (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):
+                resolved[key] = _materialize_registry_data_source(registry, cache_dir, value)
             else:
                 resolved[key] = _resolve_registry_data_sources(value, registry, cache_dir, key)
         return resolved

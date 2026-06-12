@@ -34,17 +34,25 @@ class JensenLabDiseasesAdapter(InputAdapter):
 
     def __init__(
         self,
-        knowledge_file_path: str,
-        experiments_file_path: str,
-        textmining_file_path: str,
+        knowledge_file_path: str = None,
+        experiments_file_path: str = None,
+        textmining_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_rows: Optional[int] = None,
         textmining_min_zscore: Optional[float] = None,
     ):
+        if data_source is not None:
+            knowledge_file_path = str(data_source.file("human_disease_knowledge_filtered.tsv"))
+            experiments_file_path = str(data_source.file("human_disease_experiments_filtered.tsv"))
+            textmining_file_path = str(data_source.file("human_disease_textmining_filtered.tsv"))
+        if knowledge_file_path is None or experiments_file_path is None or textmining_file_path is None:
+            raise ValueError("JensenLabDiseasesAdapter requires disease files or data_source")
         self.knowledge_file_path = knowledge_file_path
         self.experiments_file_path = experiments_file_path
         self.textmining_file_path = textmining_file_path
         self.version_file_path = version_file_path
+        self.version_info = data_source.version_info() if data_source is not None else None
         self.max_rows = max_rows
         self.textmining_min_zscore = textmining_min_zscore
 
@@ -52,6 +60,8 @@ class JensenLabDiseasesAdapter(InputAdapter):
         return DataSourceName.JensenLabDiseases
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         version = None
         version_date = None
         if self.version_file_path and os.path.exists(self.version_file_path):

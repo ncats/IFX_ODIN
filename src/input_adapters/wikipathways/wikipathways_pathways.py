@@ -13,9 +13,17 @@ from src.models.pathway import GenePathwayEdge, Pathway
 
 class WikiPathwaysBaseAdapter(FlatFileAdapter):
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None, max_rows: Optional[int] = None):
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
+                 data_source=None, max_rows: Optional[int] = None):
+        if data_source is not None:
+            file_path = str(data_source.file())
+        if file_path is None:
+            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.max_rows = max_rows
+        if data_source is not None:
+            self.version_info = data_source.version_info()
+            return
         version = None
         version_date = None
         if version_file_path:

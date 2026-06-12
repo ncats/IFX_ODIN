@@ -12,15 +12,18 @@ from src.models.tissue import Tissue
 class HPMExpressionAdapter(ExpressionAdapterBase):
     def __init__(
         self,
-        data_file_path: str,
-        uberon_map_file_path: str,
-        version_file_path: str,
+        data_file_path: str = None,
+        uberon_map_file_path: str = None,
+        version_file_path: str = None,
+        data_source=None,
         max_rows: Optional[int] = None,
     ):
         super().__init__(
             data_file_path=data_file_path,
             version_file_path=version_file_path,
             uberon_map_file_path=uberon_map_file_path,
+            data_source=data_source,
+            data_file_name="HPM_protein_level_expression_matrix_Kim_et_al_052914.csv",
         )
         self.max_rows = max_rows
 

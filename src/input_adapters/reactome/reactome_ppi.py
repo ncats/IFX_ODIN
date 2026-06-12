@@ -14,10 +14,15 @@ from src.models.protein import Protein
 class ReactomePPIAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None, max_rows: Optional[int] = None):
+    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
+                 data_source=None, max_rows: Optional[int] = None):
+        if data_source is not None:
+            file_path = str(data_source.file("reactome.homo_sapiens.interactions.tab-delimited.txt"))
+        if file_path is None:
+            raise ValueError("ReactomePPIAdapter requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.max_rows = max_rows
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
         version = None

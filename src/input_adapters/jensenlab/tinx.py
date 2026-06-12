@@ -1,4 +1,5 @@
 import csv
+import gzip
 import os
 import re
 import sqlite3
@@ -23,16 +24,23 @@ class TINXAdapter(InputAdapter):
 
     def __init__(
         self,
-        protein_mentions_file_path: str,
-        disease_mentions_file_path: str,
+        protein_mentions_file_path: str = None,
+        disease_mentions_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_proteins: Optional[int] = None,
         max_diseases: Optional[int] = None,
         max_pairs: Optional[int] = None,
     ):
+        if data_source is not None:
+            protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
+            disease_mentions_file_path = str(data_source.file("disease_textmining_mentions.tsv.gz"))
+        if protein_mentions_file_path is None or disease_mentions_file_path is None:
+            raise ValueError("TINXAdapter requires mention files or data_source")
         self.protein_mentions_file_path = protein_mentions_file_path
         self.disease_mentions_file_path = disease_mentions_file_path
         self.version_file_path = version_file_path
+        self.version_info = data_source.version_info() if data_source is not None else None
         self.max_proteins = max_proteins
         self.max_diseases = max_diseases
         self.max_pairs = max_pairs
@@ -41,6 +49,8 @@ class TINXAdapter(InputAdapter):
         return DataSourceName.TINX
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         version = None
         version_date = None
         if self.version_file_path and os.path.exists(self.version_file_path):
@@ -158,7 +168,7 @@ class TINXAdapter(InputAdapter):
 
     def _iter_protein_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_proteins: Set[str] = set()
-        with open(self.protein_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.protein_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -179,7 +189,7 @@ class TINXAdapter(InputAdapter):
 
     def _iter_disease_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_diseases: Set[str] = set()
-        with open(self.disease_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.disease_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -203,6 +213,12 @@ class TINXAdapter(InputAdapter):
         if not timestamps:
             return None
         return datetime.fromtimestamp(max(timestamps)).date()
+
+    @staticmethod
+    def _open_text(file_path: str):
+        if file_path.endswith(".gz"):
+            return gzip.open(file_path, "rt", encoding="utf-8", errors="replace")
+        return open(file_path, "r", encoding="utf-8", errors="replace")
 
     @staticmethod
     def _parse_pmid_field(raw_pmids: str) -> Set[str]:

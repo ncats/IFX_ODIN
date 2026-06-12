@@ -37,20 +37,27 @@ class SampleInfo:
 class GTExExpressionAdapter(InputAdapter):
     def __init__(
         self,
-        matrix_file_path: str,
-        sample_attributes_file_path: str,
-        subject_phenotypes_file_path: str,
-        version_file_path: str,
+        matrix_file_path: str = None,
+        sample_attributes_file_path: str = None,
+        subject_phenotypes_file_path: str = None,
+        version_file_path: str = None,
+        data_source=None,
         max_genes: Optional[int] = None,
         max_samples: Optional[int] = None,
     ):
+        if data_source is not None:
+            matrix_file_path = str(data_source.file("GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz"))
+            sample_attributes_file_path = str(data_source.file("GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt"))
+            subject_phenotypes_file_path = str(data_source.file("GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt"))
+        if matrix_file_path is None or sample_attributes_file_path is None or subject_phenotypes_file_path is None:
+            raise ValueError("GTExExpressionAdapter requires GTEx file paths or data_source")
         self.matrix_file_path = matrix_file_path
         self.sample_attributes_file_path = sample_attributes_file_path
         self.subject_phenotypes_file_path = subject_phenotypes_file_path
         self.version_file_path = version_file_path
         self.max_genes = max_genes
         self.max_samples = max_samples
-        self.version_info = self._load_version_info()
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GTEx

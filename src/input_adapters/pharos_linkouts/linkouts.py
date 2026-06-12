@@ -48,20 +48,40 @@ PROVIDERS = {
 class PharosExternalLinkAdapter(InputAdapter):
     def __init__(
         self,
-        protein_file_path: str,
+        protein_file_path: str = None,
+        protein_data_source=None,
         glygen_file_path: Optional[str] = None,
         glygen_version_file_path: Optional[str] = None,
+        glygen_data_source=None,
         dark_kinome_file_path: Optional[str] = None,
         dark_kinome_version_file_path: Optional[str] = None,
+        dark_kinome_data_source=None,
         resolute_file_path: Optional[str] = None,
         resolute_version_file_path: Optional[str] = None,
+        resolute_data_source=None,
         linkedomics_file_path: Optional[str] = None,
         linkedomics_version_file_path: Optional[str] = None,
+        linkedomics_data_source=None,
         tiga_stats_file_path: Optional[str] = None,
         tiga_version_file_path: Optional[str] = None,
+        tiga_data_source=None,
         canonical_only: bool = True,
         max_rows: Optional[int] = None,
     ):
+        if protein_data_source is not None:
+            protein_file_path = str(protein_data_source.file("protein_ids.tsv"))
+        if protein_file_path is None:
+            raise ValueError("protein_file_path or protein_data_source is required")
+        if glygen_data_source is not None:
+            glygen_file_path = str(glygen_data_source.file("glygen_proteins.csv"))
+        if dark_kinome_data_source is not None:
+            dark_kinome_file_path = str(dark_kinome_data_source.file("dark_kinome_kinases.tsv"))
+        if resolute_data_source is not None:
+            resolute_file_path = str(resolute_data_source.file("resolute_genes.tsv"))
+        if linkedomics_data_source is not None:
+            linkedomics_file_path = str(linkedomics_data_source.file("linkedomics_genes.tsv"))
+        if tiga_data_source is not None:
+            tiga_stats_file_path = str(tiga_data_source.file("tiga_gene-trait_stats.tsv"))
         self.protein_file_path = protein_file_path
         self.glygen_file_path = glygen_file_path
         self.glygen_version_file_path = glygen_version_file_path
@@ -75,6 +95,17 @@ class PharosExternalLinkAdapter(InputAdapter):
         self.tiga_version_file_path = tiga_version_file_path
         self.canonical_only = canonical_only
         self.max_rows = max_rows
+        self.registry_version_infos = [
+            (f"{data_source.source}/{data_source.dataset}", data_source.version_info())
+            for data_source in [
+                glygen_data_source,
+                dark_kinome_data_source,
+                resolute_data_source,
+                linkedomics_data_source,
+                tiga_data_source,
+            ]
+            if data_source is not None
+        ]
         self.version_info = self._build_version_info()
 
     def get_datasource_name(self) -> DataSourceName:
@@ -266,6 +297,20 @@ class PharosExternalLinkAdapter(InputAdapter):
         )
 
     def _build_version_info(self) -> DatasourceVersionInfo:
+        if self.registry_version_infos:
+            versions = [
+                f"{label}:{info.version}"
+                for label, info in self.registry_version_infos
+                if info.version
+            ]
+            version_dates = [info.version_date for _, info in self.registry_version_infos if info.version_date]
+            download_dates = [info.download_date for _, info in self.registry_version_infos if info.download_date]
+            return DatasourceVersionInfo(
+                version=";".join(versions) or None,
+                version_date=max(version_dates, default=None),
+                download_date=max(download_dates, default=date.today()),
+            )
+
         version_rows = []
         for path in [
             self.glygen_version_file_path,

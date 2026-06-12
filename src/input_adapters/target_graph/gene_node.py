@@ -9,11 +9,19 @@ from src.shared.targetgraph_parser import TargetGraphGeneParser
 
 
 class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
-    def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=TARGET_GRAPH_VERSION,
-            download_date=self.download_date
+    def __init__(self, file_path: str = None, data_source=None):
+        self.version_info = (
+            data_source.version_info() if data_source is not None
+            else DatasourceVersionInfo(version=TARGET_GRAPH_VERSION)
         )
+        if data_source is not None:
+            file_path = str(data_source.file("gene_ids.tsv"))
+        if file_path is None:
+            raise ValueError("GeneNodeAdapter requires file_path or data_source")
+        TargetGraphGeneParser.__init__(self, file_path=file_path)
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph

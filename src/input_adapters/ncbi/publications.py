@@ -19,20 +19,26 @@ class NCBIPublicationAdapter(InputAdapter):
 
     def __init__(
         self,
-        gene2pubmed_file_path: str,
-        generif_file_path: str,
+        gene2pubmed_file_path: str = None,
+        generif_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_genes: Optional[int] = None,
         max_gene2pubmed_rows: Optional[int] = None,
         max_generif_rows: Optional[int] = None,
     ):
+        if data_source is not None:
+            gene2pubmed_file_path = str(data_source.file("gene2pubmed.gz"))
+            generif_file_path = str(data_source.file("generifs_basic.gz"))
+        if gene2pubmed_file_path is None or generif_file_path is None:
+            raise ValueError("NCBIPublicationAdapter requires publication files or data_source")
         self.gene2pubmed_file_path = gene2pubmed_file_path
         self.generif_file_path = generif_file_path
         self.version_file_path = version_file_path
         self.max_genes = max_genes
         self.max_gene2pubmed_rows = max_gene2pubmed_rows
         self.max_generif_rows = max_generif_rows
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.NCBI

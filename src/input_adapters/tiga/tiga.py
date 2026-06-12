@@ -57,20 +57,29 @@ class TIGAAdapter(InputAdapter):
 
     def __init__(
         self,
-        stats_file_path: str,
-        provenance_file_path: str,
+        stats_file_path: str = None,
+        provenance_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         max_rows: Optional[int] = None,
     ):
+        if data_source is not None:
+            stats_file_path = str(data_source.file("tiga_gene-trait_stats.tsv"))
+            provenance_file_path = str(data_source.file("tiga_gene-trait_provenance.tsv"))
+        if stats_file_path is None or provenance_file_path is None:
+            raise ValueError("TIGAAdapter requires stats/provenance file paths or data_source")
         self.stats_file_path = stats_file_path
         self.provenance_file_path = provenance_file_path
         self.version_file_path = version_file_path
+        self.version_info = data_source.version_info() if data_source is not None else None
         self.max_rows = max_rows
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TIGA
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         version = None
         version_date = None
         download_date = self._download_date()

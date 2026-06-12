@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from src.registry.manifest import (
+    build_derived_snapshot_manifest,
     build_source_snapshot_manifest,
     file_entry,
     parse_http_date_to_iso,
@@ -1376,6 +1377,70 @@ def test_data_registry_materialize_source_snapshot_reuses_matching_cache(tmp_pat
     assert materialized.version_info().version == "v1"
     assert materialized.version_info().version_date == date(2026, 6, 11)
     assert materialized.version_info().download_date == date(2026, 6, 12)
+    assert storage.downloads == []
+
+
+def test_data_registry_materialize_derived_artifact_reuses_matching_cache(tmp_path: Path):
+    cached_path = tmp_path / "cache" / "example" / "derived_dataset" / "v1" / "derived.parquet"
+    cached_path.parent.mkdir(parents=True)
+    cached_path.write_text("derived\n", encoding="utf-8")
+    manifest = build_derived_snapshot_manifest(
+        source="example",
+        dataset="derived_dataset",
+        version="v1",
+        version_date="2026-06-11",
+        derived_from=[
+            {
+                "snapshot_id": "example:source_dataset:v1",
+                "manifest_uri": "s3://ifx-registry/sources/example/source_dataset/v1/manifest.yaml",
+            }
+        ],
+        transform={"name": "example_transform", "version": 1},
+        build_key="abc123",
+        files=[
+            file_entry(
+                cached_path,
+                "derived://example/derived_dataset/v1/derived.parquet",
+                storage_uri="s3://ifx-registry/derived/example/derived_dataset/v1/derived.parquet",
+            )
+        ],
+    )
+
+    class Storage:
+        bucket = "ifx-registry"
+
+        def __init__(self):
+            self.downloads = []
+
+        def list_keys(self, prefix):
+            if prefix == "derived/":
+                return ["derived/example/derived_dataset/v1/manifest.yaml"]
+            if prefix in ("sources/", "external/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            assert key == "derived/example/derived_dataset/v1/manifest.yaml"
+            return yaml.safe_dump(manifest, sort_keys=False)
+
+        def download_file(self, key, local_path):
+            self.downloads.append((key, Path(local_path)))
+            Path(local_path).write_text("downloaded\n", encoding="utf-8")
+
+    storage = Storage()
+    registry = DataRegistry(storage)
+
+    materialized = registry.materialize_derived_artifact(
+        "example",
+        "derived_dataset",
+        "v1",
+        dest=tmp_path / "cache",
+    )
+
+    assert materialized.local_dir == tmp_path / "cache" / "example" / "derived_dataset" / "v1"
+    assert materialized.file() == cached_path
+    assert materialized.version_info().version == "v1"
+    assert materialized.version_info().version_date == date(2026, 6, 11)
     assert storage.downloads == []
 
 

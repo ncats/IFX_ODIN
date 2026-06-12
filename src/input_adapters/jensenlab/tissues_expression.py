@@ -19,13 +19,22 @@ from src.models.tissue import Tissue
 class JensenLabTissuesExpressionAdapter(InputAdapter):
     def __init__(
         self,
-        data_file_path: str,
-        version_file_path: str,
+        data_file_path: str = None,
+        version_file_path: str = None,
+        data_source=None,
         obo_file_path: Optional[str] = None,
+        obo_data_source=None,
         max_rows: Optional[int] = None,
     ):
+        if data_source is not None:
+            data_file_path = str(data_source.file("human_tissue_integrated_full.tsv"))
+        if data_file_path is None:
+            raise ValueError("JensenLabTissuesExpressionAdapter requires data_file_path or data_source")
+        if obo_data_source is not None:
+            obo_file_path = str(obo_data_source.file())
         self.data_file_path = data_file_path
         self.version_file_path = version_file_path
+        self.version_info = data_source.version_info() if data_source is not None else None
         self.max_rows = max_rows
         self._valid_tissue_ids: Optional[Set[str]] = (
             self._load_valid_tissue_ids(obo_file_path) if obo_file_path else None
@@ -62,6 +71,8 @@ class JensenLabTissuesExpressionAdapter(InputAdapter):
         return DataSourceName.JensenLabTissues
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         download_date = None
         if os.path.exists(self.data_file_path):
             download_date = datetime.fromtimestamp(os.path.getmtime(self.data_file_path)).date()

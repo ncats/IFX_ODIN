@@ -7,15 +7,22 @@ from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
 class TranscriptNodeAdapter(InputAdapter, TargetGraphTranscriptParser):
+    def __init__(self, file_path: str = None, data_source=None):
+        self.version_info = (
+            data_source.version_info() if data_source is not None
+            else DatasourceVersionInfo(version=TARGET_GRAPH_VERSION)
+        )
+        if data_source is not None:
+            file_path = str(data_source.file("transcript_ids.tsv"))
+        if file_path is None:
+            raise ValueError("TranscriptNodeAdapter requires file_path or data_source")
+        TargetGraphTranscriptParser.__init__(self, file_path=file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=TARGET_GRAPH_VERSION,
-            download_date=self.download_date
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Transcript], None, None]:
         transcript_list = []

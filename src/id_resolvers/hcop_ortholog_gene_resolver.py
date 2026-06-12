@@ -12,7 +12,8 @@ class HCOPOrthologGeneResolver(TranslatorNodeNormResolver):
 
     def __init__(self,
                  types: List[str],
-                 file_path: str,
+                 file_path: str = None,
+                 data_source=None,
                  accepted_species: List[str] = None,
                  drop_blank_ortholog_identity: bool = True,
                  batch_size: int = 50000,
@@ -27,6 +28,10 @@ class HCOPOrthologGeneResolver(TranslatorNodeNormResolver):
         )
 
         self.batch_size = batch_size
+        if data_source is not None:
+            file_path = str(data_source.file("human_all_hcop_sixteen_column.txt.gz"))
+        if file_path is None:
+            raise ValueError("HCOPOrthologGeneResolver requires file_path or data_source")
         self.hcop_helper = HCOPRecordHelper(
             file_path=file_path,
             accepted_species=accepted_species,

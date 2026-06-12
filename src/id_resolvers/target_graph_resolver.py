@@ -74,7 +74,14 @@ class TargetGraphProteinResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphProteinParser]
 
-    def __init__(self, file_paths: List[str], additional_ids: str = None, **kwargs):
+    def __init__(self, file_paths: List[str] = None, additional_ids: str = None,
+                 data_source=None, additional_ids_data_source=None, **kwargs):
+        if data_source is not None:
+            file_paths = [str(data_source.file("protein_ids.tsv"))]
+        if additional_ids_data_source is not None:
+            additional_ids = str(additional_ids_data_source.file("uniprotkb_mapping_20260507.csv"))
+        if not file_paths:
+            raise ValueError("TargetGraphProteinResolver requires file_paths or data_source")
         self.parsers = [
             TargetGraphProteinParser(file_path=path, additional_id_file_path=additional_ids)
             for path in file_paths]
@@ -85,7 +92,11 @@ class TargetGraphGeneResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphGeneParser]
 
-    def __init__(self, file_path: str, **kwargs):
+    def __init__(self, file_path: str = None, data_source=None, **kwargs):
+        if data_source is not None:
+            file_path = str(data_source.file("gene_ids.tsv"))
+        if file_path is None:
+            raise ValueError("TargetGraphGeneResolver requires file_path or data_source")
         self.parsers = [TargetGraphGeneParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -94,7 +105,11 @@ class TargetGraphTranscriptResolver(TargetGraphResolver):
     name = "TargetGraph Transcript Resolver"
     parsers: List[TargetGraphTranscriptParser]
 
-    def __init__(self, file_path: str, **kwargs):
+    def __init__(self, file_path: str = None, data_source=None, **kwargs):
+        if data_source is not None:
+            file_path = str(data_source.file("transcript_ids.tsv"))
+        if file_path is None:
+            raise ValueError("TargetGraphTranscriptResolver requires file_path or data_source")
         self.parsers = [TargetGraphTranscriptParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -117,9 +132,24 @@ class TCRDTargetResolver(TargetGraphResolver):
             version_info.append(parser.get_version_info())
         return '\t'.join(version_info)
 
-    def __init__(self, gene_file_path: str, transcript_file_path: str, protein_file_paths: List[str], additional_ids: str,
+    def __init__(self, gene_file_path: str = None, transcript_file_path: str = None,
+                 protein_file_paths: List[str] = None, additional_ids: str = None,
+                 gene_data_source=None, transcript_data_source=None,
+                 protein_data_source=None, uniprot_mapping_data_source=None,
                  reviewed_only: bool = False, collapse_to_canonical: bool = False,
                  canonical_type: Optional[str] = None, **kwargs):
+        if gene_data_source is not None:
+            gene_file_path = str(gene_data_source.file("gene_ids.tsv"))
+        if transcript_data_source is not None:
+            transcript_file_path = str(transcript_data_source.file("transcript_ids.tsv"))
+        if protein_data_source is not None:
+            protein_file_paths = [str(protein_data_source.file("protein_ids.tsv"))]
+        if uniprot_mapping_data_source is not None:
+            additional_ids = str(uniprot_mapping_data_source.file("uniprotkb_mapping_20260507.csv"))
+        if gene_file_path is None or transcript_file_path is None or not protein_file_paths:
+            raise ValueError(
+                "TCRDTargetResolver requires target graph gene, transcript, and protein inputs"
+            )
 
         self.parsers = []
         self.protein_parsers = [

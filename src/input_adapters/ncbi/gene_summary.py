@@ -14,16 +14,21 @@ from src.models.node import EquivalentId
 class NCBIGeneSummaryAdapter(InputAdapter):
     def __init__(
         self,
-        gene_summary_file_path: str,
+        gene_summary_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         tax_id: int = HUMAN_TAX_ID,
         max_rows: Optional[int] = None,
     ):
+        if data_source is not None:
+            gene_summary_file_path = str(data_source.file("gene_summary.gz"))
+        if gene_summary_file_path is None:
+            raise ValueError("NCBIGeneSummaryAdapter requires gene_summary_file_path or data_source")
         self.gene_summary_file_path = gene_summary_file_path
         self.version_file_path = version_file_path
         self.tax_id = str(tax_id)
         self.max_rows = max_rows
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.NCBI

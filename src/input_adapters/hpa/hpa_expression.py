@@ -56,15 +56,18 @@ class HPAProteinExpressionAdapter(_HPAExpressionBase):
 
     def __init__(
         self,
-        data_file_path: str,
-        version_file_path: str,
-        uberon_map_file_path: str,
+        data_file_path: str = None,
+        version_file_path: str = None,
+        uberon_map_file_path: str = None,
+        data_source=None,
         max_genes: Optional[int] = None,
     ):
         super().__init__(
             data_file_path=data_file_path,
             version_file_path=version_file_path,
             uberon_map_file_path=uberon_map_file_path,
+            data_source=data_source,
+            data_file_name="normal_ihc_data.tsv.zip",
         )
         self.max_genes = max_genes
 
@@ -176,15 +179,18 @@ class HPARnaExpressionAdapter(_HPAExpressionBase):
 
     def __init__(
         self,
-        data_file_path: str,
-        version_file_path: str,
-        uberon_map_file_path: str,
+        data_file_path: str = None,
+        version_file_path: str = None,
+        uberon_map_file_path: str = None,
+        data_source=None,
         max_genes: Optional[int] = None,
     ):
         super().__init__(
             data_file_path=data_file_path,
             version_file_path=version_file_path,
             uberon_map_file_path=uberon_map_file_path,
+            data_source=data_source,
+            data_file_name="rna_tissue_hpa.tsv.zip",
         )
         self.max_genes = max_genes
 

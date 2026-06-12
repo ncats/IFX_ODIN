@@ -17,8 +17,13 @@ class IUPHARAdapter(InputAdapter, ABC):
     download_date: date
     id_map: dict
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str = None, data_source=None):
         InputAdapter.__init__(self)
+        self.version_info = data_source.version_info() if data_source is not None else None
+        if data_source is not None:
+            file_path = str(data_source.file("ligands.csv"))
+        if file_path is None:
+            raise ValueError("IUPHARAdapter requires file_path or data_source")
         self.file_path = file_path
         self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
@@ -37,6 +42,8 @@ class IUPHARAdapter(InputAdapter, ABC):
         return DataSourceName.IUPHAR
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.version_info is not None:
+            return self.version_info
         return DatasourceVersionInfo(
             version=self.version,
             version_date=self.version_date,
@@ -103,4 +110,3 @@ class LigandNodeAdapter(IUPHARAdapter):
                 )
                 ligands.append(ligand_obj)
         yield ligands
-

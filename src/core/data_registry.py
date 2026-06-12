@@ -441,6 +441,39 @@ class DataRegistry:
             local_dir=local_dir,
         )
 
+    def materialize_derived_artifact(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        artifact = self.get_derived_artifact(source, dataset, version)
+        local_dir = Path(dest) / source / dataset / artifact["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        prefix = derived_storage_prefix(source, dataset, artifact["version"])
+        for entry in artifact.get("files", []) or []:
+            local_path = local_dir / entry["path"]
+            if self._local_file_matches_entry(local_path, entry):
+                print(f"Using cached registry file {local_path}", flush=True)
+                continue
+            key = self._storage_key_for_entry(entry, prefix)
+            print(f"Downloading registry file {key} -> {local_path}", flush=True)
+            self.storage.download_file(key, local_path)
+        return MaterializedDataset(
+            source=source,
+            dataset=dataset,
+            version=artifact["version"],
+            version_date=artifact.get("version_date"),
+            download_date=artifact.get("created_at"),
+            snapshot_id=artifact["snapshot_id"],
+            manifest_uri=artifact["manifest_uri"],
+            manifest=artifact["manifest"],
+            local_dir=local_dir,
+        )
+
     def register_external_source(
         self,
         source: str,

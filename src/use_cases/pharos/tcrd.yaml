@@ -9,15 +9,17 @@ pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_crede
 
 meets_idg_criteria: &meets_idg_criteria true
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   # Important: keep Disease resolution and Target resolution aligned with src/use_cases/pharos/pharos.yaml.
   # otherwise, IDs could drift between pharos.yaml and tcrd.yaml.
-  - label: disease_ids
-    import: ./src/id_resolvers/disease_resolver.py
-    class: DiseaseIdResolver
+  - label: translator_nn
+    import: ./src/id_resolvers/node_normalizer.py
+    class: TranslatorNodeNormResolver
     kwargs:
-      file_path: ./input_files/manual/target_graph/disease_ids.tsv
-      multi_match_behavior: All
       types:
         - Disease
 
@@ -28,11 +30,10 @@ resolvers:
       canonical_type: Protein
       collapse_to_canonical: true
       no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
-      protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
+      gene_data_source: target_graph:gene_ids:2026-05-11
+      transcript_data_source: target_graph:transcript_ids:2026-05-11
+      protein_data_source: target_graph:protein_ids:2026-05-20
+      uniprot_mapping_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
         - Gene
@@ -42,22 +43,22 @@ input_adapters:
   - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
     class: MondoTableAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
+      data_source: mondo:ontology:2026-06-02
 
   - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
     class: MondoTableParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
+      data_source: mondo:ontology:2026-06-02
 
   - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
     class: DOTableAdapter
     kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+      data_source: disease_ontology:ontology:2026-05-30
 
   - import: ./src/input_adapters/pharos_source_tcrd/ontology_tables.py
     class: DOTableParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+      data_source: disease_ontology:ontology:2026-05-30
 
   - import: ./src/input_adapters/pharos_arango/tcrd/protein.py
     class: ProteinAdapter
@@ -178,9 +179,7 @@ input_adapters:
   - import: ./src/input_adapters/jensenlab/tinx.py
     class: TINXImportanceFileAdapter
     kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
-      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+      data_source: jensenlab:tinx:2026-05-31
 
   - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
     class: ProteinPathwayAdapter

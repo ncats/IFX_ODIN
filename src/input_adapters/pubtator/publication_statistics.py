@@ -23,17 +23,22 @@ class PubTatorPublicationStatisticsAdapter(InputAdapter, MySqlAdapter):
     def __init__(
         self,
         credentials: DBCredentials,
-        gene2pubtator3_file_path: str,
+        gene2pubtator3_file_path: str = None,
         version_file_path: Optional[str] = None,
+        data_source=None,
         pmid_batch_size: int = 5000,
         max_rows: Optional[int] = None,
     ):
         MySqlAdapter.__init__(self, credentials)
+        if data_source is not None:
+            gene2pubtator3_file_path = str(data_source.file("gene2pubtator3.gz"))
+        if gene2pubtator3_file_path is None:
+            raise ValueError("PubTatorPublicationStatisticsAdapter requires gene2pubtator3_file_path or data_source")
         self.gene2pubtator3_file_path = gene2pubtator3_file_path
         self.version_file_path = version_file_path
         self.pmid_batch_size = pmid_batch_size
         self.max_rows = max_rows
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PubTator

@@ -3,6 +3,10 @@ legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/ph
 database_name: &database_name target_graph
 pchembl_cutoff: &pchembl_cutoff 5
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py
@@ -15,7 +19,7 @@ resolvers:
     import: ./src/id_resolvers/disease_resolver.py
     class: DiseaseIdResolver
     kwargs:
-      file_path: ./input_files/manual/target_graph/disease_ids.tsv
+      data_source: target_graph:disease_ids:2026-05-27
       multi_match_behavior: All
       types:
         - Disease
@@ -25,7 +29,7 @@ resolvers:
     class: TargetGraphGeneResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      data_source: target_graph:gene_ids:2026-05-11
       types:
         - Gene
 
@@ -34,7 +38,7 @@ resolvers:
     class: TargetGraphTranscriptResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
       types:
         - Transcript
 
@@ -43,9 +47,8 @@ resolvers:
     class: TargetGraphProteinResolver
     kwargs:
       no_match_behavior: Skip
-      file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
+      data_source: target_graph:protein_ids:2026-05-20
+      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
 
@@ -53,7 +56,7 @@ resolvers:
     import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
     class: HCOPOrthologGeneResolver
     kwargs:
-      file_path: ./input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz
+      data_source: hcop:human_all_sixteen_column:2025-05-16
       accepted_species:
         - "9598"
         - "9544"
@@ -80,7 +83,7 @@ resolvers:
     import: ./src/id_resolvers/tissue_resolver.py
     class: TissueResolver
     kwargs:
-      file_path: ./input_files/auto/uberon/uberon.obo
+      data_source: uberon:ontology:2026-04-01
       valid_ontologies:
         - FMA
         - EMAPA
@@ -168,53 +171,53 @@ input_adapters:
   - import: ./src/input_adapters/uberon_adapter.py
     class: UberonAdapter
     kwargs:
-      file_path: ./input_files/auto/uberon/uberon.obo
+      data_source: uberon:ontology:2026-04-01
 
   - import: ./src/input_adapters/go/go_term.py
     class: GOTermAdapter
     kwargs:
-      file_path: ./input_files/auto/go/go-basic.json
+      data_source: go:ontology:2026-05-28
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinAdapter
     kwargs:
-      file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
-      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+      data_source: uniprot:human:2026_02
+      file_name: uniprot-human.json.gz
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: IsoformProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/target_graph/gene_node.py
     class: GeneNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      data_source: target_graph:gene_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/transcript_node.py
     class: TranscriptNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
     class: GeneTranscriptEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: TranscriptProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: GeneProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
     class: PHIPSTERLegacyLiftAdapter
@@ -223,8 +226,7 @@ input_adapters:
   - import: ./src/input_adapters/hcop/orthologs.py
     class: HCOPOrthologAdapter
     kwargs:
-      file_path: ./input_files/auto/hcop/human_all_hcop_sixteen_column.txt.gz
-      version_file_path: ./input_files/auto/hcop/hcop_version.tsv
+      data_source: hcop:human_all_sixteen_column:2025-05-16
       accepted_species:
         - "9598"
         - "9544"
@@ -248,72 +250,55 @@ input_adapters:
   - import: ./src/input_adapters/mp/phenotype_terms.py
     class: MPPhenotypeAdapter
     kwargs:
-      file_path: ./input_files/auto/mp/mp.obo
+      data_source: mp:ontology:2026-05-19
 
   - import: ./src/input_adapters/impc/phenotypes.py
     class: IMPCPhenotypeAdapter
     kwargs:
-      file_path: ./input_files/auto/impc/genotype-phenotype-assertions-IMPC.csv.gz
-      version_file_path: ./input_files/auto/impc/impc_version.tsv
+      data_source: impc:genotype_phenotype_assertions:2026-03-16
 
   - import: ./src/input_adapters/mgi/hmd_human_phenotype.py
     class: HMDHumanPhenotypeAdapter
     kwargs:
-      file_path: ./input_files/auto/mgi/HMD_HumanPhenotype.rpt
-      version_file_path: ./input_files/auto/mgi/mgi_hmd_version.tsv
+      data_source: mgi:hmd_human_phenotype:2026-06-08
 
   - import: ./src/input_adapters/string/string_ppi.py
     class: StringPPIAdapter
     kwargs:
-      file_path: ./input_files/auto/string/9606.protein.links.v12.0.txt.gz
-      version_file_path: ./input_files/auto/string/string_version.tsv
+      data_source: string:protein_links_human:12.0
       score_cutoff: 400
 
   - import: ./src/input_adapters/bioplex/bioplex_ppi.py
     class: BioPlexPPIAdapter
     kwargs:
-      file_path: ./input_files/auto/bioplex/BioPlex_293T_Network_10K_Dec_2019.tsv
-      version_file_path: ./input_files/auto/bioplex/bioplex_version.tsv
-
-  - import: ./src/input_adapters/bioplex/bioplex_ppi.py
-    class: BioPlexPPIAdapter
-    kwargs:
-      file_path: ./input_files/auto/bioplex/BioPlex_HCT116_Network_5.5K_Dec_2019.tsv
-      version_file_path: ./input_files/auto/bioplex/bioplex_version.tsv
+      data_source: bioplex:ppi:3.0
 
   - import: ./src/input_adapters/reactome/reactome_ppi.py
     class: ReactomePPIAdapter
     kwargs:
-      file_path: ./input_files/auto/reactome/reactome.homo_sapiens.interactions.tab-delimited.txt
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      data_source: reactome:pathways:96
 
   - import: ./src/input_adapters/gtex/gtex_expression.py
     class: GTExExpressionAdapter
     kwargs:
-      matrix_file_path: ./input_files/auto/gtex/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
-      sample_attributes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt
-      subject_phenotypes_file_path: ./input_files/auto/gtex/GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt
-      version_file_path: ./input_files/auto/gtex/gtex_version.tsv
+      data_source: gtex:expression_v11:v11
 
   - import: ./src/input_adapters/hpm/hpm_expression.py
     class: HPMExpressionAdapter
     kwargs:
-      data_file_path: ./input_files/manual/hpm/HPM_protein_level_expression_matrix_Kim_et_al_052914.csv
+      data_source: hpm:protein_expression:2014-05-29
       uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
-      version_file_path: ./input_files/manual/hpm/version.csv
 
   - import: ./src/input_adapters/hpa/hpa_expression.py
     class: HPAProteinExpressionAdapter
     kwargs:
-      data_file_path: ./input_files/auto/hpa/normal_ihc_data.tsv.zip
-      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      data_source: hpa:tissue_expression:25.1
       uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
 
   - import: ./src/input_adapters/hpa/hpa_expression.py
     class: HPARnaExpressionAdapter
     kwargs:
-      data_file_path: ./input_files/auto/hpa/rna_tissue_hpa.tsv.zip
-      version_file_path: ./input_files/auto/hpa/hpa_version.tsv
+      data_source: hpa:tissue_expression:25.1
       uberon_map_file_path: ./src/input_adapters/shared/manual_uberon_map.tsv
 
   - import: ./src/input_adapters/drug_central/drug_node.py
@@ -327,14 +312,13 @@ input_adapters:
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
-      file_path: ./input_files/auto/iuphar/ligands.csv
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
     class: ProteinLigandEdgeAdapter
     kwargs:
       pchembl_cutoff: *pchembl_cutoff
-      file_path: ./input_files/auto/iuphar/ligands.csv
-      interaction_file_path: ./input_files/auto/iuphar/interactions.csv
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
@@ -355,26 +339,24 @@ input_adapters:
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
     kwargs:
-      file_path: ./input_files/auto/jensenlab/protein_counts.tsv
+      data_source: jensenlab:protein_counts:2026-05-31
 
   - import: ./src/input_adapters/pubtator/publication_statistics.py
     class: PubTatorPublicationStatisticsAdapter
     kwargs:
-      gene2pubtator3_file_path: ./input_files/auto/pubtator/gene2pubtator3.gz
-      version_file_path: ./input_files/auto/pubtator/pubtator_version.tsv
+      data_source: pubtator:gene2pubtator3:2026-05-17
     credentials: ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
 
   - import: ./src/input_adapters/jensenlab/tissues_expression.py
     class: JensenLabTissuesExpressionAdapter
     kwargs:
-      data_file_path: ./input_files/auto/jensenlab/human_tissue_integrated_full.tsv
-      version_file_path: ./input_files/auto/jensenlab/tissues_version.tsv
-      obo_file_path: ./input_files/auto/uberon/uberon.obo
+      data_source: jensenlab:tissues:2026-05-31
+      obo_data_source: uberon:ontology:2026-04-01
 
   - import: ./src/input_adapters/antibodypedia/antibody_count.py
     class: AntibodyCountAdapter
     kwargs:
-      file_path: ./input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv
+      data_source: antibodypedia:scraped_results:2025-06-27_12-32
 
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
@@ -383,34 +365,34 @@ input_adapters:
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-uniprot.gaf.gz
+      data_source: go:goa_human_uniprot:2026-06-02
       source: UniProt
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-go.gaf.gz
+      data_source: go:goa_human_go:2026-05-28
       source: GO
 
   - import: ./src/input_adapters/mondo/mondo_adapter.py
     class: MondoDiseaseAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
+      data_source: mondo:ontology:2026-06-02
 
   - import: ./src/input_adapters/mondo/mondo_adapter.py
     class: MondoDiseaseParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
+      data_source: mondo:ontology:2026-06-02
 
   - import: ./src/input_adapters/disease_ontology/do_adapter.py
     class: DODiseaseAdapter
     kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+      data_source: disease_ontology:ontology:2026-05-30
 
   - import: ./src/input_adapters/disease_ontology/do_adapter.py
     class: DODiseaseParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
+      data_source: disease_ontology:ontology:2026-05-30
 
   - import: ./src/input_adapters/rdas/diseases.py
     class: RDASRareDiseaseAdapter
@@ -418,10 +400,7 @@ input_adapters:
   - import: ./src/input_adapters/jensenlab/diseases.py
     class: JensenLabDiseasesAdapter
     kwargs:
-      knowledge_file_path: ./input_files/auto/jensenlab/human_disease_knowledge_filtered.tsv
-      experiments_file_path: ./input_files/auto/jensenlab/human_disease_experiments_filtered.tsv
-      textmining_file_path: ./input_files/auto/jensenlab/human_disease_textmining_filtered.tsv
-      version_file_path: ./input_files/auto/jensenlab/diseases_version.tsv
+      data_source: jensenlab:diseases:2026-05-31
       textmining_min_zscore: 6.0
 
   - import: ./src/input_adapters/pharos_mysql/eram_disease_adapter.py
@@ -431,78 +410,63 @@ input_adapters:
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
     class: ProteinDiseaseEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/uniprot/uniprot-human.json.gz
-      version_file_path: ./input_files/auto/uniprot/uniprot_version.tsv
+      data_source: uniprot:human:2026_02
+      file_name: uniprot-human.json.gz
 
   - import: ./src/input_adapters/ctd/ctd_gene_disease.py
     class: CTDGeneDiseaseAdapter
     kwargs:
-      file_path: ./input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz
-      version_file_path: ./input_files/auto/ctd/ctd_version.tsv
+      data_source: ctd:curated_genes_diseases:2026-05-28
 
   - import: ./src/input_adapters/jensenlab/tinx.py
     class: TINXAdapter
     kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
-      disease_mentions_file_path: ./input_files/auto/jensenlab/disease_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+      data_source: jensenlab:tinx:2026-05-31
 
   - import: ./src/input_adapters/tiga/tiga.py
     class: TIGAAdapter
     kwargs:
-      stats_file_path: ./input_files/auto/tiga/tiga_gene-trait_stats.tsv
-      provenance_file_path: ./input_files/auto/tiga/tiga_gene-trait_provenance.tsv
-      version_file_path: ./input_files/auto/tiga/tiga_version.tsv
+      data_source: tiga:gene_trait:20260120
 
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomePathwayAdapter
     kwargs:
-      gmt_file_path: ./input_files/auto/reactome/ReactomePathways.gmt.zip
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      data_source: reactome:pathways:96
 
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomePathwayParentEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/reactome/ReactomePathwaysRelation.txt
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      data_source: reactome:pathways:96
 
   - import: ./src/input_adapters/reactome/reactome_pathways.py
     class: ReactomeProteinPathwayEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/reactome/UniProt2Reactome_All_Levels.txt
-      version_file_path: ./input_files/auto/reactome/reactome_version.tsv
+      data_source: reactome:pathways:96
 
   - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
     class: WikiPathwaysPathwayAdapter
     kwargs:
-      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+      data_source: wikipathways:human_gmt:2026-06-10
 
   - import: ./src/input_adapters/wikipathways/wikipathways_pathways.py
     class: WikiPathwaysGenePathwayEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/wikipathways/wikipathways_human.gmt
-      version_file_path: ./input_files/auto/wikipathways/wikipathways_version.tsv
+      data_source: wikipathways:human_gmt:2026-06-10
 
   - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
     class: PathwayCommonsPathwayAdapter
     kwargs:
-      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
-      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+      data_source: pathwaycommons:pc_hgnc:14
 
   - import: ./src/input_adapters/pathwaycommons/pathwaycommons_pathways.py
     class: PathwayCommonsGenePathwayEdgeAdapter
     kwargs:
-      file_path: ./input_files/auto/pathwaycommons/pc-hgnc.gmt.gz
-      version_file_path: ./input_files/auto/pathwaycommons/pathwaycommons_version.tsv
+      data_source: pathwaycommons:pc_hgnc:14
 
   - import: ./src/input_adapters/panther/panther_classes.py
     class: PantherClassesAdapter
     kwargs:
-      class_file_path: ./input_files/auto/panther/Protein_Class_19.0
-      relationship_file_path: ./input_files/auto/panther/Protein_class_relationship
-      sequence_classification_file_path: ./input_files/auto/panther/PTHR19.0_human
-      version_file_path: ./input_files/auto/panther/panther_classes_version.tsv
+      data_source: panther:protein_classes:19.0
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassAdapter
@@ -519,29 +483,22 @@ input_adapters:
   - import: ./src/input_adapters/surechembl/patent_families.py
     class: SureChEMBLPatentFamilyAdapter
     kwargs:
-      patents_file_path: ./input_files/auto/surechembl/patents.parquet
-      biomedical_entities_file_path: ./input_files/auto/surechembl/biomedical_entities.parquet
-      biomedical_locations_file_path: ./input_files/auto/surechembl/biomedical_locations.parquet
-      version_file_path: ./input_files/auto/surechembl/surechembl_version.tsv
+      data_source: surechembl:patent_family_mentions:2026-06-01
 
   - import: ./src/input_adapters/ncbi/publications.py
     class: NCBIPublicationAdapter
     kwargs:
-      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
-      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
-      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
+      data_source: ncbi:publications:2026-06-10
 
   - import: ./src/input_adapters/ncbi/gene_summary.py
     class: NCBIGeneSummaryAdapter
     kwargs:
-      gene_summary_file_path: ./input_files/auto/ncbi/gene_summary.gz
-      version_file_path: ./input_files/auto/ncbi/ncbi_gene_summary_version.tsv
+      data_source: ncbi:gene_summary:2026-06-10
 
   - import: ./src/input_adapters/jensenlab/publications.py
     class: JensenLabPublicationAdapter
     kwargs:
-      protein_mentions_file_path: ./input_files/auto/jensenlab/human_textmining_mentions.tsv
-      version_file_path: ./input_files/auto/jensenlab/tinx_version.tsv
+      data_source: jensenlab:tinx:2026-05-31
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

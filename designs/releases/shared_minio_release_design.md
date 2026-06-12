@@ -214,6 +214,11 @@ Current display:
 - Adapters have not all been moved to consume registry manifests or derived
   artifacts. The likely first adapter migration is SureChEMBL patent family
   mentions.
+- After the Pharos/target_graph adapter and resolver migration is complete,
+  remove temporary constructor compatibility for replaced `file_path`,
+  `file_paths`, and `version_file_path` arguments. Registry-backed components
+  should expose the `data_source` inputs they actually use rather than carrying
+  both old local-file and new registry contracts indefinitely.
 - Resolver SQLite artifacts are planned but not yet modeled as a separate
   registry kind.
 - Direct-to-MinIO streaming for very large sources remains optional future work.

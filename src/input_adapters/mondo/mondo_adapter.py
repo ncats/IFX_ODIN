@@ -12,8 +12,13 @@ from src.models.disease import Disease, DiseaseParentEdge
 class MondoBaseAdapter(FlatFileAdapter):
     version_info: Optional[DatasourceVersionInfo] = None
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str = None, data_source=None):
+        if data_source is not None:
+            file_path = str(data_source.file())
+        if file_path is None:
+            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
         FlatFileAdapter.__init__(self, file_path=file_path)
+        self.version_info = data_source.version_info() if data_source is not None else None
         self._graph = None
 
     def get_datasource_name(self) -> DataSourceName:
