@@ -9,17 +9,9 @@ from urllib.parse import quote, unquote
 
 import requests
 
-from src.registry.manifest import (
-    MANIFEST_FILENAME,
-    build_source_snapshot_manifest,
-    file_entry,
-    iso_timestamp,
-    manifest_checksum,
-    storage_prefix,
-    today_utc,
-    write_manifest,
-)
-from src.registry.storage import MinioStorage, load_minio_credentials, s3_uri
+from src.registry.fetchers import SourceFunctionFetcher
+from src.registry.fetchers import SnapshotFile, SourceSnapshot
+from src.registry.manifest import iso_timestamp, today_utc
 
 
 USER_AGENT = "IFX_ODIN pharos linkout discovery"
@@ -58,7 +50,24 @@ def _write_bytes(path: Path, body: bytes) -> None:
         handle.write(body)
 
 
-def _upload_snapshot(
+def latest_glygen_pharos_linkout_version(timeout: int = 60) -> str:
+    search_url = "https://api.glygen.org/protein/search_simple/"
+    list_url = "https://api.glygen.org/protein/list/"
+    search_payload = {"term_category": "organism", "term": "human"}
+    search_response = _post_json(search_url, search_payload, timeout=timeout).json()
+    list_id = search_response.get("list_id")
+    if not list_id:
+        raise ValueError("GlyGen search response did not include list_id")
+    list_response = _post_json(list_url, {"id": list_id}, timeout=timeout).json()
+    cache_info = list_response.get("cache_info") or {}
+    return str(cache_info.get("listcache_id") or list_response.get("listcache_id") or list_id)
+
+
+def latest_download_date_version(timeout: int = 60) -> Optional[str]:
+    return None
+
+
+def _build_snapshot(
     *,
     source: str,
     dataset: str,
@@ -69,57 +78,23 @@ def _upload_snapshot(
     output_path: Path,
     source_url: str,
     content_type: str,
-    minio_credentials: Optional[Path],
-    upload: bool,
     extra: Dict[str, Any],
-) -> Path:
-    storage = None
-    bucket = None
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials))
-        bucket = storage.bucket
-
-    object_prefix = storage_prefix(source, dataset, version)
-    storage_uri = s3_uri(bucket, f"{object_prefix}/{output_path.name}") if bucket else None
-    manifest = build_source_snapshot_manifest(
+) -> SourceSnapshot:
+    return SourceSnapshot(
         source=source,
         dataset=dataset,
         version=version,
         version_date=version_date,
-        download_date=None,
         homepage=homepage,
         upstream_urls=upstream_urls,
-        files=[
-            file_entry(
-                local_path=output_path,
-                source_url=source_url,
-                storage_uri=storage_uri,
-                content_type=content_type,
-            )
-        ],
+        files=[SnapshotFile(output_path, source_url, content_type)],
         extra=extra,
     )
-    manifest_path = output_path.parent / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
-
-    if storage:
-        storage.upload_file(output_path, f"{object_prefix}/{output_path.name}", content_type)
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
-
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    if bucket:
-        print(f"Uploaded snapshot to s3://{bucket}/{object_prefix}/")
-    return manifest_path
 
 
-def register_glygen(
+def fetch_glygen(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
     source = "glygen"
@@ -152,7 +127,7 @@ def register_glygen(
     if record_count is None:
         record_count = max(0, len(response.content.decode("utf-8", "replace").splitlines()) - 1)
 
-    return _upload_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -162,8 +137,6 @@ def register_glygen(
         output_path=output_path,
         source_url=download_url,
         content_type="text/csv",
-        minio_credentials=minio_credentials,
-        upload=upload,
         extra={
             "record_count": record_count,
             "version_method": {
@@ -197,11 +170,9 @@ class DarkKinomeParser(HTMLParser):
             self.rows.append({"symbol": symbol, "url": f"https://darkkinome.org/kinase/{quote(symbol)}"})
 
 
-def register_dark_kinome(
+def fetch_dark_kinome(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
     source = "dark_kinome"
@@ -233,7 +204,7 @@ def register_dark_kinome(
     version = today_utc()
     output_path = dest / source / dataset / version / "dark_kinome_kinases.tsv"
     _write_tsv(output_path, ["symbol", "url"], rows)
-    return _upload_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -243,8 +214,6 @@ def register_dark_kinome(
         output_path=output_path,
         source_url=url,
         content_type="text/tab-separated-values",
-        minio_credentials=minio_credentials,
-        upload=upload,
         extra={
             "record_count": len(rows),
             "version_method": {
@@ -256,11 +225,9 @@ def register_dark_kinome(
     )
 
 
-def register_resolute(
+def fetch_resolute(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
     source = "resolute"
@@ -310,7 +277,7 @@ def register_resolute(
     version = today_utc()
     output_path = dest / source / dataset / version / "resolute_genes.tsv"
     _write_tsv(output_path, ["symbol", "nextprot_ids", "ensembl_protein_ids", "url"], rows)
-    return _upload_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -320,8 +287,6 @@ def register_resolute(
         output_path=output_path,
         source_url=url,
         content_type="text/tab-separated-values",
-        minio_credentials=minio_credentials,
-        upload=upload,
         extra={
             "record_count": len(rows),
             "version_method": {
@@ -333,11 +298,9 @@ def register_resolute(
     )
 
 
-def register_linkedomics(
+def fetch_linkedomics(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
     source = "linkedomics"
@@ -357,7 +320,7 @@ def register_linkedomics(
     version = today_utc()
     output_path = dest / source / dataset / version / "linkedomics_genes.tsv"
     _write_tsv(output_path, ["symbol", "url"], rows)
-    return _upload_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -367,8 +330,6 @@ def register_linkedomics(
         output_path=output_path,
         source_url=url,
         content_type="text/tab-separated-values",
-        minio_credentials=minio_credentials,
-        upload=upload,
         extra={
             "record_count": len(rows),
             "version_method": {
@@ -378,3 +339,31 @@ def register_linkedomics(
             },
         },
     )
+
+
+class GlygenPharosLinkoutFetcher(SourceFunctionFetcher):
+    source = "glygen"
+    dataset = "proteins"
+    fetch_function = staticmethod(fetch_glygen)
+    latest_version_function = staticmethod(latest_glygen_pharos_linkout_version)
+
+
+class DarkKinomePharosLinkoutFetcher(SourceFunctionFetcher):
+    source = "dark_kinome"
+    dataset = "kinases"
+    fetch_function = staticmethod(fetch_dark_kinome)
+    latest_version_function = staticmethod(latest_download_date_version)
+
+
+class ResolutePharosLinkoutFetcher(SourceFunctionFetcher):
+    source = "resolute"
+    dataset = "genes"
+    fetch_function = staticmethod(fetch_resolute)
+    latest_version_function = staticmethod(latest_download_date_version)
+
+
+class LinkedomicsPharosLinkoutFetcher(SourceFunctionFetcher):
+    source = "linkedomics"
+    dataset = "genes"
+    fetch_function = staticmethod(fetch_linkedomics)
+    latest_version_function = staticmethod(latest_download_date_version)

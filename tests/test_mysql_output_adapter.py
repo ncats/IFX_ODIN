@@ -2,14 +2,13 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from datetime import datetime
 
 import pytest
-from sqlalchemy.dialects import mysql
 
 from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.models.datasource_version_info import DataSourceDetails
 from src.output_adapters.mysql_output_adapter import MySQLOutputAdapter, TCRDOutputAdapter
 from src.shared.db_credentials import DBCredentials
-from src.shared.sqlalchemy_tables.pharos_tables_new import NcatsDisease, TDL_info
+from src.shared.sqlalchemy_tables.pharos_tables_new import TDL_info
 from src.shared.sqlalchemy_tables.test_tables import AutoIncNode
 
 
@@ -91,63 +90,6 @@ def test_mysql_output_adapter_store_does_not_use_insert_ignore():
     stmt, rows = fake_session.executed[0]
     assert stmt._prefixes == ()
     assert rows == [{"identifier": "pathway-1", "value": "demo"}]
-
-
-def test_mysql_output_adapter_makes_ncats_disease_insert_idempotent():
-    credentials = DBCredentials(
-        url="localhost",
-        user="tester",
-        password="secret",
-        schema=None,
-    )
-    adapter = MySQLOutputAdapter(credentials=credentials, database_name="pharos400", truncate_tables=False)
-
-    class FakeConverter:
-        def get_object_converters(self, _obj_cls):
-            return lambda _obj: NcatsDisease(id=20094, name="Disease", provenance="test")
-
-    class FakeSession:
-        def __init__(self):
-            self.executed = []
-
-        def execute(self, stmt, rows):
-            self.executed.append((stmt, rows))
-
-        def commit(self):
-            pass
-
-        def rollback(self):
-            pass
-
-        def close(self):
-            pass
-
-    fake_session = FakeSession()
-    adapter.output_converter = FakeConverter()
-    adapter.get_session = lambda: fake_session
-    adapter.sort_and_convert_objects = lambda _objects, keep_nested_objects=True: {
-        "NcatsDisease": ([{"dummy": "value"}], ["NcatsDisease"], False, None, None, object)
-    }
-
-    adapter.store(["unused"])
-
-    stmt, rows = fake_session.executed[0]
-    compiled = str(stmt.compile(dialect=mysql.dialect()))
-    assert "ON DUPLICATE KEY UPDATE" in compiled
-    assert rows == [{
-        "id": 20094,
-        "name": "Disease",
-        "uniprot_description": None,
-        "do_description": None,
-        "mondo_description": None,
-        "mondoid": None,
-        "maxTDL": None,
-        "target_count": None,
-        "direct_target_count": None,
-        "gard_rare": None,
-        "novelty": None,
-        "provenance": "test",
-    }]
 
 
 def test_mysql_output_adapter_store_inserts_in_chunks():

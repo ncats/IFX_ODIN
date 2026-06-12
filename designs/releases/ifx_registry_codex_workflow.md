@@ -3,9 +3,9 @@
 ## Goal
 
 Use Codex as the guided interface for registering source dataset snapshots.
-Codex should help with the judgment-heavy metadata questions, then call the
-deterministic `ifx-registry` CLI to download files, write `manifest.yaml`, verify
-checksums, and upload to MinIO.
+Codex should help with the judgment-heavy metadata questions, then use
+`DataRegistry` to download files, write `manifest.yaml`, verify checksums, and
+upload to MinIO.
 
 ## Workflow
 
@@ -28,19 +28,29 @@ checksums, and upload to MinIO.
    - homepage/source URLs
    - expected file list
 
-4. Run the registry CLI.
+4. Run the registry workflow through `DataRegistry`.
 
-   ```bash
-   uv run python -m src.registry fetch-ctd \
-     --dest /private/tmp/ifx-registry-cache \
-     --minio-credentials src/use_cases/secrets/ifxdev_minio.yaml \
-     --upload
+   ```python
+   from src.core.data_registry import DataRegistry
+
+   registry = DataRegistry.from_minio_credentials(
+       "src/use_cases/secrets/ifxdev_minio.yaml"
+   )
+   registry.refresh_dataset(
+       "ctd",
+       "curated_genes_diseases",
+       dest="/private/tmp/ifx-registry-cache",
+   )
    ```
 
-5. Verify the local cache.
+5. Verify the local cache with registry manifest helpers when needed.
 
-   ```bash
-   uv run python -m src.registry verify-cache /private/tmp/ifx-registry-cache/ctd/curated_genes_diseases/2026-05-28/manifest.yaml
+   ```python
+   from src.registry.manifest import verify_manifest_files
+
+   verify_manifest_files(
+       "/private/tmp/ifx-registry-cache/ctd/curated_genes_diseases/2026-05-28/manifest.yaml"
+   )
    ```
 
 6. Report the result.
@@ -58,11 +68,11 @@ checksums, and upload to MinIO.
    - Never delete or modify files under `input_files/` as part of registry cache
      cleanup.
 
-## Source-Specific Downloaders
+## Source-Specific Fetchers
 
-The generic `fetch-url` command is useful for simple files, but most Pharos
-sources need source-specific download logic. That logic should move out of
-ad-hoc shell snippets and into registry downloader modules.
+Most Pharos sources need source-specific download logic. That logic should move
+out of ad-hoc shell snippets and into registry source modules implementing the
+fetcher interface used by `DataRegistry`.
 
 Each downloader should own:
 

@@ -1,4 +1,232 @@
-# Shared Data Investigation
+# IFX Data Source Registry Design
+
+## Current Design State
+
+As of 2026-06-12, the shared MinIO idea has become the IFX Data Source
+Registry. The registry is an ODIN core service layer, not just a bucket browser.
+It stores reproducible source snapshots, external source registrations, and
+derived artifacts in MinIO, while `DataRegistry` is the Python interface that
+knows how to list, check, fetch, sync, and materialize those registry entries.
+
+The registry is intentionally modest: it is not lakeFS, not a full data lake
+query engine, and not a replacement for ETL configuration. It is the
+authoritative store for dataset bytes and manifests that ETL builds can pin and
+cache locally.
+
+## Goals
+
+- Keep one shared, versioned copy of source input files and derived build inputs.
+- Preserve enough metadata to understand where bytes came from and how versions
+  were determined.
+- Let local builds use disposable caches without treating those caches as
+  authoritative.
+- Support sources that are downloaded files, manual local files, external
+  databases/APIs, and deterministic derived products.
+- Give adapters and future build workflows a stable way to point at registered
+  datasets.
+
+## Core Components
+
+| Component | Responsibility |
+| --- | --- |
+| MinIO bucket `ifx-registry` | Object storage for manifests and files. |
+| `src/core/data_registry.py` | ODIN-facing API for registry operations. |
+| `src/registry/registry_sources.yaml` | Declarative catalog of configured source, external, and derived datasets. |
+| `src/registry/sources/` | Source-specific fetchers and external source providers. |
+| `src/registry/derived/` | Deterministic builders for derived artifacts. |
+| QA Browser registry page | Read-only view of raw snapshots, derived artifacts, and external source registrations. |
+| `playbooks/ifx_registry_playbook.md` | Operational workflow for source snapshots and external sources. |
+| `playbooks/derived_artifact_playbook.md` | Operational workflow for derived artifacts. |
+
+## Storage Namespaces
+
+Registry objects use three top-level MinIO namespaces:
+
+```text
+sources/<source>/<dataset>/<version>/
+external/<source>/<dataset>/<version>/
+derived/<source>/<dataset>/<version>/
+```
+
+Examples:
+
+```text
+sources/surechembl/patent_discovery/2026-06-01/
+external/chembl/activity_database/chembl36/
+derived/surechembl/patent_family_mentions/2026-06-01/
+```
+
+Each namespace entry contains a `manifest.yaml`. File-backed entries also store
+the referenced data files next to the manifest.
+
+## Registry Entry Types
+
+### Source Snapshots
+
+Source snapshots represent immutable downloaded or manual file sets. A snapshot
+has:
+
+- `source`, for example `ncbi`, `jensenlab`, `surechembl`
+- `dataset`, for example `publications`, `tissues`, `patent_discovery`
+- `version`, preferably an upstream release, dated directory, ontology
+  `data-version`, or HTTP metadata date
+- `files`, each with size, SHA256, content type, source URL, and storage URI
+- `extra.version_method`, which documents how the version was discovered
+
+`DataRegistry.sync_latest_snapshots(...)` checks configured fetchers, downloads
+missing or stale datasets into a local cache, writes manifests, and uploads
+files/manifests to MinIO.
+
+### External Source Registrations
+
+External registrations represent sources where MinIO does not own raw bytes,
+such as ChEMBL or DrugCentral databases. The registry stores a manifest with:
+
+- source/dataset/version
+- non-secret connection metadata
+- credential reference path
+- access mode/interface
+- version method evidence
+
+`DataRegistry.sync_external_sources(...)` can check and write these manifests so
+external sources are visible in the same registry catalog as file snapshots.
+
+### Derived Artifacts
+
+Derived artifacts are deterministic products built from registered dependencies.
+They live under `derived/...` and declare exact inputs in `derived_from`.
+
+The first concrete artifact is:
+
+```text
+derived/surechembl/patent_family_mentions/<version>/protein_patent_family_mentions.parquet
+```
+
+Its dependency is the raw source snapshot:
+
+```text
+sources/surechembl/patent_discovery/<version>/
+```
+
+Derived manifests include:
+
+- dependency snapshot IDs and manifest URIs
+- transform metadata
+- watched transform code reference and `code_sha256`
+- `build_key`, a hash of dependency snapshot IDs plus transform metadata
+- output files and validation stats
+
+The derived artifact `version` remains human-readable and input-oriented. For a
+single dependency, it is currently the dependency version, for example
+`2026-06-01`. The `build_key` is the stricter invalidation signal. This means a
+code change can mark a derived artifact stale even if the upstream input version
+is unchanged.
+
+## `DataRegistry` API Shape
+
+`DataRegistry` is the intended public interface for registry operations inside
+ODIN code and ad hoc working scripts.
+
+Current high-level operations:
+
+```python
+registry = DataRegistry.from_minio_credentials(
+    "src/use_cases/secrets/ifxdev_minio.yaml"
+)
+
+registry.list_source_snapshots()
+registry.list_external_sources()
+registry.list_derived_artifacts()
+
+registry.check_all_latest_registered()
+registry.sync_latest_snapshots(dest="/tmp/ifx-registry-cache", dry_run=True)
+registry.sync_latest_snapshots(dest="/tmp/ifx-registry-cache", dry_run=False)
+
+registry.check_external_registrations()
+registry.sync_external_sources(dest="/tmp/ifx-registry-cache", dry_run=False)
+
+registry.check_derived_artifacts()
+registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=True)
+registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=False)
+```
+
+The CLI is no longer the primary abstraction. It can stay thin or be removed
+where `DataRegistry` covers the behavior directly.
+
+## Local Cache Model
+
+The registry is authoritative. Local files are caches.
+
+Expected build flow:
+
+1. Registry manifest exists in MinIO.
+2. `DataRegistry` materializes needed files into a local cache.
+3. ETL/prep code reads local paths for speed.
+4. The cache can be deleted and recreated from MinIO.
+
+Current default cache examples:
+
+```text
+/tmp/ifx-registry-cache
+/private/tmp/ifx-registry-cache
+```
+
+Dependency staging for derived artifacts uses the source snapshot cache layout:
+
+```text
+<cache>/<source>/<dataset>/<version>/
+```
+
+Derived outputs are built under:
+
+```text
+<cache>/_registry_work/derived/<source>/<dataset>/<version>/output/
+```
+
+and then copied/moved into:
+
+```text
+<cache>/<source>/<dataset>/<version>/
+```
+
+## QA Browser
+
+The QA Browser registry page is a read-only MinIO-backed catalog. It should not
+hard-code source lists.
+
+Current display:
+
+- top summary row with source, dataset, derived artifact, external source, and
+  total size counts
+- registered source snapshots grouped by source and dataset
+- derived artifacts grouped by source and dataset
+- external sources listed separately
+- expandable file, dependency, access, and manifest details
+
+## Current Limitations And Next Decisions
+
+- `sync_reason` for derived artifacts is still coarse: `missing` or
+  `not_latest`. The build key can detect staleness, but the status does not yet
+  distinguish dependency changes from transform-code changes.
+- Build-level manifests are still deferred. ETL YAMLs may eventually point at
+  registered datasets, but the registry does not yet define a full ETL input
+  set.
+- Adapters have not all been moved to consume registry manifests or derived
+  artifacts. The likely first adapter migration is SureChEMBL patent family
+  mentions.
+- Resolver SQLite artifacts are planned but not yet modeled as a separate
+  registry kind.
+- Direct-to-MinIO streaming for very large sources remains optional future work.
+  The current path downloads to a local cache first.
+- The registry does not expose a record-level API such as `get_record` or
+  `get_batch`; that remains a future service layer if needed.
+
+## Historical Investigation
+
+The notes below are the original investigation that motivated the registry
+design. They distinguish raw source data from Jessica's derived resolver
+artifacts and helped define why the first implementation should start with
+source snapshots and manifests rather than a full data lake.
 
 ## Goal
 

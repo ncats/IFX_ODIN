@@ -24,10 +24,14 @@ class MinioStorage:
         credentials: DBCredentials,
         bucket: Optional[str] = DEFAULT_REGISTRY_BUCKET,
         use_internal_url: bool = False,
+        connect_timeout: int = 5,
+        read_timeout: int = 30,
     ):
         self.credentials = credentials
         self._bucket = bucket or DEFAULT_REGISTRY_BUCKET or credentials.schema
         self.use_internal_url = use_internal_url
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
         if not self._bucket:
             raise ValueError("MinIO credentials must include schema as bucket name, or bucket must be provided")
 
@@ -45,7 +49,12 @@ class MinioStorage:
             endpoint_url=endpoint,
             aws_access_key_id=self.credentials.user,
             aws_secret_access_key=self.credentials.password,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+            ),
             verify=False,
         )
 
@@ -68,6 +77,11 @@ class MinioStorage:
         self.ensure_bucket()
         self.client().upload_file(str(local_path), self.bucket, key, ExtraArgs=extra_args or None)
         return s3_uri(self.bucket, key)
+
+    def download_file(self, key: str, local_path: Path) -> Path:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.client().download_file(self.bucket, key, str(local_path))
+        return local_path
 
     def list_keys(self, prefix: str = "") -> list[str]:
         client = self.client()

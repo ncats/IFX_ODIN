@@ -22,6 +22,8 @@ from sqlalchemy.engine import Engine
 
 import uvicorn
 
+from src.core.data_registry import DataRegistry
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_DIR = Path(__file__).parent
@@ -44,6 +46,8 @@ _minio_credentials: dict = {}
 _registry_catalog_cache: dict = {
     "loaded_at": 0.0,
     "snapshots": None,
+    "derived_artifacts": None,
+    "external_registrations": None,
     "error": None,
 }
 _REGISTRY_CATALOG_TTL_SECONDS = 60
@@ -939,38 +943,66 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
-def _load_registry_snapshots_cached() -> tuple[List[dict], Optional[str]]:
+def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict], Optional[str]]:
     now = time.time()
     cached_snapshots = _registry_catalog_cache.get("snapshots")
+    cached_derived_artifacts = _registry_catalog_cache.get("derived_artifacts")
+    cached_external_registrations = _registry_catalog_cache.get("external_registrations")
     cached_error = _registry_catalog_cache.get("error")
     loaded_at = _registry_catalog_cache.get("loaded_at") or 0.0
-    if cached_snapshots is not None and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS:
-        return cached_snapshots, cached_error
+    if (
+        cached_snapshots is not None
+        and cached_derived_artifacts is not None
+        and cached_external_registrations is not None
+        and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS
+    ):
+        return cached_snapshots, cached_derived_artifacts, cached_external_registrations, cached_error
 
     if not _minio_credentials:
-        return [], "MinIO credentials are not configured for this QA Browser instance."
+        return [], [], [], "MinIO credentials are not configured for this QA Browser instance."
 
     try:
-        from src.registry.catalog import list_source_snapshots
-        from src.registry.storage import MinioStorage
         from src.shared.db_credentials import DBCredentials
 
-        storage = MinioStorage(DBCredentials.from_yaml(_minio_credentials), use_internal_url=True)
-        snapshots = list_source_snapshots(storage)
+        credentials = DBCredentials.from_yaml(_minio_credentials)
+        try:
+            registry = DataRegistry.from_credentials(
+                credentials,
+                use_internal_url=True,
+                connect_timeout=2,
+                read_timeout=10,
+            )
+            snapshots = registry.list_source_snapshots()
+            derived_artifacts = registry.list_derived_artifacts()
+            external_registrations = registry.list_external_sources()
+        except Exception:
+            registry = DataRegistry.from_credentials(
+                credentials,
+                use_internal_url=False,
+                connect_timeout=2,
+                read_timeout=10,
+            )
+            snapshots = registry.list_source_snapshots()
+            derived_artifacts = registry.list_derived_artifacts()
+            external_registrations = registry.list_external_sources()
         _registry_catalog_cache.update({
             "loaded_at": now,
             "snapshots": snapshots,
+            "derived_artifacts": derived_artifacts,
+            "external_registrations": external_registrations,
             "error": None,
         })
-        return snapshots, None
+        return snapshots, derived_artifacts, external_registrations, None
     except Exception as exc:
         error = str(exc)
         _registry_catalog_cache.update({
             "loaded_at": now,
             "snapshots": [],
+            "derived_artifacts": [],
+            "external_registrations": [],
             "error": error,
         })
-        return [], error
+        return [], [], [], error
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -993,7 +1025,7 @@ async def qa_browser_home(request: Request):
 
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
-    snapshots, registry_error = _load_registry_snapshots_cached()
+    snapshots, derived_artifacts, external_registrations, registry_error = _load_registry_catalog_cached()
     grouped_sources = {}
     for snapshot in snapshots:
         source = snapshot.get("source") or ""
@@ -1008,30 +1040,59 @@ def registry_home(request: Request):
         })
         dataset_group["snapshots"].append(snapshot)
 
+    grouped_derived_sources = {}
+    for artifact in derived_artifacts:
+        source = artifact.get("source") or ""
+        dataset = artifact.get("dataset") or ""
+        source_group = grouped_derived_sources.setdefault(source, {
+            "source": artifact.get("source"),
+            "datasets": {},
+        })
+        dataset_group = source_group["datasets"].setdefault(dataset, {
+            "dataset": artifact.get("dataset"),
+            "artifacts": [],
+        })
+        dataset_group["artifacts"].append(artifact)
+
     grouped_source_list = []
+    grouped_derived_source_list = []
     registry_stats = {
         "source_count": 0,
         "dataset_count": 0,
+        "derived_count": 0,
+        "external_count": 0,
         "total_size": "",
     }
     if not registry_error:
-        from src.registry.catalog import format_size
-
         for source_group in grouped_sources.values():
             grouped_source_list.append({
                 "source": source_group["source"],
                 "datasets": list(source_group["datasets"].values()),
             })
+        for source_group in grouped_derived_sources.values():
+            grouped_derived_source_list.append({
+                "source": source_group["source"],
+                "datasets": list(source_group["datasets"].values()),
+            })
+        total_size_bytes = (
+            sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in snapshots)
+            + sum(artifact.get("total_size_bytes", 0) or 0 for artifact in derived_artifacts)
+        )
         registry_stats = {
             "source_count": len(grouped_source_list),
             "dataset_count": sum(len(group["datasets"]) for group in grouped_source_list),
-            "total_size": format_size(sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in snapshots)),
+            "derived_count": len(derived_artifacts),
+            "external_count": len(external_registrations),
+            "total_size": DataRegistry.format_size(total_size_bytes),
         }
 
     return templates.TemplateResponse(request, "registry_home.html", {
         "request": request,
         "snapshots": snapshots,
+        "derived_artifacts": derived_artifacts,
+        "external_registrations": external_registrations,
         "grouped_sources": grouped_source_list,
+        "grouped_derived_sources": grouped_derived_source_list,
         "registry_stats": registry_stats,
         "registry_error": registry_error,
     })

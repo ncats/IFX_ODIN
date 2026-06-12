@@ -6,20 +6,67 @@ from typing import Dict, List, Optional
 import requests
 
 from src.registry.download import download_url
-from src.registry.manifest import (
-    MANIFEST_FILENAME,
-    build_source_snapshot_manifest,
-    file_entry,
-    manifest_checksum,
-    parse_http_date_to_iso,
-    storage_prefix,
-    write_manifest,
-)
-from src.registry.sources.common import register_multi_file_last_modified_snapshot
-from src.registry.storage import MinioStorage, load_minio_credentials, s3_uri
+from src.registry.fetchers import SnapshotFile, SourceFunctionFetcher, SourceSnapshot
+from src.registry.manifest import parse_http_date_to_iso
+from src.registry.sources.common import fetch_multi_file_last_modified_snapshot
 
 
-def _upload_manifest_snapshot(
+PANTHER_CURRENT_RELEASE_URL = "https://data.pantherdb.org/ftp/sequence_classifications/current_release/PANTHER_Sequence_Classification_files/"
+REACTOME_VERSION_URL = "https://reactome.org/ContentService/data/database/version"
+PATHWAYCOMMONS_DATASOURCES_URL = "https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt"
+WIKIPATHWAYS_GMT_LISTING_URL = "https://data.wikipathways.org/current/gmt/"
+
+
+def latest_panther_version(timeout: int = 60) -> str:
+    response = requests.get(PANTHER_CURRENT_RELEASE_URL, timeout=timeout)
+    response.raise_for_status()
+    versions = [
+        tuple(int(part) for part in match.split("."))
+        for match in re.findall(r"PTHR(\d+(?:\.\d+)*)_human", response.text)
+    ]
+    if not versions:
+        raise ValueError("Could not parse latest PANTHER version from current_release listing")
+    return ".".join(str(part) for part in sorted(set(versions))[-1])
+
+
+def latest_reactome_version(timeout: int = 60) -> str:
+    response = requests.get(REACTOME_VERSION_URL, timeout=timeout)
+    response.raise_for_status()
+    return response.text.strip()
+
+
+def latest_pathwaycommons_version(timeout: int = 60) -> str:
+    response = requests.get(PATHWAYCOMMONS_DATASOURCES_URL, timeout=timeout)
+    response.raise_for_status()
+    version, _, _ = parse_pathwaycommons_datasources_version(response.text)
+    return version
+
+
+def latest_wikipathways_human_gmt_version(timeout: int = 60) -> str:
+    response = requests.get(WIKIPATHWAYS_GMT_LISTING_URL, timeout=timeout)
+    response.raise_for_status()
+    version, _ = parse_wikipathways_human_gmt_listing(response.text)
+    return version
+
+
+def parse_pathwaycommons_datasources_version(text: str) -> tuple[str, str, str]:
+    match = re.search(r"PC version (\d+) (\d+ \w+ \d+)", text)
+    if not match:
+        raise ValueError("Could not parse PathwayCommons version from datasources.txt")
+    version = match.group(1)
+    version_date = datetime.strptime(match.group(2), "%d %b %Y").date().isoformat()
+    return version, version_date, match.group(0)
+
+
+def parse_wikipathways_human_gmt_listing(text: str) -> tuple[str, str]:
+    match = re.search(r"wikipathways-(\d{4})(\d{2})(\d{2})-gmt-Homo_sapiens\.gmt", text)
+    if not match:
+        raise ValueError("Could not find WikiPathways Homo sapiens GMT file")
+    year, month, day = match.groups()
+    return f"{year}-{month}-{day}", match.group(0)
+
+
+def _build_snapshot(
     *,
     source: str,
     dataset: str,
@@ -29,74 +76,28 @@ def _upload_manifest_snapshot(
     urls: List[str],
     files: List[tuple[Path, Dict[str, Optional[str]], str]],
     dest: Path,
-    minio_credentials: Optional[Path],
-    upload: bool,
     version_method: Dict,
-) -> Path:
-    final_dir = dest / source / dataset / version
-    final_dir.mkdir(parents=True, exist_ok=True)
-
-    moved = []
-    for local_path, metadata, url in files:
-        final_path = final_dir / local_path.name
-        if final_path != local_path:
-            local_path.replace(final_path)
-        moved.append((final_path, metadata, url))
-
-    storage = None
-    bucket = None
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials))
-        bucket = storage.bucket
-
-    object_prefix = storage_prefix(source, dataset, version)
-    file_entries = []
-    for final_path, metadata, url in moved:
-        storage_uri = s3_uri(bucket, f"{object_prefix}/{final_path.name}") if bucket else None
-        file_entries.append(
-            file_entry(
-                final_path,
-                metadata.get("final_url") or url,
-                storage_uri,
-                metadata.get("content_type"),
-            )
-        )
-
-    manifest = build_source_snapshot_manifest(
+) -> SourceSnapshot:
+    return SourceSnapshot(
         source=source,
         dataset=dataset,
         version=version,
         version_date=version_date,
-        download_date=None,
         homepage=homepage,
         upstream_urls=urls,
-        files=file_entries,
+        files=[
+            SnapshotFile(local_path, metadata.get("final_url") or url, metadata.get("content_type"))
+            for local_path, metadata, url in files
+        ],
         extra={"version_method": version_method},
     )
-    manifest_path = final_dir / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
-
-    if storage:
-        for entry, (final_path, _, _) in zip(file_entries, moved):
-            storage.upload_file(final_path, f"{object_prefix}/{final_path.name}", entry["content_type"])
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
-
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    if bucket:
-        print(f"Uploaded snapshot to s3://{bucket}/{object_prefix}/")
-    return manifest_path
 
 
-def register_reactome(
+def fetch_reactome(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
+) -> SourceSnapshot:
     source = "reactome"
     dataset = "pathways"
     urls = [
@@ -105,10 +106,8 @@ def register_reactome(
         "https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt",
         "https://reactome.org/download/current/interactors/reactome.homo_sapiens.interactions.tab-delimited.txt",
     ]
-    version_url = "https://reactome.org/ContentService/data/database/version"
-    version_response = requests.get(version_url, timeout=timeout)
-    version_response.raise_for_status()
-    version = version_response.text.strip()
+    version_url = REACTOME_VERSION_URL
+    version = latest_reactome_version(timeout=timeout)
 
     work_dir = dest / source / dataset / "pending"
     downloaded = [(*download_url(url, work_dir, timeout=timeout), url) for url in urls]
@@ -117,7 +116,7 @@ def register_reactome(
     if not version_date:
         raise ValueError("Could not determine Reactome version_date from interactor Last-Modified header")
 
-    return _upload_manifest_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -126,8 +125,6 @@ def register_reactome(
         urls=[*urls, version_url],
         files=downloaded,
         dest=dest,
-        minio_credentials=minio_credentials,
-        upload=upload,
         version_method={
             "type": "reactome_database_version",
             "description": "Use Reactome ContentService database version as version and interactor file Last-Modified as version_date.",
@@ -139,28 +136,22 @@ def register_reactome(
     )
 
 
-def register_pathwaycommons(
+def fetch_pathwaycommons(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
+) -> SourceSnapshot:
     source = "pathwaycommons"
     dataset = "pc_hgnc"
     file_url = "https://download.baderlab.org/PathwayCommons/PC2/v14/pc-hgnc.gmt.gz"
-    datasources_url = "https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt"
+    datasources_url = PATHWAYCOMMONS_DATASOURCES_URL
     response = requests.get(datasources_url, timeout=timeout)
     response.raise_for_status()
-    match = re.search(r"PC version (\d+) (\d+ \w+ \d+)", response.text)
-    if not match:
-        raise ValueError("Could not parse PathwayCommons version from datasources.txt")
-    version = match.group(1)
-    version_date = datetime.strptime(match.group(2), "%d %b %Y").date().isoformat()
+    version, version_date, matched_text = parse_pathwaycommons_datasources_version(response.text)
 
     work_dir = dest / source / dataset / "pending"
     downloaded = [(*download_url(file_url, work_dir, timeout=timeout), file_url)]
-    return _upload_manifest_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -169,63 +160,52 @@ def register_pathwaycommons(
         urls=[file_url, datasources_url],
         files=downloaded,
         dest=dest,
-        minio_credentials=minio_credentials,
-        upload=upload,
         version_method={
             "type": "pathwaycommons_datasources_txt",
             "description": "Parse PC version and release date from datasources.txt.",
-            "evidence": {"datasources_url": datasources_url, "matched_text": match.group(0)},
+            "evidence": {"datasources_url": datasources_url, "matched_text": matched_text},
         },
     )
 
 
-def register_panther_classes(
+def fetch_panther_classes(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
-    return register_multi_file_last_modified_snapshot(
+) -> SourceSnapshot:
+    version = latest_panther_version(timeout=timeout)
+    return fetch_multi_file_last_modified_snapshot(
         source="panther",
         dataset="protein_classes",
         urls=[
-            "https://data.pantherdb.org/PANTHER19.0/ontology/Protein_Class_19.0",
-            "https://data.pantherdb.org/PANTHER19.0/ontology/Protein_class_relationship",
-            "https://data.pantherdb.org/ftp/sequence_classifications/current_release/PANTHER_Sequence_Classification_files/PTHR19.0_human",
+            f"https://data.pantherdb.org/PANTHER{version}/ontology/Protein_Class_{version}",
+            f"https://data.pantherdb.org/PANTHER{version}/ontology/Protein_class_relationship",
+            f"{PANTHER_CURRENT_RELEASE_URL}PTHR{version}_human",
         ],
         dest=dest,
         homepage="https://pantherdb.org/",
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
-        version="19.0",
-        version_description="Use PANTHER release 19.0 from source URLs as version and max Last-Modified across class, relationship, and human sequence-classification files as version_date.",
+        version=version,
+        version_description="Parse PANTHER current_release sequence-classification listing as version and use max Last-Modified across class, relationship, and human sequence-classification files as version_date.",
     )
 
 
-def register_wikipathways(
+def fetch_wikipathways(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
-) -> Path:
+) -> SourceSnapshot:
     source = "wikipathways"
     dataset = "human_gmt"
-    listing_url = "https://data.wikipathways.org/current/gmt/"
+    listing_url = WIKIPATHWAYS_GMT_LISTING_URL
     response = requests.get(listing_url, timeout=timeout)
     response.raise_for_status()
-    match = re.search(r"(wikipathways-(\d{4})(\d{2})(\d{2})-gmt-Homo_sapiens\.gmt)", response.text)
-    if not match:
-        raise ValueError("Could not find WikiPathways Homo sapiens GMT file")
-    file_name, year, month, day = match.groups()
+    version, file_name = parse_wikipathways_human_gmt_listing(response.text)
     file_url = f"{listing_url}{file_name}"
-    version = f"{year}-{month}-{day}"
 
     work_dir = dest / source / dataset / "pending"
     downloaded = [(*download_url(file_url, work_dir, timeout=timeout), file_url)]
-    return _upload_manifest_snapshot(
+    return _build_snapshot(
         source=source,
         dataset=dataset,
         version=version,
@@ -234,11 +214,37 @@ def register_wikipathways(
         urls=[listing_url, file_url],
         files=downloaded,
         dest=dest,
-        minio_credentials=minio_credentials,
-        upload=upload,
         version_method={
             "type": "wikipathways_filename_date",
             "description": "Scrape current GMT directory and use the YYYYMMDD date embedded in the Homo sapiens GMT filename.",
             "evidence": {"listing_url": listing_url, "file_name": file_name},
         },
     )
+
+
+class ReactomePathwaysFetcher(SourceFunctionFetcher):
+    source = "reactome"
+    dataset = "pathways"
+    fetch_function = staticmethod(fetch_reactome)
+    latest_version_function = staticmethod(latest_reactome_version)
+
+
+class PathwaycommonsPathwaysFetcher(SourceFunctionFetcher):
+    source = "pathwaycommons"
+    dataset = "pc_hgnc"
+    fetch_function = staticmethod(fetch_pathwaycommons)
+    latest_version_function = staticmethod(latest_pathwaycommons_version)
+
+
+class PantherClassesFetcher(SourceFunctionFetcher):
+    source = "panther"
+    dataset = "protein_classes"
+    fetch_function = staticmethod(fetch_panther_classes)
+    latest_version_function = staticmethod(latest_panther_version)
+
+
+class WikipathwaysHumanGmtFetcher(SourceFunctionFetcher):
+    source = "wikipathways"
+    dataset = "human_gmt"
+    fetch_function = staticmethod(fetch_wikipathways)
+    latest_version_function = staticmethod(latest_wikipathways_human_gmt_version)

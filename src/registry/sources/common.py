@@ -4,50 +4,52 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.registry.download import download_url
-from src.registry.manifest import (
-    MANIFEST_FILENAME,
-    build_source_snapshot_manifest,
-    file_entry,
-    manifest_checksum,
-    storage_prefix,
-    write_manifest,
-)
-from src.registry.storage import MinioStorage, load_minio_credentials, s3_uri
+from src.registry.download import http_metadata
+from src.registry.fetchers import SnapshotFile, SourceSnapshot
 
 
-def register_multi_file_last_modified_snapshot(
+def latest_version_from_last_modified_urls(urls: List[str], *, timeout: int = 60) -> str:
+    version_dates = [http_metadata(url, timeout=timeout).get("version_date") for url in urls]
+    version_dates = [version_date for version_date in version_dates if version_date]
+    if not version_dates:
+        raise ValueError(f"Could not determine version_date from Last-Modified headers: {urls}")
+    return max(version_dates)
+
+
+def version_date_from_downloaded_metadata(downloaded: List[tuple]) -> str:
+    version_dates = [metadata.get("version_date") for local_path, metadata, url in downloaded if metadata.get("version_date")]
+    if not version_dates:
+        raise ValueError("Could not determine version_date from downloaded metadata")
+    return max(version_dates)
+
+
+def fetch_multi_file_last_modified_snapshot(
     *,
     source: str,
     dataset: str,
     urls: List[str],
     dest: Path,
     homepage: Optional[str] = None,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
     version: Optional[str] = None,
     version_description: Optional[str] = None,
     compress: bool = False,
-) -> Path:
-    work_dir = dest / source / dataset / "pending"
+) -> SourceSnapshot:
+    work_dir = dest
+    work_dir.mkdir(parents=True, exist_ok=True)
     downloaded = []
     for url in urls:
         downloaded.append((*download_url(url, work_dir, timeout=timeout), url))
 
-    version_dates = [metadata.get("version_date") for local_path, metadata, url in downloaded if metadata.get("version_date")]
-    if not version_dates:
-        raise ValueError(f"Could not determine version_date from Last-Modified for {source}:{dataset}")
-    version_date = max(version_dates)
+    try:
+        version_date = version_date_from_downloaded_metadata(downloaded)
+    except ValueError as exc:
+        raise ValueError(f"Could not determine version_date from Last-Modified for {source}:{dataset}") from exc
     snapshot_version = version or version_date
-
-    final_dir = dest / source / dataset / snapshot_version
-    final_dir.mkdir(parents=True, exist_ok=True)
 
     moved = []
     for local_path, metadata, url in downloaded:
-        final_path = final_dir / local_path.name
-        if final_path != local_path:
-            local_path.replace(final_path)
+        final_path = local_path
         if compress and not final_path.name.endswith(".gz"):
             compressed_path = final_path.with_name(f"{final_path.name}.gz")
             with final_path.open("rb") as source_handle:
@@ -57,51 +59,28 @@ def register_multi_file_last_modified_snapshot(
             final_path = compressed_path
             metadata["content_type"] = "application/gzip"
         moved.append((final_path, metadata, url))
-    if work_dir.exists():
-        try:
-            work_dir.rmdir()
-        except OSError:
-            pass
 
-    storage = None
-    bucket = None
-    if upload:
-        if not minio_credentials:
-            raise ValueError("minio_credentials is required when upload=True")
-        storage = MinioStorage(load_minio_credentials(minio_credentials))
-        bucket = storage.bucket
-
-    object_prefix = storage_prefix(source, dataset, snapshot_version)
-    file_entries = []
     evidence_files: List[Dict[str, Optional[str]]] = []
+    snapshot_files = []
     for final_path, metadata, url in moved:
-        storage_uri = s3_uri(bucket, f"{object_prefix}/{final_path.name}") if bucket else None
-        file_entries.append(
-            file_entry(
-                final_path,
-                metadata.get("final_url") or url,
-                storage_uri,
-                metadata.get("content_type"),
-            )
-        )
+        snapshot_files.append(SnapshotFile(final_path, metadata.get("final_url") or url, metadata.get("content_type")))
         evidence_files.append({
             "path": final_path.name,
             "url": metadata.get("final_url") or url,
             "last_modified": metadata.get("last_modified"),
         })
 
-    manifest = build_source_snapshot_manifest(
+    return SourceSnapshot(
         source=source,
         dataset=dataset,
         version=snapshot_version,
         version_date=version_date,
-        download_date=None,
         homepage=homepage,
         upstream_urls=urls,
-        files=file_entries,
+        files=snapshot_files,
         extra={
             "version_method": {
-                "type": "multi_file_max_last_modified" if len(file_entries) > 1 else "single_file_last_modified",
+                "type": "multi_file_max_last_modified" if len(snapshot_files) > 1 else "single_file_last_modified",
                 "description": version_description or "Use the max HTTP Last-Modified date across all files as version and version_date.",
                 "evidence": {
                     "files": evidence_files,
@@ -109,16 +88,3 @@ def register_multi_file_last_modified_snapshot(
             }
         },
     )
-    manifest_path = final_dir / MANIFEST_FILENAME
-    write_manifest(manifest, manifest_path)
-
-    if storage:
-        for entry, (final_path, _, _) in zip(file_entries, moved):
-            storage.upload_file(final_path, f"{object_prefix}/{final_path.name}", entry["content_type"])
-        storage.upload_file(manifest_path, f"{object_prefix}/{MANIFEST_FILENAME}", "application/x-yaml")
-
-    print(f"Wrote {manifest_path}")
-    print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
-    if bucket:
-        print(f"Uploaded snapshot to s3://{bucket}/{object_prefix}/")
-    return manifest_path

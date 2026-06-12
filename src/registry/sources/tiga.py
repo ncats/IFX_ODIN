@@ -4,7 +4,8 @@ from typing import Optional
 
 import requests
 
-from src.registry.sources.common import register_multi_file_last_modified_snapshot
+from src.registry.fetchers import SourceFunctionFetcher
+from src.registry.sources.common import fetch_multi_file_last_modified_snapshot
 
 
 TIGA_BASE_URL = "https://unmtid-dbs.net/download/TIGA"
@@ -22,21 +23,17 @@ def latest_tiga_version(timeout: int = 60) -> Optional[str]:
     return sorted(versions)[-1] if versions else None
 
 
-def register_gene_trait(
+def fetch_gene_trait(
     *,
     dest: Path,
-    minio_credentials: Optional[Path] = None,
-    upload: bool = False,
     timeout: int = 60,
 ) -> Path:
-    return register_multi_file_last_modified_snapshot(
+    return fetch_multi_file_last_modified_snapshot(
         source="tiga",
         dataset="gene_trait",
         urls=TIGA_URLS,
         dest=dest,
         homepage=TIGA_HOMEPAGE,
-        minio_credentials=minio_credentials,
-        upload=upload,
         timeout=timeout,
         version=latest_tiga_version(timeout=timeout),
         version_description=(
@@ -44,3 +41,10 @@ def register_gene_trait(
             "and max Last-Modified across latest stats/provenance files as version_date."
         ),
     )
+
+
+class TigaGeneTraitFetcher(SourceFunctionFetcher):
+    source = "tiga"
+    dataset = "gene_trait"
+    fetch_function = staticmethod(fetch_gene_trait)
+    latest_version_function = staticmethod(latest_tiga_version)

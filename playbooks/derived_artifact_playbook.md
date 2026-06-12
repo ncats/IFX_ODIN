@@ -45,6 +45,8 @@ transform:
   name: surechembl_patent_family_mentions
   version: 1
   code_ref: src/registry/derived/surechembl.py
+  code_sha256: ...
+build_key: ...
 files:
   - path: protein_patent_family_mentions.parquet
     size_bytes: 123
@@ -122,6 +124,37 @@ The transform should materialize what `SureChEMBLPatentFamilyAdapter` currently 
 - `patents.parquet`
 
 The adapter can later be simplified to read the derived parquet directly.
+
+Configuration lives in `src/registry/registry_sources.yaml` as a `derived:` dataset:
+
+```yaml
+sources:
+  surechembl:
+    datasets:
+      patent_family_mentions:
+        derived:
+          module: src.registry.derived.surechembl
+          class: SurechemblPatentFamilyMentionsBuilder
+          dependencies:
+            - source: surechembl
+              dataset: patent_discovery
+          output:
+            file_name: protein_patent_family_mentions.parquet
+          transform:
+            name: surechembl_patent_family_mentions
+            version: 1
+            code_ref: src/registry/derived/surechembl.py
+```
+
+Check or build via `DataRegistry`:
+
+```python
+from src.core.data_registry import DataRegistry
+
+registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
+plan = registry.sync_derived_artifacts(dry_run=True)
+results = registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=False)
+```
 
 ## Target Graph TSVs
 
