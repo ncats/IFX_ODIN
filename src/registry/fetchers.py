@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+from src.models.datasource_version_info import DatasourceVersionInfo
 
 
 @dataclass
@@ -58,6 +61,66 @@ class ResolvedDependency:
         if not path.exists():
             raise FileNotFoundError(path)
         return path
+
+
+@dataclass
+class MaterializedDataset:
+    source: str
+    dataset: str
+    version: str
+    version_date: Optional[str]
+    download_date: Optional[str]
+    snapshot_id: str
+    manifest_uri: str
+    manifest: Dict[str, Any]
+    local_dir: Path
+
+    def file(self, file_name: Optional[str] = None) -> Path:
+        files = self.manifest.get("files", []) or []
+        if file_name is None:
+            if len(files) != 1:
+                raise ValueError(
+                    f"Dataset {self.snapshot_id} has {len(files)} files; specify file_name"
+                )
+            file_name = files[0]["path"]
+        path = self.local_dir / file_name
+        if not path.exists():
+            raise FileNotFoundError(path)
+        return path
+
+    def version_info(self) -> DatasourceVersionInfo:
+        return DatasourceVersionInfo(
+            version=self.version,
+            version_date=self._parse_date(self.version_date),
+            download_date=self._parse_date(self.download_date),
+        )
+
+    def to_metadata(self) -> Dict[str, Any]:
+        return {
+            "source": self.source,
+            "dataset": self.dataset,
+            "version": self.version,
+            "version_date": self.version_date,
+            "download_date": self.download_date,
+            "snapshot_id": self.snapshot_id,
+            "manifest_uri": self.manifest_uri,
+            "local_dir": str(self.local_dir),
+            "files": [
+                {
+                    "path": entry.get("path"),
+                    "sha256": entry.get("sha256"),
+                    "size_bytes": entry.get("size_bytes"),
+                    "storage_uri": entry.get("storage_uri"),
+                }
+                for entry in self.manifest.get("files", []) or []
+            ],
+        }
+
+    @staticmethod
+    def _parse_date(value: Optional[str]) -> Optional[date]:
+        if not value:
+            return None
+        return date.fromisoformat(str(value)[:10])
 
 
 @dataclass

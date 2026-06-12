@@ -71,12 +71,55 @@
         {% if etl_meta %}
         <div class="card">
             <h2>ETL Metadata</h2>
+            {% if registry_datasets %}
+            <h3>Registry Datasets</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Source</th>
+                        <th>Dataset</th>
+                        <th>Version</th>
+                        <th>Usage</th>
+                        <th>Snapshot</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dataset in registry_datasets %}
+                    <tr>
+                        <td>{{ dataset.source }}</td>
+                        <td>{{ dataset.dataset }}</td>
+                        <td>
+                            {{ dataset.version }}
+                            {% if dataset.version_date %}
+                            <div class="subtle">{{ dataset.version_date }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if dataset.usages %}
+                            {{ dataset.usages | join(", ") }}
+                            {% else %}
+                            <span class="subtle">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <code>{{ dataset.snapshot_id }}</code>
+                            {% if dataset.manifest_uri %}
+                            <div class="subtle">{{ dataset.manifest_uri }}</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
             <table class="doc-table">
                 {% for key, val in etl_meta.items() %}
+                {% if key != "registry_datasets" %}
                 <tr>
                     <th>{{ key }}</th>
                     <td>{{ val }}</td>
                 </tr>
+                {% endif %}
                 {% endfor %}
             </table>
         </div>

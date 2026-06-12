@@ -1,8 +1,11 @@
+import json
+
 from src.models.protein import Protein
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
 from arango.exceptions import DocumentUpdateError
 from src.shared.record_merger import FieldConflictBehavior
+from src.registry.fetchers import MaterializedDataset
 
 
 class FakeDocumentUpdateError(DocumentUpdateError):
@@ -99,6 +102,62 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     assert disease_metadata["fingerprint"]
 
 
+def test_arango_output_adapter_resolver_metadata_serializes_registry_dataset(tmp_path):
+    data_source = MaterializedDataset(
+        source="cure",
+        dataset="curated_concepts",
+        version="2026-05-14",
+        version_date="2026-05-14",
+        download_date="2026-06-12",
+        snapshot_id="cure:curated_concepts:2026-05-14",
+        manifest_uri="s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
+        manifest={"files": [{"path": "cureid_data.tsv", "sha256": "abc", "size_bytes": 12}]},
+        local_dir=tmp_path,
+    )
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    resolver_metadata = resolver_fingerprints_by_type([{
+        "label": "cure_id_labels",
+        "import": "./src/id_resolvers/cure_id_label_resolver.py",
+        "class": "CureIdLabelResolver",
+        "kwargs": {
+            "data_source": data_source,
+            "types": ["Gene"],
+        },
+    }])
+    adapter.set_resolver_metadata(
+        resolver_fingerprints_by_type=resolver_metadata,
+        source_yaml="./src/use_cases/cure/cure_rasopathies.yaml",
+    )
+
+    metadata = adapter.get_etl_metadata()
+
+    json.dumps(metadata)
+    data_source_metadata = metadata["resolver_metadata"]["by_type"]["Gene"]["kwargs"]["data_source"]
+    assert data_source_metadata["snapshot_id"] == "cure:curated_concepts:2026-05-14"
+    assert data_source_metadata["files"] == [{"path": "cureid_data.tsv", "sha256": "abc", "size_bytes": 12, "storage_uri": None}]
+
+
+def test_arango_output_adapter_etl_metadata_includes_registry_datasets():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.set_registry_dataset_metadata([{
+        "source": "cure",
+        "dataset": "case_reports",
+        "version": "reports_20260612T182139Z",
+        "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+        "usages": ["adapter:CUREAdapter"],
+    }])
+
+    metadata = adapter.get_etl_metadata()
+
+    assert metadata["registry_datasets"] == [{
+        "source": "cure",
+        "dataset": "case_reports",
+        "version": "reports_20260612T182139Z",
+        "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+        "usages": ["adapter:CUREAdapter"],
+    }]
+
+
 def test_arango_output_adapter_merges_existing_resolver_metadata_for_post_processing():
     existing = resolver_fingerprints_by_type([{
         "label": "disease_ids",
@@ -139,6 +198,39 @@ def test_arango_output_adapter_merges_existing_resolver_metadata_for_post_proces
     ]
     assert merged["summary"]["Disease"]["class"] == "DiseaseIdResolver"
     assert merged["summary"]["Protein"]["class"] == "TCRDTargetResolver"
+
+
+def test_arango_output_adapter_merges_existing_registry_datasets_for_post_processing():
+    merged = ArangoOutputAdapter._merge_registry_datasets(
+        [{
+            "source": "cure",
+            "dataset": "case_reports",
+            "version": "reports_20260612T182139Z",
+            "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+            "usages": ["adapter:CUREAdapter"],
+        }],
+        [{
+            "source": "cure",
+            "dataset": "case_reports",
+            "version": "reports_20260612T182139Z",
+            "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+            "manifest_uri": "s3://ifx-registry/sources/cure/case_reports/reports_20260612T182139Z/manifest.yaml",
+            "usages": ["adapter:RasopathiesAdapter"],
+        }, {
+            "source": "cure",
+            "dataset": "curated_concepts",
+            "version": "2026-05-14",
+            "snapshot_id": "cure:curated_concepts:2026-05-14",
+            "usages": ["resolver:cure_id_labels"],
+        }],
+    )
+
+    assert [dataset["snapshot_id"] for dataset in merged] == [
+        "cure:case_reports:reports_20260612T182139Z",
+        "cure:curated_concepts:2026-05-14",
+    ]
+    assert merged[0]["manifest_uri"] == "s3://ifx-registry/sources/cure/case_reports/reports_20260612T182139Z/manifest.yaml"
+    assert merged[0]["usages"] == ["adapter:CUREAdapter", "adapter:RasopathiesAdapter"]
 
 
 def test_get_node_merge_fetch_fields_keeps_only_merge_relevant_fields():

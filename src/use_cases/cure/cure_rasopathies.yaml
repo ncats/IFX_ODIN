@@ -1,11 +1,15 @@
 destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: cure_id_labels
     import: ./src/id_resolvers/cure_id_label_resolver.py
     class: CureIdLabelResolver
     kwargs:
-      tsv_file: ./input_files/manual/cure/cureid_data.tsv
+      data_source: cure:curated_concepts:2026-05-14
       no_match_behavior: Allow
       multi_match_behavior: All
       label_field_by_type:
@@ -37,12 +41,12 @@ input_adapters:
   - import: ./src/input_adapters/cure/cureid_curated_concepts_adapter.py
     class: CureIdCuratedConceptsAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/cureid_data.tsv
+      data_source: cure:curated_concepts:2026-05-14
 
   - import: ./src/input_adapters/cure/rasopathies_adapter.py
     class: RasopathiesAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/reports_20260518T211409Z.jsonl
+      data_source: cure:case_reports:reports_20260612T182139Z
 
 graph_views:
   - id: rasopathies_translator_version_info

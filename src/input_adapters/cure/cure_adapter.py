@@ -34,7 +34,12 @@ from src.models.node import Node, Relationship
 class CUREAdapter(FlatFileAdapter):
     _VERSION_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}Z")
 
-    def __init__(self, file_path: str, form_type: str = "pasc"):
+    def __init__(self, file_path: str = None, form_type: str = "pasc", data_source=None):
+        self.data_source = data_source
+        if data_source is not None:
+            file_path = str(data_source.file())
+        if file_path is None:
+            raise ValueError("CUREAdapter requires file_path or data_source")
         super().__init__(file_path=file_path)
         self.form_type = form_type
         self._emitted_condition_ids = set()
@@ -248,6 +253,8 @@ class CUREAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.data_source is not None:
+            return self.data_source.version_info()
         return DatasourceVersionInfo(
             version=Path(self.file_path).stem,
             version_date=self._parse_version_date_from_file_name(),

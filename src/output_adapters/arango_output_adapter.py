@@ -28,6 +28,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         self._graph_view_source_yaml = None
         self._resolver_fingerprints_by_type = {}
         self._resolver_source_yaml = None
+        self._registry_datasets = []
         self.minio_creds = DBCredentials(**minio_credentials) if minio_credentials else None
         super().__init__(credentials=credentials, database_name=database_name)
 
@@ -38,6 +39,9 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     def set_resolver_metadata(self, resolver_fingerprints_by_type=None, source_yaml=None):
         self._resolver_fingerprints_by_type = resolver_fingerprints_by_type or {}
         self._resolver_source_yaml = source_yaml
+
+    def set_registry_dataset_metadata(self, registry_datasets=None):
+        self._registry_datasets = registry_datasets or []
 
     @staticmethod
     def _introspect_dataclass(cls) -> dict:
@@ -759,6 +763,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         existing_store = self.get_metadata_store(truncate=False)
         existing_graph_views = {}
         existing_resolver_metadata = {}
+        existing_registry_datasets = []
         try:
             existing_doc = existing_store.get("collection_schemas")
             if existing_doc:
@@ -774,7 +779,9 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         try:
             existing_doc = existing_store.get("etl_metadata")
             if existing_doc:
-                existing_resolver_metadata = existing_doc.get("value", {}).get("resolver_metadata", {}) or {}
+                existing_metadata = existing_doc.get("value", {}) or {}
+                existing_resolver_metadata = existing_metadata.get("resolver_metadata", {}) or {}
+                existing_registry_datasets = existing_metadata.get("registry_datasets", []) or []
         except Exception:
             pass
 
@@ -790,6 +797,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         etl_metadata["resolver_metadata"] = self._merge_resolver_metadata(
             existing_resolver_metadata,
             etl_metadata.get("resolver_metadata", {}),
+        )
+        etl_metadata["registry_datasets"] = self._merge_registry_datasets(
+            existing_registry_datasets,
+            etl_metadata.get("registry_datasets", []),
         )
         metadata_store.insert({
             "_key": "etl_metadata",
@@ -815,16 +826,19 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     def get_etl_metadata(self):
         git_info = get_git_metadata()
+        resolver_source_yaml = getattr(self, "_resolver_source_yaml", None)
+        resolver_fingerprints_by_type = getattr(self, "_resolver_fingerprints_by_type", {})
         etl_metadata = {
             "_key": f"etl_run_{datetime.now().isoformat()}",
             "type": "etl_run",
             "run_date": datetime.now().isoformat(),
-            "source_yaml": self._resolver_source_yaml,
+            "source_yaml": resolver_source_yaml,
             "resolver_metadata": {
-                "source_yaml": self._resolver_source_yaml,
-                "by_type": self._resolver_fingerprints_by_type,
-                "summary": resolver_fingerprint_summary(self._resolver_fingerprints_by_type),
+                "source_yaml": resolver_source_yaml,
+                "by_type": resolver_fingerprints_by_type,
+                "summary": resolver_fingerprint_summary(resolver_fingerprints_by_type),
             },
+            "registry_datasets": getattr(self, "_registry_datasets", []),
             "runner": os.getenv("USER", "unknown"),
             "git_info": git_info,
             "hostname": socket.gethostname(),
@@ -855,6 +869,22 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             "by_type": merged_by_type,
             "summary": resolver_fingerprint_summary(merged_by_type),
         }
+
+    @staticmethod
+    def _merge_registry_datasets(existing_datasets=None, current_datasets=None):
+        datasets_by_snapshot = {}
+        for dataset in (existing_datasets or []) + (current_datasets or []):
+            if not isinstance(dataset, dict):
+                continue
+            snapshot_id = dataset.get("snapshot_id")
+            if not snapshot_id:
+                continue
+            merged = datasets_by_snapshot.setdefault(snapshot_id, {**dataset, "usages": []})
+            usages = set(merged.get("usages") or [])
+            usages.update(dataset.get("usages") or [])
+            merged.update({key: value for key, value in dataset.items() if value is not None})
+            merged["usages"] = sorted(usages)
+        return sorted(datasets_by_snapshot.values(), key=lambda item: item["snapshot_id"])
 
     def get_graph_views_metadata(self, existing_graph_views=None):
         existing_graph_views = existing_graph_views or {}

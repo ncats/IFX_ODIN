@@ -646,6 +646,70 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     word-break: break-all;
 }
 
+.registry-filter-bar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: -0.25rem 0 1rem;
+}
+
+.registry-filter-button {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.55rem 0.85rem;
+}
+
+.registry-filter-button:not([data-registry-filter="all"]) {
+    background: hsl(var(--graph-hue), 82%, 94%);
+    border-color: hsl(var(--graph-hue), 70%, 70%);
+    color: hsl(var(--graph-hue), 72%, 28%);
+}
+
+.registry-filter-button.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+}
+
+.registry-filter-button:not([data-registry-filter="all"]).active {
+    background: hsl(var(--graph-hue), 78%, 35%);
+    border-color: hsl(var(--graph-hue), 78%, 28%);
+    color: #ffffff;
+}
+
+.registry-graph-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.55rem;
+}
+
+.registry-graph-badge {
+    background: hsl(var(--graph-hue), 82%, 92%);
+    border: 1px solid hsl(var(--graph-hue), 70%, 68%);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+    color: hsl(var(--graph-hue), 72%, 25%);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    padding: 0.35rem 0.6rem;
+    text-decoration: none;
+}
+
+.registry-graph-badge:hover {
+    background: hsl(var(--graph-hue), 82%, 86%);
+    border-color: hsl(var(--graph-hue), 70%, 54%);
+    text-decoration: none;
+}
+
 .registry-detail-row td {
     background: rgba(148, 163, 184, 0.05);
     border-top: 0;
@@ -757,6 +821,39 @@ td.mono { font-family: var(--mono); font-size: 12px; }
             url("images/ifx-registry.png");
         background-size: cover;
         background-position: center;
+    }
+
+    .registry-filter-button {
+        background: var(--bg-alt);
+    }
+
+    .registry-filter-button:not([data-registry-filter="all"]) {
+        background: hsl(var(--graph-hue), 52%, 18%);
+        border-color: hsl(var(--graph-hue), 55%, 38%);
+        color: hsl(var(--graph-hue), 78%, 82%);
+    }
+
+    .registry-filter-button.active {
+        background: var(--text);
+        border-color: var(--text);
+        color: var(--bg);
+    }
+
+    .registry-filter-button:not([data-registry-filter="all"]).active {
+        background: hsl(var(--graph-hue), 58%, 38%);
+        border-color: hsl(var(--graph-hue), 72%, 58%);
+        color: #ffffff;
+    }
+
+    .registry-graph-badge {
+        background: hsl(var(--graph-hue), 52%, 18%);
+        border-color: hsl(var(--graph-hue), 55%, 38%);
+        color: hsl(var(--graph-hue), 78%, 82%);
+    }
+
+    .registry-graph-badge:hover {
+        background: hsl(var(--graph-hue), 52%, 24%);
+        border-color: hsl(var(--graph-hue), 62%, 52%);
     }
 }
 

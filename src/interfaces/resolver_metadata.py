@@ -2,13 +2,25 @@ import hashlib
 import json
 from copy import deepcopy
 
+from src.registry.fetchers import MaterializedDataset
+
 
 def _canonical_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _metadata_safe(value):
+    if isinstance(value, MaterializedDataset):
+        return value.to_metadata()
+    if isinstance(value, dict):
+        return {key: _metadata_safe(entry) for key, entry in value.items()}
+    if isinstance(value, list):
+        return [_metadata_safe(entry) for entry in value]
+    return value
+
+
 def resolver_fingerprint(resolver_config: dict) -> dict:
-    normalized = deepcopy(resolver_config)
+    normalized = _metadata_safe(deepcopy(resolver_config))
     label = normalized.pop("label", None)
     config_hash = hashlib.sha256(_canonical_json(normalized).encode("utf-8")).hexdigest()
     return {

@@ -12,6 +12,14 @@ from src.models.node import Node
 
 
 class CureIdCuratedConceptsAdapter(FlatFileAdapter):
+    def __init__(self, file_path: str = None, data_source=None):
+        self.data_source = data_source
+        if data_source is not None:
+            file_path = str(data_source.file())
+        if file_path is None:
+            raise ValueError("CureIdCuratedConceptsAdapter requires file_path or data_source")
+        super().__init__(file_path=file_path)
+
     def get_all(self) -> Generator[List[Node], None, None]:
         batch: List[Node] = []
         emitted_keys: set[tuple[str, str]] = set()
@@ -54,6 +62,8 @@ class CureIdCuratedConceptsAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.data_source is not None:
+            return self.data_source.version_info()
         return DatasourceVersionInfo(
             version="manual-cureid-curated-concepts",
             download_date=self.download_date,

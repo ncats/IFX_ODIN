@@ -54,7 +54,12 @@ from src.models.node import Node, Relationship
 class RasopathiesAdapter(FlatFileAdapter):
     _VERSION_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}Z")
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str = None, data_source=None):
+        self.data_source = data_source
+        if data_source is not None:
+            file_path = str(data_source.file())
+        if file_path is None:
+            raise ValueError("RasopathiesAdapter requires file_path or data_source")
         super().__init__(file_path=file_path)
         self._finding_group_lookup, self._finding_default_lookup = self._load_finding_group_lookup()
 
@@ -150,6 +155,8 @@ class RasopathiesAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
+        if self.data_source is not None:
+            return self.data_source.version_info()
         return DatasourceVersionInfo(
             version=Path(self.file_path).stem,
             version_date=self._parse_version_date_from_file_name(),
