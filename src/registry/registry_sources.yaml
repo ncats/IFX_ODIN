@@ -225,6 +225,19 @@ sources:
           module: src.registry.sources.surechembl
           class: SurechemblPatentDiscoveryFetcher
           version_strategy: latest_dated_bulk_data_directory
+      patent_family_mentions:
+        derived:
+          module: src.registry.derived.surechembl
+          class: SurechemblPatentFamilyMentionsBuilder
+          dependencies:
+            - source: surechembl
+              dataset: patent_discovery
+          output:
+            file_name: protein_patent_family_mentions.parquet
+          transform:
+            name: surechembl_patent_family_mentions
+            version: 1
+            code_ref: src/registry/derived/surechembl.py
   target_graph:
     datasets:
       tdl_updates:

@@ -26,6 +26,10 @@
             <label>Datasets</label>
         </div>
         <div class="registry-stat">
+            <span>{{ registry_stats.derived_count }}</span>
+            <label>Derived Artifacts</label>
+        </div>
+        <div class="registry-stat">
             <span>{{ registry_stats.external_count }}</span>
             <label>External Sources</label>
         </div>
@@ -134,6 +138,129 @@
     <div class="card">
         <p>No source snapshots found in MinIO.</p>
     </div>
+    {% endif %}
+
+    {% if not registry_error %}
+    <div class="engine-header registry-subsection-header">
+        <span style="font-weight:600">Derived Artifacts</span>
+    </div>
+    {% if grouped_derived_sources %}
+        {% for source_group in grouped_derived_sources %}
+        <div class="card registry-source-group">
+            <div class="registry-source-header">
+                <h2>{{ source_group.source }}</h2>
+                <span>{{ source_group.datasets|length }} datasets</span>
+            </div>
+            <div class="registry-downloads">
+                {% for dataset_group in source_group.datasets %}
+                <section class="registry-download-group">
+                    <div class="registry-download-header">
+                        <h3>{{ dataset_group.dataset }}</h3>
+                    </div>
+                    <div class="registry-table-wrap">
+                        <table class="registry-table">
+                            <thead>
+                            <tr>
+                                <th>Artifact</th>
+                                <th>Version</th>
+                                <th>Version Date</th>
+                                <th>Created</th>
+                                <th>Files</th>
+                                <th>Size</th>
+                                <th>Build Key</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for artifact in dataset_group.artifacts %}
+                            <tr>
+                                <td class="mono">{{ artifact.snapshot_id }}</td>
+                                <td>{{ artifact.version }}</td>
+                                <td>{{ artifact.version_date or "" }}</td>
+                                <td>{{ artifact.created_at or "" }}</td>
+                                <td>{{ artifact.files|length }}</td>
+                                <td class="mono">{{ artifact.total_size or "" }}</td>
+                                <td class="mono registry-hash">{{ artifact.build_key or "" }}</td>
+                            </tr>
+                            <tr class="registry-detail-row">
+                                <td colspan="7">
+                                    <details class="registry-snapshot-details">
+                                        <summary>Files and Manifest</summary>
+                                        <div class="registry-detail-panel">
+                                            <div class="registry-detail-heading">Derived From</div>
+                                            {% if artifact.derived_from %}
+                                            <div class="registry-files-table-wrap">
+                                                <table class="registry-files-table">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Snapshot</th>
+                                                        <th>Manifest URI</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    {% for dependency in artifact.derived_from %}
+                                                    <tr>
+                                                        <td class="mono">{{ dependency.snapshot_id }}</td>
+                                                        <td class="mono registry-uri">{{ dependency.manifest_uri }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            {% else %}
+                                            <p>No dependencies listed in this manifest.</p>
+                                            {% endif %}
+
+                                            <div class="registry-detail-heading">Files</div>
+                                            {% if artifact.files %}
+                                            <div class="registry-files-table-wrap">
+                                                <table class="registry-files-table">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>File</th>
+                                                        <th>Size</th>
+                                                        <th>Content Type</th>
+                                                        <th>SHA256</th>
+                                                        <th>Storage URI</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    {% for file in artifact.files %}
+                                                    <tr>
+                                                        <td class="mono">{{ file.path }}</td>
+                                                        <td class="mono">{{ file.size or "" }}</td>
+                                                        <td>{{ file.content_type or "" }}</td>
+                                                        <td class="mono registry-hash">{{ file.sha256 or "" }}</td>
+                                                        <td class="mono registry-uri">{{ file.storage_uri or "" }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            {% else %}
+                                            <p>No files listed in this manifest.</p>
+                                            {% endif %}
+
+                                            <div class="registry-detail-heading">Manifest</div>
+                                            <div class="mono registry-uri registry-manifest-uri">{{ artifact.manifest_uri }}</div>
+                                            <pre class="registry-manifest">{{ artifact.manifest_yaml }}</pre>
+                                        </div>
+                                    </details>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="card">
+        <p>No derived artifacts found in MinIO.</p>
+    </div>
+    {% endif %}
     {% endif %}
 
     {% if not registry_error %}

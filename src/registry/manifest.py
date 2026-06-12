@@ -50,6 +50,10 @@ def storage_prefix(source: str, dataset: str, version: str) -> str:
     return f"sources/{source}/{dataset}/{version}"
 
 
+def derived_storage_prefix(source: str, dataset: str, version: str) -> str:
+    return f"derived/{source}/{dataset}/{version}"
+
+
 def file_entry(
     local_path: Path,
     source_url: str,
@@ -101,6 +105,39 @@ def build_source_snapshot_manifest(
     return manifest
 
 
+def build_derived_snapshot_manifest(
+    *,
+    source: str,
+    dataset: str,
+    version: str,
+    version_date: Optional[str],
+    derived_from: Iterable[Dict[str, Any]],
+    transform: Dict[str, Any],
+    files: Iterable[Dict[str, Any]],
+    build_key: Optional[str] = None,
+    stats: Optional[Dict[str, Any]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    manifest: Dict[str, Any] = {
+        "kind": "derived_snapshot",
+        "schema_version": 1,
+        "source": source,
+        "dataset": dataset,
+        "snapshot_id": snapshot_id(source, dataset, version),
+        "version": version,
+        "version_date": version_date,
+        "created_at": iso_timestamp(),
+        "derived_from": list(derived_from),
+        "transform": transform,
+        "build_key": build_key,
+        "files": list(files),
+        "stats": stats or {},
+    }
+    if extra:
+        manifest["extra"] = extra
+    return manifest
+
+
 def write_manifest(manifest: Dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -140,4 +177,3 @@ def file_name_from_url(url: str) -> str:
     if not name:
         raise ValueError(f"Could not infer file name from URL: {url}")
     return name
-

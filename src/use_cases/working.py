@@ -8,18 +8,11 @@ from src.registry.manifest import read_manifest
 
 registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
 
-statuses = registry.check_external_registrations()
-for status in statuses:
-    print(status)
+print(registry.list_derived_artifacts())
+print(registry.check_derived_artifacts())
+print(registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=True))
+# print(registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=False))
 
-registry.register_external_sources(
-    dest="/tmp/ifx-registry-cache",
-    upload=True
-)
-
-statuses = registry.check_external_registrations()
-for status in statuses:
-    print(status)
 
 # results = registry.sync_latest_snapshots(
 #     dest="/private/tmp/ifx-registry-cache",

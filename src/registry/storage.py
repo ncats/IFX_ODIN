@@ -78,6 +78,11 @@ class MinioStorage:
         self.client().upload_file(str(local_path), self.bucket, key, ExtraArgs=extra_args or None)
         return s3_uri(self.bucket, key)
 
+    def download_file(self, key: str, local_path: Path) -> Path:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.client().download_file(self.bucket, key, str(local_path))
+        return local_path
+
     def list_keys(self, prefix: str = "") -> list[str]:
         client = self.client()
         paginator = client.get_paginator("list_objects_v2")

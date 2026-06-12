@@ -1,17 +1,29 @@
 from dataclasses import dataclass, field
 from datetime import date
 from copy import deepcopy
+import hashlib
 import importlib
+import json
 from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, SourceFetcher, SourceSnapshot
+from src.registry.fetchers import (
+    DerivedArtifact,
+    DerivedArtifactBuilder,
+    ExternalSourceProvider,
+    ExternalSourceRegistration,
+    ResolvedDependency,
+    SourceFetcher,
+    SourceSnapshot,
+)
 from src.registry.manifest import (
     MANIFEST_FILENAME,
+    build_derived_snapshot_manifest,
     build_source_snapshot_manifest,
+    derived_storage_prefix,
     file_entry,
     iso_timestamp,
     manifest_checksum,
@@ -26,6 +38,7 @@ from src.shared.db_credentials import DBCredentials
 
 
 REGISTRY_SOURCES_CONFIG = Path(__file__).parents[1] / "registry" / "registry_sources.yaml"
+REPO_ROOT = Path(__file__).parents[2]
 RegistryEntry = Dict[str, Any]
 RegistryKey = Tuple[str, str]
 VersionedRegistryKey = Tuple[str, str, str]
@@ -107,6 +120,7 @@ class DataRegistry:
         self.sources_config_path = sources_config_path
         self._source_snapshots: Optional[List[RegistryEntry]] = None
         self._external_sources: Optional[List[RegistryEntry]] = None
+        self._derived_artifacts: Optional[List[RegistryEntry]] = None
         self._index: Optional[_RegistryIndex] = None
         self._source_index: Optional[_RegistryIndex] = None
         self._external_index: Optional[_RegistryIndex] = None
@@ -172,10 +186,17 @@ class DataRegistry:
             self._external_sources = self._list_external_sources()
         return self._external_sources
 
+    def list_derived_artifacts(self) -> List[RegistryEntry]:
+        self._require_storage()
+        if self._derived_artifacts is None:
+            self._derived_artifacts = self._list_derived_artifacts()
+        return self._derived_artifacts
+
     def refresh_catalog(self) -> None:
         self._require_storage()
         self._source_snapshots = self._list_source_snapshots()
         self._external_sources = self._list_external_sources()
+        self._derived_artifacts = self._list_derived_artifacts()
         self._index = _RegistryIndex(self._source_snapshots, self._external_sources)
         self._source_index = _RegistryIndex(self._source_snapshots, [])
         self._external_index = _RegistryIndex([], self._external_sources)
@@ -212,6 +233,36 @@ class DataRegistry:
                 "download_date": manifest.get("download_date"),
                 "version_method": (manifest.get("extra") or {}).get("version_method", {}),
                 "files": files,
+                "total_size_bytes": total_size_bytes,
+                "total_size": self.format_size(total_size_bytes),
+                "manifest_uri": s3_uri(self.storage.bucket, key),
+                "manifest": manifest,
+                "manifest_yaml": yaml.safe_dump(manifest, sort_keys=False),
+            })
+        return self._sort_registry_entries(manifests)
+
+    def _list_derived_artifacts(self) -> List[RegistryEntry]:
+        manifests = []
+        for key in self.storage.list_keys("derived/"):
+            if not key.endswith(f"/{MANIFEST_FILENAME}"):
+                continue
+            manifest = yaml.safe_load(self.storage.read_text(key))
+            files = deepcopy(manifest.get("files", []) or [])
+            for entry in files:
+                entry["size"] = self.format_size(entry.get("size_bytes"))
+            total_size_bytes = sum(entry.get("size_bytes", 0) or 0 for entry in files)
+            manifests.append({
+                "snapshot_id": manifest.get("snapshot_id"),
+                "source": manifest.get("source"),
+                "dataset": manifest.get("dataset"),
+                "version": manifest.get("version"),
+                "version_date": manifest.get("version_date"),
+                "created_at": manifest.get("created_at"),
+                "derived_from": manifest.get("derived_from") or [],
+                "transform": manifest.get("transform") or {},
+                "build_key": manifest.get("build_key"),
+                "files": files,
+                "stats": manifest.get("stats") or {},
                 "total_size_bytes": total_size_bytes,
                 "total_size": self.format_size(total_size_bytes),
                 "manifest_uri": s3_uri(self.storage.bucket, key),
@@ -517,6 +568,221 @@ class DataRegistry:
     def external_storage_prefix(source: str, dataset: str, version: str) -> str:
         return f"external/{source}/{dataset}/{version}"
 
+    def build_derived_artifact(
+        self,
+        source: str,
+        dataset: str,
+        *,
+        dest: str | Path,
+    ) -> Path:
+        dataset_config = self.get_dataset_config(source, dataset)
+        derived_config = dataset_config.get("derived") or {}
+        builder = self._load_derived_builder(source, dataset, derived_config)
+        cache_root = Path(dest)
+        version = self._derived_version(derived_config)
+        work_dir = cache_root / "_registry_work" / "derived" / source / dataset / version
+        work_dir.mkdir(parents=True, exist_ok=True)
+        transform = self._derived_transform_metadata(derived_config)
+        dependencies = self._resolve_derived_dependencies(
+            derived_config,
+            dest=cache_root,
+            stage_files=True,
+        )
+        build_key = self._derived_build_key_from_dependencies(dependencies, transform)
+        builder_config = deepcopy(derived_config)
+        builder_config["transform"] = transform
+        artifact = builder.build(
+            config=builder_config,
+            dependencies=dependencies,
+            dest=work_dir / "output",
+            version=version,
+        )
+        if not isinstance(artifact, DerivedArtifact):
+            raise TypeError(f"Derived builder for {source}/{dataset} returned {type(artifact).__name__}; expected DerivedArtifact")
+        artifact.build_key = artifact.build_key or build_key
+        return self.write_derived_artifact(artifact, dest=cache_root)
+
+    def write_derived_artifact(self, artifact: DerivedArtifact, *, dest: str | Path) -> Path:
+        final_dir = Path(dest) / artifact.source / artifact.dataset / artifact.version
+        final_dir.mkdir(parents=True, exist_ok=True)
+
+        entries = []
+        for artifact_file in artifact.files:
+            local_path = Path(artifact_file.path)
+            final_path = final_dir / local_path.name
+            if local_path.resolve() != final_path.resolve():
+                shutil.move(str(local_path), final_path)
+            entries.append(
+                file_entry(
+                    local_path=final_path,
+                    source_url=f"derived://{artifact.source}/{artifact.dataset}/{artifact.version}/{final_path.name}",
+                    storage_uri=None,
+                    content_type=artifact_file.content_type,
+                )
+            )
+
+        manifest = build_derived_snapshot_manifest(
+            source=artifact.source,
+            dataset=artifact.dataset,
+            version=artifact.version,
+            version_date=artifact.version_date,
+            derived_from=artifact.derived_from,
+            transform=artifact.transform,
+            build_key=artifact.build_key,
+            files=entries,
+            stats=artifact.stats,
+            extra=artifact.extra,
+        )
+        manifest_path = final_dir / MANIFEST_FILENAME
+        write_manifest(manifest, manifest_path)
+        print(f"Wrote {manifest_path}")
+        print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
+        return manifest_path
+
+    def upload_derived_artifact(self, manifest_path: str | Path) -> List[str]:
+        self._require_storage()
+        manifest_path = Path(manifest_path)
+        verify_manifest_files(manifest_path)
+        manifest = read_manifest(manifest_path)
+        source = manifest["source"]
+        dataset = manifest["dataset"]
+        version = manifest["version"]
+        prefix = derived_storage_prefix(source, dataset, version)
+        uploaded = []
+        for entry in manifest.get("files", []) or []:
+            local_path = manifest_path.parent / entry["path"]
+            key = f"{prefix}/{entry['path']}"
+            entry["storage_uri"] = self.storage.upload_file(local_path, key, entry.get("content_type"))
+            uploaded.append(entry["storage_uri"])
+        manifest["manifest_uri"] = s3_uri(self.storage.bucket, f"{prefix}/{MANIFEST_FILENAME}")
+        write_manifest(manifest, manifest_path)
+        uploaded_manifest_uri = self.storage.upload_file(
+            manifest_path,
+            f"{prefix}/{MANIFEST_FILENAME}",
+            "application/x-yaml",
+        )
+        uploaded.append(uploaded_manifest_uri)
+        self.refresh_catalog()
+        return uploaded
+
+    def register_derived_artifact(
+        self,
+        source: str,
+        dataset: str,
+        *,
+        dest: str | Path,
+        upload: bool = True,
+    ) -> Path:
+        manifest_path = self.build_derived_artifact(source, dataset, dest=dest)
+        if upload:
+            self.upload_derived_artifact(manifest_path)
+        return manifest_path
+
+    def check_derived_artifacts(self) -> List[RegistryEntry]:
+        self._require_storage()
+        statuses: List[RegistryEntry] = []
+        for source, source_config in sorted((self._load_sources_config().get("sources") or {}).items()):
+            for dataset, dataset_config in sorted((source_config.get("datasets") or {}).items()):
+                derived_config = dataset_config.get("derived") or {}
+                if not derived_config:
+                    continue
+                registered_versions = self.list_derived_versions(source, dataset)
+                status: RegistryEntry = {
+                    "source": source,
+                    "dataset": dataset,
+                    "latest_version": None,
+                    "latest_build_key": None,
+                    "registered_versions": registered_versions,
+                    "registered_build_keys": [],
+                    "latest_registered_version": registered_versions[-1] if registered_versions else None,
+                    "days_since_last_update": self._days_since_version(registered_versions[-1]) if registered_versions else None,
+                    "is_latest_registered": False,
+                    "error": None,
+                }
+                try:
+                    status["latest_version"] = self._derived_version(derived_config)
+                    status["latest_build_key"] = self._derived_build_key(derived_config)
+                    registered_artifacts = [
+                        entry
+                        for entry in self.list_derived_artifacts()
+                        if entry.get("source") == source and entry.get("dataset") == dataset
+                    ]
+                    status["registered_build_keys"] = [
+                        entry.get("build_key")
+                        for entry in registered_artifacts
+                        if entry.get("build_key")
+                    ]
+                    status["is_latest_registered"] = any(
+                        entry.get("version") == status["latest_version"]
+                        and entry.get("build_key") == status["latest_build_key"]
+                        for entry in registered_artifacts
+                    )
+                except Exception as exc:
+                    status["error"] = str(exc)
+                statuses.append(status)
+        return statuses
+
+    def sync_derived_artifacts(
+        self,
+        *,
+        dest: Optional[str | Path] = None,
+        min_days_since_last_update: int = 0,
+        dry_run: bool = True,
+    ) -> List[RegistryEntry]:
+        if not dry_run and dest is None:
+            raise ValueError("dest is required when dry_run=False")
+        results: List[RegistryEntry] = []
+        for status in self.check_derived_artifacts():
+            reason = self._sync_candidate_reason(
+                status,
+                min_days_since_last_update=min_days_since_last_update,
+            )
+            if reason is None:
+                continue
+            result = dict(status)
+            result["sync_reason"] = reason
+            result["sync_action"] = "would_build" if dry_run else "build"
+            result["manifest_path"] = None
+            result["sync_error"] = None
+            result["dependency_cache"] = None
+            if dest is not None:
+                try:
+                    dataset_config = self.get_dataset_config(status["source"], status["dataset"])
+                    result["dependency_cache"] = self._derived_dependency_cache_status(
+                        dataset_config.get("derived") or {},
+                        dest=Path(dest),
+                    )
+                except Exception as exc:
+                    result["dependency_cache_error"] = str(exc)
+            if not dry_run:
+                try:
+                    print(
+                        f"Building derived artifact {status['source']}/{status['dataset']} "
+                        f"(reason: {reason})",
+                        flush=True,
+                    )
+                    manifest_path = self.register_derived_artifact(
+                        status["source"],
+                        status["dataset"],
+                        dest=dest,
+                        upload=True,
+                    )
+                    result["sync_action"] = "built"
+                    result["manifest_path"] = str(manifest_path)
+                    print(
+                        f"Built derived artifact {status['source']}/{status['dataset']} -> {manifest_path}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    result["sync_action"] = "failed"
+                    result["sync_error"] = str(exc)
+                    print(
+                        f"Failed building derived artifact {status['source']}/{status['dataset']}: {exc}",
+                        flush=True,
+                    )
+            results.append(result)
+        return results
+
     @staticmethod
     def _build_external_manifest(registration: ExternalSourceRegistration) -> RegistryEntry:
         return {
@@ -711,6 +977,157 @@ class DataRegistry:
             raise ValueError(f"External source provider {class_name} does not match configured dataset {source}/{dataset}")
         return provider
 
+    def _load_derived_builder(self, source: str, dataset: str, derived_config: dict) -> DerivedArtifactBuilder:
+        module_name = derived_config.get("module")
+        if not module_name:
+            raise ValueError(f"Missing derived artifact module for {source}/{dataset}")
+        module = importlib.import_module(module_name)
+
+        class_name = derived_config.get("class")
+        if not class_name:
+            raise ValueError(f"Missing derived artifact class for {source}/{dataset}")
+        builder = getattr(module, class_name)()
+        if not isinstance(builder, DerivedArtifactBuilder):
+            raise TypeError(f"Derived artifact builder {class_name} must implement DerivedArtifactBuilder")
+        if getattr(builder, "source", None) != source or getattr(builder, "dataset", None) != dataset:
+            raise ValueError(f"Derived artifact builder {class_name} does not match configured dataset {source}/{dataset}")
+        return builder
+
+    def _resolve_derived_dependencies(
+        self,
+        derived_config: dict,
+        *,
+        dest: Optional[Path] = None,
+        stage_files: bool = False,
+    ) -> List[ResolvedDependency]:
+        self._require_storage()
+        dependencies = []
+        for dependency_config in derived_config.get("dependencies") or []:
+            source = dependency_config["source"]
+            dataset = dependency_config["dataset"]
+            version = dependency_config.get("version")
+            snapshot = self.get_source_snapshot(source, dataset, version)
+            dependency_dir = None
+            if stage_files:
+                if dest is None:
+                    raise ValueError("dest is required when stage_files=True")
+                dependency_dir = dest / source / dataset / snapshot["version"]
+                dependency_dir.mkdir(parents=True, exist_ok=True)
+                prefix = storage_prefix(source, dataset, snapshot["version"])
+                for entry in snapshot.get("files", []) or []:
+                    local_path = dependency_dir / entry["path"]
+                    if self._local_file_matches_entry(local_path, entry):
+                        print(f"Using cached dependency file {local_path}", flush=True)
+                        continue
+                    key = self._storage_key_for_entry(entry, prefix)
+                    self.storage.download_file(key, local_path)
+            dependencies.append(
+                ResolvedDependency(
+                    source=source,
+                    dataset=dataset,
+                    version=snapshot["version"],
+                    snapshot_id=snapshot["snapshot_id"],
+                    manifest_uri=snapshot["manifest_uri"],
+                    manifest=snapshot["manifest"],
+                    local_dir=dependency_dir,
+                )
+            )
+        return dependencies
+
+    def _derived_dependency_cache_status(
+        self,
+        derived_config: dict,
+        *,
+        dest: Path,
+    ) -> List[RegistryEntry]:
+        entries = []
+        for dependency in self._resolve_derived_dependencies(derived_config, stage_files=False):
+            dependency_dir = dest / dependency.source / dependency.dataset / dependency.version
+            for file_entry_ in dependency.manifest.get("files", []) or []:
+                local_path = dependency_dir / file_entry_["path"]
+                cached = self._local_file_matches_entry(local_path, file_entry_)
+                entries.append({
+                    "source": dependency.source,
+                    "dataset": dependency.dataset,
+                    "version": dependency.version,
+                    "snapshot_id": dependency.snapshot_id,
+                    "path": file_entry_["path"],
+                    "local_path": str(local_path),
+                    "cached": cached,
+                    "would_download": not cached,
+                    "size_bytes": file_entry_.get("size_bytes"),
+                    "sha256": file_entry_.get("sha256"),
+                })
+        return entries
+
+    def _derived_version(self, derived_config: dict) -> str:
+        dependencies = self._resolve_derived_dependencies(derived_config, stage_files=False)
+        transform = self._derived_transform_metadata(derived_config)
+        if len(dependencies) == 1:
+            return str(dependencies[0].version)
+        fingerprint = self._derived_fingerprint(dependencies, transform)
+        return f"deps-{fingerprint}"
+
+    def _derived_build_key(self, derived_config: dict) -> str:
+        dependencies = self._resolve_derived_dependencies(derived_config, stage_files=False)
+        transform = self._derived_transform_metadata(derived_config)
+        return self._derived_build_key_from_dependencies(dependencies, transform)
+
+    @staticmethod
+    def _derived_build_key_from_dependencies(
+        dependencies: List[ResolvedDependency],
+        transform: Dict[str, Any],
+    ) -> str:
+        return DataRegistry._derived_fingerprint(dependencies, transform, length=None)
+
+    @staticmethod
+    def _derived_transform_metadata(derived_config: dict) -> Dict[str, Any]:
+        transform = deepcopy(derived_config.get("transform") or {})
+        code_ref = transform.get("code_ref")
+        if code_ref:
+            code_path = Path(code_ref)
+            if not code_path.is_absolute():
+                code_path = REPO_ROOT / code_path
+            transform["code_sha256"] = manifest_checksum(code_path)
+        return transform
+
+    @staticmethod
+    def _derived_fingerprint(
+        dependencies: List[ResolvedDependency],
+        transform: Dict[str, Any],
+        *,
+        length: Optional[int] = 12,
+    ) -> str:
+        payload = {
+            "dependencies": sorted(dependency.snapshot_id for dependency in dependencies),
+            "transform": transform,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        if length is None:
+            return digest
+        return digest[:length]
+
+    @staticmethod
+    def _local_file_matches_entry(local_path: Path, entry: RegistryEntry) -> bool:
+        if not local_path.exists():
+            return False
+        expected_size = entry.get("size_bytes")
+        if expected_size is not None and local_path.stat().st_size != expected_size:
+            return False
+        expected_sha256 = entry.get("sha256")
+        if expected_sha256 and manifest_checksum(local_path) != expected_sha256:
+            return False
+        return True
+
+    def _storage_key_for_entry(self, entry: RegistryEntry, default_prefix: str) -> str:
+        storage_uri = entry.get("storage_uri")
+        if storage_uri:
+            expected_prefix = f"s3://{self.storage.bucket}/"
+            if storage_uri.startswith(expected_prefix):
+                return storage_uri[len(expected_prefix):]
+        return f"{default_prefix}/{entry['path']}"
+
     def get_dataset_config(self, source: str, dataset: str) -> dict:
         source_config = (self._load_sources_config().get("sources") or {}).get(source)
         if not source_config:
@@ -759,6 +1176,34 @@ class DataRegistry:
 
     def list_versions(self, source: str, dataset: str) -> List[str]:
         return self._catalog_index().list_versions(source, dataset)
+
+    def list_derived_versions(self, source: str, dataset: str) -> List[str]:
+        return sorted(
+            entry.get("version")
+            for entry in self.list_derived_artifacts()
+            if entry.get("source") == source and entry.get("dataset") == dataset and entry.get("version")
+        )
+
+    def get_derived_artifact(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+    ) -> RegistryEntry:
+        matches = [
+            entry
+            for entry in self.list_derived_artifacts()
+            if entry.get("source") == source
+            and entry.get("dataset") == dataset
+            and (version is None or entry.get("version") == version)
+        ]
+        return self._single_match(
+            matches,
+            kind="derived artifact",
+            source=source,
+            dataset=dataset,
+            version=version,
+        )
 
     def list_files(
         self,

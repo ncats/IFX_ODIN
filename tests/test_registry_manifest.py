@@ -3,6 +3,8 @@ from datetime import date
 from types import SimpleNamespace
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from src.registry.manifest import (
@@ -366,7 +368,7 @@ def test_data_registry_caches_catalog_reads_until_refresh():
         bucket = "ifx-registry"
 
         def __init__(self):
-            self.calls = {"sources/": 0, "external/": 0}
+            self.calls = {"sources/": 0, "external/": 0, "derived/": 0}
 
         def list_keys(self, prefix):
             self.calls[prefix] += 1
@@ -374,6 +376,8 @@ def test_data_registry_caches_catalog_reads_until_refresh():
                 return ["sources/surechembl/patent_discovery/2026-06-01/manifest.yaml"]
             if prefix == "external/":
                 return ["external/chembl/activity_database/chembl36/manifest.yaml"]
+            if prefix == "derived/":
+                return []
             raise AssertionError(prefix)
 
         def read_text(self, key):
@@ -409,11 +413,11 @@ connection:
     registry.list_versions("chembl", "activity_database")
     registry.list_files("surechembl", "patent_discovery", "2026-06-01")
 
-    assert storage.calls == {"sources/": 1, "external/": 1}
+    assert storage.calls == {"sources/": 1, "external/": 1, "derived/": 0}
 
     registry.refresh_catalog()
 
-    assert storage.calls == {"sources/": 2, "external/": 2}
+    assert storage.calls == {"sources/": 2, "external/": 2, "derived/": 1}
 
 
 def test_data_registry_fetches_configured_fetcher_class(tmp_path: Path, monkeypatch):
@@ -1021,6 +1025,8 @@ sources:
                 return sorted(self.uploaded)
             if prefix == "external/":
                 return []
+            if prefix == "derived/":
+                return []
             raise AssertionError(prefix)
 
         def upload_file(self, local_path, key, content_type=None):
@@ -1369,6 +1375,8 @@ sources:
                 return []
             if prefix == "external/":
                 return sorted(self.uploaded)
+            if prefix == "derived/":
+                return []
             raise AssertionError(prefix)
 
         def upload_file(self, local_path, key, content_type=None):
@@ -1399,6 +1407,172 @@ sources:
         "external/example_external/database/v1/manifest.yaml",
     ]
     assert registry.is_external_source("example_external", "database", "v1")
+
+
+def test_data_registry_sync_derived_artifact_builds_from_source_snapshot(tmp_path: Path):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  surechembl:
+    datasets:
+      patent_family_mentions:
+        derived:
+          module: src.registry.derived.surechembl
+          class: SurechemblPatentFamilyMentionsBuilder
+          dependencies:
+            - source: surechembl
+              dataset: patent_discovery
+          output:
+            file_name: protein_patent_family_mentions.parquet
+          transform:
+            name: surechembl_patent_family_mentions
+            version: 1
+            code_ref: src/registry/derived/surechembl.py
+""",
+        encoding="utf-8",
+    )
+    source_dir = tmp_path / "source_files"
+    source_dir.mkdir()
+    patents_path = source_dir / "patents.parquet"
+    entities_path = source_dir / "biomedical_entities.parquet"
+    locations_path = source_dir / "biomedical_locations.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([
+            {"id": 10, "publication_date": date(2020, 1, 1), "family_id": 100},
+            {"id": 11, "publication_date": date(2021, 1, 1), "family_id": 200},
+            {"id": 12, "publication_date": date(2022, 1, 1), "family_id": 300},
+        ]),
+        patents_path,
+    )
+    pq.write_table(
+        pa.Table.from_pylist([
+            {"id": 1, "entity_type_id": 1, "resolved_form": "HGNC:1"},
+            {"id": 2, "entity_type_id": 1, "resolved_form": "P04637"},
+            {"id": 3, "entity_type_id": 2, "resolved_form": "HGNC:2"},
+        ]),
+        entities_path,
+    )
+    pq.write_table(
+        pa.Table.from_pylist([
+            {"patent_id": 10, "entity_id": 1},
+            {"patent_id": 11, "entity_id": 2},
+            {"patent_id": 12, "entity_id": 3},
+        ]),
+        locations_path,
+    )
+
+    source_keys = {
+        "sources/surechembl/patent_discovery/2026-06-01/patents.parquet": patents_path,
+        "sources/surechembl/patent_discovery/2026-06-01/biomedical_entities.parquet": entities_path,
+        "sources/surechembl/patent_discovery/2026-06-01/biomedical_locations.parquet": locations_path,
+    }
+
+    class DerivedStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return ["sources/surechembl/patent_discovery/2026-06-01/manifest.yaml"]
+            if prefix == "derived/":
+                return sorted(self.uploaded)
+            if prefix == "external/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key == "sources/surechembl/patent_discovery/2026-06-01/manifest.yaml":
+                return """
+kind: source_snapshot
+schema_version: 1
+source: surechembl
+dataset: patent_discovery
+snapshot_id: surechembl:patent_discovery:2026-06-01
+version: '2026-06-01'
+version_date: '2026-06-01'
+files:
+  - path: patents.parquet
+    storage_uri: s3://ifx-registry/sources/surechembl/patent_discovery/2026-06-01/patents.parquet
+  - path: biomedical_entities.parquet
+    storage_uri: s3://ifx-registry/sources/surechembl/patent_discovery/2026-06-01/biomedical_entities.parquet
+  - path: biomedical_locations.parquet
+    storage_uri: s3://ifx-registry/sources/surechembl/patent_discovery/2026-06-01/biomedical_locations.parquet
+"""
+            return self.uploaded[key].decode("utf-8")
+
+        def download_file(self, key, local_path):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(source_keys[key].read_bytes())
+            return local_path
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded[key] = Path(local_path).read_bytes()
+            return f"s3://ifx-registry/{key}"
+
+    storage = DerivedStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    plan = registry.sync_derived_artifacts()
+
+    assert [(entry["dataset"], entry["latest_version"], entry["sync_action"]) for entry in plan] == [
+        ("patent_family_mentions", "2026-06-01", "would_build"),
+    ]
+    assert len(plan[0]["latest_build_key"]) == 64
+    assert plan[0]["dependency_cache"] is None
+
+    cached_dependency_dir = tmp_path / "cache" / "surechembl" / "patent_discovery" / "2026-06-01"
+    cached_dependency_dir.mkdir(parents=True)
+    (cached_dependency_dir / "patents.parquet").write_bytes(patents_path.read_bytes())
+    plan_with_cache = registry.sync_derived_artifacts(dest=tmp_path / "cache")
+
+    assert [
+        (entry["path"], entry["cached"], entry["would_download"])
+        for entry in plan_with_cache[0]["dependency_cache"]
+    ] == [
+        ("patents.parquet", True, False),
+        ("biomedical_entities.parquet", False, True),
+        ("biomedical_locations.parquet", False, True),
+    ]
+
+    result = registry.sync_derived_artifacts(dest=tmp_path / "cache", dry_run=False)
+
+    assert result[0]["sync_action"] == "built"
+    assert (tmp_path / "cache" / "surechembl" / "patent_discovery" / "2026-06-01" / "patents.parquet").exists()
+    assert sorted(storage.uploaded) == [
+        "derived/surechembl/patent_family_mentions/2026-06-01/manifest.yaml",
+        "derived/surechembl/patent_family_mentions/2026-06-01/protein_patent_family_mentions.parquet",
+    ]
+    output_path = tmp_path / "cache" / "surechembl" / "patent_family_mentions" / "2026-06-01" / "protein_patent_family_mentions.parquet"
+    output_rows = pq.read_table(output_path).to_pylist()
+    assert output_rows == [
+        {
+            "protein_id": "HGNC:1",
+            "patent_family_mentions": ["2020:100"],
+            "patent_identifier_sources": ["HGNC"],
+        },
+        {
+            "protein_id": "UniProtKB:P04637",
+            "patent_family_mentions": ["2021:200"],
+            "patent_identifier_sources": ["UniProtKB"],
+        },
+    ]
+    manifest = read_manifest(tmp_path / "cache" / "surechembl" / "patent_family_mentions" / "2026-06-01" / "manifest.yaml")
+    assert manifest["kind"] == "derived_snapshot"
+    assert manifest["derived_from"] == [{
+        "snapshot_id": "surechembl:patent_discovery:2026-06-01",
+        "manifest_uri": "s3://ifx-registry/sources/surechembl/patent_discovery/2026-06-01/manifest.yaml",
+    }]
+    assert len(manifest["build_key"]) == 64
+    assert manifest["build_key"] == result[0]["latest_build_key"]
+    assert manifest["transform"]["code_ref"] == "src/registry/derived/surechembl.py"
+    assert len(manifest["transform"]["code_sha256"]) == 64
+    assert manifest["stats"]["row_count"] == 2
+
+    registry.refresh_catalog()
+    post_build_status = registry.check_derived_artifacts()
+    assert post_build_status[0]["is_latest_registered"] is True
+    assert post_build_status[0]["latest_build_key"] == manifest["build_key"]
 
 
 def test_data_registry_refresh_fetches_then_uploads(tmp_path: Path, monkeypatch):
