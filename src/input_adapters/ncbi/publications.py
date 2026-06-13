@@ -186,6 +186,7 @@ class NCBIPublicationAdapter(InputAdapter):
         except ValueError:
             return None
 
+    @staticmethod
     def _is_human_row(row: dict) -> bool:
         raw_tax_id = (
             row.get("#tax_id")
