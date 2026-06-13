@@ -1,12 +1,10 @@
 import csv
-import os
 import re
-from datetime import datetime
 from typing import Generator, List, Optional, Union
 
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
-from src.models.datasource_version_info import DatasourceVersionInfo, parse_to_date
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.panther_class import (
     PantherClass,
@@ -32,61 +30,20 @@ def _panther_family_node_id(panther_family_id: str) -> str:
 class PantherClassesAdapter(InputAdapter):
     def __init__(
         self,
-        class_file_path: str = None,
-        relationship_file_path: str = None,
-        sequence_classification_file_path: str = None,
-        version_file_path: Optional[str] = None,
-        data_source=None,
+        data_source,
         max_rows: Optional[int] = None,
     ):
-        if data_source is not None:
-            class_file_path = str(data_source.file("Protein_Class_19.0"))
-            relationship_file_path = str(data_source.file("Protein_class_relationship"))
-            sequence_classification_file_path = str(data_source.file("PTHR19.0_human"))
-        if class_file_path is None or relationship_file_path is None or sequence_classification_file_path is None:
-            raise ValueError("PantherClassesAdapter requires class, relationship, and sequence files or data_source")
-        self.class_file_path = class_file_path
-        self.relationship_file_path = relationship_file_path
-        self.sequence_classification_file_path = sequence_classification_file_path
-        self.version_file_path = version_file_path
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.class_file_path = str(data_source.file("Protein_Class_19.0"))
+        self.relationship_file_path = str(data_source.file("Protein_class_relationship"))
+        self.sequence_classification_file_path = str(data_source.file("PTHR19.0_human"))
+        self.version_info = data_source.version_info()
         self.max_rows = max_rows
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PANTHERClasses
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is not None:
-            return self.version_info
-        version = None
-        version_date = None
-        download_date = None
-        if self.version_file_path and os.path.exists(self.version_file_path):
-            with open(self.version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    version_date = parse_to_date(row.get("version_date"))
-                    download_date = parse_to_date(row.get("download_date"))
-
-        if download_date is None:
-            timestamps = []
-            for path in (
-                self.class_file_path,
-                self.relationship_file_path,
-                self.sequence_classification_file_path,
-            ):
-                if os.path.exists(path):
-                    timestamps.append(os.path.getmtime(path))
-            if timestamps:
-                download_date = datetime.fromtimestamp(max(timestamps)).date()
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         family_nodes = self._load_family_nodes()

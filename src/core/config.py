@@ -78,16 +78,14 @@ def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, r
     try:
         return registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
     except LookupError:
-        return registry.materialize_derived_artifact(source, dataset, version, dest=cache_dir)
+        try:
+            return registry.materialize_derived_artifact(source, dataset, version, dest=cache_dir)
+        except LookupError:
+            return registry.materialize_external_source(source, dataset, version, dest=cache_dir)
 
 
 def _resolve_registry_data_sources(config_node: Any, registry: DataRegistry, cache_dir: Path, parent_key: str | None = None):
     if isinstance(config_node, dict):
-        if parent_key != "kwargs" and set(config_node.keys()).issubset({"data_source", "file"}) and "data_source" in config_node:
-            materialized = _materialize_registry_data_source(registry, cache_dir, config_node["data_source"])
-            if "file" in config_node:
-                return str(materialized.file(config_node["file"]))
-            return materialized
         resolved = {}
         for key, value in config_node.items():
             if (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):

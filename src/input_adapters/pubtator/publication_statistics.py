@@ -1,8 +1,7 @@
 import csv
 import gzip
-import os
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import datetime
 from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sqlalchemy import text
@@ -23,22 +22,15 @@ class PubTatorPublicationStatisticsAdapter(InputAdapter, MySqlAdapter):
     def __init__(
         self,
         credentials: DBCredentials,
-        gene2pubtator3_file_path: str = None,
-        version_file_path: Optional[str] = None,
-        data_source=None,
+        data_source,
         pmid_batch_size: int = 5000,
         max_rows: Optional[int] = None,
     ):
         MySqlAdapter.__init__(self, credentials)
-        if data_source is not None:
-            gene2pubtator3_file_path = str(data_source.file("gene2pubtator3.gz"))
-        if gene2pubtator3_file_path is None:
-            raise ValueError("PubTatorPublicationStatisticsAdapter requires gene2pubtator3_file_path or data_source")
-        self.gene2pubtator3_file_path = gene2pubtator3_file_path
-        self.version_file_path = version_file_path
+        self.gene2pubtator3_file_path = str(data_source.file("gene2pubtator3.gz"))
         self.pmid_batch_size = pmid_batch_size
         self.max_rows = max_rows
-        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PubTator
@@ -147,45 +139,11 @@ class PubTatorPublicationStatisticsAdapter(InputAdapter, MySqlAdapter):
             if row[0] is not None and row[1] is not None
         }
 
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = None
-        if version_file_path and os.path.exists(version_file_path):
-            with open(version_file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    version_date = self._parse_date(row.get("version_date"))
-                    download_date = self._parse_date(row.get("download_date"))
-
-        if download_date is None and os.path.exists(self.gene2pubtator3_file_path):
-            download_date = datetime.fromtimestamp(os.path.getmtime(self.gene2pubtator3_file_path)).date()
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
-
     @staticmethod
     def _parse_int(raw_value: Optional[str]) -> Optional[int]:
         if raw_value is None:
             return None
         try:
             return int(str(raw_value).strip())
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _parse_date(raw_value: Optional[str]) -> Optional[date]:
-        if raw_value is None:
-            return None
-        value = str(raw_value).strip()
-        if not value:
-            return None
-        try:
-            return date.fromisoformat(value)
         except ValueError:
             return None

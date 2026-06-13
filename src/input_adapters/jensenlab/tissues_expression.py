@@ -1,13 +1,10 @@
 import csv
-import os
 from collections import defaultdict
-from datetime import date, datetime
 from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 import obonet
 
 from src.constants import DataSourceName, Prefix
-from src.input_adapters.shared.expression_adapter_base import ExpressionAdapterBase
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import ExpressionDetail, ProteinTissueExpressionEdge
@@ -19,22 +16,15 @@ from src.models.tissue import Tissue
 class JensenLabTissuesExpressionAdapter(InputAdapter):
     def __init__(
         self,
-        data_file_path: str = None,
-        version_file_path: str = None,
-        data_source=None,
+        data_source,
         obo_file_path: Optional[str] = None,
         obo_data_source=None,
         max_rows: Optional[int] = None,
     ):
-        if data_source is not None:
-            data_file_path = str(data_source.file("human_tissue_integrated_full.tsv"))
-        if data_file_path is None:
-            raise ValueError("JensenLabTissuesExpressionAdapter requires data_file_path or data_source")
         if obo_data_source is not None:
             obo_file_path = str(obo_data_source.file())
-        self.data_file_path = data_file_path
-        self.version_file_path = version_file_path
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.data_file_path = str(data_source.file("human_tissue_integrated_full.tsv"))
+        self.version_info = data_source.version_info()
         self.max_rows = max_rows
         self._valid_tissue_ids: Optional[Set[str]] = (
             self._load_valid_tissue_ids(obo_file_path) if obo_file_path else None
@@ -71,24 +61,7 @@ class JensenLabTissuesExpressionAdapter(InputAdapter):
         return DataSourceName.JensenLabTissues
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is not None:
-            return self.version_info
-        download_date = None
-        if os.path.exists(self.data_file_path):
-            download_date = datetime.fromtimestamp(os.path.getmtime(self.data_file_path)).date()
-
-        version_date = None
-        if os.path.exists(self.version_file_path):
-            with open(self.version_file_path) as f:
-                reader = csv.DictReader(f, delimiter="\t")
-                row = next(reader, None)
-                if row and row.get("version_date"):
-                    try:
-                        version_date = date.fromisoformat(row["version_date"].strip())
-                    except ValueError:
-                        pass
-
-        return DatasourceVersionInfo(version_date=version_date, download_date=download_date)
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Tissue, ProteinTissueExpressionEdge]], None, None]:
         gene_map = self._load_gene_map()

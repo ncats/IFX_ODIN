@@ -1,6 +1,4 @@
-import csv
 import re
-from datetime import date
 from typing import Generator, List, Optional
 
 from src.constants import DataSourceName, Prefix
@@ -13,31 +11,11 @@ from src.models.pathway import GenePathwayEdge, Pathway
 
 class WikiPathwaysBaseAdapter(FlatFileAdapter):
 
-    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
-                 data_source=None, max_rows: Optional[int] = None):
-        if data_source is not None:
-            file_path = str(data_source.file())
-        if file_path is None:
-            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
+    def __init__(self, data_source, max_rows: Optional[int] = None):
+        file_path = str(data_source.file())
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.max_rows = max_rows
-        if data_source is not None:
-            self.version_info = data_source.version_info()
-            return
-        version = None
-        version_date = None
-        if version_file_path:
-            with open(version_file_path, "r", encoding="utf-8") as vf:
-                reader = csv.DictReader(vf, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    version_date = first_row.get("version_date") or None
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=date.fromisoformat(version_date) if version_date else None,
-            download_date=self.download_date
-        )
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.WikiPathways

@@ -1444,6 +1444,47 @@ def test_data_registry_materialize_derived_artifact_reuses_matching_cache(tmp_pa
     assert storage.downloads == []
 
 
+def test_data_registry_materialize_external_source_returns_version_info(tmp_path: Path):
+    manifest = {
+        "kind": "external_source_registration",
+        "schema_version": 1,
+        "source": "example",
+        "dataset": "api",
+        "registration_id": "example:api:v1",
+        "version": "v1",
+        "version_date": "2026-06-11",
+        "registered_date": "2026-06-12",
+        "created_at": "2026-06-12T12:00:00+00:00",
+        "connection": {"type": "graphql", "endpoint": "https://example.org/graphql"},
+        "access": {"mode": "query", "interface": "graphql"},
+        "extra": {},
+    }
+
+    class Storage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "external/":
+                return ["external/example/api/v1/manifest.yaml"]
+            if prefix in ("sources/", "derived/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            assert key == "external/example/api/v1/manifest.yaml"
+            return yaml.safe_dump(manifest, sort_keys=False)
+
+    registry = DataRegistry(Storage())
+
+    materialized = registry.materialize_external_source("example", "api", "v1", dest=tmp_path / "cache")
+
+    assert materialized.local_dir == tmp_path / "cache" / "example" / "api" / "v1"
+    assert materialized.snapshot_id == "example:api:v1"
+    assert materialized.version_info().version == "v1"
+    assert materialized.version_info().version_date == date(2026, 6, 11)
+    assert materialized.version_info().download_date == date(2026, 6, 12)
+
+
 def test_registry_data_source_resolution_preserves_kwargs_dict(tmp_path: Path):
     class Registry:
         def materialize_source_snapshot(self, source, dataset, version, *, dest):

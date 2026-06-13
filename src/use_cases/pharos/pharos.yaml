@@ -172,6 +172,8 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
     class: PHIPSTERLegacyLiftAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/hcop/orthologs.py
@@ -254,10 +256,14 @@ input_adapters:
 
   - import: ./src/input_adapters/drug_central/drug_node.py
     class: DrugNodeAdapter
+    kwargs:
+      data_source: drugcentral:drug_database:54
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/protein_drug_edge.py
     class: ProteinDrugEdgeAdapter
+    kwargs:
+      data_source: drugcentral:drug_database:54
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
@@ -274,17 +280,21 @@ input_adapters:
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
     kwargs:
+      data_source: chembl:activity_database:chembl36
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: ProteinDrugEdgeAdapter
     kwargs:
+      data_source: chembl:activity_database:chembl36
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/drug_indication.py
     class: DrugCentralIndicationAdapter
+    kwargs:
+      data_source: drugcentral:drug_database:54
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
@@ -343,6 +353,8 @@ input_adapters:
 
   - import: ./src/input_adapters/rdas/diseases.py
     class: RDASRareDiseaseAdapter
+    kwargs:
+      data_source: rdas:diseases_graphql:rdas-diseases-graphql
 
   - import: ./src/input_adapters/jensenlab/diseases.py
     class: JensenLabDiseasesAdapter
@@ -352,6 +364,8 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/eram_disease_adapter.py
     class: ERAMDiseaseAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
@@ -428,14 +442,20 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassParentEdgeAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: ProteinDTOClassAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/surechembl/patent_families.py
@@ -455,6 +475,8 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/jensenlab/publications.py

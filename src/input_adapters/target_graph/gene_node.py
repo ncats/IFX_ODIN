@@ -1,6 +1,6 @@
 from typing import List, Generator, Union
 
-from src.constants import DataSourceName, TARGET_GRAPH_VERSION
+from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
@@ -9,15 +9,9 @@ from src.shared.targetgraph_parser import TargetGraphGeneParser
 
 
 class GeneNodeAdapter(InputAdapter, TargetGraphGeneParser):
-    def __init__(self, file_path: str = None, data_source=None):
-        self.version_info = (
-            data_source.version_info() if data_source is not None
-            else DatasourceVersionInfo(version=TARGET_GRAPH_VERSION)
-        )
-        if data_source is not None:
-            file_path = str(data_source.file("gene_ids.tsv"))
-        if file_path is None:
-            raise ValueError("GeneNodeAdapter requires file_path or data_source")
+    def __init__(self, data_source):
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("gene_ids.tsv"))
         TargetGraphGeneParser.__init__(self, file_path=file_path)
 
     def get_version(self) -> DatasourceVersionInfo:

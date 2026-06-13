@@ -68,10 +68,14 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
     class: HarmonizomeGeneAttributeTypeAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
     class: HarmonizomeHgramCDFAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_source_tcrd/word_count.py
@@ -113,6 +117,8 @@ input_adapters:
 
   - import: ./src/input_adapters/pharos_mysql/drgc_resource_adapter.py
     class: DRGCResourceAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ppi.py

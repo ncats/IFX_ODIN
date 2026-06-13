@@ -1,8 +1,6 @@
 import csv
 import json
-import os
 from collections import OrderedDict
-from datetime import date, datetime
 from typing import Generator, Iterable, List, Optional, Tuple, Union
 
 from src.constants import DataSourceName, Prefix
@@ -57,55 +55,19 @@ class TIGAAdapter(InputAdapter):
 
     def __init__(
         self,
-        stats_file_path: str = None,
-        provenance_file_path: str = None,
-        version_file_path: Optional[str] = None,
-        data_source=None,
+        data_source,
         max_rows: Optional[int] = None,
     ):
-        if data_source is not None:
-            stats_file_path = str(data_source.file("tiga_gene-trait_stats.tsv"))
-            provenance_file_path = str(data_source.file("tiga_gene-trait_provenance.tsv"))
-        if stats_file_path is None or provenance_file_path is None:
-            raise ValueError("TIGAAdapter requires stats/provenance file paths or data_source")
-        self.stats_file_path = stats_file_path
-        self.provenance_file_path = provenance_file_path
-        self.version_file_path = version_file_path
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.stats_file_path = str(data_source.file("tiga_gene-trait_stats.tsv"))
+        self.provenance_file_path = str(data_source.file("tiga_gene-trait_provenance.tsv"))
+        self.version_info = data_source.version_info()
         self.max_rows = max_rows
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TIGA
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is not None:
-            return self.version_info
-        version = None
-        version_date = None
-        download_date = self._download_date()
-        if self.version_file_path and os.path.exists(self.version_file_path):
-            with open(self.version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    raw_version_date = row.get("version_date") or None
-                    raw_download_date = row.get("download_date") or None
-                    if raw_version_date:
-                        try:
-                            version_date = date.fromisoformat(raw_version_date)
-                        except ValueError:
-                            version_date = None
-                    if raw_download_date:
-                        try:
-                            download_date = date.fromisoformat(raw_download_date)
-                        except ValueError:
-                            pass
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         provenance_iter = self._iter_grouped_provenance()
@@ -262,15 +224,6 @@ class TIGAAdapter(InputAdapter):
         if "_" in raw:
             return raw.replace("_", ":", 1)
         return raw
-
-    def _download_date(self) -> Optional[date]:
-        timestamps = []
-        for file_path in (self.stats_file_path, self.provenance_file_path):
-            if os.path.exists(file_path):
-                timestamps.append(os.path.getmtime(file_path))
-        if not timestamps:
-            return None
-        return datetime.fromtimestamp(max(timestamps)).date()
 
     @staticmethod
     def _parse_int(value: Optional[str]) -> Optional[int]:

@@ -296,6 +296,14 @@ sources:
           module: src.registry.sources.manual_pharos
           class: ManualAntibodypediaScrapedResultsFetcher
           version_strategy: filename_timestamp
+  rdas:
+    datasets:
+      diseases_graphql:
+        external:
+          module: src.registry.sources.external_sources
+          class: RdasDiseasesGraphqlExternalSource
+          endpoint: https://rdas.ncats.nih.gov/api/diseases/graphql
+          version: rdas-diseases-graphql
   chembl:
     datasets:
       activity_database:

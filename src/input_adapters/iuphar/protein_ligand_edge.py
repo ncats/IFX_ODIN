@@ -11,14 +11,9 @@ class ProteinLigandEdgeAdapter(IUPHARAdapter):
     interaction_file_path: str
     pchembl_cutoff: float
 
-    def __init__(self, file_path: str = None, interaction_file_path: str = None,
-                 data_source=None, pchembl_cutoff: float = None):
-        super().__init__(file_path=file_path, data_source=data_source)
-        if data_source is not None:
-            interaction_file_path = str(data_source.file("interactions.csv"))
-        if interaction_file_path is None:
-            raise ValueError("ProteinLigandEdgeAdapter requires interaction_file_path or data_source")
-        self.interaction_file_path = interaction_file_path
+    def __init__(self, data_source, pchembl_cutoff: float = None):
+        super().__init__(data_source=data_source)
+        self.interaction_file_path = str(data_source.file("interactions.csv"))
         self.pchembl_cutoff = pchembl_cutoff
 
     def get_all(self) -> Generator[List[ProteinLigandEdge], None, None]:

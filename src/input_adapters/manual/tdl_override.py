@@ -13,14 +13,11 @@ class TDLOverrideAdapter(InputAdapter, CSVParser):
     batch_size: int = 1000
     field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast
 
-    def __init__(self, file_path: str = None, data_source=None):
+    def __init__(self, data_source):
         InputAdapter.__init__(self)
-        if data_source is not None:
-            file_path = str(data_source.file("tdl_updates.csv"))
-        if file_path is None:
-            raise ValueError("TDLOverrideAdapter requires file_path or data_source")
+        file_path = str(data_source.file("tdl_updates.csv"))
         CSVParser.__init__(self, file_path=file_path)
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Protein], None, None]:
 
@@ -40,8 +37,4 @@ class TDLOverrideAdapter(InputAdapter, CSVParser):
         return DataSourceName.ManualUpdate
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is not None:
-            return self.version_info
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info

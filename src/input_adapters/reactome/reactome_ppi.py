@@ -1,5 +1,4 @@
 import csv
-from datetime import date
 from collections import OrderedDict
 from typing import Generator, List, Optional
 
@@ -14,31 +13,11 @@ from src.models.protein import Protein
 class ReactomePPIAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
-                 data_source=None, max_rows: Optional[int] = None):
-        if data_source is not None:
-            file_path = str(data_source.file("reactome.homo_sapiens.interactions.tab-delimited.txt"))
-        if file_path is None:
-            raise ValueError("ReactomePPIAdapter requires file_path or data_source")
+    def __init__(self, data_source, max_rows: Optional[int] = None):
+        file_path = str(data_source.file("reactome.homo_sapiens.interactions.tab-delimited.txt"))
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.max_rows = max_rows
-        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
-
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = self.download_date
-        if version_file_path:
-            with open(version_file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    version_date_str = first_row.get("version_date") or None
-                    download_date_str = first_row.get("download_date") or None
-                    version_date = date.fromisoformat(version_date_str) if version_date_str else None
-                    download_date = date.fromisoformat(download_date_str) if download_date_str else download_date
-        return DatasourceVersionInfo(version=version, version_date=version_date, download_date=download_date)
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.Reactome

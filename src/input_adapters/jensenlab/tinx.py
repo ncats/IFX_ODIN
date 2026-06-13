@@ -6,7 +6,6 @@ import sqlite3
 import tempfile
 import time
 from collections import defaultdict
-from datetime import date, datetime
 from typing import Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
 
 from src.constants import DataSourceName, Prefix
@@ -24,23 +23,14 @@ class TINXAdapter(InputAdapter):
 
     def __init__(
         self,
-        protein_mentions_file_path: str = None,
-        disease_mentions_file_path: str = None,
-        version_file_path: Optional[str] = None,
-        data_source=None,
+        data_source,
         max_proteins: Optional[int] = None,
         max_diseases: Optional[int] = None,
         max_pairs: Optional[int] = None,
     ):
-        if data_source is not None:
-            protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
-            disease_mentions_file_path = str(data_source.file("disease_textmining_mentions.tsv.gz"))
-        if protein_mentions_file_path is None or disease_mentions_file_path is None:
-            raise ValueError("TINXAdapter requires mention files or data_source")
-        self.protein_mentions_file_path = protein_mentions_file_path
-        self.disease_mentions_file_path = disease_mentions_file_path
-        self.version_file_path = version_file_path
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
+        self.disease_mentions_file_path = str(data_source.file("disease_textmining_mentions.tsv.gz"))
+        self.version_info = data_source.version_info()
         self.max_proteins = max_proteins
         self.max_diseases = max_diseases
         self.max_pairs = max_pairs
@@ -49,28 +39,7 @@ class TINXAdapter(InputAdapter):
         return DataSourceName.TINX
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is not None:
-            return self.version_info
-        version = None
-        version_date = None
-        if self.version_file_path and os.path.exists(self.version_file_path):
-            with open(self.version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    raw_version_date = row.get("version_date") or None
-                    if raw_version_date:
-                        try:
-                            version_date = date.fromisoformat(raw_version_date)
-                        except ValueError:
-                            version_date = None
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=self._download_date(),
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         print("TIN-X: building protein PMID counts")
@@ -201,18 +170,6 @@ class TINXAdapter(InputAdapter):
                 yield doid, row[1]
                 if self.max_diseases is not None and len(seen_diseases) >= self.max_diseases:
                     break
-
-    def _download_date(self) -> Optional[date]:
-        timestamps = []
-        for file_path in (
-            self.protein_mentions_file_path,
-            self.disease_mentions_file_path,
-        ):
-            if os.path.exists(file_path):
-                timestamps.append(os.path.getmtime(file_path))
-        if not timestamps:
-            return None
-        return datetime.fromtimestamp(max(timestamps)).date()
 
     @staticmethod
     def _open_text(file_path: str):

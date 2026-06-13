@@ -8,11 +8,8 @@ from src.models.node import Node
 class TissueResolver(IdResolver):
     name = "Tissue Resolver"
 
-    def __init__(self, file_path: str = None, data_source=None, valid_ontologies: List[str] = None, **kwargs):
-        if data_source is not None:
-            file_path = str(data_source.file())
-        if file_path is None:
-            raise ValueError("file_path or data_source is required")
+    def __init__(self, data_source, valid_ontologies: List[str] = None, **kwargs):
+        file_path = str(data_source.file())
         if valid_ontologies is None:
             raise ValueError("valid_ontologies is required")
         super().__init__(**kwargs)

@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Generator, List, Optional
 
 import requests
@@ -25,20 +24,14 @@ class RDASRareDiseaseAdapter(InputAdapter):
         graphql_url: Optional[str] = None,
         batch_size: int = 1000,
         request_timeout: int = 120,
-        version: str = "rdas-diseases-graphql",
-        version_date: Optional[str] = None,
-        download_date: Optional[str] = None,
+        data_source=None,
         max_rows: Optional[int] = None,
     ):
         self.graphql_url = graphql_url or self.graphql_url
         self.batch_size = batch_size
         self.request_timeout = request_timeout
         self.max_rows = max_rows
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=date.fromisoformat(version_date) if version_date else None,
-            download_date=date.fromisoformat(download_date) if download_date else date.today(),
-        )
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.RDAS

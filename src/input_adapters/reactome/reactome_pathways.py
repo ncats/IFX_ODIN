@@ -1,8 +1,6 @@
-import csv
 import io
 import zipfile
-from datetime import date
-from typing import Generator, List, Optional
+from typing import Generator, List
 
 from src.constants import DataSourceName, Prefix
 from src.input_adapters.flat_file_adapter import FlatFileAdapter
@@ -15,30 +13,10 @@ from src.models.protein import Protein
 class ReactomeBaseAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None,
-                 data_source=None, file_name: Optional[str] = None):
-        if data_source is not None:
-            file_path = str(data_source.file(file_name))
-        if file_path is None:
-            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
+    def __init__(self, data_source, file_name: str):
+        file_path = str(data_source.file(file_name))
         FlatFileAdapter.__init__(self, file_path=file_path)
-        if data_source is not None:
-            self.version_info = data_source.version_info()
-            return
-        version = None
-        version_date = None
-        if version_file_path:
-            with open(version_file_path, "r", encoding="utf-8") as vf:
-                reader = csv.DictReader(vf, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    version_date = first_row.get("version_date") or None
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=date.fromisoformat(version_date) if version_date else None,
-            download_date=self.download_date
-        )
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.Reactome
@@ -49,11 +27,9 @@ class ReactomeBaseAdapter(FlatFileAdapter):
 
 class ReactomePathwayAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, gmt_file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+    def __init__(self, data_source):
         ReactomeBaseAdapter.__init__(
             self,
-            file_path=gmt_file_path,
-            version_file_path=version_file_path,
             data_source=data_source,
             file_name="ReactomePathways.gmt.zip",
         )
@@ -95,11 +71,9 @@ class ReactomePathwayAdapter(ReactomeBaseAdapter):
 
 class ReactomePathwayParentEdgeAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+    def __init__(self, data_source):
         ReactomeBaseAdapter.__init__(
             self,
-            file_path=file_path,
-            version_file_path=version_file_path,
             data_source=data_source,
             file_name="ReactomePathwaysRelation.txt",
         )
@@ -127,11 +101,9 @@ class ReactomePathwayParentEdgeAdapter(ReactomeBaseAdapter):
 
 class ReactomeProteinPathwayEdgeAdapter(ReactomeBaseAdapter):
 
-    def __init__(self, file_path: str = None, version_file_path: Optional[str] = None, data_source=None):
+    def __init__(self, data_source):
         ReactomeBaseAdapter.__init__(
             self,
-            file_path=file_path,
-            version_file_path=version_file_path,
             data_source=data_source,
             file_name="UniProt2Reactome_All_Levels.txt",
         )

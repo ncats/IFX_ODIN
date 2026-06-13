@@ -1,6 +1,5 @@
 import csv
 import gzip
-from datetime import date
 from pathlib import Path
 from typing import Generator, List, Optional
 
@@ -16,40 +15,15 @@ class StringPPIAdapter(FlatFileAdapter):
 
     def __init__(
         self,
-        file_path: str = None,
-        version_file_path: Optional[str] = None,
-        data_source=None,
+        data_source,
         score_cutoff: int = 400,
         max_rows: Optional[int] = None,
     ):
-        if data_source is not None:
-            file_path = str(data_source.file("9606.protein.links.v12.0.txt.gz"))
-        if file_path is None:
-            raise ValueError("StringPPIAdapter requires file_path or data_source")
+        file_path = str(data_source.file("9606.protein.links.v12.0.txt.gz"))
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.score_cutoff = int(score_cutoff)
         self.max_rows = max_rows
-        self.version_info = data_source.version_info() if data_source is not None else self._load_version_info(version_file_path)
-
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = self.download_date
-        if version_file_path:
-            with open(version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    version_date_str = first_row.get("version_date") or None
-                    download_date_str = first_row.get("download_date") or None
-                    version_date = date.fromisoformat(version_date_str) if version_date_str else None
-                    download_date = date.fromisoformat(download_date_str) if download_date_str else download_date
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.STRING

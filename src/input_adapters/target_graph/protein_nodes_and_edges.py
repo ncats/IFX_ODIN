@@ -1,5 +1,5 @@
 from typing import List, Union, Generator
-from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
@@ -106,19 +106,13 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def __init__(self, file_path: str = None, additional_id_file_path: str = None,
-                 data_source=None, additional_ids_data_source=None,
+    def __init__(self, data_source, additional_ids_data_source=None,
                  reviewed_only = False, canonical_only = False):
-        self.version_info = (
-            data_source.version_info() if data_source is not None
-            else DatasourceVersionInfo(version=TARGET_GRAPH_VERSION)
-        )
-        if data_source is not None:
-            file_path = str(data_source.file("protein_ids.tsv"))
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("protein_ids.tsv"))
+        additional_id_file_path = None
         if additional_ids_data_source is not None:
             additional_id_file_path = str(additional_ids_data_source.file("uniprotkb_mapping_20260507.csv"))
-        if file_path is None:
-            raise ValueError("ProteinNodeAdapter requires file_path or data_source")
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
         self.canonical_only = canonical_only
         self.reviewed_only = reviewed_only
@@ -130,18 +124,12 @@ class ProteinNodeAdapter(InputAdapter, TGProteinFileBase):
 
 class ProteinEdgeAdapter(InputAdapter, TGProteinFileBase):
 
-    def __init__(self, file_path: str = None, additional_id_file_path: str = None,
-                 data_source=None, additional_ids_data_source=None):
-        self.version_info = (
-            data_source.version_info() if data_source is not None
-            else DatasourceVersionInfo(version=TARGET_GRAPH_VERSION)
-        )
-        if data_source is not None:
-            file_path = str(data_source.file("protein_ids.tsv"))
+    def __init__(self, data_source, additional_ids_data_source=None):
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("protein_ids.tsv"))
+        additional_id_file_path = None
         if additional_ids_data_source is not None:
             additional_id_file_path = str(additional_ids_data_source.file("uniprotkb_mapping_20260507.csv"))
-        if file_path is None:
-            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
         TGProteinFileBase.__init__(self, file_path=file_path, additional_id_file_path=additional_id_file_path)
 
     def get_datasource_name(self) -> DataSourceName:

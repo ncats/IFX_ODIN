@@ -474,6 +474,30 @@ class DataRegistry:
             local_dir=local_dir,
         )
 
+    def materialize_external_source(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        registration = self.get_external_source(source, dataset, version)
+        local_dir = Path(dest) / source / dataset / registration["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        return MaterializedDataset(
+            source=source,
+            dataset=dataset,
+            version=registration["version"],
+            version_date=registration.get("version_date"),
+            download_date=registration.get("registered_date"),
+            snapshot_id=registration["registration_id"],
+            manifest_uri=registration["manifest_uri"],
+            manifest=registration["manifest"],
+            local_dir=local_dir,
+        )
+
     def register_external_source(
         self,
         source: str,

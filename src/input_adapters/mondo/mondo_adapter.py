@@ -1,6 +1,5 @@
 import json
 import re
-from datetime import date, datetime
 from typing import Generator, List, Optional
 
 from src.constants import DataSourceName
@@ -12,84 +11,17 @@ from src.models.disease import Disease, DiseaseParentEdge
 class MondoBaseAdapter(FlatFileAdapter):
     version_info: Optional[DatasourceVersionInfo] = None
 
-    def __init__(self, file_path: str = None, data_source=None):
-        if data_source is not None:
-            file_path = str(data_source.file())
-        if file_path is None:
-            raise ValueError(f"{self.__class__.__name__} requires file_path or data_source")
+    def __init__(self, data_source):
+        file_path = str(data_source.file())
         FlatFileAdapter.__init__(self, file_path=file_path)
-        self.version_info = data_source.version_info() if data_source is not None else None
+        self.version_info = data_source.version_info()
         self._graph = None
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.Mondo
 
     def get_version(self) -> DatasourceVersionInfo:
-        if self.version_info is None:
-            self.version_info = self._extract_version_info()
         return self.version_info
-
-    def _extract_version_info(self) -> DatasourceVersionInfo:
-        graph = self._get_graph()
-        meta = graph.get("meta") or {}
-
-        version = self._extract_version(meta)
-        version_date = self._extract_version_date(meta, version)
-
-        if version_date is not None:
-            version = f"v{version_date.isoformat()}"
-        elif version is None:
-            version = graph.get("id")
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=self.download_date,
-        )
-
-    def _extract_version(self, graph_meta: dict) -> Optional[str]:
-        explicit_version = graph_meta.get("version")
-        if explicit_version:
-            return explicit_version
-
-        for property_value in graph_meta.get("basicPropertyValues") or []:
-            predicate = (property_value.get("pred") or "").lower()
-            if "versioninfo" in predicate:
-                return property_value.get("val")
-        return None
-
-    def _extract_version_date(self, graph_meta: dict, version: Optional[str]) -> Optional[date]:
-        version_date = self._extract_release_date_from_text(version)
-        if version_date is not None:
-            return version_date
-
-        for property_value in graph_meta.get("basicPropertyValues") or []:
-            predicate = (property_value.get("pred") or "").lower()
-            if predicate.endswith("oboinowl#date"):
-                return self._parse_date(property_value.get("val"))
-        return None
-
-    @staticmethod
-    def _extract_release_date_from_text(value: Optional[str]) -> Optional[date]:
-        if not value:
-            return None
-        match = re.search(r"/releases/(?:download/v)?(\d{4}-\d{2}-\d{2})/", value)
-        if match:
-            return date.fromisoformat(match.group(1))
-        return None
-
-    @staticmethod
-    def _parse_date(value: Optional[str]) -> Optional[date]:
-        if not value:
-            return None
-        raw = value.strip()
-        formats = ["%d:%m:%Y %H:%M", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"]
-        for fmt in formats:
-            try:
-                return datetime.strptime(raw, fmt).date()
-            except ValueError:
-                continue
-        return None
 
     def _get_graph(self) -> dict:
         if self._graph is None:
