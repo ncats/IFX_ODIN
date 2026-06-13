@@ -22,8 +22,8 @@ class DiseaseIdResolver(SqliteCacheResolver):
     xref_suffix = "_xref"
     cache_schema_version = "v2"
 
-    def __init__(self, file_path: str, cache_path: str = None, **kwargs):
-        self.file_path = file_path
+    def __init__(self, data_source, cache_path: str = None, **kwargs):
+        self.file_path = str(data_source.file("disease_ids.tsv"))
         self.cache_path = cache_path
         super().__init__(**kwargs)
 

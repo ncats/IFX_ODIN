@@ -1,5 +1,5 @@
 from typing import List, Generator
-from src.constants import Prefix, DataSourceName, TARGET_GRAPH_VERSION
+from src.constants import Prefix, DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
@@ -9,14 +9,16 @@ from src.shared.targetgraph_parser import TargetGraphTranscriptParser
 
 
 class GeneTranscriptEdgeAdapter(InputAdapter, TargetGraphTranscriptParser):
+    def __init__(self, data_source):
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("transcript_ids.tsv"))
+        TargetGraphTranscriptParser.__init__(self, file_path=file_path)
+
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.TargetGraph
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=TARGET_GRAPH_VERSION,
-            download_date=self.download_date
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[GeneTranscriptEdge], None, None]:
         relationships = []

@@ -1,5 +1,3 @@
-import os
-from datetime import datetime, date
 from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
@@ -17,16 +15,11 @@ class TotalPMScoreAdapter(InputAdapter):
         return DataSourceName.JensenLabPM
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info
 
-    file_path: str
-    download_date: date
-
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
+    def __init__(self, data_source):
+        self.file_path = str(data_source.file("protein_counts.tsv"))
+        self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Protein], None, None]:
         total_pm_dict = {}

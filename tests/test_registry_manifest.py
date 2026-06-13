@@ -1,13 +1,16 @@
 import gzip
-from datetime import date
+import os
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml
 
 from src.registry.manifest import (
+    build_derived_snapshot_manifest,
     build_source_snapshot_manifest,
     file_entry,
     parse_http_date_to_iso,
@@ -16,9 +19,10 @@ from src.registry.manifest import (
     verify_manifest_files,
     write_manifest,
 )
-from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, SnapshotFile, SourceFetcher, SourceSnapshot
+from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, MaterializedDataset, SnapshotFile, SourceFetcher, SourceSnapshot
 from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage
 from src.registry.sources.ctd import extract_report_created
+from src.registry.sources.cure import fetch_case_reports, fetch_curated_concepts
 from src.registry.sources.hcop import HCOP_FILE_NAME
 from src.registry.sources.impc import IMPC_FILE_NAME
 from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TINX_URLS, JENSENLAB_TISSUES_FILE_NAME
@@ -32,6 +36,7 @@ from src.registry.sources.pathway_sources import latest_panther_version
 from src.registry.sources.string import latest_string_version
 from src.shared.db_credentials import DBCredentials
 from src.core.data_registry import DataRegistry
+from src.core.config import _resolve_registry_data_sources
 
 
 def test_parse_http_date_to_iso():
@@ -59,6 +64,87 @@ def test_source_snapshot_manifest_roundtrip(tmp_path: Path):
     manifest_path = tmp_path / "manifest.yaml"
     write_manifest(manifest, manifest_path)
     verify_manifest_files(manifest_path)
+
+
+def test_cure_case_reports_fetcher_writes_paginated_jsonl(tmp_path: Path, monkeypatch):
+    class FrozenDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 6, 12, 15, 30, 45, tzinfo=timezone.utc)
+
+        @staticmethod
+        def strptime(value, fmt):
+            from datetime import datetime as real_datetime
+            return real_datetime.strptime(value, fmt)
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    seen_urls = []
+
+    def fake_get(url, **kwargs):
+        seen_urls.append(url)
+        if len(seen_urls) == 1:
+            return FakeResponse({
+                "count": 3,
+                "results": [{"id": "report-1"}, {"id": "report-2"}],
+                "next": "https://cure-api.ncats.io/v2/reports?page=2",
+            })
+        if len(seen_urls) == 2:
+            return FakeResponse({
+                "count": 3,
+                "results": [{"id": "report-3"}],
+                "next": None,
+            })
+        raise AssertionError(url)
+
+    monkeypatch.setattr("src.registry.sources.cure.datetime", FrozenDateTime)
+    monkeypatch.setattr("src.registry.sources.cure.requests.get", fake_get)
+
+    snapshot = fetch_case_reports(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "cure"
+    assert snapshot.dataset == "case_reports"
+    assert snapshot.version == "reports_20260612T153045Z"
+    assert snapshot.version_date == "2026-06-12"
+    assert seen_urls == [
+        "https://cure-api.ncats.io/v2/reports?limit=100&sort=latest",
+        "https://cure-api.ncats.io/v2/reports?page=2",
+    ]
+    output_path = snapshot.files[0].path
+    assert output_path.name == "reports_20260612T153045Z.jsonl"
+    assert output_path.read_text(encoding="utf-8").splitlines() == [
+        '{"id": "report-1"}',
+        '{"id": "report-2"}',
+        '{"id": "report-3"}',
+    ]
+    evidence = snapshot.extra["version_method"]["evidence"]
+    assert evidence["page_count"] == 2
+    assert evidence["expected_count"] == 3
+    assert evidence["total_written"] == 3
+
+
+def test_cure_curated_concepts_manual_fetcher_copies_tsv(tmp_path: Path):
+    source_file = tmp_path / "cureid_data.tsv"
+    source_file.write_text("subject_final_curie\nMONDO:1\n", encoding="utf-8")
+    os.utime(source_file, (1_786_200_000, 1_786_200_000))
+
+    snapshot = fetch_curated_concepts(dest=tmp_path / "cache", source_file=source_file)
+
+    assert snapshot.source == "cure"
+    assert snapshot.dataset == "curated_concepts"
+    assert snapshot.version == "2026-08-08"
+    assert snapshot.version_date == "2026-08-08"
+    assert snapshot.files[0].path == tmp_path / "cache" / "cureid_data.tsv"
+    assert snapshot.files[0].path.read_text(encoding="utf-8") == "subject_final_curie\nMONDO:1\n"
+    assert snapshot.files[0].source_url == "manual://cure/curated_concepts/cureid_data.tsv"
 
 
 def test_verify_manifest_files_catches_modified_file(tmp_path: Path):
@@ -1058,6 +1144,111 @@ sources:
     assert registry.is_latest_registered("antibodypedia", "scraped_results") is True
 
 
+def test_data_registry_sync_latest_snapshots_handles_manual_target_graph_id_files(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  target_graph:
+    datasets:
+      gene_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphGeneIdsFetcher
+          version_strategy: local_file_mtime
+      transcript_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphTranscriptIdsFetcher
+          version_strategy: local_file_mtime
+      protein_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphProteinIdsFetcher
+          version_strategy: local_file_mtime
+      disease_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphDiseaseIdsFetcher
+          version_strategy: local_file_mtime
+      uniprot_mapping:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphUniprotMappingFetcher
+          version_strategy: local_file_mtime
+""",
+        encoding="utf-8",
+    )
+    source_dir = tmp_path / "input_files" / "manual" / "target_graph"
+    source_dir.mkdir(parents=True)
+    files = {
+        "gene_ids.tsv": "id\ngene1\n",
+        "transcript_ids.tsv": "id\ntx1\n",
+        "protein_ids.tsv": "id\nprotein1\n",
+        "disease_ids.tsv": "id\ndisease1\n",
+        "uniprotkb_mapping_20260507.csv": "id,uniprot\nprotein1,P1\n",
+    }
+    for file_name, content in files.items():
+        path = source_dir / file_name
+        path.write_text(content, encoding="utf-8")
+        os.utime(path, (1_786_200_000, 1_786_200_000))
+
+    class UploadStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return sorted(self.uploaded)
+            if prefix == "external/":
+                return []
+            if prefix == "derived/":
+                return []
+            raise AssertionError(prefix)
+
+        def upload_file(self, local_path, key, content_type=None):
+            path = Path(local_path)
+            self.uploaded[key] = path.read_bytes()
+            return f"s3://ifx-registry/{key}"
+
+        def read_text(self, key):
+            return self.uploaded[key].decode("utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    storage = UploadStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    plan = registry.sync_latest_snapshots()
+
+    assert [(entry["source"], entry["dataset"], entry["latest_version"], entry["sync_reason"]) for entry in plan] == [
+        ("target_graph", "disease_ids", "2026-08-08", "missing"),
+        ("target_graph", "gene_ids", "2026-08-08", "missing"),
+        ("target_graph", "protein_ids", "2026-08-08", "missing"),
+        ("target_graph", "transcript_ids", "2026-08-08", "missing"),
+        ("target_graph", "uniprot_mapping", "2026-08-08", "missing"),
+    ]
+
+    result = registry.sync_latest_snapshots(dest=tmp_path / "cache", dry_run=False)
+
+    assert [entry["sync_action"] for entry in result] == ["refreshed"] * 5
+    assert sorted(storage.uploaded) == [
+        "sources/target_graph/disease_ids/2026-08-08/disease_ids.tsv",
+        "sources/target_graph/disease_ids/2026-08-08/manifest.yaml",
+        "sources/target_graph/gene_ids/2026-08-08/gene_ids.tsv",
+        "sources/target_graph/gene_ids/2026-08-08/manifest.yaml",
+        "sources/target_graph/protein_ids/2026-08-08/manifest.yaml",
+        "sources/target_graph/protein_ids/2026-08-08/protein_ids.tsv",
+        "sources/target_graph/transcript_ids/2026-08-08/manifest.yaml",
+        "sources/target_graph/transcript_ids/2026-08-08/transcript_ids.tsv",
+        "sources/target_graph/uniprot_mapping/2026-08-08/manifest.yaml",
+        "sources/target_graph/uniprot_mapping/2026-08-08/uniprotkb_mapping_20260507.csv",
+    ]
+    manifest = yaml.safe_load(storage.uploaded["sources/target_graph/protein_ids/2026-08-08/manifest.yaml"])
+    assert manifest["dataset"] == "protein_ids"
+    assert manifest["extra"]["provenance"]["status"] == "generated externally and curated manually for ODIN use"
+    assert [entry["path"] for entry in manifest["files"]] == ["protein_ids.tsv"]
+
+
 def test_source_latest_version_helpers_parse_source_metadata(monkeypatch):
     class FakeResponse:
         def __init__(self, text="", json_payload=None):
@@ -1133,6 +1324,196 @@ def test_data_registry_upload_snapshot_writes_storage_uris(tmp_path: Path):
         ("example.tsv", "sources/example/dataset/v1/example.tsv", "text/tab-separated-values"),
         ("manifest.yaml", "sources/example/dataset/v1/manifest.yaml", "application/x-yaml"),
     ]
+
+
+def test_data_registry_materialize_source_snapshot_reuses_matching_cache(tmp_path: Path):
+    cached_path = tmp_path / "cache" / "example" / "dataset" / "v1" / "example.tsv"
+    cached_path.parent.mkdir(parents=True)
+    cached_path.write_text("id\tname\n1\talpha\n", encoding="utf-8")
+    manifest = build_source_snapshot_manifest(
+        source="example",
+        dataset="dataset",
+        version="v1",
+        version_date="2026-06-11",
+        download_date="2026-06-12",
+        upstream_urls=["https://example.org/example.tsv"],
+        files=[
+            file_entry(
+                cached_path,
+                "https://example.org/example.tsv",
+                storage_uri="s3://ifx-registry/sources/example/dataset/v1/example.tsv",
+            )
+        ],
+    )
+
+    class Storage:
+        bucket = "ifx-registry"
+
+        def __init__(self):
+            self.downloads = []
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return ["sources/example/dataset/v1/manifest.yaml"]
+            if prefix in ("external/", "derived/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            assert key == "sources/example/dataset/v1/manifest.yaml"
+            return yaml.safe_dump(manifest, sort_keys=False)
+
+        def download_file(self, key, local_path):
+            self.downloads.append((key, Path(local_path)))
+            Path(local_path).write_text("downloaded\n", encoding="utf-8")
+
+    storage = Storage()
+    registry = DataRegistry(storage)
+
+    materialized = registry.materialize_source_snapshot("example", "dataset", "v1", dest=tmp_path / "cache")
+
+    assert materialized.local_dir == tmp_path / "cache" / "example" / "dataset" / "v1"
+    assert materialized.file() == cached_path
+    assert materialized.version_info().version == "v1"
+    assert materialized.version_info().version_date == date(2026, 6, 11)
+    assert materialized.version_info().download_date == date(2026, 6, 12)
+    assert storage.downloads == []
+
+
+def test_data_registry_materialize_derived_artifact_reuses_matching_cache(tmp_path: Path):
+    cached_path = tmp_path / "cache" / "example" / "derived_dataset" / "v1" / "derived.parquet"
+    cached_path.parent.mkdir(parents=True)
+    cached_path.write_text("derived\n", encoding="utf-8")
+    manifest = build_derived_snapshot_manifest(
+        source="example",
+        dataset="derived_dataset",
+        version="v1",
+        version_date="2026-06-11",
+        derived_from=[
+            {
+                "snapshot_id": "example:source_dataset:v1",
+                "manifest_uri": "s3://ifx-registry/sources/example/source_dataset/v1/manifest.yaml",
+            }
+        ],
+        transform={"name": "example_transform", "version": 1},
+        build_key="abc123",
+        files=[
+            file_entry(
+                cached_path,
+                "derived://example/derived_dataset/v1/derived.parquet",
+                storage_uri="s3://ifx-registry/derived/example/derived_dataset/v1/derived.parquet",
+            )
+        ],
+    )
+
+    class Storage:
+        bucket = "ifx-registry"
+
+        def __init__(self):
+            self.downloads = []
+
+        def list_keys(self, prefix):
+            if prefix == "derived/":
+                return ["derived/example/derived_dataset/v1/manifest.yaml"]
+            if prefix in ("sources/", "external/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            assert key == "derived/example/derived_dataset/v1/manifest.yaml"
+            return yaml.safe_dump(manifest, sort_keys=False)
+
+        def download_file(self, key, local_path):
+            self.downloads.append((key, Path(local_path)))
+            Path(local_path).write_text("downloaded\n", encoding="utf-8")
+
+    storage = Storage()
+    registry = DataRegistry(storage)
+
+    materialized = registry.materialize_derived_artifact(
+        "example",
+        "derived_dataset",
+        "v1",
+        dest=tmp_path / "cache",
+    )
+
+    assert materialized.local_dir == tmp_path / "cache" / "example" / "derived_dataset" / "v1"
+    assert materialized.file() == cached_path
+    assert materialized.version_info().version == "v1"
+    assert materialized.version_info().version_date == date(2026, 6, 11)
+    assert storage.downloads == []
+
+
+def test_data_registry_materialize_external_source_returns_version_info(tmp_path: Path):
+    manifest = {
+        "kind": "external_source_registration",
+        "schema_version": 1,
+        "source": "example",
+        "dataset": "api",
+        "registration_id": "example:api:v1",
+        "version": "v1",
+        "version_date": "2026-06-11",
+        "registered_date": "2026-06-12",
+        "created_at": "2026-06-12T12:00:00+00:00",
+        "connection": {"type": "graphql", "endpoint": "https://example.org/graphql"},
+        "access": {"mode": "query", "interface": "graphql"},
+        "extra": {},
+    }
+
+    class Storage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "external/":
+                return ["external/example/api/v1/manifest.yaml"]
+            if prefix in ("sources/", "derived/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            assert key == "external/example/api/v1/manifest.yaml"
+            return yaml.safe_dump(manifest, sort_keys=False)
+
+    registry = DataRegistry(Storage())
+
+    materialized = registry.materialize_external_source("example", "api", "v1", dest=tmp_path / "cache")
+
+    assert materialized.local_dir == tmp_path / "cache" / "example" / "api" / "v1"
+    assert materialized.snapshot_id == "example:api:v1"
+    assert materialized.version_info().version == "v1"
+    assert materialized.version_info().version_date == date(2026, 6, 11)
+    assert materialized.version_info().download_date == date(2026, 6, 12)
+
+
+def test_registry_data_source_resolution_preserves_kwargs_dict(tmp_path: Path):
+    class Registry:
+        def materialize_source_snapshot(self, source, dataset, version, *, dest):
+            return MaterializedDataset(
+                source=source,
+                dataset=dataset,
+                version=version,
+                version_date="2026-06-12",
+                download_date="2026-06-13",
+                snapshot_id=f"{source}:{dataset}:{version}",
+                manifest_uri=f"s3://ifx-registry/{source}/{dataset}/{version}/manifest.yaml",
+                manifest={"files": [{"path": "data.jsonl"}]},
+                local_dir=tmp_path,
+            )
+
+    resolved = _resolve_registry_data_sources(
+        {
+            "kwargs": {
+                "data_source": "cure:case_reports:v1",
+                "form_type": "pasc",
+            }
+        },
+        Registry(),
+        tmp_path,
+    )
+
+    assert isinstance(resolved["kwargs"], dict)
+    assert resolved["kwargs"]["data_source"].snapshot_id == "cure:case_reports:v1"
+    assert resolved["kwargs"]["form_type"] == "pasc"
 
 
 def test_data_registry_local_instance_cannot_upload(tmp_path: Path):

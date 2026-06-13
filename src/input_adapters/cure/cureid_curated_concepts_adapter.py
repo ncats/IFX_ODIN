@@ -12,6 +12,11 @@ from src.models.node import Node
 
 
 class CureIdCuratedConceptsAdapter(FlatFileAdapter):
+    def __init__(self, data_source):
+        file_path = str(data_source.file())
+        super().__init__(file_path=file_path)
+        self.version_info = data_source.version_info()
+
     def get_all(self) -> Generator[List[Node], None, None]:
         batch: List[Node] = []
         emitted_keys: set[tuple[str, str]] = set()
@@ -54,7 +59,4 @@ class CureIdCuratedConceptsAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version="manual-cureid-curated-concepts",
-            download_date=self.download_date,
-        )
+        return self.version_info

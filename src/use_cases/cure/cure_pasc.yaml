@@ -1,10 +1,14 @@
 destination_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 input_adapters:
   - import: ./src/input_adapters/cure/cure_adapter.py
     class: CUREAdapter
     kwargs:
-      file_path: ./input_files/manual/cure/reports_20260518T211409Z.jsonl
+      data_source: cure:case_reports:reports_20260612T182139Z
       form_type: pasc
 
 graph_views:

@@ -8,9 +8,13 @@ from src.registry.manifest import read_manifest
 
 registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
 
-print(registry.list_derived_artifacts())
-print(registry.check_derived_artifacts())
-print(registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=True))
+# print(registry.list_source_snapshots())
+print(registry.sync_latest_snapshots(dest="/tmp/ifx-registry-cache", dry_run=False, min_days_since_last_update=30))
+
+
+# print(registry.list_derived_artifacts())
+# print(registry.check_derived_artifacts())
+# print(registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=True))
 # print(registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=False))
 
 

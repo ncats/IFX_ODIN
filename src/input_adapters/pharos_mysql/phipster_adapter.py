@@ -1,9 +1,7 @@
-from datetime import date
 from typing import Generator, List, Optional, Union
 
-from src.constants import DataSourceName, Prefix
+from src.constants import Prefix
 from src.input_adapters.pharos_mysql.base import Pharos319Adapter
-from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.node import EquivalentId, Node, Relationship
 from src.models.protein import Protein
 from src.models.virus import Virus, ViralPPIDetail, ViralPPIEdge, ViralProtein, VirusViralProteinEdge
@@ -12,12 +10,6 @@ from src.shared.sqlalchemy_tables.pharos_tables_old import (
     ViralPPI as mysql_ViralPPI,
     ViralProtein as mysql_ViralProtein,
     Virus as mysql_Virus,
-)
-
-
-PHIPSTER_VERSION = DatasourceVersionInfo(
-    version="original paper",
-    version_date=date.fromisoformat("2019-09-05"),
 )
 
 
@@ -41,15 +33,9 @@ def _parse_pdb_ids(raw_value: Optional[str]) -> List[str]:
 class PHIPSTERLegacyLiftAdapter(Pharos319Adapter):
     batch_size: int = 10000
 
-    def __init__(self, credentials, max_rows: Optional[int] = None):
-        super().__init__(credentials)
+    def __init__(self, credentials, max_rows: Optional[int] = None, data_source=None):
+        super().__init__(credentials, data_source=data_source)
         self.max_rows = max_rows
-
-    def get_datasource_name(self) -> DataSourceName:
-        return DataSourceName.PHIPSTER
-
-    def get_version(self) -> DatasourceVersionInfo:
-        return PHIPSTER_VERSION
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         viruses = self._load_viruses()

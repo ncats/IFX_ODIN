@@ -23,6 +23,14 @@ from sqlalchemy.engine import Engine
 import uvicorn
 
 from src.core.data_registry import DataRegistry
+from src.qa_browser.registry_usage import (
+    extract_registry_datasets,
+    graph_usage_filters,
+    graph_usage_styles,
+    group_by_source_dataset,
+    load_graph_registry_usage_cached,
+    with_graph_usages,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -48,6 +56,11 @@ _registry_catalog_cache: dict = {
     "snapshots": None,
     "derived_artifacts": None,
     "external_registrations": None,
+    "error": None,
+}
+_registry_usage_cache: dict = {
+    "loaded_at": 0.0,
+    "usage_by_registry_id": None,
     "error": None,
 }
 _REGISTRY_CATALOG_TTL_SECONDS = 60
@@ -1026,33 +1039,28 @@ async def qa_browser_home(request: Request):
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
     snapshots, derived_artifacts, external_registrations, registry_error = _load_registry_catalog_cached()
-    grouped_sources = {}
-    for snapshot in snapshots:
-        source = snapshot.get("source") or ""
-        dataset = snapshot.get("dataset") or ""
-        source_group = grouped_sources.setdefault(source, {
-            "source": snapshot.get("source"),
-            "datasets": {},
-        })
-        dataset_group = source_group["datasets"].setdefault(dataset, {
-            "dataset": snapshot.get("dataset"),
-            "snapshots": [],
-        })
-        dataset_group["snapshots"].append(snapshot)
+    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
+        credentials=_credentials,
+        cache=_registry_usage_cache,
+        ttl_seconds=_REGISTRY_CATALOG_TTL_SECONDS,
+        get_sys_db=get_sys_db,
+        get_db=get_db,
+    )
+    graph_filters = graph_usage_filters(graph_usage_by_registry_id)
+    graph_styles = graph_usage_styles(graph_filters)
 
-    grouped_derived_sources = {}
-    for artifact in derived_artifacts:
-        source = artifact.get("source") or ""
-        dataset = artifact.get("dataset") or ""
-        source_group = grouped_derived_sources.setdefault(source, {
-            "source": artifact.get("source"),
-            "datasets": {},
-        })
-        dataset_group = source_group["datasets"].setdefault(dataset, {
-            "dataset": artifact.get("dataset"),
-            "artifacts": [],
-        })
-        dataset_group["artifacts"].append(artifact)
+    snapshot_list = [
+        with_graph_usages(snapshot, graph_usage_by_registry_id)
+        for snapshot in snapshots
+    ]
+    derived_artifact_list = [
+        with_graph_usages(artifact, graph_usage_by_registry_id)
+        for artifact in derived_artifacts
+    ]
+    external_registration_list = [
+        with_graph_usages(registration, graph_usage_by_registry_id)
+        for registration in external_registrations
+    ]
 
     grouped_source_list = []
     grouped_derived_source_list = []
@@ -1064,16 +1072,8 @@ def registry_home(request: Request):
         "total_size": "",
     }
     if not registry_error:
-        for source_group in grouped_sources.values():
-            grouped_source_list.append({
-                "source": source_group["source"],
-                "datasets": list(source_group["datasets"].values()),
-            })
-        for source_group in grouped_derived_sources.values():
-            grouped_derived_source_list.append({
-                "source": source_group["source"],
-                "datasets": list(source_group["datasets"].values()),
-            })
+        grouped_source_list = group_by_source_dataset(snapshot_list, "snapshots")
+        grouped_derived_source_list = group_by_source_dataset(derived_artifact_list, "artifacts")
         total_size_bytes = (
             sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in snapshots)
             + sum(artifact.get("total_size_bytes", 0) or 0 for artifact in derived_artifacts)
@@ -1088,13 +1088,16 @@ def registry_home(request: Request):
 
     return templates.TemplateResponse(request, "registry_home.html", {
         "request": request,
-        "snapshots": snapshots,
-        "derived_artifacts": derived_artifacts,
-        "external_registrations": external_registrations,
+        "snapshots": snapshot_list,
+        "derived_artifacts": derived_artifact_list,
+        "external_registrations": external_registration_list,
         "grouped_sources": grouped_source_list,
         "grouped_derived_sources": grouped_derived_source_list,
         "registry_stats": registry_stats,
         "registry_error": registry_error,
+        "graph_usage_error": graph_usage_error,
+        "graph_usage_filters": graph_filters,
+        "graph_usage_styles": graph_styles,
     })
 
 
@@ -1121,12 +1124,14 @@ def dashboard(request: Request, db_name: str):
             pass
 
     graph_views = _get_graph_views(db)
+    registry_datasets = extract_registry_datasets(etl_meta)
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "db_name": db_name,
         "collections": collections,
         "edge_defs": edge_defs,
         "etl_meta": etl_meta,
+        "registry_datasets": registry_datasets,
         "graph_views": graph_views,
         "doc_count": None,
         "edge_count": None,

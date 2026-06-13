@@ -3,6 +3,10 @@ legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/ph
 database_name: &database_name impatient_target_graph
 pchembl_cutoff: &pchembl_cutoff 5
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py
@@ -16,7 +20,7 @@ resolvers:
     class: TargetGraphGeneResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      data_source: target_graph:gene_ids:2026-05-11
       types:
         - Gene
 
@@ -25,7 +29,7 @@ resolvers:
     class: TargetGraphTranscriptResolver
     kwargs:
       no_match_behavior: Skip
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
       types:
         - Transcript
 
@@ -34,9 +38,8 @@ resolvers:
     class: TargetGraphProteinResolver
     kwargs:
       no_match_behavior: Skip
-      file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
+      data_source: target_graph:protein_ids:2026-05-20
+      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
 
@@ -44,107 +47,112 @@ input_adapters:
   - import: ./src/input_adapters/go/go_term.py
     class: GOTermAdapter
     kwargs:
-      file_path: ./input_files/auto/go/go-basic.json
+      data_source: go:ontology:2026-05-28
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: IsoformProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/target_graph/gene_node.py
     class: GeneNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/gene_ids.tsv
+      data_source: target_graph:gene_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/transcript_node.py
     class: TranscriptNodeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/gene_transcript_edge.py
     class: GeneTranscriptEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/transcript_ids.tsv
+      data_source: target_graph:transcript_ids:2026-05-11
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: TranscriptProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: GeneProteinEdgeAdapter
     kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
+      data_source: target_graph:protein_ids:2026-05-20
 
   - import: ./src/input_adapters/drug_central/drug_node.py
     class: DrugNodeAdapter
+    kwargs:
+      data_source: drugcentral:drug_database:54
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/protein_drug_edge.py
     class: ProteinDrugEdgeAdapter
+    kwargs:
+      data_source: drugcentral:drug_database:54
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
-      file_path: ./input_files/auto/iuphar/ligands.csv
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
     class: ProteinLigandEdgeAdapter
     kwargs:
       pchembl_cutoff: *pchembl_cutoff
-      file_path: ./input_files/auto/iuphar/ligands.csv
-      interaction_file_path: ./input_files/auto/iuphar/interactions.csv
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
     kwargs:
+      data_source: chembl:activity_database:chembl36
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: ProteinDrugEdgeAdapter
     kwargs:
+      data_source: chembl:activity_database:chembl36
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
     kwargs:
-      file_path: ./input_files/auto/jensenlab/protein_counts.tsv
+      data_source: jensenlab:protein_counts:2026-05-31
 
   - import: ./src/input_adapters/antibodypedia/antibody_count.py
     class: AntibodyCountAdapter
     kwargs:
-      file_path: ./input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv
+      data_source: antibodypedia:scraped_results:2025-06-27_12-32
 
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
+    kwargs:
+      data_source: legacy_pharos:pharos319_mysql:pharos319
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-uniprot.gaf.gz
+      data_source: go:goa_human_uniprot:2026-06-02
       source: UniProt
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      gaf_file_name: ./input_files/auto/go/goa_human-go.gaf.gz
+      data_source: go:goa_human_go:2026-05-28
       source: GO
 
   - import: ./src/input_adapters/ncbi/publications.py
     class: NCBIPublicationAdapter
     kwargs:
-      gene2pubmed_file_path: ./input_files/auto/ncbi/gene2pubmed.gz
-      generif_file_path: ./input_files/auto/ncbi/generifs_basic.gz
-      version_file_path: ./input_files/auto/ncbi/ncbi_publications_version.tsv
+      data_source: ncbi:publications:2026-06-10
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

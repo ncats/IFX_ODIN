@@ -1,10 +1,12 @@
 import importlib.util
 import os
+from pathlib import Path
 import sys
-from typing import List
+from typing import Any, List
 
 import yaml
 
+from src.core.data_registry import DataRegistry
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.output_adapter import OutputAdapter
@@ -55,6 +57,66 @@ def create_object_from_config(config: dict):
 
     return cls(**kwargs)
 
+
+def _db_credentials_from_config(config_node: Any) -> DBCredentials:
+    if isinstance(config_node, DBCredentials):
+        return config_node
+    if isinstance(config_node, dict):
+        return DBCredentials.from_yaml(config_node)
+    return DBCredentials.from_yaml(yaml.safe_load(Path(config_node).read_text(encoding="utf-8")))
+
+
+def _parse_data_source_ref(ref: str) -> tuple[str, str, str]:
+    parts = ref.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Registry data_source must be source:dataset:version, got {ref!r}")
+    return parts[0], parts[1], parts[2]
+
+
+def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, ref: str):
+    source, dataset, version = _parse_data_source_ref(ref)
+    try:
+        return registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
+    except LookupError:
+        try:
+            return registry.materialize_derived_artifact(source, dataset, version, dest=cache_dir)
+        except LookupError:
+            return registry.materialize_external_source(source, dataset, version, dest=cache_dir)
+
+
+def _resolve_registry_data_sources(config_node: Any, registry: DataRegistry, cache_dir: Path, parent_key: str | None = None):
+    if isinstance(config_node, dict):
+        resolved = {}
+        for key, value in config_node.items():
+            if (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):
+                resolved[key] = _materialize_registry_data_source(registry, cache_dir, value)
+            else:
+                resolved[key] = _resolve_registry_data_sources(value, registry, cache_dir, key)
+        return resolved
+    if isinstance(config_node, list):
+        return [_resolve_registry_data_sources(entry, registry, cache_dir, parent_key) for entry in config_node]
+    return config_node
+
+
+def resolve_registry_references(config_dict: dict) -> dict:
+    registry_config = config_dict.get("registry")
+    if not registry_config:
+        return config_dict
+    credentials_config = registry_config.get("credentials")
+    if credentials_config is None:
+        raise ValueError("registry.credentials is required when registry config is present")
+    cache_dir = Path(registry_config.get("cache_dir", "/tmp/ifx-registry-cache"))
+    registry = DataRegistry.from_credentials(
+        _db_credentials_from_config(credentials_config),
+        bucket=registry_config.get("bucket"),
+        use_internal_url=registry_config.get("use_internal_url", False),
+    )
+    resolved = dict(config_dict)
+    for key in ("resolvers", "input_adapters"):
+        if key in resolved:
+            resolved[key] = _resolve_registry_data_sources(resolved[key], registry, cache_dir)
+    return resolved
+
 class Config:
     config_dict: {}
     yaml_files: list = []
@@ -64,6 +126,7 @@ class Config:
     def load_config_from_yaml(self, file_path):
         config_dict = self.load_one_yaml(file_path)
         config_dict = self._load_nested_yamls(config_dict)
+        config_dict = resolve_registry_references(config_dict)
         print('Configuration loaded from yaml file(s)')
         return config_dict
 

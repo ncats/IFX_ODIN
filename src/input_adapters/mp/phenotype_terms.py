@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Generator, List, Optional
 
 import obonet
@@ -10,7 +9,9 @@ from src.models.mouse_phenotype import MousePhenotype
 
 
 class MPPhenotypeAdapter(FlatFileAdapter):
-    def __init__(self, file_path: str):
+    def __init__(self, data_source):
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("MPheno_OBO.ontology"))
         super().__init__(file_path)
         self._graph = obonet.read_obo(self.file_path)
 
@@ -18,28 +19,7 @@ class MPPhenotypeAdapter(FlatFileAdapter):
         return DataSourceName.MP
 
     def get_version(self) -> DatasourceVersionInfo:
-        raw_version = self._graph.graph.get("data-version")
-        version_string = self._extract_version_string(raw_version)
-        return DatasourceVersionInfo(
-            version=version_string,
-            version_date=self._parse_version_date(version_string),
-            download_date=self.download_date,
-        )
-
-    @staticmethod
-    def _extract_version_string(raw_version: str | None) -> str | None:
-        if raw_version and "/" in raw_version:
-            return raw_version.split("/")[-1]
-        return raw_version
-
-    @staticmethod
-    def _parse_version_date(version_string: str | None) -> date | None:
-        if not version_string:
-            return None
-        try:
-            return date.fromisoformat(version_string)
-        except (ValueError, TypeError):
-            return None
+        return self.version_info
 
     @staticmethod
     def _is_mp_id(term_id: str) -> bool:

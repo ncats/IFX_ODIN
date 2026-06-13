@@ -1,11 +1,11 @@
 import csv
+import gzip
 import os
 import re
 import sqlite3
 import tempfile
 import time
 from collections import defaultdict
-from datetime import date, datetime
 from typing import Dict, Generator, Iterable, Iterator, List, Optional, Set, Tuple, Union
 
 from src.constants import DataSourceName, Prefix
@@ -23,16 +23,14 @@ class TINXAdapter(InputAdapter):
 
     def __init__(
         self,
-        protein_mentions_file_path: str,
-        disease_mentions_file_path: str,
-        version_file_path: Optional[str] = None,
+        data_source,
         max_proteins: Optional[int] = None,
         max_diseases: Optional[int] = None,
         max_pairs: Optional[int] = None,
     ):
-        self.protein_mentions_file_path = protein_mentions_file_path
-        self.disease_mentions_file_path = disease_mentions_file_path
-        self.version_file_path = version_file_path
+        self.protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
+        self.disease_mentions_file_path = str(data_source.file("disease_textmining_mentions.tsv.gz"))
+        self.version_info = data_source.version_info()
         self.max_proteins = max_proteins
         self.max_diseases = max_diseases
         self.max_pairs = max_pairs
@@ -41,26 +39,7 @@ class TINXAdapter(InputAdapter):
         return DataSourceName.TINX
 
     def get_version(self) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        if self.version_file_path and os.path.exists(self.version_file_path):
-            with open(self.version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    raw_version_date = row.get("version_date") or None
-                    if raw_version_date:
-                        try:
-                            version_date = date.fromisoformat(raw_version_date)
-                        except ValueError:
-                            version_date = None
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=self._download_date(),
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         print("TIN-X: building protein PMID counts")
@@ -158,7 +137,7 @@ class TINXAdapter(InputAdapter):
 
     def _iter_protein_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_proteins: Set[str] = set()
-        with open(self.protein_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.protein_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -179,7 +158,7 @@ class TINXAdapter(InputAdapter):
 
     def _iter_disease_mention_fields(self) -> Generator[Tuple[str, str], None, None]:
         seen_diseases: Set[str] = set()
-        with open(self.disease_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.disease_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -192,17 +171,11 @@ class TINXAdapter(InputAdapter):
                 if self.max_diseases is not None and len(seen_diseases) >= self.max_diseases:
                     break
 
-    def _download_date(self) -> Optional[date]:
-        timestamps = []
-        for file_path in (
-            self.protein_mentions_file_path,
-            self.disease_mentions_file_path,
-        ):
-            if os.path.exists(file_path):
-                timestamps.append(os.path.getmtime(file_path))
-        if not timestamps:
-            return None
-        return datetime.fromtimestamp(max(timestamps)).date()
+    @staticmethod
+    def _open_text(file_path: str):
+        if file_path.endswith(".gz"):
+            return gzip.open(file_path, "rt", encoding="utf-8", errors="replace")
+        return open(file_path, "r", encoding="utf-8", errors="replace")
 
     @staticmethod
     def _parse_pmid_field(raw_pmids: str) -> Set[str]:

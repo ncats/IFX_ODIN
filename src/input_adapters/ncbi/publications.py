@@ -1,9 +1,8 @@
 import csv
 import gzip
-import os
 import re
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime
 from typing import DefaultDict, Dict, Generator, List, Optional, Tuple
 
 from src.constants import DataSourceName, Prefix, HUMAN_TAX_ID
@@ -19,20 +18,17 @@ class NCBIPublicationAdapter(InputAdapter):
 
     def __init__(
         self,
-        gene2pubmed_file_path: str,
-        generif_file_path: str,
-        version_file_path: Optional[str] = None,
+        data_source,
         max_genes: Optional[int] = None,
         max_gene2pubmed_rows: Optional[int] = None,
         max_generif_rows: Optional[int] = None,
     ):
-        self.gene2pubmed_file_path = gene2pubmed_file_path
-        self.generif_file_path = generif_file_path
-        self.version_file_path = version_file_path
+        self.gene2pubmed_file_path = str(data_source.file("gene2pubmed.gz"))
+        self.generif_file_path = str(data_source.file("generifs_basic.gz"))
         self.max_genes = max_genes
         self.max_gene2pubmed_rows = max_gene2pubmed_rows
         self.max_generif_rows = max_generif_rows
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.NCBI
@@ -149,34 +145,6 @@ class NCBIPublicationAdapter(InputAdapter):
                         ):
                             existing.updated_at = updated_at
 
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = None
-        if version_file_path and os.path.exists(version_file_path):
-            with open(version_file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    version_date = self._parse_date(row.get("version_date"))
-                    download_date = self._parse_date(row.get("download_date"))
-
-        if download_date is None:
-            timestamps = [
-                os.path.getmtime(path)
-                for path in (self.gene2pubmed_file_path, self.generif_file_path)
-                if os.path.exists(path)
-            ]
-            if timestamps:
-                download_date = datetime.fromtimestamp(max(timestamps)).date()
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
-
     @staticmethod
     def _first_present(row: dict, *keys: str) -> Optional[str]:
         for key in keys:
@@ -218,19 +186,6 @@ class NCBIPublicationAdapter(InputAdapter):
         except ValueError:
             return None
 
-    @staticmethod
-    def _parse_date(raw_value: Optional[str]) -> Optional[date]:
-        if raw_value is None:
-            return None
-        value = str(raw_value).strip()
-        if not value:
-            return None
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return None
-
-    @staticmethod
     def _is_human_row(row: dict) -> bool:
         raw_tax_id = (
             row.get("#tax_id")

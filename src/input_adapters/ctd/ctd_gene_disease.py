@@ -1,6 +1,5 @@
 import csv
 import gzip
-from datetime import date
 from typing import Generator, List, Optional, Union
 
 from src.constants import DataSourceName, Prefix
@@ -23,24 +22,11 @@ class CTDGeneDiseaseAdapter(FlatFileAdapter):
         "PubMedIDs",
     ]
 
-    def __init__(self, file_path: str, version_file_path: Optional[str] = None, max_rows: Optional[int] = None):
+    def __init__(self, data_source, max_rows: Optional[int] = None):
+        file_path = str(data_source.file("CTD_curated_genes_diseases.tsv.gz"))
         FlatFileAdapter.__init__(self, file_path=file_path)
         self.max_rows = max_rows
-        version = None
-        version_date = None
-        if version_file_path:
-            with open(version_file_path, "r", encoding="utf-8") as vf:
-                reader = csv.DictReader(vf, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    raw_version_date = first_row.get("version_date") or None
-                    version_date = date.fromisoformat(raw_version_date) if raw_version_date else None
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=self.download_date,
-        )
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.CTD

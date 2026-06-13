@@ -1,6 +1,4 @@
 import csv
-import os
-from datetime import date, datetime
 from typing import Generator, List, Optional, Union
 
 from src.constants import DataSourceName, Prefix
@@ -34,17 +32,14 @@ class JensenLabDiseasesAdapter(InputAdapter):
 
     def __init__(
         self,
-        knowledge_file_path: str,
-        experiments_file_path: str,
-        textmining_file_path: str,
-        version_file_path: Optional[str] = None,
+        data_source,
         max_rows: Optional[int] = None,
         textmining_min_zscore: Optional[float] = None,
     ):
-        self.knowledge_file_path = knowledge_file_path
-        self.experiments_file_path = experiments_file_path
-        self.textmining_file_path = textmining_file_path
-        self.version_file_path = version_file_path
+        self.knowledge_file_path = str(data_source.file("human_disease_knowledge_filtered.tsv"))
+        self.experiments_file_path = str(data_source.file("human_disease_experiments_filtered.tsv"))
+        self.textmining_file_path = str(data_source.file("human_disease_textmining_filtered.tsv"))
+        self.version_info = data_source.version_info()
         self.max_rows = max_rows
         self.textmining_min_zscore = textmining_min_zscore
 
@@ -52,27 +47,7 @@ class JensenLabDiseasesAdapter(InputAdapter):
         return DataSourceName.JensenLabDiseases
 
     def get_version(self) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        if self.version_file_path and os.path.exists(self.version_file_path):
-            with open(self.version_file_path, "r", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    raw_version_date = row.get("version_date") or None
-                    if raw_version_date:
-                        try:
-                            version_date = date.fromisoformat(raw_version_date)
-                        except ValueError:
-                            version_date = None
-
-        download_date = self._download_date()
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
+        return self.version_info
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         diseases_by_id = {}
@@ -189,19 +164,6 @@ class JensenLabDiseasesAdapter(InputAdapter):
             return True
         zscore = self._parse_float(row.get("zscore"))
         return zscore is not None and zscore >= self.textmining_min_zscore
-
-    def _download_date(self) -> Optional[date]:
-        timestamps = []
-        for file_path in (
-            self.knowledge_file_path,
-            self.experiments_file_path,
-            self.textmining_file_path,
-        ):
-            if os.path.exists(file_path):
-                timestamps.append(os.path.getmtime(file_path))
-        if not timestamps:
-            return None
-        return datetime.fromtimestamp(max(timestamps)).date()
 
     @staticmethod
     def _parse_float(value: Optional[str]) -> Optional[float]:

@@ -5,6 +5,7 @@ from datetime import date
 
 from src.id_resolvers.cure_id_label_resolver import CureIdLabelResolver
 from src.input_adapters.cure.cure_adapter import CUREAdapter
+from src.input_adapters.cure.cureid_curated_concepts_adapter import CureIdCuratedConceptsAdapter
 from src.input_adapters.cure.rasopathies_adapter import RasopathiesAdapter
 from src.interfaces.id_resolver import MultiMatchBehavior, NoMatchBehavior
 from src.models.cure.rasopathies.drug_treatment import (
@@ -30,6 +31,7 @@ from src.models.cure.pasc.phenotype import Phenotype as PascPhenotype
 from src.models.cure.shared.case_report import CaseReport
 from src.models.cure.shared.patient import Patient
 from src.models.gene import Gene
+from src.registry.fetchers import MaterializedDataset
 
 
 CURE_REPORTS_FILE = "./input_files/manual/cure/reports_20260518T211409Z.jsonl"
@@ -97,6 +99,55 @@ def test_cure_pasc_adapter_reads_version_date_from_file_name():
     assert version.version_date == date(2026, 5, 18)
 
 
+def _materialized_dataset(tmp_path, file_name, content, *, version="registered-v1", version_date="2026-06-12"):
+    local_dir = tmp_path / "cure" / "dataset" / version
+    local_dir.mkdir(parents=True)
+    file_path = local_dir / file_name
+    file_path.write_text(content, encoding="utf-8")
+    return MaterializedDataset(
+        source="cure",
+        dataset="dataset",
+        version=version,
+        version_date=version_date,
+        download_date="2026-06-13",
+        snapshot_id=f"cure:dataset:{version}",
+        manifest_uri=f"s3://ifx-registry/cure/dataset/{version}/manifest.yaml",
+        manifest={"files": [{"path": file_name}]},
+        local_dir=local_dir,
+    )
+
+
+def test_cure_adapters_use_registry_dataset_version(tmp_path):
+    data_source = _materialized_dataset(
+        tmp_path,
+        "reports.jsonl",
+        '{"id": "r1", "form_type": "pasc", "status": "Draft"}\n',
+    )
+
+    pasc_version = CUREAdapter(data_source=data_source, form_type="pasc").get_version()
+    ras_version = RasopathiesAdapter(data_source=data_source).get_version()
+
+    assert pasc_version.version == "registered-v1"
+    assert pasc_version.version_date == date(2026, 6, 12)
+    assert pasc_version.download_date == date(2026, 6, 13)
+    assert ras_version.version == "registered-v1"
+
+
+def test_cure_curated_concepts_adapter_uses_registry_dataset_version(tmp_path):
+    data_source = _materialized_dataset(
+        tmp_path,
+        "cureid_data.tsv",
+        "subject_type\tsubject_final_curie\nDisease\tMONDO:1\n",
+        version="2026-05-14",
+        version_date="2026-05-14",
+    )
+
+    version = CureIdCuratedConceptsAdapter(data_source=data_source).get_version()
+
+    assert version.version == "2026-05-14"
+    assert version.version_date == date(2026, 5, 14)
+
+
 def test_cure_id_label_resolver_applies_manual_yaml_style_label_map():
     resolver = CureIdLabelResolver(
         CURE_TSV_FILE,
@@ -119,6 +170,27 @@ def test_cure_id_label_resolver_applies_manual_yaml_style_label_map():
 
     assert [match.match for match in resolved["Syngap"]] == ["NCBIGene:8831"]
     assert [match.match for match in resolved["SYNGAP1"]] == ["NCBIGene:8831"]
+
+
+def test_cure_id_label_resolver_accepts_registry_dataset(tmp_path):
+    data_source = _materialized_dataset(
+        tmp_path,
+        "cureid_data.tsv",
+        "subject_type\tsubject_label_original\tsubject_final_curie\tobject_type\tobject_label_original\tobject_final_curie\n"
+        "Disease\tDisease A\tMONDO:1\tGene\tGene A\tNCBIGene:1\n",
+    )
+
+    resolver = CureIdLabelResolver(
+        data_source=data_source,
+        types=["Gene"],
+        label_field_by_type={"Gene": "symbol"},
+        no_match_behavior=NoMatchBehavior.Allow,
+        multi_match_behavior=MultiMatchBehavior.All,
+    )
+
+    resolved = resolver.resolve_internal([Gene(id="Gene A", symbol="Gene A")])
+
+    assert resolved["Gene A"][0].match == "NCBIGene:1"
 
 
 def test_rasopathies_adapter_only_emits_approved_cases(tmp_path):

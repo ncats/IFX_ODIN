@@ -39,6 +39,19 @@
         </div>
     </div>
     {% endif %}
+    {% if graph_usage_filters %}
+    <div class="registry-filter-bar" data-registry-filter-bar>
+        <button type="button" class="registry-filter-button active" data-registry-filter="all">All</button>
+        {% for graph in graph_usage_filters %}
+        <button type="button"
+                class="registry-filter-button"
+                data-registry-filter="{{ graph.name }}"
+                style="--graph-hue: {{ graph.hue }};">
+            {{ graph.name }}
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
     <div class="engine-header">
         <span style="font-weight:600">Registered Snapshots</span>
     </div>
@@ -48,14 +61,14 @@
     </div>
     {% elif grouped_sources %}
         {% for source_group in grouped_sources %}
-        <div class="card registry-source-group">
+        <div class="card registry-source-group" data-registry-filter-group>
             <div class="registry-source-header">
                 <h2>{{ source_group.source }}</h2>
                 <span>{{ source_group.datasets|length }} datasets</span>
             </div>
             <div class="registry-downloads">
                 {% for dataset_group in source_group.datasets %}
-                <section class="registry-download-group">
+                <section class="registry-download-group" data-registry-filter-subgroup>
                     <div class="registry-download-header">
                         <h3>{{ dataset_group.dataset }}</h3>
                     </div>
@@ -74,8 +87,19 @@
                             </thead>
                             <tbody>
                             {% for snapshot in dataset_group.snapshots %}
-                            <tr>
-                                <td class="mono">{{ snapshot.snapshot_id }}</td>
+                            <tr data-registry-filter-row data-graphs="{{ snapshot.graph_usages | join(' ') }}">
+                                <td>
+                                    <div class="mono">{{ snapshot.snapshot_id }}</div>
+                                    {% if snapshot.graph_usages %}
+                                    <div class="registry-graph-badges">
+                                        {% for graph_name in snapshot.graph_usages %}
+                                        <a class="badge registry-graph-badge"
+                                           style="{{ graph_usage_styles.get(graph_name, '') }}"
+                                           href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </td>
                                 <td>{{ snapshot.version }}</td>
                                 <td>{{ snapshot.version_date or "" }}</td>
                                 <td>{{ snapshot.download_date or "" }}</td>
@@ -146,14 +170,14 @@
     </div>
     {% if grouped_derived_sources %}
         {% for source_group in grouped_derived_sources %}
-        <div class="card registry-source-group">
+        <div class="card registry-source-group" data-registry-filter-group>
             <div class="registry-source-header">
                 <h2>{{ source_group.source }}</h2>
                 <span>{{ source_group.datasets|length }} datasets</span>
             </div>
             <div class="registry-downloads">
                 {% for dataset_group in source_group.datasets %}
-                <section class="registry-download-group">
+                <section class="registry-download-group" data-registry-filter-subgroup>
                     <div class="registry-download-header">
                         <h3>{{ dataset_group.dataset }}</h3>
                     </div>
@@ -172,8 +196,19 @@
                             </thead>
                             <tbody>
                             {% for artifact in dataset_group.artifacts %}
-                            <tr>
-                                <td class="mono">{{ artifact.snapshot_id }}</td>
+                            <tr data-registry-filter-row data-graphs="{{ artifact.graph_usages | join(' ') }}">
+                                <td>
+                                    <div class="mono">{{ artifact.snapshot_id }}</div>
+                                    {% if artifact.graph_usages %}
+                                    <div class="registry-graph-badges">
+                                        {% for graph_name in artifact.graph_usages %}
+                                        <a class="badge registry-graph-badge"
+                                           style="{{ graph_usage_styles.get(graph_name, '') }}"
+                                           href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </td>
                                 <td>{{ artifact.version }}</td>
                                 <td>{{ artifact.version_date or "" }}</td>
                                 <td>{{ artifact.created_at or "" }}</td>
@@ -268,7 +303,7 @@
         <span style="font-weight:600">External Sources</span>
     </div>
     {% if external_registrations %}
-    <div class="card registry-source-group">
+    <div class="card registry-source-group" data-registry-filter-group>
         <div class="registry-table-wrap">
             <table class="registry-table">
                 <thead>
@@ -282,8 +317,19 @@
                 </thead>
                 <tbody>
                 {% for registration in external_registrations %}
-                <tr>
-                    <td>{{ registration.source }}</td>
+                <tr data-registry-filter-row data-graphs="{{ registration.graph_usages | join(' ') }}">
+                    <td>
+                        <div>{{ registration.source }}</div>
+                        {% if registration.graph_usages %}
+                        <div class="registry-graph-badges">
+                            {% for graph_name in registration.graph_usages %}
+                            <a class="badge registry-graph-badge"
+                               style="{{ graph_usage_styles.get(graph_name, '') }}"
+                               href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
                     <td>{{ registration.dataset }}</td>
                     <td>{{ registration.version }}</td>
                     <td>
@@ -334,4 +380,5 @@
     {% endif %}
     {% endif %}
 </div>
+<script src="{{ root_path }}/static/registry_filters.js"></script>
 {% endblock %}

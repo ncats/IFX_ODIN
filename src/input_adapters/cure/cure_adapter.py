@@ -1,8 +1,6 @@
 import json
 import hashlib
-import re
-from datetime import date, datetime, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Generator, List, Optional, Union
 
 from src.constants import DataSourceName
@@ -32,10 +30,10 @@ from src.models.node import Node, Relationship
 
 
 class CUREAdapter(FlatFileAdapter):
-    _VERSION_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}Z")
-
-    def __init__(self, file_path: str, form_type: str = "pasc"):
+    def __init__(self, data_source, form_type: str = "pasc"):
+        file_path = str(data_source.file())
         super().__init__(file_path=file_path)
+        self.version_info = data_source.version_info()
         self.form_type = form_type
         self._emitted_condition_ids = set()
         self._emitted_drug_ids = set()
@@ -248,17 +246,7 @@ class CUREAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=Path(self.file_path).stem,
-            version_date=self._parse_version_date_from_file_name(),
-            download_date=self.download_date,
-        )
-
-    def _parse_version_date_from_file_name(self) -> date | None:
-        match = self._VERSION_DATE_PATTERN.search(Path(self.file_path).name)
-        if match is None:
-            return None
-        return datetime.strptime(match.group(1), "%Y%m%d").date()
+        return self.version_info
 
     def _build_case_report(self, row: dict) -> CaseReport:
         report = row.get("report") or {}

@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime
 
 import requests
 
@@ -7,6 +8,18 @@ from src.registry.sources.snapshot_helpers import build_downloaded_snapshot, dow
 
 
 UNIPROT_RELEASE_PROBE_URL = "https://rest.uniprot.org/uniprotkb/stream?compressed=false&format=json&size=1&query=accession:P04637"
+
+
+def normalize_uniprot_release_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.strip()
+    for date_format in ("%d-%B-%Y", "%d-%B-%y", "%d-%b-%Y", "%d-%b-%y"):
+        try:
+            return datetime.strptime(text, date_format).date().isoformat()
+        except ValueError:
+            pass
+    return datetime.fromisoformat(text[:10]).date().isoformat()
 
 
 def latest_uniprot_human_version(timeout: int = 60) -> str:
@@ -33,7 +46,8 @@ def fetch_uniprot(
     probe = requests.head(release_probe_url, timeout=timeout)
     probe.raise_for_status()
     version = probe.headers.get("x-uniprot-release")
-    version_date = probe.headers.get("x-uniprot-release-date")
+    raw_version_date = probe.headers.get("x-uniprot-release-date")
+    version_date = normalize_uniprot_release_date(raw_version_date)
     if not version:
         raise ValueError("UniProt response did not include x-uniprot-release")
 
@@ -57,7 +71,8 @@ def fetch_uniprot(
             "evidence": {
                 "probe_url": release_probe_url,
                 "x_uniprot_release": version,
-                "x_uniprot_release_date": version_date,
+                "x_uniprot_release_date": raw_version_date,
+                "normalized_version_date": version_date,
             },
         },
     )

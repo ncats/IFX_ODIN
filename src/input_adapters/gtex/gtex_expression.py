@@ -1,10 +1,8 @@
 import csv
 import gzip
 import math
-import os
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
 from statistics import median
 from typing import Dict, Generator, List, Optional, Union
 
@@ -37,20 +35,16 @@ class SampleInfo:
 class GTExExpressionAdapter(InputAdapter):
     def __init__(
         self,
-        matrix_file_path: str,
-        sample_attributes_file_path: str,
-        subject_phenotypes_file_path: str,
-        version_file_path: str,
+        data_source,
         max_genes: Optional[int] = None,
         max_samples: Optional[int] = None,
     ):
-        self.matrix_file_path = matrix_file_path
-        self.sample_attributes_file_path = sample_attributes_file_path
-        self.subject_phenotypes_file_path = subject_phenotypes_file_path
-        self.version_file_path = version_file_path
+        self.matrix_file_path = str(data_source.file("GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz"))
+        self.sample_attributes_file_path = str(data_source.file("GTEx_Analysis_v11_Annotations_SampleAttributesDS.txt"))
+        self.subject_phenotypes_file_path = str(data_source.file("GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.txt"))
         self.max_genes = max_genes
         self.max_samples = max_samples
-        self.version_info = self._load_version_info()
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GTEx
@@ -72,36 +66,6 @@ class GTExExpressionAdapter(InputAdapter):
             if tissue_id not in seen:
                 seen[tissue_id] = Tissue(id=tissue_id, name=sample.tissue)
         return list(seen.values())
-
-    def _load_version_info(self) -> DatasourceVersionInfo:
-        with open(self.version_file_path, "r") as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            row = next(reader)
-
-        download_date = self._min_file_date(
-            [
-                self.matrix_file_path,
-                self.sample_attributes_file_path,
-                self.subject_phenotypes_file_path,
-                self.version_file_path,
-            ]
-        )
-        return DatasourceVersionInfo(
-            version=row["version"],
-            version_date=date.fromisoformat(row["version_date"]),
-            download_date=download_date,
-        )
-
-    @staticmethod
-    def _min_file_date(file_paths: List[str]) -> Optional[date]:
-        timestamps = []
-        for file_path in file_paths:
-            if not os.path.exists(file_path):
-                continue
-            timestamps.append(datetime.fromtimestamp(os.path.getmtime(file_path)).date())
-        if not timestamps:
-            return None
-        return min(timestamps)
 
     def _load_subjects(self) -> Dict[str, SubjectInfo]:
         subject_map: Dict[str, SubjectInfo] = {}

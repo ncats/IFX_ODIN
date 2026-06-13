@@ -8,7 +8,7 @@ from sqlalchemy import or_
 from src.constants import Prefix, CHEMBL_PATENT_SOURCE_ID, CHEMBL_FUNCTIONAL_ASSAY_CODE, CHEMBL_BINDING_ASSAY_CODE, \
     CHEMBL_SMALL_MOLECULE_CODE, CHEMBL_SINGLE_PROTEIN_CODE, HUMAN_TAX_ID, DataSourceName
 from src.input_adapters.chembl.tables import Activities, CompoundRecords, CompoundStructures, MoleculeDictionary, \
-    Assays, TargetDictionary, ComponentSequence, TargetComponents, Docs, Version
+    Assays, TargetDictionary, ComponentSequence, TargetComponents, Docs
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.input_adapters.sql_adapter import MySqlAdapter
 from src.interfaces.input_adapter import InputAdapter
@@ -22,17 +22,10 @@ class ChemblAdapter(MySqlAdapter):
     pchembl_cutoff: float
     version_info: DatasourceVersionInfo
 
-    def __init__(self, credentials: DBCredentials, pchembl_cutoff: float = 5):
+    def __init__(self, credentials: DBCredentials, data_source, pchembl_cutoff: float = 5):
         MySqlAdapter.__init__(self, credentials)
-        self.initialize_version()
+        self.version_info = data_source.version_info()
         self.pchembl_cutoff = pchembl_cutoff
-
-    def initialize_version(self):
-        results = self.get_session().query(
-            Version.name,
-            Version.creation_date
-        ).filter(Version.name.op('REGEXP')('^ChEMBL_[0-9]+$')).first()
-        self.version_info = DatasourceVersionInfo(version=results.name, version_date=results.creation_date)
 
     def _activity_cache_file(self, pchembl_cutoff: float) -> str:
         schema = self.credentials.schema or "default"
@@ -54,8 +47,7 @@ class ChemblAdapter(MySqlAdapter):
         for row in query.yield_per(50000):
             results.append(row)
 
-        if not os.path.exists(os.path.dirname(cache_file)):
-            os.makedirs(os.path.dirname(cache_file))
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
         with open(cache_file, 'wb') as f:
             pickle.dump(results, f)
 

@@ -1,6 +1,5 @@
 import csv
-import os
-from datetime import date, datetime
+import gzip
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 from src.constants import DataSourceName, Prefix
@@ -16,14 +15,12 @@ class JensenLabPublicationAdapter(InputAdapter):
 
     def __init__(
         self,
-        protein_mentions_file_path: str,
-        version_file_path: Optional[str] = None,
+        data_source,
         max_proteins: Optional[int] = None,
     ):
-        self.protein_mentions_file_path = protein_mentions_file_path
-        self.version_file_path = version_file_path
+        self.protein_mentions_file_path = str(data_source.file("human_textmining_mentions.tsv.gz"))
         self.max_proteins = max_proteins
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info()
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.JensenLabTextMining
@@ -48,7 +45,7 @@ class JensenLabPublicationAdapter(InputAdapter):
 
     def _iter_protein_publications(self) -> Generator[Tuple[str, List[PublicationReference]], None, None]:
         emitted = 0
-        with open(self.protein_mentions_file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with self._open_text(self.protein_mentions_file_path) as handle:
             for raw_line in handle:
                 row = raw_line.rstrip("\n").split("\t", 1)
                 if len(row) < 2:
@@ -73,40 +70,12 @@ class JensenLabPublicationAdapter(InputAdapter):
                 if self.max_proteins is not None and emitted >= self.max_proteins:
                     break
 
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = None
-        if version_file_path and os.path.exists(version_file_path):
-            with open(version_file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                row = next(reader, None)
-                if row:
-                    version = row.get("version") or None
-                    version_date = self._parse_date(row.get("version_date"))
-                    download_date = self._parse_date(row.get("download_date"))
-
-        if download_date is None and os.path.exists(self.protein_mentions_file_path):
-            download_date = datetime.fromtimestamp(os.path.getmtime(self.protein_mentions_file_path)).date()
-
-        return DatasourceVersionInfo(
-            version=version,
-            version_date=version_date,
-            download_date=download_date,
-        )
-
     @staticmethod
     def _parse_pmid_field(raw_pmids: str) -> Set[str]:
         return {pmid for pmid in raw_pmids.strip().split() if pmid}
 
     @staticmethod
-    def _parse_date(raw_value: Optional[str]) -> Optional[date]:
-        if raw_value is None:
-            return None
-        value = str(raw_value).strip()
-        if not value:
-            return None
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return None
+    def _open_text(file_path: str):
+        if file_path.endswith(".gz"):
+            return gzip.open(file_path, "rt", encoding="utf-8", errors="replace")
+        return open(file_path, "r", encoding="utf-8", errors="replace")

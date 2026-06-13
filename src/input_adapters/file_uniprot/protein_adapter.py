@@ -1,5 +1,3 @@
-import csv
-from datetime import datetime
 from typing import Generator, List, Union
 
 from src.constants import DataSourceName
@@ -23,18 +21,10 @@ class ProteinAdapter(InputAdapter, UniProtFileReader):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def __init__(self, file_path: str, version_file_path: str):
+    def __init__(self, data_source, file_name: str = "uniprot-human.json.gz"):
+        file_path = str(data_source.file(file_name))
         UniProtFileReader.__init__(self, file_path=file_path)
-        with open(version_file_path, 'r', encoding='utf-8') as vf:
-            reader = csv.DictReader(vf, delimiter='\t')
-            first_row = next(reader)
-            version = first_row.get('version')
-            version_date = first_row.get('version_date')
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=datetime.strptime(version_date, '%d-%B-%Y').date(),
-            download_date=self.download_date
-        )
+        self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         self.read_uniprot_file()
@@ -89,18 +79,10 @@ class ProteinDiseaseEdgeAdapter(InputAdapter, UniProtFileReader):
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
 
-    def __init__(self, file_path: str, version_file_path: str):
+    def __init__(self, data_source, file_name: str = "uniprot-human.json.gz"):
+        file_path = str(data_source.file(file_name))
         UniProtFileReader.__init__(self, file_path=file_path)
-        with open(version_file_path, 'r', encoding='utf-8') as vf:
-            reader = csv.DictReader(vf, delimiter='\t')
-            first_row = next(reader)
-            version = first_row.get('version')
-            version_date = first_row.get('version_date')
-        self.version_info = DatasourceVersionInfo(
-            version=version,
-            version_date=datetime.strptime(version_date, '%d-%B-%Y').date(),
-            download_date=self.download_date
-        )
+        self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
         self.read_uniprot_file()

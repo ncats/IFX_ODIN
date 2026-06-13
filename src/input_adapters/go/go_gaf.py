@@ -1,6 +1,4 @@
 import gzip
-import os
-from datetime import datetime, date
 from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
@@ -21,18 +19,12 @@ class ProteinGoTermEdgeAdapter(InputAdapter):
         return DataSourceName.Unknown
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info
 
-    gaf_file_name: str
-    source: str
-    download_date: date
-
-    def __init__(self, gaf_file_name: str, source: str):
-        self.gaf_file_name = gaf_file_name
+    def __init__(self, data_source, source: str = None):
+        self.gaf_file_name = str(data_source.file())
         self.source = source
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(gaf_file_name)).date()
+        self.version_info = data_source.version_info()
 
     def get_go_object(self, id_obj: EquivalentId):
         return GoTerm(id = id_obj.id_str())

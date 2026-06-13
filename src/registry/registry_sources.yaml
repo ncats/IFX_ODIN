@@ -1,4 +1,16 @@
 sources:
+  cure:
+    datasets:
+      case_reports:
+        fetch:
+          module: src.registry.sources.cure
+          class: CureCaseReportsFetcher
+          version_strategy: export_timestamp
+      curated_concepts:
+        fetch:
+          module: src.registry.sources.cure
+          class: ManualCureCuratedConceptsFetcher
+          version_strategy: local_file_mtime
   ctd:
     datasets:
       curated_genes_diseases:
@@ -240,6 +252,31 @@ sources:
             code_ref: src/registry/derived/surechembl.py
   target_graph:
     datasets:
+      gene_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphGeneIdsFetcher
+          version_strategy: local_file_mtime
+      transcript_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphTranscriptIdsFetcher
+          version_strategy: local_file_mtime
+      protein_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphProteinIdsFetcher
+          version_strategy: local_file_mtime
+      disease_ids:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphDiseaseIdsFetcher
+          version_strategy: local_file_mtime
+      uniprot_mapping:
+        fetch:
+          module: src.registry.sources.manual_pharos
+          class: ManualTargetGraphUniprotMappingFetcher
+          version_strategy: local_file_mtime
       tdl_updates:
         fetch:
           module: src.registry.sources.manual_pharos
@@ -259,6 +296,14 @@ sources:
           module: src.registry.sources.manual_pharos
           class: ManualAntibodypediaScrapedResultsFetcher
           version_strategy: filename_timestamp
+  rdas:
+    datasets:
+      diseases_graphql:
+        external:
+          module: src.registry.sources.external_sources
+          class: RdasDiseasesGraphqlExternalSource
+          endpoint: https://rdas.ncats.nih.gov/api/diseases/graphql
+          version: rdas-diseases-graphql
   chembl:
     datasets:
       activity_database:

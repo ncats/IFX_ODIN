@@ -1,6 +1,5 @@
 import json
 import os
-from datetime import datetime, date
 from typing import List, Generator, Union
 
 from src.constants import Prefix, DataSourceName
@@ -10,23 +9,18 @@ from src.models.go_term import GoTerm, GoType, GoTermHasParent
 from src.models.node import EquivalentId
 
 class GOTermAdapter(InputAdapter):
-    file_path: str
-    file_name: str
-    download_date: date
-
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.GO
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info
 
-    def __init__(self, file_path: str):
+    def __init__(self, data_source):
         InputAdapter.__init__(self)
+        self.version_info = data_source.version_info()
+        file_path = str(data_source.file("go-basic.json"))
         self.file_path = file_path
         self.file_name = os.path.basename(file_path)
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
 
     def get_all(self) -> Generator[List[Union[GoTerm, GoTermHasParent]], None, None]:
         go_terms: List[GoTerm] = []
@@ -82,8 +76,5 @@ class GOTermAdapter(InputAdapter):
                     end_node=GoTerm(id=obj_id_obj.id_str())
                 ))
             yield go_term_edges
-
-
-
 
 

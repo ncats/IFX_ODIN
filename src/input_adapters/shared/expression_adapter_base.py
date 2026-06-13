@@ -1,6 +1,3 @@
-import csv
-import os
-from datetime import date, datetime
 from typing import Dict, List, Optional
 
 from src.constants import Prefix
@@ -16,37 +13,13 @@ class ExpressionAdapterBase(InputAdapter):
     tau (tissue specificity) calculation, and normalized rank.
     """
 
-    def __init__(self, data_file_path: str, version_file_path: str, uberon_map_file_path: str):
-        self.data_file_path = data_file_path
-        self.version_file_path = version_file_path
+    def __init__(self, data_source, data_file_name: str, uberon_map_file_path: str = None):
+        self.data_file_path = str(data_source.file(data_file_name))
         self.uberon_map_file_path = uberon_map_file_path
-        self.version_info = self._load_version_info()
+        self.version_info = data_source.version_info()
 
     def get_version(self) -> DatasourceVersionInfo:
         return self.version_info
-
-    def _load_version_info(self) -> DatasourceVersionInfo:
-        with open(self.version_file_path, "r") as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            row = next(reader)
-
-        download_date = None
-        if os.path.exists(self.data_file_path):
-            download_date = datetime.fromtimestamp(os.path.getmtime(self.data_file_path)).date()
-
-        version_date = None
-        raw_date = row.get("version_date")
-        if raw_date:
-            try:
-                version_date = date.fromisoformat(raw_date.strip())
-            except ValueError:
-                pass
-
-        return DatasourceVersionInfo(
-            version=row.get("version"),
-            version_date=version_date,
-            download_date=download_date,
-        )
 
     def _load_uberon_map(self) -> Dict[str, Optional[str]]:
         uberon_map: Dict[str, Optional[str]] = {}

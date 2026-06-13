@@ -15,6 +15,7 @@ from src.registry.fetchers import (
     DerivedArtifactBuilder,
     ExternalSourceProvider,
     ExternalSourceRegistration,
+    MaterializedDataset,
     ResolvedDependency,
     SourceFetcher,
     SourceSnapshot,
@@ -277,8 +278,10 @@ class DataRegistry:
             if not key.endswith(f"/{MANIFEST_FILENAME}"):
                 continue
             manifest = yaml.safe_load(self.storage.read_text(key))
+            registration_id = manifest.get("registration_id")
             manifests.append({
-                "registration_id": manifest.get("registration_id"),
+                "registration_id": registration_id,
+                "snapshot_id": registration_id,
                 "source": manifest.get("source"),
                 "dataset": manifest.get("dataset"),
                 "version": manifest.get("version"),
@@ -404,6 +407,96 @@ class DataRegistry:
         manifest_path = self.fetch_dataset(source, dataset, dest=dest, timeout=timeout)
         self.upload_snapshot(manifest_path)
         return manifest_path
+
+    def materialize_source_snapshot(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        snapshot = self.get_source_snapshot(source, dataset, version)
+        local_dir = Path(dest) / source / dataset / snapshot["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        prefix = storage_prefix(source, dataset, snapshot["version"])
+        for entry in snapshot.get("files", []) or []:
+            local_path = local_dir / entry["path"]
+            if self._local_file_matches_entry(local_path, entry):
+                print(f"Using cached registry file {local_path}", flush=True)
+                continue
+            key = self._storage_key_for_entry(entry, prefix)
+            print(f"Downloading registry file {key} -> {local_path}", flush=True)
+            self.storage.download_file(key, local_path)
+        return MaterializedDataset(
+            source=source,
+            dataset=dataset,
+            version=snapshot["version"],
+            version_date=snapshot.get("version_date"),
+            download_date=snapshot.get("download_date"),
+            snapshot_id=snapshot["snapshot_id"],
+            manifest_uri=snapshot["manifest_uri"],
+            manifest=snapshot["manifest"],
+            local_dir=local_dir,
+        )
+
+    def materialize_derived_artifact(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        artifact = self.get_derived_artifact(source, dataset, version)
+        local_dir = Path(dest) / source / dataset / artifact["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        prefix = derived_storage_prefix(source, dataset, artifact["version"])
+        for entry in artifact.get("files", []) or []:
+            local_path = local_dir / entry["path"]
+            if self._local_file_matches_entry(local_path, entry):
+                print(f"Using cached registry file {local_path}", flush=True)
+                continue
+            key = self._storage_key_for_entry(entry, prefix)
+            print(f"Downloading registry file {key} -> {local_path}", flush=True)
+            self.storage.download_file(key, local_path)
+        return MaterializedDataset(
+            source=source,
+            dataset=dataset,
+            version=artifact["version"],
+            version_date=artifact.get("version_date"),
+            download_date=artifact.get("created_at"),
+            snapshot_id=artifact["snapshot_id"],
+            manifest_uri=artifact["manifest_uri"],
+            manifest=artifact["manifest"],
+            local_dir=local_dir,
+        )
+
+    def materialize_external_source(
+        self,
+        source: str,
+        dataset: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        registration = self.get_external_source(source, dataset, version)
+        local_dir = Path(dest) / source / dataset / registration["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        return MaterializedDataset(
+            source=source,
+            dataset=dataset,
+            version=registration["version"],
+            version_date=registration.get("version_date"),
+            download_date=registration.get("registered_date"),
+            snapshot_id=registration["registration_id"],
+            manifest_uri=registration["manifest_uri"],
+            manifest=registration["manifest"],
+            local_dir=local_dir,
+        )
 
     def register_external_source(
         self,

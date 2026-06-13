@@ -1,6 +1,6 @@
 from typing import List, Generator
 from src.constants import Prefix, DataSourceName
-from src.input_adapters.drug_central.tables import Structures, DBVersion
+from src.input_adapters.drug_central.tables import Structures
 from src.input_adapters.sql_adapter import PostgreSqlAdapter
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -12,16 +12,9 @@ from src.shared.db_credentials import DBCredentials
 class DrugCentralAdapter(PostgreSqlAdapter):
     version_info: DatasourceVersionInfo
 
-    def __init__(self, credentials: DBCredentials):
+    def __init__(self, credentials: DBCredentials, data_source):
         PostgreSqlAdapter.__init__(self, credentials)
-        self.initialize_version()
-
-    def initialize_version(self):
-        results = self.get_session().query(
-            DBVersion.version,
-            DBVersion.dtime
-        ).first()
-        self.version_info = DatasourceVersionInfo(version=results.version, version_date=results.dtime)
+        self.version_info = data_source.version_info()
 
 
 class DrugNodeAdapter(InputAdapter, DrugCentralAdapter):

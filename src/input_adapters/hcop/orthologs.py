@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Generator, List, Optional, Tuple
 
 from src.constants import DataSourceName
@@ -13,12 +12,12 @@ class HCOPOrthologAdapter(FlatFileAdapter):
     version_info: DatasourceVersionInfo
 
     def __init__(self,
-                 file_path: str,
-                 version_file_path: Optional[str] = None,
+                 data_source,
                  accepted_species: List[str] = None,
                  drop_blank_ortholog_identity: bool = True):
+        file_path = str(data_source.file("human_all_hcop_sixteen_column.txt.gz"))
         FlatFileAdapter.__init__(self, file_path=file_path)
-        self.version_info = self._load_version_info(version_file_path)
+        self.version_info = data_source.version_info()
         self.hcop_helper = HCOPRecordHelper(
             file_path=file_path,
             accepted_species=accepted_species,
@@ -95,20 +94,3 @@ class HCOPOrthologAdapter(FlatFileAdapter):
         if value in (None, "", "-"):
             return None
         return value
-
-    def _load_version_info(self, version_file_path: Optional[str]) -> DatasourceVersionInfo:
-        version = None
-        version_date = None
-        download_date = self.download_date
-        if version_file_path:
-            import csv
-            with open(version_file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                first_row = next(reader, None)
-                if first_row:
-                    version = first_row.get("version") or None
-                    version_date_str = first_row.get("version_date") or None
-                    download_date_str = first_row.get("download_date") or None
-                    version_date = date.fromisoformat(version_date_str) if version_date_str else None
-                    download_date = date.fromisoformat(download_date_str) if download_date_str else download_date
-        return DatasourceVersionInfo(version=version, version_date=version_date, download_date=download_date)

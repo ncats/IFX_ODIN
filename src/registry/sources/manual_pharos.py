@@ -80,6 +80,42 @@ def fetch_tdl_updates(
     )
 
 
+def fetch_target_graph_manual_file(
+    *,
+    dest: Path,
+    dataset: str,
+    source_file: Path,
+) -> SourceSnapshot:
+    version_date = _local_file_mtime_date(source_file)
+    return _build_manual_snapshot(
+        source="target_graph",
+        dataset=dataset,
+        version=version_date,
+        version_date=version_date,
+        source_files=[source_file],
+        dest=dest,
+        homepage=None,
+        extra={
+            "version_method": {
+                "type": "local_file_mtime",
+                "description": (
+                    "Manual target graph resolver input file; use local file modification "
+                    "date as the snapshot version."
+                ),
+            },
+            "provenance": {
+                "status": "generated externally and curated manually for ODIN use",
+                "original_location": "input_files/manual/target_graph",
+                "notes": (
+                    "These files are derived by code outside this repository. Treat them "
+                    "as manual registry artifacts until that upstream generation workflow "
+                    "is reproducible here."
+                ),
+            },
+        },
+    )
+
+
 def _read_hpm_version(version_file: Path) -> Dict[str, Optional[str]]:
     with version_file.open("r", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
@@ -145,7 +181,31 @@ def fetch_antibodypedia_scraped_results(
 
 def latest_tdl_updates_version(*, timeout: int = 60) -> Optional[str]:
     source_file = Path("input_files/manual/target_graph/tdl_updates.csv")
+    return _local_file_mtime_date(source_file)
+
+
+def _local_file_mtime_date(source_file: Path) -> str:
     return datetime.fromtimestamp(source_file.stat().st_mtime).date().isoformat()
+
+
+def latest_target_graph_gene_ids_version(*, timeout: int = 60) -> Optional[str]:
+    return _local_file_mtime_date(Path("input_files/manual/target_graph/gene_ids.tsv"))
+
+
+def latest_target_graph_transcript_ids_version(*, timeout: int = 60) -> Optional[str]:
+    return _local_file_mtime_date(Path("input_files/manual/target_graph/transcript_ids.tsv"))
+
+
+def latest_target_graph_protein_ids_version(*, timeout: int = 60) -> Optional[str]:
+    return _local_file_mtime_date(Path("input_files/manual/target_graph/protein_ids.tsv"))
+
+
+def latest_target_graph_disease_ids_version(*, timeout: int = 60) -> Optional[str]:
+    return _local_file_mtime_date(Path("input_files/manual/target_graph/disease_ids.tsv"))
+
+
+def latest_target_graph_uniprot_mapping_version(*, timeout: int = 60) -> Optional[str]:
+    return _local_file_mtime_date(Path("input_files/manual/target_graph/uniprotkb_mapping_20260507.csv"))
 
 
 def latest_hpm_protein_expression_version(*, timeout: int = 60) -> Optional[str]:
@@ -170,6 +230,81 @@ class ManualTdlUpdatesFetcher(SourceFetcher):
 
     def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
         return latest_tdl_updates_version(timeout=timeout)
+
+
+class ManualTargetGraphGeneIdsFetcher(SourceFetcher):
+    source = "target_graph"
+    dataset = "gene_ids"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return fetch_target_graph_manual_file(
+            dest=dest,
+            dataset=self.dataset,
+            source_file=Path("input_files/manual/target_graph/gene_ids.tsv"),
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        return latest_target_graph_gene_ids_version(timeout=timeout)
+
+
+class ManualTargetGraphTranscriptIdsFetcher(SourceFetcher):
+    source = "target_graph"
+    dataset = "transcript_ids"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return fetch_target_graph_manual_file(
+            dest=dest,
+            dataset=self.dataset,
+            source_file=Path("input_files/manual/target_graph/transcript_ids.tsv"),
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        return latest_target_graph_transcript_ids_version(timeout=timeout)
+
+
+class ManualTargetGraphProteinIdsFetcher(SourceFetcher):
+    source = "target_graph"
+    dataset = "protein_ids"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return fetch_target_graph_manual_file(
+            dest=dest,
+            dataset=self.dataset,
+            source_file=Path("input_files/manual/target_graph/protein_ids.tsv"),
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        return latest_target_graph_protein_ids_version(timeout=timeout)
+
+
+class ManualTargetGraphDiseaseIdsFetcher(SourceFetcher):
+    source = "target_graph"
+    dataset = "disease_ids"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return fetch_target_graph_manual_file(
+            dest=dest,
+            dataset=self.dataset,
+            source_file=Path("input_files/manual/target_graph/disease_ids.tsv"),
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        return latest_target_graph_disease_ids_version(timeout=timeout)
+
+
+class ManualTargetGraphUniprotMappingFetcher(SourceFetcher):
+    source = "target_graph"
+    dataset = "uniprot_mapping"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return fetch_target_graph_manual_file(
+            dest=dest,
+            dataset=self.dataset,
+            source_file=Path("input_files/manual/target_graph/uniprotkb_mapping_20260507.csv"),
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> Optional[str]:
+        return latest_target_graph_uniprot_mapping_version(timeout=timeout)
 
 
 class ManualHpmProteinExpressionFetcher(SourceFetcher):

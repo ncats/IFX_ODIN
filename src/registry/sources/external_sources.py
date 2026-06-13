@@ -158,6 +158,34 @@ def _sql_access(database_type: str) -> Dict[str, str]:
     }
 
 
+class RdasDiseasesGraphqlExternalSource(ExternalSourceProvider):
+    source = "rdas"
+    dataset = "diseases_graphql"
+
+    def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
+        endpoint = config.get("endpoint", "https://rdas.ncats.nih.gov/api/diseases/graphql")
+        return ExternalSourceRegistration(
+            source=self.source,
+            dataset=self.dataset,
+            version=config.get("version", "rdas-diseases-graphql"),
+            version_date=config.get("version_date"),
+            connection={
+                "type": "graphql",
+                "endpoint": endpoint,
+            },
+            access={
+                "mode": "query",
+                "interface": "graphql",
+            },
+            extra={
+                "version_method": {
+                    "type": "configured_graphql_endpoint",
+                    "description": "No file snapshot is downloaded; adapter queries the configured RDAS GraphQL endpoint.",
+                },
+            },
+        )
+
+
 class ChemblActivityDatabaseExternalSource(ExternalSourceProvider):
     source = "chembl"
     dataset = "activity_database"

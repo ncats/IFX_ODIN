@@ -18,15 +18,15 @@ class CureIdLabelResolver(IdResolver):
 
     def __init__(
         self,
-        tsv_file: str,
-        types: List[str],
+        data_source,
+        types: Optional[List[str]] = None,
         label_field_by_type: Optional[Dict[str, str]] = None,
         node_type_to_source_types: Optional[Dict[str, List[str]]] = None,
         manual_label_map: Optional[Dict[str, Dict[str, Union[List[str], str]]]] = None,
         **kwargs,
     ):
-        super().__init__(types=types, **kwargs)
-        self.tsv_file = tsv_file
+        super().__init__(types=types or [], **kwargs)
+        self.tsv_file = str(data_source.file())
         self.label_field_by_type = label_field_by_type or {}
         self.manual_label_map = manual_label_map or {}
         raw_mapping = node_type_to_source_types or self.DEFAULT_NODE_TYPE_TO_SOURCE_TYPES

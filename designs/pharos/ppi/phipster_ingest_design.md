@@ -40,8 +40,12 @@ Reason:
 
 Version strategy:
 
-- `version_date = 2019-09-05`
-- use the PHIPSTER publication date as the dataset date proxy
+- current registry migration stamps this adapter with the shared
+  `legacy_pharos:pharos319_mysql:pharos319` source snapshot, matching the other
+  datasets lifted from old Pharos
+- future work should split lifted pharos319 datasets back into their real source
+  identities and version them more precisely; PHIPSTER's source-specific version
+  could use the publication date proxy, `2019-09-05`
 
 ## Graph Model
 

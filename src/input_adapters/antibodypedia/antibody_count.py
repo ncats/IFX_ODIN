@@ -1,7 +1,5 @@
 import csv
-import os
 import re
-from datetime import date, datetime
 from typing import List, Generator
 
 from src.constants import Prefix, DataSourceName
@@ -19,17 +17,12 @@ class AntibodyCountAdapter(InputAdapter):
         return DataSourceName.Antibodypedia
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            download_date=self.download_date
-        )
+        return self.version_info
 
-    file_path: str
-    download_date: date
-
-    def __init__(self, file_path: str):
+    def __init__(self, data_source):
         super().__init__()
-        self.file_path = file_path
-        self.download_date = datetime.fromtimestamp(os.path.getmtime(file_path)).date()
+        self.file_path = str(data_source.file("antibodypedia_scraped_results_2025-06-27_12-32.csv"))
+        self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Gene], None, None]:
         proteins = []

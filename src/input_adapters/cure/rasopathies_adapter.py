@@ -1,7 +1,5 @@
 import json
-import re
-from datetime import date, datetime, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, Generator, List, Union
 
 from src.constants import DataSourceName
@@ -51,11 +49,71 @@ from src.models.gene import Gene
 from src.models.node import Node, Relationship
 
 
-class RasopathiesAdapter(FlatFileAdapter):
-    _VERSION_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}Z")
+RASOPATHIES_FINDING_GROUPS = {
+    "Cardiac": [
+        "Hypertrophic cardiomyopathy (with symptoms)",
+        "Hypertrophic cardiomyopathy (without symptoms)",
+        "Pulmonary valvular stenosis",
+        "Arrhythmia",
+        "Septal defect (Atrial or Ventricular)",
+    ],
+    "Endocrine/Growth": [
+        "Difficulty gaining weight",
+        "Failure to thrive",
+        "Hyper/hypo thyroidism",
+        "Metabolic Disorder",
+        "Short stature",
+    ],
+    "Gastrointestinal": [
+        "Bowel incontinence (loss of bowel control)",
+        "Gut rotation",
+        "Gut dysmotility (slow emptying)",
+        "G tube fed",
+        "J tube fed",
+        "Nausea",
+        "Oral aversion",
+        "Reflux",
+    ],
+    "Hematologic/Oncologic": [
+        "Bleeding disorder",
+        "Brain tumor (glioma, DNET)",
+        "Juvenile myelomonocytic leukemia",
+        "Myeloproliferative disease",
+        "Neuroblastoma",
+        "Rhabdomyosarcoma",
+    ],
+    "Lymphatic/Immunologic": [
+        "Chylacites/Chylous effusion",
+        "Chylothorax (not as a result of a post-operative complication)",
+        "Frequent infections",
+        "Lymphangiectasia - Intestinal ",
+        "Lymphangiectasia - Pulmonary ",
+        "Lymphedema",
+    ],
+    "Neurologic/Audiologic": [
+        "Developmental delays (gross motor, fine motor, speech)",
+        "Hearing loss",
+        "Insomnia",
+        "Intellectual or learning differences",
+        "Seizures",
+    ],
+    "Opthalmalogic": [
+        "Corticol blindness",
+        "Myopia/nearsightedness (can ONLY see close objects clearly, objects in the distance are blurry)",
+        "Optic nerve differences",
+    ],
+    "Diagnoses not listed above": [
+        "Pain",
+    ],
+}
+RASOPATHIES_DEFAULT_FINDING_GROUPS = {"Diagnoses not listed above"}
 
-    def __init__(self, file_path: str):
+
+class RasopathiesAdapter(FlatFileAdapter):
+    def __init__(self, data_source):
+        file_path = str(data_source.file())
         super().__init__(file_path=file_path)
+        self.version_info = data_source.version_info()
         self._finding_group_lookup, self._finding_default_lookup = self._load_finding_group_lookup()
 
     def get_all(self) -> Generator[List[Union[Node, Relationship]], None, None]:
@@ -150,17 +208,7 @@ class RasopathiesAdapter(FlatFileAdapter):
         return DataSourceName.CURE
 
     def get_version(self) -> DatasourceVersionInfo:
-        return DatasourceVersionInfo(
-            version=Path(self.file_path).stem,
-            version_date=self._parse_version_date_from_file_name(),
-            download_date=self.download_date,
-        )
-
-    def _parse_version_date_from_file_name(self) -> date | None:
-        match = self._VERSION_DATE_PATTERN.search(Path(self.file_path).name)
-        if match is None:
-            return None
-        return datetime.strptime(match.group(1), "%Y%m%d").date()
+        return self.version_info
 
     def _build_case_report(self, row: dict) -> CaseReport:
         report = row.get("report") or {}
@@ -678,35 +726,12 @@ class RasopathiesAdapter(FlatFileAdapter):
 
     @staticmethod
     def _load_finding_group_lookup() -> tuple[Dict[str, str], Dict[str, bool]]:
-        form_path = Path("/Users/kelleherkj/IdeaProjects/project-cure-backend/server/apps/ui_forms/json_data/rasopathies.json")
-        if not form_path.exists():
-            return {}, {}
-
-        try:
-            form_spec = json.loads(form_path.read_text())
-        except Exception:
-            return {}, {}
-
         group_lookup: Dict[str, str] = {}
         default_lookup: Dict[str, bool] = {}
-        for page_name, page_spec in form_spec.items():
-            if not page_name.startswith("clinical_context-"):
-                continue
-            for control in page_spec.get("formControls") or []:
-                if control.get("key") != "findings":
-                    continue
-                for group in control.get("groups") or []:
-                    group_label = group.get("label")
-                    is_default = bool(group.get("default"))
-                    for option in group.get("options") or []:
-                        if not isinstance(option, dict):
-                            continue
-                        value = option.get("value")
-                        if not isinstance(value, str) or not value.strip():
-                            continue
-                        normalized = value.strip()
-                        if group_label and normalized not in group_lookup:
-                            group_lookup[normalized] = group_label
-                        if normalized not in default_lookup:
-                            default_lookup[normalized] = is_default
+        for group_label, values in RASOPATHIES_FINDING_GROUPS.items():
+            is_default = group_label in RASOPATHIES_DEFAULT_FINDING_GROUPS
+            for value in values:
+                normalized = value.strip()
+                group_lookup[normalized] = group_label.strip()
+                default_lookup[normalized] = is_default
         return group_lookup, default_lookup
