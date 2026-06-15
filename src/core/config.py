@@ -176,10 +176,6 @@ class Config:
         return objects
 
 
-class Dashboard_Config(Config):
-    pass
-
-
 class ETL_Config(Config):
     resolvers: dict[str, IdResolver] = {}
 

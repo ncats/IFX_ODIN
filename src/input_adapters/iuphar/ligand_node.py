@@ -2,11 +2,11 @@ import csv
 from abc import ABC
 from typing import Generator, List, Optional
 
-from src.api_adapters.strawberry_models.pharos_query_models import EquivalentId
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.ligand import Ligand
+from src.models.node import EquivalentId
 
 class IUPHARAdapter(InputAdapter, ABC):
     id_map: dict

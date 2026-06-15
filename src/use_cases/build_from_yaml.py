@@ -1,6 +1,5 @@
-from src.core.config import ETL_Config, Dashboard_Config
+from src.core.config import ETL_Config
 from src.core.etl import ETL
-from src.interfaces.data_api_adapter import APIAdapter
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.registry.fetchers import MaterializedDataset
 
@@ -15,18 +14,6 @@ def preload_core_model_modules():
     import src.models.panther_class
     import src.models.dto_class
     import src.models.external_link
-
-
-class HostDashboardFromYaml:
-    configuration: Dashboard_Config
-    api_adapter: APIAdapter
-
-    def __init__(self, yaml_file: str):
-        self.load_yaml(yaml_file)
-
-    def load_yaml(self, yaml_file: str):
-        self.configuration = Dashboard_Config(yaml_file)
-        self.api_adapter = self.configuration.create_object_list('api_adapter')[0]
 
 
 class BuildGraphFromYaml:
