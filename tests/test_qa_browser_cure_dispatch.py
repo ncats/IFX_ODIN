@@ -4,7 +4,13 @@ from src.qa_browser.app import (
     _get_document_template,
 )
 from src.interfaces.id_resolver import IdMatch
-from src.qa_browser.registry_usage import extract_registry_datasets, load_graph_registry_usage_cached, with_graph_usages
+from src.qa_browser.registry_usage import (
+    extract_registry_datasets,
+    extract_registry_graph,
+    load_graph_registry_usage_cached,
+    load_registry_graphs_cached,
+    with_graph_usages,
+)
 
 
 class FakeResolverSnapshot:
@@ -243,6 +249,151 @@ def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
             "cure_rasopathies": ["resolver"],
         },
     }
+
+
+def test_extract_registry_graph_builds_adapter_and_resolver_dependencies():
+    graph = extract_registry_graph({
+        "source_yaml": "./src/use_cases/cure/cure_rasopathies.yaml",
+        "run_date": "2026-06-15T12:00:00",
+        "registry_datasets": [{
+            "kind": "source_snapshot",
+            "source": "cure",
+            "dataset": "case_reports",
+            "version": "reports_20260612T182139Z",
+            "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+            "usages": ["adapter:CUREAdapter"],
+        }, {
+            "kind": "resolver_snapshot",
+            "source": "cure",
+            "dataset": "cure_id_labels",
+            "version": "deps-test",
+            "snapshot_id": "cure:cure_id_labels:deps-test",
+            "usages": ["resolver:cure_id_labels"],
+            "resolver_inputs": {
+                "data_source": {
+                    "kind": "source_snapshot",
+                    "source": "cure",
+                    "dataset": "curated_concepts",
+                    "version": "2026-05-14",
+                    "snapshot_id": "cure:curated_concepts:2026-05-14",
+                }
+            },
+        }],
+        "resolver_metadata": {
+            "by_type": {
+                "Gene": {
+                    "label": "cure_id_labels",
+                    "class": "CureIdLabelResolver",
+                    "resolver_snapshot": {
+                        "kind": "resolver_snapshot",
+                        "source": "cure",
+                        "dataset": "cure_id_labels",
+                        "version": "deps-test",
+                        "snapshot_id": "cure:cure_id_labels:deps-test",
+                        "resolver_inputs": {
+                            "data_source": {
+                                "kind": "source_snapshot",
+                                "source": "cure",
+                                "dataset": "curated_concepts",
+                                "version": "2026-05-14",
+                                "snapshot_id": "cure:curated_concepts:2026-05-14",
+                            }
+                        },
+                    },
+                },
+                "Drug": {
+                    "label": "cure_id_labels",
+                    "class": "CureIdLabelResolver",
+                    "resolver_snapshot": {
+                        "kind": "resolver_snapshot",
+                        "source": "cure",
+                        "dataset": "cure_id_labels",
+                        "version": "deps-test",
+                        "snapshot_id": "cure:cure_id_labels:deps-test",
+                    },
+                },
+            }
+        },
+    }, "cure_rasopathies")
+
+    assert graph["name"] == "cure_rasopathies"
+    assert graph["adapters"][0]["name"] == "CUREAdapter"
+    assert graph["adapters"][0]["datasets"][0]["snapshot_id"] == "cure:case_reports:reports_20260612T182139Z"
+    assert graph["resolvers"][0]["name"] == "cure_id_labels"
+    assert graph["resolvers"][0]["class"] == "CureIdLabelResolver"
+    assert graph["resolvers"][0]["types"] == ["Drug", "Gene"]
+    assert graph["resolvers"][0]["snapshot"]["snapshot_id"] == "cure:cure_id_labels:deps-test"
+    assert graph["resolvers"][0]["inputs"][0]["snapshot_id"] == "cure:curated_concepts:2026-05-14"
+    assert {node["kind"] for node in graph["lineage_nodes"]} == {"adapter", "data", "graph", "resolver"}
+    assert {"from": "resolver:cure_id_labels", "to": "graph:cure_rasopathies", "label": "builds"} in graph["lineage_edges"]
+    lineage_by_id = {node["id"]: node for node in graph["lineage_nodes"]}
+    assert lineage_by_id["resolver:cure_id_labels"]["row"] < lineage_by_id["adapter:CUREAdapter"]["row"]
+    assert lineage_by_id["registry:cure:curated_concepts:2026-05-14"]["row"] == lineage_by_id["resolver:cure_id_labels"]["row"]
+    assert lineage_by_id["registry:cure:case_reports:reports_20260612T182139Z"]["row"] == lineage_by_id["adapter:CUREAdapter"]["row"]
+
+
+def test_extract_registry_graph_handles_derived_source_dependencies():
+    graph = extract_registry_graph({
+        "registry_datasets": [{
+            "kind": "derived_snapshot",
+            "source": "surechembl",
+            "dataset": "patent_family_mentions",
+            "version": "2026-06-01",
+            "snapshot_id": "surechembl:patent_family_mentions:2026-06-01",
+            "usages": ["adapter:SureChEMBLPatentAdapter"],
+            "derived_from": [{
+                "kind": "source_snapshot",
+                "source": "surechembl",
+                "dataset": "patent_discovery",
+                "version": "2026-06-01",
+                "snapshot_id": "surechembl:patent_discovery:2026-06-01",
+            }],
+        }],
+    }, "pharos")
+
+    lineage_by_id = {node["id"]: node for node in graph["lineage_nodes"]}
+    assert lineage_by_id["registry:surechembl:patent_discovery:2026-06-01"]["kind"] == "data"
+    assert lineage_by_id["registry:surechembl:patent_family_mentions:2026-06-01"]["kind"] == "derived"
+    assert lineage_by_id["registry:surechembl:patent_family_mentions:2026-06-01"]["level"] == 1
+    assert lineage_by_id["registry:surechembl:patent_discovery:2026-06-01"]["row"] == lineage_by_id["adapter:SureChEMBLPatentAdapter"]["row"]
+    assert lineage_by_id["registry:surechembl:patent_family_mentions:2026-06-01"]["row"] == lineage_by_id["adapter:SureChEMBLPatentAdapter"]["row"]
+    assert {"from": "registry:surechembl:patent_discovery:2026-06-01", "to": "registry:surechembl:patent_family_mentions:2026-06-01", "label": "derived"} in graph["lineage_edges"]
+
+
+def test_load_registry_graphs_lists_graph_metadata(monkeypatch):
+    cache = {"loaded_at": 0.0, "graphs": None, "error": None}
+    graph_metadata = {
+        "cure_pasc": {
+            "registry_datasets": [{
+                "source": "cure",
+                "dataset": "case_reports",
+                "version": "reports_20260612T182139Z",
+                "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+                "usages": ["adapter:CUREAdapter"],
+            }]
+        },
+        "cure_rasopathies": {
+            "registry_datasets": [{
+                "source": "cure",
+                "dataset": "curated_concepts",
+                "version": "2026-05-14",
+                "snapshot_id": "cure:curated_concepts:2026-05-14",
+                "usages": ["resolver:cure_id_labels"],
+            }]
+        },
+    }
+
+    graphs, error = load_registry_graphs_cached(
+        credentials={"user": "root"},
+        cache=cache,
+        ttl_seconds=60,
+        get_sys_db=lambda: FakeSysDb(),
+        get_db=lambda db_name: FakeCursorDb(graph_metadata[db_name]),
+    )
+
+    assert error is None
+    assert [graph["name"] for graph in graphs] == ["cure_pasc", "cure_rasopathies"]
+    assert graphs[0]["adapters"][0]["name"] == "CUREAdapter"
 
 
 def test_with_graph_usages_accepts_external_registration_id():

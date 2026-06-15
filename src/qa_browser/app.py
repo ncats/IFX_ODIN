@@ -33,6 +33,7 @@ from src.qa_browser.registry_usage import (
     graph_usage_filters,
     graph_usage_styles,
     group_by_source_dataset,
+    load_registry_graphs_cached,
     load_graph_registry_usage_cached,
     with_graph_usages,
 )
@@ -66,6 +67,11 @@ _minio_credentials: dict = {}
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
+    "error": None,
+}
+_registry_graph_cache: dict = {
+    "loaded_at": 0.0,
+    "graphs": None,
     "error": None,
 }
 _resolver_instance_cache: dict = {}
@@ -1515,6 +1521,37 @@ def registry_resolvers(request: Request):
         "graph_usage_error": graph_usage_error,
         "graph_usage_filters": graph_filters,
         "graph_usage_styles": graph_styles,
+    })
+
+
+@app.get("/registry/graphs", response_class=HTMLResponse)
+def registry_graphs(request: Request):
+    graphs, graph_error = load_registry_graphs_cached(
+        credentials=_credentials,
+        cache=_registry_graph_cache,
+        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
+        get_sys_db=get_sys_db,
+        get_db=get_db,
+    )
+    registry_stats = {
+        "graph_count": len(graphs),
+        "adapter_count": sum(len(graph.get("adapters") or []) for graph in graphs),
+        "resolver_count": sum(len(graph.get("resolvers") or []) for graph in graphs),
+        "dependency_count": sum(
+            sum(len(adapter.get("datasets") or []) for adapter in graph.get("adapters") or [])
+            + sum(
+                (1 if resolver.get("snapshot") else 0) + len(resolver.get("inputs") or [])
+                for resolver in graph.get("resolvers") or []
+            )
+            for graph in graphs
+        ),
+    }
+
+    return templates.TemplateResponse(request, "registry_graphs.html", {
+        "request": request,
+        "graphs": graphs,
+        "registry_stats": registry_stats,
+        "graph_error": graph_error,
     })
 
 

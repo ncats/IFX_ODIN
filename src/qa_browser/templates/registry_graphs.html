@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}IFX Registry · Graphs{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/registry">IFX Registry</a>
+<span class="sep">/</span>
+<span>Graphs</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero registry-hero">
+    <div class="hero-text">
+        <h1 class="hero-title">IFX Registry</h1>
+        <p class="hero-subtitle">Graph builds and the registered adapter and resolver inputs they depend on.</p>
+    </div>
+</div>
+
+<div class="engine-section">
+    <div class="registry-tabs">
+        <a class="registry-tab" href="{{ root_path }}/registry">Data Sources</a>
+        <a class="registry-tab" href="{{ root_path }}/registry/resolvers">Resolvers</a>
+        <a class="registry-tab active" href="{{ root_path }}/registry/graphs">Graphs</a>
+    </div>
+
+    {% if not graph_error %}
+    <div class="registry-stats">
+        <div class="registry-stat">
+            <span>{{ registry_stats.graph_count }}</span>
+            <label>Graphs</label>
+        </div>
+        <div class="registry-stat">
+            <span>{{ registry_stats.adapter_count }}</span>
+            <label>Adapters</label>
+        </div>
+        <div class="registry-stat">
+            <span>{{ registry_stats.resolver_count }}</span>
+            <label>Resolvers</label>
+        </div>
+        <div class="registry-stat">
+            <span>{{ registry_stats.dependency_count }}</span>
+            <label>Registry Dependencies</label>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="engine-header">
+        <span style="font-weight:600">Built Graphs</span>
+    </div>
+
+    {% if graph_error %}
+    <div class="card">
+        <p>{{ graph_error }}</p>
+    </div>
+    {% elif graphs %}
+        {% for graph in graphs %}
+        <div class="card registry-graph-build-card">
+            <div class="registry-source-header">
+                <h2><a href="{{ root_path }}/db/{{ graph.name }}">{{ graph.name }}</a></h2>
+                <span>{{ graph.run_date or "" }}</span>
+            </div>
+            <div class="registry-graph-build-meta">
+                {% if graph.source_yaml %}<span class="mono">{{ graph.source_yaml }}</span>{% endif %}
+                {% if graph.runner %}<span>{{ graph.runner }}</span>{% endif %}
+                {% if graph.hostname %}<span>{{ graph.hostname }}</span>{% endif %}
+                {% if graph.git_commit %}<span class="mono">{{ graph.git_commit }}</span>{% endif %}
+            </div>
+
+            {% if graph.lineage_nodes %}
+            <div class="registry-lineage-graph" data-registry-lineage>
+                <svg class="registry-lineage-edges" aria-hidden="true">
+                    <defs>
+                        <marker id="registry-lineage-arrow"
+                                markerWidth="8"
+                                markerHeight="8"
+                                refX="7"
+                                refY="4"
+                                orient="auto"
+                                markerUnits="strokeWidth">
+                            <path d="M 0 0 L 8 4 L 0 8 z"></path>
+                        </marker>
+                    </defs>
+                </svg>
+                <div class="registry-lineage-nodes"
+                     style="grid-template-columns: repeat({{ graph.lineage_level_count }}, minmax(220px, 1fr));">
+                    {% for node in graph.lineage_nodes %}
+                    {% set node_content %}
+                    <div class="registry-lineage-node-kind">{{ node.kind }}</div>
+                    <div class="registry-lineage-node-label">{{ node.label }}</div>
+                    {% if node.subtitle %}<div class="registry-lineage-node-subtitle">{{ node.subtitle }}</div>{% endif %}
+                    {% if node.snapshot_id %}<div class="registry-lineage-node-snapshot mono">{{ node.snapshot_id }}</div>{% endif %}
+                    {% if node.types %}
+                    <div class="registry-resolver-tags">
+                        {% for type_name in node.types %}
+                        <span>{{ type_name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% endset %}
+                    {% if node.href %}
+                    <a class="registry-lineage-node registry-lineage-node-{{ node.kind }}"
+                       data-node-id="{{ node.id }}"
+                       href="{{ root_path }}{{ node.href }}"
+                       style="grid-column: {{ node.level + 1 }}; grid-row: {{ node.row or 1 }};">
+                        {{ node_content }}
+                    </a>
+                    {% else %}
+                    <div class="registry-lineage-node registry-lineage-node-{{ node.kind }}"
+                         data-node-id="{{ node.id }}"
+                         style="grid-column: {{ node.level + 1 }}; grid-row: {{ node.row or 1 }};">
+                        {{ node_content }}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                <script type="application/json" class="registry-lineage-edge-data">{{ graph.lineage_edges | tojson }}</script>
+            </div>
+            {% else %}
+            <p class="registry-prefix-status">No registry dependency graph available.</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="card">
+        <p>No graph ETL metadata found in ArangoDB.</p>
+    </div>
+    {% endif %}
+</div>
+<script>
+function drawRegistryLineageGraph(container) {
+    const svg = container.querySelector(".registry-lineage-edges");
+    const edgeData = container.querySelector(".registry-lineage-edge-data");
+    if (!svg || !edgeData) {
+        return;
+    }
+    let edges = [];
+    try {
+        edges = JSON.parse(edgeData.textContent || "[]");
+    } catch (_error) {
+        edges = [];
+    }
+    const nodes = new Map(
+        Array.from(container.querySelectorAll("[data-node-id]")).map((node) => [node.dataset.nodeId, node])
+    );
+    const containerRect = container.getBoundingClientRect();
+    svg.setAttribute("viewBox", `0 0 ${containerRect.width} ${containerRect.height}`);
+    svg.setAttribute("width", containerRect.width);
+    svg.setAttribute("height", containerRect.height);
+    svg.querySelectorAll(".registry-lineage-edge").forEach((edge) => edge.remove());
+
+    edges.forEach((edge) => {
+        const fromNode = nodes.get(edge.from);
+        const toNode = nodes.get(edge.to);
+        if (!fromNode || !toNode) {
+            return;
+        }
+        const fromRect = fromNode.getBoundingClientRect();
+        const toRect = toNode.getBoundingClientRect();
+        const x1 = fromRect.right - containerRect.left;
+        const y1 = fromRect.top + (fromRect.height / 2) - containerRect.top;
+        const x2 = toRect.left - containerRect.left;
+        const y2 = toRect.top + (toRect.height / 2) - containerRect.top;
+        const mid = Math.max(24, (x2 - x1) / 2);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`);
+        path.setAttribute("class", "registry-lineage-edge");
+        svg.appendChild(path);
+    });
+}
+
+function drawAllRegistryLineageGraphs() {
+    document.querySelectorAll("[data-registry-lineage]").forEach(drawRegistryLineageGraph);
+}
+
+window.addEventListener("load", drawAllRegistryLineageGraphs);
+window.addEventListener("resize", drawAllRegistryLineageGraphs);
+</script>
+{% endblock %}
