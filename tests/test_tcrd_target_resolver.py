@@ -1,7 +1,25 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from src.constants import Prefix
-from src.id_resolvers.sqlite_cache_resolver import MatchingPair
+from src.id_resolvers.sqlite_cache_resolver import MatchingPair, SqliteCacheResolver
 from src.id_resolvers.target_graph_resolver import TCRDTargetResolver
 from src.models.node import EquivalentId
+
+
+class _ThreadReusableResolver(SqliteCacheResolver):
+    def __init__(self, cache_path, **kwargs):
+        self.cache_path = str(cache_path)
+        super().__init__(**kwargs)
+
+    def cache_location(self):
+        return self.cache_path
+
+    def get_version_info(self) -> str:
+        return "thread-reuse-test-v1"
+
+    def matching_ids(self):
+        yield MatchingPair("IFXProtein:1", "UniProtKB:P1", "UniProtKB")
+        yield MatchingPair("IFXProtein:1", "Symbol:ABC1", "Symbol")
 
 
 class _ProteinParser:
@@ -100,6 +118,16 @@ def _resolver_with_rows(rows):
     resolver.reviewed_only = False
     resolver.collapse_to_canonical = True
     return resolver
+
+
+def test_sqlite_cache_resolver_can_be_reused_from_worker_thread(tmp_path):
+    resolver = _ThreadReusableResolver(tmp_path / "resolver.sqlite", types=["Protein"])
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        prefix_counts = executor.submit(resolver.get_prefix_counts).result()
+
+    assert {"prefix": "UniProtKB", "count": 1} in prefix_counts
+    assert {"prefix": "Symbol", "count": 1} in prefix_counts
 
 
 def test_tcrd_target_resolver_maps_isoform_aliases_to_canonical_target():

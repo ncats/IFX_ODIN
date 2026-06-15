@@ -10,7 +10,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-58d20dbbd04f
+      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
       types:
         - Protein
       no_match_behavior: Skip

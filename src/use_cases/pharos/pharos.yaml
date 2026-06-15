@@ -12,7 +12,7 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
+      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
         - Disease
@@ -21,7 +21,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      resolver_snapshot: target_graph:tcrd_targets:deps-9389967a8dc9
+      resolver_snapshot: target_graph:tcrd_targets:deps-d6d9894c3969
       types:
         - Protein
         - Gene
@@ -32,7 +32,7 @@ resolvers:
     import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
     class: HCOPOrthologGeneResolver
     kwargs:
-      resolver_snapshot: hcop:hcop_ortholog_genes:deps-8fb0b25b5955
+      resolver_snapshot: hcop:hcop_ortholog_genes:deps-b63ab7dfb762
       types:
         - OrthologGene
 
@@ -40,7 +40,7 @@ resolvers:
     import: ./src/id_resolvers/tissue_resolver.py
     class: TissueResolver
     kwargs:
-      resolver_snapshot: uberon:tissue_ids:deps-068438ffba3c
+      resolver_snapshot: uberon:tissue_ids:deps-eb70636be2d6
       types:
         - Tissue
 

@@ -55,6 +55,18 @@ class IdResolver(ABC):
         self.resolve_cache = {}
         self.canonical_class = canonical_class
 
+    @staticmethod
+    def curie_prefix(value: str) -> Optional[str]:
+        if not isinstance(value, str) or ":" not in value:
+            return None
+        prefix = value.split(":", 1)[0].strip()
+        return prefix or None
+
+    def get_prefix_counts(self) -> List[Dict[str, object]]:
+        return []
+
+    def get_example_ids(self, limit: int = 5) -> List[str]:
+        return []
 
     def _resolve_internal(self, input_nodes: List[Node]) -> (Dict[str, List[IdMatch]], set):
         output_dict = {}

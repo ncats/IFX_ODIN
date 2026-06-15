@@ -46,20 +46,21 @@ class DiseaseIdResolver(SqliteCacheResolver):
 
     def create_lookup_db(self):
         print('\tcreating sqlite lookup db')
-        cur = self.connection.cursor()
+        with self._sqlite_lock:
+            cur = self.connection.cursor()
 
-        cur.execute('DROP TABLE IF EXISTS matches')
-        cur.execute('DROP TABLE IF EXISTS equivalent_ids')
-        cur.execute('DROP TABLE IF EXISTS file_metadata')
+            cur.execute('DROP TABLE IF EXISTS matches')
+            cur.execute('DROP TABLE IF EXISTS equivalent_ids')
+            cur.execute('DROP TABLE IF EXISTS file_metadata')
 
-        cur.execute('CREATE TABLE matches (id TEXT, match TEXT, type TEXT, priority INTEGER)')
-        cur.execute('CREATE INDEX match_index ON matches (match)')
-        cur.execute('CREATE INDEX id_index ON matches (id)')
-        cur.execute('CREATE TABLE equivalent_ids (id TEXT, equivalent_id TEXT)')
-        cur.execute('CREATE INDEX equivalent_id_index ON equivalent_ids (id)')
-        cur.execute('CREATE TABLE file_metadata (version_key TEXT)')
+            cur.execute('CREATE TABLE matches (id TEXT, match TEXT, type TEXT, priority INTEGER)')
+            cur.execute('CREATE INDEX match_index ON matches (match)')
+            cur.execute('CREATE INDEX id_index ON matches (id)')
+            cur.execute('CREATE TABLE equivalent_ids (id TEXT, equivalent_id TEXT)')
+            cur.execute('CREATE INDEX equivalent_id_index ON equivalent_ids (id)')
+            cur.execute('CREATE TABLE file_metadata (version_key TEXT)')
 
-        self.connection.commit()
+            self.connection.commit()
 
     def populate_lookup_db(self):
         match_rows: Set[DiseaseMatchRow] = set()
@@ -82,17 +83,18 @@ class DiseaseIdResolver(SqliteCacheResolver):
                 for variant in self._alias_variants(alias):
                     match_rows.add(DiseaseMatchRow(canonical_id, variant, "xref", 2))
 
-        cur = self.connection.cursor()
-        cur.executemany(
-            'INSERT INTO matches VALUES (?, ?, ?, ?)',
-            [(row.id, row.match, row.type, row.priority) for row in match_rows],
-        )
-        cur.executemany(
-            'INSERT INTO equivalent_ids VALUES (?, ?)',
-            sorted(equivalent_rows),
-        )
-        self.store_file_metadata()
-        self.connection.commit()
+        with self._sqlite_lock:
+            cur = self.connection.cursor()
+            cur.executemany(
+                'INSERT INTO matches VALUES (?, ?, ?, ?)',
+                [(row.id, row.match, row.type, row.priority) for row in match_rows],
+            )
+            cur.executemany(
+                'INSERT INTO equivalent_ids VALUES (?, ?)',
+                sorted(equivalent_rows),
+            )
+            self.store_file_metadata()
+            self.connection.commit()
 
     def _iter_rows(self):
         with open(self.file_path, newline="", encoding="utf-8") as handle:
@@ -181,46 +183,47 @@ class DiseaseIdResolver(SqliteCacheResolver):
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         result_list: Dict[str, List[IdMatch]] = {}
         input_ids = sorted({node.id for node in input_nodes})
-        cur = self.connection.cursor()
-        max_vars = 50000
+        with self._sqlite_lock:
+            cur = self.connection.cursor()
+            max_vars = 50000
 
-        for chunk in [input_ids[i:i + max_vars] for i in range(0, len(input_ids), max_vars)]:
-            if not chunk:
-                continue
-            cur.execute(
-                """
-                SELECT id, match, type, priority
-                FROM matches
-                WHERE match IN ({})
-                ORDER BY priority, id
-                """.format(",".join("?" * len(chunk))),
-                tuple(chunk),
-            )
-            for resolved_id, input_id, match_type, _priority in cur.fetchall():
-                if input_id not in result_list:
-                    result_list[input_id] = []
-                if resolved_id in {match.match for match in result_list[input_id]}:
+            for chunk in [input_ids[i:i + max_vars] for i in range(0, len(input_ids), max_vars)]:
+                if not chunk:
                     continue
-                result_list[input_id].append(IdMatch(
-                    input=input_id,
-                    match=resolved_id,
-                    equivalent_ids=[],
-                    context=[match_type],
-                ))
+                cur.execute(
+                    """
+                    SELECT id, match, type, priority
+                    FROM matches
+                    WHERE match IN ({})
+                    ORDER BY priority, id
+                    """.format(",".join("?" * len(chunk))),
+                    tuple(chunk),
+                )
+                for resolved_id, input_id, match_type, _priority in cur.fetchall():
+                    if input_id not in result_list:
+                        result_list[input_id] = []
+                    if resolved_id in {match.match for match in result_list[input_id]}:
+                        continue
+                    result_list[input_id].append(IdMatch(
+                        input=input_id,
+                        match=resolved_id,
+                        equivalent_ids=[],
+                        context=[match_type],
+                    ))
 
-        resolved_ids = sorted({match.match for matches in result_list.values() for match in matches})
-        equivalent_map: Dict[str, List[str]] = {}
-        for chunk in [resolved_ids[i:i + max_vars] for i in range(0, len(resolved_ids), max_vars)]:
-            if not chunk:
-                continue
-            cur.execute(
-                "SELECT id, equivalent_id FROM equivalent_ids WHERE id IN ({}) ORDER BY equivalent_id".format(
-                    ",".join("?" * len(chunk))
-                ),
-                tuple(chunk),
-            )
-            for resolved_id, equivalent_id in cur.fetchall():
-                equivalent_map.setdefault(resolved_id, []).append(equivalent_id)
+            resolved_ids = sorted({match.match for matches in result_list.values() for match in matches})
+            equivalent_map: Dict[str, List[str]] = {}
+            for chunk in [resolved_ids[i:i + max_vars] for i in range(0, len(resolved_ids), max_vars)]:
+                if not chunk:
+                    continue
+                cur.execute(
+                    "SELECT id, equivalent_id FROM equivalent_ids WHERE id IN ({}) ORDER BY equivalent_id".format(
+                        ",".join("?" * len(chunk))
+                    ),
+                    tuple(chunk),
+                )
+                for resolved_id, equivalent_id in cur.fetchall():
+                    equivalent_map.setdefault(resolved_id, []).append(equivalent_id)
 
         for matches in result_list.values():
             for match in matches:

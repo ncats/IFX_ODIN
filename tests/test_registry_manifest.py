@@ -53,12 +53,14 @@ def test_registry_resolvers_config_defines_logical_resolver_inputs():
     resolvers = config["resolvers"]
     assert resolvers["cure"]["cure_id_labels"]["class"] == "CureIdLabelResolver"
     assert resolvers["target_graph"]["tcrd_targets"]["class"] == "TCRDTargetResolver"
+    assert resolvers["target_graph"]["tcrd_targets"]["accepted_types"] == ["Protein", "Gene", "Transcript"]
     assert resolvers["target_graph"]["tg_proteins"]["inputs"]["additional_ids_data_source"] == "target_graph:uniprot_mapping"
     assert resolvers["target_graph"]["tcrd_targets"]["options"] == {
         "canonical_type": "Protein",
         "collapse_to_canonical": True,
     }
     assert resolvers["translator"]["translator_nn"]["class"] == "TranslatorNodeNormResolver"
+    assert resolvers["translator"]["translator_nn"]["accepted_types"] == ["Condition", "Disease", "Ligand"]
     assert "types" not in resolvers["translator"]["translator_nn"]
 
     for source_resolvers in resolvers.values():
@@ -66,6 +68,8 @@ def test_registry_resolvers_config_defines_logical_resolver_inputs():
             assert resolver["label"]
             assert resolver["import"]
             assert resolver["class"]
+            assert resolver["accepted_types"]
+            assert all(isinstance(node_type, str) for node_type in resolver["accepted_types"])
             assert "types" not in resolver
             assert "kwargs" not in resolver
             assert "policy" not in resolver
@@ -2008,7 +2012,7 @@ resolvers:
       label: tcrd_targets
       import: ./src/id_resolvers/target_graph_resolver.py
       class: TCRDTargetResolver
-      types:
+      accepted_types:
         - Protein
         - Gene
         - Transcript
@@ -2103,6 +2107,7 @@ files: []
     assert manifest["resolved_input_metadata"]["protein_data_source"]["snapshot_id"] == (
         "target_graph:protein_ids:2026-05-20"
     )
+    assert manifest["definition"]["accepted_types"] == ["Gene", "Protein", "Transcript"]
     assert manifest["definition"]["options"] == {
         "canonical_type": "Protein",
         "collapse_to_canonical": True,

@@ -60,6 +60,9 @@ class HCOPOrthologGeneResolver(TranslatorNodeNormResolver):
         )
         return allowed_canonical_ids
 
+    def get_example_ids(self, limit: int = 5) -> List[str]:
+        return sorted(self.allowed_canonical_ids)[:limit]
+
     def _collect_allowed_hcop_ids(self) -> Set[str]:
         allowed_ids = set()
         for row in self.hcop_helper.iter_accepted_rows():

@@ -17,7 +17,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_genes:deps-bfc39ea04a27
+      resolver_snapshot: target_graph:tg_genes:deps-ac541015564c
       types:
         - Gene
 

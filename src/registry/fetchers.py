@@ -117,6 +117,8 @@ class MaterializedDataset:
                 for entry in self.manifest.get("files", []) or []
             ],
         }
+        if self.manifest.get("kind") == "resolver_snapshot":
+            metadata["accepted_types"] = (self.manifest.get("definition") or {}).get("accepted_types") or []
         if self.resolver_inputs:
             metadata["resolver_inputs"] = {
                 name: dataset.to_metadata()
