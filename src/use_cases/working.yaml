@@ -1,32 +1,30 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 database_name: &database_name test_pharos
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: disease_ids
     import: ./src/id_resolvers/disease_resolver.py
     class: DiseaseIdResolver
     kwargs:
-      file_path: ./input_files/manual/target_graph/disease_ids.tsv
-      multi_match_behavior: All
+      resolver_snapshot: target_graph:disease_ids:deps-3a3de6aa6530
       types:
         - Disease
+      multi_match_behavior: All
 
   - label: tcrd_targets
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      canonical_type: Protein
-      collapse_to_canonical: true
-      no_match_behavior: Skip
-      gene_file_path: ./input_files/manual/target_graph/gene_ids.tsv
-      transcript_file_path: ./input_files/manual/target_graph/transcript_ids.tsv
-      protein_file_paths:
-        - ./input_files/manual/target_graph/protein_ids.tsv
-      additional_ids: ./input_files/manual/target_graph/uniprotkb_mapping_20260507.csv
+      resolver_snapshot: target_graph:tcrd_targets:deps-9389967a8dc9
       types:
+        - Protein
         - Gene
         - Transcript
-        - Protein
+      no_match_behavior: Skip
 
 input_adapters:
   - import: ./src/input_adapters/mondo/mondo_adapter.py

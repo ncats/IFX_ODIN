@@ -56,6 +56,7 @@ _registry_catalog_cache: dict = {
     "snapshots": None,
     "derived_artifacts": None,
     "external_registrations": None,
+    "resolver_snapshots": None,
     "error": None,
 }
 _registry_usage_cache: dict = {
@@ -956,23 +957,25 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
-def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict], Optional[str]]:
+def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
     now = time.time()
     cached_snapshots = _registry_catalog_cache.get("snapshots")
     cached_derived_artifacts = _registry_catalog_cache.get("derived_artifacts")
     cached_external_registrations = _registry_catalog_cache.get("external_registrations")
+    cached_resolver_snapshots = _registry_catalog_cache.get("resolver_snapshots")
     cached_error = _registry_catalog_cache.get("error")
     loaded_at = _registry_catalog_cache.get("loaded_at") or 0.0
     if (
         cached_snapshots is not None
         and cached_derived_artifacts is not None
         and cached_external_registrations is not None
+        and cached_resolver_snapshots is not None
         and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS
     ):
-        return cached_snapshots, cached_derived_artifacts, cached_external_registrations, cached_error
+        return cached_snapshots, cached_derived_artifacts, cached_external_registrations, cached_resolver_snapshots, cached_error
 
     if not _minio_credentials:
-        return [], [], [], "MinIO credentials are not configured for this QA Browser instance."
+        return [], [], [], [], "MinIO credentials are not configured for this QA Browser instance."
 
     try:
         from src.shared.db_credentials import DBCredentials
@@ -988,6 +991,7 @@ def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict],
             snapshots = registry.list_source_snapshots()
             derived_artifacts = registry.list_derived_artifacts()
             external_registrations = registry.list_external_sources()
+            resolver_snapshots = registry.list_resolver_snapshots()
         except Exception:
             registry = DataRegistry.from_credentials(
                 credentials,
@@ -998,14 +1002,16 @@ def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict],
             snapshots = registry.list_source_snapshots()
             derived_artifacts = registry.list_derived_artifacts()
             external_registrations = registry.list_external_sources()
+            resolver_snapshots = registry.list_resolver_snapshots()
         _registry_catalog_cache.update({
             "loaded_at": now,
             "snapshots": snapshots,
             "derived_artifacts": derived_artifacts,
             "external_registrations": external_registrations,
+            "resolver_snapshots": resolver_snapshots,
             "error": None,
         })
-        return snapshots, derived_artifacts, external_registrations, None
+        return snapshots, derived_artifacts, external_registrations, resolver_snapshots, None
     except Exception as exc:
         error = str(exc)
         _registry_catalog_cache.update({
@@ -1013,9 +1019,10 @@ def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict],
             "snapshots": [],
             "derived_artifacts": [],
             "external_registrations": [],
+            "resolver_snapshots": [],
             "error": error,
         })
-        return [], [], [], error
+        return [], [], [], [], error
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -1038,7 +1045,7 @@ async def qa_browser_home(request: Request):
 
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
-    snapshots, derived_artifacts, external_registrations, registry_error = _load_registry_catalog_cached()
+    snapshots, derived_artifacts, external_registrations, _resolver_snapshots, registry_error = _load_registry_catalog_cached()
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
@@ -1093,6 +1100,52 @@ def registry_home(request: Request):
         "external_registrations": external_registration_list,
         "grouped_sources": grouped_source_list,
         "grouped_derived_sources": grouped_derived_source_list,
+        "registry_stats": registry_stats,
+        "registry_error": registry_error,
+        "graph_usage_error": graph_usage_error,
+        "graph_usage_filters": graph_filters,
+        "graph_usage_styles": graph_styles,
+    })
+
+
+@app.get("/registry/resolvers", response_class=HTMLResponse)
+def registry_resolvers(request: Request):
+    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog_cached()
+    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
+        credentials=_credentials,
+        cache=_registry_usage_cache,
+        ttl_seconds=_REGISTRY_CATALOG_TTL_SECONDS,
+        get_sys_db=get_sys_db,
+        get_db=get_db,
+    )
+    graph_filters = graph_usage_filters(graph_usage_by_registry_id)
+    graph_styles = graph_usage_styles(graph_filters)
+
+    resolver_snapshot_list = [
+        with_graph_usages(snapshot, graph_usage_by_registry_id)
+        for snapshot in resolver_snapshots
+    ]
+    grouped_resolver_list = []
+    registry_stats = {
+        "source_count": 0,
+        "resolver_count": 0,
+        "snapshot_count": 0,
+        "total_size": "",
+    }
+    if not registry_error:
+        grouped_resolver_list = group_by_source_dataset(resolver_snapshot_list, "snapshots")
+        total_size_bytes = sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in resolver_snapshots)
+        registry_stats = {
+            "source_count": len(grouped_resolver_list),
+            "resolver_count": sum(len(group["datasets"]) for group in grouped_resolver_list),
+            "snapshot_count": len(resolver_snapshots),
+            "total_size": DataRegistry.format_size(total_size_bytes),
+        }
+
+    return templates.TemplateResponse(request, "registry_resolvers.html", {
+        "request": request,
+        "resolver_snapshots": resolver_snapshot_list,
+        "grouped_resolvers": grouped_resolver_list,
         "registry_stats": registry_stats,
         "registry_error": registry_error,
         "graph_usage_error": graph_usage_error,

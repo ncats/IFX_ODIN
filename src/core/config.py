@@ -67,14 +67,13 @@ def _db_credentials_from_config(config_node: Any) -> DBCredentials:
 
 
 def _parse_data_source_ref(ref: str) -> tuple[str, str, str]:
-    parts = ref.split(":")
-    if len(parts) != 3:
-        raise ValueError(f"Registry data_source must be source:dataset:version, got {ref!r}")
-    return parts[0], parts[1], parts[2]
+    return DataRegistry._parse_registry_ref(ref)
 
 
 def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, ref: str):
     source, dataset, version = _parse_data_source_ref(ref)
+    if hasattr(registry, "_materialize_registry_ref"):
+        return registry._materialize_registry_ref(source, dataset, version, dest=cache_dir)
     try:
         return registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
     except LookupError:
@@ -84,11 +83,18 @@ def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, r
             return registry.materialize_external_source(source, dataset, version, dest=cache_dir)
 
 
+def _materialize_registry_resolver_snapshot(registry: DataRegistry, cache_dir: Path, ref: str):
+    source, resolver, version = _parse_data_source_ref(ref)
+    return registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir)
+
+
 def _resolve_registry_data_sources(config_node: Any, registry: DataRegistry, cache_dir: Path, parent_key: str | None = None):
     if isinstance(config_node, dict):
         resolved = {}
         for key, value in config_node.items():
-            if (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):
+            if key == "resolver_snapshot" and isinstance(value, str):
+                resolved[key] = _materialize_registry_resolver_snapshot(registry, cache_dir, value)
+            elif (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):
                 resolved[key] = _materialize_registry_data_source(registry, cache_dir, value)
             else:
                 resolved[key] = _resolve_registry_data_sources(value, registry, cache_dir, key)

@@ -1,5 +1,6 @@
 from typing import Dict, List, Set
 
+from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
 from src.input_adapters.shared.hcop import HCOPRecordHelper
 from src.id_resolvers.node_normalizer import TranslatorNodeNormResolver
 from src.interfaces.id_resolver import IdMatch, NoMatchBehavior
@@ -11,27 +12,25 @@ class HCOPOrthologGeneResolver(TranslatorNodeNormResolver):
     name = "HCOP OrthologGene Resolver"
 
     def __init__(self,
-                 types: List[str],
-                 data_source,
-                 accepted_species: List[str] = None,
-                 drop_blank_ortholog_identity: bool = True,
+                 resolver_snapshot,
                  batch_size: int = 50000,
                  **kwargs):
         if "no_match_behavior" in kwargs:
             raise ValueError("HCOPOrthologGeneResolver is skip-only and does not accept no_match_behavior")
+        options = resolver_options(resolver_snapshot)
 
         super().__init__(
-            types=types,
+            resolver_snapshot=resolver_snapshot,
             no_match_behavior=NoMatchBehavior.Skip,
             **kwargs,
         )
 
         self.batch_size = batch_size
-        file_path = str(data_source.file("human_all_hcop_sixteen_column.txt.gz"))
+        file_path = str(resolver_input(resolver_snapshot, "data_source").file())
         self.hcop_helper = HCOPRecordHelper(
             file_path=file_path,
-            accepted_species=accepted_species,
-            drop_blank_ortholog_identity=drop_blank_ortholog_identity,
+            accepted_species=options.get("accepted_species"),
+            drop_blank_ortholog_identity=options.get("drop_blank_ortholog_identity", True),
         )
         self.allowed_canonical_ids = self._build_allowed_canonical_ids()
 

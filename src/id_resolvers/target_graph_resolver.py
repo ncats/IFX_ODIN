@@ -1,6 +1,7 @@
 from typing import List, Any, Generator, Optional
 
 from src.constants import Prefix
+from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
 from src.interfaces.id_resolver import IdMatch
 from src.models.node import EquivalentId
@@ -74,11 +75,10 @@ class TargetGraphProteinResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphProteinParser]
 
-    def __init__(self, data_source, additional_ids_data_source=None, **kwargs):
-        file_paths = [str(data_source.file("protein_ids.tsv"))]
-        additional_ids = None
-        if additional_ids_data_source is not None:
-            additional_ids = str(additional_ids_data_source.file("uniprotkb_mapping_20260507.csv"))
+    def __init__(self, resolver_snapshot, **kwargs):
+        self.resolver_snapshot = resolver_snapshot
+        file_paths = [str(resolver_input(resolver_snapshot, "data_source").file("protein_ids.tsv"))]
+        additional_ids = str(resolver_input(resolver_snapshot, "additional_ids_data_source").file("uniprotkb_mapping_20260507.csv"))
         self.parsers = [
             TargetGraphProteinParser(file_path=path, additional_id_file_path=additional_ids)
             for path in file_paths]
@@ -89,8 +89,9 @@ class TargetGraphGeneResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphGeneParser]
 
-    def __init__(self, data_source, **kwargs):
-        file_path = str(data_source.file("gene_ids.tsv"))
+    def __init__(self, resolver_snapshot, **kwargs):
+        self.resolver_snapshot = resolver_snapshot
+        file_path = str(resolver_input(resolver_snapshot, "data_source").file("gene_ids.tsv"))
         self.parsers = [TargetGraphGeneParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -99,8 +100,9 @@ class TargetGraphTranscriptResolver(TargetGraphResolver):
     name = "TargetGraph Transcript Resolver"
     parsers: List[TargetGraphTranscriptParser]
 
-    def __init__(self, data_source, **kwargs):
-        file_path = str(data_source.file("transcript_ids.tsv"))
+    def __init__(self, resolver_snapshot, **kwargs):
+        self.resolver_snapshot = resolver_snapshot
+        file_path = str(resolver_input(resolver_snapshot, "data_source").file("transcript_ids.tsv"))
         self.parsers = [TargetGraphTranscriptParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -123,16 +125,15 @@ class TCRDTargetResolver(TargetGraphResolver):
             version_info.append(parser.get_version_info())
         return '\t'.join(version_info)
 
-    def __init__(self, gene_data_source, transcript_data_source,
-                 protein_data_source, uniprot_mapping_data_source=None,
-                 reviewed_only: bool = False, collapse_to_canonical: bool = False,
-                 canonical_type: Optional[str] = None, **kwargs):
-        gene_file_path = str(gene_data_source.file("gene_ids.tsv"))
-        transcript_file_path = str(transcript_data_source.file("transcript_ids.tsv"))
-        protein_file_paths = [str(protein_data_source.file("protein_ids.tsv"))]
-        additional_ids = None
-        if uniprot_mapping_data_source is not None:
-            additional_ids = str(uniprot_mapping_data_source.file("uniprotkb_mapping_20260507.csv"))
+    def __init__(self, resolver_snapshot, reviewed_only: bool = False, **kwargs):
+        self.resolver_snapshot = resolver_snapshot
+        options = resolver_options(resolver_snapshot)
+        collapse_to_canonical = options.get("collapse_to_canonical", False)
+        canonical_type = options.get("canonical_type")
+        gene_file_path = str(resolver_input(resolver_snapshot, "gene_data_source").file("gene_ids.tsv"))
+        transcript_file_path = str(resolver_input(resolver_snapshot, "transcript_data_source").file("transcript_ids.tsv"))
+        protein_file_paths = [str(resolver_input(resolver_snapshot, "protein_data_source").file("protein_ids.tsv"))]
+        additional_ids = str(resolver_input(resolver_snapshot, "uniprot_mapping_data_source").file("uniprotkb_mapping_20260507.csv"))
 
         self.parsers = []
         self.protein_parsers = [

@@ -2,6 +2,7 @@ import csv
 from collections import defaultdict
 from typing import Dict, List, Optional, Union
 
+from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
 from src.interfaces.id_resolver import IdMatch, IdResolver
 from src.models.node import Node
 
@@ -18,15 +19,16 @@ class CureIdLabelResolver(IdResolver):
 
     def __init__(
         self,
-        data_source,
-        types: Optional[List[str]] = None,
-        label_field_by_type: Optional[Dict[str, str]] = None,
-        node_type_to_source_types: Optional[Dict[str, List[str]]] = None,
-        manual_label_map: Optional[Dict[str, Dict[str, Union[List[str], str]]]] = None,
+        resolver_snapshot,
         **kwargs,
     ):
-        super().__init__(types=types or [], **kwargs)
-        self.tsv_file = str(data_source.file())
+        options = resolver_options(resolver_snapshot)
+        label_field_by_type = options.get("label_field_by_type")
+        node_type_to_source_types = options.get("node_type_to_source_types")
+        manual_label_map = options.get("manual_label_map")
+        super().__init__(**kwargs)
+        self.resolver_snapshot = resolver_snapshot
+        self.tsv_file = str(resolver_input(resolver_snapshot, "data_source").file())
         self.label_field_by_type = label_field_by_type or {}
         self.manual_label_map = manual_label_map or {}
         raw_mapping = node_type_to_source_types or self.DEFAULT_NODE_TYPE_TO_SOURCE_TYPES

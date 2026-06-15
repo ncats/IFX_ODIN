@@ -2,6 +2,7 @@ import csv
 import json
 from collections import Counter
 from datetime import date
+from pathlib import Path
 
 from src.id_resolvers.cure_id_label_resolver import CureIdLabelResolver
 from src.input_adapters.cure.cure_adapter import CUREAdapter
@@ -39,7 +40,7 @@ CURE_TSV_FILE = "./input_files/manual/cure/cureid_data.tsv"
 
 
 def _adapter_entries():
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     return [entry for batch in adapter.get_all() for entry in batch]
 
 
@@ -86,14 +87,14 @@ def test_rasopathies_adapter_emits_patient_for_each_case_report():
 
 
 def test_rasopathies_adapter_reads_version_date_from_file_name():
-    version = RasopathiesAdapter(CURE_REPORTS_FILE).get_version()
+    version = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE)).get_version()
 
     assert version.version == "reports_20260518T211409Z"
     assert version.version_date == date(2026, 5, 18)
 
 
 def test_cure_pasc_adapter_reads_version_date_from_file_name():
-    version = CUREAdapter(CURE_REPORTS_FILE, form_type="pasc").get_version()
+    version = CUREAdapter(_materialized_file_dataset(CURE_REPORTS_FILE), form_type="pasc").get_version()
 
     assert version.version == "reports_20260518T211409Z"
     assert version.version_date == date(2026, 5, 18)
@@ -114,6 +115,65 @@ def _materialized_dataset(tmp_path, file_name, content, *, version="registered-v
         manifest_uri=f"s3://ifx-registry/cure/dataset/{version}/manifest.yaml",
         manifest={"files": [{"path": file_name}]},
         local_dir=local_dir,
+    )
+
+
+def _materialized_file_dataset(file_path):
+    path = Path(file_path)
+    version = path.stem
+    version_date = None
+    if version.startswith("reports_") and len(version) >= len("reports_YYYYMMDD"):
+        raw_date = version.removeprefix("reports_")[:8]
+        version_date = date(int(raw_date[:4]), int(raw_date[4:6]), int(raw_date[6:8]))
+    return MaterializedDataset(
+        source="cure",
+        dataset="curated_concepts",
+        version=version,
+        version_date=version_date,
+        download_date=None,
+        snapshot_id=f"cure:curated_concepts:{version}",
+        manifest_uri=f"s3://ifx-registry/sources/cure/curated_concepts/{version}/manifest.yaml",
+        manifest={"files": [{"path": path.name}]},
+        local_dir=path.parent,
+    )
+
+
+def _cure_resolver_snapshot(data_source, *, options=None):
+    return MaterializedDataset(
+        source="cure",
+        dataset="cure_id_labels",
+        version="test",
+        version_date=None,
+        download_date=None,
+        snapshot_id="cure:cure_id_labels:test",
+        manifest_uri="s3://ifx-registry/resolvers/cure/cure_id_labels/test/manifest.yaml",
+        manifest={
+            "kind": "resolver_snapshot",
+            "definition": {
+                "options": options or {},
+            },
+            "resolved_inputs": {
+                "data_source": data_source.snapshot_id,
+            },
+        },
+        local_dir=data_source.local_dir,
+        resolver_inputs={"data_source": data_source},
+    )
+
+
+def _cure_label_resolver(data_source=CURE_TSV_FILE, *, types, **kwargs):
+    option_keys = {"label_field_by_type", "node_type_to_source_types", "manual_label_map"}
+    options = {
+        key: kwargs.pop(key)
+        for key in list(kwargs)
+        if key in option_keys
+    }
+    if isinstance(data_source, (str, Path)):
+        data_source = _materialized_file_dataset(data_source)
+    return CureIdLabelResolver(
+        resolver_snapshot=_cure_resolver_snapshot(data_source, options=options),
+        types=types,
+        **kwargs,
     )
 
 
@@ -149,8 +209,7 @@ def test_cure_curated_concepts_adapter_uses_registry_dataset_version(tmp_path):
 
 
 def test_cure_id_label_resolver_applies_manual_yaml_style_label_map():
-    resolver = CureIdLabelResolver(
-        CURE_TSV_FILE,
+    resolver = _cure_label_resolver(
         types=["Gene"],
         label_field_by_type={"Gene": "symbol"},
         manual_label_map={
@@ -180,7 +239,7 @@ def test_cure_id_label_resolver_accepts_registry_dataset(tmp_path):
         "Disease\tDisease A\tMONDO:1\tGene\tGene A\tNCBIGene:1\n",
     )
 
-    resolver = CureIdLabelResolver(
+    resolver = _cure_label_resolver(
         data_source=data_source,
         types=["Gene"],
         label_field_by_type={"Gene": "symbol"},
@@ -213,7 +272,7 @@ def test_rasopathies_adapter_only_emits_approved_cases(tmp_path):
 
     entries = [
         entry
-        for batch in RasopathiesAdapter(str(test_file)).get_all()
+        for batch in RasopathiesAdapter(_materialized_file_dataset(test_file)).get_all()
         for entry in batch
     ]
 
@@ -244,7 +303,7 @@ def test_cure_pasc_adapter_only_emits_approved_cases(tmp_path):
 
     entries = [
         entry
-        for batch in CUREAdapter(str(test_file), form_type="pasc").get_all()
+        for batch in CUREAdapter(_materialized_file_dataset(test_file), form_type="pasc").get_all()
         for entry in batch
     ]
 
@@ -256,7 +315,7 @@ def test_cure_pasc_adapter_only_emits_approved_cases(tmp_path):
 
 
 def test_cure_pasc_case_reports_include_original_cure_id_url():
-    adapter = CUREAdapter(CURE_REPORTS_FILE, form_type="pasc")
+    adapter = CUREAdapter(_materialized_file_dataset(CURE_REPORTS_FILE), form_type="pasc")
     case_report = next(
         entry
         for batch in adapter.get_all()
@@ -272,7 +331,7 @@ def test_cure_pasc_case_reports_include_original_cure_id_url():
 def test_cure_pasc_adverse_events_are_modeled_as_phenotypes():
     entries = [
         entry
-        for batch in CUREAdapter(CURE_REPORTS_FILE, form_type="pasc").get_all()
+        for batch in CUREAdapter(_materialized_file_dataset(CURE_REPORTS_FILE), form_type="pasc").get_all()
         for entry in batch
     ]
     counts = Counter(entry.__class__.__name__ for entry in entries)
@@ -304,14 +363,13 @@ def test_rasopathies_adapter_keeps_empty_demographic_patient_anchor():
 
 def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
     resolver_map = {
-        "Phenotype": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Phenotype": _cure_label_resolver(
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         )
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -344,20 +402,18 @@ def test_rasopathies_clinical_context_findings_cover_tsv_phenotype_pairs():
 
 def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
     resolver_map = {
-        "Drug": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Drug": _cure_label_resolver(
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Phenotype": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Phenotype": _cure_label_resolver(
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -422,20 +478,18 @@ def test_rasopathies_treatment_responses_cover_tsv_drug_phenotype_pairs():
 
 def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
     resolver_map = {
-        "Condition": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Condition": _cure_label_resolver(
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Drug": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Drug": _cure_label_resolver(
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -484,20 +538,18 @@ def test_rasopathies_drug_treatments_cover_tsv_drug_condition_pairs():
 
 def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
     resolver_map = {
-        "Drug": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Drug": _cure_label_resolver(
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Phenotype": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Phenotype": _cure_label_resolver(
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -545,21 +597,19 @@ def test_rasopathies_adverse_events_cover_tsv_has_adverse_events_triples():
 
 def test_rasopathies_genetics_cover_tsv_genetic_predicates():
     resolver_map = {
-        "Condition": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Condition": _cure_label_resolver(
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Gene": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Gene": _cure_label_resolver(
             types=["Gene"],
             label_field_by_type={"Gene": "symbol"},
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)
@@ -639,33 +689,29 @@ def test_rasopathies_genetics_cover_tsv_genetic_predicates():
 
 def test_rasopathies_graph_reconstructs_tsv_association_set():
     resolver_map = {
-        "Condition": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Condition": _cure_label_resolver(
             types=["Condition"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Drug": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Drug": _cure_label_resolver(
             types=["Drug"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Gene": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Gene": _cure_label_resolver(
             types=["Gene"],
             label_field_by_type={"Gene": "symbol"},
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
-        "Phenotype": CureIdLabelResolver(
-            CURE_TSV_FILE,
+        "Phenotype": _cure_label_resolver(
             types=["Phenotype"],
             no_match_behavior=NoMatchBehavior.Allow,
             multi_match_behavior=MultiMatchBehavior.All,
         ),
     }
-    adapter = RasopathiesAdapter(CURE_REPORTS_FILE)
+    adapter = RasopathiesAdapter(_materialized_file_dataset(CURE_REPORTS_FILE))
     entries = [
         entry
         for batch in adapter.get_resolved_and_provenanced_list(resolver_map)

@@ -54,6 +54,10 @@ def derived_storage_prefix(source: str, dataset: str, version: str) -> str:
     return f"derived/{source}/{dataset}/{version}"
 
 
+def resolver_storage_prefix(source: str, resolver: str, version: str) -> str:
+    return f"resolvers/{source}/{resolver}/{version}"
+
+
 def file_entry(
     local_path: Path,
     source_url: str,
@@ -129,6 +133,41 @@ def build_derived_snapshot_manifest(
         "created_at": iso_timestamp(),
         "derived_from": list(derived_from),
         "transform": transform,
+        "build_key": build_key,
+        "files": list(files),
+        "stats": stats or {},
+    }
+    if extra:
+        manifest["extra"] = extra
+    return manifest
+
+
+def build_resolver_snapshot_manifest(
+    *,
+    source: str,
+    resolver: str,
+    version: str,
+    definition: Dict[str, Any],
+    definition_fingerprint: str,
+    resolved_inputs: Dict[str, str],
+    resolved_input_metadata: Dict[str, Dict[str, Any]],
+    files: Iterable[Dict[str, Any]],
+    build_key: Optional[str] = None,
+    stats: Optional[Dict[str, Any]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    manifest: Dict[str, Any] = {
+        "kind": "resolver_snapshot",
+        "schema_version": 1,
+        "source": source,
+        "resolver": resolver,
+        "snapshot_id": snapshot_id(source, resolver, version),
+        "version": version,
+        "created_at": iso_timestamp(),
+        "definition": definition,
+        "definition_fingerprint": definition_fingerprint,
+        "resolved_inputs": dict(resolved_inputs),
+        "resolved_input_metadata": dict(resolved_input_metadata),
         "build_key": build_key,
         "files": list(files),
         "stats": stats or {},

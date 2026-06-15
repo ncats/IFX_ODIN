@@ -2,17 +2,20 @@ from typing import Dict, List, Set
 
 import obonet
 
+from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
 from src.interfaces.id_resolver import IdMatch, IdResolver
 from src.models.node import Node
 
 class TissueResolver(IdResolver):
     name = "Tissue Resolver"
 
-    def __init__(self, data_source, valid_ontologies: List[str] = None, **kwargs):
-        file_path = str(data_source.file())
+    def __init__(self, resolver_snapshot, **kwargs):
+        file_path = str(resolver_input(resolver_snapshot, "data_source").file())
+        valid_ontologies = resolver_options(resolver_snapshot).get("valid_ontologies")
         if valid_ontologies is None:
             raise ValueError("valid_ontologies is required")
         super().__init__(**kwargs)
+        self.resolver_snapshot = resolver_snapshot
         self._graph = obonet.read_obo(file_path)
         self._valid_ontologies = self._normalize_valid_ontologies(valid_ontologies)
         self._xref_map = self._build_xref_map()

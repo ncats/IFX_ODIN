@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 
 RegistryEntry = Dict[str, object]
-RegistryUsage = Dict[str, List[str]]
+RegistryUsage = Dict[str, Dict[str, List[str]]]
 
 
 def registry_entry_id(entry: dict) -> Optional[str]:
@@ -20,7 +20,11 @@ def graph_usage_filters(usage_by_registry_id: RegistryUsage) -> List[dict]:
             "name": graph_name,
             "hue": graph_badge_hue(graph_name),
         }
-        for graph_name in sorted({graph for graphs in usage_by_registry_id.values() for graph in graphs})
+        for graph_name in sorted({
+            graph
+            for graphs in usage_by_registry_id.values()
+            for graph in _graph_usage_keys(graphs)
+        })
     ]
 
 
@@ -33,11 +37,44 @@ def graph_usage_styles(filters: List[dict]) -> Dict[str, str]:
 
 def with_graph_usages(entry: dict, usage_by_registry_id: RegistryUsage) -> dict:
     entry_id = registry_entry_id(entry)
+    graph_usage = _normalize_graph_usage(usage_by_registry_id.get(entry_id, {}) if entry_id else {})
+    graph_usage_details = [
+        {
+            "graph": graph_name,
+            "categories": categories,
+            "category_label": _usage_category_label(categories),
+            "category_class": "-".join(categories),
+        }
+        for graph_name, categories in sorted(graph_usage.items())
+    ]
     return {
         **entry,
         "registry_id": entry_id,
-        "graph_usages": usage_by_registry_id.get(entry_id, []) if entry_id else [],
+        "graph_usages": [detail["graph"] for detail in graph_usage_details],
+        "graph_usage_details": graph_usage_details,
     }
+
+
+def _graph_usage_keys(graph_usage) -> List[str]:
+    if isinstance(graph_usage, dict):
+        return list(graph_usage.keys())
+    if isinstance(graph_usage, list):
+        return list(graph_usage)
+    return []
+
+
+def _normalize_graph_usage(graph_usage) -> Dict[str, List[str]]:
+    if isinstance(graph_usage, dict):
+        return {
+            graph_name: list(categories or [])
+            for graph_name, categories in graph_usage.items()
+        }
+    if isinstance(graph_usage, list):
+        return {
+            graph_name: []
+            for graph_name in graph_usage
+        }
+    return {}
 
 
 def group_by_source_dataset(entries: List[dict], item_key: str) -> List[dict]:
@@ -105,16 +142,47 @@ def extract_registry_datasets(etl_meta: Optional[dict]) -> List[dict]:
     for dataset in etl_meta.get("registry_datasets") or []:
         if isinstance(dataset, dict):
             add_dataset(dataset)
+            resolver_usages = [
+                usage for usage in dataset.get("usages") or []
+                if str(usage).startswith("resolver:")
+            ]
+            for usage in resolver_usages:
+                visit(dataset.get("resolver_inputs") or {}, usage=usage)
 
     resolver_metadata = (etl_meta.get("resolver_metadata") or {}).get("by_type") or {}
     for node_type, metadata in resolver_metadata.items():
         usage = f"resolver:{metadata.get('label') or node_type}"
-        visit(metadata.get("kwargs") or {}, usage=usage)
+        resolver_snapshot = metadata.get("resolver_snapshot")
+        if isinstance(resolver_snapshot, dict) and registry_entry_id(resolver_snapshot):
+            add_dataset(resolver_snapshot, usage=usage)
+            visit(resolver_snapshot.get("resolver_inputs") or {}, usage=usage)
+        else:
+            visit(metadata.get("kwargs") or {}, usage=usage)
 
     return sorted(
         datasets_by_registry_id.values(),
         key=lambda item: (item.get("source") or "", item.get("dataset") or "", item.get("version") or ""),
     )
+
+
+def _usage_categories(usages: List[str]) -> List[str]:
+    categories = set()
+    for usage in usages or []:
+        if str(usage).startswith("adapter:"):
+            categories.add("adapter")
+        elif str(usage).startswith("resolver:"):
+            categories.add("resolver")
+    return sorted(categories)
+
+
+def _usage_category_label(categories: List[str]) -> str:
+    if categories == ["adapter"]:
+        return "adapter"
+    if categories == ["resolver"]:
+        return "resolver"
+    if categories == ["adapter", "resolver"]:
+        return "adapter + resolver"
+    return "graph"
 
 
 def load_graph_registry_usage_cached(
@@ -161,15 +229,19 @@ def load_graph_registry_usage_cached(
                 entry_id = registry_entry_id(dataset)
                 if not entry_id:
                     continue
-                graph_names = usage_by_registry_id.setdefault(entry_id, [])
-                if db_name not in graph_names:
-                    graph_names.append(db_name)
+                graph_usage = usage_by_registry_id.setdefault(entry_id, {})
+                categories = set(graph_usage.get(db_name) or [])
+                categories.update(_usage_categories(dataset.get("usages") or []))
+                graph_usage[db_name] = sorted(categories)
         except Exception:
             continue
 
     usage_by_registry_id = {
-        entry_id: sorted(graph_names)
-        for entry_id, graph_names in sorted(usage_by_registry_id.items())
+        entry_id: {
+            graph_name: sorted(categories)
+            for graph_name, categories in sorted(graph_usage.items())
+        }
+        for entry_id, graph_usage in sorted(usage_by_registry_id.items())
     }
     cache.update({
         "loaded_at": now,

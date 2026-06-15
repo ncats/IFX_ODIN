@@ -23,12 +23,14 @@ from src.registry.fetchers import (
 from src.registry.manifest import (
     MANIFEST_FILENAME,
     build_derived_snapshot_manifest,
+    build_resolver_snapshot_manifest,
     build_source_snapshot_manifest,
     derived_storage_prefix,
     file_entry,
     iso_timestamp,
     manifest_checksum,
     read_manifest,
+    resolver_storage_prefix,
     storage_prefix,
     today_utc,
     verify_manifest_files,
@@ -39,6 +41,7 @@ from src.shared.db_credentials import DBCredentials
 
 
 REGISTRY_SOURCES_CONFIG = Path(__file__).parents[1] / "registry" / "registry_sources.yaml"
+REGISTRY_RESOLVERS_CONFIG = Path(__file__).parents[1] / "registry" / "registry_resolvers.yaml"
 REPO_ROOT = Path(__file__).parents[2]
 RegistryEntry = Dict[str, Any]
 RegistryKey = Tuple[str, str]
@@ -116,24 +119,33 @@ class DataRegistry:
         storage: Optional[MinioStorage] = None,
         *,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
+        resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
     ):
         self.storage = storage
         self.sources_config_path = sources_config_path
+        self.resolvers_config_path = resolvers_config_path
         self._source_snapshots: Optional[List[RegistryEntry]] = None
         self._external_sources: Optional[List[RegistryEntry]] = None
         self._derived_artifacts: Optional[List[RegistryEntry]] = None
+        self._resolver_snapshots: Optional[List[RegistryEntry]] = None
         self._index: Optional[_RegistryIndex] = None
         self._source_index: Optional[_RegistryIndex] = None
         self._external_index: Optional[_RegistryIndex] = None
         self._sources_config: Optional[dict] = None
+        self._resolvers_config: Optional[dict] = None
 
     @classmethod
     def local(
         cls,
         *,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
+        resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
     ) -> "DataRegistry":
-        return cls(storage=None, sources_config_path=sources_config_path)
+        return cls(
+            storage=None,
+            sources_config_path=sources_config_path,
+            resolvers_config_path=resolvers_config_path,
+        )
 
     @classmethod
     def from_minio_credentials(
@@ -193,11 +205,18 @@ class DataRegistry:
             self._derived_artifacts = self._list_derived_artifacts()
         return self._derived_artifacts
 
+    def list_resolver_snapshots(self) -> List[RegistryEntry]:
+        self._require_storage()
+        if self._resolver_snapshots is None:
+            self._resolver_snapshots = self._list_resolver_snapshots()
+        return self._resolver_snapshots
+
     def refresh_catalog(self) -> None:
         self._require_storage()
         self._source_snapshots = self._list_source_snapshots()
         self._external_sources = self._list_external_sources()
         self._derived_artifacts = self._list_derived_artifacts()
+        self._resolver_snapshots = self._list_resolver_snapshots()
         self._index = _RegistryIndex(self._source_snapshots, self._external_sources)
         self._source_index = _RegistryIndex(self._source_snapshots, [])
         self._external_index = _RegistryIndex([], self._external_sources)
@@ -261,6 +280,38 @@ class DataRegistry:
                 "created_at": manifest.get("created_at"),
                 "derived_from": manifest.get("derived_from") or [],
                 "transform": manifest.get("transform") or {},
+                "build_key": manifest.get("build_key"),
+                "files": files,
+                "stats": manifest.get("stats") or {},
+                "total_size_bytes": total_size_bytes,
+                "total_size": self.format_size(total_size_bytes),
+                "manifest_uri": s3_uri(self.storage.bucket, key),
+                "manifest": manifest,
+                "manifest_yaml": yaml.safe_dump(manifest, sort_keys=False),
+            })
+        return self._sort_registry_entries(manifests)
+
+    def _list_resolver_snapshots(self) -> List[RegistryEntry]:
+        manifests = []
+        for key in self.storage.list_keys("resolvers/"):
+            if not key.endswith(f"/{MANIFEST_FILENAME}"):
+                continue
+            manifest = yaml.safe_load(self.storage.read_text(key))
+            files = deepcopy(manifest.get("files", []) or [])
+            for entry in files:
+                entry["size"] = self.format_size(entry.get("size_bytes"))
+            total_size_bytes = sum(entry.get("size_bytes", 0) or 0 for entry in files)
+            manifests.append({
+                "snapshot_id": manifest.get("snapshot_id"),
+                "source": manifest.get("source"),
+                "resolver": manifest.get("resolver"),
+                "dataset": manifest.get("resolver"),
+                "version": manifest.get("version"),
+                "created_at": manifest.get("created_at"),
+                "definition": manifest.get("definition") or {},
+                "definition_fingerprint": manifest.get("definition_fingerprint"),
+                "resolved_inputs": manifest.get("resolved_inputs") or {},
+                "resolved_input_metadata": manifest.get("resolved_input_metadata") or {},
                 "build_key": manifest.get("build_key"),
                 "files": files,
                 "stats": manifest.get("stats") or {},
@@ -472,6 +523,49 @@ class DataRegistry:
             manifest_uri=artifact["manifest_uri"],
             manifest=artifact["manifest"],
             local_dir=local_dir,
+        )
+
+    def materialize_resolver_snapshot(
+        self,
+        source: str,
+        resolver: str,
+        version: Optional[str] = None,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        self._require_storage()
+        snapshot = self.get_resolver_snapshot(source, resolver, version)
+        local_dir = Path(dest) / source / resolver / snapshot["version"]
+        local_dir.mkdir(parents=True, exist_ok=True)
+        prefix = resolver_storage_prefix(source, resolver, snapshot["version"])
+        for entry in snapshot.get("files", []) or []:
+            local_path = local_dir / entry["path"]
+            if self._local_file_matches_entry(local_path, entry):
+                print(f"Using cached registry file {local_path}", flush=True)
+                continue
+            key = self._storage_key_for_entry(entry, prefix)
+            print(f"Downloading registry file {key} -> {local_path}", flush=True)
+            self.storage.download_file(key, local_path)
+        resolver_inputs = {}
+        for input_name, resolved_ref in (snapshot.get("resolved_inputs") or {}).items():
+            input_source, input_dataset, input_version = self._parse_registry_ref(resolved_ref)
+            resolver_inputs[input_name] = self._materialize_registry_ref(
+                input_source,
+                input_dataset,
+                input_version,
+                dest=dest,
+            )
+        return MaterializedDataset(
+            source=source,
+            dataset=resolver,
+            version=snapshot["version"],
+            version_date=None,
+            download_date=snapshot.get("created_at"),
+            snapshot_id=snapshot["snapshot_id"],
+            manifest_uri=snapshot["manifest_uri"],
+            manifest=snapshot["manifest"],
+            local_dir=local_dir,
+            resolver_inputs=resolver_inputs,
         )
 
     def materialize_external_source(
@@ -876,6 +970,172 @@ class DataRegistry:
             results.append(result)
         return results
 
+    def build_resolver_snapshot_manifest(
+        self,
+        source: str,
+        resolver: str,
+    ) -> RegistryEntry:
+        definition = self._resolver_definition_metadata(source, resolver)
+        resolved_inputs, resolved_input_metadata = self._resolve_resolver_inputs(definition)
+        definition_fingerprint = self._resolver_definition_fingerprint(definition)
+        build_key = self._resolver_build_key(
+            definition_fingerprint=definition_fingerprint,
+            resolved_input_metadata=resolved_input_metadata,
+        )
+        version = f"deps-{build_key[:12]}"
+        return build_resolver_snapshot_manifest(
+            source=source,
+            resolver=resolver,
+            version=version,
+            definition=definition,
+            definition_fingerprint=definition_fingerprint,
+            resolved_inputs=resolved_inputs,
+            resolved_input_metadata=resolved_input_metadata,
+            files=[],
+            build_key=build_key,
+        )
+
+    def write_resolver_snapshot(self, manifest: RegistryEntry, *, dest: str | Path) -> Path:
+        final_dir = Path(dest) / manifest["source"] / manifest["resolver"] / manifest["version"]
+        final_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = final_dir / MANIFEST_FILENAME
+        write_manifest(manifest, manifest_path)
+        print(f"Wrote {manifest_path}")
+        print(f"Manifest sha256: {manifest_checksum(manifest_path)}")
+        return manifest_path
+
+    def upload_resolver_snapshot(self, manifest_path: str | Path) -> List[str]:
+        self._require_storage()
+        manifest_path = Path(manifest_path)
+        verify_manifest_files(manifest_path)
+        manifest = read_manifest(manifest_path)
+        source = manifest["source"]
+        resolver = manifest["resolver"]
+        version = manifest["version"]
+        prefix = resolver_storage_prefix(source, resolver, version)
+        uploaded = []
+        for entry in manifest.get("files", []) or []:
+            local_path = manifest_path.parent / entry["path"]
+            key = f"{prefix}/{entry['path']}"
+            entry["storage_uri"] = self.storage.upload_file(local_path, key, entry.get("content_type"))
+            uploaded.append(entry["storage_uri"])
+        manifest["manifest_uri"] = s3_uri(self.storage.bucket, f"{prefix}/{MANIFEST_FILENAME}")
+        write_manifest(manifest, manifest_path)
+        uploaded_manifest_uri = self.storage.upload_file(
+            manifest_path,
+            f"{prefix}/{MANIFEST_FILENAME}",
+            "application/x-yaml",
+        )
+        uploaded.append(uploaded_manifest_uri)
+        self.refresh_catalog()
+        return uploaded
+
+    def register_resolver_snapshot(
+        self,
+        source: str,
+        resolver: str,
+        *,
+        dest: str | Path,
+        upload: bool = True,
+    ) -> Path:
+        manifest = self.build_resolver_snapshot_manifest(source, resolver)
+        manifest_path = self.write_resolver_snapshot(manifest, dest=dest)
+        if upload:
+            self.upload_resolver_snapshot(manifest_path)
+        return manifest_path
+
+    def check_resolvers(self) -> List[RegistryEntry]:
+        self._require_storage()
+        statuses: List[RegistryEntry] = []
+        for source, resolver, _config in self._resolver_definition_entries():
+            registered_versions = self.list_resolver_versions(source, resolver)
+            status: RegistryEntry = {
+                "source": source,
+                "resolver": resolver,
+                "latest_version": None,
+                "latest_build_key": None,
+                "registered_versions": registered_versions,
+                "registered_build_keys": [],
+                "latest_registered_version": registered_versions[-1] if registered_versions else None,
+                "days_since_last_update": self._days_since_version(registered_versions[-1]) if registered_versions else None,
+                "is_latest_registered": False,
+                "error": None,
+            }
+            try:
+                manifest = self.build_resolver_snapshot_manifest(source, resolver)
+                status["latest_version"] = manifest["version"]
+                status["latest_build_key"] = manifest["build_key"]
+                registered_snapshots = [
+                    entry
+                    for entry in self.list_resolver_snapshots()
+                    if entry.get("source") == source and entry.get("resolver") == resolver
+                ]
+                status["registered_build_keys"] = [
+                    entry.get("build_key")
+                    for entry in registered_snapshots
+                    if entry.get("build_key")
+                ]
+                status["is_latest_registered"] = any(
+                    entry.get("version") == status["latest_version"]
+                    and entry.get("build_key") == status["latest_build_key"]
+                    for entry in registered_snapshots
+                )
+            except Exception as exc:
+                status["error"] = str(exc)
+            statuses.append(status)
+        return statuses
+
+    def sync_resolvers(
+        self,
+        *,
+        dest: Optional[str | Path] = None,
+        min_days_since_last_update: int = 0,
+        dry_run: bool = True,
+    ) -> List[RegistryEntry]:
+        if not dry_run and dest is None:
+            raise ValueError("dest is required when dry_run=False")
+        results: List[RegistryEntry] = []
+        for status in self.check_resolvers():
+            reason = self._sync_candidate_reason(
+                status,
+                min_days_since_last_update=min_days_since_last_update,
+            )
+            if reason is None:
+                continue
+            result = dict(status)
+            result["sync_reason"] = reason
+            result["sync_action"] = "would_register" if dry_run else "register"
+            result["manifest_path"] = None
+            result["sync_error"] = None
+            if not dry_run:
+                try:
+                    print(
+                        f"Registering resolver snapshot {status['source']}/{status['resolver']} "
+                        f"(reason: {reason})",
+                        flush=True,
+                    )
+                    manifest_path = self.register_resolver_snapshot(
+                        status["source"],
+                        status["resolver"],
+                        dest=dest,
+                        upload=True,
+                    )
+                    result["sync_action"] = "registered"
+                    result["manifest_path"] = str(manifest_path)
+                    print(
+                        f"Registered resolver snapshot {status['source']}/{status['resolver']} -> {manifest_path}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    result["sync_action"] = "failed"
+                    result["sync_error"] = str(exc)
+                    print(
+                        f"Failed registering resolver snapshot {status['source']}/{status['resolver']}: {exc}",
+                        flush=True,
+                    )
+            results.append(result)
+        return results
+
     @staticmethod
     def _build_external_manifest(registration: ExternalSourceRegistration) -> RegistryEntry:
         return {
@@ -1201,6 +1461,115 @@ class DataRegistry:
             return digest
         return digest[:length]
 
+    def _resolver_definition_entries(self) -> List[Tuple[str, str, RegistryEntry]]:
+        entries = []
+        for source, source_config in sorted((self._load_resolvers_config().get("resolvers") or {}).items()):
+            for resolver, resolver_config in sorted((source_config or {}).items()):
+                entries.append((source, resolver, resolver_config or {}))
+        return entries
+
+    def get_resolver_definition_config(self, source: str, resolver: str) -> RegistryEntry:
+        source_config = (self._load_resolvers_config().get("resolvers") or {}).get(source)
+        if not source_config:
+            raise LookupError(f"No registry resolver source configured for {source}")
+        resolver_config = (source_config or {}).get(resolver)
+        if not resolver_config:
+            raise LookupError(f"No registry resolver configured for {source}/{resolver}")
+        return resolver_config
+
+    def _resolver_definition_metadata(self, source: str, resolver: str) -> RegistryEntry:
+        definition = deepcopy(self.get_resolver_definition_config(source, resolver))
+        definition["source"] = source
+        definition["resolver"] = resolver
+        code_ref = definition.get("import")
+        if code_ref:
+            code_path = Path(code_ref)
+            if not code_path.is_absolute():
+                code_path = REPO_ROOT / code_path
+            definition["code_sha256"] = manifest_checksum(code_path)
+        return definition
+
+    def _resolve_resolver_inputs(
+        self,
+        definition: RegistryEntry,
+    ) -> Tuple[Dict[str, str], Dict[str, Dict[str, Any]]]:
+        resolved_inputs: Dict[str, str] = {}
+        resolved_input_metadata: Dict[str, Dict[str, Any]] = {}
+        for input_name, logical_ref in (definition.get("inputs") or {}).items():
+            source, dataset = self._parse_logical_registry_ref(logical_ref)
+            snapshot = self._latest_source_snapshot(source, dataset)
+            resolved_ref = f"{source}:{dataset}:{snapshot['version']}"
+            resolved_inputs[input_name] = resolved_ref
+            resolved_input_metadata[input_name] = {
+                "source": source,
+                "dataset": dataset,
+                "version": snapshot["version"],
+                "snapshot_id": snapshot["snapshot_id"],
+                "manifest_uri": snapshot["manifest_uri"],
+            }
+        return resolved_inputs, resolved_input_metadata
+
+    @staticmethod
+    def _parse_logical_registry_ref(ref: str) -> Tuple[str, str]:
+        parts = str(ref).split(":")
+        if len(parts) != 2:
+            raise ValueError(f"Registry resolver input must be source:dataset, got {ref!r}")
+        return parts[0], parts[1]
+
+    @staticmethod
+    def _parse_registry_ref(ref: str) -> Tuple[str, str, str]:
+        parts = str(ref).split(":")
+        if len(parts) != 3:
+            raise ValueError(f"Registry ref must be source:dataset:version, got {ref!r}")
+        return parts[0], parts[1], parts[2]
+
+    def _materialize_registry_ref(
+        self,
+        source: str,
+        dataset: str,
+        version: str,
+        *,
+        dest: str | Path,
+    ) -> MaterializedDataset:
+        try:
+            return self.materialize_source_snapshot(source, dataset, version, dest=dest)
+        except LookupError:
+            try:
+                return self.materialize_derived_artifact(source, dataset, version, dest=dest)
+            except LookupError:
+                return self.materialize_external_source(source, dataset, version, dest=dest)
+
+    def _latest_source_snapshot(self, source: str, dataset: str) -> RegistryEntry:
+        versions = [
+            entry.get("version")
+            for entry in self.list_source_snapshots()
+            if entry.get("source") == source and entry.get("dataset") == dataset and entry.get("version")
+        ]
+        if not versions:
+            raise LookupError(f"No registered source snapshot {source}/{dataset}")
+        return self.get_source_snapshot(source, dataset, sorted(versions)[-1])
+
+    @staticmethod
+    def _resolver_definition_fingerprint(definition: RegistryEntry) -> str:
+        encoded = json.dumps(definition, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _resolver_build_key(
+        *,
+        definition_fingerprint: str,
+        resolved_input_metadata: Dict[str, Dict[str, Any]],
+    ) -> str:
+        payload = {
+            "definition_fingerprint": definition_fingerprint,
+            "resolved_inputs": {
+                input_name: metadata.get("snapshot_id")
+                for input_name, metadata in sorted(resolved_input_metadata.items())
+            },
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
     @staticmethod
     def _local_file_matches_entry(local_path: Path, entry: RegistryEntry) -> bool:
         if not local_path.exists():
@@ -1235,6 +1604,12 @@ class DataRegistry:
             with self.sources_config_path.open("r", encoding="utf-8") as handle:
                 self._sources_config = yaml.safe_load(handle) or {}
         return self._sources_config
+
+    def _load_resolvers_config(self) -> dict:
+        if self._resolvers_config is None:
+            with self.resolvers_config_path.open("r", encoding="utf-8") as handle:
+                self._resolvers_config = yaml.safe_load(handle) or {}
+        return self._resolvers_config
 
     def _require_storage(self) -> None:
         if self.storage is None:
@@ -1277,6 +1652,13 @@ class DataRegistry:
             if entry.get("source") == source and entry.get("dataset") == dataset and entry.get("version")
         )
 
+    def list_resolver_versions(self, source: str, resolver: str) -> List[str]:
+        return sorted(
+            entry.get("version")
+            for entry in self.list_resolver_snapshots()
+            if entry.get("source") == source and entry.get("resolver") == resolver and entry.get("version")
+        )
+
     def get_derived_artifact(
         self,
         source: str,
@@ -1295,6 +1677,27 @@ class DataRegistry:
             kind="derived artifact",
             source=source,
             dataset=dataset,
+            version=version,
+        )
+
+    def get_resolver_snapshot(
+        self,
+        source: str,
+        resolver: str,
+        version: Optional[str] = None,
+    ) -> RegistryEntry:
+        matches = [
+            entry
+            for entry in self.list_resolver_snapshots()
+            if entry.get("source") == source
+            and entry.get("resolver") == resolver
+            and (version is None or entry.get("version") == version)
+        ]
+        return self._single_match(
+            matches,
+            kind="resolver snapshot",
+            source=source,
+            dataset=resolver,
             version=version,
         )
 

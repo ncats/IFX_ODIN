@@ -4,6 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
+from src.id_resolvers.resolver_snapshot import resolver_input
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver
 from src.interfaces.id_resolver import IdMatch
 from src.models.node import Node
@@ -22,8 +23,9 @@ class DiseaseIdResolver(SqliteCacheResolver):
     xref_suffix = "_xref"
     cache_schema_version = "v2"
 
-    def __init__(self, data_source, cache_path: str = None, **kwargs):
-        self.file_path = str(data_source.file("disease_ids.tsv"))
+    def __init__(self, resolver_snapshot, cache_path: str = None, **kwargs):
+        self.resolver_snapshot = resolver_snapshot
+        self.file_path = str(resolver_input(resolver_snapshot, "data_source").file("disease_ids.tsv"))
         self.cache_path = cache_path
         super().__init__(**kwargs)
 

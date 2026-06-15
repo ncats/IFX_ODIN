@@ -1,10 +1,15 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
 
+registry:
+  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  cache_dir: /tmp/ifx-registry-cache
+
 resolvers:
   - label: translator_nn
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
+      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
       types:
         - Ligand
         - Condition
