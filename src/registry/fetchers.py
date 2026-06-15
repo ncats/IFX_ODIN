@@ -119,6 +119,8 @@ class MaterializedDataset:
         }
         if self.manifest.get("kind") == "resolver_snapshot":
             metadata["accepted_types"] = (self.manifest.get("definition") or {}).get("accepted_types") or []
+        if self.manifest.get("kind") == "derived_snapshot":
+            metadata["derived_from"] = self.manifest.get("derived_from") or []
         if self.resolver_inputs:
             metadata["resolver_inputs"] = {
                 name: dataset.to_metadata()

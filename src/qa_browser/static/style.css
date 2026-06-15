@@ -5,6 +5,7 @@
     --text: #1a1a2e;
     --text-muted: #6b7280;
     --border: #d1d5db;
+    --lineage-edge: #64748b;
     --accent: #2563eb;
     --accent-light: #dbeafe;
     --success: #059669;
@@ -22,6 +23,7 @@
         --text: #e2e8f0;
         --text-muted: #94a3b8;
         --border: #334155;
+        --lineage-edge: #94a3b8;
         --accent: #60a5fa;
         --accent-light: #1e3a5f;
         --success: #34d399;
@@ -554,28 +556,45 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 }
 
 .registry-tabs {
+    border-bottom: 1px solid var(--border);
     display: flex;
-    gap: 0.5rem;
-    margin: -0.5rem 0 1rem;
+    gap: 0;
+    margin: -0.5rem 0 1.1rem;
 }
 
 .registry-tab {
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-bottom: 0;
+    border-radius: var(--radius) var(--radius) 0 0;
     color: var(--text);
     font-size: 13px;
     font-weight: 700;
     line-height: 1;
-    padding: 0.6rem 0.9rem;
+    margin-bottom: -1px;
+    padding: 0.7rem 1rem;
 }
 
 .registry-tab.active {
-    background: var(--text);
-    border-color: var(--text);
-    color: var(--bg);
+    background: var(--bg-card);
+    border-color: var(--link);
+    border-top-width: 3px;
+    color: var(--text);
+    font-weight: 800;
+    position: relative;
+}
+
+.registry-tab.active::after {
+    background: var(--bg-card);
+    bottom: -1px;
+    content: "";
+    height: 1px;
+    left: 0;
+    position: absolute;
+    right: 0;
 }
 
 .registry-tab:hover {
+    background: var(--bg-alt);
     text-decoration: none;
 }
 
@@ -731,6 +750,191 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     letter-spacing: 0;
     padding: 0.35rem 0.6rem;
     text-decoration: none;
+}
+
+.registry-graph-build-card {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.registry-graph-build-meta {
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 0.45rem 0.9rem;
+}
+
+.registry-graph-dependency-layout {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.registry-graph-dependency-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.9rem;
+}
+
+.registry-dependency-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.registry-dependency-node {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+}
+
+.registry-dependency-node-title {
+    align-items: baseline;
+    color: var(--text);
+    display: flex;
+    flex-wrap: wrap;
+    font-weight: 800;
+    gap: 0.5rem;
+    margin-bottom: 0.55rem;
+}
+
+.registry-dependency-node-title small {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.registry-dependency-node ul {
+    display: grid;
+    gap: 0.45rem;
+    list-style: none;
+    margin: 0.55rem 0 0;
+    padding: 0;
+}
+
+.registry-dependency-node li {
+    align-items: baseline;
+    display: grid;
+    gap: 0.45rem;
+    grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.registry-dependency-node li .mono {
+    overflow-wrap: anywhere;
+}
+
+.registry-dependency-edge {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.registry-lineage-graph {
+    overflow-x: auto;
+    padding: 0.75rem 0.25rem 1rem;
+    position: relative;
+}
+
+.registry-lineage-edges {
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
+}
+
+.registry-lineage-edge {
+    fill: none;
+    marker-end: url("#registry-lineage-arrow");
+    stroke: var(--lineage-edge);
+    stroke-linecap: round;
+    stroke-width: 2.5;
+}
+
+.registry-lineage-edges marker path {
+    fill: var(--lineage-edge);
+}
+
+.registry-lineage-nodes {
+    align-items: center;
+    display: grid;
+    gap: 1rem 2.4rem;
+    grid-auto-rows: minmax(88px, auto);
+    min-width: max-content;
+    position: relative;
+    z-index: 2;
+}
+
+.registry-lineage-node {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--lineage-edge);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    color: var(--text);
+    display: block;
+    max-width: 320px;
+    min-width: 220px;
+    padding: 0.75rem 0.8rem;
+    text-decoration: none;
+}
+
+.registry-lineage-node:hover {
+    text-decoration: none;
+}
+
+.registry-lineage-node-kind {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+}
+
+.registry-lineage-node-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.registry-lineage-node-subtitle,
+.registry-lineage-node-snapshot {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 0.3rem;
+    overflow-wrap: anywhere;
+}
+
+.registry-lineage-node-data {
+    border-left-color: #64748b;
+}
+
+.registry-lineage-node-derived {
+    border-left-color: #0f766e;
+}
+
+.registry-lineage-node-adapter {
+    border-left-color: #b45309;
+}
+
+.registry-lineage-node-resolver {
+    border-left-color: #2563eb;
+}
+
+.registry-lineage-node-graph {
+    background: var(--text);
+    border-color: var(--text);
+    border-left-color: var(--link);
+    color: var(--bg);
+}
+
+.registry-lineage-node-graph .registry-lineage-node-kind,
+.registry-lineage-node-graph .registry-lineage-node-subtitle {
+    color: color-mix(in srgb, var(--bg) 76%, transparent);
 }
 
 .registry-usage-kind {
@@ -1216,6 +1420,14 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 
     .registry-resolver-layout {
         grid-template-columns: 1fr;
+    }
+
+    .registry-graph-dependency-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .registry-lineage-nodes {
+        gap: 0.85rem 1.4rem;
     }
 
     .registry-resolver-panel-header,
