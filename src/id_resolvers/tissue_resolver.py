@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import Dict, List, Set
 
 import obonet
@@ -98,6 +99,27 @@ class TissueResolver(IdResolver):
         equivalent_ids = [node_id]
         equivalent_ids.extend(self._xref_map.get(node_id, []))
         return sorted(set(equivalent_ids))
+
+    def get_prefix_counts(self) -> List[Dict[str, object]]:
+        counts = Counter()
+        for node_id in self._obo_ids:
+            prefix = self.curie_prefix(node_id)
+            if prefix is not None:
+                counts[prefix] += 1
+        for xref in self._xref_reverse_map:
+            prefix = self.curie_prefix(xref)
+            if prefix is not None:
+                counts[prefix] += 1
+        return [
+            {"prefix": prefix, "count": count}
+            for prefix, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+
+    def get_example_ids(self, limit: int = 5) -> List[str]:
+        examples = sorted(self._xref_reverse_map.keys())[:limit]
+        if len(examples) < limit:
+            examples.extend(sorted(self._obo_ids)[:limit - len(examples)])
+        return examples
 
     def _build_match(self, node_id: str) -> IdMatch:
         return IdMatch(

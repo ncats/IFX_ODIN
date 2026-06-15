@@ -74,7 +74,9 @@
                 {% for resolver_group in source_group.datasets %}
                 <section class="registry-download-group" data-registry-filter-subgroup>
                     <div class="registry-download-header">
-                        <h3>{{ resolver_group.dataset }}</h3>
+                        <h3>
+                            <a href="{{ root_path }}/registry/resolvers/{{ source_group.source }}/{{ resolver_group.dataset }}">{{ resolver_group.dataset }}</a>
+                        </h3>
                     </div>
                     <div class="registry-table-wrap">
                         <table class="registry-table">
@@ -84,6 +86,7 @@
                                 <th>Version</th>
                                 <th>Created</th>
                                 <th>Class</th>
+                                <th>Accepted Types</th>
                                 <th>Options</th>
                                 <th>Inputs</th>
                                 <th>Files</th>
@@ -94,7 +97,7 @@
                             {% for snapshot in resolver_group.snapshots %}
                             <tr data-registry-filter-row data-graphs="{{ snapshot.graph_usages | join(' ') }}">
                                 <td>
-                                    <div class="mono">{{ snapshot.snapshot_id }}</div>
+                                    <a class="mono" href="{{ root_path }}/registry/resolvers/{{ snapshot.source }}/{{ snapshot.resolver }}?version={{ snapshot.version }}">{{ snapshot.snapshot_id }}</a>
                                     {% if snapshot.graph_usages %}
                                     <div class="registry-graph-badges">
                                         {% for graph_usage in snapshot.graph_usage_details %}
@@ -111,13 +114,14 @@
                                 <td>{{ snapshot.version }}</td>
                                 <td>{{ snapshot.created_at or "" }}</td>
                                 <td>{{ snapshot.definition.class or "" }}</td>
+                                <td>{{ (snapshot.accepted_types or []) | join(", ") }}</td>
                                 <td>{{ (snapshot.definition.options or {}) | length }}</td>
                                 <td>{{ snapshot.resolved_inputs|length }}</td>
                                 <td>{{ snapshot.files|length }}</td>
                                 <td class="mono">{{ snapshot.total_size or "" }}</td>
                             </tr>
                             <tr class="registry-detail-row">
-                                <td colspan="8">
+                                <td colspan="9">
                                     <details class="registry-snapshot-details">
                                         <summary>Inputs, Files, Stats, and Manifest</summary>
                                         <div class="registry-detail-panel">

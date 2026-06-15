@@ -3,7 +3,19 @@ from src.qa_browser.app import (
     _build_cure_case_url,
     _get_document_template,
 )
+from src.interfaces.id_resolver import IdMatch
 from src.qa_browser.registry_usage import extract_registry_datasets, load_graph_registry_usage_cached, with_graph_usages
+
+
+class FakeResolverSnapshot:
+    snapshot_id = "hcop:hcop_ortholog_genes:deps-test"
+    manifest = {
+        "definition": {
+            "accepted_types": ["OrthologGene"],
+            "class": "RejectPolicyResolver",
+            "import": "/tmp/reject_policy_resolver.py",
+        }
+    }
 
 
 class FakeCursorDb:
@@ -21,6 +33,42 @@ class FakeCursorDb:
 class FakeSysDb:
     def databases(self):
         return ["_system", "cure_pasc", "cure_rasopathies"]
+
+
+class FakeResolver:
+    def resolve_internal(self, nodes):
+        return {
+            node.id: [
+                IdMatch(
+                    input=node.id,
+                    match=f"{node.__class__.__name__}:{node.name}",
+                    equivalent_ids=[node.text],
+                    context=[node.__class__.__name__],
+                )
+            ]
+            for node in nodes
+        }
+
+    def get_prefix_counts(self):
+        return [
+            {"prefix": "MONDO", "count": 10},
+            {"prefix": "NCBIGene", "count": "unknown"},
+            {"prefix": ""},
+            "bad-row",
+        ]
+
+    def get_example_ids(self, limit=5):
+        return ["MONDO:0005148", "", "DOID:9352"][:limit]
+
+
+class RejectPolicyResolver(FakeResolver):
+    def __init__(self, resolver_snapshot, types, **kwargs):
+        if "no_match_behavior" in kwargs:
+            raise ValueError("no_match_behavior should not be passed")
+        if "multi_match_behavior" in kwargs:
+            raise ValueError("multi_match_behavior should not be passed")
+        self.resolver_snapshot = resolver_snapshot
+        self.types = types
 
 
 def test_cure_case_report_template_accepts_refresh_database_names():
@@ -180,7 +228,7 @@ def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
     usage_by_registry_id, error = load_graph_registry_usage_cached(
         credentials=qa_app._credentials,
         cache=qa_app._registry_usage_cache,
-        ttl_seconds=qa_app._REGISTRY_CATALOG_TTL_SECONDS,
+        ttl_seconds=qa_app._REGISTRY_USAGE_TTL_SECONDS,
         get_sys_db=qa_app.get_sys_db,
         get_db=qa_app.get_db,
     )
@@ -218,3 +266,60 @@ def test_with_graph_usages_accepts_external_registration_id():
         "category_label": "adapter + resolver",
         "category_class": "adapter-resolver",
     }]
+
+
+def test_resolver_api_constructs_named_minimal_nodes_for_input_type():
+    results = qa_app._resolve_ids_for_type(FakeResolver(), "Gene", ["SYNGAP1"])
+
+    assert results == [{
+        "input": "SYNGAP1",
+        "matches": [{
+            "input": "SYNGAP1",
+            "match": "Gene:SYNGAP1",
+            "equivalent_ids": ["SYNGAP1"],
+            "context": ["Gene"],
+        }],
+    }]
+
+
+def test_resolver_api_normalizes_ids_from_string_payload():
+    assert qa_app._normalize_resolver_api_ids({"ids": "NCBIGene:8831"}) == ["NCBIGene:8831"]
+    assert qa_app._normalize_resolver_api_ids({"ids": [" A ", "", "B"]}) == ["A", "B"]
+
+
+def test_resolver_api_serializes_prefix_counts():
+    assert qa_app._resolver_prefix_counts_for_api(FakeResolver()) == [
+        {"prefix": "MONDO", "count": 10},
+        {"prefix": "NCBIGene", "count": None},
+    ]
+
+
+def test_resolver_api_serializes_example_ids():
+    assert qa_app._resolver_example_ids_for_api(FakeResolver()) == [
+        "MONDO:0005148",
+        "DOID:9352",
+    ]
+
+
+def test_resolver_api_instantiates_without_etl_policy_kwargs(monkeypatch):
+    qa_app._resolver_instance_cache.clear()
+    monkeypatch.setattr(
+        qa_app,
+        "_materialize_resolver_snapshot_for_api",
+        lambda source, resolver, version: FakeResolverSnapshot(),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_load_class_from_definition",
+        lambda definition: RejectPolicyResolver,
+    )
+
+    _snapshot, resolver, accepted_types, type_sensitive = qa_app._get_resolver_instance_for_api(
+        "hcop",
+        "hcop_ortholog_genes",
+        "deps-test",
+    )
+
+    assert isinstance(resolver, RejectPolicyResolver)
+    assert accepted_types == ["OrthologGene"]
+    assert type_sensitive is False

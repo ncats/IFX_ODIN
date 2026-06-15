@@ -9,7 +9,7 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
+      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
         - Condition

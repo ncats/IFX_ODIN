@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+{% block title %}IFX Registry · {{ resolver }}{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/registry">IFX Registry</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/registry/resolvers">Resolvers</a>
+<span class="sep">/</span>
+<span>{{ source }} / {{ resolver }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="hero registry-hero">
+    <div class="hero-text">
+        <h1 class="hero-title">{{ resolver }}</h1>
+        <p class="hero-subtitle">{{ source }}</p>
+    </div>
+</div>
+
+<div class="engine-section">
+    {% if registry_error %}
+    <div class="card">
+        <p>{{ registry_error }}</p>
+    </div>
+    {% elif not selected_snapshot %}
+    <div class="card">
+        <p>No resolver snapshots found for {{ source }} / {{ resolver }}.</p>
+    </div>
+    {% else %}
+    <div id="resolver-loading-overlay" class="resolver-loading-overlay" hidden>
+        <div class="resolver-loading-card">
+            <span class="qa-loading-spinner" aria-hidden="true"></span>
+            <div>
+                <span class="qa-loading-title" id="resolver-loading-title">Preparing resolver</span>
+                <span class="qa-loading-subtitle" id="resolver-loading-subtitle">First use may create the resolver cache.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="registry-resolver-layout">
+        <section class="registry-resolver-panel">
+            <div class="registry-resolver-panel-header">
+                <div>
+                    <div class="registry-detail-heading">Resolver Snapshot</div>
+                    <select id="resolver-snapshot-select" class="registry-resolver-select">
+                        {% for snapshot in resolver_snapshots %}
+                        <option value="{{ snapshot.version }}"
+                                data-snapshot-id="{{ snapshot.snapshot_id }}"
+                                data-resolve-url="{{ root_path }}/registry/resolvers/{{ snapshot.source }}/{{ snapshot.resolver }}/{{ snapshot.version }}/resolve"
+                                data-prefix-url="{{ root_path }}/registry/resolvers/{{ snapshot.source }}/{{ snapshot.resolver }}/{{ snapshot.version }}/prefix-counts"
+                                data-examples-url="{{ root_path }}/registry/resolvers/{{ snapshot.source }}/{{ snapshot.resolver }}/{{ snapshot.version }}/examples"
+                                data-accepted-types='{{ (snapshot.accepted_types or []) | tojson }}'
+                                data-type-sensitive="{{ 'true' if snapshot.definition.type_sensitive else 'false' }}"
+                                {% if snapshot.version == selected_snapshot.version %}selected{% endif %}>
+                            {{ snapshot.version }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="registry-resolver-snapshot-id mono" id="resolver-snapshot-id">{{ selected_snapshot.snapshot_id }}</div>
+            </div>
+
+            {% if selected_snapshot.graph_usages %}
+            <div class="registry-graph-badges">
+                {% for graph_usage in selected_snapshot.graph_usage_details %}
+                <a class="badge registry-graph-badge"
+                   style="{{ graph_usage_styles.get(graph_usage.graph, '') }}"
+                   href="{{ root_path }}/db/{{ graph_usage.graph }}">
+                    <span>{{ graph_usage.graph }}</span>
+                    <span class="registry-usage-kind registry-usage-kind-{{ graph_usage.category_class }}">{{ graph_usage.category_label }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <form class="registry-resolver-workbench" id="resolver-workbench" data-resolve-url="{{ root_path }}/registry/resolvers/{{ selected_snapshot.source }}/{{ selected_snapshot.resolver }}/{{ selected_snapshot.version }}/resolve">
+                <div class="registry-resolver-controls">
+                    {% if selected_snapshot.definition.type_sensitive and (selected_snapshot.accepted_types or [])|length > 1 %}
+                    <div>
+                        <div class="registry-detail-heading">Input Type</div>
+                        <select name="input_type" class="registry-resolver-select" id="resolver-input-type">
+                            <option value="">All accepted types</option>
+                            {% for accepted_type in selected_snapshot.accepted_types or [] %}
+                            <option value="{{ accepted_type }}">{{ accepted_type }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <button type="submit" class="registry-resolver-run">Resolve</button>
+                </div>
+                <textarea name="ids" class="registry-resolver-input" id="resolver-ids-input" rows="8" placeholder="One ID or label per line"></textarea>
+            </form>
+
+            <div class="registry-resolver-results" id="resolver-results">
+                <pre class="registry-manifest">No results yet.</pre>
+            </div>
+
+            {% set resolver_api_path = root_path ~ "/registry/resolvers/" ~ selected_snapshot.source ~ "/" ~ selected_snapshot.resolver ~ "/" ~ selected_snapshot.version ~ "/resolve" %}
+            {% set resolver_api_url = request.url.scheme ~ "://" ~ request.url.netloc ~ resolver_api_path %}
+            <section class="registry-api-callout"
+                     id="resolver-api-callout"
+                     data-resolve-url="{{ resolver_api_url }}"
+                     data-examples-url="{{ root_path }}/registry/resolvers/{{ selected_snapshot.source }}/{{ selected_snapshot.resolver }}/{{ selected_snapshot.version }}/examples"
+                     data-input-type="{% if selected_snapshot.definition.type_sensitive and (selected_snapshot.accepted_types or [])|length > 1 %}{{ (selected_snapshot.accepted_types or [])[0] }}{% endif %}">
+                <div class="registry-detail-heading">API Call</div>
+                <div class="registry-api-row">
+                    <span>POST</span>
+                    <code>{{ resolver_api_url }}</code>
+                </div>
+                <pre class="registry-api-code" id="resolver-curl-example">Loading example; first use may create the resolver cache...</pre>
+                <pre class="registry-api-code" id="resolver-json-example">Loading example...</pre>
+            </section>
+        </section>
+
+        <aside class="registry-resolver-panel registry-resolver-meta">
+            <div class="registry-detail-heading">Accepted Types</div>
+            <div class="registry-resolver-tags" id="resolver-accepted-types">
+                {% for accepted_type in selected_snapshot.accepted_types or [] %}
+                <span>{{ accepted_type }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="registry-detail-heading">Prefixes</div>
+            <div class="registry-prefix-facet" id="resolver-prefix-facet" data-prefix-url="{{ root_path }}/registry/resolvers/{{ selected_snapshot.source }}/{{ selected_snapshot.resolver }}/{{ selected_snapshot.version }}/prefix-counts">
+                <span class="registry-prefix-status">Loading prefixes; first use may create the resolver cache...</span>
+            </div>
+
+            <div class="registry-detail-heading">Data Sources</div>
+            {% if selected_snapshot.resolved_inputs %}
+            <div class="registry-datasource-list">
+                {% for input_name, input_ref in selected_snapshot.resolved_inputs.items() %}
+                {% set input_meta = selected_snapshot.resolved_input_metadata.get(input_name, {}) %}
+                <div class="registry-datasource-item">
+                    <div class="registry-datasource-name">
+                        <span class="mono">{{ input_name }}</span>
+                        <strong class="mono">{{ input_meta.snapshot_id or input_ref }}</strong>
+                    </div>
+                    <div class="registry-datasource-meta">
+                        <span>{{ input_meta.source or "" }}</span>
+                        <span>{{ input_meta.dataset or "" }}</span>
+                        <span>{{ input_meta.version or "" }}</span>
+                    </div>
+                    {% if input_meta.manifest_uri %}
+                    <div class="registry-datasource-uri mono">{{ input_meta.manifest_uri }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="registry-prefix-status">No source snapshot inputs listed in this manifest.</p>
+            {% endif %}
+
+            <div class="registry-detail-heading">Definition</div>
+            <div class="registry-access-grid registry-resolver-definition-grid">
+                <div>
+                    <label>Class</label>
+                    <span>{{ selected_snapshot.definition.class or "" }}</span>
+                </div>
+                <div>
+                    <label>Options</label>
+                    <span>{{ (selected_snapshot.definition.options or {}) | length }}</span>
+                </div>
+                <div>
+                    <label>Type Sensitive</label>
+                    <span>{{ "yes" if selected_snapshot.definition.type_sensitive else "no" }}</span>
+                </div>
+                <div>
+                    <label>Inputs</label>
+                    <span>{{ selected_snapshot.resolved_inputs|length }}</span>
+                </div>
+            </div>
+
+            <details class="registry-snapshot-details">
+                <summary>Inputs and Manifest</summary>
+                <div class="registry-detail-panel">
+                    <div class="registry-detail-heading">Resolved Inputs</div>
+                    {% if selected_snapshot.resolved_inputs %}
+                    <div class="registry-files-table-wrap">
+                        <table class="registry-files-table">
+                            <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Snapshot Ref</th>
+                                <th>Manifest URI</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for input_name, input_ref in selected_snapshot.resolved_inputs.items() %}
+                            {% set input_meta = selected_snapshot.resolved_input_metadata.get(input_name, {}) %}
+                            <tr>
+                                <td class="mono">{{ input_name }}</td>
+                                <td class="mono">{{ input_ref }}</td>
+                                <td class="mono registry-uri">{{ input_meta.manifest_uri or "" }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p>No source snapshot inputs listed in this manifest.</p>
+                    {% endif %}
+                    <div class="registry-detail-heading">Manifest</div>
+                    <pre class="registry-manifest">{{ selected_snapshot.manifest_yaml }}</pre>
+                </div>
+            </details>
+        </aside>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+const snapshotSelect = document.getElementById("resolver-snapshot-select");
+const inputTypeSelect = document.getElementById("resolver-input-type");
+const snapshotId = document.getElementById("resolver-snapshot-id");
+const acceptedTypes = document.getElementById("resolver-accepted-types");
+const workbench = document.getElementById("resolver-workbench");
+const results = document.getElementById("resolver-results");
+const prefixFacet = document.getElementById("resolver-prefix-facet");
+const idsInput = document.getElementById("resolver-ids-input");
+const apiCallout = document.getElementById("resolver-api-callout");
+const curlExample = document.getElementById("resolver-curl-example");
+const jsonExample = document.getElementById("resolver-json-example");
+const loadingOverlay = document.getElementById("resolver-loading-overlay");
+const loadingTitle = document.getElementById("resolver-loading-title");
+const loadingSubtitle = document.getElementById("resolver-loading-subtitle");
+let resolverActiveRequests = 0;
+
+function beginResolverLoading(title, subtitle) {
+    resolverActiveRequests += 1;
+    if (loadingOverlay) {
+        if (loadingTitle) {
+            loadingTitle.textContent = title || "Preparing resolver";
+        }
+        if (loadingSubtitle) {
+            loadingSubtitle.textContent = subtitle || "First use may create the resolver cache.";
+        }
+        loadingOverlay.hidden = false;
+    }
+}
+
+function endResolverLoading() {
+    resolverActiveRequests = Math.max(0, resolverActiveRequests - 1);
+    if (resolverActiveRequests === 0 && loadingOverlay) {
+        loadingOverlay.hidden = true;
+    }
+}
+
+function setAcceptedTypes(types, typeSensitive) {
+    inputTypeSelect.innerHTML = "";
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = typeSensitive ? "All accepted types" : "Any accepted type";
+    inputTypeSelect.appendChild(allOption);
+    acceptedTypes.innerHTML = "";
+    types.forEach((typeName) => {
+        const option = document.createElement("option");
+        option.value = typeName;
+        option.textContent = typeName;
+        inputTypeSelect.appendChild(option);
+        const tag = document.createElement("span");
+        tag.textContent = typeName;
+        acceptedTypes.appendChild(tag);
+    });
+}
+
+function renderResults(payload) {
+    const sections = Object.entries(payload.results_by_type || {});
+    if (!sections.length) {
+        results.innerHTML = '<pre class="registry-manifest">No matches.</pre>';
+        return;
+    }
+    results.innerHTML = sections.map(([typeName, rows]) => {
+        const body = rows.map((row) => {
+            const matches = row.matches || [];
+            const matchText = matches.length
+                ? matches.map((match) => {
+                    const equivalents = (match.equivalent_ids || []).join(", ");
+                    const context = (match.context || []).join(", ");
+                    return `<div class="registry-resolver-match"><span class="mono">${escapeHtml(match.match || "")}</span><small>${escapeHtml(equivalents)}</small><small>${escapeHtml(context)}</small></div>`;
+                }).join("")
+                : '<span class="registry-resolver-empty">No matches</span>';
+            return `<tr><td class="mono">${escapeHtml(row.input || "")}</td><td>${matchText}</td></tr>`;
+        }).join("");
+        return `<section class="registry-resolver-result-section"><h3>${escapeHtml(typeName)}</h3><div class="registry-files-table-wrap"><table class="registry-files-table"><thead><tr><th>Input</th><th>Matches</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
+    }).join("");
+}
+
+function renderPrefixFacet(rows) {
+    if (!prefixFacet) {
+        return;
+    }
+    if (!rows.length) {
+        prefixFacet.innerHTML = '<span class="registry-prefix-status">No prefix counts available.</span>';
+        return;
+    }
+    const values = rows.map((row) => {
+        const count = Number.isInteger(row.count) ? row.count.toLocaleString() : "";
+        const countText = count !== "" ? escapeHtml(count) : "";
+        return `<li><div class="registry-prefix-facet-row"><span class="mono">${escapeHtml(row.prefix)}</span><span>${countText}</span></div></li>`;
+    }).join("");
+    prefixFacet.innerHTML = `<div class="registry-prefix-facet-card"><div class="registry-prefix-facet-title">CURIE Prefix</div><ul>${values}</ul></div>`;
+}
+
+async function loadPrefixFacet(url) {
+    if (!prefixFacet || !url) {
+        return;
+    }
+    prefixFacet.dataset.prefixUrl = url;
+    prefixFacet.innerHTML = '<span class="registry-prefix-status">Loading prefixes; first use may create the resolver cache...</span>';
+    beginResolverLoading("Loading prefixes", "First use may create the resolver cache.");
+    try {
+        const response = await fetch(url);
+        const responseText = await response.text();
+        let payload = {};
+        try {
+            payload = responseText ? JSON.parse(responseText) : {};
+        } catch (_error) {
+            payload = { detail: responseText || response.statusText };
+        }
+        if (!response.ok) {
+            prefixFacet.innerHTML = `<span class="registry-prefix-status">${escapeHtml(payload.detail || "Could not load prefixes.")}</span>`;
+            return;
+        }
+        renderPrefixFacet(payload.prefix_counts || []);
+    } catch (error) {
+        prefixFacet.innerHTML = `<span class="registry-prefix-status">${escapeHtml(String(error))}</span>`;
+    } finally {
+        endResolverLoading();
+    }
+}
+
+function renderApiExample(exampleIds) {
+    if (!apiCallout || !curlExample || !jsonExample) {
+        return;
+    }
+    const ids = exampleIds.length ? exampleIds.slice(0, 3) : ["EXAMPLE:1"];
+    const body = { ids };
+    if (apiCallout.dataset.inputType) {
+        body.input_type = apiCallout.dataset.inputType;
+    }
+    const bodyJson = JSON.stringify(body, null, 2);
+    curlExample.textContent = `curl -s -X POST '${apiCallout.dataset.resolveUrl}' \\
+  -H 'Content-Type: application/json' \\
+  -d '${JSON.stringify(body)}'`;
+    jsonExample.textContent = bodyJson;
+    if (idsInput && exampleIds.length && !idsInput.value.trim()) {
+        idsInput.value = exampleIds.join("\n");
+    }
+}
+
+async function loadResolverExamples(url) {
+    renderApiExample([]);
+    if (!url) {
+        return;
+    }
+    beginResolverLoading("Loading resolver examples", "First use may create the resolver cache.");
+    try {
+        const response = await fetch(url);
+        const responseText = await response.text();
+        let payload = {};
+        try {
+            payload = responseText ? JSON.parse(responseText) : {};
+        } catch (_error) {
+            payload = { detail: responseText || response.statusText };
+        }
+        if (!response.ok) {
+            if (curlExample) {
+                curlExample.textContent = payload.detail || "Could not load examples.";
+            }
+            return;
+        }
+        renderApiExample(payload.example_ids || []);
+    } catch (error) {
+        if (curlExample) {
+            curlExample.textContent = String(error);
+        }
+    } finally {
+        endResolverLoading();
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+if (snapshotSelect && workbench) {
+    snapshotSelect.addEventListener("change", () => {
+        const selected = snapshotSelect.selectedOptions[0];
+        const version = selected.value;
+        const url = new URL(window.location.href);
+        url.searchParams.set("version", version);
+        window.location.href = url.toString();
+    });
+
+    workbench.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const ids = workbench.elements.ids.value
+            .split(/\r?\n/)
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const body = { ids };
+        const inputType = workbench.elements.input_type;
+        if (inputType && inputType.value) {
+            body.input_type = inputType.value;
+        }
+        results.innerHTML = '<pre class="registry-manifest">Resolving; first use may create the resolver cache...</pre>';
+        beginResolverLoading("Resolving IDs", "First use may create the resolver cache.");
+        try {
+            const response = await fetch(workbench.dataset.resolveUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+                results.innerHTML = `<pre class="registry-manifest">${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+                return;
+            }
+            renderResults(payload);
+        } catch (error) {
+            results.innerHTML = `<pre class="registry-manifest">${escapeHtml(String(error))}</pre>`;
+        } finally {
+            endResolverLoading();
+        }
+    });
+
+    loadPrefixFacet(prefixFacet ? prefixFacet.dataset.prefixUrl : "");
+    loadResolverExamples(apiCallout ? apiCallout.dataset.examplesUrl : "");
+}
+</script>
+{% endblock %}

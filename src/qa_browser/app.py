@@ -1,10 +1,13 @@
 import argparse
 import csv
+import importlib.util
 import io
 import json
 import os
 import sys
+import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
@@ -13,16 +16,18 @@ from urllib.parse import quote as url_quote, urlencode
 import urllib3
 import yaml
 from arango import ArangoClient
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine, text, inspect as sa_inspect
 from sqlalchemy.engine import Engine
+from starlette.concurrency import run_in_threadpool
 
 import uvicorn
 
 from src.core.data_registry import DataRegistry
+from src.models.node import Node
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -38,7 +43,14 @@ BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="QA Browser")
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    _start_resolver_warmup_thread()
+    yield
+
+
+app = FastAPI(title="QA Browser", lifespan=_app_lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["root_path"] = ""
@@ -51,20 +63,31 @@ _mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
-_registry_catalog_cache: dict = {
-    "loaded_at": 0.0,
-    "snapshots": None,
-    "derived_artifacts": None,
-    "external_registrations": None,
-    "resolver_snapshots": None,
-    "error": None,
-}
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
     "error": None,
 }
-_REGISTRY_CATALOG_TTL_SECONDS = 60
+_resolver_instance_cache: dict = {}
+_resolver_instance_cache_locks: dict = {}
+_resolver_instance_cache_locks_guard = threading.Lock()
+_resolver_warmup_thread: Optional[threading.Thread] = None
+_resolver_warmup_started = False
+_resolver_warmup_status: dict = {
+    "started_at": None,
+    "completed_at": None,
+    "total": 0,
+    "warmed": 0,
+    "errors": [],
+}
+_REGISTRY_USAGE_TTL_SECONDS = 60
+_RESOLVER_API_MAX_IDS = 1000
+_RESOLVER_WARMUP_ENABLED = os.getenv("QA_BROWSER_WARM_RESOLVERS", "1").lower() in {
+    "1", "true", "yes", "on"
+}
+_RESOLVER_WARMUP_ALL_SNAPSHOTS = os.getenv("QA_BROWSER_WARM_ALL_RESOLVER_SNAPSHOTS", "").lower() in {
+    "1", "true", "yes", "on"
+}
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
@@ -957,23 +980,7 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
-def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
-    now = time.time()
-    cached_snapshots = _registry_catalog_cache.get("snapshots")
-    cached_derived_artifacts = _registry_catalog_cache.get("derived_artifacts")
-    cached_external_registrations = _registry_catalog_cache.get("external_registrations")
-    cached_resolver_snapshots = _registry_catalog_cache.get("resolver_snapshots")
-    cached_error = _registry_catalog_cache.get("error")
-    loaded_at = _registry_catalog_cache.get("loaded_at") or 0.0
-    if (
-        cached_snapshots is not None
-        and cached_derived_artifacts is not None
-        and cached_external_registrations is not None
-        and cached_resolver_snapshots is not None
-        and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS
-    ):
-        return cached_snapshots, cached_derived_artifacts, cached_external_registrations, cached_resolver_snapshots, cached_error
-
+def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
     if not _minio_credentials:
         return [], [], [], [], "MinIO credentials are not configured for this QA Browser instance."
 
@@ -1003,26 +1010,383 @@ def _load_registry_catalog_cached() -> tuple[List[dict], List[dict], List[dict],
             derived_artifacts = registry.list_derived_artifacts()
             external_registrations = registry.list_external_sources()
             resolver_snapshots = registry.list_resolver_snapshots()
-        _registry_catalog_cache.update({
-            "loaded_at": now,
-            "snapshots": snapshots,
-            "derived_artifacts": derived_artifacts,
-            "external_registrations": external_registrations,
-            "resolver_snapshots": resolver_snapshots,
-            "error": None,
-        })
         return snapshots, derived_artifacts, external_registrations, resolver_snapshots, None
     except Exception as exc:
-        error = str(exc)
-        _registry_catalog_cache.update({
-            "loaded_at": now,
-            "snapshots": [],
-            "derived_artifacts": [],
-            "external_registrations": [],
-            "resolver_snapshots": [],
-            "error": error,
-        })
-        return [], [], [], [], error
+        return [], [], [], [], str(exc)
+
+
+def _registry_from_minio_credentials(*, use_internal_url: bool):
+    if not _minio_credentials:
+        raise HTTPException(status_code=503, detail="MinIO credentials are not configured for this QA Browser instance.")
+    from src.shared.db_credentials import DBCredentials
+
+    return DataRegistry.from_credentials(
+        DBCredentials.from_yaml(_minio_credentials),
+        use_internal_url=use_internal_url,
+        connect_timeout=2,
+        read_timeout=10,
+    )
+
+
+def _list_resolver_snapshots_for_warmup() -> List[dict]:
+    last_error = None
+    for use_internal_url in (True, False):
+        try:
+            registry = _registry_from_minio_credentials(use_internal_url=use_internal_url)
+            return registry.list_resolver_snapshots()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError(f"Could not list resolver snapshots: {last_error}")
+
+
+def _latest_resolver_snapshots(resolver_snapshots: List[dict]) -> List[dict]:
+    latest_by_resolver = {}
+    for snapshot in resolver_snapshots:
+        source = snapshot.get("source")
+        resolver = snapshot.get("resolver")
+        version = snapshot.get("version")
+        if not source or not resolver or not version:
+            continue
+        key = (source, resolver)
+        current = latest_by_resolver.get(key)
+        if current is None or (
+            snapshot.get("created_at") or "",
+            snapshot.get("version") or "",
+        ) > (
+            current.get("created_at") or "",
+            current.get("version") or "",
+        ):
+            latest_by_resolver[key] = snapshot
+    return sorted(
+        latest_by_resolver.values(),
+        key=lambda snapshot: (
+            snapshot.get("source") or "",
+            snapshot.get("resolver") or "",
+            snapshot.get("created_at") or "",
+            snapshot.get("version") or "",
+        ),
+    )
+
+
+def _warm_resolver_instances_in_background():
+    _resolver_warmup_status.update({
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "total": 0,
+        "warmed": 0,
+        "errors": [],
+    })
+
+    try:
+        resolver_snapshots = _list_resolver_snapshots_for_warmup()
+        if not _RESOLVER_WARMUP_ALL_SNAPSHOTS:
+            resolver_snapshots = _latest_resolver_snapshots(resolver_snapshots)
+        else:
+            resolver_snapshots = sorted(
+                resolver_snapshots,
+                key=lambda snapshot: (
+                    snapshot.get("source") or "",
+                    snapshot.get("resolver") or "",
+                    snapshot.get("created_at") or "",
+                    snapshot.get("version") or "",
+                ),
+            )
+        _resolver_warmup_status["total"] = len(resolver_snapshots)
+        scope = "all resolver snapshots" if _RESOLVER_WARMUP_ALL_SNAPSHOTS else "latest resolver snapshots"
+        print(f"Starting resolver warmup for {len(resolver_snapshots)} {scope}.")
+
+        for snapshot in resolver_snapshots:
+            source = snapshot.get("source")
+            resolver = snapshot.get("resolver")
+            version = snapshot.get("version")
+            if not source or not resolver or not version:
+                continue
+            try:
+                _get_resolver_instance_for_api(source, resolver, version)
+                _resolver_warmup_status["warmed"] += 1
+                print(f"Warmed resolver {source}:{resolver}:{version}")
+            except Exception as exc:
+                message = f"{source}:{resolver}:{version}: {exc}"
+                _resolver_warmup_status["errors"].append(message)
+                print(f"Failed to warm resolver {message}")
+    except Exception as exc:
+        message = str(exc)
+        _resolver_warmup_status["errors"].append(message)
+        print(f"Resolver warmup failed: {message}")
+    finally:
+        _resolver_warmup_status["completed_at"] = datetime.now(timezone.utc).isoformat()
+        print(
+            "Resolver warmup complete: "
+            f"{_resolver_warmup_status['warmed']}/{_resolver_warmup_status['total']} warmed, "
+            f"{len(_resolver_warmup_status['errors'])} errors."
+        )
+
+
+def _start_resolver_warmup_thread():
+    global _resolver_warmup_thread, _resolver_warmup_started
+    if not _RESOLVER_WARMUP_ENABLED:
+        print("Resolver warmup disabled by QA_BROWSER_WARM_RESOLVERS.")
+        return
+    if _resolver_warmup_started:
+        return
+    if not _minio_credentials:
+        print("Resolver warmup skipped because MinIO credentials are not configured.")
+        return
+    _resolver_warmup_started = True
+    _resolver_warmup_thread = threading.Thread(
+        target=_warm_resolver_instances_in_background,
+        name="qa-browser-resolver-warmup",
+        daemon=True,
+    )
+    _resolver_warmup_thread.start()
+
+
+def _materialize_resolver_snapshot_for_api(source: str, resolver: str, version: str):
+    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", "/tmp/ifx-registry-cache"))
+    last_error = None
+    for use_internal_url in (True, False):
+        try:
+            registry = _registry_from_minio_credentials(use_internal_url=use_internal_url)
+            return registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+    raise HTTPException(status_code=404, detail=f"Could not materialize resolver snapshot: {last_error}")
+
+
+def _load_class_from_definition(definition: dict):
+    module_path = definition.get("import")
+    class_name = definition.get("class")
+    if not module_path or not class_name:
+        raise HTTPException(status_code=500, detail="Resolver snapshot definition is missing import/class metadata.")
+    abs_module_path = os.path.abspath(module_path)
+    normalized_module_path = os.path.normpath(abs_module_path)
+    module_name = (
+        "qa_resolver_import__"
+        + normalized_module_path.replace(":", "").replace(os.sep, "_").replace(".", "_")
+    )
+    module = sys.modules.get(module_name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(module_name, abs_module_path)
+        if spec is None or spec.loader is None:
+            raise HTTPException(status_code=500, detail=f"Could not load resolver module {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+    return getattr(module, class_name)
+
+
+def _get_resolver_instance_for_api(source: str, resolver: str, version: str):
+    cache_key = (source, resolver, version)
+    if cache_key in _resolver_instance_cache:
+        return _resolver_instance_cache[cache_key]
+
+    with _resolver_instance_cache_locks_guard:
+        lock = _resolver_instance_cache_locks.setdefault(cache_key, threading.Lock())
+
+    with lock:
+        if cache_key in _resolver_instance_cache:
+            return _resolver_instance_cache[cache_key]
+
+        resolver_snapshot = _materialize_resolver_snapshot_for_api(source, resolver, version)
+        definition = resolver_snapshot.manifest.get("definition") or {}
+        accepted_types = list(definition.get("accepted_types") or [])
+        if not accepted_types:
+            raise HTTPException(status_code=400, detail=f"Resolver snapshot {resolver_snapshot.snapshot_id} has no accepted_types.")
+        type_sensitive = bool(definition.get("type_sensitive"))
+        resolver_class = _load_class_from_definition(definition)
+        resolver_instance = resolver_class(
+            resolver_snapshot=resolver_snapshot,
+            types=accepted_types,
+        )
+        _resolver_instance_cache[cache_key] = resolver_snapshot, resolver_instance, accepted_types, type_sensitive
+        return _resolver_instance_cache[cache_key]
+
+
+def _node_class_for_api_type(input_type: str):
+    return type(input_type, (Node,), {})
+
+
+def _nodes_for_resolver_api(input_type: str, ids: List[str]) -> List[Node]:
+    node_class = _node_class_for_api_type(input_type)
+    nodes = []
+    for value in ids:
+        node = node_class(id=value)
+        setattr(node, "name", value)
+        setattr(node, "text", value)
+        nodes.append(node)
+    return nodes
+
+
+def _serialize_id_match(match) -> dict:
+    equivalent_ids = []
+    for equivalent_id in match.equivalent_ids or []:
+        if hasattr(equivalent_id, "id_str"):
+            equivalent_ids.append(equivalent_id.id_str())
+        else:
+            equivalent_ids.append(str(equivalent_id))
+    return {
+        "input": match.input,
+        "match": match.match,
+        "equivalent_ids": equivalent_ids,
+        "context": list(match.context or []),
+    }
+
+
+def _resolve_ids_for_type(resolver_instance, input_type: str, ids: List[str]) -> List[dict]:
+    nodes = _nodes_for_resolver_api(input_type, ids)
+    raw_matches = resolver_instance.resolve_internal(nodes)
+    return [
+        {
+            "input": input_id,
+            "matches": [
+                _serialize_id_match(match)
+                for match in raw_matches.get(input_id, []) or []
+            ],
+        }
+        for input_id in ids
+    ]
+
+
+def _resolver_prefix_counts_for_api(resolver_instance) -> List[dict]:
+    counts = []
+    for row in resolver_instance.get_prefix_counts() or []:
+        if not isinstance(row, dict):
+            continue
+        prefix = str(row.get("prefix") or "").strip()
+        if not prefix:
+            continue
+        raw_count = row.get("count")
+        count = raw_count if isinstance(raw_count, int) else None
+        counts.append({"prefix": prefix, "count": count})
+    return sorted(
+        counts,
+        key=lambda row: (
+            -(row["count"] if isinstance(row.get("count"), int) else -1),
+            row["prefix"].lower(),
+        ),
+    )
+
+
+def _resolver_example_ids_for_api(resolver_instance) -> List[str]:
+    return [
+        str(example_id)
+        for example_id in resolver_instance.get_example_ids(limit=5) or []
+        if str(example_id).strip()
+    ]
+
+
+def _normalize_resolver_api_ids(payload: dict) -> List[str]:
+    raw_ids = payload.get("ids")
+    if raw_ids is None and "id" in payload:
+        raw_ids = [payload.get("id")]
+    if isinstance(raw_ids, str):
+        raw_ids = [raw_ids]
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="Request body must include ids as a string or list of strings.")
+    ids = [str(value).strip() for value in raw_ids if str(value).strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="At least one non-empty id is required.")
+    if len(ids) > _RESOLVER_API_MAX_IDS:
+        raise HTTPException(status_code=400, detail=f"At most {_RESOLVER_API_MAX_IDS} ids can be resolved in one request.")
+    return ids
+
+
+def _resolver_snapshots_for_page(
+    resolver_snapshots: List[dict],
+    source: str,
+    resolver: str,
+) -> List[dict]:
+    snapshots = [
+        snapshot
+        for snapshot in resolver_snapshots
+        if snapshot.get("source") == source and snapshot.get("resolver") == resolver
+    ]
+    return sorted(
+        snapshots,
+        key=lambda snapshot: (snapshot.get("created_at") or "", snapshot.get("version") or ""),
+        reverse=True,
+    )
+
+
+def _resolver_resolve_payload_for_api(source: str, resolver: str, version: str, payload: dict) -> dict:
+    ids = _normalize_resolver_api_ids(payload)
+    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
+    requested_type = payload.get("input_type") or payload.get("type")
+    if requested_type is not None:
+        requested_type = str(requested_type).strip()
+        if requested_type not in accepted_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"input_type must be one of {accepted_types}; got {requested_type!r}",
+            )
+        input_types = [requested_type]
+        result_specs = [(requested_type, requested_type)]
+    elif type_sensitive:
+        input_types = accepted_types
+        result_specs = [(input_type, input_type) for input_type in accepted_types]
+    else:
+        input_types = ["Any accepted type"]
+        result_specs = [(input_types[0], accepted_types[0])]
+
+    return {
+        "resolver_snapshot": resolver_snapshot.snapshot_id,
+        "source": source,
+        "resolver": resolver,
+        "version": version,
+        "accepted_types": accepted_types,
+        "type_sensitive": type_sensitive,
+        "input_types": input_types,
+        "results_by_type": {
+            result_label: _resolve_ids_for_type(resolver_instance, node_type, ids)
+            for result_label, node_type in result_specs
+        },
+    }
+
+
+def _resolver_prefix_counts_payload_for_api(source: str, resolver: str, version: str) -> dict:
+    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
+    try:
+        prefix_counts = _resolver_prefix_counts_for_api(resolver_instance)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not load resolver prefix counts: {exc}") from exc
+    return {
+        "resolver_snapshot": resolver_snapshot.snapshot_id,
+        "source": source,
+        "resolver": resolver,
+        "version": version,
+        "accepted_types": accepted_types,
+        "type_sensitive": type_sensitive,
+        "prefix_counts": prefix_counts,
+    }
+
+
+def _resolver_examples_payload_for_api(source: str, resolver: str, version: str) -> dict:
+    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
+    try:
+        example_ids = _resolver_example_ids_for_api(resolver_instance)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not load resolver examples: {exc}") from exc
+    return {
+        "resolver_snapshot": resolver_snapshot.snapshot_id,
+        "source": source,
+        "resolver": resolver,
+        "version": version,
+        "accepted_types": accepted_types,
+        "type_sensitive": type_sensitive,
+        "example_ids": example_ids,
+    }
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -1045,11 +1409,11 @@ async def qa_browser_home(request: Request):
 
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
-    snapshots, derived_artifacts, external_registrations, _resolver_snapshots, registry_error = _load_registry_catalog_cached()
+    snapshots, derived_artifacts, external_registrations, _resolver_snapshots, registry_error = _load_registry_catalog()
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
-        ttl_seconds=_REGISTRY_CATALOG_TTL_SECONDS,
+        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
         get_sys_db=get_sys_db,
         get_db=get_db,
     )
@@ -1110,11 +1474,11 @@ def registry_home(request: Request):
 
 @app.get("/registry/resolvers", response_class=HTMLResponse)
 def registry_resolvers(request: Request):
-    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog_cached()
+    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog()
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
-        ttl_seconds=_REGISTRY_CATALOG_TTL_SECONDS,
+        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
         get_sys_db=get_sys_db,
         get_db=get_db,
     )
@@ -1152,6 +1516,69 @@ def registry_resolvers(request: Request):
         "graph_usage_filters": graph_filters,
         "graph_usage_styles": graph_styles,
     })
+
+
+@app.get("/registry/resolvers/{source}/{resolver}", response_class=HTMLResponse)
+def registry_resolver_detail(request: Request, source: str, resolver: str, version: Optional[str] = None):
+    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog()
+    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
+        credentials=_credentials,
+        cache=_registry_usage_cache,
+        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
+        get_sys_db=get_sys_db,
+        get_db=get_db,
+    )
+    graph_styles = graph_usage_styles(graph_usage_filters(graph_usage_by_registry_id))
+    resolver_snapshot_list = [
+        with_graph_usages(snapshot, graph_usage_by_registry_id)
+        for snapshot in _resolver_snapshots_for_page(resolver_snapshots, source, resolver)
+    ]
+    for snapshot in resolver_snapshot_list:
+        definition = snapshot.get("definition") or {}
+        definition["type_sensitive"] = bool(definition.get("type_sensitive"))
+    selected_snapshot = None
+    if resolver_snapshot_list:
+        selected_snapshot = next(
+            (
+                snapshot
+                for snapshot in resolver_snapshot_list
+                if snapshot.get("version") == version
+            ),
+            resolver_snapshot_list[0],
+        )
+
+    return templates.TemplateResponse(request, "registry_resolver_detail.html", {
+        "request": request,
+        "source": source,
+        "resolver": resolver,
+        "resolver_snapshots": resolver_snapshot_list,
+        "selected_snapshot": selected_snapshot,
+        "registry_error": registry_error,
+        "graph_usage_error": graph_usage_error,
+        "graph_usage_styles": graph_styles,
+    })
+
+
+@app.post("/registry/resolvers/{source}/{resolver}/{version}/resolve")
+async def registry_resolver_resolve(source: str, resolver: str, version: str, request: Request):
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+
+    return await run_in_threadpool(_resolver_resolve_payload_for_api, source, resolver, version, payload)
+
+
+@app.get("/registry/resolvers/{source}/{resolver}/{version}/prefix-counts")
+async def registry_resolver_prefix_counts(source: str, resolver: str, version: str):
+    return await run_in_threadpool(_resolver_prefix_counts_payload_for_api, source, resolver, version)
+
+
+@app.get("/registry/resolvers/{source}/{resolver}/{version}/examples")
+async def registry_resolver_examples(source: str, resolver: str, version: str):
+    return await run_in_threadpool(_resolver_examples_payload_for_api, source, resolver, version)
 
 
 @app.get("/db/{db_name}", response_class=HTMLResponse)

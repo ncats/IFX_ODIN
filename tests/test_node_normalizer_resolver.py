@@ -16,6 +16,10 @@ class FakeResponse:
     def json(self):
         return self._payload
 
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(self.text)
+
 
 def _resolver_snapshot():
     return MaterializedDataset(
@@ -120,3 +124,61 @@ def test_node_normalizer_reports_sample_ids_after_retries(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Sample input IDs: MONDO:0000001"):
         resolver.resolve_internal([Node(id="MONDO:0000001")])
+
+
+def test_node_normalizer_parses_prefix_count_payloads(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout, params=None):
+        calls.append((url, timeout, params))
+        if params == {"semantic_type": "biolink:Disease"}:
+            return FakeResponse(200, {
+                "biolink:Disease": {
+                    "curie_prefix": {"MONDO": "3", "DOID": "2"},
+                },
+            })
+        if params == {"semantic_type": "biolink:SmallMolecule"}:
+            return FakeResponse(200, {
+                "biolink:SmallMolecule": {
+                    "curie_prefix": {"CHEBI": "5", "MESH": "1"},
+                },
+            })
+        raise AssertionError((url, params))
+
+    monkeypatch.setattr(node_normalizer.requests, "get", fake_get)
+
+    resolver = TranslatorNodeNormResolver(
+        resolver_snapshot=_resolver_snapshot(),
+        types=["Condition", "Disease", "Ligand"],
+        request_timeout=7,
+    )
+
+    assert resolver.get_prefix_counts() == [
+        {"prefix": "CHEBI", "count": 5},
+        {"prefix": "MONDO", "count": 3},
+        {"prefix": "DOID", "count": 2},
+        {"prefix": "MESH", "count": 1},
+    ]
+    assert calls == [
+        (resolver.node_norm_prefixes_url(), 7, {"semantic_type": "biolink:Disease"}),
+        (resolver.node_norm_prefixes_url(), 7, {"semantic_type": "biolink:SmallMolecule"}),
+    ]
+
+    assert TranslatorNodeNormResolver._parse_prefix_counts_payload(["MONDO", "DOID"]) == [
+        {"prefix": "DOID", "count": None},
+        {"prefix": "MONDO", "count": None},
+    ]
+
+
+def test_node_normalizer_returns_examples_for_registered_types():
+    resolver = TranslatorNodeNormResolver(
+        resolver_snapshot=_resolver_snapshot(),
+        types=["Condition", "Disease", "Ligand"],
+    )
+
+    assert resolver.get_example_ids(limit=4) == [
+        "MONDO:0005148",
+        "DOID:9352",
+        "CHEBI:15377",
+        "PUBCHEM.COMPOUND:2244",
+    ]

@@ -6,6 +6,12 @@ resolvers:
       label: cure_id_labels
       import: ./src/id_resolvers/cure_id_label_resolver.py
       class: CureIdLabelResolver
+      accepted_types:
+        - Condition
+        - Drug
+        - Gene
+        - Phenotype
+      type_sensitive: true
       inputs:
         data_source: cure:curated_concepts
       options:
@@ -34,6 +40,8 @@ resolvers:
       label: disease_ids
       import: ./src/id_resolvers/disease_resolver.py
       class: DiseaseIdResolver
+      accepted_types:
+        - Disease
       inputs:
         data_source: target_graph:disease_ids
 
@@ -41,6 +49,8 @@ resolvers:
       label: tg_genes
       import: ./src/id_resolvers/target_graph_resolver.py
       class: TargetGraphGeneResolver
+      accepted_types:
+        - Gene
       inputs:
         data_source: target_graph:gene_ids
 
@@ -48,6 +58,8 @@ resolvers:
       label: tg_transcripts
       import: ./src/id_resolvers/target_graph_resolver.py
       class: TargetGraphTranscriptResolver
+      accepted_types:
+        - Transcript
       inputs:
         data_source: target_graph:transcript_ids
 
@@ -55,6 +67,8 @@ resolvers:
       label: tg_proteins
       import: ./src/id_resolvers/target_graph_resolver.py
       class: TargetGraphProteinResolver
+      accepted_types:
+        - Protein
       inputs:
         data_source: target_graph:protein_ids
         additional_ids_data_source: target_graph:uniprot_mapping
@@ -63,6 +77,10 @@ resolvers:
       label: tcrd_targets
       import: ./src/id_resolvers/target_graph_resolver.py
       class: TCRDTargetResolver
+      accepted_types:
+        - Protein
+        - Gene
+        - Transcript
       inputs:
         gene_data_source: target_graph:gene_ids
         transcript_data_source: target_graph:transcript_ids
@@ -77,6 +95,8 @@ resolvers:
       label: hcop_ortholog_genes
       import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
       class: HCOPOrthologGeneResolver
+      accepted_types:
+        - OrthologGene
       inputs:
         data_source: hcop:human_all_sixteen_column
       options:
@@ -105,6 +125,8 @@ resolvers:
       label: tissue_ids
       import: ./src/id_resolvers/tissue_resolver.py
       class: TissueResolver
+      accepted_types:
+        - Tissue
       inputs:
         data_source: uberon:ontology
       options:
@@ -194,3 +216,7 @@ resolvers:
       label: translator_nn
       import: ./src/id_resolvers/node_normalizer.py
       class: TranslatorNodeNormResolver
+      accepted_types:
+        - Condition
+        - Disease
+        - Ligand

@@ -9,7 +9,7 @@ resolvers:
     import: ./src/id_resolvers/cure_id_label_resolver.py
     class: CureIdLabelResolver
     kwargs:
-      resolver_snapshot: cure:cure_id_labels:deps-deff47f207a4
+      resolver_snapshot: cure:cure_id_labels:deps-d498a12f9035
       types:
         - Condition
         - Drug

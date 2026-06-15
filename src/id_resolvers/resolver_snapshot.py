@@ -9,6 +9,10 @@ def resolver_options(resolver_snapshot: MaterializedDataset) -> dict:
     return dict(resolver_definition(resolver_snapshot).get("options") or {})
 
 
+def resolver_accepted_types(resolver_snapshot: MaterializedDataset) -> list[str]:
+    return list(resolver_definition(resolver_snapshot).get("accepted_types") or [])
+
+
 def resolver_input(resolver_snapshot: MaterializedDataset, input_name: str) -> MaterializedDataset:
     try:
         return resolver_snapshot.resolver_inputs[input_name]

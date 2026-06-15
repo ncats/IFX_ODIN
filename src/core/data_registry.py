@@ -309,6 +309,7 @@ class DataRegistry:
                 "version": manifest.get("version"),
                 "created_at": manifest.get("created_at"),
                 "definition": manifest.get("definition") or {},
+                "accepted_types": (manifest.get("definition") or {}).get("accepted_types") or [],
                 "definition_fingerprint": manifest.get("definition_fingerprint"),
                 "resolved_inputs": manifest.get("resolved_inputs") or {},
                 "resolved_input_metadata": manifest.get("resolved_input_metadata") or {},
@@ -1481,6 +1482,7 @@ class DataRegistry:
         definition = deepcopy(self.get_resolver_definition_config(source, resolver))
         definition["source"] = source
         definition["resolver"] = resolver
+        definition["accepted_types"] = self._normalize_accepted_types(definition.get("accepted_types"))
         code_ref = definition.get("import")
         if code_ref:
             code_path = Path(code_ref)
@@ -1551,8 +1553,23 @@ class DataRegistry:
 
     @staticmethod
     def _resolver_definition_fingerprint(definition: RegistryEntry) -> str:
-        encoded = json.dumps(definition, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        fingerprint_definition = deepcopy(definition)
+        fingerprint_definition.pop("type_sensitive", None)
+        encoded = json.dumps(fingerprint_definition, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _normalize_accepted_types(accepted_types: Any) -> List[str]:
+        if accepted_types is None:
+            return []
+        if not isinstance(accepted_types, list):
+            raise ValueError("Resolver accepted_types must be a list")
+        normalized = []
+        for node_type in accepted_types:
+            if not isinstance(node_type, str) or not node_type.strip():
+                raise ValueError("Resolver accepted_types entries must be non-empty strings")
+            normalized.append(node_type.strip())
+        return sorted(dict.fromkeys(normalized))
 
     @staticmethod
     def _resolver_build_key(

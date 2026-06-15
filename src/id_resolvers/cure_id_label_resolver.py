@@ -1,5 +1,5 @@
 import csv
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Union
 
 from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
@@ -129,6 +129,34 @@ class CureIdLabelResolver(IdResolver):
                 existing_curies.update(normalized_curies)
                 self.label_map[node_type][label] = sorted(existing_curies)
                 self.curie_map.setdefault(node_type, set()).update(normalized_curies)
+
+    def get_prefix_counts(self) -> List[Dict[str, object]]:
+        counts = Counter()
+        for curies in self.curie_map.values():
+            for curie in curies:
+                prefix = self.curie_prefix(curie)
+                if prefix is not None:
+                    counts[prefix] += 1
+        return [
+            {"prefix": prefix, "count": count}
+            for prefix, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+
+    def get_example_ids(self, limit: int = 5) -> List[str]:
+        examples = []
+        for labels in self.label_map.values():
+            for label in sorted(labels):
+                if label not in examples:
+                    examples.append(label)
+                if len(examples) >= limit:
+                    return examples
+        for curies in self.curie_map.values():
+            for curie in sorted(curies):
+                if curie not in examples:
+                    examples.append(curie)
+                if len(examples) >= limit:
+                    return examples
+        return examples
 
     def resolve_internal(self, input_nodes: List[Node]) -> Dict[str, List[IdMatch]]:
         result: Dict[str, List[IdMatch]] = {}

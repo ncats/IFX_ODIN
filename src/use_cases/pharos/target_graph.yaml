@@ -12,7 +12,7 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
+      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
 
@@ -20,7 +20,7 @@ resolvers:
     import: ./src/id_resolvers/disease_resolver.py
     class: DiseaseIdResolver
     kwargs:
-      resolver_snapshot: target_graph:disease_ids:deps-3a3de6aa6530
+      resolver_snapshot: target_graph:disease_ids:deps-efec72a5de12
       types:
         - Disease
       multi_match_behavior: All
@@ -29,7 +29,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_genes:deps-bfc39ea04a27
+      resolver_snapshot: target_graph:tg_genes:deps-ac541015564c
       types:
         - Gene
       no_match_behavior: Skip
@@ -38,7 +38,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_transcripts:deps-d2da338291d8
+      resolver_snapshot: target_graph:tg_transcripts:deps-aaccdb08ac83
       types:
         - Transcript
       no_match_behavior: Skip
@@ -47,7 +47,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-58d20dbbd04f
+      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
       types:
         - Protein
       no_match_behavior: Skip
@@ -56,7 +56,7 @@ resolvers:
     import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
     class: HCOPOrthologGeneResolver
     kwargs:
-      resolver_snapshot: hcop:hcop_ortholog_genes:deps-8fb0b25b5955
+      resolver_snapshot: hcop:hcop_ortholog_genes:deps-b63ab7dfb762
       types:
         - OrthologGene
 
@@ -64,7 +64,7 @@ resolvers:
     import: ./src/id_resolvers/tissue_resolver.py
     class: TissueResolver
     kwargs:
-      resolver_snapshot: uberon:tissue_ids:deps-068438ffba3c
+      resolver_snapshot: uberon:tissue_ids:deps-eb70636be2d6
       types:
         - Tissue
 

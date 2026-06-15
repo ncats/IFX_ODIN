@@ -10,7 +10,7 @@ resolvers:
     import: ./src/id_resolvers/disease_resolver.py
     class: DiseaseIdResolver
     kwargs:
-      resolver_snapshot: target_graph:disease_ids:deps-3a3de6aa6530
+      resolver_snapshot: target_graph:disease_ids:deps-efec72a5de12
       types:
         - Disease
       multi_match_behavior: All
@@ -19,7 +19,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      resolver_snapshot: target_graph:tcrd_targets:deps-9389967a8dc9
+      resolver_snapshot: target_graph:tcrd_targets:deps-d6d9894c3969
       types:
         - Protein
         - Gene
