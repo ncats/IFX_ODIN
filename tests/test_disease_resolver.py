@@ -1,6 +1,42 @@
 from src.id_resolvers.disease_resolver import DiseaseIdResolver
 from src.interfaces.id_resolver import NoMatchBehavior
 from src.models.disease import Disease
+from src.registry.fetchers import MaterializedDataset
+
+
+def _dataset_for_file(path):
+    return MaterializedDataset(
+        source="target_graph",
+        dataset="disease_ids",
+        version="test",
+        version_date=None,
+        download_date=None,
+        snapshot_id="target_graph:disease_ids:test",
+        manifest_uri="s3://ifx-registry/sources/target_graph/disease_ids/test/manifest.yaml",
+        manifest={"files": [{"path": path.name}]},
+        local_dir=path.parent,
+    )
+
+
+def _resolver_snapshot(path):
+    return MaterializedDataset(
+        source="target_graph",
+        dataset="disease_ids",
+        version="resolver-test",
+        version_date=None,
+        download_date=None,
+        snapshot_id="target_graph:disease_ids:resolver-test",
+        manifest_uri="s3://ifx-registry/resolvers/target_graph/disease_ids/resolver-test/manifest.yaml",
+        manifest={
+            "kind": "resolver_snapshot",
+            "definition": {},
+            "resolved_inputs": {
+                "data_source": "target_graph:disease_ids:test",
+            },
+        },
+        local_dir=path.parent,
+        resolver_inputs={"data_source": _dataset_for_file(path)},
+    )
 
 
 def _write_disease_ids(path):
@@ -67,9 +103,9 @@ def test_disease_resolver_maps_gard_padded_id_to_standard_mondo(tmp_path):
     _write_disease_ids(disease_ids)
 
     resolver = DiseaseIdResolver(
-        file_path=str(disease_ids),
-        cache_path=str(cache),
+        resolver_snapshot=_resolver_snapshot(disease_ids),
         types=["Disease"],
+        cache_path=str(cache),
         no_match_behavior=NoMatchBehavior.Allow,
         multi_match_behavior="First",
     )
@@ -92,9 +128,9 @@ def test_disease_resolver_uses_non_mondo_standard_id_when_no_mondo_exists(tmp_pa
     _write_disease_ids(disease_ids)
 
     resolver = DiseaseIdResolver(
-        file_path=str(disease_ids),
-        cache_path=str(cache),
+        resolver_snapshot=_resolver_snapshot(disease_ids),
         types=["Disease"],
+        cache_path=str(cache),
         no_match_behavior=NoMatchBehavior.Allow,
         multi_match_behavior="First",
     )
@@ -113,9 +149,9 @@ def test_disease_resolver_allows_unmatched_disease_ids(tmp_path):
     _write_disease_ids(disease_ids)
 
     resolver = DiseaseIdResolver(
-        file_path=str(disease_ids),
-        cache_path=str(cache),
+        resolver_snapshot=_resolver_snapshot(disease_ids),
         types=["Disease"],
+        cache_path=str(cache),
         no_match_behavior=NoMatchBehavior.Allow,
         multi_match_behavior="First",
     )
@@ -134,9 +170,9 @@ def test_disease_resolver_prefers_exact_standard_id_over_xref_match(tmp_path):
     _write_disease_ids(disease_ids)
 
     resolver = DiseaseIdResolver(
-        file_path=str(disease_ids),
-        cache_path=str(cache),
+        resolver_snapshot=_resolver_snapshot(disease_ids),
         types=["Disease"],
+        cache_path=str(cache),
         no_match_behavior=NoMatchBehavior.Allow,
         multi_match_behavior="First",
     )
@@ -154,9 +190,9 @@ def test_disease_resolver_can_fan_out_ambiguous_xref_matches(tmp_path):
     _write_disease_ids(disease_ids)
 
     resolver = DiseaseIdResolver(
-        file_path=str(disease_ids),
-        cache_path=str(cache),
+        resolver_snapshot=_resolver_snapshot(disease_ids),
         types=["Disease"],
+        cache_path=str(cache),
         no_match_behavior=NoMatchBehavior.Allow,
         multi_match_behavior="All",
     )

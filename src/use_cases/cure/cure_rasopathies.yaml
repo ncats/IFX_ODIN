@@ -9,33 +9,14 @@ resolvers:
     import: ./src/id_resolvers/cure_id_label_resolver.py
     class: CureIdLabelResolver
     kwargs:
-      data_source: cure:curated_concepts:2026-05-14
-      no_match_behavior: Allow
-      multi_match_behavior: All
-      label_field_by_type:
-        Gene: symbol
-      manual_label_map:
-        Gene:
-          Syngap:
-            - NCBIGene:8831
-          SYNGAP1:
-            - NCBIGene:8831
-        Drug:
-          Epidiolex:
-            - RXCUI:2058901
-          Tanganil:
-            - CHEBI:17786
-          Sertraline:
-            - RXCUI:36437
-          Sertraline 25 Mg Oral Tablet [Zoloft]:
-            - RXCUI:36437
-          Clobazam:
-            - RXCUI:21241
+      resolver_snapshot: cure:cure_id_labels:deps-deff47f207a4
       types:
         - Condition
         - Drug
         - Gene
         - Phenotype
+      no_match_behavior: Allow
+      multi_match_behavior: All
 
 input_adapters:
   - import: ./src/input_adapters/cure/cureid_curated_concepts_adapter.py

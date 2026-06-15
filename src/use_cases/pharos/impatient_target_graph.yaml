@@ -12,6 +12,7 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
+      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
       types:
         - Ligand
 
@@ -19,29 +20,28 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:gene_ids:2026-05-11
+      resolver_snapshot: target_graph:tg_genes:deps-bfc39ea04a27
       types:
         - Gene
+      no_match_behavior: Skip
 
   - label: tg_transcripts
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:transcript_ids:2026-05-11
+      resolver_snapshot: target_graph:tg_transcripts:deps-d2da338291d8
       types:
         - Transcript
+      no_match_behavior: Skip
 
   - label: tg_proteins
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:protein_ids:2026-05-20
-      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
+      resolver_snapshot: target_graph:tg_proteins:deps-58d20dbbd04f
       types:
         - Protein
+      no_match_behavior: Skip
 
 input_adapters:
   - import: ./src/input_adapters/go/go_term.py

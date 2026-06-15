@@ -36,11 +36,42 @@ from src.registry.sources.pathway_sources import latest_panther_version
 from src.registry.sources.string import latest_string_version
 from src.shared.db_credentials import DBCredentials
 from src.core.data_registry import DataRegistry
+
+
+REGISTRY_RESOLVERS_CONFIG = Path("src/registry/registry_resolvers.yaml")
 from src.core.config import _resolve_registry_data_sources
 
 
 def test_parse_http_date_to_iso():
     assert parse_http_date_to_iso("Wed, 10 Jun 2026 12:34:56 GMT") == "2026-06-10"
+
+
+def test_registry_resolvers_config_defines_logical_resolver_inputs():
+    config = yaml.safe_load(REGISTRY_RESOLVERS_CONFIG.read_text(encoding="utf-8"))
+
+    assert config["schema_version"] == 1
+    resolvers = config["resolvers"]
+    assert resolvers["cure"]["cure_id_labels"]["class"] == "CureIdLabelResolver"
+    assert resolvers["target_graph"]["tcrd_targets"]["class"] == "TCRDTargetResolver"
+    assert resolvers["target_graph"]["tg_proteins"]["inputs"]["additional_ids_data_source"] == "target_graph:uniprot_mapping"
+    assert resolvers["target_graph"]["tcrd_targets"]["options"] == {
+        "canonical_type": "Protein",
+        "collapse_to_canonical": True,
+    }
+    assert resolvers["translator"]["translator_nn"]["class"] == "TranslatorNodeNormResolver"
+    assert "types" not in resolvers["translator"]["translator_nn"]
+
+    for source_resolvers in resolvers.values():
+        for resolver in source_resolvers.values():
+            assert resolver["label"]
+            assert resolver["import"]
+            assert resolver["class"]
+            assert "types" not in resolver
+            assert "kwargs" not in resolver
+            assert "policy" not in resolver
+            for input_ref in (resolver.get("inputs") or {}).values():
+                assert isinstance(input_ref, str)
+                assert len(input_ref.split(":")) == 2
 
 
 def test_source_snapshot_manifest_roundtrip(tmp_path: Path):
@@ -454,7 +485,7 @@ def test_data_registry_caches_catalog_reads_until_refresh():
         bucket = "ifx-registry"
 
         def __init__(self):
-            self.calls = {"sources/": 0, "external/": 0, "derived/": 0}
+            self.calls = {"sources/": 0, "external/": 0, "derived/": 0, "resolvers/": 0}
 
         def list_keys(self, prefix):
             self.calls[prefix] += 1
@@ -463,6 +494,8 @@ def test_data_registry_caches_catalog_reads_until_refresh():
             if prefix == "external/":
                 return ["external/chembl/activity_database/chembl36/manifest.yaml"]
             if prefix == "derived/":
+                return []
+            if prefix == "resolvers/":
                 return []
             raise AssertionError(prefix)
 
@@ -499,11 +532,11 @@ connection:
     registry.list_versions("chembl", "activity_database")
     registry.list_files("surechembl", "patent_discovery", "2026-06-01")
 
-    assert storage.calls == {"sources/": 1, "external/": 1, "derived/": 0}
+    assert storage.calls == {"sources/": 1, "external/": 1, "derived/": 0, "resolvers/": 0}
 
     registry.refresh_catalog()
 
-    assert storage.calls == {"sources/": 2, "external/": 2, "derived/": 1}
+    assert storage.calls == {"sources/": 2, "external/": 2, "derived/": 1, "resolvers/": 1}
 
 
 def test_data_registry_fetches_configured_fetcher_class(tmp_path: Path, monkeypatch):
@@ -1113,6 +1146,8 @@ sources:
                 return []
             if prefix == "derived/":
                 return []
+            if prefix == "resolvers/":
+                return []
             raise AssertionError(prefix)
 
         def upload_file(self, local_path, key, content_type=None):
@@ -1203,6 +1238,8 @@ sources:
             if prefix == "external/":
                 return []
             if prefix == "derived/":
+                return []
+            if prefix == "resolvers/":
                 return []
             raise AssertionError(prefix)
 
@@ -1415,7 +1452,7 @@ def test_data_registry_materialize_derived_artifact_reuses_matching_cache(tmp_pa
         def list_keys(self, prefix):
             if prefix == "derived/":
                 return ["derived/example/derived_dataset/v1/manifest.yaml"]
-            if prefix in ("sources/", "external/"):
+            if prefix in ("sources/", "external/", "resolvers/"):
                 return []
             raise AssertionError(prefix)
 
@@ -1758,6 +1795,8 @@ sources:
                 return sorted(self.uploaded)
             if prefix == "derived/":
                 return []
+            if prefix == "resolvers/":
+                return []
             raise AssertionError(prefix)
 
         def upload_file(self, local_path, key, content_type=None):
@@ -1860,6 +1899,8 @@ sources:
                 return sorted(self.uploaded)
             if prefix == "external/":
                 return []
+            if prefix == "resolvers/":
+                return []
             raise AssertionError(prefix)
 
         def read_text(self, key):
@@ -1954,6 +1995,130 @@ files:
     post_build_status = registry.check_derived_artifacts()
     assert post_build_status[0]["is_latest_registered"] is True
     assert post_build_status[0]["latest_build_key"] == manifest["build_key"]
+
+
+def test_data_registry_sync_resolvers_registers_snapshot_manifest(tmp_path: Path):
+    resolvers_config_path = tmp_path / "registry_resolvers.yaml"
+    resolvers_config_path.write_text(
+        """
+schema_version: 1
+resolvers:
+  target_graph:
+    tcrd_targets:
+      label: tcrd_targets
+      import: ./src/id_resolvers/target_graph_resolver.py
+      class: TCRDTargetResolver
+      types:
+        - Protein
+        - Gene
+        - Transcript
+      inputs:
+        gene_data_source: target_graph:gene_ids
+        transcript_data_source: target_graph:transcript_ids
+        protein_data_source: target_graph:protein_ids
+      options:
+        canonical_type: Protein
+        collapse_to_canonical: true
+""",
+        encoding="utf-8",
+    )
+
+    source_manifests = {
+        "sources/target_graph/gene_ids/2026-05-11/manifest.yaml": """
+kind: source_snapshot
+schema_version: 1
+source: target_graph
+dataset: gene_ids
+snapshot_id: target_graph:gene_ids:2026-05-11
+version: '2026-05-11'
+files: []
+""",
+        "sources/target_graph/transcript_ids/2026-05-11/manifest.yaml": """
+kind: source_snapshot
+schema_version: 1
+source: target_graph
+dataset: transcript_ids
+snapshot_id: target_graph:transcript_ids:2026-05-11
+version: '2026-05-11'
+files: []
+""",
+        "sources/target_graph/protein_ids/2026-05-20/manifest.yaml": """
+kind: source_snapshot
+schema_version: 1
+source: target_graph
+dataset: protein_ids
+snapshot_id: target_graph:protein_ids:2026-05-20
+version: '2026-05-20'
+files: []
+""",
+    }
+
+    class ResolverStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return sorted(source_manifests)
+            if prefix == "resolvers/":
+                return sorted(self.uploaded)
+            if prefix in ("external/", "derived/"):
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key in source_manifests:
+                return source_manifests[key]
+            return self.uploaded[key]
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded[key] = Path(local_path).read_text(encoding="utf-8")
+            return f"s3://ifx-registry/{key}"
+
+    storage = ResolverStorage()
+    registry = DataRegistry(storage, resolvers_config_path=resolvers_config_path)
+
+    dry_run = registry.sync_resolvers()
+
+    assert len(dry_run) == 1
+    assert dry_run[0]["resolver"] == "tcrd_targets"
+    assert dry_run[0]["sync_action"] == "would_register"
+    assert dry_run[0]["sync_reason"] == "missing"
+    assert dry_run[0]["latest_version"].startswith("deps-")
+    assert len(dry_run[0]["latest_build_key"]) == 64
+
+    result = registry.sync_resolvers(dest=tmp_path / "cache", dry_run=False)
+
+    assert result[0]["sync_action"] == "registered"
+    manifest_path = Path(result[0]["manifest_path"])
+    manifest = read_manifest(manifest_path)
+    assert manifest["kind"] == "resolver_snapshot"
+    assert manifest["source"] == "target_graph"
+    assert manifest["resolver"] == "tcrd_targets"
+    assert manifest["resolved_inputs"] == {
+        "gene_data_source": "target_graph:gene_ids:2026-05-11",
+        "transcript_data_source": "target_graph:transcript_ids:2026-05-11",
+        "protein_data_source": "target_graph:protein_ids:2026-05-20",
+    }
+    assert manifest["resolved_input_metadata"]["protein_data_source"]["snapshot_id"] == (
+        "target_graph:protein_ids:2026-05-20"
+    )
+    assert manifest["definition"]["options"] == {
+        "canonical_type": "Protein",
+        "collapse_to_canonical": True,
+    }
+    assert len(manifest["definition_fingerprint"]) == 64
+    assert len(manifest["build_key"]) == 64
+    assert sorted(storage.uploaded) == [
+        f"resolvers/target_graph/tcrd_targets/{manifest['version']}/manifest.yaml",
+    ]
+
+    registry.refresh_catalog()
+    assert registry.list_resolver_versions("target_graph", "tcrd_targets") == [manifest["version"]]
+    assert registry.get_resolver_snapshot("target_graph", "tcrd_targets", manifest["version"])["build_key"] == manifest["build_key"]
+    post_register_status = registry.check_resolvers()
+    assert post_register_status[0]["is_latest_registered"] is True
+    assert post_register_status[0]["latest_build_key"] == manifest["build_key"]
 
 
 def test_data_registry_refresh_fetches_then_uploads(tmp_path: Path, monkeypatch):

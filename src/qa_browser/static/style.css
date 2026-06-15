@@ -553,6 +553,32 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     overflow: hidden;
 }
 
+.registry-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin: -0.5rem 0 1rem;
+}
+
+.registry-tab {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.6rem 0.9rem;
+}
+
+.registry-tab.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+}
+
+.registry-tab:hover {
+    text-decoration: none;
+}
+
 .registry-stats {
     display: grid;
     gap: 0.75rem;
@@ -692,16 +718,32 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 }
 
 .registry-graph-badge {
+    align-items: center;
     background: hsl(var(--graph-hue), 82%, 92%);
     border: 1px solid hsl(var(--graph-hue), 70%, 68%);
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
     color: hsl(var(--graph-hue), 72%, 25%);
+    display: inline-flex;
+    gap: 0.4rem;
     font-family: var(--font);
     font-size: 12px;
     font-weight: 800;
     letter-spacing: 0;
     padding: 0.35rem 0.6rem;
     text-decoration: none;
+}
+
+.registry-usage-kind {
+    background: rgba(255, 255, 255, 0.68);
+    border: 1px solid hsl(var(--graph-hue), 55%, 76%);
+    border-radius: 999px;
+    color: hsl(var(--graph-hue), 62%, 30%);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 0.18rem 0.32rem;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .registry-graph-badge:hover {
@@ -849,6 +891,12 @@ td.mono { font-family: var(--mono); font-size: 12px; }
         background: hsl(var(--graph-hue), 52%, 18%);
         border-color: hsl(var(--graph-hue), 55%, 38%);
         color: hsl(var(--graph-hue), 78%, 82%);
+    }
+
+    .registry-usage-kind {
+        background: hsla(var(--graph-hue), 52%, 10%, 0.85);
+        border-color: hsl(var(--graph-hue), 45%, 32%);
+        color: hsl(var(--graph-hue), 70%, 82%);
     }
 
     .registry-graph-badge:hover {

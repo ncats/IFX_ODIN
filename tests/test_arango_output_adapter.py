@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from src.models.protein import Protein
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
@@ -77,15 +78,26 @@ def build_adapter(existing_nodes, collection):
 
 
 def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata():
+    resolver_snapshot = MaterializedDataset(
+        source="target_graph",
+        dataset="disease_ids",
+        version="deps-test",
+        version_date=None,
+        download_date="2026-06-12",
+        snapshot_id="target_graph:disease_ids:deps-test",
+        manifest_uri="s3://ifx-registry/resolvers/target_graph/disease_ids/deps-test/manifest.yaml",
+        manifest={"kind": "resolver_snapshot", "definition": {}, "files": []},
+        local_dir=Path("/tmp/ifx-registry-cache/target_graph/disease_ids/deps-test"),
+    )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
     resolver_metadata = resolver_fingerprints_by_type([{
         "label": "disease_ids",
         "import": "./src/id_resolvers/disease_resolver.py",
         "class": "DiseaseIdResolver",
         "kwargs": {
-            "file_path": "./input_files/manual/target_graph/disease_ids.tsv",
-            "multi_match_behavior": "All",
+            "resolver_snapshot": resolver_snapshot,
             "types": ["Disease"],
+            "multi_match_behavior": "All",
         },
     }])
     adapter.set_resolver_metadata(
@@ -98,20 +110,22 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     disease_metadata = metadata["resolver_metadata"]["by_type"]["Disease"]
     assert metadata["resolver_metadata"]["source_yaml"] == "./src/use_cases/pharos/pharos.yaml"
     assert disease_metadata["class"] == "DiseaseIdResolver"
-    assert disease_metadata["kwargs"]["file_path"] == "./input_files/manual/target_graph/disease_ids.tsv"
+    assert disease_metadata["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
+    assert disease_metadata["kwargs"]["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
+    assert "local_dir" not in disease_metadata["resolver_snapshot"]
     assert disease_metadata["fingerprint"]
 
 
-def test_arango_output_adapter_resolver_metadata_serializes_registry_dataset(tmp_path):
-    data_source = MaterializedDataset(
+def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_snapshot(tmp_path):
+    resolver_snapshot = MaterializedDataset(
         source="cure",
-        dataset="curated_concepts",
-        version="2026-05-14",
-        version_date="2026-05-14",
+        dataset="cure_id_labels",
+        version="deps-test",
+        version_date=None,
         download_date="2026-06-12",
-        snapshot_id="cure:curated_concepts:2026-05-14",
-        manifest_uri="s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
-        manifest={"files": [{"path": "cureid_data.tsv", "sha256": "abc", "size_bytes": 12}]},
+        snapshot_id="cure:cure_id_labels:deps-test",
+        manifest_uri="s3://ifx-registry/resolvers/cure/cure_id_labels/deps-test/manifest.yaml",
+        manifest={"kind": "resolver_snapshot", "definition": {}, "files": []},
         local_dir=tmp_path,
     )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
@@ -120,7 +134,7 @@ def test_arango_output_adapter_resolver_metadata_serializes_registry_dataset(tmp
         "import": "./src/id_resolvers/cure_id_label_resolver.py",
         "class": "CureIdLabelResolver",
         "kwargs": {
-            "data_source": data_source,
+            "resolver_snapshot": resolver_snapshot,
             "types": ["Gene"],
         },
     }])
@@ -132,9 +146,9 @@ def test_arango_output_adapter_resolver_metadata_serializes_registry_dataset(tmp
     metadata = adapter.get_etl_metadata()
 
     json.dumps(metadata)
-    data_source_metadata = metadata["resolver_metadata"]["by_type"]["Gene"]["kwargs"]["data_source"]
-    assert data_source_metadata["snapshot_id"] == "cure:curated_concepts:2026-05-14"
-    assert data_source_metadata["files"] == [{"path": "cureid_data.tsv", "sha256": "abc", "size_bytes": 12, "storage_uri": None}]
+    snapshot_metadata = metadata["resolver_metadata"]["by_type"]["Gene"]["resolver_snapshot"]
+    assert snapshot_metadata["snapshot_id"] == "cure:cure_id_labels:deps-test"
+    assert snapshot_metadata["kind"] == "resolver_snapshot"
 
 
 def test_arango_output_adapter_etl_metadata_includes_registry_datasets():

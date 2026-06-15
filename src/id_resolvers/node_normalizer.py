@@ -14,13 +14,14 @@ class TranslatorNodeNormResolver(IdResolver):
     retryable_status_codes = {408, 429, 500, 502, 503, 504}
 
     def __init__(self,
-                 types: List[str],
+                 resolver_snapshot,
                  batch_size: int = 50000,
                  request_timeout: int = 120,
                  max_retries: int = 10,
                  retry_backoff_seconds: int = 60,
                  **kwargs):
-        super().__init__(types=types, **kwargs)
+        super().__init__(**kwargs)
+        self.resolver_snapshot = resolver_snapshot
         self.batch_size = batch_size
         self.request_timeout = request_timeout
         self.max_retries = max(1, max_retries)

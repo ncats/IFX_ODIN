@@ -12,6 +12,7 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
+      resolver_snapshot: translator:translator_nn:deps-c85fd1cd8666
       types:
         - Ligand
 
@@ -19,63 +20,43 @@ resolvers:
     import: ./src/id_resolvers/disease_resolver.py
     class: DiseaseIdResolver
     kwargs:
-      data_source: target_graph:disease_ids:2026-05-27
-      multi_match_behavior: All
+      resolver_snapshot: target_graph:disease_ids:deps-3a3de6aa6530
       types:
         - Disease
+      multi_match_behavior: All
 
   - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:gene_ids:2026-05-11
+      resolver_snapshot: target_graph:tg_genes:deps-bfc39ea04a27
       types:
         - Gene
+      no_match_behavior: Skip
 
   - label: tg_transcripts
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:transcript_ids:2026-05-11
+      resolver_snapshot: target_graph:tg_transcripts:deps-d2da338291d8
       types:
         - Transcript
+      no_match_behavior: Skip
 
   - label: tg_proteins
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      no_match_behavior: Skip
-      data_source: target_graph:protein_ids:2026-05-20
-      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
+      resolver_snapshot: target_graph:tg_proteins:deps-58d20dbbd04f
       types:
         - Protein
+      no_match_behavior: Skip
 
   - label: hcop_ortholog_genes
     import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
     class: HCOPOrthologGeneResolver
     kwargs:
-      data_source: hcop:human_all_sixteen_column:2025-05-16
-      accepted_species:
-        - "9598"
-        - "9544"
-        - "10090"
-        - "10116"
-        - "9615"
-        - "9796"
-        - "9913"
-        - "9823"
-        - "13616"
-        - "9258"
-        - "9031"
-        - "28377"
-        - "8364"
-        - "7955"
-        - "6239"
-        - "7227"
-        - "4932"
-      drop_blank_ortholog_identity: true
+      resolver_snapshot: hcop:hcop_ortholog_genes:deps-8fb0b25b5955
       types:
         - OrthologGene
 
@@ -83,87 +64,7 @@ resolvers:
     import: ./src/id_resolvers/tissue_resolver.py
     class: TissueResolver
     kwargs:
-      data_source: uberon:ontology:2026-04-01
-      valid_ontologies:
-        - FMA
-        - EMAPA
-        - MA
-        - UMLS
-        - NCIT
-        - ZFA
-        - BTO
-        - CLDB
-        - EHDAA2
-        - BAMS
-        - neuronames
-        - VHOG
-        - MESH
-        - BIRNLEX
-        - TAO
-        - EHDAA
-        - GAID
-        - DHBA
-        - CALOHA
-        - EFO
-        - XAO
-        - HBA
-        - OpenCyc
-        - MBA
-        - galen
-        - FBbt
-        - GC_ID
-        - EV
-        - DMBA
-        - BM
-        - MAT
-        - MIAA
-        - NLXANAT
-        - VSAO
-        - AEO
-        - RETIRED_EHDAA2
-        - KUPO
-        - Wikipedia
-        - NLX
-        - ZFS
-        - UBERONTEMP
-        - UBERON
-        - TGMA
-        - TE
-        - TADS
-        - STID
-        - SPD
-        - SCTID
-        - SAO
-        - PHENOSCAPE
-        - PBA
-        - OGES
-        - OGEM
-        - NOID
-        - NIFSTD
-        - MURDOCH
-        - MPATH
-        - MP
-        - MFMO
-        - MAP
-        - ISBN
-        - HAO
-        - GOC
-        - GO
-        - FMAID
-        - FAO
-        - EVM
-        - ENVO
-        - EMAPS
-        - EHDA
-        - CP
-        - CL
-        - CARO
-        - BSA
-        - BILS
-        - BILA
-        - ANISEED
-        - ABA
-        - AAO
+      resolver_snapshot: uberon:tissue_ids:deps-068438ffba3c
       types:
         - Tissue
 

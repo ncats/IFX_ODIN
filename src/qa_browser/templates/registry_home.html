@@ -1,20 +1,24 @@
 {% extends "base.html" %}
-{% block title %}IFX Data Source Registry{% endblock %}
+{% block title %}IFX Registry · Data Sources{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<span>IFX Data Source Registry</span>
+<span>IFX Registry</span>
 {% endblock %}
 
 {% block content %}
 <div class="hero registry-hero">
     <div class="hero-text">
-        <h1 class="hero-title">IFX Data Source Registry</h1>
-        <p class="hero-subtitle">Versioned source files and manifests stored in MinIO for reproducible ETL inputs.</p>
+        <h1 class="hero-title">IFX Registry</h1>
+        <p class="hero-subtitle">Versioned data source manifests stored in MinIO for reproducible ETL inputs.</p>
     </div>
 </div>
 
 <div class="engine-section">
+    <div class="registry-tabs">
+        <a class="registry-tab active" href="{{ root_path }}/registry">Data Sources</a>
+        <a class="registry-tab" href="{{ root_path }}/registry/resolvers">Resolvers</a>
+    </div>
     {% if not registry_error %}
     <div class="registry-stats">
         <div class="registry-stat">
@@ -92,10 +96,13 @@
                                     <div class="mono">{{ snapshot.snapshot_id }}</div>
                                     {% if snapshot.graph_usages %}
                                     <div class="registry-graph-badges">
-                                        {% for graph_name in snapshot.graph_usages %}
+                                        {% for graph_usage in snapshot.graph_usage_details %}
                                         <a class="badge registry-graph-badge"
-                                           style="{{ graph_usage_styles.get(graph_name, '') }}"
-                                           href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                                           style="{{ graph_usage_styles.get(graph_usage.graph, '') }}"
+                                           href="{{ root_path }}/db/{{ graph_usage.graph }}">
+                                            <span>{{ graph_usage.graph }}</span>
+                                            <span class="registry-usage-kind registry-usage-kind-{{ graph_usage.category_class }}">{{ graph_usage.category_label }}</span>
+                                        </a>
                                         {% endfor %}
                                     </div>
                                     {% endif %}
@@ -201,10 +208,13 @@
                                     <div class="mono">{{ artifact.snapshot_id }}</div>
                                     {% if artifact.graph_usages %}
                                     <div class="registry-graph-badges">
-                                        {% for graph_name in artifact.graph_usages %}
+                                        {% for graph_usage in artifact.graph_usage_details %}
                                         <a class="badge registry-graph-badge"
-                                           style="{{ graph_usage_styles.get(graph_name, '') }}"
-                                           href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                                           style="{{ graph_usage_styles.get(graph_usage.graph, '') }}"
+                                           href="{{ root_path }}/db/{{ graph_usage.graph }}">
+                                            <span>{{ graph_usage.graph }}</span>
+                                            <span class="registry-usage-kind registry-usage-kind-{{ graph_usage.category_class }}">{{ graph_usage.category_label }}</span>
+                                        </a>
                                         {% endfor %}
                                     </div>
                                     {% endif %}
@@ -322,10 +332,13 @@
                         <div>{{ registration.source }}</div>
                         {% if registration.graph_usages %}
                         <div class="registry-graph-badges">
-                            {% for graph_name in registration.graph_usages %}
+                            {% for graph_usage in registration.graph_usage_details %}
                             <a class="badge registry-graph-badge"
-                               style="{{ graph_usage_styles.get(graph_name, '') }}"
-                               href="{{ root_path }}/db/{{ graph_name }}">{{ graph_name }}</a>
+                               style="{{ graph_usage_styles.get(graph_usage.graph, '') }}"
+                               href="{{ root_path }}/db/{{ graph_usage.graph }}">
+                                <span>{{ graph_usage.graph }}</span>
+                                <span class="registry-usage-kind registry-usage-kind-{{ graph_usage.category_class }}">{{ graph_usage.category_label }}</span>
+                            </a>
                             {% endfor %}
                         </div>
                         {% endif %}

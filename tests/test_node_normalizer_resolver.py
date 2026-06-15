@@ -4,6 +4,7 @@ import requests
 from src.id_resolvers import node_normalizer
 from src.id_resolvers.node_normalizer import TranslatorNodeNormResolver
 from src.models.node import Node
+from src.registry.fetchers import MaterializedDataset
 
 
 class FakeResponse:
@@ -14,6 +15,24 @@ class FakeResponse:
 
     def json(self):
         return self._payload
+
+
+def _resolver_snapshot():
+    return MaterializedDataset(
+        source="translator",
+        dataset="translator_nn_test",
+        version="test",
+        version_date=None,
+        download_date=None,
+        snapshot_id="translator:translator_nn_test:test",
+        manifest_uri="s3://ifx-registry/resolvers/translator/translator_nn_test/test/manifest.yaml",
+        manifest={
+            "kind": "resolver_snapshot",
+            "definition": {},
+            "resolved_inputs": {},
+        },
+        local_dir=None,
+    )
 
 
 def test_node_normalizer_retries_retryable_http_status(monkeypatch):
@@ -39,6 +58,7 @@ def test_node_normalizer_retries_retryable_http_status(monkeypatch):
     monkeypatch.setattr(node_normalizer.time, "sleep", lambda seconds: None)
 
     resolver = TranslatorNodeNormResolver(
+        resolver_snapshot=_resolver_snapshot(),
         types=["Disease"],
         max_retries=2,
         retry_backoff_seconds=0,
@@ -72,6 +92,7 @@ def test_node_normalizer_retries_request_exception(monkeypatch):
     monkeypatch.setattr(node_normalizer.time, "sleep", lambda seconds: None)
 
     resolver = TranslatorNodeNormResolver(
+        resolver_snapshot=_resolver_snapshot(),
         types=["Disease"],
         max_retries=2,
         retry_backoff_seconds=0,
@@ -91,6 +112,7 @@ def test_node_normalizer_reports_sample_ids_after_retries(monkeypatch):
     monkeypatch.setattr(node_normalizer.time, "sleep", lambda seconds: None)
 
     resolver = TranslatorNodeNormResolver(
+        resolver_snapshot=_resolver_snapshot(),
         types=["Disease"],
         max_retries=2,
         retry_backoff_seconds=0,

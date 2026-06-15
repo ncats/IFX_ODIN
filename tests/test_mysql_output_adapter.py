@@ -1,5 +1,6 @@
 from sqlalchemy.exc import IntegrityError, OperationalError
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +8,7 @@ from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.models.datasource_version_info import DataSourceDetails
 from src.output_adapters.mysql_output_adapter import MySQLOutputAdapter, TCRDOutputAdapter
+from src.registry.fetchers import MaterializedDataset
 from src.shared.db_credentials import DBCredentials
 from src.shared.sqlalchemy_tables.pharos_tables_new import TDL_info
 from src.shared.sqlalchemy_tables.test_tables import AutoIncNode
@@ -250,15 +252,37 @@ def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
     assert fake_session.closed is True
 
 
-def _resolver_config(class_name="DiseaseIdResolver", file_path="./input_files/manual/target_graph/disease_ids.tsv"):
+def _resolver_snapshot(version="deps-test"):
+    return MaterializedDataset(
+        source="target_graph",
+        dataset="disease_ids",
+        version=version,
+        version_date=None,
+        download_date="2026-06-12",
+        snapshot_id=f"target_graph:disease_ids:{version}",
+        manifest_uri=f"s3://ifx-registry/resolvers/target_graph/disease_ids/{version}/manifest.yaml",
+        manifest={
+            "kind": "resolver_snapshot",
+            "definition": {
+                "label": "disease_ids",
+                "import": "./src/id_resolvers/disease_resolver.py",
+                "class": "DiseaseIdResolver",
+            },
+            "files": [],
+        },
+        local_dir=Path(f"/tmp/ifx-registry-cache/resolvers/target_graph/disease_ids/{version}"),
+    )
+
+
+def _resolver_config(class_name="DiseaseIdResolver", version="deps-test"):
     return [{
         "label": "disease_ids",
         "import": "./src/id_resolvers/disease_resolver.py",
         "class": class_name,
         "kwargs": {
-            "file_path": file_path,
-            "multi_match_behavior": "All",
+            "resolver_snapshot": _resolver_snapshot(version=version),
             "types": ["Disease"],
+            "multi_match_behavior": "All",
         },
     }]
 
@@ -298,7 +322,7 @@ def test_tcrd_output_adapter_requires_source_graph_resolver_metadata():
 
 def test_tcrd_output_adapter_rejects_mismatched_source_graph_resolver_metadata():
     expected = resolver_fingerprints_by_type(_resolver_config())
-    actual = resolver_fingerprints_by_type(_resolver_config(class_name="TranslatorNodeNormResolver"))
+    actual = resolver_fingerprints_by_type(_resolver_config(version="deps-other"))
     adapter = _adapter_with_resolver_metadata(expected, {
         "source_yaml": "./src/use_cases/pharos/pharos.yaml",
         "resolver_metadata": {

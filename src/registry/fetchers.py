@@ -74,6 +74,7 @@ class MaterializedDataset:
     manifest_uri: str
     manifest: Dict[str, Any]
     local_dir: Path
+    resolver_inputs: Dict[str, "MaterializedDataset"] = field(default_factory=dict)
 
     def file(self, file_name: Optional[str] = None) -> Path:
         files = self.manifest.get("files", []) or []
@@ -96,7 +97,8 @@ class MaterializedDataset:
         )
 
     def to_metadata(self) -> Dict[str, Any]:
-        return {
+        metadata = {
+            "kind": self.manifest.get("kind"),
             "source": self.source,
             "dataset": self.dataset,
             "version": self.version,
@@ -115,6 +117,12 @@ class MaterializedDataset:
                 for entry in self.manifest.get("files", []) or []
             ],
         }
+        if self.resolver_inputs:
+            metadata["resolver_inputs"] = {
+                name: dataset.to_metadata()
+                for name, dataset in self.resolver_inputs.items()
+            }
+        return metadata
 
     @staticmethod
     def _parse_date(value: Optional[str]) -> Optional[date]:

@@ -57,13 +57,36 @@ def test_extract_registry_datasets_from_etl_metadata():
                 "Gene": {
                     "label": "cure_id_labels",
                     "kwargs": {
-                        "data_source": {
+                        "resolver_snapshot": {
                             "source": "cure",
-                            "dataset": "curated_concepts",
-                            "version": "2026-05-14",
-                            "snapshot_id": "cure:curated_concepts:2026-05-14",
-                            "manifest_uri": "s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
-                        }
+                            "dataset": "cure_id_labels",
+                            "version": "deps-test",
+                            "snapshot_id": "cure:cure_id_labels:deps-test",
+                            "resolver_inputs": {
+                                "data_source": {
+                                    "source": "cure",
+                                    "dataset": "curated_concepts",
+                                    "version": "2026-05-14",
+                                    "snapshot_id": "cure:curated_concepts:2026-05-14",
+                                    "manifest_uri": "s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
+                                }
+                            },
+                        },
+                    },
+                    "resolver_snapshot": {
+                        "source": "cure",
+                        "dataset": "cure_id_labels",
+                        "version": "deps-test",
+                        "snapshot_id": "cure:cure_id_labels:deps-test",
+                        "resolver_inputs": {
+                            "data_source": {
+                                "source": "cure",
+                                "dataset": "curated_concepts",
+                                "version": "2026-05-14",
+                                "snapshot_id": "cure:curated_concepts:2026-05-14",
+                                "manifest_uri": "s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
+                            }
+                        },
                     },
                 }
             }
@@ -73,9 +96,47 @@ def test_extract_registry_datasets_from_etl_metadata():
     assert [dataset["snapshot_id"] for dataset in datasets] == [
         "cure:case_reports:reports_20260612T182139Z",
         "cure:curated_concepts:2026-05-14",
+        "cure:cure_id_labels:deps-test",
     ]
     assert datasets[0]["usages"] == ["adapter:CUREAdapter"]
     assert datasets[1]["usages"] == ["resolver:cure_id_labels"]
+    assert datasets[2]["usages"] == ["resolver:cure_id_labels"]
+
+
+def test_extract_registry_datasets_marks_resolver_inputs_used_by_adapter_and_resolver():
+    datasets = extract_registry_datasets({
+        "registry_datasets": [{
+            "source": "cure",
+            "dataset": "curated_concepts",
+            "version": "2026-05-14",
+            "snapshot_id": "cure:curated_concepts:2026-05-14",
+            "usages": ["adapter:CureIdCuratedConceptsAdapter"],
+        }, {
+            "source": "cure",
+            "dataset": "cure_id_labels",
+            "version": "deps-test",
+            "snapshot_id": "cure:cure_id_labels:deps-test",
+            "usages": ["resolver:cure_id_labels"],
+            "resolver_inputs": {
+                "data_source": {
+                            "source": "cure",
+                            "dataset": "curated_concepts",
+                            "version": "2026-05-14",
+                            "snapshot_id": "cure:curated_concepts:2026-05-14",
+                            "manifest_uri": "s3://ifx-registry/sources/cure/curated_concepts/2026-05-14/manifest.yaml",
+                }
+            }
+        }],
+    })
+
+    assert [dataset["snapshot_id"] for dataset in datasets] == [
+        "cure:curated_concepts:2026-05-14",
+        "cure:cure_id_labels:deps-test",
+    ]
+    assert datasets[0]["usages"] == [
+        "adapter:CureIdCuratedConceptsAdapter",
+        "resolver:cure_id_labels",
+    ]
 
 
 def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
@@ -93,6 +154,7 @@ def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
                 "dataset": "case_reports",
                 "version": "reports_20260612T182139Z",
                 "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+                "usages": ["adapter:CUREAdapter"],
             }]
         },
         "cure_rasopathies": {
@@ -101,11 +163,13 @@ def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
                 "dataset": "case_reports",
                 "version": "reports_20260612T182139Z",
                 "snapshot_id": "cure:case_reports:reports_20260612T182139Z",
+                "usages": ["adapter:RasopathiesAdapter"],
             }, {
                 "source": "cure",
                 "dataset": "curated_concepts",
                 "version": "2026-05-14",
                 "snapshot_id": "cure:curated_concepts:2026-05-14",
+                "usages": ["resolver:cure_id_labels"],
             }]
         },
     }
@@ -123,8 +187,13 @@ def test_load_graph_registry_usage_indexes_graphs_by_snapshot(monkeypatch):
 
     assert error is None
     assert usage_by_registry_id == {
-        "cure:case_reports:reports_20260612T182139Z": ["cure_pasc", "cure_rasopathies"],
-        "cure:curated_concepts:2026-05-14": ["cure_rasopathies"],
+        "cure:case_reports:reports_20260612T182139Z": {
+            "cure_pasc": ["adapter"],
+            "cure_rasopathies": ["adapter"],
+        },
+        "cure:curated_concepts:2026-05-14": {
+            "cure_rasopathies": ["resolver"],
+        },
     }
 
 
@@ -137,9 +206,15 @@ def test_with_graph_usages_accepts_external_registration_id():
             "version": "chembl36",
         },
         {
-            "chembl:activity_database:chembl36": ["pharos"],
+            "chembl:activity_database:chembl36": {"pharos": ["adapter", "resolver"]},
         },
     )
 
     assert entry["registry_id"] == "chembl:activity_database:chembl36"
     assert entry["graph_usages"] == ["pharos"]
+    assert entry["graph_usage_details"] == [{
+        "graph": "pharos",
+        "categories": ["adapter", "resolver"],
+        "category_label": "adapter + resolver",
+        "category_class": "adapter-resolver",
+    }]

@@ -1,0 +1,196 @@
+schema_version: 1
+
+resolvers:
+  cure:
+    cure_id_labels:
+      label: cure_id_labels
+      import: ./src/id_resolvers/cure_id_label_resolver.py
+      class: CureIdLabelResolver
+      inputs:
+        data_source: cure:curated_concepts
+      options:
+        label_field_by_type:
+          Gene: symbol
+        manual_label_map:
+          Gene:
+            Syngap:
+              - NCBIGene:8831
+            SYNGAP1:
+              - NCBIGene:8831
+          Drug:
+            Epidiolex:
+              - RXCUI:2058901
+            Tanganil:
+              - CHEBI:17786
+            Sertraline:
+              - RXCUI:36437
+            Sertraline 25 Mg Oral Tablet [Zoloft]:
+              - RXCUI:36437
+            Clobazam:
+              - RXCUI:21241
+
+  target_graph:
+    disease_ids:
+      label: disease_ids
+      import: ./src/id_resolvers/disease_resolver.py
+      class: DiseaseIdResolver
+      inputs:
+        data_source: target_graph:disease_ids
+
+    tg_genes:
+      label: tg_genes
+      import: ./src/id_resolvers/target_graph_resolver.py
+      class: TargetGraphGeneResolver
+      inputs:
+        data_source: target_graph:gene_ids
+
+    tg_transcripts:
+      label: tg_transcripts
+      import: ./src/id_resolvers/target_graph_resolver.py
+      class: TargetGraphTranscriptResolver
+      inputs:
+        data_source: target_graph:transcript_ids
+
+    tg_proteins:
+      label: tg_proteins
+      import: ./src/id_resolvers/target_graph_resolver.py
+      class: TargetGraphProteinResolver
+      inputs:
+        data_source: target_graph:protein_ids
+        additional_ids_data_source: target_graph:uniprot_mapping
+
+    tcrd_targets:
+      label: tcrd_targets
+      import: ./src/id_resolvers/target_graph_resolver.py
+      class: TCRDTargetResolver
+      inputs:
+        gene_data_source: target_graph:gene_ids
+        transcript_data_source: target_graph:transcript_ids
+        protein_data_source: target_graph:protein_ids
+        uniprot_mapping_data_source: target_graph:uniprot_mapping
+      options:
+        canonical_type: Protein
+        collapse_to_canonical: true
+
+  hcop:
+    hcop_ortholog_genes:
+      label: hcop_ortholog_genes
+      import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
+      class: HCOPOrthologGeneResolver
+      inputs:
+        data_source: hcop:human_all_sixteen_column
+      options:
+        accepted_species:
+          - "9598"
+          - "9544"
+          - "10090"
+          - "10116"
+          - "9615"
+          - "9796"
+          - "9913"
+          - "9823"
+          - "13616"
+          - "9258"
+          - "9031"
+          - "28377"
+          - "8364"
+          - "7955"
+          - "6239"
+          - "7227"
+          - "4932"
+        drop_blank_ortholog_identity: true
+
+  uberon:
+    tissue_ids:
+      label: tissue_ids
+      import: ./src/id_resolvers/tissue_resolver.py
+      class: TissueResolver
+      inputs:
+        data_source: uberon:ontology
+      options:
+        valid_ontologies:
+          - FMA
+          - EMAPA
+          - MA
+          - UMLS
+          - NCIT
+          - ZFA
+          - BTO
+          - CLDB
+          - EHDAA2
+          - BAMS
+          - neuronames
+          - VHOG
+          - MESH
+          - BIRNLEX
+          - TAO
+          - EHDAA
+          - GAID
+          - DHBA
+          - CALOHA
+          - EFO
+          - XAO
+          - HBA
+          - OpenCyc
+          - MBA
+          - galen
+          - FBbt
+          - GC_ID
+          - EV
+          - DMBA
+          - BM
+          - MAT
+          - MIAA
+          - NLXANAT
+          - VSAO
+          - AEO
+          - RETIRED_EHDAA2
+          - KUPO
+          - Wikipedia
+          - NLX
+          - ZFS
+          - UBERONTEMP
+          - UBERON
+          - TGMA
+          - TE
+          - TADS
+          - STID
+          - SPD
+          - SCTID
+          - SAO
+          - PHENOSCAPE
+          - PBA
+          - OGES
+          - OGEM
+          - NOID
+          - NIFSTD
+          - MURDOCH
+          - MPATH
+          - MP
+          - MFMO
+          - MAP
+          - ISBN
+          - HAO
+          - GOC
+          - GO
+          - FMAID
+          - FAO
+          - EVM
+          - ENVO
+          - EMAPS
+          - EHDA
+          - CP
+          - CL
+          - CARO
+          - BSA
+          - BILS
+          - BILA
+          - ANISEED
+          - ABA
+          - AAO
+
+  translator:
+    translator_nn:
+      label: translator_nn
+      import: ./src/id_resolvers/node_normalizer.py
+      class: TranslatorNodeNormResolver
