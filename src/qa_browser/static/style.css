@@ -516,6 +516,15 @@ td.mono { font-family: var(--mono); font-size: 12px; }
         var(--bg-alt);
 }
 
+.workflow-card-browser {
+    background:
+        linear-gradient(90deg, rgba(245, 246, 248, 0.98) 0%, rgba(245, 246, 248, 0.9) 38%, rgba(245, 246, 248, 0.56) 60%, rgba(245, 246, 248, 0.08) 100%),
+        url("images/database-browser.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
 .workflow-card-registry {
     color: #ffffff;
     background:
@@ -543,6 +552,17 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     background:
         linear-gradient(90deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.64) 42%, rgba(255, 255, 255, 0.08) 100%),
         url("images/ifx-registry.png");
+    background-size: cover;
+    background-position: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+}
+
+.browser-hero {
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.68) 42%, rgba(255, 255, 255, 0.1) 100%),
+        url("images/database-browser.png");
     background-size: cover;
     background-position: center;
     border: 1px solid var(--border);
@@ -1368,6 +1388,14 @@ td.mono { font-family: var(--mono); font-size: 12px; }
         background-position: center;
     }
 
+    .browser-hero {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(15, 23, 42, 0.86) 42%, rgba(15, 23, 42, 0.25) 100%),
+            url("images/database-browser.png");
+        background-size: cover;
+        background-position: center;
+    }
+
     .registry-filter-button {
         background: var(--bg-alt);
     }
@@ -1449,6 +1477,15 @@ td.mono { font-family: var(--mono); font-size: 12px; }
         background-size: cover;
         background-position: right center;
         background-repeat: no-repeat;
+    }
+
+    .workflow-card-browser {
+        background:
+            linear-gradient(90deg, rgba(30, 41, 59, 0.97) 0%, rgba(30, 41, 59, 0.9) 38%, rgba(30, 41, 59, 0.56) 60%, rgba(30, 41, 59, 0.1) 100%),
+            url("images/database-browser.png");
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
     }
 }
 
