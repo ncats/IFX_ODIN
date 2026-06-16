@@ -327,10 +327,22 @@ def extract_registry_graph(etl_meta: Optional[dict], graph_name: str) -> Optiona
         dependency_nodes,
         key=lambda item: (0 if item.get("kind") == "resolver" else 1, item.get("name") or ""),
     )
-    process_rows = {
-        lineage_node_id(node["kind"], node["name"]): index + 1
-        for index, node in enumerate(dependency_nodes)
-    }
+    process_layouts = {}
+    current_row = 1
+    for node in dependency_nodes:
+        process_node_id = lineage_node_id(node["kind"], node["name"])
+        dependency_ids = list(node.get("dependencies") or [])
+        row_count = max(1, len(dependency_ids))
+        start_row = current_row
+        dependency_rows = {
+            dependency_id: start_row + index
+            for index, dependency_id in enumerate(dependency_ids)
+        }
+        process_layouts[process_node_id] = {
+            "process_row": start_row + ((row_count - 1) // 2),
+            "dependency_rows": dependency_rows,
+        }
+        current_row += row_count + 1
 
     lineage_nodes_by_id = {}
     lineage_edges = []
@@ -371,13 +383,15 @@ def extract_registry_graph(etl_meta: Optional[dict], graph_name: str) -> Optiona
     process_levels = []
     for node in dependency_nodes:
         process_node_id = lineage_node_id(node["kind"], node["name"])
-        process_row = process_rows[process_node_id]
+        process_layout = process_layouts[process_node_id]
+        process_row = process_layout["process_row"]
         dependency_levels = []
         for dependency_id in node.get("dependencies") or []:
             dependency = data_sources.get(dependency_id)
             if not dependency:
                 continue
-            dependency_level = add_data_lineage(dependency, process_row)
+            dependency_row = process_layout["dependency_rows"].get(dependency_id, process_row)
+            dependency_level = add_data_lineage(dependency, dependency_row)
             dependency_levels.append(dependency_level)
             add_lineage_edge(lineage_node_id("registry", dependency_id), process_node_id, "uses")
         level = max(dependency_levels) + 1 if dependency_levels else 1

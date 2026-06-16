@@ -297,6 +297,13 @@ def test_extract_registry_graph_builds_adapter_and_resolver_dependencies():
                                 "dataset": "curated_concepts",
                                 "version": "2026-05-14",
                                 "snapshot_id": "cure:curated_concepts:2026-05-14",
+                            },
+                            "labels_source": {
+                                "kind": "source_snapshot",
+                                "source": "cure",
+                                "dataset": "label_synonyms",
+                                "version": "2026-05-15",
+                                "snapshot_id": "cure:label_synonyms:2026-05-15",
                             }
                         },
                     },
@@ -329,6 +336,7 @@ def test_extract_registry_graph_builds_adapter_and_resolver_dependencies():
     lineage_by_id = {node["id"]: node for node in graph["lineage_nodes"]}
     assert lineage_by_id["resolver:cure_id_labels"]["row"] < lineage_by_id["adapter:CUREAdapter"]["row"]
     assert lineage_by_id["registry:cure:curated_concepts:2026-05-14"]["row"] == lineage_by_id["resolver:cure_id_labels"]["row"]
+    assert lineage_by_id["registry:cure:label_synonyms:2026-05-15"]["row"] != lineage_by_id["registry:cure:curated_concepts:2026-05-14"]["row"]
     assert lineage_by_id["registry:cure:case_reports:reports_20260612T182139Z"]["row"] == lineage_by_id["adapter:CUREAdapter"]["row"]
 
 
