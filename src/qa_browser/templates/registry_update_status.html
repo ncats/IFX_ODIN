@@ -14,7 +14,7 @@
             {% endif %}
         </div>
         <form method="post" action="{{ root_path }}/registry/update-status">
-            <input type="hidden" name="return_to" value="{{ request.url.path }}">
+            <input type="hidden" name="return_page" value="{{ registry_update_return_page | default('sources') }}">
             <button type="submit" class="btn btn-primary">Check for updates</button>
         </form>
     </div>

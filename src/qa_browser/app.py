@@ -80,6 +80,11 @@ _registry_update_status_cache: dict = {
     "sections": [],
     "error": None,
 }
+REGISTRY_UPDATE_RETURN_PATHS = {
+    "sources": "/registry",
+    "resolvers": "/registry/resolvers",
+    "graphs": "/registry/graphs",
+}
 _resolver_instance_cache: dict = {}
 _resolver_instance_cache_locks: dict = {}
 _resolver_instance_cache_locks_guard = threading.Lock()
@@ -1702,7 +1707,7 @@ def registry_home(request: Request):
 
 
 @app.post("/registry/update-status", response_class=HTMLResponse)
-def registry_update_status(return_to: str = Form("/registry")):
+def registry_update_status(return_page: str = Form("sources")):
     try:
         status = _run_registry_update_checks()
     except Exception as exc:
@@ -1714,9 +1719,10 @@ def registry_update_status(return_to: str = Form("/registry")):
         }
     _registry_update_status_cache.clear()
     _registry_update_status_cache.update(status)
-    if not return_to.startswith("/") or return_to.startswith("//"):
-        return_to = "/registry"
-    return RedirectResponse(return_to, status_code=303)
+    return RedirectResponse(
+        REGISTRY_UPDATE_RETURN_PATHS.get(return_page, "/registry"),
+        status_code=303,
+    )
 
 
 @app.get("/registry/resolvers", response_class=HTMLResponse)
