@@ -548,6 +548,24 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     text-decoration: none;
 }
 
+.workflow-card-ramp {
+    color: #ffffff;
+    background:
+        linear-gradient(135deg, rgba(20, 83, 45, 0.92), rgba(21, 128, 61, 0.72)),
+        #14532d;
+}
+
+.workflow-card-ramp .db-name,
+.workflow-card-ramp .db-card-footer {
+    color: #ffffff;
+}
+
+.workflow-card-ramp:hover {
+    border-color: #86efac;
+    box-shadow: 0 0 0 3px rgba(134, 239, 172, 0.24);
+    text-decoration: none;
+}
+
 .registry-hero {
     background:
         linear-gradient(90deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.64) 42%, rgba(255, 255, 255, 0.08) 100%),
@@ -2660,3 +2678,191 @@ details summary:hover { color: var(--accent); }
 }
 
 .fb-footer a:hover { color: var(--text); }
+
+.ramp-id-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.ramp-id-header {
+    align-items: stretch;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+    padding: 1rem;
+}
+
+.ramp-id-header h1 {
+    margin: 0 0 0.35rem;
+}
+
+.ramp-id-header p {
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.ramp-id-form {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.ramp-id-form textarea {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    min-height: 92px;
+    padding: 0.65rem;
+    resize: vertical;
+}
+
+.ramp-id-graph-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    min-height: 680px;
+    overflow: hidden;
+}
+
+.ramp-id-cy {
+    background: #fbfcfe;
+    min-height: 680px;
+}
+
+.ramp-id-detail {
+    border-left: 1px solid var(--border);
+    overflow: auto;
+    padding: 1rem;
+}
+
+.ramp-id-detail h2 {
+    font-size: 1rem;
+    line-height: 1.2;
+    margin: 0 0 0.35rem;
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-detail p {
+    color: var(--text-muted);
+    margin: 0 0 1rem;
+}
+
+.ramp-id-stats {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0 0 1rem;
+}
+
+.ramp-id-stats div,
+.ramp-id-registry-meta,
+.ramp-id-details div {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.55rem;
+}
+
+.ramp-id-stats dt,
+.ramp-id-details strong {
+    color: var(--text-muted);
+    display: block;
+    font-size: 0.72rem;
+    margin-bottom: 0.2rem;
+}
+
+.ramp-id-stats dd {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.ramp-id-registry-meta {
+    display: grid;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-registry-meta span {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+}
+
+.ramp-id-details {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.ramp-id-details span {
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-table-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.ramp-id-section-header {
+    align-items: baseline;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.9rem 1rem;
+}
+
+.ramp-id-section-header h2,
+.ramp-id-section-header p {
+    margin: 0;
+}
+
+.ramp-id-section-header p {
+    color: var(--text-muted);
+}
+
+.ramp-id-table-wrap {
+    max-height: 520px;
+    overflow: auto;
+}
+
+.ramp-id-table {
+    border-collapse: collapse;
+    font-size: 0.86rem;
+    width: 100%;
+}
+
+.ramp-id-table th,
+.ramp-id-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.55rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.ramp-id-table th {
+    background: var(--bg-alt);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+@media (max-width: 900px) {
+    .ramp-id-header,
+    .ramp-id-graph-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .ramp-id-detail {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+    }
+}

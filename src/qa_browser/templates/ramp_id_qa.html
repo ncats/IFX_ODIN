@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}RaMP ID QA{% endblock %}
+
+{% block content %}
+<div class="ramp-id-page">
+    <section class="ramp-id-header">
+        <div>
+            <h1>RaMP ID QA</h1>
+            <p>SQLite from <span class="mono">ramp:sqlite_database:3.0.7</span>. Workbook: {{ workbook_label }}.</p>
+        </div>
+        <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form">
+            <textarea name="ids" spellcheck="false" placeholder="RAMP_C_000000077&#10;RAMP_C_000001819">{{ ids }}</textarea>
+            <button type="submit" class="btn btn-primary">Open graph</button>
+        </form>
+    </section>
+
+    {% if registry_error %}
+    <div class="registry-update-error">{{ registry_error }}</div>
+    {% endif %}
+
+    {% if selected_ids and not registry_error %}
+    <section class="ramp-id-graph-panel">
+        <div id="rampIdCy" class="ramp-id-cy" data-ids="{{ selected_ids }}"></div>
+        <aside class="ramp-id-detail">
+            <h2 id="rampIdDetailTitle">Graph</h2>
+            <p id="rampIdDetailSub">Loading {{ selected_ids }}</p>
+            <dl id="rampIdStats" class="ramp-id-stats"></dl>
+            {% if registry_metadata %}
+            <div class="ramp-id-registry-meta">
+                <strong>{{ registry_metadata.snapshot_id }}</strong>
+                <span>{{ registry_metadata.files[0].path }}</span>
+            </div>
+            {% endif %}
+            <div id="rampIdDetails" class="ramp-id-details"></div>
+        </aside>
+    </section>
+    {% endif %}
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Multi-hit Workbook Rows</h2>
+            <p>{{ multiramp_rows|length }} rows where final_RaMP_hit_count &gt; 1</p>
+        </div>
+        <div class="ramp-id-table-wrap">
+            <table class="ramp-id-table">
+                <thead>
+                    <tr>
+                        <th>Row</th>
+                        <th>Name</th>
+                        <th>Hits</th>
+                        <th>RaMP IDs</th>
+                        <th>Metabolon</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in multiramp_rows %}
+                    <tr>
+                        <td>{{ row.workbookRow }}</td>
+                        <td><a href="{{ root_path }}{{ row.href }}">{{ row.standardizedName or row.chemicalName or "(unnamed)" }}</a></td>
+                        <td>{{ row.finalRampHitCount }}</td>
+                        <td class="mono">{{ row.finalRampIds }}</td>
+                        <td>{{ row.metabolonId or row.chemId }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5">No workbook rows found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+{% if selected_ids and not registry_error %}
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script>
+(function () {
+    const rootPath = {{ root_path | tojson }};
+    const graphEl = document.getElementById("rampIdCy");
+    const detailTitle = document.getElementById("rampIdDetailTitle");
+    const detailSub = document.getElementById("rampIdDetailSub");
+    const detailBox = document.getElementById("rampIdDetails");
+    const statsBox = document.getElementById("rampIdStats");
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    function renderStats(stats) {
+        const rows = [
+            ["RaMP", stats.rampCount],
+            ["Sources", stats.sourceCount],
+            ["InChIKeys", stats.inchiKeyCount],
+            ["RaMP-source edges", stats.rampSourceEdgeCount],
+            ["InChIKey edges", stats.inchiKeyEdgeCount],
+        ];
+        statsBox.innerHTML = rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+    }
+
+    function renderDetails(data) {
+        const keys = [
+            "id", "name", "sourceId", "idType", "dataSources", "sourceNames", "names",
+            "molecularWeights", "monoisotopicMasses", "formulas", "smiles", "inchiKeys",
+        ];
+        detailTitle.textContent = data.label || data.id || "Selection";
+        detailSub.textContent = data.kind || "";
+        detailBox.innerHTML = keys
+            .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
+            .map((key) => `<div><strong>${escapeHtml(key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+            .join("");
+    }
+
+    fetch(`${rootPath}/ramp-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
+        .then((response) => {
+            if (!response.ok) {
+                return response.json().then((payload) => {
+                    throw new Error(payload.detail || response.statusText);
+                });
+            }
+            return response.json();
+        })
+        .then((payload) => {
+            renderStats(payload.stats);
+            detailSub.textContent = `${payload.elements.length} graph elements`;
+            const cy = cytoscape({
+                container: graphEl,
+                elements: payload.elements,
+                layout: { name: "cose", animate: false, fit: true, padding: 42 },
+                style: [
+                    { selector: "node", style: {
+                        "label": "data(label)",
+                        "font-size": 10,
+                        "text-wrap": "wrap",
+                        "text-max-width": 120,
+                        "background-color": "#64748b",
+                        "border-width": 1,
+                        "border-color": "#334155",
+                        "width": 42,
+                        "height": 42,
+                    }},
+                    { selector: ".ramp", style: { "background-color": "#176c8c", "width": 58, "height": 58 }},
+                    { selector: ".source", style: { "background-color": "#7c3aed", "shape": "round-rectangle" }},
+                    { selector: ".inchi-key", style: { "background-color": "#0891b2", "shape": "diamond" }},
+                    { selector: "edge", style: {
+                        "curve-style": "bezier",
+                        "line-color": "#94a3b8",
+                        "target-arrow-color": "#94a3b8",
+                        "target-arrow-shape": "triangle",
+                        "width": 1.5,
+                        "label": "data(label)",
+                        "font-size": 8,
+                        "text-rotation": "autorotate",
+                    }},
+                    { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
+                ],
+            });
+            cy.on("tap", "node, edge", (event) => renderDetails(event.target.data()));
+            cy.ready(() => cy.fit(undefined, 42));
+        })
+        .catch((error) => {
+            detailTitle.textContent = "Could not load graph";
+            detailSub.textContent = error.message;
+        });
+})();
+</script>
+{% endif %}
+{% endblock %}

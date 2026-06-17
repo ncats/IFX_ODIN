@@ -181,7 +181,7 @@ input_adapters:
   - import: ./src/input_adapters/jensenlab/tinx.py
     class: TINXImportanceFileAdapter
     kwargs:
-      data_source: jensenlab:tinx:2026-05-31
+      data_source: jensenlab:tinx:2026-06-14
 
   - import: ./src/input_adapters/pharos_arango/tcrd/pathway.py
     class: ProteinPathwayAdapter
