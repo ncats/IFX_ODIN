@@ -47,6 +47,7 @@ RegistryEntry = Dict[str, Any]
 RegistryKey = Tuple[str, str]
 VersionedRegistryKey = Tuple[str, str, str]
 DEFAULT_FETCH_TIMEOUT = 60
+FRESHNESS_VERSION_STRATEGIES = {"download_date", "export_timestamp"}
 
 
 @dataclass
@@ -1178,7 +1179,14 @@ class DataRegistry:
                     continue
                 version_strategy = fetch_config.get("version_strategy")
                 dataset_timeout = timeout if timeout is not None else DEFAULT_FETCH_TIMEOUT
-                registered_versions = self.list_versions(source, dataset)
+                registered_snapshots = self._source_snapshots_for_dataset(source, dataset)
+                latest_registered_snapshot = registered_snapshots[-1] if registered_snapshots else None
+                registered_versions = [entry["version"] for entry in registered_snapshots if entry.get("version")]
+                days_since_last_update = (
+                    self._days_since_source_snapshot(latest_registered_snapshot)
+                    if latest_registered_snapshot
+                    else None
+                )
                 status: RegistryEntry = {
                     "source": source,
                     "dataset": dataset,
@@ -1186,14 +1194,19 @@ class DataRegistry:
                     "latest_version": None,
                     "registered_versions": registered_versions,
                     "latest_registered_version": registered_versions[-1] if registered_versions else None,
-                    "days_since_last_update": self._days_since_version(registered_versions[-1]) if registered_versions else None,
+                    "days_since_last_update": days_since_last_update,
                     "is_latest_registered": None,
                     "error": None,
                 }
                 try:
                     latest_version = self.get_latest_version(source, dataset, timeout=dataset_timeout)
+                    if latest_version is None and self._is_freshness_version_strategy(version_strategy):
+                        latest_version = date.today().isoformat()
                     status["latest_version"] = latest_version
-                    status["is_latest_registered"] = latest_version in registered_versions if latest_version else False
+                    if latest_version and self._is_freshness_version_strategy(version_strategy):
+                        status["is_latest_registered"] = days_since_last_update == 0 if registered_versions else False
+                    else:
+                        status["is_latest_registered"] = latest_version in registered_versions if latest_version else None
                 except Exception as exc:
                     status["error"] = str(exc)
                 statuses.append(status)
@@ -1280,6 +1293,29 @@ class DataRegistry:
         except ValueError:
             return None
         return (date.today() - parsed).days
+
+    def _source_snapshots_for_dataset(self, source: str, dataset: str) -> List[RegistryEntry]:
+        return [
+            entry
+            for entry in self.list_source_snapshots()
+            if entry.get("source") == source and entry.get("dataset") == dataset
+        ]
+
+    @classmethod
+    def _days_since_source_snapshot(cls, snapshot: Optional[RegistryEntry]) -> Optional[int]:
+        if not snapshot:
+            return None
+        for field in ("version_date", "download_date", "version"):
+            value = snapshot.get(field)
+            if value:
+                days = cls._days_since_version(str(value))
+                if days is not None:
+                    return days
+        return None
+
+    @staticmethod
+    def _is_freshness_version_strategy(version_strategy: Optional[str]) -> bool:
+        return version_strategy in FRESHNESS_VERSION_STRATEGIES
 
     @staticmethod
     def _sync_candidate_reason(

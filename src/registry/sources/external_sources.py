@@ -52,24 +52,15 @@ def _version_token(value: Any) -> str:
 
 
 def _drugcentral_version_info(credentials_path: Path) -> Dict[str, Any]:
-    fallback = {
-        "version": "drugcentral",
-        "version_date": None,
-        "version_method": {
-            "type": "configured_database",
-            "description": "No file snapshot is downloaded; adapters query the configured DrugCentral database.",
-        },
-    }
     try:
         adapter = PostgreSqlAdapter(_load_db_credentials(credentials_path))
         with adapter.get_engine().connect() as conn:
             row = conn.execute(text("SELECT * FROM public.dbversion LIMIT 1")).mappings().first()
     except Exception as exc:
-        fallback["version_method"]["probe_error"] = str(exc)
-        return fallback
+        raise RuntimeError(f"Could not read DrugCentral version from public.dbversion: {exc}") from exc
 
     if not row:
-        return fallback
+        raise RuntimeError("Could not read DrugCentral version from public.dbversion: table returned no rows")
 
     evidence = _yaml_safe_row(dict(row))
     preferred_keys = ("version", "dbversion", "db_version", "release", "releasedate", "release_date")
@@ -77,11 +68,11 @@ def _drugcentral_version_info(credentials_path: Path) -> Dict[str, Any]:
     if version_value is None:
         version_value = next((value for value in evidence.values() if value not in (None, "")), None)
     if version_value is None:
-        return fallback
+        raise RuntimeError("Could not read DrugCentral version from public.dbversion: no non-empty version value")
 
     return {
         "version": _version_token(version_value),
-        "version_date": _yaml_safe(evidence.get("release_date") or evidence.get("releasedate")),
+        "version_date": str(_yaml_safe(evidence.get("release_date") or evidence.get("releasedate") or evidence.get("dtime")))[:10],
         "version_method": {
             "type": "drugcentral_dbversion_table",
             "description": "Read DrugCentral release metadata from public.dbversion.",

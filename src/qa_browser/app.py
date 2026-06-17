@@ -74,6 +74,12 @@ _registry_graph_cache: dict = {
     "graphs": None,
     "error": None,
 }
+_registry_update_status_cache: dict = {
+    "checked_at": None,
+    "elapsed_seconds": None,
+    "sections": [],
+    "error": None,
+}
 _resolver_instance_cache: dict = {}
 _resolver_instance_cache_locks: dict = {}
 _resolver_instance_cache_locks_guard = threading.Lock()
@@ -991,31 +997,17 @@ def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[d
         return [], [], [], [], "MinIO credentials are not configured for this QA Browser instance."
 
     try:
-        from src.shared.db_credentials import DBCredentials
+        def load_catalog(registry: DataRegistry):
+            snapshots = registry.list_source_snapshots()
+            derived_artifacts = registry.list_derived_artifacts()
+            external_registrations = registry.list_external_sources()
+            resolver_snapshots = registry.list_resolver_snapshots()
+            return snapshots, derived_artifacts, external_registrations, resolver_snapshots
 
-        credentials = DBCredentials.from_yaml(_minio_credentials)
-        try:
-            registry = DataRegistry.from_credentials(
-                credentials,
-                use_internal_url=True,
-                connect_timeout=2,
-                read_timeout=10,
-            )
-            snapshots = registry.list_source_snapshots()
-            derived_artifacts = registry.list_derived_artifacts()
-            external_registrations = registry.list_external_sources()
-            resolver_snapshots = registry.list_resolver_snapshots()
-        except Exception:
-            registry = DataRegistry.from_credentials(
-                credentials,
-                use_internal_url=False,
-                connect_timeout=2,
-                read_timeout=10,
-            )
-            snapshots = registry.list_source_snapshots()
-            derived_artifacts = registry.list_derived_artifacts()
-            external_registrations = registry.list_external_sources()
-            resolver_snapshots = registry.list_resolver_snapshots()
+        snapshots, derived_artifacts, external_registrations, resolver_snapshots = _with_registry_endpoint_fallback(
+            load_catalog,
+            error_prefix="Loading registry catalog",
+        )
         return snapshots, derived_artifacts, external_registrations, resolver_snapshots, None
     except Exception as exc:
         return [], [], [], [], str(exc)
@@ -1034,17 +1026,250 @@ def _registry_from_minio_credentials(*, use_internal_url: bool):
     )
 
 
-def _list_resolver_snapshots_for_warmup() -> List[dict]:
+def _registry_endpoint_order() -> List[bool]:
+    configured = os.getenv("QA_BROWSER_MINIO_URL_ORDER", "external,internal")
+    order = []
+    for part in configured.split(","):
+        name = part.strip().lower()
+        if name in {"internal", "internal_url", "docker"}:
+            order.append(True)
+        elif name in {"external", "url", "public"}:
+            order.append(False)
+    return order or [False, True]
+
+
+def _registry_endpoint_label(use_internal_url: bool) -> str:
+    return "internal_url" if use_internal_url else "url"
+
+
+def _with_registry_endpoint_fallback(operation, *, error_prefix: str):
     last_error = None
-    for use_internal_url in (True, False):
+    tried = []
+    for use_internal_url in _registry_endpoint_order():
+        endpoint_label = _registry_endpoint_label(use_internal_url)
+        tried.append(endpoint_label)
         try:
             registry = _registry_from_minio_credentials(use_internal_url=use_internal_url)
-            return registry.list_resolver_snapshots()
+            return operation(registry)
         except HTTPException:
             raise
         except Exception as exc:
             last_error = exc
-    raise RuntimeError(f"Could not list resolver snapshots: {last_error}")
+            print(f"{error_prefix} failed using MinIO {endpoint_label}: {exc}", flush=True)
+    raise RuntimeError(f"{error_prefix} failed using MinIO endpoints {', '.join(tried)}: {last_error}")
+
+
+def _load_registry_update_inputs(registry: DataRegistry, timeout: int):
+    return {
+        "source_statuses": registry.check_all_latest_registered(timeout=timeout),
+        "external_statuses": registry.check_external_registrations(),
+        "derived_statuses": registry.check_derived_artifacts(),
+        "resolver_statuses": registry.check_resolvers(),
+    }
+
+
+
+def _registry_status_category(status: dict) -> str:
+    if status.get("error"):
+        return "error"
+    if not status.get("registered_versions"):
+        return "missing"
+    if status.get("is_latest_registered") is True:
+        return "current"
+    if status.get("is_latest_registered") is False:
+        return "update_available"
+    return "unknown"
+
+
+def _registry_status_item_label(status: dict) -> str:
+    name = status.get("resolver") or status.get("dataset") or ""
+    source = status.get("source") or ""
+    return f"{source}:{name}" if source and name else source or name
+
+
+def _summarize_registry_status_section(label: str, statuses: List[dict]) -> dict:
+    counts = {
+        "current": 0,
+        "update_available": 0,
+        "missing": 0,
+        "unknown": 0,
+        "error": 0,
+    }
+    items = []
+    for status in statuses:
+        category = _registry_status_category(status)
+        counts[category] += 1
+        if category != "current":
+            detail = status.get("sync_reason") or status.get("error")
+            if not detail and category == "unknown":
+                detail = "latest version not available from checker"
+            items.append({
+                "label": _registry_status_item_label(status),
+                "category": category,
+                "latest_version": status.get("latest_version"),
+                "latest_version_date": status.get("latest_version_date"),
+                "latest_registered_version": status.get("latest_registered_version"),
+                "days_since_last_update": status.get("days_since_last_update"),
+                "latest_build_key": status.get("latest_build_key"),
+                "sync_reason": detail,
+                "error": status.get("error"),
+            })
+    items.sort(key=lambda item: (
+        {"update_available": 0, "missing": 1, "error": 2, "unknown": 3}.get(item["category"], 4),
+        item["label"],
+    ))
+    return {
+        "label": label,
+        "total": len(statuses),
+        "counts": counts,
+        "items": items,
+    }
+
+
+def _registry_status_key(status: dict) -> Optional[tuple]:
+    source = status.get("source")
+    resolver = status.get("resolver")
+    dataset = status.get("dataset")
+    if source and resolver:
+        return "resolver", source, resolver
+    if source and dataset:
+        return "dataset", source, dataset
+    return None
+
+
+def _graph_dependency_keys(graph: dict) -> List[tuple]:
+    keys = []
+
+    def visit_dependency(dependency: dict):
+        if not isinstance(dependency, dict):
+            return
+        source = dependency.get("source")
+        dataset = dependency.get("dataset")
+        if source and dataset:
+            keys.append(("dataset", source, dataset))
+        for upstream in dependency.get("derived_from") or []:
+            visit_dependency(upstream)
+
+    for adapter in graph.get("adapters") or []:
+        for dependency in adapter.get("datasets") or []:
+            visit_dependency(dependency)
+    for resolver in graph.get("resolvers") or []:
+        snapshot = resolver.get("snapshot") or {}
+        source = snapshot.get("source")
+        resolver_name = resolver.get("name")
+        if source and resolver_name:
+            keys.append(("resolver", source, resolver_name))
+        for dependency in resolver.get("inputs") or []:
+            visit_dependency(dependency)
+    return keys
+
+
+def _graph_update_statuses(graphs: List[dict], stale_keys: set, unknown_keys: set) -> List[dict]:
+    statuses = []
+    for graph in graphs:
+        dependency_keys = set(_graph_dependency_keys(graph))
+        stale_dependency_count = len(dependency_keys & stale_keys)
+        unknown_dependency_count = len(dependency_keys & unknown_keys)
+        if stale_dependency_count:
+            is_latest_registered = False
+            sync_reason = f"{stale_dependency_count} dependency updates available"
+        elif unknown_dependency_count:
+            is_latest_registered = None
+            sync_reason = f"{unknown_dependency_count} dependencies unknown"
+        else:
+            is_latest_registered = True
+            sync_reason = None
+        statuses.append({
+            "source": "graph",
+            "dataset": graph.get("name"),
+            "registered_versions": [graph.get("run_date") or "built"],
+            "latest_registered_version": graph.get("run_date"),
+            "latest_version": None,
+            "is_latest_registered": is_latest_registered,
+            "sync_reason": sync_reason,
+            "error": None,
+        })
+    return statuses
+
+
+def _run_registry_update_checks() -> dict:
+    timeout = int(os.getenv("QA_BROWSER_REGISTRY_UPDATE_CHECK_TIMEOUT", "20"))
+    started = time.time()
+    status_inputs = _with_registry_endpoint_fallback(
+        lambda registry: _load_registry_update_inputs(registry, timeout),
+        error_prefix="Checking registry update status",
+    )
+    source_statuses = status_inputs["source_statuses"]
+    external_statuses = status_inputs["external_statuses"]
+    derived_statuses = status_inputs["derived_statuses"]
+    resolver_statuses = status_inputs["resolver_statuses"]
+    stale_keys = {
+        key
+        for status in [*source_statuses, *external_statuses, *derived_statuses, *resolver_statuses]
+        for key in [_registry_status_key(status)]
+        if key and _registry_status_category(status) in {"update_available", "missing"}
+    }
+    unknown_keys = {
+        key
+        for status in [*source_statuses, *external_statuses, *derived_statuses, *resolver_statuses]
+        for key in [_registry_status_key(status)]
+        if key and _registry_status_category(status) in {"unknown", "error"}
+    }
+    graphs, graph_error = load_registry_graphs_cached(
+        credentials=_credentials,
+        cache=_registry_graph_cache,
+        ttl_seconds=0,
+        get_sys_db=get_sys_db,
+        get_db=get_db,
+    )
+    sections = [
+        _summarize_registry_status_section(
+            "Source Snapshots",
+            source_statuses,
+        ),
+        _summarize_registry_status_section(
+            "External Sources",
+            external_statuses,
+        ),
+        _summarize_registry_status_section(
+            "Derived Artifacts",
+            derived_statuses,
+        ),
+        _summarize_registry_status_section(
+            "Resolvers",
+            resolver_statuses,
+        ),
+    ]
+    if graph_error:
+        sections.append(_summarize_registry_status_section("Graphs", [{
+            "source": "graph",
+            "dataset": "registry graphs",
+            "registered_versions": ["unknown"],
+            "is_latest_registered": None,
+            "error": graph_error,
+        }]))
+    else:
+        sections.append(_summarize_registry_status_section(
+            "Graphs",
+            _graph_update_statuses(graphs, stale_keys, unknown_keys),
+        ))
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "elapsed_seconds": round(time.time() - started, 1),
+        "sections": sections,
+        "error": None,
+    }
+
+
+def _registry_update_status_context() -> dict:
+    return _registry_update_status_cache
+
+
+def _list_resolver_snapshots_for_warmup() -> List[dict]:
+    return _with_registry_endpoint_fallback(
+        lambda registry: registry.list_resolver_snapshots(),
+        error_prefix="Listing resolver snapshots",
+    )
 
 
 def _latest_resolver_snapshots(resolver_snapshots: List[dict]) -> List[dict]:
@@ -1151,16 +1376,13 @@ def _start_resolver_warmup_thread():
 
 def _materialize_resolver_snapshot_for_api(source: str, resolver: str, version: str):
     cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", "/tmp/ifx-registry-cache"))
-    last_error = None
-    for use_internal_url in (True, False):
-        try:
-            registry = _registry_from_minio_credentials(use_internal_url=use_internal_url)
-            return registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            last_error = exc
-    raise HTTPException(status_code=404, detail=f"Could not materialize resolver snapshot: {last_error}")
+    try:
+        return _with_registry_endpoint_fallback(
+            lambda registry: registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir),
+            error_prefix=f"Materializing resolver snapshot {source}/{resolver}/{version}",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Could not materialize resolver snapshot: {exc}") from exc
 
 
 def _load_class_from_definition(definition: dict):
@@ -1475,7 +1697,26 @@ def registry_home(request: Request):
         "graph_usage_error": graph_usage_error,
         "graph_usage_filters": graph_filters,
         "graph_usage_styles": graph_styles,
+        "registry_update_status": _registry_update_status_context(),
     })
+
+
+@app.post("/registry/update-status", response_class=HTMLResponse)
+def registry_update_status(return_to: str = Form("/registry")):
+    try:
+        status = _run_registry_update_checks()
+    except Exception as exc:
+        status = {
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "elapsed_seconds": None,
+            "sections": [],
+            "error": str(exc),
+        }
+    _registry_update_status_cache.clear()
+    _registry_update_status_cache.update(status)
+    if not return_to.startswith("/") or return_to.startswith("//"):
+        return_to = "/registry"
+    return RedirectResponse(return_to, status_code=303)
 
 
 @app.get("/registry/resolvers", response_class=HTMLResponse)
@@ -1521,6 +1762,7 @@ def registry_resolvers(request: Request):
         "graph_usage_error": graph_usage_error,
         "graph_usage_filters": graph_filters,
         "graph_usage_styles": graph_styles,
+        "registry_update_status": _registry_update_status_context(),
     })
 
 
@@ -1552,6 +1794,7 @@ def registry_graphs(request: Request):
         "graphs": graphs,
         "registry_stats": registry_stats,
         "graph_error": graph_error,
+        "registry_update_status": _registry_update_status_context(),
     })
 
 

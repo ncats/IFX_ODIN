@@ -8,7 +8,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     fastapi uvicorn jinja2 python-multipart \
     python-arango pandas pyarrow pyyaml \
-    sqlalchemy pymysql boto3 openpyxl \
+    sqlalchemy pymysql psycopg2-binary boto3 openpyxl \
     pybiomart requests-cache ijson \
     obonet networkx
 
