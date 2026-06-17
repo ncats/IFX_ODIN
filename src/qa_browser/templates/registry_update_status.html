@@ -1,0 +1,80 @@
+<section class="registry-update-status card">
+    <div class="registry-update-status-header">
+        <div>
+            <h2>Check for new Versions</h2>
+            {% if registry_update_status.checked_at %}
+            <p>
+                Last checked {{ registry_update_status.checked_at }}
+                {% if registry_update_status.elapsed_seconds is not none %}
+                · {{ registry_update_status.elapsed_seconds }}s
+                {% endif %}
+            </p>
+            {% else %}
+            <p>Live upstream checks only run when requested.</p>
+            {% endif %}
+        </div>
+        <form method="post" action="{{ root_path }}/registry/update-status">
+            <input type="hidden" name="return_page" value="{{ registry_update_return_page | default('sources') }}">
+            <button type="submit" class="btn btn-primary">Check for updates</button>
+        </form>
+    </div>
+
+    {% if registry_update_status.error %}
+    <div class="registry-update-error">{{ registry_update_status.error }}</div>
+    {% elif registry_update_status.checked_at %}
+    <div class="registry-update-sections">
+        {% for section in registry_update_status.sections %}
+        <div class="registry-update-section">
+            <div class="registry-update-section-title">
+                <span>{{ section.label }}</span>
+                <small>{{ section.total }} checked</small>
+            </div>
+            <div class="registry-update-counts">
+                <span class="registry-update-count registry-update-count-current">{{ section.counts.current }} current</span>
+                <span class="registry-update-count registry-update-count-update">{{ section.counts.update_available }} update</span>
+                <span class="registry-update-count registry-update-count-missing">{{ section.counts.missing }} missing</span>
+                <span class="registry-update-count registry-update-count-error">{{ section.counts.error }} error</span>
+                <span class="registry-update-count registry-update-count-unknown">{{ section.counts.unknown }} unknown</span>
+            </div>
+            {% if section["items"] %}
+            <details class="registry-update-details">
+                <summary>{{ section["items"]|length }} need attention</summary>
+                <div class="registry-update-table-wrap">
+                    <table class="registry-update-table">
+                        <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Status</th>
+                            <th>Registered</th>
+                            <th>Latest</th>
+                            <th>Latest Date</th>
+                            <th>Age</th>
+                            <th>Build Key</th>
+                            <th>Detail</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                    {% for item in section["items"] %}
+                        <tr>
+                            <td class="mono registry-update-item-label">{{ item.label }}</td>
+                            <td>
+                                <span class="registry-update-item-status registry-update-item-status-{{ item.category }}">{{ item.category.replace("_", " ") }}</span>
+                            </td>
+                            <td class="mono">{{ item.latest_registered_version or "" }}</td>
+                            <td class="mono">{{ item.latest_version or "" }}</td>
+                            <td>{{ item.latest_version_date or "" }}</td>
+                            <td>{% if item.days_since_last_update is not none %}{{ item.days_since_last_update }}d{% endif %}</td>
+                            <td class="mono registry-update-build-key">{{ item.latest_build_key or "" }}</td>
+                            <td>{{ item.error or item.sync_reason or "" }}</td>
+                        </tr>
+                    {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>

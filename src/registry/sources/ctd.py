@@ -33,7 +33,9 @@ def extract_report_created(path: Path) -> tuple[str, str]:
     if match is None:
         raise ValueError(f"Could not parse CTD report creation date: {report_created}")
 
-    version_date = datetime.strptime(match.group(1), "%a %b %d %H:%M:%S %Z %Y").date().isoformat()
+    date_parts = match.group(1).split()
+    date_without_timezone = " ".join([*date_parts[:4], date_parts[-1]])
+    version_date = datetime.strptime(date_without_timezone, "%a %b %d %H:%M:%S %Y").date().isoformat()
     return report_created, version_date
 
 

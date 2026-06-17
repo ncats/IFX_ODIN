@@ -29,7 +29,7 @@ from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TIN
 from src.registry.sources.mgi import MGI_HMD_FILE_NAME
 from src.registry.sources.mp import MP_FILE_NAME, extract_obo_data_version
 from src.registry.sources.ncbi import NCBI_GENE_SUMMARY_URLS, NCBI_PUBLICATION_URLS
-from src.registry.sources.external_sources import _version_token
+from src.registry.sources.external_sources import _drugcentral_version_info, _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
 from src.registry.sources.pathway_sources import latest_panther_version
@@ -44,6 +44,50 @@ from src.core.config import _resolve_registry_data_sources
 
 def test_parse_http_date_to_iso():
     assert parse_http_date_to_iso("Wed, 10 Jun 2026 12:34:56 GMT") == "2026-06-10"
+
+
+def test_drugcentral_version_info_uses_dbversion_row(tmp_path: Path, monkeypatch):
+    credentials_path = tmp_path / "drugcentral.yaml"
+    credentials_path.write_text(
+        "url: example.org\nuser: user\npassword: pass\nport: 5432\nschema: drugcentral\n",
+        encoding="utf-8",
+    )
+
+    class FakeResult:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return {"version": 54, "dtime": datetime(2023, 11, 1, 12, 10, 57)}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _query):
+            return FakeResult()
+
+    class FakeEngine:
+        def connect(self):
+            return FakeConnection()
+
+    class FakePostgreSqlAdapter:
+        def __init__(self, _credentials):
+            pass
+
+        def get_engine(self):
+            return FakeEngine()
+
+    monkeypatch.setattr("src.registry.sources.external_sources.PostgreSqlAdapter", FakePostgreSqlAdapter)
+
+    version_info = _drugcentral_version_info(credentials_path)
+
+    assert version_info["version"] == "54"
+    assert version_info["version_date"] == "2023-11-01"
+    assert version_info["version_method"]["evidence"]["version"] == 54
 
 
 def test_registry_resolvers_config_defines_logical_resolver_inputs():
@@ -859,7 +903,7 @@ files: []
     }]
 
 
-def test_data_registry_reports_unknown_latest_as_not_registered(tmp_path: Path, monkeypatch):
+def test_data_registry_reports_freshness_strategy_age_as_update_available(tmp_path: Path, monkeypatch):
     config_path = tmp_path / "registry_sources.yaml"
     config_path.write_text(
         """
@@ -923,10 +967,84 @@ files: []
         "source": "example",
         "dataset": "dated",
         "version_strategy": "download_date",
-        "latest_version": None,
+        "latest_version": "2026-06-12",
         "registered_versions": ["2026-06-10"],
         "latest_registered_version": "2026-06-10",
         "days_since_last_update": 2,
+        "is_latest_registered": False,
+        "error": None,
+    }]
+
+
+def test_data_registry_reports_export_timestamp_age_from_version_date(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  cure:
+    datasets:
+      case_reports:
+        fetch:
+          module: fake_fetcher_module
+          class: CureCaseReportsFetcher
+          version_strategy: export_timestamp
+""",
+        encoding="utf-8",
+    )
+
+    class CureCaseReportsFetcher(SourceFetcher):
+        source = "cure"
+        dataset = "case_reports"
+
+        def fetch(self, *, dest, timeout):
+            return tmp_path / "manifest.yaml"
+
+        def get_latest_version(self, *, timeout):
+            return None
+
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return ["sources/cure/case_reports/reports_20260612T182139Z/manifest.yaml"]
+            if prefix == "external/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            return """
+kind: source_snapshot
+schema_version: 1
+source: cure
+dataset: case_reports
+snapshot_id: cure:case_reports:reports_20260612T182139Z
+version: reports_20260612T182139Z
+version_date: '2026-06-12'
+download_date: '2026-06-12'
+files: []
+"""
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 17)
+
+    monkeypatch.setattr("src.core.data_registry.date", FrozenDate)
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(CureCaseReportsFetcher=CureCaseReportsFetcher),
+    )
+    registry = DataRegistry(FakeStorage(), sources_config_path=config_path)
+
+    assert registry.check_all_latest_registered() == [{
+        "source": "cure",
+        "dataset": "case_reports",
+        "version_strategy": "export_timestamp",
+        "latest_version": "2026-06-17",
+        "registered_versions": ["reports_20260612T182139Z"],
+        "latest_registered_version": "reports_20260612T182139Z",
+        "days_since_last_update": 5,
         "is_latest_registered": False,
         "error": None,
     }]
