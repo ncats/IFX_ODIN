@@ -33,6 +33,7 @@ from src.registry.sources.external_sources import _drugcentral_version_info, _ve
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
 from src.registry.sources.pathway_sources import latest_panther_version
+from src.registry.sources.ramp import fetch_ramp_sqlite_database, latest_ramp_sqlite_database_version
 from src.registry.sources.string import latest_string_version
 from src.shared.db_credentials import DBCredentials
 from src.core.data_registry import DataRegistry
@@ -224,6 +225,85 @@ def test_cure_curated_concepts_manual_fetcher_copies_tsv(tmp_path: Path):
     assert snapshot.files[0].path == tmp_path / "cache" / "cureid_data.tsv"
     assert snapshot.files[0].path.read_text(encoding="utf-8") == "subject_final_curie\nMONDO:1\n"
     assert snapshot.files[0].source_url == "manual://cure/curated_concepts/cureid_data.tsv"
+
+
+def test_ramp_sqlite_fetcher_selects_latest_github_db_release(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        def __init__(self, *, json_payload=None, headers=None, body=b"", url="https://download.example/RaMP_SQLite_v3.0.7.sqlite.gz"):
+            self._json_payload = json_payload
+            self.headers = headers or {}
+            self.url = url
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._json_payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield self.body
+
+    contents_payload = [
+        {"name": "README.md", "download_url": "https://download.example/README.md"},
+        {
+            "name": "RaMP_SQLite_v3.0.6.sqlite.gz",
+            "download_url": "https://raw.githubusercontent.com/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.6.sqlite.gz",
+            "html_url": "https://github.example/3.0.6",
+            "sha": "old",
+            "size": 456,
+        },
+        {
+            "name": "RaMP_SQLite_v3.0.7.sqlite.gz",
+            "download_url": "https://raw.githubusercontent.com/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.7.sqlite.gz",
+            "html_url": "https://github.example/3.0.7",
+            "sha": "new",
+            "size": 123,
+        },
+    ]
+
+    def fake_get(url, **kwargs):
+        if url == "https://api.github.com/repos/ncats/RaMP-DB/contents/db":
+            return FakeResponse(json_payload=contents_payload, url=url)
+        return FakeResponse(
+            headers={
+                "Last-Modified": "Wed, 17 Jun 2026 12:00:00 GMT",
+                "Content-Type": "application/gzip",
+                "Content-Length": "4",
+            },
+            body=b"RAMP",
+            url=url,
+        )
+
+    def fake_head(url, **kwargs):
+        return FakeResponse(headers={
+            "Last-Modified": "Wed, 17 Jun 2026 12:00:00 GMT",
+            "Content-Type": "application/gzip",
+            "Content-Length": "4",
+        }, url=url)
+
+    monkeypatch.setattr("src.registry.sources.ramp.requests.get", fake_get)
+    monkeypatch.setattr("src.registry.download.requests.get", fake_get)
+    monkeypatch.setattr("src.registry.download.requests.head", fake_head)
+
+    assert latest_ramp_sqlite_database_version() == "3.0.7"
+    snapshot = fetch_ramp_sqlite_database(dest=tmp_path)
+
+    assert snapshot.source == "ramp"
+    assert snapshot.dataset == "sqlite_database"
+    assert snapshot.version == "3.0.7"
+    assert snapshot.version_date == "2026-06-17"
+    assert snapshot.files[0].path.name == "RaMP_SQLite_v3.0.7.sqlite.gz"
+    assert snapshot.files[0].source_url == "https://media.githubusercontent.com/media/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.7.sqlite.gz"
+    assert snapshot.extra["version_method"]["type"] == "github_main_db_directory"
+    assert snapshot.extra["version_method"]["evidence"]["sha"] == "new"
+    assert snapshot.extra["version_method"]["evidence"]["github_download_url"] == "https://raw.githubusercontent.com/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.7.sqlite.gz"
 
 
 def test_verify_manifest_files_catches_modified_file(tmp_path: Path):

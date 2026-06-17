@@ -296,6 +296,13 @@ sources:
           module: src.registry.sources.manual_pharos
           class: ManualAntibodypediaScrapedResultsFetcher
           version_strategy: filename_timestamp
+  ramp:
+    datasets:
+      sqlite_database:
+        fetch:
+          module: src.registry.sources.ramp
+          class: RampSqliteDatabaseFetcher
+          version_strategy: github_main_db_directory
   rdas:
     datasets:
       diseases_graphql:

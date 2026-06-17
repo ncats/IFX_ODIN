@@ -1,9 +1,11 @@
 import argparse
 import csv
+import gzip
 import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -28,6 +30,7 @@ import uvicorn
 
 from src.core.data_registry import DataRegistry
 from src.models.node import Node
+from src.qa_browser.ramp_id_graph import build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -1048,7 +1051,7 @@ def _registry_endpoint_label(use_internal_url: bool) -> str:
 
 
 def _with_registry_endpoint_fallback(operation, *, error_prefix: str):
-    last_error = None
+    errors = []
     tried = []
     for use_internal_url in _registry_endpoint_order():
         endpoint_label = _registry_endpoint_label(use_internal_url)
@@ -1059,9 +1062,10 @@ def _with_registry_endpoint_fallback(operation, *, error_prefix: str):
         except HTTPException:
             raise
         except Exception as exc:
-            last_error = exc
+            errors.append((endpoint_label, exc))
             print(f"{error_prefix} failed using MinIO {endpoint_label}: {exc}", flush=True)
-    raise RuntimeError(f"{error_prefix} failed using MinIO endpoints {', '.join(tried)}: {last_error}")
+    details = "; ".join(f"{label}: {error}" for label, error in errors)
+    raise RuntimeError(f"{error_prefix} failed using MinIO endpoints {', '.join(tried)}: {details}")
 
 
 def _load_registry_update_inputs(registry: DataRegistry, timeout: int):
@@ -1268,6 +1272,63 @@ def _run_registry_update_checks() -> dict:
 
 def _registry_update_status_context() -> dict:
     return _registry_update_status_cache
+
+
+def _gunzip_if_needed(path: Path) -> Path:
+    if path.suffix != ".gz":
+        return path
+    output_path = path.with_suffix("")
+    if output_path.exists() and output_path.stat().st_mtime >= path.stat().st_mtime:
+        return output_path
+    tmp_path = output_path.with_name(f"{output_path.name}.tmp")
+    with gzip.open(path, "rb") as source, tmp_path.open("wb") as dest:
+        shutil.copyfileobj(source, dest)
+    tmp_path.replace(output_path)
+    return output_path
+
+
+def _materialize_ramp_sqlite_database() -> tuple[Path, dict]:
+    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", "/tmp/ifx-registry-cache"))
+    source = "ramp"
+    dataset_name = "sqlite_database"
+    version = "3.0.7"
+    manifest_key = f"sources/{source}/{dataset_name}/{version}/manifest.yaml"
+
+    def materialize(registry: DataRegistry):
+        manifest = yaml.safe_load(registry.storage.read_text(manifest_key))
+        local_dir = cache_dir / source / dataset_name / version
+        local_dir.mkdir(parents=True, exist_ok=True)
+        for entry in manifest.get("files") or []:
+            local_path = local_dir / entry["path"]
+            if registry._local_file_matches_entry(local_path, entry):
+                continue
+            storage_uri = entry.get("storage_uri") or ""
+            if storage_uri.startswith(f"s3://{registry.storage.bucket}/"):
+                key = storage_uri.removeprefix(f"s3://{registry.storage.bucket}/")
+            else:
+                key = f"sources/{source}/{dataset_name}/{version}/{entry['path']}"
+            registry.storage.download_file(key, local_path)
+        files = manifest.get("files") or []
+        if len(files) != 1:
+            raise ValueError(f"Expected one RaMP SQLite file in {manifest_key}; found {len(files)}")
+        sqlite_path = _gunzip_if_needed(local_dir / files[0]["path"])
+        return sqlite_path, {
+            "kind": manifest.get("kind"),
+            "source": source,
+            "dataset": dataset_name,
+            "version": version,
+            "version_date": manifest.get("version_date"),
+            "download_date": manifest.get("download_date"),
+            "snapshot_id": manifest.get("snapshot_id"),
+            "manifest_uri": f"s3://{registry.storage.bucket}/{manifest_key}",
+            "local_dir": str(local_dir),
+            "files": files,
+        }
+
+    return _with_registry_endpoint_fallback(
+        materialize,
+        error_prefix="Materializing RaMP SQLite registry snapshot",
+    )
 
 
 def _list_resolver_snapshots_for_warmup() -> List[dict]:
@@ -1638,6 +1699,38 @@ async def qa_browser_home(request: Request):
         "qa_browser_home.html",
         _build_browser_home_context(request),
     )
+
+
+@app.get("/ramp-id-qa", response_class=HTMLResponse)
+def ramp_id_qa(request: Request, ids: str = ""):
+    selected_ids = " | ".join(parse_ramp_ids(ids))
+    sqlite_path = None
+    registry_metadata = None
+    registry_error = None
+    if selected_ids:
+        try:
+            sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
+        except Exception as exc:
+            registry_error = str(exc)
+    rows = load_multiramp_rows()
+    return templates.TemplateResponse(request, "ramp_id_qa.html", {
+        "request": request,
+        "ids": ids,
+        "selected_ids": selected_ids,
+        "multiramp_rows": rows,
+        "workbook_label": "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx",
+        "sqlite_path": str(sqlite_path) if sqlite_path else None,
+        "registry_metadata": registry_metadata,
+        "registry_error": registry_error,
+    })
+
+
+@app.get("/ramp-id-qa/api/graph")
+def ramp_id_qa_graph(ids: str = ""):
+    sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
+    payload = build_ramp_graph_payload(sqlite_path, parse_ramp_ids(ids))
+    payload["registryDataset"] = registry_metadata
+    return payload
 
 
 @app.get("/registry", response_class=HTMLResponse)
