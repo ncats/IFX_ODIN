@@ -8,6 +8,13 @@ from typing import Any
 from fastapi import HTTPException
 from openpyxl import load_workbook
 
+try:
+    from rdkit import Chem
+    from rdkit.Chem import inchi
+except ImportError:  # pragma: no cover - depends on QA runtime image
+    Chem = None
+    inchi = None
+
 
 QA_BROWSER_DIR = Path(__file__).resolve().parent
 MULTIRAMP_WORKBOOK = QA_BROWSER_DIR / "data" / "ramp" / "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx"
@@ -99,6 +106,23 @@ def inchi_key_node_id(inchi_key: str) -> str:
     return f"inchikey::{inchi_key}"
 
 
+def stereo_free_node_id(inchi_key: str) -> str:
+    return f"stereo-free::{inchi_key}"
+
+
+def stereo_free_inchi_key(smiles: str | None) -> tuple[str, str, str]:
+    if not smiles:
+        return "", "", ""
+    if Chem is None or inchi is None:
+        return "", "", "RDKit is not installed"
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return "", "", "RDKit could not parse SMILES"
+    Chem.RemoveStereochemistry(mol)
+    no_stereo_smiles = Chem.MolToSmiles(mol, isomericSmiles=False)
+    return inchi.MolToInchiKey(mol), no_stereo_smiles, ""
+
+
 def format_number(value: Any) -> str:
     if value is None or value == "":
         return ""
@@ -136,8 +160,11 @@ def build_ramp_graph_payload(db_path: Path, ramp_ids: list[str]) -> dict[str, An
     ramp_nodes: dict[str, dict[str, Any]] = {}
     source_nodes: dict[str, dict[str, Any]] = {}
     inchi_key_nodes: dict[str, dict[str, Any]] = {}
+    stereo_free_nodes: dict[str, dict[str, Any]] = {}
     edges: dict[str, dict[str, Any]] = {}
     inchi_edges: dict[str, dict[str, Any]] = {}
+    stereo_free_edges: dict[str, dict[str, Any]] = {}
+    stereo_free_errors: set[str] = set()
 
     for row in source_rows:
         ramp_nodes.setdefault(row["rampId"], {
@@ -229,13 +256,56 @@ def build_ramp_graph_payload(db_path: Path, ramp_ids: list[str]) -> dict[str, An
                 },
                 "classes": "inchi-key-edge",
             })
+            stereo_free_key, no_stereo_smiles, stereo_error = stereo_free_inchi_key(chem_row["iso_smiles"])
+            if stereo_error:
+                stereo_free_errors.add(stereo_error)
+            if not stereo_free_key:
+                continue
+            stereo_free_nodes.setdefault(stereo_free_key, {
+                "data": {
+                    "id": stereo_free_node_id(stereo_free_key),
+                    "label": stereo_free_key,
+                    "stereoFreeInchiKey": stereo_free_key,
+                    "kind": "stereoFreeKey",
+                    "names": set(),
+                    "formulas": set(),
+                    "smiles": set(),
+                    "noStereoSmiles": set(),
+                    "molecularWeights": set(),
+                    "monoisotopicMasses": set(),
+                    "inchiKeys": set(),
+                },
+                "classes": "stereo-free-key",
+            })
+            stereo_free_nodes[stereo_free_key]["data"]["names"].add(chem_row["common_name"] or "")
+            stereo_free_nodes[stereo_free_key]["data"]["formulas"].add(chem_row["mol_formula"] or "")
+            stereo_free_nodes[stereo_free_key]["data"]["smiles"].add(chem_row["iso_smiles"] or "")
+            stereo_free_nodes[stereo_free_key]["data"]["noStereoSmiles"].add(no_stereo_smiles)
+            stereo_free_nodes[stereo_free_key]["data"]["molecularWeights"].add(format_number(chem_row["mw"]))
+            stereo_free_nodes[stereo_free_key]["data"]["monoisotopicMasses"].add(format_number(chem_row["monoisotop_mass"]))
+            stereo_free_nodes[stereo_free_key]["data"]["inchiKeys"].add(inchi_key)
+            stereo_edge_id = f"stereo-free::{inchi_key}::{stereo_free_key}"
+            stereo_free_edges.setdefault(stereo_edge_id, {
+                "data": {
+                    "id": stereo_edge_id,
+                    "source": inchi_key_node_id(inchi_key),
+                    "target": stereo_free_node_id(stereo_free_key),
+                    "inchiKey": inchi_key,
+                    "stereoFreeInchiKey": stereo_free_key,
+                    "noStereoSmiles": no_stereo_smiles,
+                    "label": "no-stereo",
+                },
+                "classes": "stereo-free-edge",
+            })
 
     elements = [
         *ramp_nodes.values(),
         *source_nodes.values(),
         *inchi_key_nodes.values(),
+        *stereo_free_nodes.values(),
         *edges.values(),
         *inchi_edges.values(),
+        *stereo_free_edges.values(),
     ]
     for element in elements:
         finalize_sets(element.get("data") or {})
@@ -247,9 +317,12 @@ def build_ramp_graph_payload(db_path: Path, ramp_ids: list[str]) -> dict[str, An
             "rampCount": len(ramp_nodes),
             "sourceCount": len(source_nodes),
             "inchiKeyCount": len(inchi_key_nodes),
+            "stereoFreeKeyCount": len(stereo_free_nodes),
             "rampSourceEdgeCount": len(edges),
             "inchiKeyEdgeCount": len(inchi_edges),
+            "stereoFreeEdgeCount": len(stereo_free_edges),
         },
+        "warnings": sorted(stereo_free_errors),
         "analytes": analytes,
         "sourceRows": source_rows,
         "chemRows": chem_rows,
@@ -294,3 +367,26 @@ def load_multiramp_rows(limit: int = 500) -> list[dict[str, Any]]:
             break
     workbook.close()
     return output
+
+
+def build_multiramp_navigation(raw_ids: str, limit: int = 5000) -> dict[str, Any] | None:
+    current_ids = parse_ramp_ids(raw_ids)
+    if not current_ids:
+        return None
+    current_set = set(current_ids)
+    rows = load_multiramp_rows(limit=limit)
+    current_index = None
+    for index, row in enumerate(rows):
+        if set(parse_ramp_ids(row["finalRampIds"])) == current_set:
+            current_index = index
+            break
+    if current_index is None:
+        return None
+    current = rows[current_index]
+    return {
+        "current": current,
+        "previous": rows[current_index - 1] if current_index > 0 else None,
+        "next": rows[current_index + 1] if current_index + 1 < len(rows) else None,
+        "index": current_index + 1,
+        "total": len(rows),
+    }

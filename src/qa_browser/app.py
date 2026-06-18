@@ -30,7 +30,7 @@ import uvicorn
 
 from src.core.data_registry import DataRegistry
 from src.models.node import Node
-from src.qa_browser.ramp_id_graph import build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
+from src.qa_browser.ramp_id_graph import build_multiramp_navigation, build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -1730,10 +1730,12 @@ def ramp_id_qa(request: Request, ids: str = ""):
         except Exception as exc:
             registry_error = str(exc)
     rows = load_multiramp_rows()
+    navigation = build_multiramp_navigation(ids) if selected_ids else None
     return templates.TemplateResponse(request, "ramp_id_qa.html", {
         "request": request,
         "ids": ids,
         "selected_ids": selected_ids,
+        "navigation": navigation,
         "multiramp_rows": rows,
         "workbook_label": "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx",
         "sqlite_path": str(sqlite_path) if sqlite_path else None,

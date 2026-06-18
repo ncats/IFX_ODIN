@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     python-arango pandas pyarrow pyyaml \
     sqlalchemy pymysql psycopg2-binary boto3 openpyxl \
     pybiomart requests-cache ijson \
-    obonet networkx
+    obonet networkx rdkit
 
 COPY src ./src
 
