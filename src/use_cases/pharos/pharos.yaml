@@ -166,13 +166,13 @@ input_adapters:
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
-      data_source: iuphar:ligands_interactions:2026-04-27
+      data_source: iuphar:ligands_interactions:2026-06-15
 
   - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
     class: ProteinLigandEdgeAdapter
     kwargs:
       pchembl_cutoff: *pchembl_cutoff
-      data_source: iuphar:ligands_interactions:2026-04-27
+      data_source: iuphar:ligands_interactions:2026-06-15
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
