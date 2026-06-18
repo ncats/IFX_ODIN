@@ -30,7 +30,7 @@ import uvicorn
 
 from src.core.data_registry import DataRegistry
 from src.models.node import Node
-from src.qa_browser.ramp_id_graph import build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
+from src.qa_browser.ramp_id_graph import build_multiramp_navigation, build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -111,6 +111,23 @@ _RESOLVER_WARMUP_ALL_SNAPSHOTS = os.getenv("QA_BROWSER_WARM_ALL_RESOLVER_SNAPSHO
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
+
+
+def _root_path(request: Optional[Request] = None) -> str:
+    if request is not None:
+        root_path = request.scope.get("root_path")
+        if root_path:
+            return str(root_path).rstrip("/")
+    return str(templates.env.globals.get("root_path") or "").rstrip("/")
+
+
+def _app_path(path: str, request: Optional[Request] = None) -> str:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return f"{_root_path(request)}{normalized_path}"
+
+
+def _redirect_to(path: str, *, request: Optional[Request] = None, status_code: int = 303) -> RedirectResponse:
+    return RedirectResponse(url=_app_path(path, request), status_code=status_code)
 
 
 def _slugify_mysql_source(value: str) -> str:
@@ -596,7 +613,7 @@ def _build_collection_url(db_name: str, coll_name: str, page: int, page_size: in
                           overrides: dict = None) -> str:
     params = _build_collection_query_params(page, page_size, facet_filters, search_term=search_term, overrides=overrides)
     query_string = urlencode(params, doseq=True)
-    return f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}?{query_string}"
+    return f"{_app_path(f'/db/{db_name}/collection/{coll_name}')}?{query_string}"
 
 
 def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dict[str, List[str]],
@@ -608,7 +625,7 @@ def _build_collection_stats_url(db_name: str, coll_name: str, facet_filters: Dic
         for value in facet_filters[field]:
             params.append((f"facet_{field}", value))
     query_string = urlencode(params, doseq=True)
-    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/stats"
+    base_url = _app_path(f"/db/{db_name}/collection/{coll_name}/stats")
     return f"{base_url}?{query_string}" if query_string else base_url
 
 
@@ -621,7 +638,7 @@ def _build_collection_facets_url(db_name: str, coll_name: str, facet_filters: Di
         for value in facet_filters[field]:
             params.append((f"facet_{field}", value))
     query_string = urlencode(params, doseq=True)
-    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/facets"
+    base_url = _app_path(f"/db/{db_name}/collection/{coll_name}/facets")
     return f"{base_url}?{query_string}" if query_string else base_url
 
 
@@ -635,7 +652,7 @@ def _build_collection_facet_url(db_name: str, coll_name: str, field: str,
         for value in facet_filters[filter_field]:
             params.append((f"facet_{filter_field}", value))
     query_string = urlencode(params, doseq=True)
-    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/facet/{url_quote(field, safe='')}"
+    base_url = _app_path(f"/db/{db_name}/collection/{coll_name}/facet/{url_quote(field, safe='')}")
     return f"{base_url}?{query_string}" if query_string else base_url
 
 
@@ -643,7 +660,7 @@ def _build_collection_download_url(db_name: str, coll_name: str, page: int, page
                                    facet_filters: Dict[str, List[str]], search_term: str = "") -> str:
     params = _build_collection_query_params(page, page_size, facet_filters, search_term=search_term)
     query_string = urlencode(params, doseq=True)
-    base_url = f"{templates.env.globals['root_path']}/db/{db_name}/collection/{coll_name}/download.csv"
+    base_url = _app_path(f"/db/{db_name}/collection/{coll_name}/download.csv")
     return f"{base_url}?{query_string}" if query_string else base_url
 
 
@@ -1713,10 +1730,12 @@ def ramp_id_qa(request: Request, ids: str = ""):
         except Exception as exc:
             registry_error = str(exc)
     rows = load_multiramp_rows()
+    navigation = build_multiramp_navigation(ids) if selected_ids else None
     return templates.TemplateResponse(request, "ramp_id_qa.html", {
         "request": request,
         "ids": ids,
         "selected_ids": selected_ids,
+        "navigation": navigation,
         "multiramp_rows": rows,
         "workbook_label": "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx",
         "sqlite_path": str(sqlite_path) if sqlite_path else None,
@@ -1800,7 +1819,7 @@ def registry_home(request: Request):
 
 
 @app.post("/registry/update-status", response_class=HTMLResponse)
-def registry_update_status(return_page: str = Form("sources")):
+def registry_update_status(request: Request, return_page: str = Form("sources")):
     try:
         status = _run_registry_update_checks()
     except Exception as exc:
@@ -1812,10 +1831,8 @@ def registry_update_status(return_page: str = Form("sources")):
         }
     _registry_update_status_cache.clear()
     _registry_update_status_cache.update(status)
-    return RedirectResponse(
-        REGISTRY_UPDATE_RETURN_PATHS.get(return_page, "/registry"),
-        status_code=303,
-    )
+    return_path = REGISTRY_UPDATE_RETURN_PATHS.get(return_page, "/registry")
+    return _redirect_to(return_path, request=request, status_code=303)
 
 
 @app.get("/registry/resolvers", response_class=HTMLResponse)
@@ -1994,7 +2011,7 @@ def dashboard(request: Request, db_name: str):
         "graph_views": graph_views,
         "doc_count": None,
         "edge_count": None,
-        "counts_url": f"{templates.env.globals['root_path']}/db/{db_name}/collections",
+        "counts_url": _app_path(f"/db/{db_name}/collections", request),
     })
 
 
@@ -2993,10 +3010,7 @@ async def mysql_row_detail(request: Request, source_id: str, db_name: str, table
                         "table": fk["referred_table"],
                         "column": ref_col,
                         "value": val,
-                        "url": (
-                            f"{templates.env.globals['root_path']}/mysql/{source_id}/{db_name}"
-                            f"/table/{fk['referred_table']}/row/{val}"
-                        ),
+                        "url": _app_path(f"/mysql/{source_id}/{db_name}/table/{fk['referred_table']}/row/{val}", request),
                     }
 
     # Get column metadata
@@ -3048,12 +3062,8 @@ async def mysql_schema(request: Request, source_id: str, db_name: str):
 @app.post("/mysql/{source_id}/{db_name}/refresh-schema", response_class=HTMLResponse)
 async def mysql_refresh_schema(request: Request, source_id: str, db_name: str):
     """Bust the schema cache for a database and redirect to dashboard."""
-    from fastapi.responses import RedirectResponse
     invalidate_mysql_inspector(db_name, source_id=source_id)
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/{source_id}/{db_name}",
-        status_code=303,
-    )
+    return _redirect_to(f"/mysql/{source_id}/{db_name}", request=request, status_code=303)
 
 
 @app.get("/mysql/{source_id}/{db_name}/sql", response_class=HTMLResponse)
@@ -3106,70 +3116,47 @@ async def sql_execute(request: Request, source_id: str, db_name: str, query: str
 
 
 @app.get("/mysql/{db_name}", response_class=HTMLResponse)
-async def mysql_dashboard_default(db_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}",
-        status_code=307,
-    )
+async def mysql_dashboard_default(request: Request, db_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}", request=request, status_code=307)
 
 
 @app.get("/mysql/{db_name}/table/{table_name}", response_class=HTMLResponse)
-async def mysql_table_browser_default(db_name: str, table_name: str, page: int = 1, page_size: int = 25):
-    return RedirectResponse(
-        url=(
-            f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}"
-            f"?page={page}&page_size={page_size}"
-        ),
+async def mysql_table_browser_default(request: Request, db_name: str, table_name: str, page: int = 1, page_size: int = 25):
+    return _redirect_to(
+        f"/mysql/default/{db_name}/table/{table_name}?page={page}&page_size={page_size}",
+        request=request,
         status_code=307,
     )
 
 
 @app.get("/mysql/{db_name}/table/{table_name}/stats", response_class=HTMLResponse)
-async def mysql_table_stats_default(db_name: str, table_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}/stats",
-        status_code=307,
-    )
+async def mysql_table_stats_default(request: Request, db_name: str, table_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}/table/{table_name}/stats", request=request, status_code=307)
 
 
 @app.get("/mysql/{db_name}/table/{table_name}/row/{pk_value:path}", response_class=HTMLResponse)
-async def mysql_row_detail_default(db_name: str, table_name: str, pk_value: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/table/{table_name}/row/{pk_value}",
-        status_code=307,
-    )
+async def mysql_row_detail_default(request: Request, db_name: str, table_name: str, pk_value: str):
+    return _redirect_to(f"/mysql/default/{db_name}/table/{table_name}/row/{pk_value}", request=request, status_code=307)
 
 
 @app.get("/mysql/{db_name}/schema", response_class=HTMLResponse)
-async def mysql_schema_default(db_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/schema",
-        status_code=307,
-    )
+async def mysql_schema_default(request: Request, db_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}/schema", request=request, status_code=307)
 
 
 @app.post("/mysql/{db_name}/refresh-schema", response_class=HTMLResponse)
-async def mysql_refresh_schema_default(db_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/refresh-schema",
-        status_code=307,
-    )
+async def mysql_refresh_schema_default(request: Request, db_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}/refresh-schema", request=request, status_code=307)
 
 
 @app.get("/mysql/{db_name}/sql", response_class=HTMLResponse)
-async def sql_page_default(db_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/sql",
-        status_code=307,
-    )
+async def sql_page_default(request: Request, db_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}/sql", request=request, status_code=307)
 
 
 @app.post("/mysql/{db_name}/sql", response_class=HTMLResponse)
-async def sql_execute_default(db_name: str):
-    return RedirectResponse(
-        url=f"{templates.env.globals['root_path']}/mysql/default/{db_name}/sql",
-        status_code=307,
-    )
+async def sql_execute_default(request: Request, db_name: str):
+    return _redirect_to(f"/mysql/default/{db_name}/sql", request=request, status_code=307)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -19,20 +19,50 @@
     {% endif %}
 
     {% if selected_ids and not registry_error %}
+    {% if navigation %}
+    <nav class="ramp-id-nav" aria-label="Workbook row navigation">
+        <div class="ramp-id-nav-current">
+            <strong>Workbook row {{ navigation.current.workbookRow }}</strong>
+            <span>{{ navigation.current.standardizedName or navigation.current.chemicalName or navigation.current.finalRampIds }}</span>
+            <small>{{ navigation.index }} of {{ navigation.total }}</small>
+        </div>
+        <div class="ramp-id-nav-actions">
+            {% if navigation.previous %}
+            <a class="btn" href="{{ root_path }}{{ navigation.previous.href }}" title="{{ navigation.previous.standardizedName or navigation.previous.chemicalName or navigation.previous.finalRampIds }}">Previous</a>
+            {% else %}
+            <span class="btn disabled">Previous</span>
+            {% endif %}
+            {% if navigation.next %}
+            <a class="btn btn-primary" href="{{ root_path }}{{ navigation.next.href }}" title="{{ navigation.next.standardizedName or navigation.next.chemicalName or navigation.next.finalRampIds }}">Next</a>
+            {% else %}
+            <span class="btn disabled">Next</span>
+            {% endif %}
+        </div>
+    </nav>
+    {% endif %}
+    <section class="ramp-id-overview">
+        <dl id="rampIdStats" class="ramp-id-stats"></dl>
+        {% if registry_metadata %}
+        <div class="ramp-id-registry-meta">
+            <strong>{{ registry_metadata.snapshot_id }}</strong>
+            <span>{{ registry_metadata.files[0].path }}</span>
+        </div>
+        {% endif %}
+    </section>
     <section class="ramp-id-graph-panel">
         <div id="rampIdCy" class="ramp-id-cy" data-ids="{{ selected_ids }}"></div>
         <aside class="ramp-id-detail">
             <h2 id="rampIdDetailTitle">Graph</h2>
             <p id="rampIdDetailSub">Loading {{ selected_ids }}</p>
-            <dl id="rampIdStats" class="ramp-id-stats"></dl>
-            {% if registry_metadata %}
-            <div class="ramp-id-registry-meta">
-                <strong>{{ registry_metadata.snapshot_id }}</strong>
-                <span>{{ registry_metadata.files[0].path }}</span>
-            </div>
-            {% endif %}
             <div id="rampIdDetails" class="ramp-id-details"></div>
         </aside>
+    </section>
+    <section class="ramp-id-structure-section">
+        <div class="ramp-id-section-header">
+            <h2>Structures</h2>
+            <p id="rampIdStructureSummary">Loading structures</p>
+        </div>
+        <div id="rampIdStructureTray" class="ramp-id-structure-tray"></div>
     </section>
     {% endif %}
 
@@ -80,6 +110,8 @@
     const detailSub = document.getElementById("rampIdDetailSub");
     const detailBox = document.getElementById("rampIdDetails");
     const statsBox = document.getElementById("rampIdStats");
+    const structureTray = document.getElementById("rampIdStructureTray");
+    const structureSummary = document.getElementById("rampIdStructureSummary");
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -94,8 +126,7 @@
             ["RaMP", stats.rampCount],
             ["Sources", stats.sourceCount],
             ["InChIKeys", stats.inchiKeyCount],
-            ["RaMP-source edges", stats.rampSourceEdgeCount],
-            ["InChIKey edges", stats.inchiKeyEdgeCount],
+            ["Stereo-free keys", stats.stereoFreeKeyCount],
         ];
         statsBox.innerHTML = rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
     }
@@ -103,7 +134,7 @@
     function renderDetails(data) {
         const keys = [
             "id", "name", "sourceId", "idType", "dataSources", "sourceNames", "names",
-            "molecularWeights", "monoisotopicMasses", "formulas", "smiles", "inchiKeys",
+            "inchiKey", "stereoFreeInchiKey", "masses", "formulas", "smiles", "noStereoSmiles", "inchiKeys",
         ];
         detailTitle.textContent = data.label || data.id || "Selection";
         detailSub.textContent = data.kind || "";
@@ -111,6 +142,90 @@
             .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
             .map((key) => `<div><strong>${escapeHtml(key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
             .join("");
+    }
+
+    function structureImageUrl(smiles, size = 360) {
+        return `https://opendata.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(smiles)}&size=${encodeURIComponent(size)}`;
+    }
+
+    function firstValue(...values) {
+        return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") || "";
+    }
+
+    function massList(molecularWeights, monoisotopicMasses) {
+        const values = [];
+        if (molecularWeights) {
+            values.push(`MW: ${molecularWeights}`);
+        }
+        if (monoisotopicMasses) {
+            values.push(`Monoisotopic: ${monoisotopicMasses}`);
+        }
+        return values.join(" | ");
+    }
+
+    function buildStructureGroups(chemRows) {
+        const groupsByRamp = new Map();
+        const seen = new Set();
+        for (const row of chemRows || []) {
+            const smiles = firstValue(row.iso_smiles);
+            const rampId = firstValue(row.ramp_id, "Unknown RaMP ID");
+            if (!smiles) {
+                continue;
+            }
+            const key = `${rampId}::${firstValue(row.chem_source_id)}::${smiles}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            if (!groupsByRamp.has(rampId)) {
+                groupsByRamp.set(rampId, []);
+            }
+            groupsByRamp.get(rampId).push({
+                rampId,
+                sourceId: firstValue(row.chem_source_id),
+                dataSource: firstValue(row.chem_data_source),
+                name: firstValue(row.common_name),
+                formula: firstValue(row.mol_formula),
+                masses: massList(firstValue(row.mw), firstValue(row.monoisotop_mass)),
+                inchiKey: firstValue(row.inchi_key),
+                smiles,
+                imageUrl: structureImageUrl(smiles, 500),
+            });
+        }
+        return Array.from(groupsByRamp.entries()).map(([rampId, items]) => ({ rampId, items }));
+    }
+
+    function renderStructures(chemRows) {
+        const groups = buildStructureGroups(chemRows);
+        const cardCount = groups.reduce((total, group) => total + group.items.length, 0);
+        structureSummary.textContent = cardCount ? `${cardCount} rendered from chem_props SMILES` : "No SMILES available in chem_props";
+        if (!cardCount) {
+            structureTray.innerHTML = `<div class="ramp-id-structure-empty">No structures available for these RaMP IDs.</div>`;
+            return;
+        }
+        structureTray.innerHTML = groups.map((group) => `
+            <section class="ramp-id-structure-group">
+                <h3>${escapeHtml(group.rampId)} <span>${group.items.length}</span></h3>
+                <div class="ramp-id-structure-cards">
+                    ${group.items.map((item) => `
+                        <article class="ramp-id-structure-card">
+                            <header>
+                                <strong>${escapeHtml(item.sourceId || item.dataSource || item.rampId)}</strong>
+                                <span>${escapeHtml(item.name || item.formula || item.inchiKey || item.smiles)}</span>
+                            </header>
+                            <img src="${escapeHtml(item.imageUrl)}" alt="Rendered structure for ${escapeHtml(item.smiles)}" loading="lazy">
+                            <dl>
+                                ${item.dataSource ? `<div><dt>Source</dt><dd>${escapeHtml(item.dataSource)}</dd></div>` : ""}
+                                ${item.formula ? `<div><dt>Formula</dt><dd>${escapeHtml(item.formula)}</dd></div>` : ""}
+                                ${item.masses ? `<div><dt>Masses</dt><dd>${escapeHtml(item.masses)}</dd></div>` : ""}
+                                ${item.inchiKey ? `<div><dt>InChIKey</dt><dd>${escapeHtml(item.inchiKey)}</dd></div>` : ""}
+                            </dl>
+                            <div class="ramp-id-structure-smiles">${escapeHtml(item.smiles)}</div>
+                        </article>
+                    `).join("")}
+                </div>
+            </section>
+        `).join("");
     }
 
     fetch(`${rootPath}/ramp-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
@@ -124,7 +239,18 @@
         })
         .then((payload) => {
             renderStats(payload.stats);
-            detailSub.textContent = `${payload.elements.length} graph elements`;
+            renderStructures(payload.chemRows);
+            if (payload.warnings?.length) {
+                detailSub.textContent = payload.warnings.join("; ");
+            }
+            payload.elements.forEach((element) => {
+                if (element.data) {
+                    element.data.masses = massList(element.data.molecularWeights, element.data.monoisotopicMasses);
+                }
+            });
+            if (!payload.warnings?.length) {
+                detailSub.textContent = `${payload.elements.length} graph elements`;
+            }
             const cy = cytoscape({
                 container: graphEl,
                 elements: payload.elements,
@@ -144,6 +270,14 @@
                     { selector: ".ramp", style: { "background-color": "#176c8c", "width": 58, "height": 58 }},
                     { selector: ".source", style: { "background-color": "#7c3aed", "shape": "round-rectangle" }},
                     { selector: ".inchi-key", style: { "background-color": "#0891b2", "shape": "diamond" }},
+                    { selector: ".stereo-free-key", style: {
+                        "background-color": "#d97706",
+                        "border-color": "#92400e",
+                        "border-width": 3,
+                        "shape": "hexagon",
+                        "width": 54,
+                        "height": 54,
+                    }},
                     { selector: "edge", style: {
                         "curve-style": "bezier",
                         "line-color": "#94a3b8",
@@ -154,6 +288,12 @@
                         "font-size": 8,
                         "text-rotation": "autorotate",
                     }},
+                    { selector: ".stereo-free-edge", style: {
+                        "line-style": "dashed",
+                        "line-color": "#d97706",
+                        "target-arrow-color": "#d97706",
+                        "width": 2.5,
+                    }},
                     { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
                 ],
             });
@@ -163,6 +303,7 @@
         .catch((error) => {
             detailTitle.textContent = "Could not load graph";
             detailSub.textContent = error.message;
+            structureSummary.textContent = "Could not load structures";
         });
 })();
 </script>
