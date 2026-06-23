@@ -1,0 +1,1112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Long COVID Form To Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #596377;
+      --line: #d9e0ea;
+      --panel: #ffffff;
+      --page: #f5f7fb;
+      --blue: #2f6fbd;
+      --teal: #16817a;
+      --green: #4f7d2b;
+      --gold: #9a6a10;
+      --rose: #a83c57;
+      --violet: #7257a7;
+      --active: #dc2626;
+      --active-fill: #fee2e2;
+      --active-ink: #7f1d1d;
+      --shadow: 0 12px 32px rgba(23, 32, 51, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(420px, 0.95fr) minmax(680px, 1.3fr);
+      min-height: 100vh;
+    }
+
+    .form-panel,
+    .schema-panel {
+      min-width: 0;
+      padding: 22px;
+    }
+
+    .form-panel {
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+      overflow-y: auto;
+      max-height: 100vh;
+    }
+
+    .schema-panel {
+      display: grid;
+      grid-template-rows: auto minmax(620px, auto) auto;
+      gap: 14px;
+      align-content: start;
+      overflow-y: auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 24px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 74ch;
+    }
+
+    .back-link {
+      display: inline-flex;
+      width: fit-content;
+      margin-bottom: 14px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .back-link:hover,
+    .back-link:focus-visible {
+      text-decoration: underline;
+      outline: none;
+    }
+
+    .section {
+      margin-top: 22px;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      color: #263148;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .question-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .question {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-left: 4px solid transparent;
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 11px 12px;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 2px 9px rgba(23, 32, 51, 0.04);
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .question:hover,
+    .question:focus-visible {
+      border-color: #a9bdd8;
+      box-shadow: 0 8px 20px rgba(23, 32, 51, 0.1);
+      outline: none;
+      transform: translateY(-1px);
+    }
+
+    .question.is-active {
+      border-color: var(--active);
+      border-left-color: var(--active);
+      background: var(--active-fill);
+      box-shadow: 0 9px 24px rgba(127, 29, 29, 0.12);
+    }
+
+    .question .meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .question .field {
+      display: inline-flex;
+      min-width: 0;
+      max-width: 54%;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #eef3f8;
+      padding: 4px 8px;
+      color: #445169;
+      text-transform: none;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .question .text {
+      display: block;
+      font-size: 14px;
+      font-weight: 740;
+      line-height: 1.33;
+    }
+
+    .question .hint {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .question .badge {
+      display: inline-flex;
+      width: fit-content;
+      margin-top: 8px;
+      border-radius: 999px;
+      background: var(--active-fill);
+      padding: 4px 8px;
+      color: var(--active-ink);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .schema-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .schema-header h2 {
+      font-size: 24px;
+      line-height: 1.15;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--active);
+    }
+
+    .mapping-box,
+    .edge-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+      box-shadow: 0 2px 9px rgba(23, 32, 51, 0.04);
+    }
+
+    .mapping-box h3,
+    .edge-card h3 {
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .mapping-box p,
+    .mapping-box li,
+    .edge-card li {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .mapping-box p {
+      margin-top: 7px;
+    }
+
+    .graph-wrap {
+      min-height: 760px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .mapping-box {
+      border-left: 5px solid var(--active);
+    }
+
+    .mapping-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .mapping-box ul {
+      margin: 9px 0 0;
+      padding-left: 18px;
+    }
+
+    .target-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+    }
+
+    .target {
+      border-radius: 999px;
+      background: #eef3f8;
+      padding: 5px 8px;
+      color: #445169;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .edge-table {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .edge-card ul {
+      margin: 9px 0 0;
+      padding-left: 18px;
+    }
+
+    @media (max-width: 1080px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .form-panel {
+        max-height: none;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 760px) {
+      .mapping-grid,
+      .edge-table,
+      .schema-header {
+        grid-template-columns: 1fr;
+      }
+
+      .legend {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+  <link rel="stylesheet" href="cure_graph_styles.css">
+</head>
+<body>
+  <main class="app">
+    <aside class="form-panel">
+      <a class="back-link" href="cure_graph_views.html">Back to CURE graph views</a>
+      <p class="eyebrow">CURE ID Long COVID form</p>
+      <h1>CURE ID Forms -> Long COVID Graph</h1>
+      <p class="intro">Select individual PASC form questions to see which <code>cure_pasc</code> graph node or edge fields receive each answer. PASC is the CURE ID Long COVID form family.</p>
+
+      <section class="section">
+        <h2 class="section-title">PASC Form Questions</h2>
+        <div class="question-list" id="questionList"></div>
+      </section>
+    </aside>
+
+    <section class="schema-panel">
+      <div class="schema-header">
+        <div>
+          <p class="eyebrow">cure_pasc graph</p>
+          <h2 id="activeTitle">Long COVID episode graph</h2>
+          <p class="intro" id="activeSummary">Select a question to highlight where its answer lands in the graph schema used by the QA browser.</p>
+        </div>
+        <div class="legend" aria-label="Schema highlighting">
+          <span><i class="swatch"></i>Selected field</span>
+        </div>
+      </div>
+
+      <div class="graph-wrap">
+        <div id="schemaGraph" class="mermaid-host" role="img" aria-label="Long COVID graph schema"></div>
+      </div>
+
+      <article class="mapping-box">
+        <h3 id="mappingTitle">Question mapping</h3>
+        <p id="mappingText">Select a PASC form question to see its graph target.</p>
+        <div class="target-list" id="targetList"></div>
+        <div class="mapping-grid">
+          <div>
+            <h3>Payload path</h3>
+            <ul id="payloadList"></ul>
+          </div>
+          <div>
+            <h3>Graph path</h3>
+            <ul id="graphList"></ul>
+          </div>
+        </div>
+      </article>
+
+      <div class="edge-table">
+        <article class="edge-card">
+          <h3>Primary PASC branches</h3>
+          <ul>
+            <li><code>CaseReport -> Patient -> Episode</code> anchors the case.</li>
+            <li><code>Patient -> BackgroundContext</code> owns pre/post context.</li>
+            <li><code>Episode -> Exposure -> Drug</code> owns medication use.</li>
+            <li><code>Treatment -> Outcome -> Phenotype</code> owns symptom outcome assessment.</li>
+          </ul>
+        </article>
+        <article class="edge-card">
+          <h3>Conditional branches</h3>
+          <ul>
+            <li>Acute COVID is a contextual <code>Episode</code> that precedes Long COVID.</li>
+            <li>Pregnancy is a contextual <code>Episode</code> that overlaps Long COVID.</li>
+            <li>Vaccination hangs from the acute COVID episode through <code>VaccinationEvent</code>.</li>
+            <li>Alternative therapies hang from the Long COVID episode through <code>Therapy</code>.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "loose",
+      theme: "default",
+      flowchart: {
+        curve: "basis",
+        padding: 15,
+        nodeSpacing: 55,
+        rankSpacing: 70,
+        htmlLabels: true
+      }
+    });
+
+    const qaSchemaEdges = [
+      ["BackgroundContext", "BackgroundContextConditionEdge", "Condition"],
+      ["BackgroundContext", "BackgroundContextExposureEdge", "Exposure"],
+      ["CaseReport", "CaseReportPatientEdge", "Patient"],
+      ["CaseReport", "CaseReportReporterEdge", "Reporter"],
+      ["Episode", "EpisodeConditionEdge", "Condition"],
+      ["Episode", "EpisodeEpisodeEdge", "Episode"],
+      ["Episode", "EpisodeExposureEdge", "Exposure"],
+      ["Episode", "EpisodeOutcomeEdge", "Outcome"],
+      ["Episode", "EpisodePhenotypeEdge", "Phenotype"],
+      ["Episode", "EpisodeTherapyEdge", "Therapy"],
+      ["Exposure", "ExposureAdverseEventEdge", "Phenotype"],
+      ["Exposure", "ExposureDrugEdge", "Drug"],
+      ["Outcome", "OutcomePhenotypeEdge", "Phenotype"],
+      ["Patient", "PersonBackgroundContextEdge", "BackgroundContext"],
+      ["Patient", "PersonEpisodeEdge", "Episode"],
+      ["Exposure", "TreatmentExposureEdge", "Treatment"],
+      ["Treatment", "TreatmentOutcomeEdge", "Outcome"],
+      ["Episode", "VaccinationEventEpisodeEdge", "VaccinationEvent"],
+      ["VaccinationEvent", "VaccinationEventVaccineEdge", "Vaccine"]
+    ];
+
+    const questions = [
+      {
+        page: "Disease",
+        key: "report__disease",
+        label: "Disease",
+        patient: "Long COVID disease selector",
+        clinician: "Long COVID disease selector",
+        payload: ["report.disease"],
+        targets: ["Condition", "Episode", "EpisodeConditionEdge"],
+        edgeFields: { EpisodeConditionEdge: ["relationship_type=primary"] },
+        graph: ["Episode.role=primary", "Episode -> EpisodeConditionEdge(relationship_type=primary) -> Condition", "Condition.name / slug / source_id"]
+      },
+      {
+        page: "Long COVID Duration",
+        key: "report__extra_fields__symptoms_duration",
+        label: "How long has the patient been experiencing symptoms of Long COVID?",
+        payload: ["report.extra_fields.symptoms_duration"],
+        targets: ["Episode"],
+        graph: ["Primary Long COVID Episode.problem_duration"]
+      },
+      {
+        page: "Symptoms",
+        key: "report__extra_fields__symptoms_severity[].symptom",
+        label: "Which new or worsening Long COVID symptom has the patient experienced?",
+        payload: ["report.extra_fields.symptoms_severity[].symptom", "report.extra_fields.symptoms_severity[].symptom_short"],
+        targets: ["Episode", "Phenotype", "EpisodePhenotypeEdge"],
+        graph: ["Episode -> EpisodePhenotypeEdge -> Phenotype", "Phenotype.name / short_name"]
+      },
+      {
+        page: "Symptoms",
+        key: "report__extra_fields__symptoms_severity[].severity",
+        label: "How would you rate the impact of this symptom on quality of life?",
+        payload: ["report.extra_fields.symptoms_severity[].severity"],
+        targets: ["EpisodePhenotypeEdge"],
+        edgeFields: { EpisodePhenotypeEdge: ["severity"] },
+        graph: ["EpisodePhenotypeEdge.severity"]
+      },
+      {
+        page: "Other Conditions",
+        key: "report__patient__comorbidities",
+        label: "Medical conditions prior to COVID-19 infection",
+        payload: ["report.patient.comorbidity[]"],
+        targets: ["Patient", "BackgroundContext", "Condition", "BackgroundContextConditionEdge"],
+        edgeFields: { BackgroundContextConditionEdge: ["relationship_type=prior_comorbidity"] },
+        graph: ["Patient -> PersonBackgroundContextEdge -> BackgroundContext", "BackgroundContext -> BackgroundContextConditionEdge(relationship_type=prior_comorbidity) -> Condition", "Condition.name / slug / source_id"]
+      },
+      {
+        page: "Other Conditions",
+        key: "report__extra_fields__comorbidities_after_pasc",
+        label: "Conditions developed after COVID-19 infection",
+        payload: ["report.extra_fields.comorbidities_after_pasc[]"],
+        targets: ["Episode", "Condition", "EpisodeConditionEdge"],
+        edgeFields: { EpisodeConditionEdge: ["relationship_type=comorbidity"] },
+        graph: ["Primary Long COVID Episode -> EpisodeConditionEdge(relationship_type=comorbidity) -> Condition", "Condition.name / slug"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].treatment_begin",
+        label: "When did the patient begin treatment with the drug?",
+        payload: ["report.regimens[].treatment_begin", "report.regimens[].treatment_begin_month"],
+        targets: ["Episode", "Exposure", "EpisodeExposureEdge"],
+        graph: ["Primary Long COVID Episode -> EpisodeExposureEdge -> Exposure.treatment_begin / treatment_begin_month"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].treatment_on_going",
+        label: "Is the patient still taking the drug?",
+        payload: ["report.regimens[].treatment_on_going"],
+        targets: ["Exposure"],
+        graph: ["Exposure.treatment_on_going"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].treatment_end",
+        label: "When did the patient end treatment with the drug?",
+        payload: ["report.regimens[].treatment_end", "report.regimens[].treatment_end_month"],
+        targets: ["Exposure"],
+        graph: ["Exposure.treatment_end / treatment_end_month"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].duration",
+        label: "For how long did the patient take the drug?",
+        payload: ["report.regimens[].duration_amount", "report.regimens[].unit_of_measurement_duration"],
+        targets: ["Exposure"],
+        graph: ["Exposure.duration_amount / unit_of_measurement_duration"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].dose",
+        label: "What dose did the patient take?",
+        payload: ["report.regimens[].dose_amount", "report.regimens[].unit_of_measurement"],
+        targets: ["Exposure"],
+        graph: ["Exposure.dose_amount / unit_of_measurement"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].frequency",
+        label: "How many times a day did the patient take the drug?",
+        payload: ["report.regimens[].frequency"],
+        targets: ["Exposure"],
+        graph: ["Exposure.frequency"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].route",
+        label: "How was the drug given to the patient?",
+        payload: ["report.regimens[].route"],
+        targets: ["Exposure"],
+        graph: ["Exposure.route"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].drug",
+        label: "Medication taken for Long COVID symptoms",
+        payload: ["report.regimens[].drug", "report.regimens[].long_drug_str_lc"],
+        targets: ["Exposure", "Drug", "ExposureDrugEdge"],
+        graph: ["Exposure.long_drug_name", "Exposure -> ExposureDrugEdge -> Drug", "Drug.name / url / source_id / rxnorm_id / category / fda_approved"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].have_adverse_events",
+        label: "Did the patient have side effects or adverse events from the drug?",
+        payload: ["report.regimens[].have_adverse_events"],
+        targets: ["Exposure"],
+        graph: ["Exposure.have_adverse_events"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].adverse_events_generic",
+        label: "What side effects/adverse events did the patient have?",
+        payload: ["report.regimens[].adverse_events_generic[]"],
+        targets: ["Exposure", "Phenotype", "ExposureAdverseEventEdge"],
+        graph: ["Exposure.adverse_events", "Exposure -> ExposureAdverseEventEdge -> Phenotype", "Phenotype.name"]
+      },
+      {
+        page: "Current Medications",
+        key: "report__treatments[].adverse_events_outcome",
+        label: "What happened because of the side effects/adverse events?",
+        payload: ["report.regimens[].adverse_events_outcome[]"],
+        targets: ["Exposure", "ExposureAdverseEventEdge"],
+        edgeFields: { ExposureAdverseEventEdge: ["outcomes"] },
+        graph: ["Exposure.adverse_event_outcomes", "ExposureAdverseEventEdge.outcomes"]
+      },
+      {
+        page: "Treatment",
+        key: "report__extra_fields__symptoms_outcome[].long_covid_symptom",
+        label: "Outcome symptom",
+        payload: ["report.extra_fields.symptoms_outcome[].long_covid_symptom"],
+        targets: ["Outcome", "Phenotype", "OutcomePhenotypeEdge"],
+        graph: ["Outcome.raw_symptom_name", "Outcome.has_unmatched_phenotype", "Outcome -> OutcomePhenotypeEdge -> Phenotype when symptom matches selected symptom"]
+      },
+      {
+        page: "Treatment",
+        key: "report__extra_fields__symptoms_outcome[].long_covid_drugs",
+        label: "Drug or drugs assessed for that symptom",
+        payload: ["report.extra_fields.symptoms_outcome[].long_covid_drugs[]"],
+        targets: ["Exposure", "Treatment", "TreatmentExposureEdge"],
+        graph: ["Treatment.drug_names / unmatched_drug_names / has_unmatched_drug_names", "Exposure -> TreatmentExposureEdge -> Treatment when outcome drug name matches a regimen exposure"]
+      },
+      {
+        page: "Treatment",
+        key: "report__extra_fields__symptoms_outcome[].long_covid_outcome",
+        label: "Outcome for the symptom after treatment",
+        payload: ["report.extra_fields.symptoms_outcome[].long_covid_outcome"],
+        targets: ["Episode", "Treatment", "Outcome", "TreatmentOutcomeEdge", "EpisodeOutcomeEdge"],
+        graph: ["Episode -> EpisodeOutcomeEdge -> Outcome.effect", "Treatment -> TreatmentOutcomeEdge -> Outcome"]
+      },
+      {
+        page: "Treatment",
+        key: "report__extra_fields__symptoms_outcome[].duration",
+        label: "Time from drug start to outcome effect",
+        payload: ["report.extra_fields.symptoms_outcome[].duration_amount", "report.extra_fields.symptoms_outcome[].duration_units"],
+        targets: ["Outcome"],
+        graph: ["Outcome.time_to_effect_amount / time_to_effect_units"]
+      },
+      {
+        page: "Additional Therapies",
+        key: "report__extra_fields__drug_additional_details",
+        label: "Additional medication details",
+        payload: ["report.extra_fields.drug_additional_details"],
+        targets: ["Episode"],
+        graph: ["Primary Long COVID Episode.drug_additional_details"]
+      },
+      {
+        page: "Additional Therapies",
+        key: "report__extra_fields__alternative_therapies",
+        label: "Helpful therapies in addition to medications",
+        payload: ["report.extra_fields.alternative_therapies[]"],
+        targets: ["Episode", "Therapy", "EpisodeTherapyEdge"],
+        graph: ["Episode -> EpisodeTherapyEdge -> Therapy", "Therapy.name / slug"]
+      },
+      {
+        page: "Case Characteristics",
+        key: "report__patient__age_group",
+        label: "How old is the patient?",
+        payload: ["report.patient.age_group"],
+        targets: ["Patient"],
+        graph: ["Patient.age_group"]
+      },
+      {
+        page: "Case Characteristics",
+        key: "report__patient__sex",
+        label: "What sex was the patient assigned at birth?",
+        payload: ["report.patient.sex"],
+        targets: ["Patient"],
+        graph: ["Patient.sex"]
+      },
+      {
+        page: "Country",
+        key: "report__patient__country_treated",
+        label: "What country was the patient's Long COVID treated in?",
+        payload: ["report.patient.country_treated"],
+        targets: ["Patient"],
+        graph: ["Patient.country_treated"]
+      },
+      {
+        page: "Country",
+        key: "report__patient__races",
+        label: "What race does the patient identify as?",
+        payload: ["report.patient.race[]", "report.patient.races[].value"],
+        targets: ["Patient"],
+        graph: ["Patient.race"]
+      },
+      {
+        page: "Country",
+        key: "report__patient__ethnicity",
+        label: "What is the patient's ethnicity?",
+        payload: ["report.patient.ethnicity"],
+        targets: ["Patient"],
+        graph: ["Patient.ethnicity"]
+      },
+      {
+        page: "Pregnancy",
+        key: "report__patient__pregnant",
+        label: "Was the patient pregnant during acute COVID-19 infection?",
+        payload: ["report.patient.pregnant"],
+        targets: ["Patient", "Episode"],
+        graph: ["Patient.pregnant"]
+      },
+      {
+        page: "Pregnancy",
+        key: "report__extra_fields__pregnant_during_lc",
+        label: "Was the patient pregnant while experiencing Long COVID symptoms?",
+        payload: ["report.extra_fields.pregnant_during_lc"],
+        targets: ["Patient", "Episode", "Condition", "PersonEpisodeEdge", "EpisodeConditionEdge", "EpisodeEpisodeEdge"],
+        edgeFields: { EpisodeConditionEdge: ["relationship_type=primary"], EpisodeEpisodeEdge: ["relationship_type=overlaps"] },
+        graph: ["Pregnancy Episode created only when value is Yes", "Patient -> PersonEpisodeEdge -> Pregnancy Episode", "Pregnancy Episode -> EpisodeConditionEdge(relationship_type=primary) -> Condition(Pregnancy)", "Pregnancy Episode -> EpisodeEpisodeEdge(relationship_type=overlaps) -> Long COVID Episode"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__extra_fields__pregnancy_medications",
+        label: "Did the patient take medications for Long COVID while pregnant?",
+        payload: ["report.extra_fields.pregnancy_medications"],
+        targets: ["Episode"],
+        graph: ["Pregnancy Episode.pregnancy_medications"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__extra_fields__pregnancy_medications_details",
+        label: "Which medications did the patient take for Long COVID while pregnant?",
+        payload: ["report.extra_fields.pregnancy_medications_details[]"],
+        targets: ["Episode", "Exposure", "Drug", "ExposureDrugEdge"],
+        graph: ["Episode.pregnancy_medication_names", "Pregnancy Episode -> EpisodeExposureEdge -> Exposure", "Exposure.long_drug_name", "Exposure -> ExposureDrugEdge -> Drug", "Drug.name / url / source_id / rxnorm_id / category / fda_approved"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__patient__pregnancy__treatment_gestational_age",
+        label: "Gestational age when treatment began",
+        payload: ["report.patient.pregnancy.treatment_gestational_age"],
+        targets: ["Episode"],
+        graph: ["Pregnancy Episode.treatment_gestational_age"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__patient__pregnancy__outcome",
+        label: "Outcome of the pregnancy",
+        payload: ["report.patient.pregnancy.outcome"],
+        targets: ["Episode"],
+        graph: ["Pregnancy Episode.pregnancy_outcome"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__extra_fields__pregnancy_limited_access_pasc",
+        label: "Did pregnancy limit access to Long COVID treatments?",
+        payload: ["report.extra_fields.pregnancy_limited_access_pasc"],
+        targets: ["Episode"],
+        graph: ["Pregnancy Episode.pregnancy_limited_access_to_treatment"]
+      },
+      {
+        page: "Pregnancy Details",
+        key: "report__extra_fields__pregnancy_ability_to_care_for_newborn_pasc",
+        label: "Did Long COVID impact ability to care for newborn?",
+        payload: ["report.extra_fields.pregnancy_ability_to_care_for_newborn_pasc"],
+        targets: ["Episode"],
+        graph: ["Pregnancy Episode.pregnancy_impacted_ability_to_care_for_newborn"]
+      },
+      {
+        page: "Pre-COVID Medications",
+        key: "report__extra_fields__regular_medicines",
+        label: "Regular medications prior to acute COVID-19 infection",
+        payload: ["report.extra_fields.regular_medicines[]"],
+        targets: ["Patient", "BackgroundContext", "Exposure", "Drug", "BackgroundContextExposureEdge"],
+        edgeFields: { BackgroundContextExposureEdge: ["relationship_type=regular_medicine"] },
+        graph: ["Patient -> PersonBackgroundContextEdge -> BackgroundContext", "BackgroundContext -> BackgroundContextExposureEdge(relationship_type=regular_medicine) -> Exposure", "Exposure.long_drug_name", "Exposure -> ExposureDrugEdge -> Drug", "Drug.name / url / source_id / rxnorm_id / category / fda_approved"]
+      },
+      {
+        page: "Acute COVID-19",
+        key: "report__extra_fields__when_symptom_acute_covid",
+        label: "When did acute COVID-19 symptoms start?",
+        payload: ["report.extra_fields.when_symptom_acute_covid_month", "report.extra_fields.when_symptom_acute_covid_year"],
+        targets: ["Episode", "EpisodeEpisodeEdge"],
+        edgeFields: { EpisodeEpisodeEdge: ["relationship_type=precedes"] },
+        graph: ["Acute COVID Episode.onset_month / onset_year", "Acute COVID Episode -> EpisodeEpisodeEdge(relationship_type=precedes) -> Long COVID Episode"]
+      },
+      {
+        page: "Acute COVID-19",
+        key: "report__how_diagnosis",
+        label: "How was acute COVID-19 diagnosed?",
+        payload: ["report.how_diagnosis[]"],
+        targets: ["Episode"],
+        graph: ["Acute COVID Episode.diagnosis_methods"]
+      },
+      {
+        page: "Acute COVID-19 Treatment",
+        key: "report__extra_fields__care_acute_covid",
+        label: "Level of care during acute COVID-19 infection",
+        payload: ["report.extra_fields.care_acute_covid"],
+        targets: ["Episode"],
+        graph: ["Acute COVID Episode.care_level"]
+      },
+      {
+        page: "Acute COVID-19 Treatment",
+        key: "report__extra_fields__drugs_acute_covid",
+        label: "Medications received for acute COVID-19 infection",
+        payload: ["report.extra_fields.drugs_acute_covid[]"],
+        targets: ["Episode", "Exposure", "Drug", "ExposureDrugEdge"],
+        graph: ["Acute COVID Episode -> EpisodeExposureEdge -> Exposure", "Exposure.long_drug_name", "Exposure -> ExposureDrugEdge -> Drug", "Drug.name / url / source_id / rxnorm_id / category / fda_approved"]
+      },
+      {
+        page: "Acute COVID-19 Treatment",
+        key: "report__extra_fields__complications_acute_covid",
+        label: "Complications during acute COVID-19 infection",
+        payload: ["report.extra_fields.complications_acute_covid[]"],
+        targets: ["Episode", "Condition", "EpisodeConditionEdge"],
+        edgeFields: { EpisodeConditionEdge: ["relationship_type=complication"] },
+        graph: ["Acute COVID Episode -> EpisodeConditionEdge(relationship_type=complication) -> Condition", "Condition.name / slug"]
+      },
+      {
+        page: "Vaccination Status",
+        key: "report__extra_fields__vaccine_status_generic",
+        label: "Was the patient vaccinated before infection?",
+        payload: ["report.extra_fields.vaccine_status_generic"],
+        targets: ["Episode", "VaccinationEvent", "VaccinationEventEpisodeEdge"],
+        graph: ["Acute COVID Episode -> VaccinationEventEpisodeEdge -> VaccinationEvent.vaccinated_before_infection"]
+      },
+      {
+        page: "Vaccination Status",
+        key: "report__extra_fields__vaccine_received",
+        label: "Which COVID-19 vaccine did the patient receive?",
+        payload: ["report.extra_fields.vaccine_received[]"],
+        targets: ["VaccinationEvent", "Vaccine", "VaccinationEventVaccineEdge"],
+        graph: ["VaccinationEvent -> VaccinationEventVaccineEdge -> Vaccine", "Vaccine.name / slug"]
+      },
+      {
+        page: "Vaccination Status",
+        key: "report__extra_fields__doses_of_vaccine",
+        label: "How many vaccine doses before infection?",
+        payload: ["report.extra_fields.doses_of_vaccine"],
+        targets: ["VaccinationEvent"],
+        graph: ["VaccinationEvent.dose_count_before_infection"]
+      },
+      {
+        page: "Vaccination Status",
+        key: "report__extra_fields__time_from_vaccination_generic",
+        label: "How long before symptoms was the patient vaccinated?",
+        payload: ["report.extra_fields.time_from_vaccination_generic_units", "report.extra_fields.time_from_vaccination_generic_measurements"],
+        targets: ["VaccinationEventEpisodeEdge"],
+        edgeFields: { VaccinationEventEpisodeEdge: ["relative_time_value", "relative_time_unit"] },
+        graph: ["VaccinationEventEpisodeEdge.relative_time_value / relative_time_unit"]
+      },
+      {
+        page: "Additional Details",
+        key: "report__attached_images",
+        label: "Uploaded images or documents",
+        payload: ["report.attached_images[]"],
+        targets: ["Not emitted by adapter"],
+        graph: ["Not emitted by CUREAdapter"]
+      },
+      {
+        page: "Research Priorities",
+        key: "report__extra_fields__research_prioritizing",
+        label: "Symptoms or treatments most interesting for researchers",
+        payload: ["report.extra_fields.research_prioritizing"],
+        targets: ["CaseReport"],
+        graph: ["CaseReport.research_prioritizing"]
+      }
+    ];
+
+    const questionList = document.getElementById("questionList");
+    const formPanel = document.querySelector(".form-panel");
+    const schemaGraph = document.getElementById("schemaGraph");
+    const activeTitle = document.getElementById("activeTitle");
+    const activeSummary = document.getElementById("activeSummary");
+    const mappingTitle = document.getElementById("mappingTitle");
+    const mappingText = document.getElementById("mappingText");
+    const targetList = document.getElementById("targetList");
+    const payloadList = document.getElementById("payloadList");
+    const graphList = document.getElementById("graphList");
+    let renderCounter = 0;
+
+    const questionContext = {
+      "report__disease": { input: "Autocomplete disease selector." },
+      "report__extra_fields__symptoms_duration": { input: "Duration value." },
+      "report__extra_fields__symptoms_severity[].symptom": { input: "Autocomplete symptom selector; multiple symptom rows are allowed." },
+      "report__extra_fields__symptoms_severity[].severity": { input: "Impact/severity choice for the selected symptom." },
+      "report__patient__comorbidities": { input: "Multi-select condition checklist." },
+      "report__extra_fields__comorbidities_after_pasc": { input: "Multi-select condition checklist." },
+      "report__treatments[].treatment_begin": { input: "Month and year selectors." },
+      "report__treatments[].treatment_on_going": { options: ["Yes", "No", "Unknown"] },
+      "report__treatments[].treatment_end": { input: "Month and year selectors." },
+      "report__treatments[].duration": { input: "Numeric duration and unit selector." },
+      "report__treatments[].dose": { input: "Dose amount and unit selector." },
+      "report__treatments[].frequency": { input: "Frequency selector." },
+      "report__treatments[].route": { input: "Route selector." },
+      "report__treatments[].drug": { input: "Autocomplete medication selector; user-entered terms are retained when unmatched." },
+      "report__treatments[].have_adverse_events": { options: ["Yes", "No", "Unknown"] },
+      "report__treatments[].adverse_events_generic": { input: "Autocomplete adverse-event selector." },
+      "report__treatments[].adverse_events_outcome": { input: "Adverse-event outcome checklist." },
+      "report__extra_fields__symptoms_outcome[].long_covid_symptom": { input: "Symptom selector for the treatment outcome row." },
+      "report__extra_fields__symptoms_outcome[].long_covid_drugs": { input: "One or more medication selectors for the treatment outcome row." },
+      "report__extra_fields__symptoms_outcome[].long_covid_outcome": { input: "Outcome/effect selector." },
+      "report__extra_fields__symptoms_outcome[].duration": { input: "Numeric time-to-effect value and unit selector." },
+      "report__extra_fields__drug_additional_details": { input: "Free text medication details." },
+      "report__extra_fields__alternative_therapies": { input: "Free text or checklist therapy entries." },
+      "report__patient__age_group": { input: "Age group selector." },
+      "report__patient__sex": { options: ["Male", "Female", "Unknown"] },
+      "report__patient__country_treated": { input: "Autocomplete country field." },
+      "report__patient__races": { input: "Race checklist." },
+      "report__patient__ethnicity": { input: "Ethnicity selector." },
+      "report__patient__pregnant": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__pregnant_during_lc": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__pregnancy_medications": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__pregnancy_medications_details": { input: "Medication details for pregnancy context." },
+      "report__patient__pregnancy__treatment_gestational_age": { input: "Gestational age value." },
+      "report__patient__pregnancy__outcome": { input: "Pregnancy outcome selector." },
+      "report__extra_fields__pregnancy_limited_access_pasc": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__pregnancy_ability_to_care_for_newborn_pasc": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__regular_medicines": { input: "Pre-COVID medication selector/list." },
+      "report__extra_fields__when_symptom_acute_covid": { input: "Month and year selectors." },
+      "report__how_diagnosis": { input: "Diagnosis method checklist." },
+      "report__extra_fields__care_acute_covid": { input: "Acute care level selector." },
+      "report__extra_fields__drugs_acute_covid": { input: "Acute COVID medication selector/list." },
+      "report__extra_fields__complications_acute_covid": { input: "Acute COVID complication checklist." },
+      "report__extra_fields__vaccine_status_generic": { options: ["Yes", "No", "Unknown"] },
+      "report__extra_fields__vaccine_received": { input: "COVID-19 vaccine selector/list." },
+      "report__extra_fields__doses_of_vaccine": { input: "Dose count selector/value." },
+      "report__extra_fields__time_from_vaccination_generic": { input: "Relative time value and unit selector." },
+      "report__attached_images": { input: "Optional upload area for images or documents." },
+      "report__extra_fields__research_prioritizing": { input: "Free text research priorities." }
+    };
+
+    const nodeNames = ["BackgroundContext", "CaseReport", "Condition", "Drug", "Episode", "Exposure", "Outcome", "Patient", "Phenotype", "Reporter", "Therapy", "Treatment", "VaccinationEvent", "Vaccine"];
+
+    function describeQuestionContext(question) {
+      const context = questionContext[question.key];
+      if (!context) {
+        return "";
+      }
+      if (context.input) {
+        return context.input;
+      }
+      return `Options: ${(context.options || []).join("; ")}.`;
+    }
+
+    function addField(targetMap, target, field) {
+      if (!targetMap[target]) {
+        targetMap[target] = [];
+      }
+      if (!targetMap[target].includes(field)) {
+        targetMap[target].push(field);
+      }
+    }
+
+    function inferNodeFields(question) {
+      const fields = {};
+      for (const graphPath of question.graph || []) {
+        for (const node of nodeNames) {
+          const pattern = new RegExp(`${node}\\.([A-Za-z0-9_]+(?:\\s*/\\s*[A-Za-z0-9_]+)*)`, "g");
+          for (const match of graphPath.matchAll(pattern)) {
+            match[1].split(/\s*\/\s*/).forEach((field) => addField(fields, node, field));
+          }
+        }
+      }
+      return fields;
+    }
+
+    function prepareQuestion(question) {
+      const nodeFields = inferNodeFields(question);
+      for (const [edge, fields] of Object.entries(question.edgeFields || {})) {
+        nodeFields[edge] = fields;
+      }
+      question.nodeFields = nodeFields;
+      question.hint = describeQuestionContext(question);
+      return question;
+    }
+
+    questions.forEach(prepareQuestion);
+
+    function buildSchemaMermaid(question) {
+      const targetSet = new Set(question.targets || []);
+      const edgeFields = question.edgeFields || {};
+      const nodes = Array.from(new Set(qaSchemaEdges.flatMap(([from, , to]) => [from, to])));
+      const nodeLabel = (node) => {
+        const fields = (question.nodeFields || {})[node] || [];
+        if (!targetSet.has(node) || fields.length === 0) {
+          return node;
+        }
+        return `${node}<br/><small>${fields.join("<br/>")}</small>`;
+      };
+      const lines = ["flowchart TD"];
+      qaSchemaEdges.forEach(([from, edge, to], index) => {
+        const fields = edgeFields[edge] || [];
+        const connector = fields.length ? ` -->|${fields.join("<br/>")}| ` : " --> ";
+        lines.push(`    ${from}["${nodeLabel(from)}"]${connector}${to}["${nodeLabel(to)}"]`);
+        if (targetSet.has(edge)) {
+          lines.push(`    linkStyle ${index} stroke:#ffb84d,stroke-width:5px;`);
+        }
+      });
+      for (const node of nodes) {
+        if (targetSet.has(node)) {
+          lines.push(`    class ${node} active`);
+        } else if (["Episode", "BackgroundContext", "Patient", "CaseReport"].includes(node)) {
+          lines.push(`    class ${node} context`);
+        } else if (["Exposure", "Drug", "Treatment", "Outcome", "Phenotype"].includes(node)) {
+          lines.push(`    class ${node} treatment`);
+        } else {
+          lines.push(`    class ${node} neutral`);
+        }
+      }
+      lines.push("    classDef neutral fill:#f8fafc,stroke:#b8c2d0,stroke-width:2px,color:#172033;");
+      lines.push("    classDef active fill:#fff0cf,stroke:#ffb84d,stroke-width:5px,color:#172033;");
+      lines.push("    classDef context fill:#f8fafc,stroke:#b8c2d0,stroke-width:2px,color:#172033;");
+      lines.push("    classDef treatment fill:#f8fafc,stroke:#b8c2d0,stroke-width:2px,color:#172033;");
+      return lines.join("\n");
+    }
+
+    async function renderSchema(question) {
+      const id = `pasc_schema_${++renderCounter}`;
+      const diagram = buildSchemaMermaid(question);
+      try {
+        const { svg } = await mermaid.render(id, diagram);
+        schemaGraph.innerHTML = svg;
+      } catch (error) {
+        schemaGraph.innerHTML = `<pre>${diagram}</pre>`;
+      }
+    }
+
+    function displayLabel(question) {
+      return question.label;
+    }
+
+    function renderButtons(activeKey) {
+      questionList.innerHTML = "";
+      let currentPage = "";
+      for (const question of questions) {
+        if (question.page !== currentPage) {
+          currentPage = question.page;
+          const heading = document.createElement("h3");
+          heading.className = "section-title";
+          heading.style.marginTop = questionList.children.length ? "14px" : "0";
+          heading.textContent = currentPage;
+          questionList.appendChild(heading);
+        }
+        const button = document.createElement("button");
+        button.className = `question${question.key === activeKey ? " is-active" : ""}`;
+        button.type = "button";
+        const audienceBadge = question.audience ? `<span class="badge">${question.audience} only</span>` : "";
+        button.innerHTML = `
+          <span class="meta"><span>${question.page}</span><span class="field">${question.key}</span></span>
+          <span class="text">${displayLabel(question)}</span>
+          <span class="hint">${question.hint || question.targets.join(" -> ")}</span>
+          ${audienceBadge}
+        `;
+        button.addEventListener("click", () => {
+          history.replaceState(null, "", `#${encodeURIComponent(question.key)}`);
+          setActive(question.key);
+        });
+        questionList.appendChild(button);
+      }
+    }
+
+    function renderList(element, values) {
+      element.innerHTML = "";
+      for (const value of values || []) {
+        const li = document.createElement("li");
+        li.innerHTML = `<code>${value}</code>`;
+        element.appendChild(li);
+      }
+    }
+
+    async function setActive(questionKey) {
+      const question = questions.find((item) => item.key === questionKey) || questions[0];
+      renderButtons(question.key);
+      const activeQuestion = questionList.querySelector(".question.is-active");
+      if (activeQuestion && formPanel) {
+        formPanel.scrollTop = activeQuestion.offsetTop - (formPanel.clientHeight / 2) + (activeQuestion.clientHeight / 2);
+      }
+      activeTitle.textContent = question.page;
+      activeSummary.textContent = `Form field: ${question.key}. Graph field: ${question.graph.join("; ")}.`;
+      mappingTitle.textContent = question.key;
+      mappingText.textContent = question.label;
+      targetList.innerHTML = "";
+      for (const target of question.targets) {
+        const span = document.createElement("span");
+        span.className = "target";
+        span.textContent = target;
+        targetList.appendChild(span);
+      }
+      renderList(payloadList, question.payload);
+      renderList(graphList, question.graph);
+      await renderSchema(question);
+    }
+
+    window.addEventListener("hashchange", () => {
+      const activeKey = decodeURIComponent(window.location.hash.slice(1));
+      setActive(activeKey || "report__extra_fields__symptoms_outcome[].long_covid_outcome");
+    });
+
+    const initialKey = window.location.hash
+      ? decodeURIComponent(window.location.hash.slice(1))
+      : "report__extra_fields__symptoms_outcome[].long_covid_outcome";
+    setActive(questions.some((question) => question.key === initialKey) ? initialKey : "report__extra_fields__symptoms_outcome[].long_covid_outcome");
+  </script>
+</body>
+</html>
