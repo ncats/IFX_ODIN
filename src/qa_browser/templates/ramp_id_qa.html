@@ -49,27 +49,148 @@
         </div>
         {% endif %}
     </section>
-    <section class="ramp-id-graph-panel">
-        <div id="rampIdCy" class="ramp-id-cy" data-ids="{{ selected_ids }}"></div>
-        <aside class="ramp-id-detail">
-            <h2 id="rampIdDetailTitle">Graph</h2>
-            <p id="rampIdDetailSub">Loading {{ selected_ids }}</p>
-            <div id="rampIdDetails" class="ramp-id-details"></div>
+    <div class="ramp-id-review-layout">
+        <aside class="ramp-id-diagnosis-panel">
+            <div class="ramp-id-section-header">
+                <h2>Merge Diagnosis</h2>
+                <p>{{ diagnoses|length }} saved</p>
+            </div>
+            {% if diagnosis_enabled %}
+            <form method="post" action="{{ root_path }}/ramp-id-qa/diagnosis" class="ramp-id-diagnosis-form">
+                <input type="hidden" name="ids" value="{{ selected_ids }}">
+                <input type="hidden" name="show_individual_ids" value="{{ 'true' if show_individual_ids else 'false' }}">
+                {% if navigation %}
+                <input type="hidden" name="workbook_row" value="{{ navigation.current.workbookRow }}">
+                {% if navigation.next %}
+                <input type="hidden" name="next_href" value="{{ navigation.next.href }}">
+                {% endif %}
+                {% endif %}
+                <label>
+                    <span>Reviewer</span>
+                    <input id="rampIdReviewer" type="text" name="reviewer" autocomplete="name" required>
+                </label>
+                <fieldset>
+                    <legend>Applies to</legend>
+                    <div class="ramp-id-selection-options">
+                        {% for ramp_id in parsed_ids %}
+                        <label>
+                            <input type="checkbox" name="selected_ramp_ids" value="{{ ramp_id }}" checked>
+                            <span>{{ ramp_id }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Problem type</legend>
+                    <div class="ramp-id-diagnosis-options">
+                        <div class="ramp-id-diagnosis-group">
+                            <h3>Merge These</h3>
+                            {% for option in diagnosis_options %}
+                            {% if option.decision == "can_group" %}
+                            <label class="ramp-id-diagnosis-option ramp-id-decision-{{ option.decision|replace('_', '-') }}">
+                                <input type="checkbox" name="diagnosis" value="{{ option.value }}">
+                                <span>
+                                    <strong>{{ option.label }}</strong>
+                                </span>
+                            </label>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="ramp-id-diagnosis-group">
+                            <h3>Don't Merge These</h3>
+                            {% for option in diagnosis_options %}
+                            {% if option.decision == "should_not_group" %}
+                            <label class="ramp-id-diagnosis-option ramp-id-decision-{{ option.decision|replace('_', '-') }}">
+                                <input type="checkbox" name="diagnosis" value="{{ option.value }}">
+                                <span>
+                                    <strong>{{ option.label }}</strong>
+                                </span>
+                            </label>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </fieldset>
+                <label>
+                    <span>Note</span>
+                    <textarea name="note" rows="2" placeholder="Optional details"></textarea>
+                </label>
+                <div class="ramp-id-save-actions">
+                    <button type="submit" name="submit_action" value="save" class="btn" disabled>Save</button>
+                    <button type="submit" name="submit_action" value="save_next" class="btn btn-primary" {% if not navigation or not navigation.next %}disabled{% else %}disabled{% endif %}>Save &amp; Next</button>
+                </div>
+            </form>
+            {% else %}
+            <div class="ramp-id-structure-empty">Diagnosis storage is not configured.</div>
+            {% endif %}
+            <div class="ramp-id-diagnosis-history">
+                {% for entry in diagnoses|reverse %}
+                <article class="ramp-id-diagnosis-entry ramp-id-decision-{{ entry.decision|replace('_', '-') }}">
+                    <header>
+                        <div>
+                            <strong>{{ entry.diagnosis_label }}</strong>
+                            <span>{{ entry.decision_label }}</span>
+                        </div>
+                        <form method="post" action="{{ root_path }}/ramp-id-qa/diagnosis/{{ entry.id }}/delete" onsubmit="return window.confirm('Delete this curation?');">
+                            <input type="hidden" name="ids" value="{{ selected_ids }}">
+                            <input type="hidden" name="show_individual_ids" value="{{ 'true' if show_individual_ids else 'false' }}">
+                            <button type="submit" class="ramp-id-delete-curation" aria-label="Delete curation" title="Delete curation">×</button>
+                        </form>
+                    </header>
+                    <div class="ramp-id-diagnosis-selection">
+                        {% for ramp_id in entry.selected_ramp_ids or entry.ramp_ids %}
+                        <span>{{ ramp_id }}</span>
+                        {% endfor %}
+                    </div>
+                    <div>
+                        <span>{{ entry.reviewer }}</span>
+                        <time>{{ entry.timestamp }}</time>
+                    </div>
+                    {% if entry.note %}
+                    <p>{{ entry.note }}</p>
+                    {% endif %}
+                </article>
+                {% else %}
+                <div class="ramp-id-structure-empty">No saved diagnoses.</div>
+                {% endfor %}
+            </div>
         </aside>
-    </section>
-    <section class="ramp-id-structure-section">
-        <div class="ramp-id-section-header">
-            <h2>Structures</h2>
-            <p id="rampIdStructureSummary">Loading structures</p>
+        <div class="ramp-id-review-main">
+            <div class="ramp-id-graph-toolbar">
+                <form method="get" action="{{ root_path }}/ramp-id-qa">
+                    <input type="hidden" name="ids" value="{{ selected_ids }}">
+                    <label class="ramp-id-toggle">
+                        <input type="checkbox" name="show_individual_ids" value="true" {% if show_individual_ids %}checked{% endif %} onchange="this.form.submit()">
+                        <span>Show individual IDs</span>
+                    </label>
+                </form>
+            </div>
+            <section class="ramp-id-graph-panel">
+                <div id="rampIdCy" class="ramp-id-cy" data-ids="{{ selected_ids }}" data-show-individual-ids="{{ 'true' if show_individual_ids else 'false' }}"></div>
+                <aside class="ramp-id-detail">
+                    <h2 id="rampIdDetailTitle">Graph</h2>
+                    <p id="rampIdDetailSub">Loading {{ selected_ids }}</p>
+                    <div id="rampIdDetails" class="ramp-id-details"></div>
+                </aside>
+            </section>
+            <section class="ramp-id-structure-section">
+                <div class="ramp-id-section-header">
+                    <h2>Structures</h2>
+                    <p id="rampIdStructureSummary">Loading structures</p>
+                </div>
+                <div id="rampIdStructureTray" class="ramp-id-structure-tray"></div>
+            </section>
         </div>
-        <div id="rampIdStructureTray" class="ramp-id-structure-tray"></div>
-    </section>
+    </div>
     {% endif %}
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>Multi-hit Workbook Rows</h2>
-            <p>{{ multiramp_rows|length }} rows where final_RaMP_hit_count &gt; 1</p>
+            <p>
+                {{ multiramp_rows|length }} rows where final_RaMP_hit_count &gt; 1
+                <a class="btn btn-sm" href="{{ root_path }}/ramp-id-qa/curations.csv">Download curations</a>
+            </p>
         </div>
         <div class="ramp-id-table-wrap">
             <table class="ramp-id-table">
@@ -78,6 +199,7 @@
                         <th>Row</th>
                         <th>Name</th>
                         <th>Hits</th>
+                        <th>Curation</th>
                         <th>RaMP IDs</th>
                         <th>Metabolon</th>
                     </tr>
@@ -88,11 +210,26 @@
                         <td>{{ row.workbookRow }}</td>
                         <td><a href="{{ root_path }}{{ row.href }}">{{ row.standardizedName or row.chemicalName or "(unnamed)" }}</a></td>
                         <td>{{ row.finalRampHitCount }}</td>
+                        <td>
+                            {% set summary = row.curationSummary %}
+                            {% if summary.total %}
+                            <div class="ramp-id-curation-icons" title="{{ summary.total }} curation(s) by {{ summary.reviewers|join(', ') }}">
+                                {% if summary.can_group_count %}
+                                <span class="ramp-id-curation-icon ramp-id-curation-merge">M {{ summary.can_group_count }}</span>
+                                {% endif %}
+                                {% if summary.should_not_group_count %}
+                                <span class="ramp-id-curation-icon ramp-id-curation-keep">K {{ summary.should_not_group_count }}</span>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <span class="ramp-id-curation-none">None</span>
+                            {% endif %}
+                        </td>
                         <td class="mono">{{ row.finalRampIds }}</td>
                         <td>{{ row.metabolonId or row.chemId }}</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="5">No workbook rows found.</td></tr>
+                    <tr><td colspan="6">No workbook rows found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -112,6 +249,43 @@
     const statsBox = document.getElementById("rampIdStats");
     const structureTray = document.getElementById("rampIdStructureTray");
     const structureSummary = document.getElementById("rampIdStructureSummary");
+    const reviewerInput = document.getElementById("rampIdReviewer");
+    const diagnosisForm = document.querySelector(".ramp-id-diagnosis-form");
+
+    if (reviewerInput) {
+        reviewerInput.value = window.localStorage.getItem("rampIdQaReviewer") || "";
+        reviewerInput.addEventListener("input", () => {
+            window.localStorage.setItem("rampIdQaReviewer", reviewerInput.value);
+        });
+    }
+    if (diagnosisForm) {
+        const saveButtons = diagnosisForm.querySelectorAll('button[type="submit"]');
+        const saveNextButton = diagnosisForm.querySelector('button[name="submit_action"][value="save_next"]');
+        const hasNext = {{ 'true' if navigation and navigation.next else 'false' }};
+        function updateSaveButtons() {
+            const selectedIds = diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"]:checked');
+            const selectedDiagnoses = diagnosisForm.querySelectorAll('input[name="diagnosis"]:checked');
+            const canSave = selectedIds.length > 0 && selectedDiagnoses.length > 0;
+            saveButtons.forEach((button) => {
+                button.disabled = !canSave;
+            });
+            if (saveNextButton && !hasNext) {
+                saveNextButton.disabled = true;
+            }
+        }
+        diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"], input[name="diagnosis"]').forEach((input) => {
+            input.addEventListener("change", updateSaveButtons);
+        });
+        updateSaveButtons();
+        diagnosisForm.addEventListener("submit", (event) => {
+            const selectedIds = diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"]:checked');
+            const selectedDiagnoses = diagnosisForm.querySelectorAll('input[name="diagnosis"]:checked');
+            if (!selectedIds.length || !selectedDiagnoses.length) {
+                event.preventDefault();
+                window.alert("Select at least one RaMP ID and one diagnosis.");
+            }
+        });
+    }
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -228,7 +402,11 @@
         `).join("");
     }
 
-    fetch(`${rootPath}/ramp-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
+    const graphParams = new URLSearchParams({
+        ids: graphEl.dataset.ids,
+        show_individual_ids: graphEl.dataset.showIndividualIds === "true" ? "true" : "false",
+    });
+    fetch(`${rootPath}/ramp-id-qa/api/graph?${graphParams.toString()}`)
         .then((response) => {
             if (!response.ok) {
                 return response.json().then((payload) => {

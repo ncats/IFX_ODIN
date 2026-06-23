@@ -37,6 +37,8 @@ services:
       - src/use_cases/secrets/smtp.yaml
       - -f
       - input_files/feedback.json
+      - --ramp-diagnosis-file
+      - input_files/ramp_id_diagnoses.json
       - --pounce-project-base-url
       - https://pounce-ci.ncats.nih.gov/project
     networks:
