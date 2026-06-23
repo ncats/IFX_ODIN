@@ -30,7 +30,20 @@ import uvicorn
 
 from src.core.data_registry import DataRegistry
 from src.models.node import Node
-from src.qa_browser.ramp_id_graph import build_multiramp_navigation, build_ramp_graph_payload, load_multiramp_rows, parse_ramp_ids
+from src.qa_browser.ramp_id_graph import (
+    RAMP_DIAGNOSIS_OPTIONS,
+    add_ramp_diagnosis,
+    attach_ramp_diagnosis_summaries,
+    build_multiramp_navigation,
+    build_ramp_graph_payload,
+    delete_ramp_diagnosis,
+    get_ramp_diagnoses,
+    load_multiramp_export_rows,
+    load_multiramp_rows,
+    parse_ramp_ids,
+    ramp_diagnosis_enabled,
+    set_ramp_diagnosis_file,
+)
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -1719,8 +1732,9 @@ async def qa_browser_home(request: Request):
 
 
 @app.get("/ramp-id-qa", response_class=HTMLResponse)
-def ramp_id_qa(request: Request, ids: str = ""):
-    selected_ids = " | ".join(parse_ramp_ids(ids))
+def ramp_id_qa(request: Request, ids: str = "", show_individual_ids: bool = False):
+    parsed_ids = parse_ramp_ids(ids)
+    selected_ids = " | ".join(parsed_ids)
     sqlite_path = None
     registry_metadata = None
     registry_error = None
@@ -1729,27 +1743,103 @@ def ramp_id_qa(request: Request, ids: str = ""):
             sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
         except Exception as exc:
             registry_error = str(exc)
-    rows = load_multiramp_rows()
+    rows = attach_ramp_diagnosis_summaries(load_multiramp_rows())
     navigation = build_multiramp_navigation(ids) if selected_ids else None
     return templates.TemplateResponse(request, "ramp_id_qa.html", {
         "request": request,
         "ids": ids,
+        "parsed_ids": parsed_ids,
         "selected_ids": selected_ids,
+        "show_individual_ids": show_individual_ids,
         "navigation": navigation,
         "multiramp_rows": rows,
         "workbook_label": "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx",
         "sqlite_path": str(sqlite_path) if sqlite_path else None,
         "registry_metadata": registry_metadata,
         "registry_error": registry_error,
+        "diagnosis_options": RAMP_DIAGNOSIS_OPTIONS,
+        "diagnosis_enabled": ramp_diagnosis_enabled(),
+        "diagnoses": get_ramp_diagnoses(parsed_ids),
     })
 
 
 @app.get("/ramp-id-qa/api/graph")
-def ramp_id_qa_graph(ids: str = ""):
+def ramp_id_qa_graph(ids: str = "", show_individual_ids: bool = False):
     sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
-    payload = build_ramp_graph_payload(sqlite_path, parse_ramp_ids(ids))
+    payload = build_ramp_graph_payload(sqlite_path, parse_ramp_ids(ids), show_individual_ids=show_individual_ids)
     payload["registryDataset"] = registry_metadata
     return payload
+
+
+@app.get("/ramp-id-qa/curations.csv")
+def ramp_id_qa_curations_csv():
+    workbook_columns, rows = load_multiramp_export_rows()
+    curation_columns = [
+        "curation_id",
+        "curation_timestamp",
+        "curation_reviewer",
+        "curation_decision",
+        "curation_decision_label",
+        "curation_diagnosis",
+        "curation_diagnosis_label",
+        "curation_selected_ramp_ids",
+        "curation_note",
+    ]
+    fieldnames = ["workbook_row", *workbook_columns, *curation_columns]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=ramp_id_qa_curations.csv"},
+    )
+
+
+@app.post("/ramp-id-qa/diagnosis")
+def ramp_id_qa_diagnosis(
+    request: Request,
+    ids: str = Form(...),
+    diagnosis: List[str] = Form(...),
+    selected_ramp_ids: List[str] = Form(...),
+    reviewer: str = Form(...),
+    note: str = Form(""),
+    workbook_row: Optional[int] = Form(None),
+    next_href: str = Form(""),
+    submit_action: str = Form("save"),
+    show_individual_ids: bool = Form(False),
+):
+    ramp_ids = parse_ramp_ids(ids)
+    selected_ids = parse_ramp_ids(" ".join(selected_ramp_ids))
+    for diagnosis_value in diagnosis:
+        add_ramp_diagnosis(
+            ramp_ids=ramp_ids,
+            selected_ramp_ids=selected_ids,
+            diagnosis=diagnosis_value,
+            reviewer=reviewer,
+            note=note,
+            workbook_row=workbook_row,
+        )
+    if submit_action == "save_next" and next_href:
+        redirect_path = next_href
+        if show_individual_ids:
+            separator = "&" if "?" in redirect_path else "?"
+            redirect_path = f"{redirect_path}{separator}show_individual_ids=true"
+        return _redirect_to(redirect_path, request=request)
+    return _redirect_to(f"/ramp-id-qa?{urlencode({'ids': ids, 'show_individual_ids': str(show_individual_ids).lower()})}", request=request)
+
+
+@app.post("/ramp-id-qa/diagnosis/{entry_id}/delete")
+def ramp_id_qa_delete_diagnosis(
+    request: Request,
+    entry_id: str,
+    ids: str = Form(...),
+    show_individual_ids: bool = Form(False),
+):
+    delete_ramp_diagnosis(entry_id)
+    return _redirect_to(f"/ramp-id-qa?{urlencode({'ids': ids, 'show_individual_ids': str(show_individual_ids).lower()})}", request=request)
 
 
 @app.get("/registry", response_class=HTMLResponse)
@@ -4620,6 +4710,9 @@ def main():
     parser.add_argument("--feedback-file", "-f",
                         default=None,
                         help="Path to JSON file for storing feedback comments (created if missing)")
+    parser.add_argument("--ramp-diagnosis-file",
+                        default=os.getenv("QA_BROWSER_RAMP_DIAGNOSIS_FILE", "input_files/ramp_id_diagnoses.json"),
+                        help="Path to JSON file for storing RaMP ID QA merge diagnoses")
     parser.add_argument("--pounce-project-base-url",
                         default="",
                         help="Public base URL for project detail links, e.g. https://pounce-ci.ncats.nih.gov/project")
@@ -4674,6 +4767,7 @@ def main():
     _pounce_module.set_smtp_config(args.smtp_credentials)
     _pounce_module.set_public_project_base_url(args.pounce_project_base_url)
     _feedback_module.set_feedback_file(args.feedback_file)
+    set_ramp_diagnosis_file(args.ramp_diagnosis_file)
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

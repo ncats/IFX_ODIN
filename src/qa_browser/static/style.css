@@ -2719,6 +2719,14 @@ details summary:hover { color: var(--accent); }
     resize: vertical;
 }
 
+.ramp-id-toggle {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 0.82rem;
+    gap: 0.45rem;
+}
+
 .ramp-id-nav {
     align-items: center;
     background: var(--bg-card);
@@ -2728,6 +2736,9 @@ details summary:hover { color: var(--accent); }
     gap: 1rem;
     justify-content: space-between;
     padding: 0.75rem 1rem;
+    position: relative;
+    top: auto;
+    z-index: 1;
 }
 
 .ramp-id-nav-current {
@@ -2768,6 +2779,35 @@ details summary:hover { color: var(--accent); }
     padding: 0.75rem;
 }
 
+.ramp-id-review-layout {
+    align-items: start;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.ramp-id-review-main {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.ramp-id-graph-toolbar {
+    align-items: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.45rem 0.6rem;
+}
+
+.ramp-id-graph-toolbar form {
+    align-items: center;
+    display: flex;
+    gap: 0.6rem;
+}
+
 .ramp-id-graph-panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2777,6 +2817,250 @@ details summary:hover { color: var(--accent); }
     height: min(72vh, 760px);
     min-height: 560px;
     overflow: hidden;
+}
+
+.ramp-id-diagnosis-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: calc(100vh - 5rem);
+    overflow: auto;
+    position: sticky;
+    top: 4.25rem;
+}
+
+.ramp-id-diagnosis-panel .ramp-id-section-header {
+    padding: 0.55rem 0.7rem;
+}
+
+.ramp-id-diagnosis-panel .ramp-id-section-header h2 {
+    font-size: 0.95rem;
+}
+
+.ramp-id-diagnosis-panel .ramp-id-section-header p {
+    font-size: 0.78rem;
+}
+
+.ramp-id-diagnosis-form {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.7rem;
+}
+
+.ramp-id-diagnosis-form > label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.ramp-id-diagnosis-form label > span,
+.ramp-id-diagnosis-form legend {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.ramp-id-diagnosis-form input[type="text"],
+.ramp-id-diagnosis-form textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+    padding: 0.42rem 0.5rem;
+}
+
+.ramp-id-diagnosis-form textarea {
+    resize: vertical;
+}
+
+.ramp-id-save-actions {
+    background: var(--bg-card);
+    bottom: 0.4rem;
+    display: grid;
+    gap: 0.45rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    padding-top: 0.15rem;
+    position: sticky;
+    z-index: 2;
+}
+
+.ramp-id-save-actions .btn {
+    min-width: 0;
+    text-align: center;
+}
+
+.ramp-id-save-actions .btn:disabled {
+    opacity: 0.45;
+}
+
+.ramp-id-diagnosis-form fieldset {
+    border: 0;
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+}
+
+.ramp-id-diagnosis-options {
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: 1fr;
+}
+
+.ramp-id-selection-options {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.ramp-id-selection-options label,
+.ramp-id-diagnosis-option {
+    align-items: center;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.34rem 0.45rem;
+}
+
+.ramp-id-selection-options input,
+.ramp-id-diagnosis-option input {
+    flex: 0 0 auto;
+}
+
+.ramp-id-selection-options span {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-diagnosis-group {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.ramp-id-diagnosis-group h3 {
+    color: var(--text);
+    font-size: 0.78rem;
+    margin: 0;
+}
+
+.ramp-id-diagnosis-option {
+    padding-block: 0.34rem;
+}
+
+.ramp-id-diagnosis-option input {
+    margin-top: 0.12rem;
+}
+
+.ramp-id-diagnosis-option span {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.ramp-id-diagnosis-option strong,
+.ramp-id-diagnosis-entry strong {
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-diagnosis-option small,
+.ramp-id-diagnosis-entry header span,
+.ramp-id-diagnosis-entry div,
+.ramp-id-diagnosis-entry time {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.ramp-id-diagnosis-history {
+    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 0.45rem;
+    max-height: 34vh;
+    overflow: auto;
+    padding: 0.7rem;
+}
+
+.ramp-id-diagnosis-entry {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: var(--radius);
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.5rem;
+}
+
+.ramp-id-diagnosis-entry header {
+    align-items: start;
+    display: flex;
+    gap: 0.35rem;
+    justify-content: space-between;
+}
+
+.ramp-id-diagnosis-entry header > div {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.ramp-id-diagnosis-entry header form {
+    flex: 0 0 auto;
+}
+
+.ramp-id-delete-curation {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 1rem;
+    height: 1.3rem;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    width: 1.3rem;
+}
+
+.ramp-id-delete-curation:hover {
+    background: var(--bg-hover);
+    color: var(--danger);
+}
+
+.ramp-id-diagnosis-entry div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.ramp-id-diagnosis-selection {
+    gap: 0.25rem;
+}
+
+.ramp-id-diagnosis-selection span {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    padding: 0.08rem 0.32rem;
+}
+
+.ramp-id-diagnosis-entry p {
+    font-size: 0.82rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.ramp-id-decision-can-group {
+    border-left-color: var(--success);
+}
+
+.ramp-id-decision-should-not-group {
+    border-left-color: var(--danger);
 }
 
 .ramp-id-cy {
@@ -3021,11 +3305,51 @@ details summary:hover { color: var(--accent); }
     z-index: 1;
 }
 
+.ramp-id-curation-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.ramp-id-curation-icon {
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.22rem 0.42rem;
+}
+
+.ramp-id-curation-merge {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.ramp-id-curation-keep {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.ramp-id-curation-none {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
 @media (max-width: 900px) {
     .ramp-id-header,
     .ramp-id-overview,
-    .ramp-id-graph-panel {
+    .ramp-id-graph-panel,
+    .ramp-id-review-layout {
         grid-template-columns: 1fr;
+    }
+
+    .ramp-id-diagnosis-panel {
+        max-height: none;
+        position: static;
+    }
+
+    .ramp-id-diagnosis-history {
+        max-height: 260px;
     }
 
     .ramp-id-graph-panel {
