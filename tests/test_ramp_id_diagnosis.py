@@ -43,6 +43,14 @@ def test_add_ramp_diagnosis_rejects_unknown_category(tmp_path):
     assert exc.value.status_code == 400
 
 
+def test_stereo_and_positional_isomers_are_separate_options():
+    options = {option["value"]: option["label"] for option in ramp_id_graph.RAMP_DIAGNOSIS_OPTIONS}
+
+    assert options["stereo_isomer_can_group"] == "Stereo isomer"
+    assert options["positional_isomer_can_group"] == "Positional isomer"
+    assert "stereo_positional_isomer_can_group" not in options
+
+
 def test_attach_ramp_diagnosis_summaries_counts_decisions(tmp_path):
     ramp_id_graph.set_ramp_diagnosis_file(str(tmp_path / "ramp_diagnoses.json"))
     ramp_ids = ["RAMP_C_000000077", "RAMP_C_000001819"]

@@ -24,8 +24,14 @@ QA_BROWSER_DIR = Path(__file__).resolve().parent
 MULTIRAMP_WORKBOOK = QA_BROWSER_DIR / "data" / "ramp" / "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx"
 RAMP_DIAGNOSIS_OPTIONS = [
     {
-        "value": "stereo_positional_isomer_can_group",
-        "label": "Stereo/positional isomer",
+        "value": "stereo_isomer_can_group",
+        "label": "Stereo isomer",
+        "decision": "can_group",
+        "decision_label": "Can be grouped",
+    },
+    {
+        "value": "positional_isomer_can_group",
+        "label": "Positional isomer",
         "decision": "can_group",
         "decision_label": "Can be grouped",
     },
