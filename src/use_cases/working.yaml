@@ -1,61 +1,15 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-database_name: &database_name test_pharos
+database_name: &database_name chebi
 
 registry:
   credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
   cache_dir: /tmp/ifx-registry-cache
 
-resolvers:
-  - label: disease_ids
-    import: ./src/id_resolvers/disease_resolver.py
-    class: DiseaseIdResolver
-    kwargs:
-      resolver_snapshot: target_graph:disease_ids:deps-efec72a5de12
-      types:
-        - Disease
-      multi_match_behavior: All
-
-  - label: tcrd_targets
-    import: ./src/id_resolvers/target_graph_resolver.py
-    class: TCRDTargetResolver
-    kwargs:
-      resolver_snapshot: target_graph:tcrd_targets:deps-d6d9894c3969
-      types:
-        - Protein
-        - Gene
-        - Transcript
-      no_match_behavior: Skip
-
 input_adapters:
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseAdapter
+  - import: ./src/input_adapters/chebi/chebi_obo_adapter.py
+    class: FullOboAdapter
     kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/mondo/mondo_adapter.py
-    class: MondoDiseaseParentEdgeAdapter
-    kwargs:
-      file_path: ./input_files/auto/mondo/mondo.json
-
-  - import: ./src/input_adapters/disease_ontology/do_adapter.py
-    class: DODiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/disease_ontology/doid.json
-
-  - import: ./src/input_adapters/rdas/diseases.py
-    class: RDASRareDiseaseAdapter
-
-  - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
-    class: ProteinNodeAdapter
-    kwargs:
-      file_path: ./input_files/manual/target_graph/protein_ids.tsv
-      canonical_only: true
-
-  - import: ./src/input_adapters/ctd/ctd_gene_disease.py
-    class: CTDGeneDiseaseAdapter
-    kwargs:
-      file_path: ./input_files/auto/ctd/CTD_curated_genes_diseases.tsv.gz
-      version_file_path: ./input_files/auto/ctd/ctd_version.tsv
+      data_source: chebi:ontology_full:252
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

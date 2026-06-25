@@ -160,6 +160,13 @@ sources:
           module: src.registry.sources.ontologies
           class: DiseaseOntologyFetcher
           version_strategy: owl_version_info
+  chebi:
+    datasets:
+      ontology_full:
+        fetch:
+          module: src.registry.sources.ontologies
+          class: ChebiFullOntologyFetcher
+          version_strategy: chebi_release_and_obo_data_version
   reactome:
     datasets:
       pathways:

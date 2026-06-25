@@ -29,6 +29,14 @@ from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TIN
 from src.registry.sources.mgi import MGI_HMD_FILE_NAME
 from src.registry.sources.mp import MP_FILE_NAME, extract_obo_data_version
 from src.registry.sources.ncbi import NCBI_GENE_SUMMARY_URLS, NCBI_PUBLICATION_URLS
+from src.registry.sources.ontologies import (
+    CHEBI_FULL_OBO_URL,
+    CHEBI_ONTOLOGY_README_URL,
+    extract_chebi_obo_metadata,
+    fetch_chebi_full_ontology,
+    latest_chebi_full_ontology_version,
+    parse_chebi_readme_metadata,
+)
 from src.registry.sources.external_sources import _drugcentral_version_info, _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
@@ -2419,6 +2427,92 @@ def test_extract_obo_data_version(tmp_path: Path):
     )
 
     assert extract_obo_data_version(obo_path) == "2026-05-01"
+
+
+def test_parse_chebi_readme_metadata():
+    text = (
+        "Title:                 ChEBI ontology\n"
+        "ChEBI Release:         252\n"
+        "Date of last update:   2026-05-01\n"
+    )
+
+    assert parse_chebi_readme_metadata(text) == ("252", "2026-05-01")
+
+
+def test_extract_chebi_obo_metadata_handles_gzip(tmp_path: Path):
+    obo_path = tmp_path / "chebi.obo.gz"
+    with gzip.open(obo_path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "format-version: 1.2\n"
+            "data-version: 252\n"
+            "date: 01:05:2026 16:42\n"
+            "\n"
+            "[Term]\n"
+        )
+
+    assert extract_chebi_obo_metadata(obo_path) == ("252", "2026-05-01")
+
+
+def test_latest_chebi_full_ontology_version_parses_readme(monkeypatch):
+    class FakeResponse:
+        text = "ChEBI Release: 252\nDate of last update: 2026-05-01\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        assert url == CHEBI_ONTOLOGY_README_URL
+        return FakeResponse()
+
+    monkeypatch.setattr("src.registry.sources.ontologies.requests.get", fake_get)
+
+    assert latest_chebi_full_ontology_version() == "252"
+
+
+def test_fetch_chebi_full_ontology_uses_release_and_validates_obo(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        text = "ChEBI Release: 252\nDate of last update: 2026-05-01\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        assert url == CHEBI_ONTOLOGY_README_URL
+        return FakeResponse()
+
+    def fake_download_url(url, dest, timeout=60):
+        assert url == CHEBI_FULL_OBO_URL
+        path = dest / "chebi.obo.gz"
+        dest.mkdir(parents=True, exist_ok=True)
+        with gzip.open(path, "wt", encoding="utf-8") as handle:
+            handle.write(
+                "format-version: 1.2\n"
+                "data-version: 252\n"
+                "date: 01:05:2026 16:42\n"
+                "\n"
+                "[Term]\n"
+            )
+        return path, {
+            "final_url": url,
+            "content_type": "application/x-gzip",
+            "last_modified": "Fri, 01 May 2026 15:57:22 GMT",
+        }
+
+    monkeypatch.setattr("src.registry.sources.ontologies.requests.get", fake_get)
+    monkeypatch.setattr("src.registry.sources.ontologies.download_url", fake_download_url)
+
+    snapshot = fetch_chebi_full_ontology(dest=tmp_path)
+
+    assert snapshot.source == "chebi"
+    assert snapshot.dataset == "ontology_full"
+    assert snapshot.version == "252"
+    assert snapshot.version_date == "2026-05-01"
+    assert snapshot.upstream_urls == [CHEBI_FULL_OBO_URL, CHEBI_ONTOLOGY_README_URL]
+    assert snapshot.files[0].path.name == "chebi.obo.gz"
+    evidence = snapshot.extra["version_method"]["evidence"]
+    assert evidence["readme_release"] == "252"
+    assert evidence["obo_data_version"] == "252"
+    assert evidence["obo_date"] == "2026-05-01"
 
 
 def test_external_registration_version_token_is_path_safe():

@@ -53,6 +53,7 @@ class DataSourceName(SimpleEnum):
     ManualUpdate = "Manual Update"
     Mondo = "Mondo"
     DiseaseOntology = "Disease Ontology"
+    ChEBI = "ChEBI"
     CTD = "CTD"
     UBERON = 'UBERON'
     PANTHERClasses = "PANTHER Protein Classes"
