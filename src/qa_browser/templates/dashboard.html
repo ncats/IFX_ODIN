@@ -52,14 +52,19 @@
             <h2>Graph Schema</h2>
             <table class="schema-table">
                 <thead>
-                    <tr><th>Edge Collection</th><th>From</th><th>To</th></tr>
+                    <tr><th>Edge Collection</th><th>Observed Endpoint Pairs</th></tr>
                 </thead>
                 <tbody>
                     {% for ed in edge_defs %}
                     <tr>
                         <td>{{ ed.edge_collection }}</td>
-                        <td>{{ ed.from_vertex_collections | join(", ") }}</td>
-                        <td>{{ ed.to_vertex_collections | join(", ") }}</td>
+                        <td>
+                            {% for pair in ed.endpoint_pairs %}
+                            <div>{{ pair.from_collection }} -> {{ pair.to_collection }} <span class="muted">({{ pair.count }})</span></div>
+                            {% else %}
+                            <span class="muted">No stored edges</span>
+                            {% endfor %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

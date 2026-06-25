@@ -38,8 +38,7 @@
         <thead>
             <tr>
                 <th>Edge Collection</th>
-                <th>From Collections</th>
-                <th>To Collections</th>
+                <th>Observed Endpoint Pairs</th>
             </tr>
         </thead>
         <tbody>
@@ -47,13 +46,15 @@
             <tr>
                 <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ ed.edge_collection }}">{{ ed.edge_collection }}</a></td>
                 <td>
-                    {% for fc in ed.from_vertex_collections %}
-                    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ fc }}">{{ fc }}</a>{% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                </td>
-                <td>
-                    {% for tc in ed.to_vertex_collections %}
-                    <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ tc }}">{{ tc }}</a>{% if not loop.last %}, {% endif %}
+                    {% for pair in ed.endpoint_pairs %}
+                    <div>
+                        <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ pair.from_collection }}">{{ pair.from_collection }}</a>
+                        ->
+                        <a href="{{ root_path }}/db/{{ db_name }}/collection/{{ pair.to_collection }}">{{ pair.to_collection }}</a>
+                        <span class="muted">({{ pair.count }})</span>
+                    </div>
+                    {% else %}
+                    <span class="muted">No stored edges</span>
                     {% endfor %}
                 </td>
             </tr>

@@ -502,6 +502,40 @@ def _get_collection_schema_entry(db, coll_name: str) -> dict:
         return {}
 
 
+def _edge_endpoint_pairs(db, edge_collection: str) -> List[dict]:
+    if not db.has_collection(edge_collection):
+        return []
+    query = """
+    FOR e IN @@edge_collection
+      COLLECT from_collection = SPLIT(e._from, "/")[0],
+              to_collection = SPLIT(e._to, "/")[0]
+      WITH COUNT INTO count
+      SORT from_collection, to_collection
+      RETURN {
+        from_collection: from_collection,
+        to_collection: to_collection,
+        count: count
+      }
+    """
+    try:
+        return list(db.aql.execute(query, bind_vars={"@edge_collection": edge_collection}))
+    except Exception:
+        return []
+
+
+def _edge_definitions_with_endpoint_pairs(db) -> List[dict]:
+    if not db.has_graph("graph"):
+        return []
+    graph = db.graph("graph")
+    edge_defs = graph.edge_definitions()
+    enriched_defs = []
+    for edge_def in edge_defs:
+        enriched_def = dict(edge_def)
+        enriched_def["endpoint_pairs"] = _edge_endpoint_pairs(db, edge_def["edge_collection"])
+        enriched_defs.append(enriched_def)
+    return enriched_defs
+
+
 def _get_collection_facet_metadata(db, coll_name: str) -> dict:
     schema_entry = _get_collection_schema_entry(db, coll_name)
     facet_metadata = schema_entry.get("facet_metadata") or {}
@@ -2073,10 +2107,7 @@ def dashboard(request: Request, db_name: str):
     collections = _get_dashboard_collection_shell(db)
 
     # Edge definitions for schema summary
-    edge_defs = []
-    if db.has_graph("graph"):
-        graph = db.graph("graph")
-        edge_defs = graph.edge_definitions()
+    edge_defs = _edge_definitions_with_endpoint_pairs(db)
 
     # ETL metadata
     etl_meta = None
@@ -2861,28 +2892,25 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
 @app.get("/db/{db_name}/schema", response_class=HTMLResponse)
 async def schema_view(request: Request, db_name: str):
     db = get_db(db_name)
-    edge_defs = []
-    if db.has_graph("graph"):
-        graph = db.graph("graph")
-        edge_defs = graph.edge_definitions()
+    edge_defs = _edge_definitions_with_endpoint_pairs(db)
 
     # Build mermaid diagram
     mermaid_lines = ["graph LR"]
     nodes_seen = set()
     for ed in edge_defs:
         edge_name = ed["edge_collection"]
-        for frm in ed["from_vertex_collections"]:
-            for to in ed["to_vertex_collections"]:
-                safe_from = frm.replace(":", "_").replace(" ", "_")
-                safe_to = to.replace(":", "_").replace(" ", "_")
-                safe_edge = edge_name.replace(":", "_").replace(" ", "_")
-                if safe_from not in nodes_seen:
-                    mermaid_lines.append(f'    {safe_from}["{frm}"]')
-                    nodes_seen.add(safe_from)
-                if safe_to not in nodes_seen:
-                    mermaid_lines.append(f'    {safe_to}["{to}"]')
-                    nodes_seen.add(safe_to)
-                mermaid_lines.append(f"    {safe_from} -->|{edge_name}| {safe_to}")
+        for endpoint_pair in ed.get("endpoint_pairs") or []:
+            frm = endpoint_pair["from_collection"]
+            to = endpoint_pair["to_collection"]
+            safe_from = frm.replace(":", "_").replace(" ", "_")
+            safe_to = to.replace(":", "_").replace(" ", "_")
+            if safe_from not in nodes_seen:
+                mermaid_lines.append(f'    {safe_from}["{frm}"]')
+                nodes_seen.add(safe_from)
+            if safe_to not in nodes_seen:
+                mermaid_lines.append(f'    {safe_to}["{to}"]')
+                nodes_seen.add(safe_to)
+            mermaid_lines.append(f"    {safe_from} -->|{edge_name}| {safe_to}")
 
     mermaid_text = "\n".join(mermaid_lines)
 
