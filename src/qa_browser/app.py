@@ -1143,6 +1143,8 @@ def _load_registry_update_inputs(registry: DataRegistry, timeout: int):
 
 
 def _registry_status_category(status: dict) -> str:
+    if status.get("check_status") == "manual_unavailable":
+        return "manual"
     if status.get("error"):
         return "error"
     if not status.get("registered_versions"):
@@ -1165,6 +1167,7 @@ def _summarize_registry_status_section(label: str, statuses: List[dict]) -> dict
         "current": 0,
         "update_available": 0,
         "missing": 0,
+        "manual": 0,
         "unknown": 0,
         "error": 0,
     }
@@ -1174,6 +1177,8 @@ def _summarize_registry_status_section(label: str, statuses: List[dict]) -> dict
         counts[category] += 1
         if category != "current":
             detail = status.get("sync_reason") or status.get("error")
+            if not detail and category == "manual":
+                detail = status.get("manual_check_message") or "manual source check unavailable in this environment"
             if not detail and category == "unknown":
                 detail = "latest version not available from checker"
             items.append({
@@ -1188,7 +1193,7 @@ def _summarize_registry_status_section(label: str, statuses: List[dict]) -> dict
                 "error": status.get("error"),
             })
     items.sort(key=lambda item: (
-        {"update_available": 0, "missing": 1, "error": 2, "unknown": 3}.get(item["category"], 4),
+        {"update_available": 0, "missing": 1, "manual": 2, "error": 3, "unknown": 4}.get(item["category"], 5),
         item["label"],
     ))
     return {

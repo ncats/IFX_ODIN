@@ -167,6 +167,11 @@ sources:
           module: src.registry.sources.ontologies
           class: ChebiFullOntologyFetcher
           version_strategy: chebi_release_and_obo_data_version
+      three_star_sdf:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: ChebiThreeStarSdfFetcher
+          version_strategy: single_file_last_modified
   reactome:
     datasets:
       pathways:
@@ -195,6 +200,11 @@ sources:
           module: src.registry.sources.pathway_sources
           class: WikipathwaysHumanGmtFetcher
           version_strategy: filename_date
+      rdf_wp:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: WikipathwaysRdfWpFetcher
+          version_strategy: wikipathways_rdf_filename_date
   iuphar:
     datasets:
       ligands_interactions:
@@ -310,6 +320,32 @@ sources:
           module: src.registry.sources.ramp
           class: RampSqliteDatabaseFetcher
           version_strategy: github_main_db_directory
+  hmdb:
+    datasets:
+      metabolites_xml:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: ManualHmdbMetabolitesXmlFetcher
+          version_strategy: manual_hmdb_release
+      structures_sdf:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: ManualHmdbStructuresSdfFetcher
+          version_strategy: manual_hmdb_release
+  lipidmaps:
+    datasets:
+      lmsd_sdf:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: LipidmapsLmsdSdfFetcher
+          version_strategy: zip_inner_file_timestamp
+  refmet:
+    datasets:
+      metabolites_csv:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: RefmetMetabolitesCsvFetcher
+          version_strategy: content_hash
   rdas:
     datasets:
       diseases_graphql:

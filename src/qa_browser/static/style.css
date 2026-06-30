@@ -759,6 +759,10 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     color: var(--danger);
 }
 
+.registry-update-count-manual {
+    color: #2563eb;
+}
+
 .registry-update-count-unknown {
     color: var(--text-muted);
 }
@@ -799,6 +803,10 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 
 .registry-update-item-status-error {
     color: var(--danger);
+}
+
+.registry-update-item-status-manual {
+    color: #2563eb;
 }
 
 .registry-update-item-status-unknown {
