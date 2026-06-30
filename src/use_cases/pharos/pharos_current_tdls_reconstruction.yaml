@@ -89,13 +89,13 @@ input_adapters:
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      data_source: go:goa_human_uniprot:2026-04-10
+      data_source: go:goa_human_uniprot:2025-12-04
       source: UniProt
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      data_source: go:goa_human_go:2026-01-23
+      data_source: go:goa_human_go:2026-03-25
       source: GO
 
   - import: ./src/input_adapters/ncbi/publications.py
