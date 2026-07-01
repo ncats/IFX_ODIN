@@ -1,5 +1,6 @@
 import gzip
 import os
+import zipfile
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from pathlib import Path
@@ -36,6 +37,12 @@ from src.registry.sources.ontologies import (
     fetch_chebi_full_ontology,
     latest_chebi_full_ontology_version,
     parse_chebi_readme_metadata,
+)
+from src.registry.sources.metabolite_harmonization import (
+    fetch_refmet_metabolites_csv,
+    parse_wikipathways_rdf_listing,
+    _lipidmaps_zip_inner_version,
+    _refmet_version_from_file,
 )
 from src.registry.sources.external_sources import _drugcentral_version_info, _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
@@ -312,6 +319,58 @@ def test_ramp_sqlite_fetcher_selects_latest_github_db_release(tmp_path: Path, mo
     assert snapshot.extra["version_method"]["type"] == "github_main_db_directory"
     assert snapshot.extra["version_method"]["evidence"]["sha"] == "new"
     assert snapshot.extra["version_method"]["evidence"]["github_download_url"] == "https://raw.githubusercontent.com/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.7.sqlite.gz"
+
+
+def test_wikipathways_rdf_listing_parser_finds_rdf_wp_release():
+    html = '<a href="wikipathways-20260610-rdf-wp.zip">wikipathways-20260610-rdf-wp.zip</a>'
+
+    version, file_name = parse_wikipathways_rdf_listing(html)
+
+    assert version == "2026-06-10"
+    assert file_name == "wikipathways-20260610-rdf-wp.zip"
+
+
+def test_lipidmaps_zip_inner_version_uses_structures_sdf_timestamp(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        info = zipfile.ZipInfo("structures.sdf", date_time=(2026, 6, 30, 3, 45, 0))
+        archive.writestr(info, "mock sdf")
+
+    assert _lipidmaps_zip_inner_version(zip_path) == "2026-06-30"
+
+
+def test_refmet_fetcher_uses_content_hash_version(tmp_path: Path, monkeypatch):
+    payload = b"refmet_id,refmet_name\nRM1,Example\n"
+
+    class FakeResponse:
+        url = "https://example.org/refmet.csv"
+        headers = {
+            "Content-Type": "text/csv",
+            "Content-Length": str(len(payload)),
+        }
+
+        def raise_for_status(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield payload
+
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    snapshot = fetch_refmet_metabolites_csv(dest=tmp_path, timeout=10)
+
+    expected_version = _refmet_version_from_file(snapshot.files[0].path)
+    assert snapshot.source == "refmet"
+    assert snapshot.dataset == "metabolites_csv"
+    assert snapshot.version == expected_version
+    assert snapshot.version.startswith("sha256-")
+    assert snapshot.extra["version_method"]["type"] == "content_hash"
 
 
 def test_verify_manifest_files_catches_modified_file(tmp_path: Path):
@@ -916,6 +975,85 @@ files: []
             "error": None,
         },
     ]
+
+
+def test_data_registry_reports_missing_manual_file_as_manual_unavailable(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  example:
+    datasets:
+      manual:
+        fetch:
+          module: fake_fetcher_module
+          class: ManualFetcher
+          version_strategy: local_file_mtime
+""",
+        encoding="utf-8",
+    )
+
+    class ManualFetcher(SourceFetcher):
+        source = "example"
+        dataset = "manual"
+
+        def fetch(self, *, dest, timeout):
+            return tmp_path / "manifest.yaml"
+
+        def get_latest_version(self, *, timeout):
+            raise FileNotFoundError("input_files/manual/example.tsv")
+
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return ["sources/example/manual/2026-05-14/manifest.yaml"]
+            if prefix == "external/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            return """
+kind: source_snapshot
+schema_version: 1
+source: example
+dataset: manual
+snapshot_id: example:manual:2026-05-14
+version: '2026-05-14'
+version_date: '2026-05-14'
+files: []
+"""
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 30)
+
+    monkeypatch.setattr("src.core.data_registry.date", FrozenDate)
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(ManualFetcher=ManualFetcher),
+    )
+    registry = DataRegistry(FakeStorage(), sources_config_path=config_path)
+
+    assert registry.check_all_latest_registered() == [{
+        "source": "example",
+        "dataset": "manual",
+        "version_strategy": "local_file_mtime",
+        "latest_version": "2026-05-14",
+        "registered_versions": ["2026-05-14"],
+        "latest_registered_version": "2026-05-14",
+        "days_since_last_update": 47,
+        "is_latest_registered": None,
+        "error": None,
+        "check_status": "manual_unavailable",
+        "manual_check_message": (
+            "Manual source file is not available in this environment; "
+            "use the latest registered snapshot or refresh from an operator-managed checkout."
+        ),
+        "manual_source_error": "input_files/manual/example.tsv",
+    }]
 
 
 def test_data_registry_reports_metadata_version_mismatch(tmp_path: Path, monkeypatch):

@@ -48,6 +48,12 @@ RegistryKey = Tuple[str, str]
 VersionedRegistryKey = Tuple[str, str, str]
 DEFAULT_FETCH_TIMEOUT = 60
 FRESHNESS_VERSION_STRATEGIES = {"download_date", "export_timestamp"}
+MANUAL_VERSION_STRATEGIES = {
+    "companion_version_file",
+    "filename_timestamp",
+    "local_file_mtime",
+    "manual_hmdb_release",
+}
 
 
 @dataclass
@@ -1207,6 +1213,18 @@ class DataRegistry:
                         status["is_latest_registered"] = days_since_last_update == 0 if registered_versions else False
                     else:
                         status["is_latest_registered"] = latest_version in registered_versions if latest_version else None
+                except FileNotFoundError as exc:
+                    if version_strategy in MANUAL_VERSION_STRATEGIES:
+                        status["latest_version"] = status["latest_registered_version"]
+                        status["is_latest_registered"] = None
+                        status["check_status"] = "manual_unavailable"
+                        status["manual_check_message"] = (
+                            "Manual source file is not available in this environment; "
+                            "use the latest registered snapshot or refresh from an operator-managed checkout."
+                        )
+                        status["manual_source_error"] = str(exc)
+                    else:
+                        status["error"] = str(exc)
                 except Exception as exc:
                     status["error"] = str(exc)
                 statuses.append(status)
