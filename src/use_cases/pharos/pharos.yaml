@@ -53,7 +53,7 @@ input_adapters:
   - import: ./src/input_adapters/go/go_term.py
     class: GOTermAdapter
     kwargs:
-      data_source: go:ontology:2026-05-28
+      data_source: go:ontology:2026-01-23
 
   - import: ./src/input_adapters/target_graph/protein_nodes_and_edges.py
     class: ProteinNodeAdapter
@@ -166,13 +166,13 @@ input_adapters:
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
-      data_source: iuphar:ligands_interactions:2026-06-15
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
     class: ProteinLigandEdgeAdapter
     kwargs:
       pchembl_cutoff: *pchembl_cutoff
-      data_source: iuphar:ligands_interactions:2026-06-15
+      data_source: iuphar:ligands_interactions:2026-04-27
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
@@ -197,7 +197,7 @@ input_adapters:
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
     kwargs:
-      data_source: jensenlab:protein_counts:2026-06-14
+      data_source: jensenlab:protein_counts:2026-03-10-recovered
 
   - import: ./src/input_adapters/pubtator/publication_statistics.py
     class: PubTatorPublicationStatisticsAdapter
@@ -219,13 +219,13 @@ input_adapters:
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      data_source: go:goa_human_uniprot:2026-06-02
+      data_source: go:goa_human_uniprot:2025-12-04
       source: UniProt
 
   - import: ./src/input_adapters/go/go_gaf.py
     class: ProteinGoTermEdgeAdapter
     kwargs:
-      data_source: go:goa_human_go:2026-05-28
+      data_source: go:goa_human_go:2026-03-25
       source: GO
 
   - import: ./src/input_adapters/mondo/mondo_adapter.py
