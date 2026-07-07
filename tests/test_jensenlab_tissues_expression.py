@@ -1,9 +1,25 @@
 import csv
+from datetime import date
 from pathlib import Path
 
 from src.input_adapters.jensenlab.tissues_expression import JensenLabTissuesExpressionAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import ProteinTissueExpressionEdge
 from src.models.tissue import Tissue
+
+
+class FakeDataSource:
+    def __init__(self, root: Path):
+        self.root = root
+
+    def file(self, file_name: str):
+        return self.root / file_name
+
+    def version_info(self):
+        return DatasourceVersionInfo(
+            version="v1",
+            version_date=date(2026, 1, 1),
+        )
 
 
 def _write_jensenlab_fixture(tmp_path: Path):
@@ -18,21 +34,14 @@ def _write_jensenlab_fixture(tmp_path: Path):
         writer = csv.writer(handle, delimiter="\t")
         writer.writerows(rows)
 
-    version_path = tmp_path / "tissues_version.tsv"
-    with open(version_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["version", "version_date"], delimiter="\t")
-        writer.writeheader()
-        writer.writerow({"version": "v1", "version_date": "2026-01-01"})
-
-    return data_path, version_path
+    return data_path
 
 
 def test_jensenlab_adapter_emits_protein_tissue_edges(tmp_path):
-    data_path, version_path = _write_jensenlab_fixture(tmp_path)
+    _write_jensenlab_fixture(tmp_path)
 
     adapter = JensenLabTissuesExpressionAdapter(
-        data_file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=FakeDataSource(tmp_path),
         max_rows=3,
     )
 
@@ -53,11 +62,10 @@ def test_jensenlab_adapter_emits_protein_tissue_edges(tmp_path):
 
 
 def test_jensenlab_adapter_honors_max_rows(tmp_path):
-    data_path, version_path = _write_jensenlab_fixture(tmp_path)
+    _write_jensenlab_fixture(tmp_path)
 
     adapter = JensenLabTissuesExpressionAdapter(
-        data_file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=FakeDataSource(tmp_path),
         max_rows=2,
     )
 
@@ -80,15 +88,8 @@ def test_jensenlab_adapter_max_rows_counts_kept_rows_only(tmp_path):
         writer = csv.writer(handle, delimiter="\t")
         writer.writerows(rows)
 
-    version_path = tmp_path / "tissues_version.tsv"
-    with open(version_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["version", "version_date"], delimiter="\t")
-        writer.writeheader()
-        writer.writerow({"version": "v1", "version_date": "2026-01-01"})
-
     adapter = JensenLabTissuesExpressionAdapter(
-        data_file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=FakeDataSource(tmp_path),
         max_rows=2,
     )
 

@@ -1,12 +1,28 @@
 import csv
 import io
 import zipfile
+from datetime import date
 from pathlib import Path
 
 from src.input_adapters.hpa.hpa_expression import HPAProteinExpressionAdapter, HPARnaExpressionAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import GeneTissueExpressionEdge
 from src.models.gene import Gene
 from src.models.tissue import Tissue
+
+
+class FakeDataSource:
+    def __init__(self, root: Path):
+        self.root = root
+
+    def file(self, file_name: str):
+        return self.root / file_name
+
+    def version_info(self):
+        return DatasourceVersionInfo(
+            version="24.0",
+            version_date=date(2026, 1, 1),
+        )
 
 
 def _write_hpa_protein_fixture(tmp_path: Path):
@@ -71,13 +87,7 @@ def _write_hpa_protein_fixture(tmp_path: Path):
         encoding="utf-8",
     )
 
-    version_path = tmp_path / "hpa_version.tsv"
-    with open(version_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["version", "version_date"], delimiter="\t")
-        writer.writeheader()
-        writer.writerow({"version": "24.0", "version_date": "2026-01-01"})
-
-    return data_path, version_path, uberon_map_path
+    return data_path, uberon_map_path
 
 
 def _write_hpa_rna_fixture(tmp_path: Path):
@@ -94,22 +104,15 @@ def _write_hpa_rna_fixture(tmp_path: Path):
     uberon_map_path = tmp_path / "manual_uberon_map.tsv"
     uberon_map_path.write_text("liver\tUBERON:0002107\nheart muscle\tUBERON:0000948\n", encoding="utf-8")
 
-    version_path = tmp_path / "hpa_version.tsv"
-    with open(version_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["version", "version_date"], delimiter="\t")
-        writer.writeheader()
-        writer.writerow({"version": "24.0", "version_date": "2026-01-01"})
-
-    return data_path, version_path, uberon_map_path
+    return data_path, uberon_map_path
 
 
 def test_hpa_protein_adapter_emits_gene_expression_edges(tmp_path):
-    data_path, version_path, uberon_map_path = _write_hpa_protein_fixture(tmp_path)
+    _data_path, uberon_map_path = _write_hpa_protein_fixture(tmp_path)
 
     adapter = HPAProteinExpressionAdapter(
-        data_file_path=str(data_path),
-        version_file_path=str(version_path),
         uberon_map_file_path=str(uberon_map_path),
+        data_source=FakeDataSource(tmp_path),
         max_genes=1,
     )
 
@@ -137,12 +140,11 @@ def test_hpa_protein_adapter_emits_gene_expression_edges(tmp_path):
 
 
 def test_hpa_rna_adapter_emits_gene_expression_edges(tmp_path):
-    data_path, version_path, uberon_map_path = _write_hpa_rna_fixture(tmp_path)
+    _data_path, uberon_map_path = _write_hpa_rna_fixture(tmp_path)
 
     adapter = HPARnaExpressionAdapter(
-        data_file_path=str(data_path),
-        version_file_path=str(version_path),
         uberon_map_file_path=str(uberon_map_path),
+        data_source=FakeDataSource(tmp_path),
         max_genes=1,
     )
 
