@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Union
 
 import yaml
 
@@ -12,6 +13,42 @@ DEFAULT_REGISTRY_BUCKET = "ifx-registry"
 def load_minio_credentials(path: Path) -> DBCredentials:
     with path.open("r", encoding="utf-8") as handle:
         return DBCredentials.from_yaml(yaml.safe_load(handle))
+
+
+@dataclass
+class AwsAssumeRoleCredentials:
+    access_key_id: str
+    secret_access_key: str
+    role_arn: str
+    bucket: str
+    region: Optional[str] = None
+    session_name: str = "ifx-registry"
+    external_id: Optional[str] = None
+    endpoint_url: Optional[str] = None
+
+    @staticmethod
+    def from_yaml(yaml_dict: dict) -> "AwsAssumeRoleCredentials":
+        return AwsAssumeRoleCredentials(
+            access_key_id=yaml_dict["access_key_id"],
+            secret_access_key=yaml_dict["secret_access_key"],
+            role_arn=yaml_dict["role_arn"],
+            bucket=yaml_dict["bucket"],
+            region=yaml_dict.get("region"),
+            session_name=yaml_dict.get("session_name", "ifx-registry"),
+            external_id=yaml_dict.get("external_id"),
+            endpoint_url=yaml_dict.get("endpoint_url"),
+        )
+
+
+RegistryCredentials = Union[DBCredentials, AwsAssumeRoleCredentials]
+
+
+def load_registry_credentials(path: Path) -> RegistryCredentials:
+    with path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if "role_arn" in config or config.get("type") == "aws_assume_role":
+        return AwsAssumeRoleCredentials.from_yaml(config)
+    return DBCredentials.from_yaml(config)
 
 
 def s3_uri(bucket: str, key: str) -> str:
@@ -75,6 +112,87 @@ class MinioStorage:
         if content_type:
             extra_args["ContentType"] = content_type
         self.ensure_bucket()
+        self.client().upload_file(str(local_path), self.bucket, key, ExtraArgs=extra_args or None)
+        return s3_uri(self.bucket, key)
+
+    def download_file(self, key: str, local_path: Path) -> Path:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.client().download_file(self.bucket, key, str(local_path))
+        return local_path
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        client = self.client()
+        paginator = client.get_paginator("list_objects_v2")
+        keys = []
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                keys.append(obj["Key"])
+        return keys
+
+    def read_text(self, key: str) -> str:
+        response = self.client().get_object(Bucket=self.bucket, Key=key)
+        return response["Body"].read().decode("utf-8")
+
+
+class AwsAssumeRoleStorage:
+    def __init__(
+        self,
+        credentials: AwsAssumeRoleCredentials,
+        bucket: Optional[str] = None,
+        connect_timeout: int = 5,
+        read_timeout: int = 30,
+    ):
+        self.credentials = credentials
+        self._bucket = bucket or credentials.bucket
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        if not self._bucket:
+            raise ValueError("AWS S3 registry credentials must include a bucket name")
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    def client(self):
+        import boto3
+        from botocore.client import Config
+
+        session_kwargs = {
+            "aws_access_key_id": self.credentials.access_key_id,
+            "aws_secret_access_key": self.credentials.secret_access_key,
+        }
+        if self.credentials.region:
+            session_kwargs["region_name"] = self.credentials.region
+        base_session = boto3.Session(**session_kwargs)
+        sts = base_session.client("sts")
+        assume_role_kwargs = {
+            "RoleArn": self.credentials.role_arn,
+            "RoleSessionName": self.credentials.session_name,
+        }
+        if self.credentials.external_id:
+            assume_role_kwargs["ExternalId"] = self.credentials.external_id
+        role = sts.assume_role(**assume_role_kwargs)["Credentials"]
+        return boto3.client(
+            "s3",
+            region_name=self.credentials.region,
+            endpoint_url=self.credentials.endpoint_url,
+            aws_access_key_id=role["AccessKeyId"],
+            aws_secret_access_key=role["SecretAccessKey"],
+            aws_session_token=role["SessionToken"],
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+            ),
+        )
+
+    def ensure_bucket(self) -> None:
+        self.client().head_bucket(Bucket=self.bucket)
+
+    def upload_file(self, local_path: Path, key: str, content_type: Optional[str] = None) -> str:
+        extra_args = {}
+        if content_type:
+            extra_args["ContentType"] = content_type
         self.client().upload_file(str(local_path), self.bucket, key, ExtraArgs=extra_args or None)
         return s3_uri(self.bucket, key)
 

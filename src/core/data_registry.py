@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,7 +37,16 @@ from src.registry.manifest import (
     verify_manifest_files,
     write_manifest,
 )
-from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage, load_minio_credentials, s3_uri
+from src.registry.storage import (
+    DEFAULT_REGISTRY_BUCKET,
+    AwsAssumeRoleCredentials,
+    AwsAssumeRoleStorage,
+    MinioStorage,
+    RegistryCredentials,
+    load_minio_credentials,
+    load_registry_credentials,
+    s3_uri,
+)
 from src.shared.db_credentials import DBCredentials
 
 
@@ -54,6 +64,17 @@ MANUAL_VERSION_STRATEGIES = {
     "local_file_mtime",
     "manual_hmdb_release",
 }
+
+
+def registry_version_sort_key(version: Any) -> Tuple[int, Tuple[Any, ...]]:
+    text = str(version or "")
+    if re.fullmatch(r"\d+(?:[._]\d+)*", text):
+        parts = tuple(int(part) for part in re.split(r"[._]", text))
+        return 3, parts
+    try:
+        return 2, (date.fromisoformat(text[:10]),)
+    except ValueError:
+        return 1, (text,)
 
 
 @dataclass
@@ -115,7 +136,7 @@ class _RegistryIndex:
             for entry in self.external_by_dataset.get((source, dataset), [])
             if entry.get("version")
         )
-        return sorted(versions)
+        return sorted(versions, key=registry_version_sort_key)
 
 
 class DataRegistry:
@@ -123,7 +144,7 @@ class DataRegistry:
 
     def __init__(
         self,
-        storage: Optional[MinioStorage] = None,
+        storage: Optional[MinioStorage | AwsAssumeRoleStorage] = None,
         *,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
         resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
@@ -176,22 +197,49 @@ class DataRegistry:
         return cls(storage)
 
     @classmethod
-    def from_credentials(
+    def from_registry_credentials(
         cls,
-        credentials: DBCredentials,
+        credentials_path: str | Path,
         *,
-        bucket: Optional[str] = DEFAULT_REGISTRY_BUCKET,
+        bucket: Optional[str] = None,
         use_internal_url: bool = False,
         connect_timeout: int = 5,
         read_timeout: int = 30,
     ) -> "DataRegistry":
-        storage = MinioStorage(
-            credentials=credentials,
+        credentials = load_registry_credentials(Path(credentials_path))
+        return cls.from_credentials(
+            credentials,
             bucket=bucket,
             use_internal_url=use_internal_url,
             connect_timeout=connect_timeout,
             read_timeout=read_timeout,
         )
+
+    @classmethod
+    def from_credentials(
+        cls,
+        credentials: RegistryCredentials,
+        *,
+        bucket: Optional[str] = None,
+        use_internal_url: bool = False,
+        connect_timeout: int = 5,
+        read_timeout: int = 30,
+    ) -> "DataRegistry":
+        if isinstance(credentials, AwsAssumeRoleCredentials):
+            storage = AwsAssumeRoleStorage(
+                credentials=credentials,
+                bucket=bucket,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+            )
+        else:
+            storage = MinioStorage(
+                credentials=credentials,
+                bucket=bucket,
+                use_internal_url=use_internal_url,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+            )
         return cls(storage)
 
     def list_source_snapshots(self) -> List[RegistryEntry]:
@@ -363,7 +411,7 @@ class DataRegistry:
             key=lambda item: (
                 item.get("source") or "",
                 item.get("dataset") or "",
-                item.get("version") or "",
+                registry_version_sort_key(item.get("version")),
             ),
         )
 
@@ -1413,15 +1461,24 @@ class DataRegistry:
         for dependency_config in derived_config.get("dependencies") or []:
             source = dependency_config["source"]
             dataset = dependency_config["dataset"]
+            kind = dependency_config.get("kind", "source")
             version = dependency_config.get("version")
-            snapshot = self.get_source_snapshot(source, dataset, version)
+            if kind in {"source", "source_snapshot"}:
+                snapshot = self.get_source_snapshot(source, dataset, version)
+                prefix = storage_prefix(source, dataset, snapshot["version"])
+                dependency_kind = "source_snapshot"
+            elif kind in {"derived", "derived_snapshot"}:
+                snapshot = self.get_derived_artifact(source, dataset, version)
+                prefix = derived_storage_prefix(source, dataset, snapshot["version"])
+                dependency_kind = "derived_snapshot"
+            else:
+                raise ValueError(f"Unsupported derived dependency kind for {source}/{dataset}: {kind}")
             dependency_dir = None
             if stage_files:
                 if dest is None:
                     raise ValueError("dest is required when stage_files=True")
                 dependency_dir = dest / source / dataset / snapshot["version"]
                 dependency_dir.mkdir(parents=True, exist_ok=True)
-                prefix = storage_prefix(source, dataset, snapshot["version"])
                 for entry in snapshot.get("files", []) or []:
                     local_path = dependency_dir / entry["path"]
                     if self._local_file_matches_entry(local_path, entry):
@@ -1437,6 +1494,7 @@ class DataRegistry:
                     snapshot_id=snapshot["snapshot_id"],
                     manifest_uri=snapshot["manifest_uri"],
                     manifest=snapshot["manifest"],
+                    kind=dependency_kind,
                     local_dir=dependency_dir,
                 )
             )
@@ -1596,14 +1654,10 @@ class DataRegistry:
                 return self.materialize_external_source(source, dataset, version, dest=dest)
 
     def _latest_source_snapshot(self, source: str, dataset: str) -> RegistryEntry:
-        versions = [
-            entry.get("version")
-            for entry in self.list_source_snapshots()
-            if entry.get("source") == source and entry.get("dataset") == dataset and entry.get("version")
-        ]
-        if not versions:
+        snapshots = self._source_snapshots_for_dataset(source, dataset)
+        if not snapshots:
             raise LookupError(f"No registered source snapshot {source}/{dataset}")
-        return self.get_source_snapshot(source, dataset, sorted(versions)[-1])
+        return snapshots[-1]
 
     @staticmethod
     def _resolver_definition_fingerprint(definition: RegistryEntry) -> str:
@@ -1717,18 +1771,20 @@ class DataRegistry:
         return self._catalog_index().list_versions(source, dataset)
 
     def list_derived_versions(self, source: str, dataset: str) -> List[str]:
-        return sorted(
+        versions = [
             entry.get("version")
             for entry in self.list_derived_artifacts()
             if entry.get("source") == source and entry.get("dataset") == dataset and entry.get("version")
-        )
+        ]
+        return sorted(versions, key=registry_version_sort_key)
 
     def list_resolver_versions(self, source: str, resolver: str) -> List[str]:
-        return sorted(
+        versions = [
             entry.get("version")
             for entry in self.list_resolver_snapshots()
             if entry.get("source") == source and entry.get("resolver") == resolver and entry.get("version")
-        )
+        ]
+        return sorted(versions, key=registry_version_sort_key)
 
     def get_derived_artifact(
         self,

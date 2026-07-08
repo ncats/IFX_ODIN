@@ -15,6 +15,7 @@ def preload_core_model_modules():
     import src.models.dto_class
     import src.models.external_link
     import src.models.chebi
+    import src.models.metabolite_harmonization
 
 
 class BuildGraphFromYaml:

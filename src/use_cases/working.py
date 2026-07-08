@@ -1,7 +1,9 @@
-from src.use_cases.build_from_yaml import BuildGraphFromYaml
+from src.use_cases.build_cli import run_arango_build_cli
 
 
 if __name__ == "__main__":
-    builder = BuildGraphFromYaml("src/use_cases/working.yaml")
-    builder.prepare_datastore()
-    builder.do_etl()
+    run_arango_build_cli(
+        build_name="working",
+        database_name="metabolite_harmonization",
+        primary_yaml="src/use_cases/working.yaml",
+    )

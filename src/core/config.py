@@ -10,6 +10,7 @@ from src.core.data_registry import DataRegistry
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.output_adapter import OutputAdapter
+from src.registry.storage import RegistryCredentials, load_registry_credentials
 from src.shared.db_credentials import DBCredentials
 
 
@@ -58,12 +59,15 @@ def create_object_from_config(config: dict):
     return cls(**kwargs)
 
 
-def _db_credentials_from_config(config_node: Any) -> DBCredentials:
+def _registry_credentials_from_config(config_node: Any) -> RegistryCredentials:
     if isinstance(config_node, DBCredentials):
         return config_node
     if isinstance(config_node, dict):
+        if "role_arn" in config_node or config_node.get("type") == "aws_assume_role":
+            from src.registry.storage import AwsAssumeRoleCredentials
+            return AwsAssumeRoleCredentials.from_yaml(config_node)
         return DBCredentials.from_yaml(config_node)
-    return DBCredentials.from_yaml(yaml.safe_load(Path(config_node).read_text(encoding="utf-8")))
+    return load_registry_credentials(Path(config_node))
 
 
 def _parse_data_source_ref(ref: str) -> tuple[str, str, str]:
@@ -113,7 +117,7 @@ def resolve_registry_references(config_dict: dict) -> dict:
         raise ValueError("registry.credentials is required when registry config is present")
     cache_dir = Path(registry_config.get("cache_dir", "/tmp/ifx-registry-cache"))
     registry = DataRegistry.from_credentials(
-        _db_credentials_from_config(credentials_config),
+        _registry_credentials_from_config(credentials_config),
         bucket=registry_config.get("bucket"),
         use_internal_url=registry_config.get("use_internal_url", False),
     )

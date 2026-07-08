@@ -1,15 +1,50 @@
 source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-database_name: &database_name chebi
+database_name: &database_name metabolite_harmonization
 
 registry:
   credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
   cache_dir: /tmp/ifx-registry-cache
 
 input_adapters:
-  - import: ./src/input_adapters/chebi/chebi_obo_adapter.py
-    class: FullOboAdapter
+  - import: ./src/input_adapters/metabolite_harmonization/hmdb.py
+    class: HmdbMetaboliteEquivalenceAdapter
     kwargs:
-      data_source: chebi:ontology_full:252
+      data_source: hmdb:metabolites_xml:5.0
+
+  - import: ./src/input_adapters/metabolite_harmonization/wikipathways.py
+    class: WikiPathwaysMetaboliteEquivalenceAdapter
+    kwargs:
+      data_source: wikipathways:rdf_wp:2026-06-10
+
+  - import: ./src/input_adapters/metabolite_harmonization/lipidmaps.py
+    class: LipidMapsMetaboliteEquivalenceAdapter
+    kwargs:
+      data_source: lipidmaps:lmsd_sdf:2026-06-30
+
+  - import: ./src/input_adapters/metabolite_harmonization/refmet.py
+    class: RefMetMetaboliteEquivalenceAdapter
+    kwargs:
+      data_source: refmet:metabolites_csv:sha256-f40f14165725
+
+  - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
+    class: HmdbMetaboliteChemPropsAdapter
+    kwargs:
+      data_source: hmdb:structures_sdf:5.0
+
+  - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
+    class: ChebiMetaboliteChemPropsAdapter
+    kwargs:
+      data_source: chebi:three_star_sdf:2026-05-01
+
+  - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
+    class: LipidMapsMetaboliteChemPropsAdapter
+    kwargs:
+      data_source: lipidmaps:lmsd_sdf:2026-06-30
+
+  - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
+    class: PubchemMetaboliteChemPropsAdapter
+    kwargs:
+      data_source: pubchem:cid_molecular_info:deps-31c7bedefb74
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

@@ -62,6 +62,10 @@ class DataSourceName(SimpleEnum):
     SureChEMBL = "SureChEMBL"
     PHIPSTER = "P-HIPSTer"
     RDAS = "RDAS"
+    HMDB = "HMDB"
+    LipidMaps = "LipidMaps"
+    RefMet = "RefMet"
+    PubChem = "PubChem"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN

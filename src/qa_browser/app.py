@@ -80,6 +80,7 @@ _mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
+_parquet_storage_credentials: dict = {}
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -167,7 +168,7 @@ def _get_mysql_source(source_id: str) -> dict:
 
 
 def _get_parquet_buffer(file_ref: str):
-    """Fetch a parquet file from MinIO and return (BytesIO, size_bytes).
+    """Fetch a parquet file from registry object storage and return (BytesIO, size_bytes).
 
     file_ref must be an s3:// URI produced by the ETL pipeline.
     Returns (None, None) if the file cannot be fetched.
@@ -176,25 +177,29 @@ def _get_parquet_buffer(file_ref: str):
         return None, None
     try:
         import io
-        import boto3
-        from botocore.client import Config
 
         without_prefix = file_ref[len("s3://"):]
         bucket, key = without_prefix.split("/", 1)
-        endpoint = _minio_credentials.get("internal_url") or _minio_credentials.get("url")
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=_minio_credentials.get("user"),
-            aws_secret_access_key=_minio_credentials.get("password"),
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-            verify=False,
-        )
-        response = s3.get_object(Bucket=bucket, Key=key)
-        data = response["Body"].read()
-        return io.BytesIO(data), response["ContentLength"]
+        credentials_options = []
+        if _parquet_storage_credentials:
+            credentials_options.append(("parquet storage", _parquet_storage_credentials))
+        if _minio_credentials:
+            credentials_options.append(("registry storage", _minio_credentials))
+        if not credentials_options:
+            return None, None
+
+        errors = []
+        for label, credentials in credentials_options:
+            try:
+                storage = _storage_from_credentials(credentials, use_internal_url=True)
+                response = storage.client().get_object(Bucket=bucket, Key=key)
+                data = response["Body"].read()
+                return io.BytesIO(data), response["ContentLength"]
+            except Exception as exc:
+                errors.append(f"{label}: {exc}")
+        raise RuntimeError("; ".join(errors))
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch {file_ref} from MinIO: {e}") from e
+        raise RuntimeError(f"Failed to fetch {file_ref} from registry object storage: {e}") from e
 
 
 def get_client() -> ArangoClient:
@@ -1066,7 +1071,7 @@ def _build_browser_home_context(request: Request) -> dict:
 
 def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
     if not _minio_credentials:
-        return [], [], [], [], "MinIO credentials are not configured for this QA Browser instance."
+        return [], [], [], [], "Registry storage credentials are not configured for this QA Browser instance."
 
     try:
         def load_catalog(registry: DataRegistry):
@@ -1085,13 +1090,30 @@ def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[d
         return [], [], [], [], str(exc)
 
 
-def _registry_from_minio_credentials(*, use_internal_url: bool):
-    if not _minio_credentials:
-        raise HTTPException(status_code=503, detail="MinIO credentials are not configured for this QA Browser instance.")
+def _storage_from_credentials(credentials_config: dict, *, use_internal_url: bool):
+    from src.registry.storage import AwsAssumeRoleCredentials
+    from src.registry.storage import AwsAssumeRoleStorage
+    from src.registry.storage import MinioStorage
     from src.shared.db_credentials import DBCredentials
 
+    if "role_arn" in credentials_config or credentials_config.get("type") == "aws_assume_role":
+        return AwsAssumeRoleStorage(AwsAssumeRoleCredentials.from_yaml(credentials_config))
+    return MinioStorage(DBCredentials.from_yaml(credentials_config), use_internal_url=use_internal_url)
+
+
+def _registry_from_credentials(*, use_internal_url: bool):
+    if not _minio_credentials:
+        raise HTTPException(status_code=503, detail="Registry storage credentials are not configured for this QA Browser instance.")
+    from src.registry.storage import AwsAssumeRoleCredentials
+    from src.shared.db_credentials import DBCredentials
+
+    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
+        credentials = AwsAssumeRoleCredentials.from_yaml(_minio_credentials)
+    else:
+        credentials = DBCredentials.from_yaml(_minio_credentials)
+
     return DataRegistry.from_credentials(
-        DBCredentials.from_yaml(_minio_credentials),
+        credentials,
         use_internal_url=use_internal_url,
         connect_timeout=2,
         read_timeout=10,
@@ -1099,6 +1121,8 @@ def _registry_from_minio_credentials(*, use_internal_url: bool):
 
 
 def _registry_endpoint_order() -> List[bool]:
+    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
+        return [False]
     configured = os.getenv("QA_BROWSER_MINIO_URL_ORDER", "external,internal")
     order = []
     for part in configured.split(","):
@@ -1111,6 +1135,8 @@ def _registry_endpoint_order() -> List[bool]:
 
 
 def _registry_endpoint_label(use_internal_url: bool) -> str:
+    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
+        return "aws_assume_role"
     return "internal_url" if use_internal_url else "url"
 
 
@@ -1121,15 +1147,15 @@ def _with_registry_endpoint_fallback(operation, *, error_prefix: str):
         endpoint_label = _registry_endpoint_label(use_internal_url)
         tried.append(endpoint_label)
         try:
-            registry = _registry_from_minio_credentials(use_internal_url=use_internal_url)
+            registry = _registry_from_credentials(use_internal_url=use_internal_url)
             return operation(registry)
         except HTTPException:
             raise
         except Exception as exc:
             errors.append((endpoint_label, exc))
-            print(f"{error_prefix} failed using MinIO {endpoint_label}: {exc}", flush=True)
+            print(f"{error_prefix} failed using registry storage {endpoint_label}: {exc}", flush=True)
     details = "; ".join(f"{label}: {error}" for label, error in errors)
-    raise RuntimeError(f"{error_prefix} failed using MinIO endpoints {', '.join(tried)}: {details}")
+    raise RuntimeError(f"{error_prefix} failed using registry storage endpoints {', '.join(tried)}: {details}")
 
 
 def _load_registry_update_inputs(registry: DataRegistry, timeout: int):
@@ -1498,7 +1524,7 @@ def _start_resolver_warmup_thread():
     if _resolver_warmup_started:
         return
     if not _minio_credentials:
-        print("Resolver warmup skipped because MinIO credentials are not configured.")
+        print("Resolver warmup skipped because registry storage credentials are not configured.")
         return
     _resolver_warmup_started = True
     _resolver_warmup_thread = threading.Thread(
@@ -4731,7 +4757,10 @@ def main():
                         help="Path to a MySQL credentials YAML file; repeat to load multiple MySQL servers")
     parser.add_argument("--minio-credentials", "-s",
                         default=None,
-                        help="Path to MinIO credentials YAML file (url, user, password, schema, internal_url)")
+                        help="Path to registry storage credentials YAML file (MinIO or AWS assume-role)")
+    parser.add_argument("--parquet-storage-credentials",
+                        default=None,
+                        help="Path to object-storage credentials YAML for existing Dataset parquet files")
     parser.add_argument("--port", "-p", type=int, default=8050)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--root-path", default="", help="ASGI root path for running behind a sub-path proxy (e.g. /odin-qa)")
@@ -4751,7 +4780,7 @@ def main():
                         help="Public base URL for project detail links, e.g. https://pounce-ci.ncats.nih.gov/project")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -4792,9 +4821,18 @@ def main():
         if minio_path.exists():
             with open(minio_path) as f:
                 _minio_credentials = yaml.safe_load(f)
-            print(f"Loaded MinIO credentials from {minio_path}")
+            print(f"Loaded registry storage credentials from {minio_path}")
         else:
-            print(f"Warning: MinIO credentials file {minio_path} not found")
+            print(f"Warning: registry storage credentials file {minio_path} not found")
+
+    if args.parquet_storage_credentials:
+        parquet_storage_path = Path(args.parquet_storage_credentials)
+        if parquet_storage_path.exists():
+            with open(parquet_storage_path) as f:
+                _parquet_storage_credentials = yaml.safe_load(f)
+            print(f"Loaded parquet storage credentials from {parquet_storage_path}")
+        else:
+            print(f"Warning: parquet storage credentials file {parquet_storage_path} not found")
 
     _pounce_module.set_pounce_config(args.pounce_config)
     _pounce_module.set_smtp_config(args.smtp_credentials)

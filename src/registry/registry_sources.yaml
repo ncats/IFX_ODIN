@@ -205,6 +205,27 @@ sources:
           module: src.registry.sources.metabolite_harmonization
           class: WikipathwaysRdfWpFetcher
           version_strategy: wikipathways_rdf_filename_date
+  pfocr:
+    datasets:
+      human_pathways:
+        fetch:
+          module: src.registry.sources.pathway_sources
+          class: PfocrHumanPathwaysFetcher
+          version_strategy: pfocr_filename_date
+  rhea:
+    datasets:
+      reaction_bundle:
+        fetch:
+          module: src.registry.sources.rhea
+          class: RheaReactionBundleFetcher
+          version_strategy: rhea_release_properties
+  expasy:
+    datasets:
+      enzyme:
+        fetch:
+          module: src.registry.sources.expasy
+          class: ExpasyEnzymeFetcher
+          version_strategy: multi_file_max_last_modified
   iuphar:
     datasets:
       ligands_interactions:
@@ -346,6 +367,59 @@ sources:
           module: src.registry.sources.metabolite_harmonization
           class: RefmetMetabolitesCsvFetcher
           version_strategy: content_hash
+  pubchem:
+    datasets:
+      compound_cid_set:
+        derived:
+          module: src.registry.derived.pubchem
+          class: PubchemCompoundCidSetBuilder
+          dependencies:
+            - source: hmdb
+              dataset: metabolites_xml
+            - source: wikipathways
+              dataset: rdf_wp
+            - source: lipidmaps
+              dataset: lmsd_sdf
+            - source: refmet
+              dataset: metabolites_csv
+          output:
+            file_name: pubchem_compound_cids.tsv
+          transform:
+            name: pubchem_compound_cid_set
+            version: 1
+            code_ref: src/registry/derived/pubchem.py
+      compound_records:
+        derived:
+          module: src.registry.derived.pubchem
+          class: PubchemCompoundRecordsBuilder
+          dependencies:
+            - kind: derived
+              source: pubchem
+              dataset: compound_cid_set
+          output:
+            manifest_file_name: pubchem_compound_records_manifest.tsv
+            batch_file_prefix: pubchem_compound_records_batch
+          batch_size: 100
+          delay_seconds: 0.25
+          timeout: 120
+          transform:
+            name: pubchem_compound_records
+            version: 1
+            code_ref: src/registry/derived/pubchem.py
+      cid_molecular_info:
+        derived:
+          module: src.registry.derived.pubchem
+          class: PubchemCidMolecularInfoBuilder
+          dependencies:
+            - kind: derived
+              source: pubchem
+              dataset: compound_records
+          output:
+            file_name: cid_molecular_info.tsv
+          transform:
+            name: pubchem_cid_molecular_info
+            version: 1
+            code_ref: src/registry/derived/pubchem.py
   rdas:
     datasets:
       diseases_graphql:

@@ -97,8 +97,6 @@ CHEBI_PREDICATE_LABELS = {
 
 
 class FullOboAdapter(InputAdapter):
-    single_source = True
-
     def __init__(
         self,
         data_source,

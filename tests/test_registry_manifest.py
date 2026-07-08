@@ -1,4 +1,5 @@
 import gzip
+import json
 import os
 import zipfile
 from datetime import date, datetime, timezone
@@ -21,7 +22,13 @@ from src.registry.manifest import (
     write_manifest,
 )
 from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, MaterializedDataset, SnapshotFile, SourceFetcher, SourceSnapshot
-from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage
+from src.registry.storage import (
+    DEFAULT_REGISTRY_BUCKET,
+    AwsAssumeRoleCredentials,
+    AwsAssumeRoleStorage,
+    MinioStorage,
+    load_registry_credentials,
+)
 from src.registry.sources.ctd import extract_report_created
 from src.registry.sources.cure import fetch_case_reports, fetch_curated_concepts
 from src.registry.sources.hcop import HCOP_FILE_NAME
@@ -47,7 +54,19 @@ from src.registry.sources.metabolite_harmonization import (
 from src.registry.sources.external_sources import _drugcentral_version_info, _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
-from src.registry.sources.pathway_sources import latest_panther_version
+from src.registry.sources.pathway_sources import (
+    fetch_pfocr_human_pathways,
+    fetch_reactome,
+    latest_panther_version,
+    parse_pfocr_human_pathways_listing,
+)
+from src.registry.sources.expasy import EXPASY_ENZYME_URLS, fetch_expasy_enzyme
+from src.registry.sources.rhea import (
+    RHEA_REACTION_BUNDLE_URLS,
+    RHEA_RELEASE_PROPERTIES_URL,
+    fetch_rhea_reaction_bundle,
+    parse_rhea_release_properties,
+)
 from src.registry.sources.ramp import fetch_ramp_sqlite_database, latest_ramp_sqlite_database_version
 from src.registry.sources.string import latest_string_version
 from src.shared.db_credentials import DBCredentials
@@ -60,6 +79,46 @@ from src.core.config import _resolve_registry_data_sources
 
 def test_parse_http_date_to_iso():
     assert parse_http_date_to_iso("Wed, 10 Jun 2026 12:34:56 GMT") == "2026-06-10"
+
+
+def test_load_registry_credentials_supports_aws_assume_role_yaml(tmp_path: Path):
+    credentials_path = tmp_path / "aws_registry.yaml"
+    credentials_path.write_text(
+        "\n".join([
+            "type: aws_assume_role",
+            "access_key_id: AKIAEXAMPLE123456789",
+            "secret_access_key: fakeSecretAccessKeyValueForTestsOnly",
+            "role_arn: arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users",
+            "bucket: aws-ifx-registry",
+            "region: us-east-1",
+            "session_name: ifx-registry-test",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    credentials = load_registry_credentials(credentials_path)
+
+    assert isinstance(credentials, AwsAssumeRoleCredentials)
+    assert credentials.bucket == "aws-ifx-registry"
+    assert credentials.role_arn == "arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users"
+    assert credentials.region == "us-east-1"
+    assert credentials.session_name == "ifx-registry-test"
+
+
+def test_data_registry_uses_aws_assume_role_storage_for_aws_credentials():
+    credentials = AwsAssumeRoleCredentials(
+        access_key_id="AKIAEXAMPLE123456789",
+        secret_access_key="fakeSecretAccessKeyValueForTestsOnly",
+        role_arn="arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users",
+        bucket="aws-ifx-registry",
+        region="us-east-1",
+    )
+
+    registry = DataRegistry.from_credentials(credentials)
+
+    assert isinstance(registry.storage, AwsAssumeRoleStorage)
+    assert registry.storage.bucket == "aws-ifx-registry"
 
 
 def test_drugcentral_version_info_uses_dbversion_row(tmp_path: Path, monkeypatch):
@@ -328,6 +387,183 @@ def test_wikipathways_rdf_listing_parser_finds_rdf_wp_release():
 
     assert version == "2026-06-10"
     assert file_name == "wikipathways-20260610-rdf-wp.zip"
+
+
+def test_reactome_pathways_fetcher_includes_metabolite_pathway_mapping(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        metadata = {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 12:34:56 GMT",
+            "version_date": "2026-06-10",
+        }
+        return local_path, metadata
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.latest_reactome_version", lambda timeout=60: "96")
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_reactome(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "reactome"
+    assert snapshot.dataset == "pathways"
+    assert snapshot.version == "96"
+    assert snapshot.version_date == "2026-06-10"
+    assert "https://reactome.org/download/current/ChEBI2Reactome_All_Levels.txt" in downloaded_urls
+    assert [file.path.name for file in snapshot.files] == [
+        "ReactomePathways.gmt.zip",
+        "ReactomePathwaysRelation.txt",
+        "UniProt2Reactome_All_Levels.txt",
+        "ChEBI2Reactome_All_Levels.txt",
+        "reactome.homo_sapiens.interactions.tab-delimited.txt",
+    ]
+
+
+def test_pfocr_human_pathways_listing_parser_requires_gene_and_chemical_files():
+    html = """
+    <a href="pfocr-20250701-chemical-gmt-Homo_sapiens.gmt">chemical</a>
+    <a href="pfocr-20250701-gmt-Homo_sapiens.gmt">gene</a>
+    """
+
+    version, gene_file_name, chemical_file_name = parse_pfocr_human_pathways_listing(html)
+
+    assert version == "2025-07-01"
+    assert gene_file_name == "pfocr-20250701-gmt-Homo_sapiens.gmt"
+    assert chemical_file_name == "pfocr-20250701-chemical-gmt-Homo_sapiens.gmt"
+
+
+def test_pfocr_human_pathways_fetcher_snapshots_gene_and_chemical_gmts(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+    listing_html = """
+    <a href="pfocr-20250701-chemical-gmt-Homo_sapiens.gmt">chemical</a>
+    <a href="pfocr-20250701-gmt-Homo_sapiens.gmt">gene</a>
+    """
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Tue, 05 Aug 2025 12:07:00 GMT",
+            "version_date": "2025-08-05",
+        }
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_pfocr_human_pathways(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "pfocr"
+    assert snapshot.dataset == "human_pathways"
+    assert snapshot.version == "2025-07-01"
+    assert snapshot.version_date == "2025-07-01"
+    assert downloaded_urls == [
+        "https://data.wikipathways.org/pfocr/current/pfocr-20250701-gmt-Homo_sapiens.gmt",
+        "https://data.wikipathways.org/pfocr/current/pfocr-20250701-chemical-gmt-Homo_sapiens.gmt",
+    ]
+    assert [file.path.name for file in snapshot.files] == [
+        "pfocr-20250701-gmt-Homo_sapiens.gmt",
+        "pfocr-20250701-chemical-gmt-Homo_sapiens.gmt",
+    ]
+    assert snapshot.extra["version_method"]["type"] == "pfocr_filename_date"
+
+
+def test_rhea_reaction_bundle_fetcher_snapshots_rhea_reaction_inputs(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    class FakeResponse:
+        text = "rhea.release.number=141\nrhea.release.date=2026-06-10\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 13:00:00 GMT",
+            "version_date": "2026-06-10",
+        }
+
+    monkeypatch.setattr("src.registry.sources.rhea.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.rhea.download_url", fake_download_url)
+    monkeypatch.setattr("src.registry.sources.common.download_url", fake_download_url)
+
+    snapshot = fetch_rhea_reaction_bundle(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "rhea"
+    assert snapshot.dataset == "reaction_bundle"
+    assert snapshot.version == "141"
+    assert snapshot.version_date == "2026-06-10"
+    assert downloaded_urls == [RHEA_RELEASE_PROPERTIES_URL, *RHEA_REACTION_BUNDLE_URLS]
+    assert [file.path.name for file in snapshot.files] == [
+        "rhea-release.properties",
+        "rhea.rdf.gz",
+        "rhea2uniprot_sprot.tsv",
+        "rhea2uniprot_trembl.tsv.gz",
+        "rhea2ec.tsv",
+        "rhea-directions.tsv",
+    ]
+    assert snapshot.extra["version_method"]["type"] == "rhea_release_properties"
+    assert snapshot.extra["version_method"]["evidence"]["rhea_release_number"] == "141"
+
+
+def test_rhea_release_properties_parser_extracts_release_number_and_date():
+    version, version_date = parse_rhea_release_properties(
+        "rhea.release.number=141\nrhea.release.date=2026-06-10\n"
+    )
+
+    assert version == "141"
+    assert version_date == "2026-06-10"
+
+
+def test_expasy_enzyme_fetcher_snapshots_enzyme_class_and_details(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 13:00:00 GMT",
+            "version_date": "2026-06-10",
+        }
+
+    monkeypatch.setattr("src.registry.sources.common.download_url", fake_download_url)
+
+    snapshot = fetch_expasy_enzyme(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "expasy"
+    assert snapshot.dataset == "enzyme"
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.version_date == "2026-06-10"
+    assert downloaded_urls == EXPASY_ENZYME_URLS
+    assert [file.path.name for file in snapshot.files] == [
+        "enzclass.txt",
+        "enzyme.dat",
+    ]
+    assert snapshot.extra["version_method"]["type"] == "multi_file_max_last_modified"
 
 
 def test_lipidmaps_zip_inner_version_uses_structures_sdf_timestamp(tmp_path: Path):
@@ -2343,6 +2579,142 @@ files:
     post_build_status = registry.check_derived_artifacts()
     assert post_build_status[0]["is_latest_registered"] is True
     assert post_build_status[0]["latest_build_key"] == manifest["build_key"]
+
+
+def test_data_registry_sync_derived_artifact_builds_from_derived_snapshot(tmp_path: Path):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  pubchem:
+    datasets:
+      cid_molecular_info:
+        derived:
+          module: src.registry.derived.pubchem
+          class: PubchemCidMolecularInfoBuilder
+          dependencies:
+            - kind: derived
+              source: pubchem
+              dataset: compound_records
+          output:
+            file_name: cid_molecular_info.tsv
+          transform:
+            name: pubchem_cid_molecular_info
+            version: 1
+            code_ref: src/registry/derived/pubchem.py
+""",
+        encoding="utf-8",
+    )
+    source_dir = tmp_path / "source_files"
+    source_dir.mkdir()
+    records_manifest_path = source_dir / "pubchem_compound_records_manifest.tsv"
+    records_manifest_path.write_text(
+        "\t".join(["cid", "pubchem_id", "batch_file", "status", "http_status", "payload_sha256", "error"])
+        + "\n"
+        + "\t".join(["92105", "PUBCHEM.COMPOUND:92105", "pubchem_compound_records_batch_000001.json.gz", "ok", "200", "abc", ""])
+        + "\n",
+        encoding="utf-8",
+    )
+    batch_path = source_dir / "pubchem_compound_records_batch_000001.json.gz"
+    payload = {
+        "PC_Compounds": [
+            {
+                "id": {"id": {"cid": 92105}},
+                "props": [
+                    {"urn": {"label": "Molecular Formula"}, "value": {"sval": "C7H11N3O2"}},
+                    {"urn": {"label": "Molecular Weight"}, "value": {"sval": "169.18"}},
+                    {"urn": {"label": "Monoisotopic Weight"}, "value": {"sval": "169.085126602"}},
+                    {"urn": {"label": "InChIKey"}, "value": {"sval": "BRMWTNUJHUMWMS-LURJTMIESA-N"}},
+                    {"urn": {"label": "InChI"}, "value": {"sval": "InChI=1S/C7H11N3O2"}},
+                    {"urn": {"label": "SMILES", "name": "Canonical"}, "value": {"sval": "CN1C=NC=C1CC(N)C(=O)O"}},
+                    {"urn": {"label": "SMILES", "name": "Isomeric"}, "value": {"sval": "CN1C=NC=C1C[C@H](N)C(=O)O"}},
+                    {"urn": {"label": "IUPAC Name", "name": "Preferred"}, "value": {"sval": "2-amino-3-(1-methylimidazol-4-yl)propanoic acid"}},
+                ],
+            }
+        ]
+    }
+    with gzip.open(batch_path, "wt", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+    source_keys = {
+        "derived/pubchem/compound_records/v1/pubchem_compound_records_manifest.tsv": records_manifest_path,
+        "derived/pubchem/compound_records/v1/pubchem_compound_records_batch_000001.json.gz": batch_path,
+    }
+
+    class DerivedDependencyStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return []
+            if prefix == "derived/":
+                return [
+                    "derived/pubchem/compound_records/v1/manifest.yaml",
+                    *sorted(self.uploaded),
+                ]
+            if prefix == "external/":
+                return []
+            if prefix == "resolvers/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key == "derived/pubchem/compound_records/v1/manifest.yaml":
+                return """
+kind: derived_snapshot
+schema_version: 1
+source: pubchem
+dataset: compound_records
+snapshot_id: pubchem:compound_records:v1
+version: v1
+version_date: '2026-07-01'
+manifest_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/manifest.yaml
+files:
+  - path: pubchem_compound_records_manifest.tsv
+    storage_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/pubchem_compound_records_manifest.tsv
+  - path: pubchem_compound_records_batch_000001.json.gz
+    storage_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/pubchem_compound_records_batch_000001.json.gz
+"""
+            return self.uploaded[key].decode("utf-8")
+
+        def download_file(self, key, local_path):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(source_keys[key].read_bytes())
+            return local_path
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded[key] = Path(local_path).read_bytes()
+            return f"s3://ifx-registry/{key}"
+
+    storage = DerivedDependencyStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    plan = registry.sync_derived_artifacts()
+
+    assert [(entry["dataset"], entry["latest_version"], entry["sync_action"]) for entry in plan] == [
+        ("cid_molecular_info", "v1", "would_build"),
+    ]
+
+    result = registry.sync_derived_artifacts(dest=tmp_path / "cache", dry_run=False)
+
+    assert result[0]["sync_action"] == "built"
+    output_path = tmp_path / "cache" / "pubchem" / "cid_molecular_info" / "v1" / "cid_molecular_info.tsv"
+    output_rows = output_path.read_text(encoding="utf-8").splitlines()
+    assert output_rows == [
+        "pubchem_id\tcid\tmonoisotopic_mass\tinchikey\tinchi_key_prefix\tmolecular_formula\tmolecular_weight\tcanonical_smiles\tisomeric_smiles\tinchi\tiupac_name",
+        "PUBCHEM.COMPOUND:92105\t92105\t169.085126602\tBRMWTNUJHUMWMS-LURJTMIESA-N\tBRMWTNUJHUMWMS\tC7H11N3O2\t169.18\tCN1C=NC=C1CC(N)C(=O)O\tCN1C=NC=C1C[C@H](N)C(=O)O\tInChI=1S/C7H11N3O2\t2-amino-3-(1-methylimidazol-4-yl)propanoic acid",
+    ]
+    manifest = read_manifest(tmp_path / "cache" / "pubchem" / "cid_molecular_info" / "v1" / "manifest.yaml")
+    assert manifest["derived_from"] == [{
+        "snapshot_id": "pubchem:compound_records:v1",
+        "manifest_uri": "s3://ifx-registry/derived/pubchem/compound_records/v1/manifest.yaml",
+    }]
+    assert manifest["stats"]["row_count"] == 1
+    assert sorted(storage.uploaded) == [
+        "derived/pubchem/cid_molecular_info/v1/cid_molecular_info.tsv",
+        "derived/pubchem/cid_molecular_info/v1/manifest.yaml",
+    ]
 
 
 def test_data_registry_sync_resolvers_registers_snapshot_manifest(tmp_path: Path):
