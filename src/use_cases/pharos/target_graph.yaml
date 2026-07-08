@@ -15,15 +15,7 @@ resolvers:
       resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
-
-  - label: disease_ids
-    import: ./src/id_resolvers/disease_resolver.py
-    class: DiseaseIdResolver
-    kwargs:
-      resolver_snapshot: target_graph:disease_ids:deps-efec72a5de12
-      types:
         - Disease
-      multi_match_behavior: All
 
   - label: tg_genes
     import: ./src/id_resolvers/target_graph_resolver.py
