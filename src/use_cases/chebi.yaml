@@ -3,7 +3,6 @@ database_name: &database_name chebi
 
 registry:
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
-  cache_dir: /tmp/ifx-registry-cache
 
 input_adapters:
   - import: ./src/input_adapters/chebi/chebi_obo_adapter.py

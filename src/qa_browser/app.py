@@ -29,6 +29,7 @@ from starlette.concurrency import run_in_threadpool
 import uvicorn
 
 from src.core.data_registry import DataRegistry
+from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
 from src.qa_browser.ramp_id_graph import (
     RAMP_DIAGNOSIS_OPTIONS,
@@ -1383,7 +1384,7 @@ def _gunzip_if_needed(path: Path) -> Path:
 
 
 def _materialize_ramp_sqlite_database() -> tuple[Path, dict]:
-    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", "/tmp/ifx-registry-cache"))
+    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", str(DEFAULT_REGISTRY_CACHE_DIR)))
     source = "ramp"
     dataset_name = "sqlite_database"
     version = "3.0.7"
@@ -1536,7 +1537,7 @@ def _start_resolver_warmup_thread():
 
 
 def _materialize_resolver_snapshot_for_api(source: str, resolver: str, version: str):
-    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", "/tmp/ifx-registry-cache"))
+    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", str(DEFAULT_REGISTRY_CACHE_DIR)))
     try:
         return _with_registry_endpoint_fallback(
             lambda registry: registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir),

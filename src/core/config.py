@@ -10,7 +10,7 @@ from src.core.data_registry import DataRegistry
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.output_adapter import OutputAdapter
-from src.registry.storage import RegistryCredentials, load_registry_credentials
+from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR, RegistryCredentials, load_registry_credentials
 from src.shared.db_credentials import DBCredentials
 
 
@@ -115,7 +115,7 @@ def resolve_registry_references(config_dict: dict) -> dict:
     credentials_config = registry_config.get("credentials")
     if credentials_config is None:
         raise ValueError("registry.credentials is required when registry config is present")
-    cache_dir = Path(registry_config.get("cache_dir", "/tmp/ifx-registry-cache"))
+    cache_dir = Path(registry_config.get("cache_dir", DEFAULT_REGISTRY_CACHE_DIR))
     registry = DataRegistry.from_credentials(
         _registry_credentials_from_config(credentials_config),
         bucket=registry_config.get("bucket"),

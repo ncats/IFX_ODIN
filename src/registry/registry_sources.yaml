@@ -348,6 +348,11 @@ sources:
           module: src.registry.sources.metabolite_harmonization
           class: ManualHmdbMetabolitesXmlFetcher
           version_strategy: manual_hmdb_release
+      proteins_xml:
+        fetch:
+          module: src.registry.sources.metabolite_harmonization
+          class: ManualHmdbProteinsXmlFetcher
+          version_strategy: manual_hmdb_release
       structures_sdf:
         fetch:
           module: src.registry.sources.metabolite_harmonization

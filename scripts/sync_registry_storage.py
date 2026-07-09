@@ -8,10 +8,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.core.data_registry import DataRegistry
+from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 
 
 DEFAULT_PREFIXES = ("sources/", "derived/", "external/", "resolvers/")
-DEFAULT_LOCAL_ROOTS = ("/tmp/ifx-registry-cache",)
+DEFAULT_LOCAL_ROOTS = (str(DEFAULT_REGISTRY_CACHE_DIR),)
 SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
 
 
@@ -57,7 +58,7 @@ def main() -> None:
         "--local-root",
         action="append",
         default=None,
-        help="Local directory to check before downloading from MinIO; repeatable. Defaults to /tmp/ifx-registry-cache.",
+        help="Local directory to check before downloading from MinIO; repeatable. Defaults to /var/tmp/ifx-registry-cache.",
     )
     parser.add_argument("--execute", action="store_true", help="Actually copy objects. Default is dry-run.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite target objects even when present.")

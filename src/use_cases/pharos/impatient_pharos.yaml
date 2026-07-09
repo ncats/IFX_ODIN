@@ -5,7 +5,6 @@ pchembl_cutoff: &pchembl_cutoff 5
 
 registry:
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
-  cache_dir: /tmp/ifx-registry-cache
 
 resolvers:
   - label: translator_nn

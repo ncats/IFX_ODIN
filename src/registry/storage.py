@@ -8,6 +8,7 @@ from src.shared.db_credentials import DBCredentials
 
 
 DEFAULT_REGISTRY_BUCKET = "ifx-registry"
+DEFAULT_REGISTRY_CACHE_DIR = Path("/var/tmp/ifx-registry-cache")
 
 
 def load_minio_credentials(path: Path) -> DBCredentials:

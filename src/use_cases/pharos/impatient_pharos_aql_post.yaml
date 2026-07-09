@@ -3,7 +3,6 @@ database_name: &database_name impatient_pharos
 
 registry:
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
-  cache_dir: /tmp/ifx-registry-cache
 
 resolvers:
   - label: tcrd_targets

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.data_registry import DataRegistry
+from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 
 
 def status_label(status: dict) -> str:
@@ -62,13 +63,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--credentials",
         type=Path,
-        default=Path("src/use_cases/secrets/ifxdev_minio.yaml"),
-        help="Path to MinIO credentials YAML.",
+        default=Path("src/use_cases/secrets/aws_ifx_registry.yaml"),
+        help="Path to registry credentials YAML.",
     )
     parser.add_argument(
         "--cache-dir",
         type=Path,
-        default=Path("/tmp/ifx-registry-cache"),
+        default=DEFAULT_REGISTRY_CACHE_DIR,
         help="Local cache/work directory for fetched registry files.",
     )
     parser.add_argument(
@@ -86,14 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--internal-minio-url",
         action="store_true",
-        help="Use the internal MinIO URL from the credentials file.",
+        help="Use the internal object-store URL when supported by the credentials file.",
     )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    registry = DataRegistry.from_minio_credentials(
+    registry = DataRegistry.from_registry_credentials(
         args.credentials,
         use_internal_url=args.internal_minio_url,
     )
