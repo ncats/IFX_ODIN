@@ -18,6 +18,7 @@ from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 from src.shared.db_credentials import DBCredentials
+from src.registry.storage import AwsAssumeRoleCredentials, AwsAssumeRoleStorage, MinioStorage
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     NODE_MERGE_METADATA_FIELDS = ("_key", "id", "creation", "updates", "resolved_ids")
@@ -29,8 +30,16 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         self._resolver_fingerprints_by_type = {}
         self._resolver_source_yaml = None
         self._registry_datasets = []
-        self.minio_creds = DBCredentials(**minio_credentials) if minio_credentials else None
+        self.minio_storage = self._object_storage_from_credentials(minio_credentials)
         super().__init__(credentials=credentials, database_name=database_name)
+
+    @staticmethod
+    def _object_storage_from_credentials(credentials: dict | None):
+        if not credentials:
+            return None
+        if "role_arn" in credentials or credentials.get("type") == "aws_assume_role":
+            return AwsAssumeRoleStorage(AwsAssumeRoleCredentials.from_yaml(credentials))
+        return MinioStorage(DBCredentials(**credentials))
 
     def set_graph_views_metadata(self, graph_views=None, source_yaml=None):
         self._graph_views = graph_views or []
@@ -142,29 +151,16 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         from src.models.pounce.dataset import Dataset
         from src.models.pounce.stats_result import StatsResult
 
-        if not self.minio_creds:
+        if not self.minio_storage:
             return
 
         import io
-        import boto3
         import pyarrow as pa
         import pyarrow.parquet as pq
-        from botocore.client import Config
 
-        creds = self.minio_creds
-        endpoint = creds.url
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=creds.user,
-            aws_secret_access_key=creds.password,
-            config=Config(
-                signature_version="s3v4",
-                s3={'addressing_style': 'path'}
-            ),
-            verify=False,
-        )
-        self._ensure_bucket(s3, creds.schema)
+        storage = self.minio_storage
+        s3 = storage.client()
+        storage.ensure_bucket()
 
         for obj in objects:
             if isinstance(obj, (Dataset, StatsResult)) and obj._data_frame is not None:
@@ -176,10 +172,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 pq.write_table(table, buf)
                 buf.seek(0)
 
-                s3.put_object(Bucket=creds.schema, Key=key, Body=buf)
-                print(f"Uploaded Parquet to MinIO: s3://{creds.schema}/{key} ({obj.row_count} rows x {obj.column_count} cols)")
+                s3.put_object(Bucket=storage.bucket, Key=key, Body=buf)
+                print(f"Uploaded Parquet to object storage: s3://{storage.bucket}/{key} ({obj.row_count} rows x {obj.column_count} cols)")
 
-                obj.file_reference = f"s3://{creds.schema}/{key}"
+                obj.file_reference = f"s3://{storage.bucket}/{key}"
                 obj._data_frame = None
 
     def _project_id_for_workbook_owner(self, obj) -> str:
@@ -202,25 +198,12 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         from src.models.pounce.stats_result import StatsResult
         from src.models.pounce.workbook_artifact import WorkbookArtifact
 
-        if not self.minio_creds:
+        if not self.minio_storage:
             return
 
-        import boto3
-        from botocore.client import Config
-
-        creds = self.minio_creds
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=creds.url,
-            aws_access_key_id=creds.user,
-            aws_secret_access_key=creds.password,
-            config=Config(
-                signature_version="s3v4",
-                s3={'addressing_style': 'path'}
-            ),
-            verify=False,
-        )
-        self._ensure_bucket(s3, creds.schema)
+        storage = self.minio_storage
+        s3 = storage.client()
+        storage.ensure_bucket()
 
         for obj in objects:
             if not isinstance(obj, (Project, Experiment, StatsResult)):
@@ -240,9 +223,9 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             original_name = workbook.original_filename or os.path.basename(local_path)
             key = f"{self.database_name}/workbooks/{self.safe_key(project_id)}/{original_name}"
             with open(local_path, "rb") as handle:
-                s3.put_object(Bucket=creds.schema, Key=key, Body=handle)
+                s3.put_object(Bucket=storage.bucket, Key=key, Body=handle)
             workbook.original_filename = original_name
-            workbook.file_reference = f"s3://{creds.schema}/{key}"
+            workbook.file_reference = f"s3://{storage.bucket}/{key}"
             workbook._local_path = None
 
     def create_indexes(self, cls: Type, collection):
@@ -546,44 +529,32 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             raise Exception(f"failed to update {len(failed)} {kind} records into {label}")
 
     def _delete_minio_prefix(self, prefix: str) -> None:
-        if not self.minio_creds:
+        if not self.minio_storage:
             return
 
-        import boto3
-        from botocore.client import Config
         from botocore.exceptions import ClientError
 
-        creds = self.minio_creds
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=creds.url,
-            aws_access_key_id=creds.user,
-            aws_secret_access_key=creds.password,
-            config=Config(
-                signature_version="s3v4",
-                s3={'addressing_style': 'path'}
-            ),
-            verify=False,
-        )
+        storage = self.minio_storage
+        s3 = storage.client()
 
         try:
-            s3.head_bucket(Bucket=creds.schema)
+            s3.head_bucket(Bucket=storage.bucket)
         except ClientError:
             return
 
         paginator = s3.get_paginator("list_objects_v2")
         total_deleted = 0
-        for page in paginator.paginate(Bucket=creds.schema, Prefix=prefix):
+        for page in paginator.paginate(Bucket=storage.bucket, Prefix=prefix):
             contents = page.get("Contents", [])
             if not contents:
                 continue
             objects = [{"Key": item["Key"]} for item in contents]
             for i in range(0, len(objects), 1000):
                 chunk = objects[i:i + 1000]
-                s3.delete_objects(Bucket=creds.schema, Delete={"Objects": chunk})
+                s3.delete_objects(Bucket=storage.bucket, Delete={"Objects": chunk})
                 total_deleted += len(chunk)
         if total_deleted:
-            print(f"Deleted {total_deleted} MinIO objects under s3://{creds.schema}/{prefix}")
+            print(f"Deleted {total_deleted} object storage objects under s3://{storage.bucket}/{prefix}")
 
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         sys_db = self.client.db('_system', username=self.credentials.user,

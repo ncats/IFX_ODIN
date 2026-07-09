@@ -5,7 +5,7 @@ legacy_pharos_credentials: &legacy_pharos_credentials ./src/use_cases/secrets/ph
 pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_credentials.yaml
 
 registry:
-  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
+  credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
   cache_dir: /tmp/ifx-registry-cache
 
 resolvers:
