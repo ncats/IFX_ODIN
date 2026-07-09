@@ -1,12 +1,17 @@
 import os.path
 import sqlite3
 import threading
+from pathlib import Path
 from contextlib import closing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Dict, Generator, Any
 from src.interfaces.id_resolver import IdResolver, IdMatch
 from src.models.node import Node
+
+DEFAULT_SQLITE_RESOLVER_CACHE_DIR = Path(
+    os.environ.get("IFX_SQLITE_RESOLVER_CACHE_DIR", "/var/tmp/ifx-resolver-cache")
+)
 
 
 @dataclass(frozen=True)
@@ -21,7 +26,7 @@ class SqliteCacheResolver(IdResolver, ABC):
     sqlite_busy_timeout_ms = 300000
 
     def cache_location(self):
-        return f"input_files/sqlite_resolver/{self.__class__.__name__}.sqlite"
+        return str(DEFAULT_SQLITE_RESOLVER_CACHE_DIR / f"{self.__class__.__name__}.sqlite")
 
     def __init__(self, **kwargs):
         IdResolver.__init__(self, **kwargs)
@@ -36,8 +41,7 @@ class SqliteCacheResolver(IdResolver, ABC):
 
     def create_connection(self):
         cache_loc = self.cache_location()
-        if not os.path.exists(cache_loc):
-            os.makedirs(os.path.dirname(cache_loc), exist_ok=True)
+        os.makedirs(os.path.dirname(cache_loc), exist_ok=True)
         connection = sqlite3.connect(
             cache_loc,
             check_same_thread=False,
@@ -50,6 +54,17 @@ class SqliteCacheResolver(IdResolver, ABC):
         except sqlite3.OperationalError as exc:
             print(f"\tunable to enable sqlite WAL mode for id resolver cache: {exc}")
         return connection
+
+    def reset_connection(self):
+        if self.connection is not None:
+            self.connection.close()
+        cache_loc = self.cache_location()
+        for suffix in ("", "-wal", "-shm"):
+            path = f"{cache_loc}{suffix}"
+            if os.path.exists(path):
+                os.chmod(path, 0o600)
+                os.remove(path)
+        self.connection = self.create_connection()
 
     def db_is_corrupt(self):
         if not self.table_exists('matches'):
@@ -92,6 +107,7 @@ class SqliteCacheResolver(IdResolver, ABC):
 
     def create_lookup_db(self):
         print('\tcreating sqlite lookup db')
+        self.reset_connection()
         with self._sqlite_lock:
             with closing(self.connection.cursor()) as cur:
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
 from src.id_resolvers.resolver_snapshot import resolver_input
-from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver
+from src.id_resolvers.sqlite_cache_resolver import DEFAULT_SQLITE_RESOLVER_CACHE_DIR, SqliteCacheResolver
 from src.interfaces.id_resolver import IdMatch
 from src.models.node import Node
 
@@ -32,7 +32,7 @@ class DiseaseIdResolver(SqliteCacheResolver):
     def cache_location(self):
         if self.cache_path:
             return self.cache_path
-        return f"input_files/sqlite_resolver/{self.__class__.__name__}.sqlite"
+        return str(DEFAULT_SQLITE_RESOLVER_CACHE_DIR / f"{self.__class__.__name__}.sqlite")
 
     def get_version_info(self) -> str:
         stat = os.stat(self.file_path)
@@ -46,6 +46,7 @@ class DiseaseIdResolver(SqliteCacheResolver):
 
     def create_lookup_db(self):
         print('\tcreating sqlite lookup db')
+        self.reset_connection()
         with self._sqlite_lock:
             cur = self.connection.cursor()
 
