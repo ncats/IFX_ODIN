@@ -126,6 +126,9 @@ def test_sqlite_cache_resolver_can_be_reused_from_worker_thread(tmp_path):
     with ThreadPoolExecutor(max_workers=1) as executor:
         prefix_counts = executor.submit(resolver.get_prefix_counts).result()
 
+    busy_timeout = resolver.connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert busy_timeout == resolver.sqlite_busy_timeout_ms
     assert {"prefix": "UniProtKB", "count": 1} in prefix_counts
     assert {"prefix": "Symbol", "count": 1} in prefix_counts
 
