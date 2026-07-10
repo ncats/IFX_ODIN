@@ -6,7 +6,6 @@ pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_crede
 
 registry:
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
-  cache_dir: /tmp/ifx-registry-cache
 
 resolvers:
   - label: tcrd_targets

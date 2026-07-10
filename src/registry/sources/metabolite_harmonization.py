@@ -289,6 +289,21 @@ class ManualHmdbMetabolitesXmlFetcher(SourceFetcher):
         return HMDB_VERSION
 
 
+class ManualHmdbProteinsXmlFetcher(SourceFetcher):
+    source = "hmdb"
+    dataset = "proteins_xml"
+
+    def fetch(self, *, dest: Path, timeout: int = 60) -> SourceSnapshot:
+        return _manual_hmdb_snapshot(
+            dataset=self.dataset,
+            file_name="hmdb_proteins.zip",
+            dest=dest / self.source / self.dataset / "pending",
+        )
+
+    def get_latest_version(self, *, timeout: int = 60) -> str:
+        return HMDB_VERSION
+
+
 class ManualHmdbStructuresSdfFetcher(SourceFetcher):
     source = "hmdb"
     dataset = "structures_sdf"

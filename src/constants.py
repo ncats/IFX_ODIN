@@ -21,6 +21,7 @@ class DataSourceName(SimpleEnum):
     BioPlex = "BioPlex"
     WikiPathways = "WikiPathways"
     PathwayCommons = "PathwayCommons"
+    PFOCR = "PFOCR"
     CLO = "Cell Line Ontology (CLO)"
     CURE = "CURE-ID"
     ENSEMBL = "Ensembl"

@@ -1,18 +1,30 @@
 from pathlib import Path
 from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 import re
+from urllib.parse import unquote
 import zipfile
 
 from rdflib import Graph, URIRef, RDF, RDFS
+from rdflib.namespace import DC
 
 from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite_harmonization import (
+    GeneIdentifier,
+    GenePathwayDetail,
+    GenePathwayEdge,
     MetaboliteIdentifier,
     MetaboliteIdentifierMappingDetail,
     MetaboliteIdentifierMappingEdge,
     MetaboliteName,
+    MetabolitePathwayDetail,
+    MetabolitePathwayEdge,
+    PathwayIdentifier,
+    PathwayName,
+    ProteinIdentifier,
+    ProteinPathwayDetail,
+    ProteinPathwayEdge,
 )
 
 
@@ -40,6 +52,17 @@ IDENTIFIERS_ORG_PREFIXES = {
     "pubchem.substance": "PUBCHEM.SUBSTANCE",
     "reactome": "Reactome",
     "wikidata": "Wikidata",
+}
+
+GENE_IDENTIFIER_PREFIXES = {
+    "ncbigene": "NCBIGene",
+    "ensembl": "Ensembl",
+    "hgnc.symbol": "Symbol",
+    "wikidata": "Wikidata",
+}
+
+PROTEIN_IDENTIFIER_PREFIXES = {
+    "uniprot": "UniProtKB",
 }
 
 
@@ -221,7 +244,7 @@ class WikiPathwaysMetaboliteEquivalenceAdapter(InputAdapter):
 
     @staticmethod
     def _prefixed_id(prefix: str, value: str) -> Optional[str]:
-        value = value.strip()
+        value = unquote(value).replace("\u00a0", " ").strip().rstrip("\u00c2").strip()
         if not value:
             return None
         if prefix == "CHEBI" and value.upper().startswith("CHEBI:"):
@@ -255,3 +278,325 @@ class WikiPathwaysMetaboliteEquivalenceAdapter(InputAdapter):
             seen.add(key)
             result.append(key)
         return result
+
+
+class WikiPathwaysPathwayContextAdapter(InputAdapter):
+    def __init__(
+        self,
+        data_source=None,
+        rdf_zip_file: Optional[str] = None,
+        max_files: Optional[int] = None,
+    ):
+        if data_source is not None:
+            rdf_zip_file = str(data_source.file())
+            self.version_info = data_source.version_info()
+        else:
+            self.version_info = DatasourceVersionInfo(version=None, version_date=None, download_date=None)
+        if rdf_zip_file is None:
+            raise ValueError("WikiPathwaysPathwayContextAdapter requires data_source or rdf_zip_file")
+        self.rdf_zip_file = Path(rdf_zip_file)
+        self.max_files = max_files
+        self._pathway_records_cache: Optional[List[Dict]] = None
+
+    def get_datasource_name(self) -> DataSourceName:
+        return DataSourceName.WikiPathways
+
+    def get_version(self) -> DatasourceVersionInfo:
+        return self.version_info
+
+    def get_all(self) -> Generator[
+        List[Union[
+            GeneIdentifier,
+            MetaboliteIdentifier,
+            PathwayIdentifier,
+            ProteinIdentifier,
+            GenePathwayEdge,
+            MetabolitePathwayEdge,
+            ProteinPathwayEdge,
+        ]],
+        None,
+        None,
+    ]:
+        yield from self._iter_pathway_node_batches()
+        yield from self._iter_metabolite_node_batches()
+        yield from self._iter_gene_node_batches()
+        yield from self._iter_protein_node_batches()
+        yield from self._iter_metabolite_pathway_edge_batches()
+        yield from self._iter_gene_pathway_edge_batches()
+        yield from self._iter_protein_pathway_edge_batches()
+
+    def _iter_pathway_node_batches(self) -> Generator[List[PathwayIdentifier], None, None]:
+        batch: List[PathwayIdentifier] = []
+        emitted: Set[str] = set()
+        for record in self._iter_pathway_records():
+            pathway_id = record["pathway_id"]
+            if pathway_id in emitted:
+                continue
+            emitted.add(pathway_id)
+            names = [
+                PathwayName(value=record["title"], source="WikiPathways", source_field="dc:title")
+            ] if record.get("title") else []
+            batch.append(
+                PathwayIdentifier(
+                    id=pathway_id,
+                    stable_id=record["wp_id"],
+                    url=f"https://www.wikipathways.org/pathways/{record['wp_id']}.html",
+                    names=names,
+                )
+            )
+            if len(batch) >= self.batch_size:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
+
+    def _iter_metabolite_node_batches(self) -> Generator[List[MetaboliteIdentifier], None, None]:
+        batch: List[MetaboliteIdentifier] = []
+        emitted: Set[str] = set()
+        for record in self._iter_pathway_records():
+            for metabolite_id in record["metabolite_ids"]:
+                if metabolite_id in emitted:
+                    continue
+                emitted.add(metabolite_id)
+                batch.append(MetaboliteIdentifier(id=metabolite_id))
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_gene_node_batches(self) -> Generator[List[GeneIdentifier], None, None]:
+        batch: List[GeneIdentifier] = []
+        emitted: Set[str] = set()
+        for record in self._iter_pathway_records():
+            for gene_id in record["gene_ids"]:
+                if gene_id in emitted:
+                    continue
+                emitted.add(gene_id)
+                batch.append(GeneIdentifier(id=gene_id))
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_protein_node_batches(self) -> Generator[List[ProteinIdentifier], None, None]:
+        batch: List[ProteinIdentifier] = []
+        emitted: Set[str] = set()
+        for record in self._iter_pathway_records():
+            for protein_id in record["protein_ids"]:
+                if protein_id in emitted:
+                    continue
+                emitted.add(protein_id)
+                batch.append(ProteinIdentifier(id=protein_id))
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_metabolite_pathway_edge_batches(self) -> Generator[List[MetabolitePathwayEdge], None, None]:
+        batch: List[MetabolitePathwayEdge] = []
+        emitted: Set[Tuple[str, str]] = set()
+        for record in self._iter_pathway_records():
+            for metabolite_id in record["metabolite_ids"]:
+                edge_key = (metabolite_id, record["pathway_id"])
+                if edge_key in emitted:
+                    continue
+                emitted.add(edge_key)
+                batch.append(
+                    MetabolitePathwayEdge(
+                        start_node=MetaboliteIdentifier(id=metabolite_id),
+                        end_node=PathwayIdentifier(id=record["pathway_id"]),
+                        details=[
+                            MetabolitePathwayDetail(
+                                source="WikiPathways",
+                                source_field="wp:Metabolite",
+                                metabolite_id=metabolite_id,
+                                pathway_id=record["pathway_id"],
+                                pathway_name=record.get("title"),
+                                url=f"https://www.wikipathways.org/pathways/{record['wp_id']}.html",
+                                species="Homo sapiens",
+                            )
+                        ],
+                    )
+                )
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_gene_pathway_edge_batches(self) -> Generator[List[GenePathwayEdge], None, None]:
+        batch: List[GenePathwayEdge] = []
+        emitted: Set[Tuple[str, str]] = set()
+        for record in self._iter_pathway_records():
+            for gene_id in record["gene_ids"]:
+                edge_key = (gene_id, record["pathway_id"])
+                if edge_key in emitted:
+                    continue
+                emitted.add(edge_key)
+                batch.append(
+                    GenePathwayEdge(
+                        start_node=GeneIdentifier(id=gene_id),
+                        end_node=PathwayIdentifier(id=record["pathway_id"]),
+                        details=[
+                            GenePathwayDetail(
+                                source="WikiPathways",
+                                source_field="wp:GeneProduct",
+                                gene_id=gene_id,
+                                pathway_id=record["pathway_id"],
+                                pathway_name=record.get("title"),
+                                url=f"https://www.wikipathways.org/pathways/{record['wp_id']}.html",
+                                species="Homo sapiens",
+                            )
+                        ],
+                    )
+                )
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_protein_pathway_edge_batches(self) -> Generator[List[ProteinPathwayEdge], None, None]:
+        batch: List[ProteinPathwayEdge] = []
+        emitted: Set[Tuple[str, str]] = set()
+        for record in self._iter_pathway_records():
+            for protein_id in record["protein_ids"]:
+                edge_key = (protein_id, record["pathway_id"])
+                if edge_key in emitted:
+                    continue
+                emitted.add(edge_key)
+                batch.append(
+                    ProteinPathwayEdge(
+                        start_node=ProteinIdentifier(id=protein_id),
+                        end_node=PathwayIdentifier(id=record["pathway_id"]),
+                        details=[
+                            ProteinPathwayDetail(
+                                source="WikiPathways",
+                                source_field="wp:Protein",
+                                protein_id=protein_id,
+                                pathway_id=record["pathway_id"],
+                                pathway_name=record.get("title"),
+                                url=f"https://www.wikipathways.org/pathways/{record['wp_id']}.html",
+                                species="Homo sapiens",
+                            )
+                        ],
+                    )
+                )
+                if len(batch) >= self.batch_size:
+                    yield batch
+                    batch = []
+        if batch:
+            yield batch
+
+    def _iter_pathway_records(self) -> Iterable[Dict]:
+        if self._pathway_records_cache is not None:
+            yield from self._pathway_records_cache
+            return
+
+        records: List[Dict] = []
+        with zipfile.ZipFile(self.rdf_zip_file) as archive:
+            ttl_members = [info.filename for info in archive.infolist() if info.filename.endswith(".ttl")]
+            for file_idx, member in enumerate(ttl_members):
+                if self.max_files is not None and file_idx >= self.max_files:
+                    break
+                graph = Graph()
+                graph.parse(data=archive.read(member).decode("utf-8", "ignore"), format="turtle")
+                if not self._is_human_pathway(graph):
+                    continue
+                wp_id = Path(member).stem
+                records.append({
+                    "wp_id": wp_id,
+                    "pathway_id": f"WikiPathways:{wp_id}",
+                    "title": self._pathway_title(graph),
+                    "metabolite_ids": self._metabolite_ids(graph),
+                    "gene_ids": self._gene_ids(graph),
+                    "protein_ids": self._protein_ids(graph),
+                })
+        self._pathway_records_cache = records
+        yield from records
+
+    @staticmethod
+    def _is_human_pathway(graph: Graph) -> bool:
+        organism = URIRef(WP + "organism")
+        return any(str(obj).endswith("NCBITaxon_9606") for obj in graph.objects(None, organism))
+
+    @staticmethod
+    def _pathway_title(graph: Graph) -> Optional[str]:
+        for title in graph.objects(None, DC.title):
+            value = str(title).strip()
+            if value:
+                return value
+        return None
+
+    @classmethod
+    def _metabolite_ids(cls, graph: Graph) -> List[str]:
+        ids: List[str] = []
+        for subject in graph.subjects(RDF.type, URIRef(WP + "Metabolite")):
+            ids.extend(cls._metabolite_ids_for_subject(graph, subject))
+        return WikiPathwaysMetaboliteEquivalenceAdapter._unique_clean_values(ids)
+
+    @classmethod
+    def _metabolite_ids_for_subject(cls, graph: Graph, subject) -> List[str]:
+        ids = []
+        subject_id = WikiPathwaysMetaboliteEquivalenceAdapter._normalize_uri(str(subject))
+        if subject_id is not None:
+            ids.append(subject_id)
+        for predicate, obj in graph.predicate_objects(subject):
+            if not str(predicate).startswith(WP + "bdb"):
+                continue
+            node_id = WikiPathwaysMetaboliteEquivalenceAdapter._normalize_uri(str(obj))
+            if node_id is not None:
+                ids.append(node_id)
+        return ids
+
+    @classmethod
+    def _gene_ids(cls, graph: Graph) -> List[str]:
+        ids = []
+        for rdf_type in (URIRef(WP + "GeneProduct"), URIRef(WP + "Protein")):
+            for subject in graph.subjects(RDF.type, rdf_type):
+                ids.extend(cls._ids_for_subject(graph, subject, GENE_IDENTIFIER_PREFIXES))
+        return WikiPathwaysMetaboliteEquivalenceAdapter._unique_clean_values(ids)
+
+    @classmethod
+    def _protein_ids(cls, graph: Graph) -> List[str]:
+        ids = []
+        for rdf_type in (URIRef(WP + "GeneProduct"), URIRef(WP + "Protein")):
+            for subject in graph.subjects(RDF.type, rdf_type):
+                ids.extend(cls._ids_for_subject(graph, subject, PROTEIN_IDENTIFIER_PREFIXES))
+        return WikiPathwaysMetaboliteEquivalenceAdapter._unique_clean_values(ids)
+
+    @classmethod
+    def _ids_for_subject(cls, graph: Graph, subject, prefix_map: Dict[str, str]) -> List[str]:
+        ids = []
+        subject_id = cls._normalize_identifier_uri(str(subject), prefix_map)
+        if subject_id is not None:
+            ids.append(subject_id)
+        for predicate, obj in graph.predicate_objects(subject):
+            if not str(predicate).startswith(WP + "bdb"):
+                continue
+            node_id = cls._normalize_identifier_uri(str(obj), prefix_map)
+            if node_id is not None:
+                ids.append(node_id)
+        return ids
+
+    @staticmethod
+    def _normalize_identifier_uri(uri: str, prefix_map: Dict[str, str]) -> Optional[str]:
+        uri = uri.strip()
+        if uri.startswith(IDENTIFIERS_ORG_PREFIX):
+            suffix = uri[len(IDENTIFIERS_ORG_PREFIX):]
+            if "/" not in suffix:
+                return None
+            family, value = suffix.split("/", 1)
+            prefix = prefix_map.get(family)
+            if prefix is None:
+                return None
+            return WikiPathwaysMetaboliteEquivalenceAdapter._prefixed_id(prefix, value)
+        if uri.startswith(WIKIDATA_ENTITY_PREFIX):
+            prefix = prefix_map.get("wikidata")
+            if prefix is None:
+                return None
+            return WikiPathwaysMetaboliteEquivalenceAdapter._prefixed_id(prefix, uri[len(WIKIDATA_ENTITY_PREFIX):])
+        return None
