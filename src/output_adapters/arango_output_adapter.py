@@ -380,7 +380,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 collection, existing_nodes = self.get_existing_nodes(db, label, obj_list, skip_merge=single_source)
 
                 self.create_indexes(obj_cls, collection)
-                existing_ids = {record['id'] for record in existing_nodes}
+                existing_keys = {record['_key'] for record in existing_nodes}
                 existing_record_map = {record['id']: record for record in existing_nodes}
                 merged_nodes = merger.merge_records(obj_list, existing_record_map, nodes_or_edges='nodes')
 
@@ -396,8 +396,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     )
                     continue
 
-                inserts = [obj for obj in node_payloads if obj["id"] not in existing_ids]
-                updates = [obj for obj in node_payloads if obj["id"] in existing_ids]
+                inserts = [obj for obj in node_payloads if obj["_key"] not in existing_keys]
+                updates = [obj for obj in node_payloads if obj["_key"] in existing_keys]
 
                 if inserts:
                     self.insert_many_with_backoff(
