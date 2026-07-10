@@ -274,14 +274,14 @@ def _resolver_snapshot(version="deps-test"):
     )
 
 
-def _resolver_config(class_name="DiseaseIdResolver", version="deps-test"):
+def _resolver_config(class_name="DiseaseIdResolver", version="deps-test", types=None):
     return [{
         "label": "disease_ids",
         "import": "./src/id_resolvers/disease_resolver.py",
         "class": class_name,
         "kwargs": {
             "resolver_snapshot": _resolver_snapshot(version=version),
-            "types": ["Disease"],
+            "types": types or ["Disease"],
             "multi_match_behavior": "All",
         },
     }]
@@ -332,6 +332,40 @@ def test_tcrd_output_adapter_rejects_mismatched_source_graph_resolver_metadata()
     })
 
     with pytest.raises(RuntimeError, match="mismatched_types=\\['Disease'\\]"):
+        adapter._validate_source_graph_resolver_metadata()
+
+
+def test_tcrd_output_adapter_warns_on_fingerprint_drift_with_matching_resolver_identity():
+    expected = resolver_fingerprints_by_type(_resolver_config())
+    actual = resolver_fingerprints_by_type(_resolver_config())
+    actual["Disease"] = {
+        **actual["Disease"],
+        "fingerprint": "different-expanded-dependency-fingerprint",
+    }
+    adapter = _adapter_with_resolver_metadata(expected, {
+        "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+        "resolver_metadata": {
+            "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+            "by_type": actual,
+        },
+    })
+
+    with pytest.warns(RuntimeWarning, match="resolver YAML identity matches"):
+        adapter._validate_source_graph_resolver_metadata()
+
+
+def test_tcrd_output_adapter_accepts_graph_resolver_with_broader_type_scope():
+    expected = resolver_fingerprints_by_type(_resolver_config())
+    actual = resolver_fingerprints_by_type(_resolver_config(types=["Ligand", "Disease"]))
+    adapter = _adapter_with_resolver_metadata(expected, {
+        "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+        "resolver_metadata": {
+            "source_yaml": "./src/use_cases/pharos/pharos.yaml",
+            "by_type": actual,
+        },
+    })
+
+    with pytest.warns(RuntimeWarning, match="resolver YAML identity matches"):
         adapter._validate_source_graph_resolver_metadata()
 
 

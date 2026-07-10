@@ -3,6 +3,7 @@ from datetime import datetime
 import os
 import platform
 import socket
+import warnings
 from src.interfaces.metadata import DatabaseMetadata, get_git_metadata
 from sqlalchemy import case, func, text
 from sqlalchemy import inspect as sqlalchemy_inspect
@@ -646,6 +647,7 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
             )
 
         mismatches = []
+        fingerprint_drifts = []
         for node_type, expected in self._resolver_fingerprints_by_type.items():
             actual = graph_fingerprints.get(node_type)
             if actual is None:
@@ -656,11 +658,23 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 })
                 continue
             if actual.get("fingerprint") != expected.get("fingerprint"):
-                mismatches.append({
+                mismatch = {
                     "type": node_type,
                     "expected": expected,
                     "actual": actual,
-                })
+                }
+                if self._resolver_yaml_identity(actual) != self._resolver_yaml_identity(expected):
+                    mismatches.append(mismatch)
+                else:
+                    fingerprint_drifts.append(mismatch)
+
+        if fingerprint_drifts:
+            warnings.warn(
+                "Source graph resolver dependency fingerprints differ from this MySQL conversion config, "
+                "but resolver YAML identity matches; continuing based on label/import/class/resolver_snapshot. "
+                f"types={[row['type'] for row in fingerprint_drifts]}",
+                RuntimeWarning,
+            )
 
         if mismatches:
             expected_summary = resolver_fingerprint_summary(self._resolver_fingerprints_by_type)
@@ -674,6 +688,21 @@ class TCRDOutputAdapter(MySQLOutputAdapter):
                 f"mismatched_types={[row['type'] for row in mismatches]}; "
                 f"graph_resolvers={actual_summary}; mysql_resolvers={expected_summary}"
             )
+
+    @staticmethod
+    def _resolver_yaml_identity(metadata: dict | None) -> dict:
+        metadata = metadata or {}
+        resolver_snapshot = metadata.get("resolver_snapshot")
+        if resolver_snapshot is None and isinstance(metadata.get("kwargs"), dict):
+            resolver_snapshot = metadata["kwargs"].get("resolver_snapshot")
+        if isinstance(resolver_snapshot, dict):
+            resolver_snapshot = resolver_snapshot.get("snapshot_id")
+        return {
+            "label": metadata.get("label"),
+            "import": metadata.get("import"),
+            "class": metadata.get("class"),
+            "resolver_snapshot": resolver_snapshot,
+        }
 
     def _preload_graph_backed_id_mappings(self, session) -> None:
         if not isinstance(self.output_converter, TCRDOutputConverter):
