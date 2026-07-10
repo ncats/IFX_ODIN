@@ -1,4 +1,4 @@
-from typing import Generator, List
+from typing import Generator, List, Optional, Set
 
 from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
@@ -17,34 +17,57 @@ class SetPreferredSymbolAdapter(InputAdapter, ArangoAdapter):
         return DatasourceVersionInfo()
 
     def get_all(self) -> Generator[List[Protein], None, None]:
-        rows = self.runQuery(preferred_symbol_query)
-        yield [
-            Protein(id=row["id"], preferred_symbol=row["preferred_symbol"])
-            for row in rows
-            if row.get("preferred_symbol")
-        ]
+        duplicate_symbols = set(self.runQuery(duplicate_symbol_query))
+        last_key = ""
+
+        while True:
+            rows = self.runQuery(
+                protein_symbol_query,
+                bind_vars={
+                    "last_key": last_key,
+                    "limit": self.batch_size,
+                },
+            )
+            if not rows:
+                break
+
+            batch = []
+            for row in rows:
+                preferred_symbol = get_preferred_symbol(row, duplicate_symbols)
+                if preferred_symbol:
+                    batch.append(Protein(id=row["id"], preferred_symbol=preferred_symbol))
+
+            if batch:
+                yield batch
+
+            last_key = rows[-1]["_key"]
 
 
-preferred_symbol_query = """
-LET symbol_counts = (
-    FOR p IN Protein
-        FILTER p.symbol != null AND p.symbol != ""
-        COLLECT symbol = p.symbol WITH COUNT INTO count
-        RETURN {symbol, count}
-)
+def get_preferred_symbol(row: dict, duplicate_symbols: Set[str]) -> Optional[str]:
+    symbol = row.get("symbol")
+    if symbol and symbol not in duplicate_symbols:
+        return symbol
+    return row.get("uniprot_id")
+
+
+duplicate_symbol_query = """
 FOR p IN Protein
-    LET symbol_count = FIRST(
-        FOR sc IN symbol_counts
-            FILTER sc.symbol == p.symbol
-            RETURN sc.count
-    )
-    LET preferred_symbol = (
-        p.symbol != null AND p.symbol != "" AND symbol_count == 1
-            ? p.symbol
-            : p.uniprot_id
-    )
+    FILTER p.symbol != null AND p.symbol != ""
+    COLLECT symbol = p.symbol WITH COUNT INTO count
+    FILTER count > 1
+    RETURN symbol
+"""
+
+
+protein_symbol_query = """
+FOR p IN Protein
+    FILTER p._key > @last_key
+    SORT p._key
+    LIMIT @limit
     RETURN {
+        _key: p._key,
         id: p.id,
-        preferred_symbol: preferred_symbol
+        symbol: p.symbol,
+        uniprot_id: p.uniprot_id
     }
 """
