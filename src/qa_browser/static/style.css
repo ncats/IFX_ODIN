@@ -3393,6 +3393,16 @@ details summary:hover { color: var(--accent); }
     margin-top: 0.55rem;
 }
 
+.metabolite-id-member-list {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.metabolite-id-member-list span {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
 .metabolite-id-compare-card-header dl {
     display: flex;
     gap: 0.55rem;

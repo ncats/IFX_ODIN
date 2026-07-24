@@ -99,6 +99,98 @@ class ChebiChemicalEntityMetaboliteIdentifierEdge(Relationship):
     source_label: Optional[str] = None
 
 
+@dataclass
+@indexed(fields=["id"])
+@facets(category_fields=["source", "level_name"])
+@search(text_fields=["id", "name"])
+class MetaboliteClassificationTerm(Node):
+    source: Optional[str] = None
+    level_name: Optional[str] = None
+    name: Optional[str] = None
+    source_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class MetaboliteClassificationDetail:
+    source: str
+    source_field: str
+    source_id: str
+    level_name: str
+    class_name: str
+
+    def to_dict(self):
+        return {
+            "source": self.source,
+            "source_field": self.source_field,
+            "source_id": self.source_id,
+            "level_name": self.level_name,
+            "class_name": self.class_name,
+        }
+
+
+@dataclass
+class MetaboliteClassificationEdge(Relationship):
+    start_node: MetaboliteIdentifier
+    end_node: MetaboliteClassificationTerm
+    details: List[MetaboliteClassificationDetail] = field(default_factory=list)
+
+
+@dataclass
+class MetaboliteClassificationParentEdge(Relationship):
+    start_node: MetaboliteClassificationTerm
+    end_node: MetaboliteClassificationTerm
+    source: Optional[str] = None
+    source_field: Optional[str] = None
+
+
+@dataclass
+@indexed(fields=["id"])
+@facets(category_fields=["ontology_type", "term_type"])
+@search(text_fields=["id", "name", "definition", "synonyms"])
+class HmdbOntologyTerm(Node):
+    name: Optional[str] = None
+    definition: Optional[str] = None
+    ontology_type: Optional[str] = None
+    term_type: Optional[str] = None
+    level: Optional[int] = None
+    source_parent_id: Optional[str] = None
+    synonyms: List[str] = field(default_factory=list)
+
+
+@dataclass
+class HmdbOntologyParentEdge(Relationship):
+    start_node: HmdbOntologyTerm
+    end_node: HmdbOntologyTerm
+    source_field: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class HmdbOntologyMembershipDetail:
+    source: str
+    source_field: str
+    metabolite_id: str
+    ontology_term_id: str
+    ontology_type: str
+    term_name: str
+
+    def to_dict(self):
+        return {
+            "source": self.source,
+            "source_field": self.source_field,
+            "metabolite_id": self.metabolite_id,
+            "ontology_term_id": self.ontology_term_id,
+            "ontology_type": self.ontology_type,
+            "term_name": self.term_name,
+        }
+
+
+@dataclass
+class HmdbMetaboliteOntologyEdge(Relationship):
+    start_node: MetaboliteIdentifier
+    end_node: HmdbOntologyTerm
+    details: List[HmdbOntologyMembershipDetail] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class HmdbGoClassification:
     category: Optional[str] = None

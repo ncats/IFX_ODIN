@@ -46,6 +46,70 @@
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
+            <h2>MW Validation</h2>
+            {% if stats.mw_validation.computed %}
+            <p>
+                {{ "{:,}".format(stats.mw_validation.warning_count) }} group{{ "" if stats.mw_validation.warning_count == 1 else "s" }}
+                over {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}% MW spread.
+            </p>
+            {% else %}
+            <p>Not computed for this stage.</p>
+            {% endif %}
+        </div>
+        {% if stats.mw_validation.computed %}
+        <p>
+            Flags harmonized metabolites where the available molecular weight or monoisotopic mass values differ by more
+            than {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}%.
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Spread</th>
+                    <th>Size</th>
+                    <th>Representative</th>
+                    <th>MW Range</th>
+                    <th>Examples</th>
+                    <th>Review</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for warning in stats.mw_validation.warnings %}
+                <tr>
+                    <td>{{ "%.1f"|format(warning.spread_percent) }}%</td>
+                    <td>{{ "{:,}".format(warning.size) }}</td>
+                    <td class="mono">{{ warning.representative_id }}</td>
+                    <td>{{ warning.mass_label }}</td>
+                    <td>
+                        <div class="metabolite-id-member-list">
+                        {% for item in warning.member_mass_examples %}
+                            <span><span class="mono">{{ item.member_id }}</span>: {{ item.masses|join(", ") }}</span>
+                        {% endfor %}
+                        </div>
+                    </td>
+                    <td>
+                        <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
+                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&snapshots={{ stats.stage._key|urlencode }}">
+                            Open
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6">No MW spread warnings for this stage.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if stats.mw_validation.warning_count > stats.mw_validation.warnings|length %}
+        <p>Showing the top {{ stats.mw_validation.warnings|length }} warnings.</p>
+        {% endif %}
+        {% else %}
+        <p>MW validation is computed for newly materialized stages.</p>
+        {% endif %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
             <h2>Rules Applied</h2>
             <p>{{ stats.stage.rules|length }} rule{{ "" if stats.stage.rules|length == 1 else "s" }}</p>
         </div>
