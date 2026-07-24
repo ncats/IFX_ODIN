@@ -23,6 +23,10 @@ Important supporting nodes include:
 - `ProteinIdentifier` and `GeneIdentifier` for source pathway/protein context.
 - Rhea-specific reaction nodes and EC reaction class nodes.
 - ChEBI ontology nodes such as `ChemicalEntity` and role nodes.
+- Source-specific metabolite classification terms from HMDB/ClassyFire and
+  LipidMaps.
+- HMDB ontology terms for source-reported metabolite context such as biofluid,
+  tissue, source, health condition, subcellular location, and application.
 - `MetaboliteHarmonizationClique*` nodes created by saved workbench snapshots.
 
 Important edges include:
@@ -35,6 +39,9 @@ Important edges include:
 - Reactome pathway hierarchy edges;
 - ChEBI ontology edges;
 - ChEBI `ChemicalEntity` to `MetaboliteIdentifier` bridge edges;
+- metabolite-to-most-specific-class and class-parent edges for HMDB/ClassyFire
+  and LipidMaps classification context;
+- HMDB ontology parent edges and metabolite-to-HMDB-ontology membership edges;
 - snapshot clique membership edges.
 
 ## What We Keep
@@ -50,6 +57,14 @@ Current retained evidence includes:
 - chemical properties from HMDB, ChEBI, LipidMaps, and PubChem-derived files;
 - pathway context from HMDB/SMPDB, WikiPathways, Reactome, and PFOCR;
 - HMDB metabolite-protein associations;
+- HMDB ClassyFire `super_class`, `class`, and `sub_class` taxonomy levels;
+- LipidMaps `CATEGORY`, `MAIN_CLASS`, `SUB_CLASS`, and sparse `CLASS_LEVEL4`
+  classification levels;
+- HMDB ontology terms and metabolite memberships from the source XML ontology
+  tree, limited to the known HMDB ontology category branches used by RaMP:
+  `Biofluid and excreta`, `Health condition`, `Industrial application`,
+  `Organ and components`, `Source`, `Subcellular`, and
+  `Tissue and substructures`;
 - active Rhea reactions, using Rhea's native reaction/direction/participant
   model;
 - Rhea participant IDs as `MetaboliteIdentifier` nodes, including ChEBI-backed
@@ -78,6 +93,17 @@ reaction-participant edge context. They are not stored as `chem_props`, because
 Rhea does not provide structure-derived SMILES, InChI, or InChIKey values in the
 reaction bundle.
 
+HMDB and LipidMaps classifications are source-specific evidence, not canonical
+chemical ontology reconciliation. Term IDs therefore use IFX source-stable
+prefixes such as `HMDB.CLASS:...`, `LipidMaps.CLASS:...`, and
+`HMDB.ONTOLOGY:...` rather than pretending these labels are ChEBI, UBERON,
+MONDO, or other canonical ontology identifiers.
+
+Metabolite membership edges link only to the most specific source-provided class
+or HMDB ontology child term. Broader class and ontology membership should be
+derived by traversing parent edges, rather than storing redundant direct
+metabolite edges at every level.
+
 ## What We Skip
 
 The graph is broad, but it is not “everything from everywhere.”
@@ -94,10 +120,23 @@ Current intentional skips:
 - Rhea metabolite equivalence edges. Rhea generic and polymer accessions become
   `MetaboliteIdentifier` nodes and participate in reactions, but Rhea does not
   make them equivalent to ChEBI or other metabolite IDs.
+- HMDB ontology branches outside the RaMP ontology categories. The HMDB XML
+  contains other nested context such as pathway labels; these are not emitted as
+  `HmdbOntologyTerm` nodes because they duplicate pathway-specific graph
+  adapters and can otherwise become misleading `ontology_type` values.
 
 RefMet-only orphan handling is not an ingest concern. If we need a RaMP-like
 rule that ignores RefMet-only results, it should be modeled as an explicit
 harmonization/export rule.
+
+RaMP's legacy SQLite build applies additional ontology export logic after HMDB
+parsing. In `ramp-backend-ncats`, `hmdbData.py` extracts only specific HMDB
+ontology branches and `EntityBuilder.recordOntology()` applies
+`config/options.yml` category-specific denylist terms before writing
+`ontology` and `analytehasontology`. The graph ingest intentionally does not
+apply that full SQLite denylist yet; the RaMP-compatible SQLite export should
+apply the denylist and any exportable-term rules when flattening graph evidence
+into legacy tables.
 
 Rhea `has_human_protein`, `only_human_metabolites`, and `is_cofactor` style
 flags are treated as derived annotations rather than source fields for the
@@ -154,6 +193,6 @@ only when the graph shape has not changed.
 - How to export a backward-compatible RaMP SQLite database from this graph.
 - Which rule profile becomes the released RaMP harmonization policy.
 - How expert curation decisions should be stored and replayed.
-- Whether additional class systems from HMDB, LipidMaps, RefMet, or ChEBI should
-  become first-class graph context.
+- Whether additional class systems from RefMet or ChEBI should become
+  first-class graph context.
 - Whether broader pathway sources belong in this graph later.

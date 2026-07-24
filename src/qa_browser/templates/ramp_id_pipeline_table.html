@@ -5,6 +5,28 @@
         <h2>Harmonization Pipelines</h2>
         <p>{{ overview.pipelines|length }} recent pipeline{{ "" if overview.pipelines|length == 1 else "s" }}{% if overview.active_job_count %} · {{ overview.active_job_count }} active job{{ "" if overview.active_job_count == 1 else "s" }}{% endif %}</p>
     </div>
+    {% if overview.active_jobs %}
+    <div class="metabolite-id-active-jobs" aria-live="polite">
+        {% for job in overview.active_jobs %}
+        <div class="metabolite-id-active-job metabolite-id-active-job-{{ job.action }}">
+            <span class="qa-loading-spinner" aria-hidden="true"></span>
+            <div>
+                <strong>
+                    {% if job.action == "delete_pipeline" %}
+                    Deleting pipeline
+                    {% elif job.action == "run_pipeline" %}
+                    Running pipeline
+                    {% else %}
+                    Harmonization job
+                    {% endif %}
+                </strong>
+                <span>{{ job.label }}</span>
+                {% if job.started_at %}<small>Started {{ job.started_at }}</small>{% else %}<small>Queued</small>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
     <div class="table-wrap">
         <table>
             <thead>

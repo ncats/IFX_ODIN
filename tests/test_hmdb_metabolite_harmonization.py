@@ -3,8 +3,21 @@ import json
 import zipfile
 
 from src.input_adapters.metabolite_harmonization.hmdb import HmdbMetaboliteEquivalenceAdapter
+from src.input_adapters.metabolite_harmonization.hmdb_classes_ontology import (
+    HmdbMetaboliteClassificationAdapter,
+    HmdbOntologyAdapter,
+)
 from src.interfaces.output_adapter import OutputAdapter
-from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge
+from src.models.metabolite_harmonization import (
+    HmdbMetaboliteOntologyEdge,
+    HmdbOntologyParentEdge,
+    HmdbOntologyTerm,
+    MetaboliteClassificationEdge,
+    MetaboliteClassificationParentEdge,
+    MetaboliteClassificationTerm,
+    MetaboliteIdentifier,
+    MetaboliteIdentifierMappingEdge,
+)
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -42,6 +55,89 @@ def _write_hmdb_zip(path: Path):
   <biocyc_id>CPD-1</biocyc_id>
   <bigg_id>bigg1</bigg_id>
   <metlin_id>3741</metlin_id>
+  <taxonomy>
+    <super_class>Organic acids and derivatives</super_class>
+    <class>Carboxylic acids and derivatives</class>
+    <sub_class>Amino acids, peptides, and analogues</sub_class>
+  </taxonomy>
+  <ontology>
+    <root>
+      <term>Disposition</term>
+      <definition>A concept that describes the origin of a chemical.</definition>
+      <parent_id></parent_id>
+      <level>1</level>
+      <type>parent</type>
+      <descendants>
+        <descendant>
+          <term>Source</term>
+          <definition>Natural or synthetic origin of a chemical.</definition>
+          <parent_id>7724</parent_id>
+          <level>2</level>
+          <type>parent</type>
+          <synonyms/>
+          <descendants>
+            <descendant>
+              <term>Endogenous</term>
+              <definition></definition>
+              <parent_id>7735</parent_id>
+              <level>3</level>
+              <type>child</type>
+              <synonyms/>
+            </descendant>
+          </descendants>
+        </descendant>
+        <descendant>
+          <term>Biological location</term>
+          <definition>Physiological origin within an organism.</definition>
+          <parent_id>7724</parent_id>
+          <level>2</level>
+          <type>parent</type>
+          <synonyms/>
+          <descendants>
+            <descendant>
+              <term>Biofluid and excreta</term>
+              <definition>A liquid, semi-solid or solid material originating in the body.</definition>
+              <parent_id>7725</parent_id>
+              <level>3</level>
+              <type>parent</type>
+              <synonyms/>
+              <descendants>
+                <descendant>
+                  <term>Blood</term>
+                  <definition>Blood definition.</definition>
+                  <parent_id>7731</parent_id>
+                  <level>4</level>
+                  <type>child</type>
+                  <synonyms>
+                    <synonym>Whole blood</synonym>
+                    <synonym>Whole blood</synonym>
+                  </synonyms>
+                </descendant>
+              </descendants>
+            </descendant>
+          </descendants>
+        </descendant>
+        <descendant>
+          <term>Pathway</term>
+          <definition>Pathway context outside the RaMP ontology categories.</definition>
+          <parent_id>7724</parent_id>
+          <level>2</level>
+          <type>parent</type>
+          <synonyms/>
+          <descendants>
+            <descendant>
+              <term>Acetaminophen Metabolism Pathway</term>
+              <definition></definition>
+              <parent_id>9001</parent_id>
+              <level>3</level>
+              <type>child</type>
+              <synonyms/>
+            </descendant>
+          </descendants>
+        </descendant>
+      </descendants>
+    </root>
+  </ontology>
 </metabolite>
 <metabolite>
   <accession>HMDB0000002</accession>
@@ -52,6 +148,10 @@ def _write_hmdb_zip(path: Path):
   </secondary_accessions>
   <pubchem_compound_id>92105</pubchem_compound_id>
   <chebi_id></chebi_id>
+  <taxonomy>
+    <super_class>Organic nitrogen compounds</super_class>
+    <class>Organonitrogen compounds</class>
+  </taxonomy>
 </metabolite>
 </hmdb>
 """
@@ -161,3 +261,64 @@ def test_hmdb_adapter_honors_max_records(tmp_path: Path):
     records = _records(adapter)
     assert any(isinstance(record, MetaboliteIdentifier) and record.id == "HMDB:HMDB0000001" for record in records)
     assert not any(isinstance(record, MetaboliteIdentifier) and record.id == "HMDB:HMDB0000002" for record in records)
+
+
+def test_hmdb_metabolite_classification_adapter_emits_terms_hierarchy_and_edges(tmp_path: Path):
+    zip_path = tmp_path / "hmdb_metabolites.zip"
+    _write_hmdb_zip(zip_path)
+    adapter = HmdbMetaboliteClassificationAdapter(hmdb_zip_file=str(zip_path))
+
+    records = _records(adapter)
+    terms = [record for record in records if isinstance(record, MetaboliteClassificationTerm)]
+    parent_edges = [record for record in records if isinstance(record, MetaboliteClassificationParentEdge)]
+    member_edges = [record for record in records if isinstance(record, MetaboliteClassificationEdge)]
+    term_by_name = {(term.level_name, term.name): term for term in terms}
+    parent_pairs = {(edge.start_node.id, edge.end_node.id) for edge in parent_edges}
+    member_pairs = {(edge.start_node.id, edge.end_node.id) for edge in member_edges}
+
+    super_term = term_by_name[("ClassyFire_super_class", "Organic acids and derivatives")]
+    class_term = term_by_name[("ClassyFire_class", "Carboxylic acids and derivatives")]
+    sub_class_term = term_by_name[("ClassyFire_sub_class", "Amino acids, peptides, and analogues")]
+
+    assert super_term.id == "HMDB.CLASS:ClassyFire_super_class:Organic acids and derivatives"
+    assert super_term.source == "HMDB"
+    assert (super_term.id, class_term.id) in parent_pairs
+    assert (class_term.id, sub_class_term.id) in parent_pairs
+    assert ("HMDB:HMDB0000001", super_term.id) not in member_pairs
+    assert ("HMDB:HMDB0000001", class_term.id) not in member_pairs
+    assert ("HMDB:HMDB0000001", sub_class_term.id) in member_pairs
+    assert any(
+        edge.start_node.id == "HMDB:HMDB0000002" and edge.end_node.id.endswith(":Organonitrogen compounds")
+        for edge in member_edges
+    )
+    assert member_edges[0].details[0].source == "HMDB"
+
+
+def test_hmdb_ontology_adapter_emits_terms_parent_edges_and_memberships(tmp_path: Path):
+    zip_path = tmp_path / "hmdb_metabolites.zip"
+    _write_hmdb_zip(zip_path)
+    adapter = HmdbOntologyAdapter(hmdb_zip_file=str(zip_path))
+
+    records = _records(adapter)
+    terms = [record for record in records if isinstance(record, HmdbOntologyTerm)]
+    parent_edges = [record for record in records if isinstance(record, HmdbOntologyParentEdge)]
+    member_edges = [record for record in records if isinstance(record, HmdbMetaboliteOntologyEdge)]
+    terms_by_name = {(term.ontology_type, term.name): term for term in terms}
+    parent_pairs = {(edge.start_node.id, edge.end_node.id) for edge in parent_edges}
+    member_pairs = {(edge.start_node.id, edge.end_node.id) for edge in member_edges}
+
+    source = terms_by_name[("Source", "Source")]
+    endogenous = terms_by_name[("Source", "Endogenous")]
+    biofluid = terms_by_name[("Biofluid and excreta", "Biofluid and excreta")]
+    blood = terms_by_name[("Biofluid and excreta", "Blood")]
+
+    assert source.id == "HMDB.ONTOLOGY:Source:Source"
+    assert endogenous.ontology_type == "Source"
+    assert blood.synonyms == ["Whole blood"]
+    assert (source.id, endogenous.id) in parent_pairs
+    assert (biofluid.id, blood.id) in parent_pairs
+    assert ("HMDB:HMDB0000001", endogenous.id) in member_pairs
+    assert ("HMDB:HMDB0000001", blood.id) in member_pairs
+    assert all(edge.end_node.id != source.id for edge in member_edges)
+    assert ("Pathway", "Pathway") not in terms_by_name
+    assert ("Pathway", "Acetaminophen Metabolism Pathway") not in terms_by_name

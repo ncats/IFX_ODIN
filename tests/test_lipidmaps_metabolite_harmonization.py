@@ -3,8 +3,15 @@ import json
 import zipfile
 
 from src.input_adapters.metabolite_harmonization.lipidmaps import LipidMapsMetaboliteEquivalenceAdapter
+from src.input_adapters.metabolite_harmonization.lipidmaps_classes import LipidMapsMetaboliteClassificationAdapter
 from src.interfaces.output_adapter import OutputAdapter
-from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge
+from src.models.metabolite_harmonization import (
+    MetaboliteClassificationEdge,
+    MetaboliteClassificationParentEdge,
+    MetaboliteClassificationTerm,
+    MetaboliteIdentifier,
+    MetaboliteIdentifierMappingEdge,
+)
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -49,6 +56,10 @@ def _write_lipidmaps_zip(path: Path):
                 "KEGG_ID": "C15989",
                 "PLANTFA_ID": "10010",
                 "INCHI_KEY": "NDDJIMSGSZNACM-QWRGUYRKSA-N",
+                "CATEGORY": "Fatty Acyls [FA]",
+                "MAIN_CLASS": "Other Fatty Acyls [FA00]",
+                "SUB_CLASS": "Fatty amides [FA0803]",
+                "CLASS_LEVEL4": "N-acyl amines [FA080301]",
             },
         )
         + _sdf_record(
@@ -57,6 +68,8 @@ def _write_lipidmaps_zip(path: Path):
                 "LM_ID": "LMFA00000002",
                 "NAME": "Second lipid",
                 "PUBCHEM_CID": "42607282",
+                "CATEGORY": "Fatty Acyls [FA]",
+                "MAIN_CLASS": "Other Fatty Acyls [FA00]",
             },
         )
     )
@@ -152,3 +165,35 @@ def test_lipidmaps_adapter_honors_max_records(tmp_path: Path):
     records = _records(adapter)
     assert any(isinstance(record, MetaboliteIdentifier) and record.id == "LIPIDMAPS:LMFA00000001" for record in records)
     assert not any(isinstance(record, MetaboliteIdentifier) and record.id == "LIPIDMAPS:LMFA00000002" for record in records)
+
+
+def test_lipidmaps_classification_adapter_emits_terms_hierarchy_and_edges(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    _write_lipidmaps_zip(zip_path)
+    adapter = LipidMapsMetaboliteClassificationAdapter(sdf_zip_file=str(zip_path))
+
+    records = _records(adapter)
+    terms = [record for record in records if isinstance(record, MetaboliteClassificationTerm)]
+    parent_edges = [record for record in records if isinstance(record, MetaboliteClassificationParentEdge)]
+    member_edges = [record for record in records if isinstance(record, MetaboliteClassificationEdge)]
+    term_by_name = {(term.level_name, term.name): term for term in terms}
+    parent_pairs = {(edge.start_node.id, edge.end_node.id) for edge in parent_edges}
+    member_pairs = {(edge.start_node.id, edge.end_node.id) for edge in member_edges}
+
+    category = term_by_name[("LipidMaps_category", "Fatty Acyls [FA]")]
+    main_class = term_by_name[("LipidMaps_main_class", "Other Fatty Acyls [FA00]")]
+    sub_class = term_by_name[("LipidMaps_sub_class", "Fatty amides [FA0803]")]
+    level4 = term_by_name[("LipidMaps_class_level4", "N-acyl amines [FA080301]")]
+
+    assert category.id == "LipidMaps.CLASS:LipidMaps_category:Fatty Acyls [FA]"
+    assert category.source_id == "FA"
+    assert main_class.source_id == "FA00"
+    assert (category.id, main_class.id) in parent_pairs
+    assert (main_class.id, sub_class.id) in parent_pairs
+    assert (sub_class.id, level4.id) in parent_pairs
+    assert ("LIPIDMAPS:LMFA00000001", category.id) not in member_pairs
+    assert ("LIPIDMAPS:LMFA00000001", main_class.id) not in member_pairs
+    assert ("LIPIDMAPS:LMFA00000001", sub_class.id) not in member_pairs
+    assert ("LIPIDMAPS:LMFA00000001", level4.id) in member_pairs
+    assert ("LIPIDMAPS:LMFA00000002", main_class.id) in member_pairs
+    assert member_edges[0].details[0].source == "LipidMaps"

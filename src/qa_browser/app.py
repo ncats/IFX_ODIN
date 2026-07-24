@@ -16,7 +16,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, List
+from typing import Optional, Dict, Iterable, List
 from urllib.parse import quote as url_quote, urlencode
 
 import urllib3
@@ -129,7 +129,7 @@ _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
-_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v1"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v3"
 _RAMP_MAPPING_DENYLIST_PATH = BASE_DIR / "data" / "ramp_mapping_denylist.tsv"
 _HMDB_IGNORED_PREFIX_DEFAULTS = [
     "BiGG",
@@ -146,6 +146,20 @@ _HMDB_IGNORED_PREFIX_DEFAULTS = [
     "PhenolExplorer.METABOLITE",
     "Wikipedia",
 ]
+_WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS = [
+    "PID.PATHWAY",
+    "Reactome",
+    "LipidBank",
+    "PUBCHEM.SUBSTANCE",
+    "DRUGBANK",
+    "ChEMBL.COMPOUND",
+    "KEGG.DRUG",
+    "TTD.DRUG",
+    "InChIKey",
+    "UniProtKB",
+    "PharmGKB.DRUG",
+]
+_LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_generic_structure_mismatch",
@@ -170,6 +184,39 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "placeholder": "FoodDB\nKNApSAcK\nDRUGBANK",
             },
         ],
+    },
+    {
+        "id": "ignore_wikipathways_prefixes",
+        "label": "Ignore WikiPathways prefixes",
+        "description": "Drop WikiPathways-reported equivalence edges to configured identifier prefixes.",
+        "parameters": [
+            {
+                "id": "prefixes",
+                "label": "Prefixes",
+                "type": "textarea",
+                "default": "\n".join(_WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS),
+                "placeholder": "PUBCHEM.SUBSTANCE\nKEGG.DRUG\nReactome",
+            },
+        ],
+    },
+    {
+        "id": "ignore_lipidmaps_prefixes",
+        "label": "Ignore LipidMaps prefixes",
+        "description": "Drop LipidMaps-reported equivalence edges to configured identifier prefixes.",
+        "parameters": [
+            {
+                "id": "prefixes",
+                "label": "Prefixes",
+                "type": "textarea",
+                "default": "\n".join(_LIPIDMAPS_IGNORED_PREFIX_DEFAULTS),
+                "placeholder": "Optional, for experiments only",
+            },
+        ],
+    },
+    {
+        "id": "remove_refmet_only_metabolites",
+        "label": "Cleanup: Remove RefMet-only Metabolites",
+        "description": "Remove harmonized metabolites whose surviving equivalence support is only RefMet. Use this last.",
     },
     {
         "id": "merge_shared_inchikey_prefix",
@@ -200,6 +247,8 @@ _METABOLITE_HARMONIZATION_RULES = [
 ]
 _metabolite_snapshot_jobs: dict = {}
 _metabolite_snapshot_jobs_lock = threading.Lock()
+_METABOLITE_MW_SPREAD_WARNING_THRESHOLD = 0.10
+_METABOLITE_MW_SPREAD_WARNING_LIMIT = 50
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
@@ -753,12 +802,16 @@ def _load_metabolite_identifier_source_support(db) -> Dict[str, set]:
     )
     for row in cursor:
         sources = {
-            str(source).strip()
+            _metabolite_support_source_name(source)
             for source in row.get("support") or []
             if source is not None and str(source).strip()
         }
         support_by_id[row["id"]] = sources or {"__unsourced_node__"}
     return support_by_id
+
+
+def _metabolite_support_source_name(source) -> str:
+    return str(source).strip().split("\t", 1)[0]
 
 
 def _filter_identifier_support_for_rules(
@@ -767,16 +820,23 @@ def _filter_identifier_support_for_rules(
     rule_parameters: dict,
 ) -> Dict[str, set]:
     filtered = {identifier: set(sources) for identifier, sources in support_by_id.items()}
-    if "ignore_hmdb_prefixes" in rule_ids:
+    source_prefix_rules = [
+        ("ignore_hmdb_prefixes", "hmdb"),
+        ("ignore_wikipathways_prefixes", "wikipathways"),
+        ("ignore_lipidmaps_prefixes", "lipidmaps"),
+    ]
+    for rule_id, source_name in source_prefix_rules:
+        if rule_id not in rule_ids:
+            continue
         prefixes = {
             prefix.lower()
-            for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
+            for prefix in rule_parameters.get(rule_id, {}).get("prefixes", [])
         }
         for identifier, sources in filtered.items():
             if (_identifier_prefix(identifier) or "").lower() in prefixes:
                 filtered[identifier] = {
                     source for source in sources
-                    if str(source).lower() != "hmdb"
+                    if str(source).lower() != source_name
                 }
     return filtered
 
@@ -797,6 +857,18 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             prefix.lower()
             for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
         }
+    wikipathways_ignored_prefixes = set()
+    if "ignore_wikipathways_prefixes" in rule_ids:
+        wikipathways_ignored_prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_wikipathways_prefixes", {}).get("prefixes", [])
+        }
+    lipidmaps_ignored_prefixes = set()
+    if "ignore_lipidmaps_prefixes" in rule_ids:
+        lipidmaps_ignored_prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_lipidmaps_prefixes", {}).get("prefixes", [])
+        }
 
     active_edges = []
     summary = {
@@ -804,11 +876,19 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
         "ramp_denylist_pair_count": len(ramp_mapping_denylist_pairs),
         "hmdb_ignored_prefixes": sorted(hmdb_ignored_prefixes),
         "hmdb_ignored_prefix_count": len(hmdb_ignored_prefixes),
+        "wikipathways_ignored_prefixes": sorted(wikipathways_ignored_prefixes),
+        "wikipathways_ignored_prefix_count": len(wikipathways_ignored_prefixes),
+        "lipidmaps_ignored_prefixes": sorted(lipidmaps_ignored_prefixes),
+        "lipidmaps_ignored_prefix_count": len(lipidmaps_ignored_prefixes),
         "ignored_edge_count": 0,
         "generic_structure_ignored_edge_count": 0,
         "ramp_denylist_ignored_edge_count": 0,
         "hmdb_prefix_ignored_detail_count": 0,
         "hmdb_prefix_ignored_edge_count": 0,
+        "wikipathways_prefix_ignored_detail_count": 0,
+        "wikipathways_prefix_ignored_edge_count": 0,
+        "lipidmaps_prefix_ignored_detail_count": 0,
+        "lipidmaps_prefix_ignored_edge_count": 0,
     }
     cursor = db.aql.execute(
         """
@@ -840,20 +920,28 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             continue
         details = edge.get("details") or []
         active_details = details
-        if hmdb_ignored_prefixes:
+        source_prefix_rules = [
+            ("hmdb", hmdb_ignored_prefixes, "hmdb_prefix"),
+            ("wikipathways", wikipathways_ignored_prefixes, "wikipathways_prefix"),
+            ("lipidmaps", lipidmaps_ignored_prefixes, "lipidmaps_prefix"),
+        ]
+        for source_name, ignored_prefixes, summary_prefix in source_prefix_rules:
+            if not ignored_prefixes:
+                continue
             endpoint_has_ignored_prefix = (
-                (_identifier_prefix(start_id) or "").lower() in hmdb_ignored_prefixes
-                or (_identifier_prefix(end_id) or "").lower() in hmdb_ignored_prefixes
+                (_identifier_prefix(start_id) or "").lower() in ignored_prefixes
+                or (_identifier_prefix(end_id) or "").lower() in ignored_prefixes
             )
             if endpoint_has_ignored_prefix:
+                before_count = len(active_details)
                 active_details = [
-                    detail for detail in details
-                    if str(detail.get("source") or "").lower() != "hmdb"
+                    detail for detail in active_details
+                    if str(detail.get("source") or "").lower() != source_name
                 ]
-                removed_count = len(details) - len(active_details)
-                summary["hmdb_prefix_ignored_detail_count"] += removed_count
+                removed_count = before_count - len(active_details)
+                summary[f"{summary_prefix}_ignored_detail_count"] += removed_count
                 if removed_count and not active_details:
-                    summary["hmdb_prefix_ignored_edge_count"] += 1
+                    summary[f"{summary_prefix}_ignored_edge_count"] += 1
         if details and not active_details:
             summary["ignored_edge_count"] += 1
             continue
@@ -982,6 +1070,82 @@ def _build_harmonized_groups(
     return non_singleton_groups, merge_summary
 
 
+def _remove_refmet_only_metabolites(
+    active_ids: set,
+    active_edges: List[dict],
+    groups: List[List[str]],
+    support_by_id: Dict[str, set],
+) -> tuple[set, List[dict], List[List[str]], dict]:
+    removed_ids = set()
+
+    def is_refmet_only_supported(identifiers: Iterable[str]) -> bool:
+        sources = {
+            _metabolite_support_source_name(source).lower()
+            for identifier in identifiers
+            for source in support_by_id.get(identifier, set())
+            if source is not None and str(source).strip()
+        }
+        return bool(sources) and sources <= {"refmet"}
+
+    kept_groups = []
+    removed_group_count = 0
+    for members in groups:
+        if is_refmet_only_supported(members):
+            removed_group_count += 1
+            removed_ids.update(members)
+        else:
+            kept_groups.append(members)
+
+    grouped_ids = {
+        member_id
+        for members in groups
+        for member_id in members
+    }
+    refmet_singleton_ids = {
+        identifier
+        for identifier in active_ids
+        if identifier not in grouped_ids
+        and is_refmet_only_supported([identifier])
+    }
+    removed_ids.update(refmet_singleton_ids)
+
+    filtered_active_ids = set(active_ids) - removed_ids
+    filtered_active_edges = [
+        edge for edge in active_edges
+        if edge["start_id"] in filtered_active_ids and edge["end_id"] in filtered_active_ids
+    ]
+    return filtered_active_ids, filtered_active_edges, kept_groups, {
+        "refmet_only_removed_metabolite_count": removed_group_count + len(refmet_singleton_ids),
+        "refmet_only_removed_group_count": removed_group_count,
+        "refmet_only_removed_singleton_count": len(refmet_singleton_ids),
+        "refmet_only_removed_identifier_count": len(removed_ids),
+        "refmet_only_removed_edge_count": len(active_edges) - len(filtered_active_edges),
+    }
+
+
+def _load_metabolite_identifier_handles(db, identifier_ids: set) -> Dict[str, str]:
+    handles_by_id: Dict[str, str] = {}
+    for identifiers in _chunked_records(sorted(identifier_ids), 5000):
+        rows = db.aql.execute(
+            """
+            FOR d IN MetaboliteIdentifier
+              FILTER d.id IN @ids
+              RETURN {id: d.id, handle: d._id}
+            """,
+            bind_vars={"ids": identifiers},
+            max_runtime=120,
+        )
+        for row in rows:
+            handles_by_id[row["id"]] = row["handle"]
+    missing = sorted(set(identifier_ids) - set(handles_by_id))
+    if missing:
+        sample = ", ".join(missing[:10])
+        if len(missing) > 10:
+            sample += f", ... +{len(missing) - 10} more"
+        raise ValueError(f"Cannot materialize harmonization stage; missing MetaboliteIdentifier handles for {sample}")
+    return handles_by_id
+
+
 def _materialize_harmonization_stage(
     db,
     stage_key: str,
@@ -992,6 +1156,7 @@ def _materialize_harmonization_stage(
 ) -> None:
     _delete_harmonization_stage_artifacts(db, stage_key)
     db.collection(_HARMONIZATION_STAGE_COLLECTION).insert(stage_doc, overwrite=True)
+    identifier_handles = _load_metabolite_identifier_handles(db, active_ids)
 
     active_chunk_collection = db.collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION)
     active_ids_sorted = sorted(active_ids)
@@ -1010,8 +1175,8 @@ def _materialize_harmonization_stage(
         edge_key = f"{stage_key}-{_canonical_json_digest({'edge_key': edge.get('key'), 'start_id': edge.get('start_id'), 'end_id': edge.get('end_id')})}"
         evidence_batch.append({
             "_key": edge_key,
-            "_from": f"MetaboliteIdentifier/{edge['start_id']}",
-            "_to": f"MetaboliteIdentifier/{edge['end_id']}",
+            "_from": identifier_handles[edge["start_id"]],
+            "_to": identifier_handles[edge["end_id"]],
             "id": f"HarmonizationStageEvidenceEdge:{edge_key}",
             "stage_key": stage_key,
             "raw_edge_key": edge.get("key"),
@@ -1054,7 +1219,7 @@ def _materialize_harmonization_stage(
             member_batch.append({
                 "_key": member_edge_key,
                 "_from": f"{_HARMONIZED_METABOLITE_COLLECTION}/{harmonized_key}",
-                "_to": f"MetaboliteIdentifier/{member_id}",
+                "_to": identifier_handles[member_id],
                 "id": f"HarmonizedMetaboliteMemberEdge:{member_edge_key}",
                 "stage_key": stage_key,
                 "stage_id": stage_doc["id"],
@@ -1081,6 +1246,7 @@ def _ensure_harmonization_stage(
     graph_fingerprint: dict,
     display_name: str,
     stage_index: int,
+    mass_values_provider=None,
 ) -> dict:
     stage_key = _harmonization_stage_key(rule_ids, rule_parameters, graph_fingerprint)
     existing = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
@@ -1105,19 +1271,37 @@ def _ensure_harmonization_stage(
         active_ids.add(edge["start_id"])
         active_ids.add(edge["end_id"])
     groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
+    refmet_only_summary = {
+        "refmet_only_removed_metabolite_count": 0,
+        "refmet_only_removed_group_count": 0,
+        "refmet_only_removed_singleton_count": 0,
+        "refmet_only_removed_identifier_count": 0,
+        "refmet_only_removed_edge_count": 0,
+    }
+    if "remove_refmet_only_metabolites" in rule_ids:
+        active_ids, active_edges, groups, refmet_only_summary = _remove_refmet_only_metabolites(
+            active_ids,
+            active_edges,
+            groups,
+            filtered_support_by_id,
+        )
     non_singleton_member_count = sum(len(members) for members in groups)
     singleton_count = max(len(active_ids) - non_singleton_member_count, 0)
     summary = {
         **graph_fingerprint,
         **edge_summary,
         **merge_summary,
+        **refmet_only_summary,
         "active_identifier_count": len(active_ids),
+        "active_edge_count": len(active_edges),
         "harmonized_metabolite_count": len(groups),
         "non_singleton_clique_count": len(groups),
         "singleton_identifier_count": singleton_count,
         "clique_count": len(groups) + singleton_count,
         "largest_clique_sizes": [len(members) for members in groups[:10]],
     }
+    mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
+    mw_validation = _build_harmonization_stage_mw_validation(groups, mass_values_by_id)
     stage_doc = {
         "_key": stage_key,
         "id": f"HarmonizationStage:{stage_key}",
@@ -1132,6 +1316,9 @@ def _ensure_harmonization_stage(
         "rule_parameters": rule_parameters,
         "rules": _metabolite_rule_metadata(rule_ids, rule_parameters),
         "summary": summary,
+        "validation": {
+            "mw_spread": mw_validation,
+        },
         "materialization": {
             "active_identifier_chunks": _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
             "evidence_edges": _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
@@ -1464,6 +1651,13 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
     try:
         graph_fingerprint = _harmonization_graph_fingerprint(db)
         stage_docs = []
+        mass_values_cache = {}
+
+        def mass_values_provider():
+            if "values" not in mass_values_cache:
+                mass_values_cache["values"] = _load_metabolite_identifier_mass_values(db)
+            return mass_values_cache["values"]
+
         normalized_rule_ids = pipeline.get("rule_ids") or []
         normalized_rule_parameters = pipeline.get("rule_parameters") or {}
         cumulative_rule_ids: List[str] = []
@@ -1475,6 +1669,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             graph_fingerprint,
             f"{pipeline.get('name') or 'Pipeline'}: baseline",
             0,
+            mass_values_provider,
         )
         stage_docs.append(baseline_stage)
         run_collection.update({
@@ -1503,6 +1698,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 graph_fingerprint,
                 f"{pipeline.get('name') or 'Pipeline'}: {stage_index}. {rule_label}",
                 stage_index,
+                mass_values_provider,
             ))
             run_collection.update({
                 "_key": run_key,
@@ -1579,6 +1775,7 @@ def _load_harmonization_pipeline_workbench() -> dict:
             "pipelines": pipelines,
             "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines),
             "jobs": jobs,
+            "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
             "active_job_count": len(active_jobs),
             "active_pipeline_keys": sorted(active_pipeline_keys),
@@ -1591,6 +1788,7 @@ def _load_harmonization_pipeline_workbench() -> dict:
             "pipelines": [],
             "pipeline_stage_stats": [],
             "jobs": jobs,
+            "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
             "active_job_count": len(active_jobs),
             "active_pipeline_keys": sorted(active_pipeline_keys),
@@ -1607,6 +1805,24 @@ def _get_harmonization_stage(stage_key: str) -> dict:
     if not stage:
         raise ValueError(f"Harmonization stage {stage_key} does not exist.")
     return stage
+
+
+def _harmonization_stage_mw_validation_from_doc(
+    stage: dict,
+    threshold: float = _METABOLITE_MW_SPREAD_WARNING_THRESHOLD,
+    limit: int = _METABOLITE_MW_SPREAD_WARNING_LIMIT,
+) -> dict:
+    existing = (stage.get("validation") or {}).get("mw_spread")
+    if isinstance(existing, dict):
+        return existing
+    return {
+        "computed": False,
+        "threshold": threshold,
+        "threshold_percent": threshold * 100,
+        "warning_count": 0,
+        "display_limit": limit,
+        "warnings": [],
+    }
 
 
 def _load_harmonization_stage_stats(stage_key: str) -> dict:
@@ -1700,6 +1916,7 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
         "counts": counts,
         "largest_groups": largest_groups,
         "source_counts": source_counts,
+        "mw_validation": _harmonization_stage_mw_validation_from_doc(stage),
     }
 
 
@@ -2281,6 +2498,135 @@ def _metabolite_compact_mass_label(summary: Optional[dict]) -> Optional[str]:
     if median_mass is None:
         return None
     return f"MW {median_mass:.4g}"
+
+
+def _metabolite_mw_spread_percent(summary: Optional[dict]) -> Optional[float]:
+    if not summary:
+        return None
+    min_mass = summary.get("min")
+    max_mass = summary.get("max")
+    if min_mass is None or max_mass is None or min_mass <= 0:
+        return None
+    return (max_mass - min_mass) / min_mass
+
+
+def _metabolite_member_mass_values(member_rows: List[dict]) -> List[float]:
+    masses = []
+    for member in member_rows or []:
+        for value in member.get("raw_masses") or []:
+            parsed = _parse_metabolite_mass(value)
+            if parsed is not None:
+                masses.append(parsed)
+    return masses
+
+
+def _metabolite_member_mass_examples(member_rows: List[dict], limit: int = 8) -> List[dict]:
+    examples = []
+    for member in member_rows or []:
+        member_id = member.get("member_id")
+        if not member_id:
+            continue
+        parsed_masses = []
+        for value in member.get("raw_masses") or []:
+            parsed = _parse_metabolite_mass(value)
+            if parsed is not None:
+                parsed_masses.append(parsed)
+        if not parsed_masses:
+            continue
+        examples.append({
+            "member_id": member_id,
+            "masses": sorted(set(parsed_masses)),
+        })
+        if len(examples) >= limit:
+            break
+    return examples
+
+
+def _load_metabolite_identifier_mass_values(db) -> Dict[str, List[float]]:
+    mass_values_by_id: Dict[str, List[float]] = {}
+    if db.has_collection("MetaboliteIdentifier"):
+        for row in db.aql.execute(
+            """
+            FOR d IN MetaboliteIdentifier
+              LET raw_masses = UNIQUE(FLATTEN(
+                FOR prop IN d.chem_props || []
+                  RETURN [prop.mw, prop.monoisotopic_mass],
+                true
+              ))
+              FILTER LENGTH(raw_masses) > 0
+              RETURN {id: d.id, raw_masses: raw_masses}
+            """,
+            max_runtime=300,
+        ):
+            parsed = [
+                mass
+                for mass in (_parse_metabolite_mass(value) for value in row.get("raw_masses") or [])
+                if mass is not None and mass > 0
+            ]
+            if parsed:
+                mass_values_by_id.setdefault(row["id"], []).extend(parsed)
+    if db.has_collection("ChemicalEntity"):
+        for row in db.aql.execute(
+            """
+            FOR d IN ChemicalEntity
+              LET raw_masses = [d.mass, d.monoisotopic_mass]
+              FILTER raw_masses[0] != null OR raw_masses[1] != null
+              RETURN {id: d.id, raw_masses: raw_masses}
+            """,
+            max_runtime=300,
+        ):
+            parsed = [
+                mass
+                for mass in (_parse_metabolite_mass(value) for value in row.get("raw_masses") or [])
+                if mass is not None and mass > 0
+            ]
+            if parsed:
+                mass_values_by_id.setdefault(row["id"], []).extend(parsed)
+    return {
+        identifier: sorted(set(values))
+        for identifier, values in mass_values_by_id.items()
+        if values
+    }
+
+
+def _build_harmonization_stage_mw_validation(
+    groups: List[List[str]],
+    mass_values_by_id: Dict[str, List[float]],
+    threshold: float = _METABOLITE_MW_SPREAD_WARNING_THRESHOLD,
+    limit: int = _METABOLITE_MW_SPREAD_WARNING_LIMIT,
+) -> dict:
+    warnings = []
+    for rank, members in enumerate(groups, start=1):
+        member_rows = [
+            {"member_id": member_id, "raw_masses": mass_values_by_id.get(member_id) or []}
+            for member_id in members
+        ]
+        masses = _metabolite_member_mass_values(member_rows)
+        summary = _metabolite_mass_summary(masses)
+        spread = _metabolite_mw_spread_percent(summary)
+        if spread is None or spread <= threshold:
+            continue
+        warnings.append({
+            "rank_by_size": rank,
+            "representative_id": members[0] if members else None,
+            "size": len(members),
+            "sample_member_ids": members[:12],
+            "mass_summary": summary,
+            "mass_label": _metabolite_mass_summary_label(summary),
+            "spread": spread,
+            "spread_percent": spread * 100,
+            "member_mass_examples": _metabolite_member_mass_examples(member_rows),
+            "comparison_ids": " ".join(members[:25]),
+        })
+    warnings.sort(key=lambda item: (-(item["spread"] or 0), -(item["size"] or 0), item.get("representative_id") or ""))
+    return {
+        "computed": True,
+        "threshold": threshold,
+        "threshold_percent": threshold * 100,
+        "warning_count": len(warnings),
+        "display_limit": limit,
+        "warnings": warnings[:limit],
+    }
 
 
 def _metabolite_query_id_labels(query_ids: List[str], max_ids: int = 4) -> List[str]:
@@ -4671,9 +5017,14 @@ def ramp_id_qa_rename_pipeline(pipeline_key: str, pipeline_name: str = Form(""))
 
 @app.post("/ramp-id-qa/pipelines/{pipeline_key}/delete")
 def ramp_id_qa_delete_pipeline(pipeline_key: str):
+    try:
+        pipeline = _get_harmonization_pipeline(get_db("metabolite_harmonization"), pipeline_key)
+        pipeline_label = pipeline.get("name") or pipeline_key
+    except Exception:
+        pipeline_label = pipeline_key
     _enqueue_metabolite_snapshot_job(
         "delete_pipeline",
-        f"Delete {pipeline_key}",
+        f"Delete {pipeline_label}",
         {"pipeline_key": pipeline_key},
     )
     return _redirect_to("/ramp-id-qa")

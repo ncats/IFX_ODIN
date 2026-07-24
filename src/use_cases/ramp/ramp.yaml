@@ -10,6 +10,16 @@ input_adapters:
     kwargs:
       data_source: hmdb:metabolites_xml:5.0
 
+  - import: ./src/input_adapters/metabolite_harmonization/hmdb_classes_ontology.py
+    class: HmdbMetaboliteClassificationAdapter
+    kwargs:
+      data_source: hmdb:metabolites_xml:5.0
+
+  - import: ./src/input_adapters/metabolite_harmonization/hmdb_classes_ontology.py
+    class: HmdbOntologyAdapter
+    kwargs:
+      data_source: hmdb:metabolites_xml:5.0
+
   - import: ./src/input_adapters/metabolite_harmonization/hmdb_pathways.py
     class: HmdbMetabolitePathwayContextAdapter
     kwargs:
@@ -53,6 +63,11 @@ input_adapters:
 
   - import: ./src/input_adapters/metabolite_harmonization/lipidmaps.py
     class: LipidMapsMetaboliteEquivalenceAdapter
+    kwargs:
+      data_source: lipidmaps:lmsd_sdf:2026-06-30
+
+  - import: ./src/input_adapters/metabolite_harmonization/lipidmaps_classes.py
+    class: LipidMapsMetaboliteClassificationAdapter
     kwargs:
       data_source: lipidmaps:lmsd_sdf:2026-06-30
 
