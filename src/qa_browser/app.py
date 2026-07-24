@@ -146,6 +146,20 @@ _HMDB_IGNORED_PREFIX_DEFAULTS = [
     "PhenolExplorer.METABOLITE",
     "Wikipedia",
 ]
+_WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS = [
+    "PID.PATHWAY",
+    "Reactome",
+    "LipidBank",
+    "PUBCHEM.SUBSTANCE",
+    "DRUGBANK",
+    "ChEMBL.COMPOUND",
+    "KEGG.DRUG",
+    "TTD.DRUG",
+    "InChIKey",
+    "UniProtKB",
+    "PharmGKB.DRUG",
+]
+_LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_generic_structure_mismatch",
@@ -170,6 +184,39 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "placeholder": "FoodDB\nKNApSAcK\nDRUGBANK",
             },
         ],
+    },
+    {
+        "id": "ignore_wikipathways_prefixes",
+        "label": "Ignore WikiPathways prefixes",
+        "description": "Drop WikiPathways-reported equivalence edges to configured identifier prefixes.",
+        "parameters": [
+            {
+                "id": "prefixes",
+                "label": "Prefixes",
+                "type": "textarea",
+                "default": "\n".join(_WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS),
+                "placeholder": "PUBCHEM.SUBSTANCE\nKEGG.DRUG\nReactome",
+            },
+        ],
+    },
+    {
+        "id": "ignore_lipidmaps_prefixes",
+        "label": "Ignore LipidMaps prefixes",
+        "description": "Drop LipidMaps-reported equivalence edges to configured identifier prefixes.",
+        "parameters": [
+            {
+                "id": "prefixes",
+                "label": "Prefixes",
+                "type": "textarea",
+                "default": "\n".join(_LIPIDMAPS_IGNORED_PREFIX_DEFAULTS),
+                "placeholder": "Optional, for experiments only",
+            },
+        ],
+    },
+    {
+        "id": "remove_refmet_only_metabolites",
+        "label": "Cleanup: Remove RefMet-only Metabolites",
+        "description": "Remove harmonized metabolites whose surviving equivalence support is only RefMet. Use this last.",
     },
     {
         "id": "merge_shared_inchikey_prefix",
@@ -767,16 +814,23 @@ def _filter_identifier_support_for_rules(
     rule_parameters: dict,
 ) -> Dict[str, set]:
     filtered = {identifier: set(sources) for identifier, sources in support_by_id.items()}
-    if "ignore_hmdb_prefixes" in rule_ids:
+    source_prefix_rules = [
+        ("ignore_hmdb_prefixes", "hmdb"),
+        ("ignore_wikipathways_prefixes", "wikipathways"),
+        ("ignore_lipidmaps_prefixes", "lipidmaps"),
+    ]
+    for rule_id, source_name in source_prefix_rules:
+        if rule_id not in rule_ids:
+            continue
         prefixes = {
             prefix.lower()
-            for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
+            for prefix in rule_parameters.get(rule_id, {}).get("prefixes", [])
         }
         for identifier, sources in filtered.items():
             if (_identifier_prefix(identifier) or "").lower() in prefixes:
                 filtered[identifier] = {
                     source for source in sources
-                    if str(source).lower() != "hmdb"
+                    if str(source).lower() != source_name
                 }
     return filtered
 
@@ -797,6 +851,18 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             prefix.lower()
             for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
         }
+    wikipathways_ignored_prefixes = set()
+    if "ignore_wikipathways_prefixes" in rule_ids:
+        wikipathways_ignored_prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_wikipathways_prefixes", {}).get("prefixes", [])
+        }
+    lipidmaps_ignored_prefixes = set()
+    if "ignore_lipidmaps_prefixes" in rule_ids:
+        lipidmaps_ignored_prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_lipidmaps_prefixes", {}).get("prefixes", [])
+        }
 
     active_edges = []
     summary = {
@@ -804,11 +870,19 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
         "ramp_denylist_pair_count": len(ramp_mapping_denylist_pairs),
         "hmdb_ignored_prefixes": sorted(hmdb_ignored_prefixes),
         "hmdb_ignored_prefix_count": len(hmdb_ignored_prefixes),
+        "wikipathways_ignored_prefixes": sorted(wikipathways_ignored_prefixes),
+        "wikipathways_ignored_prefix_count": len(wikipathways_ignored_prefixes),
+        "lipidmaps_ignored_prefixes": sorted(lipidmaps_ignored_prefixes),
+        "lipidmaps_ignored_prefix_count": len(lipidmaps_ignored_prefixes),
         "ignored_edge_count": 0,
         "generic_structure_ignored_edge_count": 0,
         "ramp_denylist_ignored_edge_count": 0,
         "hmdb_prefix_ignored_detail_count": 0,
         "hmdb_prefix_ignored_edge_count": 0,
+        "wikipathways_prefix_ignored_detail_count": 0,
+        "wikipathways_prefix_ignored_edge_count": 0,
+        "lipidmaps_prefix_ignored_detail_count": 0,
+        "lipidmaps_prefix_ignored_edge_count": 0,
     }
     cursor = db.aql.execute(
         """
@@ -840,20 +914,28 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             continue
         details = edge.get("details") or []
         active_details = details
-        if hmdb_ignored_prefixes:
+        source_prefix_rules = [
+            ("hmdb", hmdb_ignored_prefixes, "hmdb_prefix"),
+            ("wikipathways", wikipathways_ignored_prefixes, "wikipathways_prefix"),
+            ("lipidmaps", lipidmaps_ignored_prefixes, "lipidmaps_prefix"),
+        ]
+        for source_name, ignored_prefixes, summary_prefix in source_prefix_rules:
+            if not ignored_prefixes:
+                continue
             endpoint_has_ignored_prefix = (
-                (_identifier_prefix(start_id) or "").lower() in hmdb_ignored_prefixes
-                or (_identifier_prefix(end_id) or "").lower() in hmdb_ignored_prefixes
+                (_identifier_prefix(start_id) or "").lower() in ignored_prefixes
+                or (_identifier_prefix(end_id) or "").lower() in ignored_prefixes
             )
             if endpoint_has_ignored_prefix:
+                before_count = len(active_details)
                 active_details = [
-                    detail for detail in details
-                    if str(detail.get("source") or "").lower() != "hmdb"
+                    detail for detail in active_details
+                    if str(detail.get("source") or "").lower() != source_name
                 ]
-                removed_count = len(details) - len(active_details)
-                summary["hmdb_prefix_ignored_detail_count"] += removed_count
+                removed_count = before_count - len(active_details)
+                summary[f"{summary_prefix}_ignored_detail_count"] += removed_count
                 if removed_count and not active_details:
-                    summary["hmdb_prefix_ignored_edge_count"] += 1
+                    summary[f"{summary_prefix}_ignored_edge_count"] += 1
         if details and not active_details:
             summary["ignored_edge_count"] += 1
             continue
@@ -982,6 +1064,68 @@ def _build_harmonized_groups(
     return non_singleton_groups, merge_summary
 
 
+def _remove_refmet_only_metabolites(
+    active_ids: set,
+    active_edges: List[dict],
+    groups: List[List[str]],
+) -> tuple[set, List[dict], List[List[str]], dict]:
+    removed_ids = set()
+    edge_sources_by_group_key: Dict[Tuple[str, ...], set] = {}
+    group_key_by_member_id: Dict[str, Tuple[str, ...]] = {}
+    for members in groups:
+        group_key = tuple(members)
+        edge_sources_by_group_key[group_key] = set()
+        for member_id in members:
+            group_key_by_member_id[member_id] = group_key
+
+    for edge in active_edges:
+        start_group_key = group_key_by_member_id.get(edge["start_id"])
+        end_group_key = group_key_by_member_id.get(edge["end_id"])
+        if start_group_key is None or start_group_key != end_group_key:
+            continue
+        edge_sources_by_group_key[start_group_key].update(
+            str(source).strip().lower()
+            for source in edge.get("sources") or []
+            if source is not None and str(source).strip()
+        )
+
+    kept_groups = []
+    removed_group_count = 0
+    for members in groups:
+        group_key = tuple(members)
+        sources = edge_sources_by_group_key.get(group_key) or set()
+        if sources and sources <= {"refmet"}:
+            removed_group_count += 1
+            removed_ids.update(members)
+        else:
+            kept_groups.append(members)
+
+    grouped_ids = {
+        member_id
+        for members in groups
+        for member_id in members
+    }
+    refmet_singleton_ids = {
+        identifier
+        for identifier in active_ids
+        if identifier not in grouped_ids and (_identifier_prefix(identifier) or "").lower() == "refmet"
+    }
+    removed_ids.update(refmet_singleton_ids)
+
+    filtered_active_ids = set(active_ids) - removed_ids
+    filtered_active_edges = [
+        edge for edge in active_edges
+        if edge["start_id"] in filtered_active_ids and edge["end_id"] in filtered_active_ids
+    ]
+    return filtered_active_ids, filtered_active_edges, kept_groups, {
+        "refmet_only_removed_metabolite_count": removed_group_count + len(refmet_singleton_ids),
+        "refmet_only_removed_group_count": removed_group_count,
+        "refmet_only_removed_singleton_count": len(refmet_singleton_ids),
+        "refmet_only_removed_identifier_count": len(removed_ids),
+        "refmet_only_removed_edge_count": len(active_edges) - len(filtered_active_edges),
+    }
+
+
 def _materialize_harmonization_stage(
     db,
     stage_key: str,
@@ -1105,13 +1249,28 @@ def _ensure_harmonization_stage(
         active_ids.add(edge["start_id"])
         active_ids.add(edge["end_id"])
     groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
+    refmet_only_summary = {
+        "refmet_only_removed_metabolite_count": 0,
+        "refmet_only_removed_group_count": 0,
+        "refmet_only_removed_singleton_count": 0,
+        "refmet_only_removed_identifier_count": 0,
+        "refmet_only_removed_edge_count": 0,
+    }
+    if "remove_refmet_only_metabolites" in rule_ids:
+        active_ids, active_edges, groups, refmet_only_summary = _remove_refmet_only_metabolites(
+            active_ids,
+            active_edges,
+            groups,
+        )
     non_singleton_member_count = sum(len(members) for members in groups)
     singleton_count = max(len(active_ids) - non_singleton_member_count, 0)
     summary = {
         **graph_fingerprint,
         **edge_summary,
         **merge_summary,
+        **refmet_only_summary,
         "active_identifier_count": len(active_ids),
+        "active_edge_count": len(active_edges),
         "harmonized_metabolite_count": len(groups),
         "non_singleton_clique_count": len(groups),
         "singleton_identifier_count": singleton_count,
@@ -1579,6 +1738,7 @@ def _load_harmonization_pipeline_workbench() -> dict:
             "pipelines": pipelines,
             "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines),
             "jobs": jobs,
+            "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
             "active_job_count": len(active_jobs),
             "active_pipeline_keys": sorted(active_pipeline_keys),
@@ -1591,6 +1751,7 @@ def _load_harmonization_pipeline_workbench() -> dict:
             "pipelines": [],
             "pipeline_stage_stats": [],
             "jobs": jobs,
+            "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
             "active_job_count": len(active_jobs),
             "active_pipeline_keys": sorted(active_pipeline_keys),
@@ -4671,9 +4832,14 @@ def ramp_id_qa_rename_pipeline(pipeline_key: str, pipeline_name: str = Form(""))
 
 @app.post("/ramp-id-qa/pipelines/{pipeline_key}/delete")
 def ramp_id_qa_delete_pipeline(pipeline_key: str):
+    try:
+        pipeline = _get_harmonization_pipeline(get_db("metabolite_harmonization"), pipeline_key)
+        pipeline_label = pipeline.get("name") or pipeline_key
+    except Exception:
+        pipeline_label = pipeline_key
     _enqueue_metabolite_snapshot_job(
         "delete_pipeline",
-        f"Delete {pipeline_key}",
+        f"Delete {pipeline_label}",
         {"pipeline_key": pipeline_key},
     )
     return _redirect_to("/ramp-id-qa")
