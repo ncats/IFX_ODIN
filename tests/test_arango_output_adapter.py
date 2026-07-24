@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from src.models.protein import Protein
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
@@ -52,6 +54,53 @@ class FailingUpdateCollection(FakeCollection):
 class FakeGraph:
     def has_edge_collection(self, label):
         return False
+
+
+class FakeCursor(list):
+    pass
+
+
+class FakeAql:
+    def execute(self, query):
+        if "RETURN COUNT" in query:
+            return FakeCursor([4])
+        if "COLLECT value = item" in query:
+            return FakeCursor([
+                {"value": "hmdb\t5.0\t2026-01-01\t2026-01-02", "count": 2},
+                {"value": "", "count": 1},
+            ])
+        if "COLLECT combo = key" in query:
+            return FakeCursor([
+                {"combination": "hmdb\t5.0\t2026-01-01\t2026-01-02", "count": 2},
+                {"combination": "", "count": 1},
+            ])
+        return FakeCursor([])
+
+
+class FakeMetadataDb:
+    aql = FakeAql()
+
+    def collections(self):
+        return [
+            {"system": False, "name": "TestCollection"},
+            {"system": False, "name": "MetaboliteHarmonizationClique"},
+        ]
+
+
+class FakeMalformedAql:
+    def execute(self, query):
+        if "RETURN COUNT" in query:
+            return FakeCursor([1])
+        if "COLLECT value = item" in query:
+            return FakeCursor([{"value": "bad-source-fragment", "count": 1}])
+        return FakeCursor([])
+
+
+class FakeMalformedMetadataDb:
+    aql = FakeMalformedAql()
+
+    def collections(self):
+        return [{"system": False, "name": "TestCollection"}]
 
 
 def make_protein(protein_id: str, name: str, entity_resolution: str, provenance: str) -> Protein:
@@ -114,6 +163,31 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     assert disease_metadata["kwargs"]["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
     assert "local_dir" not in disease_metadata["resolver_snapshot"]
     assert disease_metadata["fingerprint"]
+
+
+def test_arango_output_adapter_get_metadata_skips_empty_source_combinations_and_qa_artifacts():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.metadata_store_label = "metadata_store"
+    adapter.get_db = lambda: FakeMetadataDb()
+
+    metadata = adapter.get_metadata()
+
+    collection = metadata.collections[0]
+    assert collection.name == "TestCollection"
+    assert collection.total_count == 4
+    assert [source.name for source in collection.sources] == ["hmdb"]
+    assert collection.marginal_source_counts == {"hmdb": 2}
+    assert collection.joint_source_counts == {"hmdb": 2}
+    assert [collection.name for collection in metadata.collections] == ["TestCollection"]
+
+
+def test_arango_output_adapter_get_metadata_rejects_malformed_nonempty_source():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.metadata_store_label = "metadata_store"
+    adapter.get_db = lambda: FakeMalformedMetadataDb()
+
+    with pytest.raises(ValueError):
+        adapter.get_metadata()
 
 
 def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_snapshot(tmp_path):

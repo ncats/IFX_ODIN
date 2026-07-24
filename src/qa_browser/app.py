@@ -1,14 +1,18 @@
 import argparse
 import csv
 import gzip
+import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
+import re
 import shutil
 import sys
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
@@ -31,20 +35,7 @@ import uvicorn
 from src.core.data_registry import DataRegistry
 from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
-from src.qa_browser.ramp_id_graph import (
-    RAMP_DIAGNOSIS_OPTIONS,
-    add_ramp_diagnosis,
-    attach_ramp_diagnosis_summaries,
-    build_multiramp_navigation,
-    build_ramp_graph_payload,
-    delete_ramp_diagnosis,
-    get_ramp_diagnoses,
-    load_multiramp_export_rows,
-    load_multiramp_rows,
-    parse_ramp_ids,
-    ramp_diagnosis_enabled,
-    set_ramp_diagnosis_file,
-)
+from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
     graph_usage_filters,
@@ -92,6 +83,13 @@ _registry_graph_cache: dict = {
     "graphs": None,
     "error": None,
 }
+_registry_catalog_cache: dict = {
+    "loaded_at": {},
+    "source_snapshots": None,
+    "derived_artifacts": None,
+    "external_registrations": None,
+    "resolver_snapshots": None,
+}
 _registry_update_status_cache: dict = {
     "checked_at": None,
     "elapsed_seconds": None,
@@ -116,6 +114,7 @@ _resolver_warmup_status: dict = {
     "errors": [],
 }
 _REGISTRY_USAGE_TTL_SECONDS = 60
+_REGISTRY_CATALOG_TTL_SECONDS = int(os.getenv("QA_BROWSER_REGISTRY_CATALOG_TTL_SECONDS", "300"))
 _RESOLVER_API_MAX_IDS = 1000
 _RESOLVER_WARMUP_ENABLED = os.getenv("QA_BROWSER_WARM_RESOLVERS", "1").lower() in {
     "1", "true", "yes", "on"
@@ -123,6 +122,84 @@ _RESOLVER_WARMUP_ENABLED = os.getenv("QA_BROWSER_WARM_RESOLVERS", "1").lower() i
 _RESOLVER_WARMUP_ALL_SNAPSHOTS = os.getenv("QA_BROWSER_WARM_ALL_RESOLVER_SNAPSHOTS", "").lower() in {
     "1", "true", "yes", "on"
 }
+_HARMONIZATION_PIPELINE_COLLECTION = "HarmonizationPipeline"
+_HARMONIZATION_PIPELINE_RUN_COLLECTION = "HarmonizationPipelineRun"
+_HARMONIZATION_STAGE_COLLECTION = "HarmonizationStage"
+_HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
+_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
+_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
+_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v1"
+_RAMP_MAPPING_DENYLIST_PATH = BASE_DIR / "data" / "ramp_mapping_denylist.tsv"
+_HMDB_IGNORED_PREFIX_DEFAULTS = [
+    "BiGG",
+    "BioCyc",
+    "DRUGBANK",
+    "DRUGBANK.METABOLITE",
+    "FoodDB",
+    "KNApSAcK",
+    "METLIN",
+    "MetaGene",
+    "NugoWiki",
+    "PDB.HET",
+    "PhenolExplorer.COMPOUND",
+    "PhenolExplorer.METABOLITE",
+    "Wikipedia",
+]
+_METABOLITE_HARMONIZATION_RULES = [
+    {
+        "id": "ignore_generic_structure_mismatch",
+        "label": "Ignore generic/non-generic structure equivalence",
+        "description": "Drop equivalence edges where exactly one endpoint has an R-group or wildcard structure signal.",
+    },
+    {
+        "id": "ignore_ramp_mapping_denylist",
+        "label": "Ignore RaMP mapping deny list",
+        "description": "Drop source equivalence edges listed in the RaMP curated mapping deny list.",
+    },
+    {
+        "id": "ignore_hmdb_prefixes",
+        "label": "Ignore HMDB prefixes",
+        "description": "Drop HMDB-reported equivalence edges to configured identifier prefixes.",
+        "parameters": [
+            {
+                "id": "prefixes",
+                "label": "Prefixes",
+                "type": "textarea",
+                "default": "\n".join(_HMDB_IGNORED_PREFIX_DEFAULTS),
+                "placeholder": "FoodDB\nKNApSAcK\nDRUGBANK",
+            },
+        ],
+    },
+    {
+        "id": "merge_shared_inchikey_prefix",
+        "label": "Merge shared InChIKey prefix",
+        "description": "Merge identifiers when any stored structure has the same InChIKey first block.",
+    },
+    {
+        "id": "merge_shared_inchikey_duplex",
+        "label": "Merge shared InChIKey duplex",
+        "description": "Merge identifiers when any stored structure has the same first two InChIKey blocks.",
+    },
+    {
+        "id": "merge_inchikey_by_mw_cutoff",
+        "label": "Merge InChIKey by MW cutoff",
+        "description": "Use InChIKey duplex below the cutoff and InChIKey prefix at or above it.",
+        "parameters": [
+            {
+                "id": "mw_cutoff",
+                "label": "MW cutoff",
+                "type": "number",
+                "default": 500,
+                "min": 0,
+                "step": 1,
+                "unit": "Da",
+            },
+        ],
+    },
+]
+_metabolite_snapshot_jobs: dict = {}
+_metabolite_snapshot_jobs_lock = threading.Lock()
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
@@ -143,6 +220,2682 @@ def _app_path(path: str, request: Optional[Request] = None) -> str:
 
 def _redirect_to(path: str, *, request: Optional[Request] = None, status_code: int = 303) -> RedirectResponse:
     return RedirectResponse(url=_app_path(path, request), status_code=status_code)
+
+
+def _is_hidden_qa_browser_collection(collection_name: str) -> bool:
+    return collection_name.startswith("_")
+
+
+def _is_qa_visible_edge_collection(collection_name: str) -> bool:
+    return collection_name in {
+        _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+        _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+    }
+
+
+_GENERIC_STRUCTURE_TOKEN_RE = re.compile(r"(?<![A-Za-z])R\d*(?![a-z])")
+
+
+def _structure_values_for_generic_check(structure: dict) -> List[tuple[str, str]]:
+    values = []
+    for field in ("smiles", "formula", "inchi"):
+        value = structure.get(field)
+        if value:
+            values.append((field, str(value)))
+    return values
+
+
+def _value_has_generic_structure_token(field: str, value: str) -> bool:
+    if "*" in value:
+        return True
+    if "[R" in value or "(R)" in value:
+        return True
+    if field == "formula" and _GENERIC_STRUCTURE_TOKEN_RE.search(value):
+        return True
+    if field in {"smiles", "inchi"} and _GENERIC_STRUCTURE_TOKEN_RE.search(value):
+        return True
+    return False
+
+
+def _generic_structure_evidence(structures: List[dict]) -> List[dict]:
+    evidence = []
+    for structure in structures or []:
+        for field, value in _structure_values_for_generic_check(structure):
+            if _value_has_generic_structure_token(field, value):
+                evidence.append({
+                    "source": structure.get("source"),
+                    "source_id": structure.get("source_id"),
+                    "field": field,
+                    "value": value,
+                })
+    return evidence
+
+
+_INCHI_KEY_PREFIX_RE = re.compile(r"^[A-Z]{14}$")
+_INCHI_KEY_DUPLEX_RE = re.compile(r"^[A-Z]{14}-[A-Z]{10}$")
+_INCHI_KEY_FULL_RE = re.compile(r"^([A-Z]{14})-([A-Z]{10})-[A-Z]$")
+
+
+def _normalize_inchi_key_prefix(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    prefix = str(value).strip().upper()
+    if not prefix:
+        return None
+    prefix = prefix.split("-", 1)[0]
+    if not _INCHI_KEY_PREFIX_RE.match(prefix):
+        return None
+    return prefix
+
+
+def _normalize_inchi_key_duplex(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text:
+        return None
+    match = _INCHI_KEY_FULL_RE.match(text)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}"
+    parts = text.split("-")
+    if len(parts) >= 2:
+        duplex = "-".join(parts[:2])
+        if _INCHI_KEY_DUPLEX_RE.match(duplex):
+            return duplex
+    return None
+
+
+def _parse_optional_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _identifier_prefix(identifier: Optional[str]) -> Optional[str]:
+    if not identifier or ":" not in str(identifier):
+        return None
+    prefix = str(identifier).split(":", 1)[0].strip()
+    return prefix or None
+
+
+def _normalize_prefix_list(value) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_items = [str(item) for item in value]
+    else:
+        raw_items = re.split(r"[\s,;]+", str(value))
+    seen = set()
+    prefixes = []
+    for item in raw_items:
+        prefix = item.strip()
+        if not prefix:
+            continue
+        prefix_key = prefix.lower()
+        if prefix_key in seen:
+            continue
+        seen.add(prefix_key)
+        prefixes.append(prefix)
+    return prefixes
+
+
+def _normalize_ramp_denylist_identifier(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or ":" not in text:
+        return None
+    prefix, local_id = text.split(":", 1)
+    prefix_key = prefix.strip().lower()
+    local_id = local_id.strip()
+    if not local_id:
+        return None
+    prefix_map = {
+        "hmdb": "HMDB",
+        "chebi": "CHEBI",
+        "kegg": "KEGG.COMPOUND",
+        "kegg.compound": "KEGG.COMPOUND",
+        "pubchem": "PUBCHEM.COMPOUND",
+        "pubchem.compound": "PUBCHEM.COMPOUND",
+        "chemspider": "ChemSpider",
+        "refmet": "REFMET",
+        "lipidmaps": "LIPIDMAPS",
+        "cas": "CAS",
+        "wikidata": "Wikidata",
+    }
+    normalized_prefix = prefix_map.get(prefix_key, prefix.strip())
+    return f"{normalized_prefix}:{local_id}"
+
+
+def _load_ramp_mapping_denylist_pairs() -> set[tuple[str, str]]:
+    denylist_pairs = set()
+    if not _RAMP_MAPPING_DENYLIST_PATH.exists():
+        return denylist_pairs
+    with _RAMP_MAPPING_DENYLIST_PATH.open(newline="") as handle:
+        reader = csv.reader(handle, delimiter="\t")
+        next(reader, None)
+        for row in reader:
+            if len(row) < 2:
+                continue
+            left = _normalize_ramp_denylist_identifier(row[0])
+            right = _normalize_ramp_denylist_identifier(row[1])
+            if not left or not right or left == right:
+                continue
+            denylist_pairs.add(tuple(sorted((left, right))))
+    return denylist_pairs
+
+
+def _normalize_metabolite_rule_ids(rule_ids: Optional[List[str]]) -> List[str]:
+    allowed = {rule["id"] for rule in _METABOLITE_HARMONIZATION_RULES}
+    normalized = []
+    for rule_id in rule_ids or []:
+        if rule_id in allowed and rule_id not in normalized:
+            normalized.append(rule_id)
+    return normalized
+
+
+def _default_metabolite_rule_parameters(rule_id: str) -> dict:
+    rule = next((item for item in _METABOLITE_HARMONIZATION_RULES if item["id"] == rule_id), None)
+    if not rule:
+        return {}
+    return {
+        parameter["id"]: parameter.get("default")
+        for parameter in rule.get("parameters", [])
+    }
+
+
+def _normalize_metabolite_rule_parameters(rule_ids: List[str], rule_parameters: Optional[dict]) -> dict:
+    normalized = {}
+    submitted = rule_parameters or {}
+    for rule_id in rule_ids:
+        defaults = _default_metabolite_rule_parameters(rule_id)
+        if not defaults:
+            continue
+        normalized[rule_id] = {}
+        for parameter_id, default_value in defaults.items():
+            raw_value = submitted.get(rule_id, {}).get(parameter_id, default_value)
+            if parameter_id == "mw_cutoff":
+                parsed_value = _parse_optional_float(raw_value)
+                normalized[rule_id][parameter_id] = parsed_value if parsed_value is not None else default_value
+            elif parameter_id == "prefixes":
+                normalized[rule_id][parameter_id] = _normalize_prefix_list(raw_value)
+            else:
+                normalized[rule_id][parameter_id] = raw_value
+    return normalized
+
+
+def _metabolite_rule_metadata(rule_ids: List[str], rule_parameters: Optional[dict] = None) -> List[dict]:
+    rule_by_id = {rule["id"]: rule for rule in _METABOLITE_HARMONIZATION_RULES}
+    parameter_by_rule_id = rule_parameters or {}
+    metadata = []
+    for rule_id in rule_ids:
+        if rule_id not in rule_by_id:
+            continue
+        item = {
+            "id": rule_id,
+            "label": rule_by_id[rule_id]["label"],
+            "description": rule_by_id[rule_id]["description"],
+        }
+        if parameter_by_rule_id.get(rule_id):
+            item["parameters"] = parameter_by_rule_id[rule_id]
+        metadata.append(item)
+    return metadata
+
+
+def _chunked_records(records: List[dict], chunk_size: int = 10000):
+    for index in range(0, len(records), chunk_size):
+        yield records[index:index + chunk_size]
+
+
+def _load_generic_structure_ids(db) -> set:
+    generic_structure_ids = set()
+    metabolite_structure_cursor = db.aql.execute(
+        """
+        FOR d IN MetaboliteIdentifier
+          FILTER LENGTH(d.chem_props || []) > 0
+          RETURN {
+            id: d.id,
+            structures: (
+              FOR prop IN d.chem_props || []
+                RETURN {
+                  source: prop.source,
+                  source_id: prop.source_id,
+                  smiles: prop.iso_smiles || prop.isomeric_smiles || prop.canonical_smiles,
+                  formula: prop.molecular_formula,
+                  inchi: prop.inchi
+                }
+            )
+          }
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    for row in metabolite_structure_cursor:
+        if _generic_structure_evidence(row.get("structures", [])):
+            generic_structure_ids.add(row["id"])
+    chebi_structure_cursor = db.aql.execute(
+        """
+        FOR d IN ChemicalEntity
+          FILTER d.smiles != null OR d.formula != null OR d.inchi != null
+          RETURN {
+            id: d.id,
+            structures: [
+              {
+                source: "ChEBI",
+                source_id: d.id,
+                smiles: d.smiles,
+                formula: d.formula,
+                inchi: d.inchi
+              }
+            ]
+          }
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    for row in chebi_structure_cursor:
+        if _generic_structure_evidence(row.get("structures", [])):
+            generic_structure_ids.add(row["id"])
+    return generic_structure_ids
+
+
+def _iter_metabolite_identifier_inchi_key_matches(db, mode: str, mw_cutoff: Optional[float] = None):
+    cursor = db.aql.execute(
+        """
+        FOR d IN MetaboliteIdentifier
+          LET inchi_keys = UNIQUE(
+            FLATTEN(
+              FOR prop IN d.chem_props || []
+                RETURN [prop.inchi_key]
+            )
+          )
+          LET prefixes = UNIQUE(
+            FLATTEN(
+              FOR prop IN d.chem_props || []
+                RETURN [prop.inchi_key_prefix]
+            )
+          )
+          LET masses = UNIQUE(
+            FLATTEN(
+              FOR prop IN d.chem_props || []
+                RETURN [prop.mw, prop.monoisotopic_mass]
+            )
+          )
+          FILTER LENGTH(inchi_keys) > 0 OR LENGTH(prefixes) > 0
+          RETURN {id: d.id, inchi_keys: inchi_keys, prefixes: prefixes, masses: masses}
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    for row in cursor:
+        numeric_masses = [
+            parsed
+            for parsed in (_parse_optional_float(value) for value in row.get("masses", []))
+            if parsed is not None
+        ]
+        mass = min(numeric_masses) if numeric_masses else None
+        effective_mode = mode
+        if mode == "mw_cutoff":
+            effective_mode = "prefix" if mass is not None and mass >= (mw_cutoff or 500) else "duplex"
+        matches = set()
+        if effective_mode == "prefix":
+            matches.update(
+                prefix
+                for prefix in (_normalize_inchi_key_prefix(value) for value in row.get("inchi_keys", []))
+                if prefix
+            )
+            matches.update(
+                prefix
+                for prefix in (_normalize_inchi_key_prefix(value) for value in row.get("prefixes", []))
+                if prefix
+            )
+        elif effective_mode == "duplex":
+            matches.update(
+                duplex
+                for duplex in (_normalize_inchi_key_duplex(value) for value in row.get("inchi_keys", []))
+                if duplex
+            )
+        if matches:
+            yield row["id"], sorted(matches), effective_mode, mass
+
+
+def _ensure_harmonization_pipeline_collections(db) -> None:
+    for collection_name in (
+        _HARMONIZATION_PIPELINE_COLLECTION,
+        _HARMONIZATION_PIPELINE_RUN_COLLECTION,
+        _HARMONIZATION_STAGE_COLLECTION,
+        _HARMONIZED_METABOLITE_COLLECTION,
+        _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
+    ):
+        if not db.has_collection(collection_name):
+            db.create_collection(collection_name)
+    for collection_name in (
+        _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+        _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+    ):
+        if not db.has_collection(collection_name):
+            db.create_collection(collection_name, edge=True)
+    graph = db.graph("graph") if db.has_graph("graph") else db.create_graph("graph")
+    definitions = {
+        definition["edge_collection"]: definition
+        for definition in graph.edge_definitions()
+    }
+
+    def upsert_edge_definition(collection_name: str, from_collections: List[str], to_collections: List[str]) -> None:
+        existing = definitions.get(collection_name)
+        if existing is None:
+            graph.create_edge_definition(collection_name, from_collections, to_collections)
+            return
+        updated_from = sorted(set(existing.get("from_vertex_collections", []) + from_collections))
+        updated_to = sorted(set(existing.get("to_vertex_collections", []) + to_collections))
+        if (
+            updated_from != sorted(existing.get("from_vertex_collections", []))
+            or updated_to != sorted(existing.get("to_vertex_collections", []))
+        ):
+            graph.replace_edge_definition(collection_name, updated_from, updated_to)
+
+    upsert_edge_definition(
+        _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+        [_HARMONIZED_METABOLITE_COLLECTION],
+        ["MetaboliteIdentifier"],
+    )
+    upsert_edge_definition(
+        _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+        ["MetaboliteIdentifier"],
+        ["MetaboliteIdentifier"],
+    )
+
+
+def _canonical_json_digest(payload: dict, length: int = 16) -> str:
+    return hashlib.sha1(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:length]
+
+
+def _harmonization_graph_fingerprint(db) -> dict:
+    row = list(db.aql.execute(
+        """
+        RETURN {
+          metabolite_identifier_count: LENGTH(MetaboliteIdentifier),
+          equivalence_edge_count: LENGTH(MetaboliteIdentifierMappingEdge)
+        }
+        """,
+        max_runtime=120,
+    ))[0]
+    return {
+        "database": "metabolite_harmonization",
+        "engine_version": _HARMONIZATION_ENGINE_VERSION,
+        **row,
+    }
+
+
+def _harmonization_stage_key(rule_ids: List[str], rule_parameters: dict, graph_fingerprint: dict) -> str:
+    digest = _canonical_json_digest({
+        "kind": "harmonization_stage",
+        "graph_fingerprint": graph_fingerprint,
+        "rule_ids": rule_ids,
+        "rule_parameters": rule_parameters,
+    })
+    if not rule_ids:
+        return f"baseline-{digest}"
+    return f"stage-{len(rule_ids):02d}-{digest}"
+
+
+def _cumulative_rule_parameters(rule_ids: List[str], rule_parameters: dict) -> dict:
+    return {
+        rule_id: rule_parameters.get(rule_id, {})
+        for rule_id in rule_ids
+        if rule_parameters.get(rule_id)
+    }
+
+
+def _delete_harmonization_stage_artifacts(db, stage_key: str) -> None:
+    for collection_name in (
+        _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+        _HARMONIZED_METABOLITE_COLLECTION,
+        _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+        _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
+    ):
+        if not db.has_collection(collection_name):
+            continue
+        while True:
+            deleted = list(db.aql.execute(
+                f"""
+                LET keys = (
+                  FOR d IN {collection_name}
+                    FILTER d.stage_key == @stage_key
+                    LIMIT 10000
+                    RETURN d._key
+                )
+                FOR key IN keys
+                  REMOVE key IN {collection_name}
+                RETURN OLD._key
+                """,
+                bind_vars={"stage_key": stage_key},
+                max_runtime=120,
+            ))
+            if not deleted:
+                break
+
+
+def _stage_is_referenced_by_any_run(db, stage_key: str) -> bool:
+    if not db.has_collection(_HARMONIZATION_PIPELINE_RUN_COLLECTION):
+        return False
+    rows = list(db.aql.execute(
+        f"""
+        FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+          FILTER @stage_key IN (r.stage_keys || [])
+          LIMIT 1
+          RETURN 1
+        """,
+        bind_vars={"stage_key": stage_key},
+        max_runtime=120,
+    ))
+    return bool(rows)
+
+
+def _delete_harmonization_pipeline(db, pipeline_key: str) -> dict:
+    _ensure_harmonization_pipeline_collections(db)
+    pipeline = _get_harmonization_pipeline(db, pipeline_key)
+    stage_keys = list(db.aql.execute(
+        f"""
+        FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+          FILTER r.pipeline_key == @pipeline_key
+          FOR stage_key IN r.stage_keys || []
+            COLLECT unique_stage_key = stage_key
+            RETURN unique_stage_key
+        """,
+        bind_vars={"pipeline_key": pipeline_key},
+        max_runtime=120,
+    ))
+    db.aql.execute(
+        f"""
+        FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+          FILTER r.pipeline_key == @pipeline_key
+          REMOVE r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+        """,
+        bind_vars={"pipeline_key": pipeline_key},
+        max_runtime=120,
+    )
+    pipeline_collection = db.collection(_HARMONIZATION_PIPELINE_COLLECTION)
+    if pipeline_collection.has(pipeline_key):
+        pipeline_collection.delete(pipeline_key)
+    deleted_stage_keys = []
+    for stage_key in stage_keys:
+        if not _stage_is_referenced_by_any_run(db, stage_key):
+            _delete_harmonization_stage_artifacts(db, stage_key)
+            stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
+            if stage_collection.has(stage_key):
+                stage_collection.delete(stage_key)
+            deleted_stage_keys.append(stage_key)
+    return {
+        "pipeline": pipeline,
+        "deleted_stage_keys": deleted_stage_keys,
+    }
+
+
+def _load_metabolite_identifier_source_support(db) -> Dict[str, set]:
+    support_by_id: Dict[str, set] = {}
+    cursor = db.aql.execute(
+        """
+        FOR d IN MetaboliteIdentifier
+          LET support = UNIQUE(FLATTEN([
+            (FOR item IN d.sources || [] RETURN IS_OBJECT(item) ? (item.name != null ? item.name : (item.source != null ? item.source : item.id)) : item),
+            (FOR item IN d.names || [] RETURN item.source),
+            (FOR item IN d.synonyms || [] RETURN item.source),
+            (FOR item IN d.chem_props || [] RETURN item.source)
+          ]))
+          RETURN {id: d.id, support: support}
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    for row in cursor:
+        sources = {
+            str(source).strip()
+            for source in row.get("support") or []
+            if source is not None and str(source).strip()
+        }
+        support_by_id[row["id"]] = sources or {"__unsourced_node__"}
+    return support_by_id
+
+
+def _filter_identifier_support_for_rules(
+    support_by_id: Dict[str, set],
+    rule_ids: List[str],
+    rule_parameters: dict,
+) -> Dict[str, set]:
+    filtered = {identifier: set(sources) for identifier, sources in support_by_id.items()}
+    if "ignore_hmdb_prefixes" in rule_ids:
+        prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
+        }
+        for identifier, sources in filtered.items():
+            if (_identifier_prefix(identifier) or "").lower() in prefixes:
+                filtered[identifier] = {
+                    source for source in sources
+                    if str(source).lower() != "hmdb"
+                }
+    return filtered
+
+
+def _active_metabolite_identifier_mapping_edges_for_rules(
+    db,
+    active_ids: set,
+    rule_ids: List[str],
+    rule_parameters: dict,
+) -> tuple[List[dict], dict]:
+    generic_structure_ids = _load_generic_structure_ids(db) if "ignore_generic_structure_mismatch" in rule_ids else set()
+    ramp_mapping_denylist_pairs = (
+        _load_ramp_mapping_denylist_pairs() if "ignore_ramp_mapping_denylist" in rule_ids else set()
+    )
+    hmdb_ignored_prefixes = set()
+    if "ignore_hmdb_prefixes" in rule_ids:
+        hmdb_ignored_prefixes = {
+            prefix.lower()
+            for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
+        }
+
+    active_edges = []
+    summary = {
+        "generic_structure_identifier_count": len(generic_structure_ids),
+        "ramp_denylist_pair_count": len(ramp_mapping_denylist_pairs),
+        "hmdb_ignored_prefixes": sorted(hmdb_ignored_prefixes),
+        "hmdb_ignored_prefix_count": len(hmdb_ignored_prefixes),
+        "ignored_edge_count": 0,
+        "generic_structure_ignored_edge_count": 0,
+        "ramp_denylist_ignored_edge_count": 0,
+        "hmdb_prefix_ignored_detail_count": 0,
+        "hmdb_prefix_ignored_edge_count": 0,
+    }
+    cursor = db.aql.execute(
+        """
+        FOR e IN MetaboliteIdentifierMappingEdge
+          RETURN {
+            key: e._key,
+            id: e.id || e._key,
+            start_id: e.start_id,
+            end_id: e.end_id,
+            details: e.details || []
+          }
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    for edge in cursor:
+        start_id = edge["start_id"]
+        end_id = edge["end_id"]
+        if start_id not in active_ids or end_id not in active_ids:
+            summary["ignored_edge_count"] += 1
+            continue
+        if "ignore_generic_structure_mismatch" in rule_ids and ((start_id in generic_structure_ids) != (end_id in generic_structure_ids)):
+            summary["ignored_edge_count"] += 1
+            summary["generic_structure_ignored_edge_count"] += 1
+            continue
+        if "ignore_ramp_mapping_denylist" in rule_ids and tuple(sorted((start_id, end_id))) in ramp_mapping_denylist_pairs:
+            summary["ignored_edge_count"] += 1
+            summary["ramp_denylist_ignored_edge_count"] += 1
+            continue
+        details = edge.get("details") or []
+        active_details = details
+        if hmdb_ignored_prefixes:
+            endpoint_has_ignored_prefix = (
+                (_identifier_prefix(start_id) or "").lower() in hmdb_ignored_prefixes
+                or (_identifier_prefix(end_id) or "").lower() in hmdb_ignored_prefixes
+            )
+            if endpoint_has_ignored_prefix:
+                active_details = [
+                    detail for detail in details
+                    if str(detail.get("source") or "").lower() != "hmdb"
+                ]
+                removed_count = len(details) - len(active_details)
+                summary["hmdb_prefix_ignored_detail_count"] += removed_count
+                if removed_count and not active_details:
+                    summary["hmdb_prefix_ignored_edge_count"] += 1
+        if details and not active_details:
+            summary["ignored_edge_count"] += 1
+            continue
+        sources = sorted({
+            str(detail.get("source")).strip()
+            for detail in active_details
+            if detail.get("source") is not None and str(detail.get("source")).strip()
+        })
+        active_edges.append({
+            **edge,
+            "details": active_details,
+            "sources": sources,
+        })
+    summary["active_edge_count"] = len(active_edges)
+    return active_edges, summary
+
+
+def _build_harmonized_groups(
+    db,
+    active_ids: set,
+    active_edges: List[dict],
+    rule_ids: List[str],
+    rule_parameters: dict,
+) -> tuple[List[List[str]], dict]:
+    parent: Dict[str, str] = {}
+    size: Dict[str, int] = {}
+
+    def find(identifier: str) -> str:
+        while parent[identifier] != identifier:
+            parent[identifier] = parent[parent[identifier]]
+            identifier = parent[identifier]
+        return identifier
+
+    def add(identifier: str) -> None:
+        if identifier not in parent:
+            parent[identifier] = identifier
+            size[identifier] = 1
+
+    def union(left: str, right: str) -> bool:
+        add(left)
+        add(right)
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return False
+        if size[left_root] < size[right_root]:
+            left_root, right_root = right_root, left_root
+        parent[right_root] = left_root
+        size[left_root] += size[right_root]
+        return True
+
+    for identifier in active_ids:
+        add(identifier)
+    for edge in active_edges:
+        union(edge["start_id"], edge["end_id"])
+
+    merge_summary = {
+        "inchi_key_prefix_count": 0,
+        "inchi_key_prefix_identifier_count": 0,
+        "inchi_key_prefix_merge_count": 0,
+        "inchi_key_duplex_count": 0,
+        "inchi_key_duplex_identifier_count": 0,
+        "inchi_key_duplex_merge_count": 0,
+        "inchi_key_mw_cutoff_prefix_identifier_count": 0,
+        "inchi_key_mw_cutoff_duplex_identifier_count": 0,
+        "inchi_key_mw_cutoff_identifier_count": 0,
+        "inchi_key_mw_cutoff_merge_count": 0,
+    }
+
+    def merge_by_inchi_key_matches(mode: str, mw_cutoff: Optional[float] = None) -> dict:
+        first_identifier_by_match: Dict[str, str] = {}
+        identifier_count = 0
+        merge_count = 0
+        prefix_identifier_count = 0
+        duplex_identifier_count = 0
+        for identifier, matches, effective_mode, _mass in _iter_metabolite_identifier_inchi_key_matches(db, mode, mw_cutoff):
+            if identifier not in active_ids:
+                continue
+            identifier_count += 1
+            if effective_mode == "prefix":
+                prefix_identifier_count += 1
+            if effective_mode == "duplex":
+                duplex_identifier_count += 1
+            for match in matches:
+                match_key = f"{effective_mode}:{match}"
+                if match_key not in first_identifier_by_match:
+                    first_identifier_by_match[match_key] = identifier
+                    continue
+                if union(first_identifier_by_match[match_key], identifier):
+                    merge_count += 1
+        return {
+            "match_count": len(first_identifier_by_match),
+            "identifier_count": identifier_count,
+            "merge_count": merge_count,
+            "prefix_identifier_count": prefix_identifier_count,
+            "duplex_identifier_count": duplex_identifier_count,
+        }
+
+    if "merge_shared_inchikey_prefix" in rule_ids:
+        stats = merge_by_inchi_key_matches("prefix")
+        merge_summary["inchi_key_prefix_count"] = stats["match_count"]
+        merge_summary["inchi_key_prefix_identifier_count"] = stats["identifier_count"]
+        merge_summary["inchi_key_prefix_merge_count"] = stats["merge_count"]
+    if "merge_shared_inchikey_duplex" in rule_ids:
+        stats = merge_by_inchi_key_matches("duplex")
+        merge_summary["inchi_key_duplex_count"] = stats["match_count"]
+        merge_summary["inchi_key_duplex_identifier_count"] = stats["identifier_count"]
+        merge_summary["inchi_key_duplex_merge_count"] = stats["merge_count"]
+    if "merge_inchikey_by_mw_cutoff" in rule_ids:
+        mw_cutoff = rule_parameters.get("merge_inchikey_by_mw_cutoff", {}).get("mw_cutoff", 500)
+        stats = merge_by_inchi_key_matches("mw_cutoff", mw_cutoff)
+        merge_summary["inchi_key_mw_cutoff_identifier_count"] = stats["identifier_count"]
+        merge_summary["inchi_key_mw_cutoff_merge_count"] = stats["merge_count"]
+        merge_summary["inchi_key_mw_cutoff_prefix_identifier_count"] = stats["prefix_identifier_count"]
+        merge_summary["inchi_key_mw_cutoff_duplex_identifier_count"] = stats["duplex_identifier_count"]
+
+    members_by_root: Dict[str, List[str]] = {}
+    for identifier in active_ids:
+        members_by_root.setdefault(find(identifier), []).append(identifier)
+    non_singleton_groups = [
+        sorted(members)
+        for members in members_by_root.values()
+        if len(members) > 1
+    ]
+    non_singleton_groups.sort(key=lambda members: (-len(members), members[0]))
+    return non_singleton_groups, merge_summary
+
+
+def _materialize_harmonization_stage(
+    db,
+    stage_key: str,
+    stage_doc: dict,
+    active_ids: set,
+    active_edges: List[dict],
+    groups: List[List[str]],
+) -> None:
+    _delete_harmonization_stage_artifacts(db, stage_key)
+    db.collection(_HARMONIZATION_STAGE_COLLECTION).insert(stage_doc, overwrite=True)
+
+    active_chunk_collection = db.collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION)
+    active_ids_sorted = sorted(active_ids)
+    for chunk_index, identifiers in enumerate(_chunked_records(active_ids_sorted, 20000)):
+        active_chunk_collection.insert({
+            "_key": f"{stage_key}-{chunk_index:05d}",
+            "id": f"HarmonizationStageActiveIdentifierChunk:{stage_key}-{chunk_index:05d}",
+            "stage_key": stage_key,
+            "chunk_index": chunk_index,
+            "identifier_ids": identifiers,
+        }, overwrite=True)
+
+    evidence_collection = db.collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION)
+    evidence_batch = []
+    for edge in active_edges:
+        edge_key = f"{stage_key}-{_canonical_json_digest({'edge_key': edge.get('key'), 'start_id': edge.get('start_id'), 'end_id': edge.get('end_id')})}"
+        evidence_batch.append({
+            "_key": edge_key,
+            "_from": f"MetaboliteIdentifier/{edge['start_id']}",
+            "_to": f"MetaboliteIdentifier/{edge['end_id']}",
+            "id": f"HarmonizationStageEvidenceEdge:{edge_key}",
+            "stage_key": stage_key,
+            "raw_edge_key": edge.get("key"),
+            "raw_edge_id": edge.get("id"),
+            "start_id": edge["start_id"],
+            "end_id": edge["end_id"],
+            "sources": edge.get("sources") or [],
+            "source_count": len(edge.get("sources") or []),
+            "detail_count": len(edge.get("details") or []),
+            "details": edge.get("details") or [],
+        })
+        if len(evidence_batch) >= 10000:
+            evidence_collection.insert_many(evidence_batch, overwrite=True)
+            evidence_batch = []
+    if evidence_batch:
+        evidence_collection.insert_many(evidence_batch, overwrite=True)
+
+    metabolite_collection = db.collection(_HARMONIZED_METABOLITE_COLLECTION)
+    member_collection = db.collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
+    metabolite_batch = []
+    member_batch = []
+    for rank, members in enumerate(groups, start=1):
+        member_digest = _canonical_json_digest({"members": members}, 16)
+        harmonized_key = f"{stage_key}-{rank:06d}-{member_digest}"
+        harmonized_id = f"HarmonizedMetabolite:{harmonized_key}"
+        metabolite_batch.append({
+            "_key": harmonized_key,
+            "id": harmonized_id,
+            "stage_key": stage_key,
+            "stage_id": stage_doc["id"],
+            "name": f"{stage_doc['name']} group {rank}",
+            "size": len(members),
+            "rank_by_size": rank,
+            "representative_id": members[0],
+            "sample_member_ids": members[:25],
+            "member_hash": member_digest,
+        })
+        for member_index, member_id in enumerate(members):
+            member_edge_key = f"{harmonized_key}-{_canonical_json_digest({'member': member_id})}"
+            member_batch.append({
+                "_key": member_edge_key,
+                "_from": f"{_HARMONIZED_METABOLITE_COLLECTION}/{harmonized_key}",
+                "_to": f"MetaboliteIdentifier/{member_id}",
+                "id": f"HarmonizedMetaboliteMemberEdge:{member_edge_key}",
+                "stage_key": stage_key,
+                "stage_id": stage_doc["id"],
+                "harmonized_metabolite_id": harmonized_id,
+                "member_id": member_id,
+                "member_index": member_index,
+            })
+        if len(metabolite_batch) >= 5000:
+            metabolite_collection.insert_many(metabolite_batch, overwrite=True)
+            metabolite_batch = []
+        if len(member_batch) >= 10000:
+            member_collection.insert_many(member_batch, overwrite=True)
+            member_batch = []
+    if metabolite_batch:
+        metabolite_collection.insert_many(metabolite_batch, overwrite=True)
+    for batch in _chunked_records(member_batch):
+        member_collection.insert_many(batch, overwrite=True)
+
+
+def _ensure_harmonization_stage(
+    db,
+    rule_ids: List[str],
+    rule_parameters: dict,
+    graph_fingerprint: dict,
+    display_name: str,
+    stage_index: int,
+) -> dict:
+    stage_key = _harmonization_stage_key(rule_ids, rule_parameters, graph_fingerprint)
+    existing = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
+    if existing and existing.get("status") == "complete":
+        return existing
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    support_by_id = _load_metabolite_identifier_source_support(db)
+    filtered_support_by_id = _filter_identifier_support_for_rules(support_by_id, rule_ids, rule_parameters)
+    active_ids = {
+        identifier
+        for identifier, sources in filtered_support_by_id.items()
+        if sources
+    }
+    active_edges, edge_summary = _active_metabolite_identifier_mapping_edges_for_rules(
+        db,
+        active_ids,
+        rule_ids,
+        rule_parameters,
+    )
+    for edge in active_edges:
+        active_ids.add(edge["start_id"])
+        active_ids.add(edge["end_id"])
+    groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
+    non_singleton_member_count = sum(len(members) for members in groups)
+    singleton_count = max(len(active_ids) - non_singleton_member_count, 0)
+    summary = {
+        **graph_fingerprint,
+        **edge_summary,
+        **merge_summary,
+        "active_identifier_count": len(active_ids),
+        "harmonized_metabolite_count": len(groups),
+        "non_singleton_clique_count": len(groups),
+        "singleton_identifier_count": singleton_count,
+        "clique_count": len(groups) + singleton_count,
+        "largest_clique_sizes": [len(members) for members in groups[:10]],
+    }
+    stage_doc = {
+        "_key": stage_key,
+        "id": f"HarmonizationStage:{stage_key}",
+        "name": display_name,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "status": "complete",
+        "graph_database": "metabolite_harmonization",
+        "engine_version": _HARMONIZATION_ENGINE_VERSION,
+        "stage_index": stage_index,
+        "rule_ids": rule_ids,
+        "rule_parameters": rule_parameters,
+        "rules": _metabolite_rule_metadata(rule_ids, rule_parameters),
+        "summary": summary,
+        "materialization": {
+            "active_identifier_chunks": _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
+            "evidence_edges": _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+            "harmonized_metabolites": _HARMONIZED_METABOLITE_COLLECTION,
+            "member_edges": _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+            "singleton_note": "Singleton active identifiers are stored in active identifier chunks, not as HarmonizedMetabolite nodes.",
+        },
+    }
+    _materialize_harmonization_stage(db, stage_key, stage_doc, active_ids, active_edges, groups)
+    return stage_doc
+
+
+def _stage_display_label(stage: dict, rule_parameters: Optional[dict] = None) -> str:
+    rule_ids = stage.get("rule_ids") or []
+    if not rule_ids:
+        return "Baseline"
+    rule_metadata = _metabolite_rule_metadata([rule_ids[-1]], rule_parameters or {})
+    if rule_metadata:
+        return rule_metadata[0]["label"]
+    return rule_ids[-1]
+
+
+def _list_harmonization_pipelines(limit: int = 25) -> List[dict]:
+    db = get_db("metabolite_harmonization")
+    if not db.has_collection(_HARMONIZATION_PIPELINE_COLLECTION):
+        return []
+    pipelines = list(db.aql.execute(
+        f"""
+        FOR p IN {_HARMONIZATION_PIPELINE_COLLECTION}
+          SORT p.updated_at DESC
+          LIMIT @limit
+          LET runs = (
+            FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+              FILTER r.pipeline_key == p._key
+              SORT r.created_at DESC
+              LIMIT 5
+              RETURN r
+          )
+          RETURN MERGE(p, {{runs: runs}})
+        """,
+        bind_vars={"limit": limit},
+        max_runtime=120,
+    ))
+    for pipeline in pipelines:
+        rule_parameters = pipeline.get("rule_parameters") or {}
+        for run in pipeline.get("runs") or []:
+            stages = run.get("stages") or []
+            stages.sort(key=_stage_sort_key)
+            for stage in stages:
+                stage["display_label"] = _stage_display_label(stage, rule_parameters)
+    return pipelines
+
+
+def _list_harmonization_stages(limit: int = 50) -> List[dict]:
+    db = get_db("metabolite_harmonization")
+    if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
+        return []
+    return list(db.aql.execute(
+        f"""
+        FOR s IN {_HARMONIZATION_STAGE_COLLECTION}
+          FILTER s.status == "complete"
+          SORT s.created_at ASC
+          LIMIT @limit
+          RETURN s
+        """,
+        bind_vars={"limit": limit},
+        max_runtime=120,
+    ))
+
+
+def _harmonization_jobs_by_pipeline_key(jobs: List[dict]) -> Dict[str, List[dict]]:
+    jobs_by_pipeline_key: Dict[str, List[dict]] = {}
+    for job in jobs:
+        pipeline_key = job.get("pipeline_key")
+        if not pipeline_key:
+            continue
+        jobs_by_pipeline_key.setdefault(pipeline_key, []).append(job)
+    return jobs_by_pipeline_key
+
+
+def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optional[List[str]] = None) -> List[dict]:
+    db = get_db("metabolite_harmonization")
+    if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
+        return []
+    unique_stage_keys = list(dict.fromkeys(stage_keys or []))
+    if unique_stage_keys:
+        stage_filter = "FILTER s._key IN @stage_keys"
+        bind_vars = {"limit": max(limit, len(unique_stage_keys)), "stage_keys": unique_stage_keys}
+    else:
+        stage_filter = "FILTER s.status == \"complete\""
+        bind_vars = {"limit": limit, "stage_keys": []}
+    stages = list(db.aql.execute(
+        f"""
+        FOR s IN {_HARMONIZATION_STAGE_COLLECTION}
+          {stage_filter}
+          SORT s.created_at DESC
+          LIMIT @limit
+          RETURN KEEP(s, "_key", "name", "created_at", "stage_index", "rule_ids", "summary")
+        """,
+        bind_vars=bind_vars,
+        max_runtime=120,
+    ))
+    if not stages:
+        return []
+    stage_keys = [stage["_key"] for stage in stages]
+    distribution_by_stage = {}
+    if db.has_collection(_HARMONIZED_METABOLITE_COLLECTION):
+        distribution_rows = list(db.aql.execute(
+            f"""
+            FOR c IN {_HARMONIZED_METABOLITE_COLLECTION}
+              FILTER c.stage_key IN @stage_keys
+              COLLECT stage_key = c.stage_key
+              AGGREGATE
+                non_singleton_groups = COUNT(),
+                non_singleton_members = SUM(c.size),
+                max_size = MAX(c.size),
+                average_size = AVG(c.size),
+                size_2 = SUM(c.size == 2 ? 1 : 0),
+                size_3_5 = SUM(c.size >= 3 AND c.size <= 5 ? 1 : 0),
+                size_6_10 = SUM(c.size >= 6 AND c.size <= 10 ? 1 : 0),
+                size_11_50 = SUM(c.size >= 11 AND c.size <= 50 ? 1 : 0),
+                size_51_100 = SUM(c.size >= 51 AND c.size <= 100 ? 1 : 0),
+                size_101_plus = SUM(c.size >= 101 ? 1 : 0)
+              RETURN {{
+                stage_key: stage_key,
+                non_singleton_groups: non_singleton_groups,
+                non_singleton_members: non_singleton_members,
+                max_size: max_size,
+                average_size: average_size,
+                bins: {{
+                  size_2: size_2,
+                  size_3_5: size_3_5,
+                  size_6_10: size_6_10,
+                  size_11_50: size_11_50,
+                  size_51_100: size_51_100,
+                  size_101_plus: size_101_plus
+                }}
+              }}
+            """,
+            bind_vars={"stage_keys": stage_keys},
+            max_runtime=120,
+        ))
+        distribution_by_stage = {
+            row["stage_key"]: row
+            for row in distribution_rows
+        }
+    for stage in stages:
+        summary = stage.get("summary") or {}
+        distribution = distribution_by_stage.get(stage["_key"], {})
+        stage["overview_stats"] = {
+            "active_identifier_count": summary.get("active_identifier_count", 0),
+            "clique_count": summary.get("clique_count", 0),
+            "non_singleton_clique_count": summary.get(
+                "non_singleton_clique_count",
+                distribution.get("non_singleton_groups", 0),
+            ),
+            "singleton_identifier_count": summary.get("singleton_identifier_count", 0),
+            "active_edge_count": summary.get("active_edge_count", 0),
+            "ignored_edge_count": summary.get("ignored_edge_count", 0),
+            "max_size": distribution.get("max_size") or (
+                (summary.get("largest_clique_sizes") or [0])[0]
+            ),
+            "average_non_singleton_size": distribution.get("average_size") or 0,
+            "largest_clique_sizes": summary.get("largest_clique_sizes") or [],
+            "bins": distribution.get("bins") or {
+                "size_2": 0,
+                "size_3_5": 0,
+                "size_6_10": 0,
+                "size_11_50": 0,
+                "size_51_100": 0,
+                "size_101_plus": 0,
+            },
+        }
+    return stages
+
+
+def _stage_sort_key(stage: dict) -> tuple:
+    stage_index = stage.get("stage_index")
+    if stage_index is None:
+        stage_index = len(stage.get("rule_ids") or [])
+    return (
+        stage_index,
+        len(stage.get("rule_ids") or []),
+        stage.get("_key") or "",
+    )
+
+
+def _list_harmonization_pipeline_stage_overview_stats(pipelines: List[dict]) -> List[dict]:
+    if not pipelines:
+        return []
+    stage_keys = []
+    for pipeline in pipelines:
+        latest_run = (pipeline.get("runs") or [None])[0]
+        for stage in (latest_run or {}).get("stages") or []:
+            stage_key = stage.get("_key")
+            if stage_key and stage_key not in stage_keys:
+                stage_keys.append(stage_key)
+    if not stage_keys:
+        return []
+    stats_by_key = {
+        stage["_key"]: stage
+        for stage in _list_harmonization_stage_overview_stats(limit=max(len(stage_keys), 100), stage_keys=stage_keys)
+    }
+    pipeline_stats = []
+    for pipeline in pipelines:
+        latest_run = (pipeline.get("runs") or [None])[0]
+        stages = [
+            stats_by_key[stage["_key"]]
+            for stage in (latest_run or {}).get("stages") or []
+            if stage.get("_key") in stats_by_key
+        ]
+        for stage in stages:
+            stage["display_label"] = _stage_display_label(stage, pipeline.get("rule_parameters") or {})
+        stages.sort(key=_stage_sort_key)
+        if not stages:
+            continue
+        pipeline_stats.append({
+            "pipeline_key": pipeline.get("_key"),
+            "pipeline_name": pipeline.get("name"),
+            "run": latest_run,
+            "stages": stages,
+        })
+    return pipeline_stats
+
+
+def _get_harmonization_pipeline(db, pipeline_key: str) -> dict:
+    if not db.has_collection(_HARMONIZATION_PIPELINE_COLLECTION):
+        raise ValueError("Harmonization pipeline collection does not exist.")
+    pipeline = db.collection(_HARMONIZATION_PIPELINE_COLLECTION).get(pipeline_key)
+    if not pipeline:
+        raise ValueError(f"Harmonization pipeline {pipeline_key} does not exist.")
+    return pipeline
+
+
+def _rename_harmonization_pipeline(pipeline_key: str, pipeline_name: str) -> dict:
+    db = get_db("metabolite_harmonization")
+    _ensure_harmonization_pipeline_collections(db)
+    pipeline = _get_harmonization_pipeline(db, pipeline_key)
+    display_name = pipeline_name.strip()
+    if not display_name:
+        raise ValueError("Pipeline name cannot be empty.")
+    updated_at = datetime.now(timezone.utc).isoformat()
+    updated = {
+        "_key": pipeline_key,
+        "name": display_name,
+        "updated_at": updated_at,
+    }
+    db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update(updated)
+    if db.has_collection(_HARMONIZATION_PIPELINE_RUN_COLLECTION):
+        db.aql.execute(
+            f"""
+            FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+              FILTER r.pipeline_key == @pipeline_key
+              UPDATE r WITH {{pipeline_name: @pipeline_name}} IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+            """,
+            bind_vars={"pipeline_key": pipeline_key, "pipeline_name": display_name},
+            max_runtime=120,
+        )
+    return {**pipeline, **updated}
+
+
+def _upsert_harmonization_pipeline(
+    pipeline_key: str,
+    pipeline_name: str,
+    rule_ids: List[str],
+    rule_parameters: dict,
+) -> dict:
+    db = get_db("metabolite_harmonization")
+    _ensure_harmonization_pipeline_collections(db)
+    normalized_rule_ids = _normalize_metabolite_rule_ids(rule_ids)
+    normalized_rule_parameters = _normalize_metabolite_rule_parameters(normalized_rule_ids, rule_parameters)
+    now = datetime.now(timezone.utc).isoformat()
+    display_name = pipeline_name.strip() or "Untitled harmonization pipeline"
+    if pipeline_key:
+        existing = db.collection(_HARMONIZATION_PIPELINE_COLLECTION).get(pipeline_key)
+        if not existing:
+            raise ValueError(f"Harmonization pipeline {pipeline_key} does not exist.")
+        created_at = existing.get("created_at") or now
+    else:
+        pipeline_key = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+        created_at = now
+    steps = []
+    for index, rule_id in enumerate(normalized_rule_ids, start=1):
+        steps.append({
+            "index": index,
+            "rule_id": rule_id,
+            "parameters": normalized_rule_parameters.get(rule_id, {}),
+            "rule": _metabolite_rule_metadata([rule_id], normalized_rule_parameters)[0],
+        })
+    pipeline_doc = {
+        "_key": pipeline_key,
+        "id": f"HarmonizationPipeline:{pipeline_key}",
+        "name": display_name,
+        "created_at": created_at,
+        "updated_at": now,
+        "engine_version": _HARMONIZATION_ENGINE_VERSION,
+        "rule_ids": normalized_rule_ids,
+        "rule_parameters": normalized_rule_parameters,
+        "rules": _metabolite_rule_metadata(normalized_rule_ids, normalized_rule_parameters),
+        "steps": steps,
+        "status": "ready",
+    }
+    db.collection(_HARMONIZATION_PIPELINE_COLLECTION).insert(pipeline_doc, overwrite=True)
+    return pipeline_doc
+
+
+def _run_harmonization_pipeline(pipeline_key: str) -> dict:
+    db = get_db("metabolite_harmonization")
+    _ensure_harmonization_pipeline_collections(db)
+    pipeline = _get_harmonization_pipeline(db, pipeline_key)
+    started = time.time()
+    created_at = datetime.now(timezone.utc).isoformat()
+    run_key = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    run_doc = {
+        "_key": run_key,
+        "id": f"HarmonizationPipelineRun:{run_key}",
+        "pipeline_key": pipeline_key,
+        "pipeline_id": pipeline["id"],
+        "pipeline_name": pipeline.get("name"),
+        "created_at": created_at,
+        "started_at": created_at,
+        "completed_at": None,
+        "status": "running",
+        "stage_keys": [],
+        "stages": [],
+        "error": None,
+    }
+    run_collection = db.collection(_HARMONIZATION_PIPELINE_RUN_COLLECTION)
+    run_collection.insert(run_doc, overwrite=True)
+    try:
+        graph_fingerprint = _harmonization_graph_fingerprint(db)
+        stage_docs = []
+        normalized_rule_ids = pipeline.get("rule_ids") or []
+        normalized_rule_parameters = pipeline.get("rule_parameters") or {}
+        cumulative_rule_ids: List[str] = []
+        cumulative_rule_parameters = _cumulative_rule_parameters(cumulative_rule_ids, normalized_rule_parameters)
+        baseline_stage = _ensure_harmonization_stage(
+            db,
+            cumulative_rule_ids,
+            cumulative_rule_parameters,
+            graph_fingerprint,
+            f"{pipeline.get('name') or 'Pipeline'}: baseline",
+            0,
+        )
+        stage_docs.append(baseline_stage)
+        run_collection.update({
+            "_key": run_key,
+            "stage_keys": [stage["_key"] for stage in stage_docs],
+            "stages": [
+                {
+                    "_key": stage["_key"],
+                    "name": stage.get("name"),
+                    "stage_index": stage.get("stage_index"),
+                    "rule_ids": stage.get("rule_ids") or [],
+                    "summary": stage.get("summary") or {},
+                }
+                for stage in stage_docs
+            ],
+        })
+        for stage_index, rule_id in enumerate(normalized_rule_ids, start=1):
+            cumulative_rule_ids = normalized_rule_ids[:stage_index]
+            cumulative_rule_parameters = _cumulative_rule_parameters(cumulative_rule_ids, normalized_rule_parameters)
+            rule_metadata = _metabolite_rule_metadata([rule_id], normalized_rule_parameters)
+            rule_label = rule_metadata[0]["label"] if rule_metadata else rule_id
+            stage_docs.append(_ensure_harmonization_stage(
+                db,
+                cumulative_rule_ids,
+                cumulative_rule_parameters,
+                graph_fingerprint,
+                f"{pipeline.get('name') or 'Pipeline'}: {stage_index}. {rule_label}",
+                stage_index,
+            ))
+            run_collection.update({
+                "_key": run_key,
+                "stage_keys": [stage["_key"] for stage in stage_docs],
+                "stages": [
+                    {
+                        "_key": stage["_key"],
+                        "name": stage.get("name"),
+                        "stage_index": stage.get("stage_index"),
+                        "rule_ids": stage.get("rule_ids") or [],
+                        "summary": stage.get("summary") or {},
+                    }
+                    for stage in stage_docs
+                ],
+            })
+        completed_at = datetime.now(timezone.utc).isoformat()
+        elapsed_seconds = round(time.time() - started, 1)
+        completed_update = {
+            "_key": run_key,
+            "status": "complete",
+            "completed_at": completed_at,
+            "elapsed_seconds": elapsed_seconds,
+            "stage_keys": [stage["_key"] for stage in stage_docs],
+            "stages": [
+                {
+                    "_key": stage["_key"],
+                    "name": stage.get("name"),
+                    "stage_index": stage.get("stage_index"),
+                    "rule_ids": stage.get("rule_ids") or [],
+                    "summary": stage.get("summary") or {},
+                }
+                for stage in stage_docs
+            ],
+        }
+        run_collection.update(completed_update)
+        db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
+            "_key": pipeline_key,
+            "latest_run_key": run_key,
+            "latest_stage_key": stage_docs[-1]["_key"] if stage_docs else None,
+            "updated_at": completed_at,
+            "status": "complete",
+        })
+        return {**run_doc, **completed_update}
+    except Exception as exc:
+        failed_at = datetime.now(timezone.utc).isoformat()
+        run_collection.update({
+            "_key": run_key,
+            "status": "failed",
+            "completed_at": failed_at,
+            "error": str(exc),
+        })
+        db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
+            "_key": pipeline_key,
+            "updated_at": failed_at,
+            "status": "failed",
+        })
+        raise
+
+
+def _load_harmonization_pipeline_workbench() -> dict:
+    jobs = _list_metabolite_snapshot_jobs()
+    active_pipeline_keys = _active_harmonization_pipeline_job_keys(jobs)
+    deleting_pipeline_keys = _active_harmonization_delete_pipeline_keys(jobs)
+    active_jobs = [
+        job for job in jobs
+        if job.get("status") in {"queued", "running"}
+    ]
+    try:
+        db = get_db("metabolite_harmonization")
+        _ensure_harmonization_pipeline_collections(db)
+        pipelines = _list_harmonization_pipelines()
+        return {
+            "available_rules": _METABOLITE_HARMONIZATION_RULES,
+            "pipelines": pipelines,
+            "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines),
+            "jobs": jobs,
+            "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
+            "active_job_count": len(active_jobs),
+            "active_pipeline_keys": sorted(active_pipeline_keys),
+            "deleting_pipeline_keys": sorted(deleting_pipeline_keys),
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "available_rules": _METABOLITE_HARMONIZATION_RULES,
+            "pipelines": [],
+            "pipeline_stage_stats": [],
+            "jobs": jobs,
+            "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
+            "active_job_count": len(active_jobs),
+            "active_pipeline_keys": sorted(active_pipeline_keys),
+            "deleting_pipeline_keys": sorted(deleting_pipeline_keys),
+            "error": str(exc),
+        }
+
+
+def _get_harmonization_stage(stage_key: str) -> dict:
+    db = get_db("metabolite_harmonization")
+    if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
+        raise ValueError("Harmonization stage collection does not exist.")
+    stage = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
+    if not stage:
+        raise ValueError(f"Harmonization stage {stage_key} does not exist.")
+    return stage
+
+
+def _load_harmonization_stage_stats(stage_key: str) -> dict:
+    db = get_db("metabolite_harmonization")
+    stage = _get_harmonization_stage(stage_key)
+    counts = {
+        "harmonized_metabolite_count": 0,
+        "member_edge_count": 0,
+        "evidence_edge_count": 0,
+        "active_identifier_count_from_chunks": 0,
+    }
+    if db.has_collection(_HARMONIZED_METABOLITE_COLLECTION):
+        counts["harmonized_metabolite_count"] = list(db.aql.execute(
+            f"""
+            RETURN LENGTH(
+              FOR d IN {_HARMONIZED_METABOLITE_COLLECTION}
+                FILTER d.stage_key == @stage_key
+                RETURN 1
+            )
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))[0]
+    if db.has_collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION):
+        counts["member_edge_count"] = list(db.aql.execute(
+            f"""
+            RETURN LENGTH(
+              FOR d IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+                FILTER d.stage_key == @stage_key
+                RETURN 1
+            )
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))[0]
+    if db.has_collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION):
+        counts["evidence_edge_count"] = list(db.aql.execute(
+            f"""
+            RETURN LENGTH(
+              FOR d IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
+                FILTER d.stage_key == @stage_key
+                RETURN 1
+            )
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))[0]
+    if db.has_collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION):
+        counts["active_identifier_count_from_chunks"] = list(db.aql.execute(
+            f"""
+            RETURN SUM(
+              FOR d IN {_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION}
+                FILTER d.stage_key == @stage_key
+                RETURN LENGTH(d.identifier_ids || [])
+            )
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))[0] or 0
+    largest_groups = []
+    if db.has_collection(_HARMONIZED_METABOLITE_COLLECTION):
+        largest_groups = list(db.aql.execute(
+            f"""
+            FOR d IN {_HARMONIZED_METABOLITE_COLLECTION}
+              FILTER d.stage_key == @stage_key
+              SORT d.size DESC, d._key ASC
+              LIMIT 20
+              RETURN KEEP(d, "_key", "id", "name", "size", "rank_by_size", "representative_id", "sample_member_ids")
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))
+    source_counts = []
+    if db.has_collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION):
+        source_counts = list(db.aql.execute(
+            f"""
+            FOR e IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
+              FILTER e.stage_key == @stage_key
+              FOR source IN e.sources || []
+                COLLECT source_name = source WITH COUNT INTO edge_count
+                SORT edge_count DESC, source_name ASC
+                LIMIT 20
+                RETURN {{source: source_name, edge_count: edge_count}}
+            """,
+            bind_vars={"stage_key": stage_key},
+            max_runtime=120,
+        ))
+    return {
+        "stage": stage,
+        "summary": stage.get("summary") or {},
+        "counts": counts,
+        "largest_groups": largest_groups,
+        "source_counts": source_counts,
+    }
+
+
+def _load_stage_harmonized_member_sets(stage_key: str) -> List[dict]:
+    db = get_db("metabolite_harmonization")
+    if (
+        not db.has_collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
+        or not db.has_collection(_HARMONIZED_METABOLITE_COLLECTION)
+    ):
+        return []
+    return list(db.aql.execute(
+        f"""
+        FOR c IN {_HARMONIZED_METABOLITE_COLLECTION}
+          FILTER c.stage_key == @stage_key
+          LET member_ids = (
+            FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+              FILTER e._from == c._id
+              SORT e.member_id
+              RETURN e.member_id
+          )
+          FILTER LENGTH(member_ids) > 1
+          SORT c.rank_by_size ASC
+          RETURN {{
+            clique_key: c._key,
+            clique_id: c.id,
+            size: LENGTH(member_ids),
+            rank_by_size: c.rank_by_size,
+            representative_id: c.representative_id,
+            member_ids: member_ids,
+            signature: CONCAT_SEPARATOR("\\n", member_ids)
+          }}
+        """,
+        bind_vars={"stage_key": stage_key},
+        batch_size=1000,
+        max_runtime=600,
+    ))
+
+
+def _load_metabolite_identifier_display_map(member_ids: List[str]) -> Dict[str, dict]:
+    if not member_ids:
+        return {}
+    db = get_db("metabolite_harmonization")
+    rows = list(db.aql.execute(
+        """
+        FOR node IN MetaboliteIdentifier
+          FILTER node.id IN @member_ids
+          LET chemical_entity = STARTS_WITH(node.id, "CHEBI:") ? DOCUMENT("ChemicalEntity", node.id) : null
+          LET node_names = UNIQUE(
+            FOR name IN node.names || []
+              FILTER name.value != null AND name.value != ""
+              RETURN name.value
+          )
+          LET chemical_names = UNIQUE(APPEND(
+            chemical_entity != null && chemical_entity.name != null && chemical_entity.name != "" ? [chemical_entity.name] : [],
+            (
+              FOR synonym IN chemical_entity != null ? (chemical_entity.synonyms || []) : []
+                FILTER synonym.value != null AND synonym.value != ""
+                RETURN synonym.value
+            )
+          ))
+          RETURN {
+            id: node.id,
+            label: LENGTH(node_names) > 0 ? node_names[0] : (
+              LENGTH(chemical_names) > 0 ? chemical_names[0] : node.id
+            ),
+            names: SLICE(UNIQUE(APPEND(node_names, chemical_names)), 0, 6),
+            prefix: node.prefix
+          }
+        """,
+        bind_vars={"member_ids": member_ids},
+        max_runtime=120,
+    ))
+    return {row["id"]: row for row in rows}
+
+
+def _sample_member_ids(member_ids: set, limit: int = 20) -> List[str]:
+    return sorted(member_ids)[:limit]
+
+
+def _format_compare_member_samples(member_ids: set, display_by_id: Dict[str, dict], limit: int = 20) -> List[dict]:
+    samples = []
+    for member_id in _sample_member_ids(member_ids, limit):
+        display = display_by_id.get(member_id) or {}
+        samples.append({
+            "id": member_id,
+            "label": display.get("label") or member_id,
+            "names": display.get("names") or [],
+            "prefix": display.get("prefix") or _identifier_prefix(member_id),
+        })
+    return samples
+
+
+def _build_snapshot_comparison_review_fields(
+    component: dict,
+    left_key: str,
+    right_key: str,
+) -> None:
+    review_ids = []
+    for bucket in (
+        component.get("_added_members", set()),
+        component.get("_removed_members", set()),
+        component.get("_retained_members", set()),
+    ):
+        for member_id in _sample_member_ids(bucket, 12):
+            if member_id not in review_ids:
+                review_ids.append(member_id)
+            if len(review_ids) >= 12:
+                break
+        if len(review_ids) >= 12:
+            break
+    component["review_ids"] = review_ids
+    query_params = {
+        "id": " ".join(review_ids),
+        "stages": ",".join([left_key, right_key]),
+    }
+    component["review_query_string"] = urlencode(query_params)
+
+
+def _snapshot_compare_clique_summary(clique: dict, sample_members: Optional[set] = None) -> dict:
+    return {
+        "clique_key": clique.get("clique_key"),
+        "clique_id": clique.get("clique_id"),
+        "size": clique.get("size"),
+        "rank_by_size": clique.get("rank_by_size"),
+        "representative_id": clique.get("representative_id"),
+        "member_ids": _sample_member_ids(sample_members if sample_members is not None else clique.get("member_set", set()), 12),
+    }
+
+
+def _snapshot_compare_nontrivial_transitions(
+    source_items: List[dict],
+    target_items: List[dict],
+    min_size: int,
+    target_label: str,
+) -> List[dict]:
+    transitions = []
+    for source_item in source_items:
+        fragments = []
+        source_members = source_item["member_set"]
+        for target_item in target_items:
+            overlap_members = source_members & target_item["member_set"]
+            if len(overlap_members) < min_size:
+                continue
+            fragments.append({
+                "target_clique": _snapshot_compare_clique_summary(target_item, overlap_members),
+                "overlap_count": len(overlap_members),
+            })
+        if len(fragments) < 2:
+            continue
+        fragments.sort(key=lambda item: (-item["overlap_count"], item["target_clique"]["clique_key"]))
+        transitions.append({
+            "source_clique": _snapshot_compare_clique_summary(source_item),
+            "target_label": target_label,
+            "fragment_count": len(fragments),
+            "member_count": sum(fragment["overlap_count"] for fragment in fragments),
+            "fragments": fragments,
+        })
+    transitions.sort(key=lambda item: (-item["fragment_count"], -item["member_count"], item["source_clique"]["clique_key"]))
+    return transitions
+
+
+def _load_metabolite_snapshot_comparison(
+    left_key: str,
+    right_key: str,
+    limit: int = 100,
+) -> dict:
+    if not left_key or not right_key:
+        raise ValueError("Choose two stages to compare.")
+    if left_key == right_key:
+        raise ValueError("Choose two different stages.")
+
+    left_snapshot = _get_harmonization_stage(left_key)
+    right_snapshot = _get_harmonization_stage(right_key)
+    left_cliques = _load_stage_harmonized_member_sets(left_key)
+    right_cliques = _load_stage_harmonized_member_sets(right_key)
+    right_signatures = {clique["signature"] for clique in right_cliques}
+    left_signatures = {clique["signature"] for clique in left_cliques}
+    changed_left = [
+        {**clique, "side": "left", "member_set": set(clique["member_ids"])}
+        for clique in left_cliques
+        if clique["signature"] not in right_signatures
+    ]
+    changed_right = [
+        {**clique, "side": "right", "member_set": set(clique["member_ids"])}
+        for clique in right_cliques
+        if clique["signature"] not in left_signatures
+    ]
+    node_parent = {}
+    node_payload = {}
+    members_by_change_node = {}
+
+    def node_id(side: str, clique_key: str) -> str:
+        return f"{side}:{clique_key}"
+
+    def add_node(identifier: str, payload: dict) -> None:
+        node_parent.setdefault(identifier, identifier)
+        node_payload[identifier] = payload
+
+    def find(identifier: str) -> str:
+        while node_parent[identifier] != identifier:
+            node_parent[identifier] = node_parent[node_parent[identifier]]
+            identifier = node_parent[identifier]
+        return identifier
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            node_parent[right_root] = left_root
+
+    member_to_change_nodes: Dict[str, List[str]] = {}
+    for clique in [*changed_left, *changed_right]:
+        identifier = node_id(clique["side"], clique["clique_key"])
+        add_node(identifier, clique)
+        members_by_change_node[identifier] = clique["member_set"]
+        for member_id in clique["member_set"]:
+            member_to_change_nodes.setdefault(member_id, []).append(identifier)
+
+    for change_nodes in member_to_change_nodes.values():
+        if len(change_nodes) < 2:
+            continue
+        first = change_nodes[0]
+        for other in change_nodes[1:]:
+            union(first, other)
+
+    nodes_by_component: Dict[str, List[str]] = {}
+    for identifier in node_parent:
+        nodes_by_component.setdefault(find(identifier), []).append(identifier)
+
+    components = []
+    nontrivial_split_candidates = []
+    recombination_candidates = []
+    nontrivial_split_min_size = 2
+    for component_nodes in nodes_by_component.values():
+        left_items = [node_payload[node] for node in component_nodes if node_payload[node]["side"] == "left"]
+        right_items = [node_payload[node] for node in component_nodes if node_payload[node]["side"] == "right"]
+        left_members = set().union(*(item["member_set"] for item in left_items)) if left_items else set()
+        right_members = set().union(*(item["member_set"] for item in right_items)) if right_items else set()
+        retained_members = left_members & right_members
+        added_members = right_members - left_members
+        removed_members = left_members - right_members
+        if not left_items and not right_items:
+            continue
+        change_score = len(added_members) + len(removed_members) + max(len(left_items), len(right_items))
+        change_type = "reconfigured"
+        if not left_items:
+            change_type = "new clique"
+        elif not right_items:
+            change_type = "removed clique"
+        elif len(left_items) == 1 and len(right_items) > 1:
+            change_type = "split"
+        elif len(left_items) > 1 and len(right_items) == 1:
+            change_type = "merged"
+        elif len(added_members) or len(removed_members):
+            change_type = "membership changed"
+        split_transitions = _snapshot_compare_nontrivial_transitions(
+            left_items,
+            right_items,
+            nontrivial_split_min_size,
+            "To",
+        )
+        merge_transitions = _snapshot_compare_nontrivial_transitions(
+            right_items,
+            left_items,
+            nontrivial_split_min_size,
+            "From",
+        )
+        split_fragment_count = sum(transition["fragment_count"] for transition in split_transitions)
+        split_member_count = sum(transition["member_count"] for transition in split_transitions)
+        merge_fragment_count = sum(transition["fragment_count"] for transition in merge_transitions)
+        merge_member_count = sum(transition["member_count"] for transition in merge_transitions)
+        is_recombination = bool(split_transitions and merge_transitions)
+        components.append({
+            "change_type": change_type,
+            "change_score": change_score,
+            "nontrivial_split_count": len(split_transitions),
+            "nontrivial_split_fragment_count": split_fragment_count,
+            "nontrivial_split_member_count": split_member_count,
+            "nontrivial_merge_count": len(merge_transitions),
+            "nontrivial_merge_fragment_count": merge_fragment_count,
+            "nontrivial_merge_member_count": merge_member_count,
+            "is_recombination": is_recombination,
+            "nontrivial_split_min_size": nontrivial_split_min_size,
+            "split_transitions": split_transitions,
+            "merge_transitions": merge_transitions,
+            "left_clique_count": len(left_items),
+            "right_clique_count": len(right_items),
+            "left_member_count": len(left_members),
+            "right_member_count": len(right_members),
+            "retained_count": len(retained_members),
+            "added_count": len(added_members),
+            "removed_count": len(removed_members),
+            "left_cliques": sorted(left_items, key=lambda item: (item.get("rank_by_size") or 10**12, item["clique_key"])),
+            "right_cliques": sorted(right_items, key=lambda item: (item.get("rank_by_size") or 10**12, item["clique_key"])),
+            "_retained_members": retained_members,
+            "_added_members": added_members,
+            "_removed_members": removed_members,
+        })
+        if split_transitions:
+            nontrivial_split_candidates.append(components[-1])
+        if is_recombination:
+            recombination_candidates.append(components[-1])
+
+    components.sort(
+        key=lambda item: (
+            -item["change_score"],
+            -max(item["left_member_count"], item["right_member_count"]),
+            item["change_type"],
+        )
+    )
+    nontrivial_split_candidates.sort(
+        key=lambda item: (
+            -item["nontrivial_split_fragment_count"],
+            -item["nontrivial_split_member_count"],
+            -item["left_member_count"],
+            item["left_cliques"][0]["clique_key"] if item["left_cliques"] else "",
+        )
+    )
+    recombination_candidates.sort(
+        key=lambda item: (
+            -item["nontrivial_split_fragment_count"] - item["nontrivial_merge_fragment_count"],
+            -item["nontrivial_split_member_count"] - item["nontrivial_merge_member_count"],
+            -max(item["left_member_count"], item["right_member_count"]),
+            item["left_cliques"][0]["clique_key"] if item["left_cliques"] else "",
+        )
+    )
+    limited_components = components[:limit]
+    limited_nontrivial_splits = nontrivial_split_candidates[:limit]
+    limited_recombinations = recombination_candidates[:limit]
+    display_components = []
+    seen_component_ids = set()
+    for component in [*limited_recombinations, *limited_nontrivial_splits, *limited_components]:
+        component_id = id(component)
+        if component_id in seen_component_ids:
+            continue
+        seen_component_ids.add(component_id)
+        display_components.append(component)
+    sample_ids = sorted({
+        member_id
+        for component in display_components
+        for bucket in ("_added_members", "_removed_members", "_retained_members")
+        for member_id in _sample_member_ids(component[bucket], 20)
+    })
+    display_by_id = _load_metabolite_identifier_display_map(sample_ids)
+    for component in display_components:
+        _build_snapshot_comparison_review_fields(component, left_key, right_key)
+        added_members = component.pop("_added_members")
+        removed_members = component.pop("_removed_members")
+        retained_members = component.pop("_retained_members")
+        component["added_samples"] = _format_compare_member_samples(added_members, display_by_id)
+        component["removed_samples"] = _format_compare_member_samples(removed_members, display_by_id)
+        component["retained_samples"] = _format_compare_member_samples(retained_members, display_by_id, 12)
+        for clique in [*component["left_cliques"], *component["right_cliques"]]:
+            clique["member_ids"] = clique["member_ids"][:12]
+            clique.pop("member_set", None)
+            clique.pop("signature", None)
+
+    return {
+        "left_snapshot": left_snapshot,
+        "right_snapshot": right_snapshot,
+        "left_materialized_clique_count": len(left_cliques),
+        "right_materialized_clique_count": len(right_cliques),
+        "unchanged_clique_count": len(left_cliques) - len(changed_left),
+        "changed_left_clique_count": len(changed_left),
+        "changed_right_clique_count": len(changed_right),
+        "changed_component_count": len(components),
+        "nontrivial_split_count": len(nontrivial_split_candidates),
+        "recombination_count": len(recombination_candidates),
+        "nontrivial_split_min_size": nontrivial_split_min_size,
+        "display_limit": limit,
+        "components": limited_components,
+        "nontrivial_splits": limited_nontrivial_splits,
+        "recombinations": limited_recombinations,
+        "snapshots": _list_harmonization_stages(),
+        "comparison_kind": "stage",
+    }
+
+
+def _list_metabolite_snapshot_jobs() -> List[dict]:
+    with _metabolite_snapshot_jobs_lock:
+        jobs = [dict(job) for job in _metabolite_snapshot_jobs.values()]
+    return sorted(jobs, key=lambda job: job.get("created_at") or "", reverse=True)[:10]
+
+
+def _active_harmonization_pipeline_job_keys(jobs: Optional[List[dict]] = None) -> set:
+    job_rows = jobs if jobs is not None else _list_metabolite_snapshot_jobs()
+    return {
+        job.get("pipeline_key")
+        for job in job_rows
+        if job.get("pipeline_key") and job.get("status") in {"queued", "running"}
+        and job.get("action") == "run_pipeline"
+    }
+
+
+def _active_harmonization_delete_pipeline_keys(jobs: Optional[List[dict]] = None) -> set:
+    job_rows = jobs if jobs is not None else _list_metabolite_snapshot_jobs()
+    return {
+        job.get("pipeline_key")
+        for job in job_rows
+        if job.get("pipeline_key")
+        and job.get("action") == "delete_pipeline"
+        and job.get("status") in {"queued", "running"}
+    }
+
+
+def _update_metabolite_snapshot_job(job_id: str, **updates) -> None:
+    with _metabolite_snapshot_jobs_lock:
+        job = _metabolite_snapshot_jobs.get(job_id)
+        if job is None:
+            return
+        job.update(updates)
+
+
+def _run_metabolite_snapshot_job(job_id: str, action: str, payload: dict) -> None:
+    _update_metabolite_snapshot_job(job_id, status="running", started_at=datetime.now(timezone.utc).isoformat())
+    try:
+        if action == "run_pipeline":
+            run = _run_harmonization_pipeline(payload["pipeline_key"])
+            _update_metabolite_snapshot_job(
+                job_id,
+                status="complete",
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                pipeline_key=payload["pipeline_key"],
+                run_key=run.get("_key"),
+                stage_keys=run.get("stage_keys") or [],
+                message=f"Completed pipeline {run.get('pipeline_name') or payload['pipeline_key']}",
+            )
+        elif action == "delete_pipeline":
+            result = _delete_harmonization_pipeline(get_db("metabolite_harmonization"), payload["pipeline_key"])
+            _update_metabolite_snapshot_job(
+                job_id,
+                status="complete",
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                pipeline_key=payload["pipeline_key"],
+                stage_keys=result.get("deleted_stage_keys") or [],
+                message=(
+                    f"Deleted pipeline {result.get('pipeline', {}).get('name') or payload['pipeline_key']} "
+                    f"and {len(result.get('deleted_stage_keys') or [])} unreferenced stages"
+                ),
+            )
+        else:
+            raise ValueError(f"Unknown harmonization job action: {action}")
+    except Exception as exc:
+        _update_metabolite_snapshot_job(
+            job_id,
+            status="failed",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+def _enqueue_metabolite_snapshot_job(action: str, label: str, payload: dict) -> str:
+    pipeline_key = payload.get("pipeline_key")
+    active_pipeline_keys = _active_harmonization_pipeline_job_keys()
+    deleting_pipeline_keys = _active_harmonization_delete_pipeline_keys()
+    if action == "run_pipeline" and pipeline_key in (active_pipeline_keys | deleting_pipeline_keys):
+        return ""
+    if action == "delete_pipeline" and pipeline_key in (active_pipeline_keys | deleting_pipeline_keys):
+        return ""
+    job_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    job = {
+        "id": job_id,
+        "action": action,
+        "label": label,
+        "snapshot_key": payload.get("snapshot_key"),
+        "pipeline_key": payload.get("pipeline_key"),
+        "status": "queued",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": None,
+        "completed_at": None,
+        "message": None,
+        "error": None,
+    }
+    with _metabolite_snapshot_jobs_lock:
+        _metabolite_snapshot_jobs[job_id] = job
+    thread = threading.Thread(
+        target=_run_metabolite_snapshot_job,
+        args=(job_id, action, payload),
+        daemon=True,
+    )
+    thread.start()
+    return job_id
+
+
+def _load_metabolite_snapshot_memberships(identifier_ids: List[str]) -> List[dict]:
+    if not identifier_ids:
+        return []
+    db = get_db("metabolite_harmonization")
+    if (
+        not db.has_collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
+        or not db.has_collection(_HARMONIZED_METABOLITE_COLLECTION)
+        or not db.has_collection(_HARMONIZATION_STAGE_COLLECTION)
+    ):
+        return []
+    vertex_ids = [f"MetaboliteIdentifier/{identifier_id}" for identifier_id in identifier_ids]
+    return list(db.aql.execute(
+        f"""
+        FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+          FILTER e._to IN @vertex_ids
+          LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
+          LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
+          FILTER clique != null AND snapshot != null
+          SORT snapshot.created_at DESC, clique.rank_by_size ASC, e.member_id
+          RETURN {{
+            member_id: e.member_id,
+            snapshot_key: snapshot._key,
+            snapshot_name: snapshot.name,
+            snapshot_created_at: snapshot.created_at,
+            rule_ids: snapshot.rule_ids,
+            rules: snapshot.rules,
+            clique_id: clique.id,
+            clique_key: clique._key,
+            clique_size: clique.size,
+            clique_rank_by_size: clique.rank_by_size,
+            representative_id: clique.representative_id,
+            sample_member_ids: clique.sample_member_ids
+          }}
+        """,
+        bind_vars={"vertex_ids": vertex_ids},
+        max_runtime=120,
+    ))
+
+
+def _parse_metabolite_mass(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        parsed = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(parsed):
+        return None
+    return parsed
+
+
+def _metabolite_mass_summary(values: List[float]) -> Optional[dict]:
+    sorted_values = sorted(values)
+    if not sorted_values:
+        return None
+    midpoint = len(sorted_values) // 2
+    if len(sorted_values) % 2:
+        median = sorted_values[midpoint]
+    else:
+        median = (sorted_values[midpoint - 1] + sorted_values[midpoint]) / 2
+    return {
+        "count": len(sorted_values),
+        "min": sorted_values[0],
+        "median": median,
+        "max": sorted_values[-1],
+    }
+
+
+def _metabolite_member_mass_summary(member_ids: List[str], node_by_member_id: Dict[str, dict]) -> Optional[dict]:
+    masses = []
+    for member_id in member_ids:
+        node = node_by_member_id.get(member_id) or {}
+        masses.extend(node.get("masses") or [])
+    return _metabolite_mass_summary(masses)
+
+
+def _metabolite_mass_summary_label(summary: Optional[dict]) -> Optional[str]:
+    if not summary:
+        return None
+    min_mass = summary.get("min")
+    median_mass = summary.get("median")
+    max_mass = summary.get("max")
+    count = summary.get("count")
+    if min_mass is None or median_mass is None or max_mass is None:
+        return None
+    if min_mass == max_mass:
+        return f"MW {min_mass:.4g} (n={count})"
+    return f"MW {min_mass:.4g}-{max_mass:.4g}; med {median_mass:.4g} (n={count})"
+
+
+def _metabolite_compact_mass_label(summary: Optional[dict]) -> Optional[str]:
+    if not summary:
+        return None
+    median_mass = summary.get("median")
+    if median_mass is None:
+        return None
+    return f"MW {median_mass:.4g}"
+
+
+def _metabolite_query_id_labels(query_ids: List[str], max_ids: int = 4) -> List[str]:
+    if not query_ids:
+        return []
+    labels = [f"ID {query_id}" for query_id in query_ids[:max_ids]]
+    if len(query_ids) > max_ids:
+        labels.append(f"+{len(query_ids) - max_ids} more query IDs")
+    return labels
+
+
+def _parse_metabolite_snapshot_key_filter(value: str) -> List[str]:
+    snapshot_keys = []
+    seen = set()
+    for token in re.split(r"[\s,;|]+", value or ""):
+        snapshot_key = token.strip()
+        if not snapshot_key or snapshot_key in seen:
+            continue
+        seen.add(snapshot_key)
+        snapshot_keys.append(snapshot_key)
+    return snapshot_keys
+
+
+def _load_metabolite_snapshot_union(
+    identifier_ids: List[str],
+    snapshot_keys: Optional[List[str]] = None,
+) -> dict:
+    selected_snapshot_keys = snapshot_keys or []
+    memberships = _load_metabolite_snapshot_memberships(identifier_ids)
+    if selected_snapshot_keys:
+        selected_snapshot_key_set = set(selected_snapshot_keys)
+        memberships = [
+            membership
+            for membership in memberships
+            if membership.get("snapshot_key") in selected_snapshot_key_set
+        ]
+    db = get_db("metabolite_harmonization")
+    existing_query_ids = sorted(list(db.aql.execute(
+        """
+        FOR id IN @ids
+          FILTER DOCUMENT("MetaboliteIdentifier", id) != null
+          COLLECT existing_id = id
+          SORT existing_id
+          RETURN existing_id
+        """,
+        bind_vars={"ids": identifier_ids},
+        max_runtime=120,
+    )))
+    if not memberships and not existing_query_ids:
+        return {
+            "memberships": [],
+            "member_ids": [],
+            "snapshot_graphs": [],
+            "sankey": {"nodes": [], "links": []},
+        }
+    clique_keys = []
+    for membership in memberships:
+        clique_key = membership.get("clique_key")
+        if clique_key and clique_key not in clique_keys:
+            clique_keys.append(clique_key)
+    clique_member_ids = []
+    if clique_keys:
+        clique_vertex_ids = [
+            f"{_HARMONIZED_METABOLITE_COLLECTION}/{clique_key}"
+            for clique_key in clique_keys
+        ]
+        clique_member_ids = list(db.aql.execute(
+            f"""
+            FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+              FILTER e._from IN @clique_vertex_ids
+              FILTER DOCUMENT("MetaboliteIdentifier", e.member_id) != null
+              COLLECT member_id = e.member_id
+              SORT member_id
+              RETURN member_id
+            """,
+            bind_vars={"clique_vertex_ids": clique_vertex_ids},
+            max_runtime=120,
+        ))
+    union_member_ids = sorted(set(clique_member_ids) | set(existing_query_ids))
+    if not union_member_ids:
+        return {
+            "memberships": memberships,
+            "member_ids": [],
+            "snapshot_graphs": [],
+            "sankey": {"nodes": [], "links": []},
+        }
+    rows = list(db.aql.execute(
+        f"""
+        FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+          FILTER e._to IN @member_vertex_ids
+          FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
+          LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
+          LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
+          LET node = DOCUMENT("MetaboliteIdentifier", e.member_id)
+          FILTER clique != null AND snapshot != null AND node != null
+          LET names = node.names || []
+          SORT snapshot.created_at, clique.rank_by_size, e.member_index
+          RETURN {{
+            member_id: e.member_id,
+            member_label: LENGTH(names) > 0 ? names[0].value : e.member_id,
+            member_prefix: node.prefix,
+            name_count: LENGTH(node.names || []),
+            synonym_count: LENGTH(node.synonyms || []),
+            chem_prop_count: LENGTH(node.chem_props || []),
+            snapshot_key: snapshot._key,
+            snapshot_name: snapshot.name,
+            snapshot_created_at: snapshot.created_at,
+            rules: snapshot.rules,
+            clique_id: clique.id,
+            clique_key: clique._key,
+            clique_size: clique.size,
+            clique_rank_by_size: clique.rank_by_size
+          }}
+        """,
+        bind_vars={
+            "member_vertex_ids": [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids],
+            "snapshot_keys": selected_snapshot_keys,
+        },
+        max_runtime=120,
+    ))
+    node_rows = list(db.aql.execute(
+        """
+        FOR node IN MetaboliteIdentifier
+          FILTER node.id IN @member_ids
+          LET chemical_entity = STARTS_WITH(node.id, "CHEBI:") ? DOCUMENT("ChemicalEntity", node.id) : null
+          LET names = node.names || []
+          LET name_values = UNIQUE(
+            FOR name IN names
+              FILTER name.value != null AND name.value != ""
+              RETURN name.value
+          )
+          LET chemical_entity_names = UNIQUE(APPEND(
+            chemical_entity != null && chemical_entity.name != null && chemical_entity.name != "" ? [chemical_entity.name] : [],
+            (
+              FOR synonym IN chemical_entity != null ? (chemical_entity.synonyms || []) : []
+                FILTER synonym.value != null AND synonym.value != ""
+                RETURN synonym.value
+            )
+          ))
+          LET synonym_values = UNIQUE(
+            FOR synonym IN node.synonyms || []
+              FILTER synonym.value != null AND synonym.value != ""
+              RETURN synonym.value
+          )
+          LET display_names = UNIQUE(APPEND(
+            LENGTH(name_values) > 0 ? name_values : chemical_entity_names,
+            LENGTH(name_values) > 0 ? chemical_entity_names : synonym_values
+          ))
+          LET raw_masses = UNIQUE(FLATTEN(
+            APPEND(
+              (FOR prop IN node.chem_props || [] RETURN [prop.mw, prop.monoisotopic_mass]),
+              chemical_entity == null ? [] : [[chemical_entity.mass, chemical_entity.monoisotopic_mass]]
+            )
+          ))
+          LET chem_prop_summaries = (
+            FOR prop IN node.chem_props || []
+              RETURN {
+                source: prop.source,
+                source_id: prop.source_id,
+                name: prop.common_name || prop.iupac_name,
+                formula: prop.molecular_formula,
+                mw: prop.mw,
+                monoisotopic_mass: prop.monoisotopic_mass,
+                inchi_key: prop.inchi_key,
+                smiles: prop.iso_smiles || prop.isomeric_smiles || prop.canonical_smiles,
+                inchi: prop.inchi
+              }
+          )
+          RETURN {
+            id: node.id,
+            label: LENGTH(display_names) > 0 ? display_names[0] : node.id,
+            names: SLICE(display_names, 0, 12),
+            prefix: node.prefix,
+            name_count: LENGTH(node.names || []),
+            synonym_count: LENGTH(node.synonyms || []),
+            chem_prop_count: LENGTH(node.chem_props || []),
+            raw_masses: raw_masses,
+            chem_props: SLICE(chem_prop_summaries, 0, 8),
+            formulas: UNIQUE(
+              FOR prop IN chem_prop_summaries
+                FILTER prop.formula != null AND prop.formula != ""
+                RETURN prop.formula
+            ),
+            smiles: UNIQUE(
+              FOR prop IN chem_prop_summaries
+                FILTER prop.smiles != null AND prop.smiles != ""
+                RETURN prop.smiles
+            ),
+            inchi_keys: UNIQUE(
+              FOR prop IN chem_prop_summaries
+                FILTER prop.inchi_key != null AND prop.inchi_key != ""
+                RETURN prop.inchi_key
+            ),
+            chemical_entity: chemical_entity == null ? null : {
+              id: chemical_entity.id,
+              name: chemical_entity.name,
+              formula: chemical_entity.formula,
+              mass: chemical_entity.mass,
+              monoisotopic_mass: chemical_entity.monoisotopic_mass,
+              inchi_key: chemical_entity.inchi_key,
+              smiles: chemical_entity.smiles,
+              inchi: chemical_entity.inchi
+            }
+          }
+        """,
+        bind_vars={"member_ids": union_member_ids},
+        max_runtime=120,
+    ))
+    union_member_vertex_ids = [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids]
+    mapping_edge_rows = list(db.aql.execute(
+        f"""
+        FOR e IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
+          FILTER e._from IN @vertex_ids
+          FILTER e._to IN @vertex_ids
+          FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
+          RETURN {{
+            id: e.id || e._key,
+            key: e._key,
+            stage_key: e.stage_key,
+            start_id: e.start_id,
+            end_id: e.end_id,
+            sources: e.sources || [],
+            details: e.details || []
+          }}
+        """,
+        bind_vars={"vertex_ids": union_member_vertex_ids, "snapshot_keys": selected_snapshot_keys},
+        max_runtime=120,
+    )) if db.has_collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION) else []
+    highlighted_id_set = set(identifier_ids)
+    sections_by_snapshot: Dict[str, dict] = {}
+    node_by_member_id: Dict[str, dict] = {
+        row["id"]: row
+        for row in node_rows
+    }
+    for node in node_by_member_id.values():
+        node["masses"] = [
+            mass
+            for mass in (_parse_metabolite_mass(value) for value in node.get("raw_masses") or [])
+            if mass is not None
+        ]
+        mass_summary = _metabolite_mass_summary(node["masses"])
+        mass_label = _metabolite_mass_summary_label(mass_summary)
+        compact_mass_label = _metabolite_compact_mass_label(mass_summary)
+        node["mass_summary"] = mass_summary
+        node["node_label"] = compact_mass_label or (node.get("label") or node.get("id"))
+        node["node_detail_label"] = "\n".join([part for part in [node.get("label") or node.get("id"), mass_label] if part])
+    for snapshot in _list_harmonization_stages():
+        if selected_snapshot_keys and snapshot["_key"] not in selected_snapshot_keys:
+            continue
+        sections_by_snapshot.setdefault(snapshot["_key"], {
+            "snapshot_key": snapshot["_key"],
+            "snapshot_name": snapshot.get("name"),
+            "snapshot_created_at": snapshot.get("created_at"),
+            "rules": snapshot.get("rules") or [],
+            "cliques_by_key": {},
+        })
+    for row in rows:
+        node_by_member_id.setdefault(row["member_id"], {
+            "id": row["member_id"],
+            "label": row["member_label"],
+            "node_label": row["member_label"],
+            "names": [row["member_label"]] if row.get("member_label") else [],
+            "prefix": row["member_prefix"],
+            "name_count": row["name_count"],
+            "synonym_count": row["synonym_count"],
+            "chem_prop_count": row["chem_prop_count"],
+        })
+        snapshot_key = row["snapshot_key"]
+        section = sections_by_snapshot.setdefault(snapshot_key, {
+            "snapshot_key": snapshot_key,
+            "snapshot_name": row["snapshot_name"],
+            "snapshot_created_at": row["snapshot_created_at"],
+            "rules": row.get("rules") or [],
+            "cliques_by_key": {},
+        })
+        clique = section["cliques_by_key"].setdefault(row["clique_key"], {
+            "snapshot_key": snapshot_key,
+            "snapshot_name": row["snapshot_name"],
+            "snapshot_created_at": row["snapshot_created_at"],
+            "rules": row.get("rules") or [],
+            "clique_id": row["clique_id"],
+            "clique_key": row["clique_key"],
+            "clique_size": row["clique_size"],
+            "clique_rank_by_size": row["clique_rank_by_size"],
+            "member_ids": [],
+        })
+        if row["member_id"] not in clique["member_ids"]:
+            clique["member_ids"].append(row["member_id"])
+    union_member_id_set = set(union_member_ids)
+    for section in sections_by_snapshot.values():
+        represented_member_ids = {
+            member_id
+            for clique in section["cliques_by_key"].values()
+            for member_id in clique["member_ids"]
+        }
+        missing_member_ids = sorted(union_member_id_set - represented_member_ids)
+        if missing_member_ids:
+            singleton_bucket_key = f"{section['snapshot_key']}__singleton_bucket"
+            section["cliques_by_key"][singleton_bucket_key] = {
+                "snapshot_key": section["snapshot_key"],
+                "snapshot_name": section["snapshot_name"],
+                "snapshot_created_at": section["snapshot_created_at"],
+                "rules": section["rules"],
+                "clique_id": f"MetaboliteHarmonizationClique:{singleton_bucket_key}",
+                "clique_key": singleton_bucket_key,
+                "clique_size": len(missing_member_ids),
+                "clique_rank_by_size": None,
+                "member_ids": missing_member_ids,
+                "is_singleton_bucket": True,
+            }
+
+    snapshot_sections = []
+    for section in sections_by_snapshot.values():
+        cliques = []
+        for clique in sorted(
+            section["cliques_by_key"].values(),
+            key=lambda item: (
+                item.get("is_singleton_bucket", False),
+                item["clique_rank_by_size"] if item["clique_rank_by_size"] is not None else 10**12,
+                item["clique_key"],
+            ),
+        ):
+            member_name_samples = []
+            member_id_samples = []
+            member_name_by_id = {}
+            member_mass_by_id = {}
+            seen_member_names = set()
+            for member_id in clique["member_ids"]:
+                node = node_by_member_id.get(member_id, {"id": member_id, "label": member_id, "node_label": member_id, "names": []})
+                member_mass_by_id[member_id] = node.get("masses") or []
+                display_names = node.get("names") or []
+                if display_names:
+                    member_name_by_id[member_id] = display_names[0]
+                for display_name in display_names:
+                    if display_name and display_name not in seen_member_names:
+                        seen_member_names.add(display_name)
+                        if len(member_name_samples) < 25:
+                            member_name_samples.append(display_name)
+                if len(member_id_samples) < 25:
+                    member_id_samples.append(member_id)
+            selected_query_member_ids = [
+                query_id
+                for query_id in identifier_ids
+                if query_id in clique["member_ids"]
+            ]
+            elements = []
+            displayed_member_ids = clique["member_ids"][:1500]
+            displayed_member_id_set = set(displayed_member_ids)
+            for member_id in displayed_member_ids:
+                node = node_by_member_id.get(member_id, {"id": member_id, "label": member_id, "node_label": member_id, "prefix": "unknown"})
+                classes = f"metabolite-id-node prefix-{str(node.get('prefix') or 'unknown').lower().replace('.', '-')}"
+                if member_id in highlighted_id_set:
+                    classes += " selected-query"
+                elements.append({
+                    "data": {**node, "selected": member_id in highlighted_id_set},
+                    "classes": classes,
+                })
+            for edge in mapping_edge_rows:
+                if edge.get("stage_key") and edge.get("stage_key") != section["snapshot_key"]:
+                    continue
+                start_id = edge.get("start_id")
+                end_id = edge.get("end_id")
+                if start_id not in displayed_member_id_set or end_id not in displayed_member_id_set:
+                    continue
+                sources = edge.get("sources") or []
+                elements.append({
+                    "data": {
+                        "id": f"metabolite-equivalence::{clique['clique_key']}::{edge.get('key') or edge.get('id')}",
+                        "source": start_id,
+                        "target": end_id,
+                        "label": "equiv" if not sources else ", ".join(sources[:3]),
+                        "kind": "MetaboliteIdentifierMappingEdge",
+                        "start_id": start_id,
+                        "end_id": end_id,
+                        "sources": ", ".join(sources),
+                        "source_count": len(sources),
+                        "detail_count": len(edge.get("details") or []),
+                        "snapshot": section["snapshot_name"],
+                        "snapshot_key": section["snapshot_key"],
+                    },
+                    "classes": "metabolite-equivalence-edge",
+                })
+            cliques.append({
+                **clique,
+                "member_name_samples": member_name_samples,
+                "member_id_samples": member_id_samples,
+                "member_name_by_id": member_name_by_id,
+                "member_mass_by_id": member_mass_by_id,
+                "selected_query_member_ids": selected_query_member_ids,
+                "mass_summary": _metabolite_member_mass_summary(clique["member_ids"], node_by_member_id),
+                "display_member_count": min(len(clique["member_ids"]), 1500),
+                "display_truncated": len(clique["member_ids"]) > 1500,
+                "elements": elements,
+            })
+        snapshot_sections.append({
+            **{key: value for key, value in section.items() if key != "cliques_by_key"},
+            "cliques": cliques,
+            "materialized_clique_count": sum(1 for clique in cliques if not clique.get("is_singleton_bucket")),
+            "singleton_bucket_count": sum(1 for clique in cliques if clique.get("is_singleton_bucket")),
+            "singleton_bucket_member_count": sum(
+                len(clique.get("member_ids", []))
+                for clique in cliques
+                if clique.get("is_singleton_bucket")
+            ),
+        })
+
+    sankey = _build_metabolite_snapshot_sankey(snapshot_sections)
+    return {
+        "memberships": memberships,
+        "member_ids": union_member_ids,
+        "snapshot_graphs": snapshot_sections,
+        "sankey": sankey,
+    }
+
+
+def _build_metabolite_snapshot_sankey(snapshot_sections: List[dict]) -> dict:
+    nodes = []
+    links_by_pair: Dict[tuple[str, str], dict] = {}
+    node_ids = set()
+    ordered_sections = sorted(snapshot_sections, key=lambda section: section.get("snapshot_created_at") or "")
+    for stage_index, section in enumerate(ordered_sections):
+        for clique in section.get("cliques", []):
+            node_id = f"{section['snapshot_key']}::{clique['clique_key']}"
+            if node_id not in node_ids:
+                node_ids.add(node_id)
+                mass_label = _metabolite_mass_summary_label(clique.get("mass_summary"))
+                detail_label = mass_label or ("Single ID" if clique.get("is_singleton_bucket") else None)
+                node_name_parts = [section.get("snapshot_name") or section["snapshot_key"]]
+                if detail_label:
+                    node_name_parts.append(detail_label)
+                node_name_parts.extend(_metabolite_query_id_labels(clique.get("selected_query_member_ids") or []))
+                nodes.append({
+                    "id": node_id,
+                    "name": "\\n".join(node_name_parts),
+                    "snapshot": section.get("snapshot_name"),
+                    "snapshot_key": section.get("snapshot_key"),
+                    "clique_key": clique.get("clique_key"),
+                    "clique_size": clique.get("clique_size"),
+                    "is_singleton_bucket": clique.get("is_singleton_bucket", False),
+                    "name_samples": clique.get("member_name_samples", [])[:25],
+                    "member_id_samples": clique.get("member_id_samples", [])[:25],
+                    "selected_query_member_ids": clique.get("selected_query_member_ids", []),
+                    "mass_summary": clique.get("mass_summary"),
+                    "stageIndex": stage_index,
+                })
+    clique_lookup_by_section = {
+        section["snapshot_key"]: {
+            f"{section['snapshot_key']}::{clique['clique_key']}": clique
+            for clique in section.get("cliques", [])
+        }
+        for section in ordered_sections
+    }
+    for left, right in zip(ordered_sections, ordered_sections[1:]):
+        left_by_member = {}
+        right_by_member = {}
+        for clique in left.get("cliques", []):
+            for member_id in clique.get("member_ids", []):
+                left_by_member[member_id] = f"{left['snapshot_key']}::{clique['clique_key']}"
+        for clique in right.get("cliques", []):
+            for member_id in clique.get("member_ids", []):
+                right_by_member[member_id] = f"{right['snapshot_key']}::{clique['clique_key']}"
+        for member_id in sorted(set(left_by_member) & set(right_by_member)):
+            pair = (left_by_member[member_id], right_by_member[member_id])
+            link = links_by_pair.setdefault(pair, {
+                "source": pair[0],
+                "target": pair[1],
+                "value": 0,
+                "member_ids": [],
+                "member_names": [],
+                "masses": [],
+            })
+            link["value"] += 1
+            source_clique = clique_lookup_by_section.get(left["snapshot_key"], {}).get(pair[0], {})
+            link["masses"].extend(source_clique.get("member_mass_by_id", {}).get(member_id, []))
+            if len(link["member_ids"]) < 25:
+                link["member_ids"].append(member_id)
+                member_name = source_clique.get("member_name_by_id", {}).get(member_id, member_id)
+                if member_name != member_id:
+                    link["member_names"].append(member_name)
+    links = []
+    for link in links_by_pair.values():
+        link["mass_summary"] = _metabolite_mass_summary(link.pop("masses", []))
+        links.append(link)
+    return {"nodes": nodes, "links": links}
+
+
+def _load_metabolite_identifier_qa(
+    identifier: str,
+    snapshot_keys: Optional[List[str]] = None,
+    include_snapshot_union: bool = True,
+) -> dict:
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Provide a metabolite identifier.")
+    db = get_db("metabolite_harmonization")
+    query = """
+    LET metabolite_doc = FIRST(
+      FOR d IN MetaboliteIdentifier
+        FILTER d.id == @identifier
+        LIMIT 1
+        RETURN d
+    )
+    LET metabolite = metabolite_doc == null ? null : UNSET(metabolite_doc, "_id", "_key", "_rev")
+    LET chemical_entity_doc = FIRST(
+      FOR d IN ChemicalEntity
+        FILTER d.id == @identifier
+        LIMIT 1
+        RETURN d
+    )
+    LET chemical_entity = chemical_entity_doc == null ? null : UNSET(chemical_entity_doc, "_id", "_key", "_rev")
+    LET mapping_edges = (
+      FOR e IN MetaboliteIdentifierMappingEdge
+        FILTER e.start_id == @identifier OR e.end_id == @identifier
+        SORT e.start_id, e.end_id
+        LIMIT 500
+        LET neighbor_id = e.start_id == @identifier ? e.end_id : e.start_id
+        LET neighbor = FIRST(
+          FOR n IN MetaboliteIdentifier
+            FILTER n.id == neighbor_id
+            LIMIT 1
+            RETURN KEEP(n, "id", "prefix", "names", "synonyms", "sources")
+        )
+        RETURN {
+          start_id: e.start_id,
+          end_id: e.end_id,
+          neighbor_id: neighbor_id,
+          neighbor: neighbor,
+          details: e.details,
+          sources: e.sources
+        }
+    )
+    LET mapping_edge_count = LENGTH(
+      FOR e IN MetaboliteIdentifierMappingEdge
+        FILTER e.start_id == @identifier OR e.end_id == @identifier
+        RETURN 1
+    )
+    LET chebi_bridge_edges = (
+      FOR e IN ChebiChemicalEntityMetaboliteIdentifierEdge
+        FILTER e.start_id == @identifier OR e.end_id == @identifier
+        LIMIT 50
+        RETURN UNSET(e, "_id", "_key", "_rev", "_from", "_to")
+    )
+    RETURN {
+      query_id: @identifier,
+      found: metabolite != null,
+      metabolite: metabolite,
+      chemical_entity: chemical_entity,
+      mapping_edges: mapping_edges,
+      mapping_edge_count: mapping_edge_count,
+      mapping_edges_truncated: mapping_edge_count > LENGTH(mapping_edges),
+      chebi_bridge_edges: chebi_bridge_edges
+    }
+    """
+    cursor = db.aql.execute(query, bind_vars={"identifier": identifier}, max_runtime=120)
+    rows = list(cursor)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No result for {identifier}")
+    result = rows[0]
+    if include_snapshot_union:
+        snapshot_union = _load_metabolite_snapshot_union([identifier], snapshot_keys)
+        result["snapshot_memberships"] = snapshot_union["memberships"]
+        result["snapshot_union_ids"] = snapshot_union["member_ids"]
+        result["snapshot_graphs"] = snapshot_union["snapshot_graphs"]
+        result["snapshot_sankey"] = snapshot_union["sankey"]
+    return result
+
+
+def _parse_metabolite_identifier_query(value: str) -> List[str]:
+    tokens = (
+        value.replace(",", " ")
+        .replace("|", " ")
+        .replace(";", " ")
+        .replace("\n", " ")
+        .split()
+    )
+    ids = []
+    seen = set()
+    for token in tokens:
+        identifier = token.strip()
+        if identifier and identifier not in seen:
+            ids.append(identifier)
+            seen.add(identifier)
+    return ids
+
+
+def _load_metabolite_identifier_qa_many(
+    value: str,
+    snapshot_keys: Optional[List[str]] = None,
+) -> dict:
+    query_ids = _parse_metabolite_identifier_query(value)
+    if not query_ids:
+        raise HTTPException(status_code=400, detail="Provide at least one metabolite identifier.")
+    if len(query_ids) > 12:
+        raise HTTPException(status_code=400, detail="Compare 12 or fewer identifiers at a time.")
+
+    results = [
+        _load_metabolite_identifier_qa(identifier, snapshot_keys, include_snapshot_union=False)
+        for identifier in query_ids
+    ]
+    found_results = [result for result in results if result.get("found")]
+    missing_results = [result for result in results if not result.get("found")]
+    combined_result = {
+        "query_id": " ".join(query_ids),
+        "query_ids": query_ids,
+        "found": bool(found_results),
+        "results": results,
+        "found_results": found_results,
+        "missing_results": missing_results,
+    }
+    snapshot_union = _load_metabolite_snapshot_union(query_ids, snapshot_keys)
+    combined_result["snapshot_memberships"] = snapshot_union["memberships"]
+    combined_result["snapshot_union_ids"] = snapshot_union["member_ids"]
+    combined_result["snapshot_graphs"] = snapshot_union["snapshot_graphs"]
+    combined_result["snapshot_sankey"] = snapshot_union["sankey"]
+    combined_result["selected_snapshot_keys"] = snapshot_keys or []
+    return combined_result
 
 
 def _slugify_mysql_source(value: str) -> str:
@@ -988,7 +3741,7 @@ def _build_collection_facet_loaders(db_name: str, coll_name: str, page_size: int
 def _get_dashboard_collection_summaries(db) -> List[dict]:
     collections = []
     for coll in db.collections():
-        if coll["name"].startswith("_"):
+        if _is_hidden_qa_browser_collection(coll["name"]):
             continue
         coll_type = coll.get("type")
         is_edge = coll_type in ("edge", 3)
@@ -1000,6 +3753,7 @@ def _get_dashboard_collection_summaries(db) -> List[dict]:
             "name": coll["name"],
             "type": "edge" if is_edge else "document",
             "count": count,
+            "qa_visible": _is_qa_visible_edge_collection(coll["name"]),
         })
     collections.sort(key=lambda c: c["name"])
     return collections
@@ -1008,7 +3762,7 @@ def _get_dashboard_collection_summaries(db) -> List[dict]:
 def _get_dashboard_collection_shell(db) -> List[dict]:
     collections = []
     for coll in db.collections():
-        if coll["name"].startswith("_"):
+        if _is_hidden_qa_browser_collection(coll["name"]):
             continue
         coll_type = coll.get("type")
         is_edge = coll_type in ("edge", 3)
@@ -1016,6 +3770,7 @@ def _get_dashboard_collection_shell(db) -> List[dict]:
             "name": coll["name"],
             "type": "edge" if is_edge else "document",
             "count": None,
+            "qa_visible": _is_qa_visible_edge_collection(coll["name"]),
         })
     collections.sort(key=lambda c: c["name"])
     return collections
@@ -1070,25 +3825,76 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
-def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
+def _registry_catalog_cache_fresh(category: str, now: float) -> bool:
+    loaded_at = (_registry_catalog_cache.get("loaded_at") or {}).get(category, 0.0)
+    return (
+        _registry_catalog_cache.get(category) is not None
+        and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS
+    )
+
+
+def _load_registry_catalog_categories(categories: List[str]) -> tuple[dict, Optional[str]]:
     if not _minio_credentials:
-        return [], [], [], [], "Registry storage credentials are not configured for this QA Browser instance."
+        return {}, "Registry storage credentials are not configured for this QA Browser instance."
+
+    now = time.time()
+    requested = list(dict.fromkeys(categories))
+    missing = [
+        category
+        for category in requested
+        if not _registry_catalog_cache_fresh(category, now)
+    ]
+
+    if not missing:
+        return {
+            category: _registry_catalog_cache.get(category) or []
+            for category in requested
+        }, None
 
     try:
         def load_catalog(registry: DataRegistry):
-            snapshots = registry.list_source_snapshots()
-            derived_artifacts = registry.list_derived_artifacts()
-            external_registrations = registry.list_external_sources()
-            resolver_snapshots = registry.list_resolver_snapshots()
-            return snapshots, derived_artifacts, external_registrations, resolver_snapshots
+            loaded = {}
+            if "source_snapshots" in missing:
+                loaded["source_snapshots"] = registry.list_source_snapshots()
+            if "derived_artifacts" in missing:
+                loaded["derived_artifacts"] = registry.list_derived_artifacts()
+            if "external_registrations" in missing:
+                loaded["external_registrations"] = registry.list_external_sources()
+            if "resolver_snapshots" in missing:
+                loaded["resolver_snapshots"] = registry.list_resolver_snapshots()
+            return loaded
 
-        snapshots, derived_artifacts, external_registrations, resolver_snapshots = _with_registry_endpoint_fallback(
+        loaded_categories = _with_registry_endpoint_fallback(
             load_catalog,
             error_prefix="Loading registry catalog",
         )
-        return snapshots, derived_artifacts, external_registrations, resolver_snapshots, None
+        loaded_at = _registry_catalog_cache.setdefault("loaded_at", {})
+        cache_time = time.time()
+        for category, value in loaded_categories.items():
+            _registry_catalog_cache[category] = value
+            loaded_at[category] = cache_time
+        return {
+            category: _registry_catalog_cache.get(category) or []
+            for category in requested
+        }, None
     except Exception as exc:
-        return [], [], [], [], str(exc)
+        return {}, str(exc)
+
+
+def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
+    catalog, error = _load_registry_catalog_categories([
+        "source_snapshots",
+        "derived_artifacts",
+        "external_registrations",
+        "resolver_snapshots",
+    ])
+    return (
+        catalog.get("source_snapshots", []),
+        catalog.get("derived_artifacts", []),
+        catalog.get("external_registrations", []),
+        catalog.get("resolver_snapshots", []),
+        error,
+    )
 
 
 def _storage_from_credentials(credentials_config: dict, *, use_internal_url: bool):
@@ -1798,119 +4604,159 @@ async def qa_browser_home(request: Request):
 
 
 @app.get("/ramp-id-qa", response_class=HTMLResponse)
-def ramp_id_qa(request: Request, ids: str = "", show_individual_ids: bool = False):
-    parsed_ids = parse_ramp_ids(ids)
-    selected_ids = " | ".join(parsed_ids)
-    sqlite_path = None
-    registry_metadata = None
-    registry_error = None
-    if selected_ids:
+def ramp_id_qa(request: Request, id: str = "", ids: str = "", stages: str = ""):
+    query_id = (id or ids or "").strip()
+    selected_stage_keys = _parse_metabolite_snapshot_key_filter(stages)
+    result = None
+    error = None
+    overview = None
+    if query_id:
         try:
-            sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
+            result = _load_metabolite_identifier_qa_many(query_id, selected_stage_keys)
         except Exception as exc:
-            registry_error = str(exc)
-    rows = attach_ramp_diagnosis_summaries(load_multiramp_rows())
-    navigation = build_multiramp_navigation(ids) if selected_ids else None
+            error = str(exc)
+    else:
+        overview = _load_harmonization_pipeline_workbench()
     return templates.TemplateResponse(request, "ramp_id_qa.html", {
         "request": request,
-        "ids": ids,
-        "parsed_ids": parsed_ids,
-        "selected_ids": selected_ids,
-        "show_individual_ids": show_individual_ids,
-        "navigation": navigation,
-        "multiramp_rows": rows,
-        "workbook_label": "20260604_final_all_metabolites_ramp_xrefs_multRamp.xlsx",
-        "sqlite_path": str(sqlite_path) if sqlite_path else None,
-        "registry_metadata": registry_metadata,
-        "registry_error": registry_error,
-        "diagnosis_options": RAMP_DIAGNOSIS_OPTIONS,
-        "diagnosis_enabled": ramp_diagnosis_enabled(),
-        "diagnoses": get_ramp_diagnoses(parsed_ids),
+        "query_id": query_id,
+        "selected_snapshot_keys": selected_stage_keys,
+        "selected_stage_keys": selected_stage_keys,
+        "result": result,
+        "error": error,
+        "overview": overview,
     })
 
 
-@app.get("/ramp-id-qa/api/graph")
-def ramp_id_qa_graph(ids: str = "", show_individual_ids: bool = False):
-    sqlite_path, registry_metadata = _materialize_ramp_sqlite_database()
-    payload = build_ramp_graph_payload(sqlite_path, parse_ramp_ids(ids), show_individual_ids=show_individual_ids)
-    payload["registryDataset"] = registry_metadata
-    return payload
-
-
-@app.get("/ramp-id-qa/curations.csv")
-def ramp_id_qa_curations_csv():
-    workbook_columns, rows = load_multiramp_export_rows()
-    curation_columns = [
-        "curation_id",
-        "curation_timestamp",
-        "curation_reviewer",
-        "curation_decision",
-        "curation_decision_label",
-        "curation_diagnosis",
-        "curation_diagnosis_label",
-        "curation_selected_ramp_ids",
-        "curation_note",
-    ]
-    fieldnames = ["workbook_row", *workbook_columns, *curation_columns]
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
-    buffer.seek(0)
-    return StreamingResponse(
-        iter([buffer.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=ramp_id_qa_curations.csv"},
-    )
-
-
-@app.post("/ramp-id-qa/diagnosis")
-def ramp_id_qa_diagnosis(
+@app.post("/ramp-id-qa/pipelines")
+async def ramp_id_qa_save_pipeline(
     request: Request,
-    ids: str = Form(...),
-    diagnosis: List[str] = Form(...),
-    selected_ramp_ids: List[str] = Form(...),
-    reviewer: str = Form(...),
-    note: str = Form(""),
-    workbook_row: Optional[int] = Form(None),
-    next_href: str = Form(""),
-    submit_action: str = Form("save"),
-    show_individual_ids: bool = Form(False),
+    pipeline_key: str = Form(""),
+    pipeline_name: str = Form(""),
+    enabled_rules: List[str] = Form([]),
+    run_now: str = Form(""),
 ):
-    ramp_ids = parse_ramp_ids(ids)
-    selected_ids = parse_ramp_ids(" ".join(selected_ramp_ids))
-    for diagnosis_value in diagnosis:
-        add_ramp_diagnosis(
-            ramp_ids=ramp_ids,
-            selected_ramp_ids=selected_ids,
-            diagnosis=diagnosis_value,
-            reviewer=reviewer,
-            note=note,
-            workbook_row=workbook_row,
+    form = await request.form()
+    rule_parameters = {}
+    for key, value in form.multi_items():
+        if not key.startswith("rule_param__"):
+            continue
+        _prefix, rule_id, parameter_id = key.split("__", 2)
+        rule_parameters.setdefault(rule_id, {})[parameter_id] = value
+    pipeline = _upsert_harmonization_pipeline(pipeline_key, pipeline_name, enabled_rules, rule_parameters)
+    if run_now:
+        _enqueue_metabolite_snapshot_job(
+            "run_pipeline",
+            f"Run {pipeline.get('name')}",
+            {"pipeline_key": pipeline["_key"]},
         )
-    if submit_action == "save_next" and next_href:
-        redirect_path = next_href
-        if show_individual_ids:
-            separator = "&" if "?" in redirect_path else "?"
-            redirect_path = f"{redirect_path}{separator}show_individual_ids=true"
-        return _redirect_to(redirect_path, request=request)
-    return _redirect_to(f"/ramp-id-qa?{urlencode({'ids': ids, 'show_individual_ids': str(show_individual_ids).lower()})}", request=request)
+    return _redirect_to("/ramp-id-qa")
 
 
-@app.post("/ramp-id-qa/diagnosis/{entry_id}/delete")
-def ramp_id_qa_delete_diagnosis(
+@app.post("/ramp-id-qa/pipelines/{pipeline_key}/run")
+def ramp_id_qa_run_pipeline(pipeline_key: str):
+    _enqueue_metabolite_snapshot_job(
+        "run_pipeline",
+        f"Run {pipeline_key}",
+        {"pipeline_key": pipeline_key},
+    )
+    return _redirect_to("/ramp-id-qa")
+
+
+@app.post("/ramp-id-qa/pipelines/{pipeline_key}/rename")
+def ramp_id_qa_rename_pipeline(pipeline_key: str, pipeline_name: str = Form("")):
+    _rename_harmonization_pipeline(pipeline_key, pipeline_name)
+    return _redirect_to("/ramp-id-qa")
+
+
+@app.post("/ramp-id-qa/pipelines/{pipeline_key}/delete")
+def ramp_id_qa_delete_pipeline(pipeline_key: str):
+    _enqueue_metabolite_snapshot_job(
+        "delete_pipeline",
+        f"Delete {pipeline_key}",
+        {"pipeline_key": pipeline_key},
+    )
+    return _redirect_to("/ramp-id-qa")
+
+
+@app.get("/ramp-id-qa/stage-comparison", response_class=HTMLResponse)
+def ramp_id_qa_stage_comparison(
     request: Request,
-    entry_id: str,
-    ids: str = Form(...),
-    show_individual_ids: bool = Form(False),
+    left_stage: str = "",
+    right_stage: str = "",
+    limit: int = 100,
 ):
-    delete_ramp_diagnosis(entry_id)
-    return _redirect_to(f"/ramp-id-qa?{urlencode({'ids': ids, 'show_individual_ids': str(show_individual_ids).lower()})}", request=request)
+    comparison = None
+    error = None
+    normalized_limit = max(10, min(limit, 250))
+    try:
+        comparison = _load_metabolite_snapshot_comparison(left_stage, right_stage, normalized_limit)
+    except Exception as exc:
+        error = str(exc)
+    if comparison is None:
+        comparison = {
+            "left_snapshot": None,
+            "right_snapshot": None,
+            "snapshots": _list_harmonization_stages(),
+            "components": [],
+            "display_limit": normalized_limit,
+            "comparison_kind": "stage",
+        }
+    return templates.TemplateResponse(request, "ramp_id_snapshot_compare.html", {
+        "request": request,
+        "left_snapshot_key": left_stage,
+        "right_snapshot_key": right_stage,
+        "limit": normalized_limit,
+        "comparison": comparison,
+        "error": error,
+    })
+
+
+@app.get("/ramp-id-qa/stages/{stage_key}", response_class=HTMLResponse)
+def ramp_id_qa_stage_stats(request: Request, stage_key: str):
+    stats = None
+    error = None
+    try:
+        stats = _load_harmonization_stage_stats(stage_key)
+    except Exception as exc:
+        error = str(exc)
+    return templates.TemplateResponse(request, "ramp_id_stage_stats.html", {
+        "request": request,
+        "stage_key": stage_key,
+        "stats": stats,
+        "error": error,
+    })
+
+
+@app.get("/ramp-id-qa/harmonization-jobs", response_class=HTMLResponse)
+def ramp_id_qa_harmonization_jobs(request: Request):
+    overview = _load_harmonization_pipeline_workbench()
+    return templates.TemplateResponse(request, "ramp_id_pipeline_table.html", {
+        "request": request,
+        "overview": overview,
+    })
+
+
+@app.get("/ramp-id-qa/api/metabolite")
+def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
+    query_id = (id or ids or "").strip()
+    query_ids = _parse_metabolite_identifier_query(query_id)
+    selected_snapshot_keys = _parse_metabolite_snapshot_key_filter(stages)
+    if len(query_ids) == 1:
+        return _load_metabolite_identifier_qa(query_ids[0], selected_snapshot_keys)
+    return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
 
 
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
-    snapshots, derived_artifacts, external_registrations, _resolver_snapshots, registry_error = _load_registry_catalog()
+    catalog, registry_error = _load_registry_catalog_categories([
+        "source_snapshots",
+        "derived_artifacts",
+        "external_registrations",
+    ])
+    snapshots = catalog.get("source_snapshots", [])
+    derived_artifacts = catalog.get("derived_artifacts", [])
+    external_registrations = catalog.get("external_registrations", [])
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
@@ -1993,7 +4839,8 @@ def registry_update_status(request: Request, return_page: str = Form("sources"))
 
 @app.get("/registry/resolvers", response_class=HTMLResponse)
 def registry_resolvers(request: Request):
-    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog()
+    catalog, registry_error = _load_registry_catalog_categories(["resolver_snapshots"])
+    resolver_snapshots = catalog.get("resolver_snapshots", [])
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
@@ -2072,7 +4919,8 @@ def registry_graphs(request: Request):
 
 @app.get("/registry/resolvers/{source}/{resolver}", response_class=HTMLResponse)
 def registry_resolver_detail(request: Request, source: str, resolver: str, version: Optional[str] = None):
-    _snapshots, _derived_artifacts, _external_registrations, resolver_snapshots, registry_error = _load_registry_catalog()
+    catalog, registry_error = _load_registry_catalog_categories(["resolver_snapshots"])
+    resolver_snapshots = catalog.get("resolver_snapshots", [])
     graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
         credentials=_credentials,
         cache=_registry_usage_cache,
@@ -4775,7 +7623,7 @@ def main():
                         help="Path to JSON file for storing feedback comments (created if missing)")
     parser.add_argument("--ramp-diagnosis-file",
                         default=os.getenv("QA_BROWSER_RAMP_DIAGNOSIS_FILE", "input_files/ramp_id_diagnoses.json"),
-                        help="Path to JSON file for storing RaMP ID QA merge diagnoses")
+                        help="Path to JSON file for storing legacy RaMP merge diagnoses")
     parser.add_argument("--pounce-project-base-url",
                         default="",
                         help="Public base URL for project detail links, e.g. https://pounce-ci.ncats.nih.gov/project")

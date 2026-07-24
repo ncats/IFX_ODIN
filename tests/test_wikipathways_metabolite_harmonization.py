@@ -4,9 +4,10 @@ import zipfile
 
 from src.input_adapters.metabolite_harmonization.wikipathways import (
     WikiPathwaysMetaboliteEquivalenceAdapter,
+    WikiPathwaysPathwayContextAdapter,
 )
 from src.interfaces.output_adapter import OutputAdapter
-from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge
+from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge, MetabolitePathwayEdge
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -22,9 +23,14 @@ def _write_wikipathways_zip(path: Path):
     ttl = """
 @prefix dc:      <http://purl.org/dc/elements/1.1/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix obo:     <http://purl.obolibrary.org/obo/> .
 @prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix wp:      <http://vocabularies.wikipathways.org/wp#> .
+
+<https://identifiers.org/wikipathways/WP100_r1>
+        rdf:type       wp:Pathway ;
+        wp:organism   obo:NCBITaxon_9606 .
 
 <https://identifiers.org/kegg.compound/C00051>
         rdf:type            wp:DataNode , wp:Metabolite ;
@@ -69,14 +75,38 @@ def _write_wikipathways_zip(path: Path):
         archive.writestr(
             "wp/WP101.ttl",
             """
+@prefix obo:     <http://purl.obolibrary.org/obo/> .
 @prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix wp:      <http://vocabularies.wikipathways.org/wp#> .
+
+<https://identifiers.org/wikipathways/WP101_r1>
+        rdf:type       wp:Pathway ;
+        wp:organism   obo:NCBITaxon_9606 .
 
 <https://identifiers.org/kegg.compound/C00051>
         rdf:type            wp:DataNode , wp:Metabolite ;
         rdfs:label          "reduced glutathione" ;
         wp:bdbChEBI         <https://identifiers.org/chebi/CHEBI:16856> .
+""",
+        )
+        archive.writestr(
+            "wp/WP478.ttl",
+            """
+@prefix obo:     <http://purl.obolibrary.org/obo/> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix wp:      <http://vocabularies.wikipathways.org/wp#> .
+
+<https://identifiers.org/wikipathways/WP478_r1>
+        rdf:type       wp:Pathway ;
+        wp:organism   obo:NCBITaxon_4932 .
+
+<https://identifiers.org/cas/9050-36-6>
+        rdf:type            wp:DataNode , wp:Metabolite ;
+        rdfs:label          "maltodextrin" ;
+        wp:bdbChEBI         <https://identifiers.org/chebi/CHEBI:18398> ;
+        wp:bdbPubChem       <http://rdf.ncbi.nlm.nih.gov/pubchem/compound/CID62698> .
 """,
         )
 
@@ -118,7 +148,6 @@ def test_wikipathways_metabolite_adapter_emits_nodes_labels_and_edges(tmp_path: 
         "CHEBI:16856",
         "ChemSpider:111188",
         "HMDB:HMDB0000125",
-        "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N",
         "PUBCHEM.COMPOUND:25246407",
         "PUBCHEM.COMPOUND:124886",
         "Wikidata:Q116907",
@@ -136,13 +165,18 @@ def test_wikipathways_metabolite_adapter_emits_nodes_labels_and_edges(tmp_path: 
         "PID.PATHWAY:9606",
     }
     assert expected_node_ids <= set(nodes_by_id)
+    assert "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N" not in nodes_by_id
 
     assert ("KEGG.COMPOUND:C00051", "CHEBI:16856") in edge_pairs
     assert ("KEGG.COMPOUND:C00051", "PUBCHEM.COMPOUND:25246407") in edge_pairs
     assert ("PUBCHEM.COMPOUND:753", "CHEBI:17754") in edge_pairs
     assert ("LIPIDMAPS:LMFA01170120", "Reactome:R-HSA-194002") in edge_pairs
     assert ("KNApSAcK:C00000128", "PID.PATHWAY:9606") in edge_pairs
+    assert ("KEGG.COMPOUND:C00051", "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N") not in edge_pairs
     assert ("KEGG.COMPOUND:C00051", "KEGG.COMPOUND:C00051") not in edge_pairs
+    assert "CAS:9050-36-6" not in nodes_by_id
+    assert ("CAS:9050-36-6", "CHEBI:18398") not in edge_pairs
+    assert ("CAS:9050-36-6", "PUBCHEM.COMPOUND:62698") not in edge_pairs
 
     details = {
         (edge.start_node.id, edge.end_node.id): edge.details[0]
@@ -186,3 +220,50 @@ def test_wikipathways_adapter_honors_max_records(tmp_path: Path):
     records = _records(adapter)
     assert any(isinstance(record, MetaboliteIdentifier) and record.id == "KEGG.COMPOUND:C00051" for record in records)
     assert not any(isinstance(record, MetaboliteIdentifier) and record.id == "PUBCHEM.COMPOUND:753" for record in records)
+
+
+def test_wikipathways_pathway_context_preserves_metabolite_identifier_families(tmp_path: Path):
+    zip_path = tmp_path / "wikipathways-rdf-wp.zip"
+    _write_wikipathways_zip(zip_path)
+    adapter = WikiPathwaysPathwayContextAdapter(rdf_zip_file=str(zip_path))
+
+    records = _records(adapter)
+    metabolite_nodes = {
+        record.id
+        for record in records
+        if isinstance(record, MetaboliteIdentifier)
+    }
+    metabolite_pathway_edges = {
+        edge.start_node.id
+        for edge in records
+        if isinstance(edge, MetabolitePathwayEdge)
+    }
+
+    expected_ids = {
+        "KEGG.COMPOUND:C00051",
+        "CHEBI:16856",
+        "ChemSpider:111188",
+        "HMDB:HMDB0000125",
+        "PUBCHEM.COMPOUND:25246407",
+        "PUBCHEM.COMPOUND:124886",
+        "Wikidata:Q116907",
+        "PUBCHEM.COMPOUND:753",
+        "CHEBI:17754",
+        "LIPIDMAPS:LMFA01170120",
+        "Reactome:R-HSA-194002",
+        "PUBCHEM.COMPOUND:970",
+        "KNApSAcK:C00000128",
+        "KEGG.GLYCAN:G00170",
+        "KEGG.DRUG:D11487",
+        "ChEMBL.COMPOUND:CHEMBL1207858",
+        "PUBCHEM.SUBSTANCE:136368185",
+        "PharmGKB.DRUG:PA162373091",
+        "PID.PATHWAY:9606",
+    }
+
+    assert expected_ids <= metabolite_nodes
+    assert expected_ids <= metabolite_pathway_edges
+    assert "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N" not in metabolite_nodes
+    assert "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N" not in metabolite_pathway_edges
+    assert "CAS:9050-36-6" not in metabolite_nodes
+    assert "CAS:9050-36-6" not in metabolite_pathway_edges

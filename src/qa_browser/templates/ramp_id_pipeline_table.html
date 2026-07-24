@@ -1,0 +1,96 @@
+<section class="ramp-id-table-section" id="metaboliteIdSavedSnapshots"
+         {% if pipeline_table_oob %}hx-swap-oob="true"{% endif %}
+         {% if overview.active_job_count %}hx-get="{{ root_path }}/ramp-id-qa/harmonization-jobs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+    <div class="ramp-id-section-header">
+        <h2>Harmonization Pipelines</h2>
+        <p>{{ overview.pipelines|length }} recent pipeline{{ "" if overview.pipelines|length == 1 else "s" }}{% if overview.active_job_count %} · {{ overview.active_job_count }} active job{{ "" if overview.active_job_count == 1 else "s" }}{% endif %}</p>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Steps</th>
+                <th>Latest Run</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for pipeline in overview.pipelines %}
+            {% set latest_run = pipeline.runs[0] if pipeline.runs else none %}
+            {% set run_active = pipeline._key in overview.active_pipeline_keys %}
+            {% set delete_active = pipeline._key in overview.deleting_pipeline_keys %}
+            {% set pipeline_jobs = overview.jobs_by_pipeline_key.get(pipeline._key, []) %}
+            <tr>
+                <td>
+                    <div class="metabolite-id-pipeline-name-row">
+                        <strong>{{ pipeline.name }}</strong>
+                        <details class="metabolite-id-pipeline-rename">
+                            <summary class="btn btn-secondary btn-sm">Rename</summary>
+                            <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/rename">
+                                <input name="pipeline_name" value="{{ pipeline.name }}" spellcheck="false">
+                                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                            </form>
+                        </details>
+                    </div>
+                    <div class="mono">{{ pipeline._key }}</div>
+                </td>
+                <td>
+                    {% if pipeline.rules %}
+                    {% for rule in pipeline.rules %}
+                    <div>{{ loop.index }}. {{ rule.label }}</div>
+                    {% endfor %}
+                    {% else %}
+                    <span>Baseline only</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if latest_run %}
+                    <strong>{{ latest_run.status }}</strong>
+                    <div>{{ latest_run.created_at }}</div>
+                    {% if latest_run.elapsed_seconds %}<div>{{ latest_run.elapsed_seconds }}s</div>{% endif %}
+                    {% else %}
+                    <span>Not run yet</span>
+                    {% endif %}
+                    {% if pipeline_jobs %}
+                    <div class="metabolite-id-pipeline-job-list">
+                        {% for job in pipeline_jobs[:2] %}
+                        <div class="metabolite-id-pipeline-job metabolite-id-pipeline-job-{{ job.status }}">
+                            {% if job.status in ["queued", "running"] %}<span class="qa-loading-spinner" aria-hidden="true"></span>{% endif %}
+                            <span>
+                                <strong>{{ job.status }}</strong>
+                                {{ job.label }}
+                                {% if job.message %}<span>{{ job.message }}</span>{% endif %}
+                                {% if job.error %}<span>{{ job.error }}</span>{% endif %}
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="metabolite-id-pipeline-actions">
+                        {% if delete_active %}
+                        <button type="button" class="btn btn-secondary" disabled>Deleting...</button>
+                        {% elif run_active %}
+                        <button type="button" class="btn btn-primary" disabled>Running...</button>
+                        {% elif latest_run and latest_run.status == "complete" %}
+                        <span class="metabolite-id-pipeline-run-status">Run complete</span>
+                        {% else %}
+                        <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/run">
+                            <button type="submit" class="btn btn-primary">Run</button>
+                        </form>
+                        {% endif %}
+                        <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/delete" onsubmit="return window.confirm('Delete this pipeline and any stages no other pipeline uses?');">
+                            <button type="submit" class="btn btn-secondary" {% if run_active or delete_active %}disabled{% endif %}>Delete pipeline</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4">No pipelines saved yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>

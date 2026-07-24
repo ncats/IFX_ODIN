@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Stage Stats · Metabolite Harmonization Workbench{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
+<span class="sep">/</span>
+<span>Stage Stats</span>
+{% endblock %}
+
+{% block content %}
+<div class="ramp-id-page metabolite-id-qa-page">
+    <section class="ramp-id-header">
+        <div>
+            <h1>Stage Stats</h1>
+            {% if stats %}
+            <p>{{ stats.stage.name }}</p>
+            <p class="mono">{{ stats.stage._key }}</p>
+            {% else %}
+            <p class="mono">{{ stage_key }}</p>
+            {% endif %}
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="registry-update-error">{{ error }}</div>
+    {% endif %}
+
+    {% if stats %}
+    <section class="ramp-id-overview metabolite-id-overview">
+        <div>
+            <h2>Summary</h2>
+            <p>{{ stats.stage.created_at }}</p>
+        </div>
+        <dl class="ramp-id-stats">
+            <div><dt>Active IDs</dt><dd>{{ "{:,}".format(stats.summary.active_identifier_count|default(stats.counts.active_identifier_count_from_chunks, true)) }}</dd></div>
+            <div><dt>Groups</dt><dd>{{ "{:,}".format(stats.summary.harmonized_metabolite_count|default(stats.counts.harmonized_metabolite_count, true)) }}</dd></div>
+            <div><dt>Singleton IDs</dt><dd>{{ "{:,}".format(stats.summary.singleton_identifier_count|default(0, true)) }}</dd></div>
+            <div><dt>Active Edges</dt><dd>{{ "{:,}".format(stats.summary.active_edge_count|default(stats.counts.evidence_edge_count, true)) }}</dd></div>
+            <div><dt>Ignored Edges</dt><dd>{{ "{:,}".format(stats.summary.ignored_edge_count|default(0, true)) }}</dd></div>
+            <div><dt>Member Edges</dt><dd>{{ "{:,}".format(stats.counts.member_edge_count) }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Rules Applied</h2>
+            <p>{{ stats.stage.rules|length }} rule{{ "" if stats.stage.rules|length == 1 else "s" }}</p>
+        </div>
+        {% if stats.stage.rules %}
+        <div class="metabolite-id-snapshot-rules">
+            {% for rule in stats.stage.rules %}
+            <span>{{ loop.index }}. {{ rule.label }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p>Baseline stage: no rules applied.</p>
+        {% endif %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Rule Metrics</h2>
+            <p>Selected fields from the persisted stage summary.</p>
+        </div>
+        <dl class="ramp-id-details">
+            {% for key, value in stats.summary|dictsort %}
+            {% if value is string or value is number %}
+            <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+            {% elif value is sequence and value|length <= 20 %}
+            <div><dt>{{ key }}</dt><dd>{{ value|join(", ") }}</dd></div>
+            {% endif %}
+            {% endfor %}
+        </dl>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Largest Groups</h2>
+            <p>Top {{ stats.largest_groups|length }} materialized non-singleton groups.</p>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Size</th>
+                    <th>Representative</th>
+                    <th>Sample IDs</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for group in stats.largest_groups %}
+                <tr>
+                    <td>{{ group.rank_by_size }}</td>
+                    <td>{{ "{:,}".format(group.size) }}</td>
+                    <td class="mono">{{ group.representative_id }}</td>
+                    <td class="mono">{{ group.sample_member_ids|join(" ") }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4">No non-singleton groups materialized for this stage.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Evidence Sources</h2>
+            <p>Active stage evidence edges by source.</p>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Edges</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for source in stats.source_counts %}
+                <tr>
+                    <td>{{ source.source }}</td>
+                    <td>{{ "{:,}".format(source.edge_count) }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2">No source counts available.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

@@ -20,6 +20,8 @@ PFOCR_SOURCE = "PFOCR"
 PFOCR_PREFIX = "PFOCR"
 CHEBI_PREFIX = "CHEBI"
 NCBI_GENE_PREFIX = "NCBIGene"
+PFOCR_GENE_GMT_FILE_NAME = "pfocr_gene_gmt.gmt"
+PFOCR_CHEMICAL_GMT_FILE_NAME = "pfocr_chemical_gmt.gmt"
 
 
 class PfocrPathwayContextAdapter(InputAdapter):
@@ -31,8 +33,21 @@ class PfocrPathwayContextAdapter(InputAdapter):
         max_rows: Optional[int] = None,
     ):
         if data_source is not None:
-            chemical_gmt_file = str(_dataset_file_matching(data_source, "-chemical-gmt-Homo_sapiens.gmt"))
-            gene_gmt_file = str(_dataset_file_matching(data_source, "-gmt-Homo_sapiens.gmt", exclude="chemical"))
+            chemical_gmt_file = str(
+                _dataset_file_named(
+                    data_source,
+                    PFOCR_CHEMICAL_GMT_FILE_NAME,
+                    fallback_suffix="-chemical-gmt-Homo_sapiens.gmt",
+                )
+            )
+            gene_gmt_file = str(
+                _dataset_file_named(
+                    data_source,
+                    PFOCR_GENE_GMT_FILE_NAME,
+                    fallback_suffix="-gmt-Homo_sapiens.gmt",
+                    exclude="chemical",
+                )
+            )
             self.version_info = data_source.version_info()
         else:
             self.version_info = DatasourceVersionInfo(version=None, version_date=None, download_date=None)
@@ -282,6 +297,19 @@ class PfocrPathwayContextAdapter(InputAdapter):
     def _figure_url(figure_id: str) -> str:
         pmc_id = figure_id.split("__", 1)[0]
         return f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/"
+
+
+def _dataset_file_named(
+    data_source,
+    file_name: str,
+    *,
+    fallback_suffix: str,
+    exclude: Optional[str] = None,
+) -> Path:
+    files = data_source.manifest.get("files", []) or []
+    if any(file_info.get("path") == file_name for file_info in files):
+        return data_source.file(file_name)
+    return _dataset_file_matching(data_source, fallback_suffix, exclude=exclude)
 
 
 def _dataset_file_matching(data_source, suffix: str, *, exclude: Optional[str] = None) -> Path:

@@ -1,7 +1,7 @@
 import gzip
 from pathlib import Path
 
-from src.input_adapters.chebi.chebi_obo_adapter import FullOboAdapter
+from src.input_adapters.chebi.chebi_obo_adapter import ChebiFullOboAdapter
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
 from src.registry.fetchers import MaterializedDataset
 from src.models.chebi import (
@@ -161,7 +161,7 @@ def _dataset_for_file(path: Path) -> MaterializedDataset:
 def test_chebi_full_obo_adapter_preserves_source_annotations(tmp_path: Path):
     path = tmp_path / "chebi.obo.gz"
     _write_chebi_obo(path)
-    adapter = FullOboAdapter(data_source=_dataset_for_file(path))
+    adapter = ChebiFullOboAdapter(data_source=_dataset_for_file(path))
 
     records = [entry for batch in adapter.get_all() for entry in batch]
     chemical_entities = [entry for entry in records if isinstance(entry, ChemicalEntity)]

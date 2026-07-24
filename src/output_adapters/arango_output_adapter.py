@@ -666,6 +666,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     def get_metadata(self) -> DatabaseMetadata:
         collections: List[CollectionMetadata] = []
         ignore_list = [self.metadata_store_label]
+        ignore_prefixes = ("MetaboliteHarmonizationClique",)
 
         db = self.get_db()
 
@@ -674,6 +675,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 continue
             name = collection['name']
             if name in ignore_list:
+                continue
+            if any(name.startswith(prefix) for prefix in ignore_prefixes):
                 continue
             count_query = f"""
                     RETURN COUNT(
@@ -699,6 +702,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             for row in res:
                 count = row['count']
                 source_tsv = row['value']
+                if not source_tsv:
+                    continue
                 dsd = DataSourceDetails.parse_tsv(source_tsv)
                 coll_obj.sources.append(dsd)
                 coll_obj.marginal_source_counts[dsd.name] = count
@@ -720,7 +725,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             for row in res:
                 count = row['count']
                 combined_source_tsv = row['combination']
-                sources: List[str] = [DataSourceDetails.parse_tsv(source_tsv).name for source_tsv in combined_source_tsv.split('|')]
+                sources: List[str] = []
+                for source_tsv in combined_source_tsv.split('|'):
+                    if not source_tsv:
+                        continue
+                    sources.append(DataSourceDetails.parse_tsv(source_tsv).name)
+                if not sources:
+                    continue
                 coll_obj.joint_source_counts['|'.join(sources)] = count
 
             collections.append(coll_obj)

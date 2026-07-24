@@ -1,0 +1,131 @@
+<article class="metabolite-id-compare-card">
+    <div class="metabolite-id-compare-card-header">
+        <div>
+            <strong>{{ rank }}. {{ component.change_type|title }}</strong>
+            <span>
+                {{ component.left_clique_count }} → {{ component.right_clique_count }} clique{{ "" if component.right_clique_count == 1 else "s" }}
+                · {{ "{:,}".format(component.left_member_count) }} → {{ "{:,}".format(component.right_member_count) }} IDs
+            </span>
+            {% if component.is_recombination %}
+            <span>
+                Recombination: {{ component.nontrivial_split_count }} split transition{{ "" if component.nontrivial_split_count == 1 else "s" }}
+                · {{ component.nontrivial_merge_count }} merge transition{{ "" if component.nontrivial_merge_count == 1 else "s" }}
+            </span>
+            {% elif component.nontrivial_split_count|default(0, true) %}
+            <span>
+                {{ component.nontrivial_split_count }} non-trivial split transition{{ "" if component.nontrivial_split_count == 1 else "s" }}
+                · {{ component.nontrivial_split_fragment_count }} fragments
+                · {{ "{:,}".format(component.nontrivial_split_member_count) }} IDs retained across those fragments
+            </span>
+            {% elif component.nontrivial_merge_count|default(0, true) %}
+            <span>
+                {{ component.nontrivial_merge_count }} non-trivial merge transition{{ "" if component.nontrivial_merge_count == 1 else "s" }}
+                · {{ component.nontrivial_merge_fragment_count }} source fragments
+                · {{ "{:,}".format(component.nontrivial_merge_member_count) }} IDs retained across those fragments
+            </span>
+            {% endif %}
+            {% if component.review_ids %}
+            <a class="metabolite-id-compare-review-link" href="{{ root_path }}/ramp-id-qa?{{ component.review_query_string }}" target="_blank" rel="noopener noreferrer">Open ID comparison for these stages</a>
+            {% endif %}
+        </div>
+        <dl>
+            <div><dt>Added</dt><dd>{{ "{:,}".format(component.added_count) }}</dd></div>
+            <div><dt>Removed</dt><dd>{{ "{:,}".format(component.removed_count) }}</dd></div>
+            <div><dt>Retained</dt><dd>{{ "{:,}".format(component.retained_count) }}</dd></div>
+        </dl>
+    </div>
+    <div class="metabolite-id-compare-columns">
+        <section>
+            <h3>From</h3>
+            {% for clique in component.left_cliques %}
+            <div class="metabolite-id-compare-clique">
+                <strong>{{ "{:,}".format(clique.size) }} IDs</strong>
+                <span class="mono">{{ clique.clique_key }}</span>
+                <span>rank {{ clique.rank_by_size }} · representative <span class="mono">{{ clique.representative_id }}</span></span>
+            </div>
+            {% else %}
+            <p>No materialized clique.</p>
+            {% endfor %}
+        </section>
+        <section>
+            <h3>To</h3>
+            {% for clique in component.right_cliques %}
+            <div class="metabolite-id-compare-clique">
+                <strong>{{ "{:,}".format(clique.size) }} IDs</strong>
+                <span class="mono">{{ clique.clique_key }}</span>
+                <span>rank {{ clique.rank_by_size }} · representative <span class="mono">{{ clique.representative_id }}</span></span>
+            </div>
+            {% else %}
+            <p>No materialized clique.</p>
+            {% endfor %}
+        </section>
+    </div>
+    {% if component.split_transitions %}
+    <div class="metabolite-id-compare-fragments">
+        <h3>Non-Trivial Splits</h3>
+        {% for transition in component.split_transitions %}
+        <div>
+            <strong>{{ "{:,}".format(transition.member_count) }} IDs split from <span class="mono">{{ transition.source_clique.clique_key }}</span></strong>
+            <span>{{ transition.fragment_count }} destination fragments with at least {{ component.nontrivial_split_min_size }} IDs each</span>
+            {% for fragment in transition.fragments %}
+            {% set clique = fragment.target_clique %}
+            <span>
+                {{ "{:,}".format(fragment.overlap_count) }} IDs → {{ "{:,}".format(clique.size) }} total IDs in destination · rank {{ clique.rank_by_size }}
+                · <span class="mono">{{ clique.clique_key }}</span>
+            </span>
+            {% if clique.member_ids %}
+            <span class="mono">{{ clique.member_ids|join("  ") }}</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if component.merge_transitions %}
+    <div class="metabolite-id-compare-fragments">
+        <h3>Non-Trivial Merges</h3>
+        {% for transition in component.merge_transitions %}
+        <div>
+            <strong>{{ "{:,}".format(transition.member_count) }} IDs merge into <span class="mono">{{ transition.source_clique.clique_key }}</span></strong>
+            <span>{{ transition.fragment_count }} source fragments with at least {{ component.nontrivial_split_min_size }} IDs each</span>
+            {% for fragment in transition.fragments %}
+            {% set clique = fragment.target_clique %}
+            <span>
+                {{ "{:,}".format(fragment.overlap_count) }} IDs ← {{ "{:,}".format(clique.size) }} total IDs in source · rank {{ clique.rank_by_size }}
+                · <span class="mono">{{ clique.clique_key }}</span>
+            </span>
+            {% if clique.member_ids %}
+            <span class="mono">{{ clique.member_ids|join("  ") }}</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="metabolite-id-compare-samples">
+        <section>
+            <h3>Added IDs</h3>
+            {% for item in component.added_samples %}
+            <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
+            {% else %}
+            <p>No added IDs.</p>
+            {% endfor %}
+        </section>
+        <section>
+            <h3>Removed IDs</h3>
+            {% for item in component.removed_samples %}
+            <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
+            {% else %}
+            <p>No removed IDs.</p>
+            {% endfor %}
+        </section>
+        <section>
+            <h3>Retained IDs</h3>
+            {% for item in component.retained_samples %}
+            <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
+            {% else %}
+            <p>No retained IDs.</p>
+            {% endfor %}
+        </section>
+    </div>
+</article>

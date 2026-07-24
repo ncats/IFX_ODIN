@@ -1,9 +1,11 @@
 from pathlib import Path
 from datetime import datetime
+import gzip
 
+import ijson
 import requests
 
-from src.registry.fetchers import SourceFunctionFetcher
+from src.registry.fetchers import SourceFunctionFetcher, SourceSnapshot
 from src.registry.sources.snapshot_helpers import build_downloaded_snapshot, download_stream_without_head
 
 
@@ -31,11 +33,79 @@ def latest_uniprot_human_version(timeout: int = 60) -> str:
     return version
 
 
+def _scan_uniprot_accessions(path: Path) -> dict:
+    primary_accessions = set()
+    secondary_accessions = set()
+    reviewed_primary_accessions = set()
+    records = 0
+
+    with gzip.open(path, "rb") as handle:
+        for record in ijson.items(handle, "results.item"):
+            records += 1
+            primary_accession = record.get("primaryAccession")
+            if primary_accession:
+                primary_accessions.add(primary_accession)
+            secondary_accessions.update(record.get("secondaryAccessions") or [])
+            entry_type = (record.get("entryType") or "").lower()
+            if (
+                primary_accession
+                and "reviewed" in entry_type
+                and "unreviewed" not in entry_type
+            ):
+                reviewed_primary_accessions.add(primary_accession)
+
+    return {
+        "records": records,
+        "primary_accessions": primary_accessions,
+        "secondary_accessions": secondary_accessions,
+        "reviewed_primary_accessions": reviewed_primary_accessions,
+    }
+
+
+def _validate_full_human_includes_reviewed(full_path: Path, reviewed_path: Path) -> dict:
+    full = _scan_uniprot_accessions(full_path)
+    reviewed = _scan_uniprot_accessions(reviewed_path)
+
+    full_any_accessions = full["primary_accessions"] | full["secondary_accessions"]
+    missing_reviewed_primary = sorted(
+        reviewed["primary_accessions"] - full["primary_accessions"]
+    )
+    missing_reviewed_secondary = sorted(
+        reviewed["secondary_accessions"] - full_any_accessions
+    )
+    stats = {
+        "full_records": full["records"],
+        "full_primary_accessions": len(full["primary_accessions"]),
+        "full_secondary_accessions": len(full["secondary_accessions"]),
+        "full_reviewed_primary_accessions": len(full["reviewed_primary_accessions"]),
+        "reviewed_records": reviewed["records"],
+        "reviewed_primary_accessions": len(reviewed["primary_accessions"]),
+        "reviewed_secondary_accessions": len(reviewed["secondary_accessions"]),
+        "missing_reviewed_primary_accessions": len(missing_reviewed_primary),
+        "missing_reviewed_secondary_accessions": len(missing_reviewed_secondary),
+    }
+
+    if missing_reviewed_primary or missing_reviewed_secondary:
+        sample_primary = ", ".join(missing_reviewed_primary[:20]) or "none"
+        sample_secondary = ", ".join(missing_reviewed_secondary[:20]) or "none"
+        raise ValueError(
+            "UniProt full human download does not include every reviewed human accession: "
+            f"{stats['missing_reviewed_primary_accessions']} reviewed primary accessions "
+            f"missing from full primary accessions; "
+            f"{stats['missing_reviewed_secondary_accessions']} reviewed secondary accessions "
+            f"missing from full primary+secondary accessions. "
+            f"Sample missing primary: {sample_primary}. "
+            f"Sample missing secondary: {sample_secondary}."
+        )
+
+    return stats
+
+
 def fetch_uniprot(
     *,
     dest: Path,
     timeout: int = 60,
-) -> Path:
+) -> SourceSnapshot:
     source = "uniprot"
     dataset = "human"
     urls = [
@@ -56,6 +126,10 @@ def fetch_uniprot(
         (*download_stream_without_head(urls[0], work_dir, "uniprot-human.json.gz", timeout), urls[0]),
         (*download_stream_without_head(urls[1], work_dir, "uniprot-human-reviewed.json.gz", timeout), urls[1]),
     ]
+    inclusion_stats = _validate_full_human_includes_reviewed(
+        downloaded[0][0],
+        downloaded[1][0],
+    )
     return build_downloaded_snapshot(
         source=source,
         dataset=dataset,
@@ -75,6 +149,7 @@ def fetch_uniprot(
                 "normalized_version_date": version_date,
             },
         },
+        extra={"validation": {"reviewed_in_full": inclusion_stats}},
     )
 
 

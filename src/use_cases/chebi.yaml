@@ -6,7 +6,7 @@ registry:
 
 input_adapters:
   - import: ./src/input_adapters/chebi/chebi_obo_adapter.py
-    class: FullOboAdapter
+    class: ChebiFullOboAdapter
     kwargs:
       data_source: chebi:ontology_full:252
 

@@ -121,6 +121,9 @@ class MinioStorage:
         self.client().download_file(self.bucket, key, str(local_path))
         return local_path
 
+    def delete_file(self, key: str) -> None:
+        self.client().delete_object(Bucket=self.bucket, Key=key)
+
     def list_keys(self, prefix: str = "") -> list[str]:
         client = self.client()
         paginator = client.get_paginator("list_objects_v2")
@@ -201,6 +204,9 @@ class AwsAssumeRoleStorage:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         self.client().download_file(self.bucket, key, str(local_path))
         return local_path
+
+    def delete_file(self, key: str) -> None:
+        self.client().delete_object(Bucket=self.bucket, Key=key)
 
     def list_keys(self, prefix: str = "") -> list[str]:
         client = self.client()

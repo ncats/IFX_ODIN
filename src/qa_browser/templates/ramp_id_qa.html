@@ -1,290 +1,742 @@
 {% extends "base.html" %}
-{% block title %}RaMP ID QA{% endblock %}
+{% block title %}Metabolite Harmonization Workbench{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
+{% if query_id %}
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
+<span class="sep">/</span>
+<span>{{ query_id }}</span>
+{% else %}
+<span>Metabolite Harmonization Workbench</span>
+{% endif %}
+{% endblock %}
 
 {% block content %}
-<div class="ramp-id-page">
+<div class="ramp-id-page metabolite-id-qa-page">
     <section class="ramp-id-header">
         <div>
-            <h1>RaMP ID QA</h1>
-            <p>SQLite from <span class="mono">ramp:sqlite_database:3.0.7</span>. Workbook: {{ workbook_label }}.</p>
+            <h1>Metabolite Harmonization Workbench</h1>
+            <p>Graph: <span class="mono">metabolite_harmonization</span></p>
         </div>
-        <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form">
-            <textarea name="ids" spellcheck="false" placeholder="RAMP_C_000000077&#10;RAMP_C_000001819">{{ ids }}</textarea>
-            <button type="submit" class="btn btn-primary">Open graph</button>
+        <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form metabolite-id-search">
+            <input name="id" value="{{ query_id }}" spellcheck="false" placeholder="CHEBI:4167 CHEBI:17925">
+            {% if selected_snapshot_keys %}
+            <input type="hidden" name="stages" value="{{ selected_snapshot_keys|join(',') }}">
+            {% endif %}
+            <button type="submit" class="btn btn-primary">Search</button>
         </form>
     </section>
 
-    {% if registry_error %}
-    <div class="registry-update-error">{{ registry_error }}</div>
+    {% if error %}
+    <div class="registry-update-error">{{ error }}</div>
     {% endif %}
 
-    {% if selected_ids and not registry_error %}
-    {% if navigation %}
-    <nav class="ramp-id-nav" aria-label="Workbook row navigation">
-        <div class="ramp-id-nav-current">
-            <strong>Workbook row {{ navigation.current.workbookRow }}</strong>
-            <span>{{ navigation.current.standardizedName or navigation.current.chemicalName or navigation.current.finalRampIds }}</span>
-            <small>{{ navigation.index }} of {{ navigation.total }}</small>
+    {% if not query_id and overview %}
+    {% include "ramp_id_pipeline_table.html" %}
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Materialized Stage Stats</h2>
+            <p>{{ overview.pipeline_stage_stats|length }} pipeline{{ "" if overview.pipeline_stage_stats|length == 1 else "s" }} with materialized stages</p>
         </div>
-        <div class="ramp-id-nav-actions">
-            {% if navigation.previous %}
-            <a class="btn" href="{{ root_path }}{{ navigation.previous.href }}" title="{{ navigation.previous.standardizedName or navigation.previous.chemicalName or navigation.previous.finalRampIds }}">Previous</a>
-            {% else %}
-            <span class="btn disabled">Previous</span>
-            {% endif %}
-            {% if navigation.next %}
-            <a class="btn btn-primary" href="{{ root_path }}{{ navigation.next.href }}" title="{{ navigation.next.standardizedName or navigation.next.chemicalName or navigation.next.finalRampIds }}">Next</a>
-            {% else %}
-            <span class="btn disabled">Next</span>
-            {% endif %}
-        </div>
-    </nav>
-    {% endif %}
-    <section class="ramp-id-overview">
-        <dl id="rampIdStats" class="ramp-id-stats"></dl>
-        {% if registry_metadata %}
-        <div class="ramp-id-registry-meta">
-            <strong>{{ registry_metadata.snapshot_id }}</strong>
-            <span>{{ registry_metadata.files[0].path }}</span>
-        </div>
-        {% endif %}
-    </section>
-    <div class="ramp-id-review-layout">
-        <aside class="ramp-id-diagnosis-panel">
-            <div class="ramp-id-section-header">
-                <h2>Merge Diagnosis</h2>
-                <p>{{ diagnoses|length }} saved</p>
-            </div>
-            {% if diagnosis_enabled %}
-            <form method="post" action="{{ root_path }}/ramp-id-qa/diagnosis" class="ramp-id-diagnosis-form">
-                <input type="hidden" name="ids" value="{{ selected_ids }}">
-                <input type="hidden" name="show_individual_ids" value="{{ 'true' if show_individual_ids else 'false' }}">
-                {% if navigation %}
-                <input type="hidden" name="workbook_row" value="{{ navigation.current.workbookRow }}">
-                {% if navigation.next %}
-                <input type="hidden" name="next_href" value="{{ navigation.next.href }}">
-                {% endif %}
-                {% endif %}
-                <label>
-                    <span>Reviewer</span>
-                    <input id="rampIdReviewer" type="text" name="reviewer" autocomplete="name" required>
-                </label>
-                <fieldset>
-                    <legend>Applies to</legend>
-                    <div class="ramp-id-selection-options">
-                        {% for ramp_id in parsed_ids %}
-                        <label>
-                            <input type="checkbox" name="selected_ramp_ids" value="{{ ramp_id }}" checked>
-                            <span>{{ ramp_id }}</span>
-                        </label>
-                        {% endfor %}
-                    </div>
-                </fieldset>
-                <fieldset>
-                    <legend>Problem type</legend>
-                    <div class="ramp-id-diagnosis-options">
-                        <div class="ramp-id-diagnosis-group">
-                            <h3>Merge These</h3>
-                            {% for option in diagnosis_options %}
-                            {% if option.decision == "can_group" %}
-                            <label class="ramp-id-diagnosis-option ramp-id-decision-{{ option.decision|replace('_', '-') }}">
-                                <input type="checkbox" name="diagnosis" value="{{ option.value }}">
-                                <span>
-                                    <strong>{{ option.label }}</strong>
-                                </span>
-                            </label>
-                            {% endif %}
-                            {% endfor %}
-                        </div>
-                        <div class="ramp-id-diagnosis-group">
-                            <h3>Don't Merge These</h3>
-                            {% for option in diagnosis_options %}
-                            {% if option.decision == "should_not_group" %}
-                            <label class="ramp-id-diagnosis-option ramp-id-decision-{{ option.decision|replace('_', '-') }}">
-                                <input type="checkbox" name="diagnosis" value="{{ option.value }}">
-                                <span>
-                                    <strong>{{ option.label }}</strong>
-                                </span>
-                            </label>
-                            {% endif %}
-                            {% endfor %}
-                        </div>
-                    </div>
-                </fieldset>
-                <label>
-                    <span>Note</span>
-                    <textarea name="note" rows="2" placeholder="Optional details"></textarea>
-                </label>
-                <div class="ramp-id-save-actions">
-                    <button type="submit" name="submit_action" value="save" class="btn" disabled>Save</button>
-                    <button type="submit" name="submit_action" value="save_next" class="btn btn-primary" {% if not navigation or not navigation.next %}disabled{% else %}disabled{% endif %}>Save &amp; Next</button>
+        {% for pipeline_stats in overview.pipeline_stage_stats %}
+        <section class="metabolite-id-stage-stats-group">
+            <div class="metabolite-id-stage-stats-heading">
+                <div>
+                    <h3>{{ pipeline_stats.pipeline_name }}</h3>
+                    <span class="mono">{{ pipeline_stats.pipeline_key }}</span>
                 </div>
-            </form>
-            {% else %}
-            <div class="ramp-id-structure-empty">Diagnosis storage is not configured.</div>
-            {% endif %}
-            <div class="ramp-id-diagnosis-history">
-                {% for entry in diagnoses|reverse %}
-                <article class="ramp-id-diagnosis-entry ramp-id-decision-{{ entry.decision|replace('_', '-') }}">
-                    <header>
-                        <div>
-                            <strong>{{ entry.diagnosis_label }}</strong>
-                            <span>{{ entry.decision_label }}</span>
-                        </div>
-                        <form method="post" action="{{ root_path }}/ramp-id-qa/diagnosis/{{ entry.id }}/delete" onsubmit="return window.confirm('Delete this curation?');">
-                            <input type="hidden" name="ids" value="{{ selected_ids }}">
-                            <input type="hidden" name="show_individual_ids" value="{{ 'true' if show_individual_ids else 'false' }}">
-                            <button type="submit" class="ramp-id-delete-curation" aria-label="Delete curation" title="Delete curation">×</button>
-                        </form>
-                    </header>
-                    <div class="ramp-id-diagnosis-selection">
-                        {% for ramp_id in entry.selected_ramp_ids or entry.ramp_ids %}
-                        <span>{{ ramp_id }}</span>
-                        {% endfor %}
-                    </div>
-                    <div>
-                        <span>{{ entry.reviewer }}</span>
-                        <time>{{ entry.timestamp }}</time>
-                    </div>
-                    {% if entry.note %}
-                    <p>{{ entry.note }}</p>
+                {% if pipeline_stats.run %}
+                <span>{{ pipeline_stats.run.created_at }}{% if pipeline_stats.run.elapsed_seconds %} · {{ pipeline_stats.run.elapsed_seconds }}s{% endif %}</span>
+                {% endif %}
+            </div>
+        <div class="metabolite-id-stage-stats-grid-wrap">
+            <div class="metabolite-id-stage-stats-grid">
+                <div class="metabolite-id-stage-stats-grid-header">Compare</div>
+                <div class="metabolite-id-stage-stats-grid-header">Stage</div>
+                <div class="metabolite-id-stage-stats-grid-header">Rules</div>
+                <div class="metabolite-id-stage-stats-grid-header">Active IDs</div>
+                <div class="metabolite-id-stage-stats-grid-header">Metabolites</div>
+                <div class="metabolite-id-stage-stats-grid-header">Cliques</div>
+                <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
+                <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
+                <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
+                <div class="metabolite-id-stage-stats-grid-header">Largest</div>
+                {% for stage in pipeline_stats.stages %}
+                {% set stage_summary = stage.overview_stats %}
+                {% set bins = stage_summary.bins %}
+                <div class="metabolite-id-stage-stats-grid-cell metabolite-id-stage-compare-cell">
+                    {% if not loop.first %}
+                    {% set previous_stage = pipeline_stats.stages[loop.index0 - 1] %}
+                        <a class="metabolite-id-stage-compare-button" href="{{ root_path }}/ramp-id-qa/stage-comparison?left_stage={{ previous_stage._key }}&right_stage={{ stage._key }}" target="_blank" rel="noopener noreferrer" title="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}" aria-label="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}">Compare</a>
                     {% endif %}
-                </article>
-                {% else %}
-                <div class="ramp-id-structure-empty">No saved diagnoses.</div>
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        <a href="{{ root_path }}/ramp-id-qa/stages/{{ stage._key }}" target="_blank" rel="noopener noreferrer">{{ stage.display_label }}</a>
+                        <div class="mono">{{ stage._key }}</div>
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ stage.rule_ids|length }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.active_identifier_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.clique_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.non_singleton_clique_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.singleton_identifier_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        {{ "{:,}".format(stage_summary.active_edge_count|default(0, true)) }}
+                        {% if stage_summary.ignored_edge_count %}
+                        <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
+                        {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        <div class="metabolite-id-stage-size-bins">
+                            <span>2: {{ "{:,}".format(bins.size_2|default(0, true)) }}</span>
+                            <span>3-5: {{ "{:,}".format(bins.size_3_5|default(0, true)) }}</span>
+                            <span>6-10: {{ "{:,}".format(bins.size_6_10|default(0, true)) }}</span>
+                            <span>11-50: {{ "{:,}".format(bins.size_11_50|default(0, true)) }}</span>
+                            <span>51-100: {{ "{:,}".format(bins.size_51_100|default(0, true)) }}</span>
+                            <span>101+: {{ "{:,}".format(bins.size_101_plus|default(0, true)) }}</span>
+                        </div>
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        {% if stage_summary.largest_clique_sizes %}
+                        {{ stage_summary.largest_clique_sizes[:5]|join(", ") }}
+                        {% else %}
+                        {{ stage_summary.max_size|default(0, true) }}
+                        {% endif %}
+                </div>
                 {% endfor %}
             </div>
-        </aside>
-        <div class="ramp-id-review-main">
-            <div class="ramp-id-graph-toolbar">
-                <form method="get" action="{{ root_path }}/ramp-id-qa">
-                    <input type="hidden" name="ids" value="{{ selected_ids }}">
-                    <label class="ramp-id-toggle">
-                        <input type="checkbox" name="show_individual_ids" value="true" {% if show_individual_ids %}checked{% endif %} onchange="this.form.submit()">
-                        <span>Show individual IDs</span>
-                    </label>
-                </form>
-            </div>
-            <section class="ramp-id-graph-panel">
-                <div id="rampIdCy" class="ramp-id-cy" data-ids="{{ selected_ids }}" data-show-individual-ids="{{ 'true' if show_individual_ids else 'false' }}"></div>
-                <aside class="ramp-id-detail">
-                    <h2 id="rampIdDetailTitle">Graph</h2>
-                    <p id="rampIdDetailSub">Loading {{ selected_ids }}</p>
-                    <div id="rampIdDetails" class="ramp-id-details"></div>
-                </aside>
-            </section>
-            <section class="ramp-id-structure-section">
-                <div class="ramp-id-section-header">
-                    <h2>Structures</h2>
-                    <p id="rampIdStructureSummary">Loading structures</p>
-                </div>
-                <div id="rampIdStructureTray" class="ramp-id-structure-tray"></div>
-            </section>
         </div>
+        </section>
+        {% else %}
+        <p>No materialized stages yet.</p>
+        {% endfor %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Harmonization Workbench</h2>
+            <p>Name a pipeline, order its rules, then materialize a baseline stage plus one stage after each rule.</p>
+        </div>
+        {% if overview.error %}
+        <div class="registry-update-error">{{ overview.error }}</div>
+        {% endif %}
+        <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines" class="metabolite-id-snapshot-form">
+            <div class="metabolite-id-preset-bar">
+                <div>
+                    <strong>Start From Existing Pipeline</strong>
+                    <span>Load its rule set and order, then adjust before saving a new pipeline.</span>
+                </div>
+                <select class="metabolite-id-rule-preset" id="metaboliteIdRulePreset">
+                    <option value="" data-rule-ids="[]" data-rule-parameters="{}">Blank pipeline</option>
+                    {% for pipeline in overview.pipelines %}
+                    <option value="{{ pipeline.rule_ids|default([], true)|join(',') }}"
+                            data-pipeline-key="{{ pipeline._key }}"
+                            data-pipeline-name="{{ pipeline.name }}"
+                            data-rule-ids='{{ pipeline.rule_ids|default([], true)|tojson }}'
+                            data-rule-parameters='{{ pipeline.rule_parameters|default({}, true)|tojson }}'>
+                        {{ pipeline.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="metabolite-id-rule-builder"
+                 data-rules='{{ overview.available_rules|tojson }}'>
+                <section>
+                    <h3>Available Rules</h3>
+                    <div class="metabolite-id-rule-list metabolite-id-rule-list-available" data-rule-list="available">
+                        {% for rule in overview.available_rules %}
+                        <article class="metabolite-id-rule-card" draggable="true" data-rule-id="{{ rule.id }}">
+                            <button type="button" class="metabolite-id-rule-move" data-rule-action="add" aria-label="Add {{ rule.label }}">+</button>
+                            <div>
+                                <strong>{{ rule.label }}</strong>
+                                <small>{{ rule.description }}</small>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    </div>
+                </section>
+                <section>
+                    <h3>Selected Rule Order</h3>
+                    <div class="metabolite-id-rule-list metabolite-id-rule-list-selected" data-rule-list="selected">
+                        <div class="metabolite-id-rule-empty">Baseline: no rules selected.</div>
+                    </div>
+                    <div class="metabolite-id-rule-inputs"></div>
+                </section>
+            </div>
+            <div class="metabolite-id-snapshot-submit-row">
+                <label>
+                    <span>Pipeline Name</span>
+                    <input name="pipeline_name" value="" placeholder="RaMP-ish harmonization" spellcheck="false">
+                </label>
+                <button type="submit" class="btn">Save Pipeline</button>
+                <button type="submit" class="btn btn-primary" name="run_now" value="1">Save and Run</button>
+                <span class="metabolite-id-submit-spinner">
+                    <span class="qa-loading-spinner" aria-hidden="true"></span>
+                    Starting harmonization job...
+                </span>
+            </div>
+        </form>
+    </section>
+
+    {% endif %}
+
+    {% if query_id and result and result.missing_results %}
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>No MetaboliteIdentifier</h2>
+            <p class="mono">{{ result.missing_results|map(attribute="query_id")|join(", ") }}</p>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if result and result.found %}
+    {% set primary_result = result.found_results[0] %}
+    {% set metabolite = primary_result.metabolite %}
+    <section class="ramp-id-overview metabolite-id-overview">
+        <div>
+            <h2>Comparison</h2>
+            <p class="mono">{{ result.query_ids|join("  ") }}</p>
+            {% if selected_snapshot_keys %}
+            <p>Filtered to {{ selected_snapshot_keys|length }} stage{{ "" if selected_snapshot_keys|length == 1 else "s" }}: <span class="mono">{{ selected_snapshot_keys|join(", ") }}</span></p>
+            {% endif %}
+        </div>
+        <dl class="ramp-id-stats">
+            <div><dt>Queried</dt><dd>{{ result.query_ids|length }}</dd></div>
+            <div><dt>Found</dt><dd>{{ result.found_results|length }}</dd></div>
+            <div><dt>Union IDs</dt><dd>{{ "{:,}".format(result.snapshot_union_ids|length) }}</dd></div>
+            <div><dt>Stage Groups</dt><dd>{{ "{:,}".format(result.snapshot_graphs|length) }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Queried Identifiers</h2>
+            <p>Full tables below show the first found identifier.</p>
+        </div>
+        <div class="metabolite-id-list">
+            {% for item in result.found_results %}
+            {% set item_metabolite = item.metabolite %}
+            {% set item_names = item_metabolite.names or [] %}
+            {% set item_synonyms = item_metabolite.synonyms or [] %}
+            <div>
+                <strong class="mono">{{ item_metabolite.id }}</strong>
+                <span>
+                    {{ item_metabolite.prefix or "" }}
+                    · {{ item_names|length }} names
+                    · {{ item_synonyms|length }} synonyms
+                    · {{ item.mapping_edge_count }} mapping edges
+                    {% if item.chemical_entity %} · ChEBI: {{ item.chemical_entity.name or item.chemical_entity.id }}{% endif %}
+                </span>
+                {% if item_names %}
+                <span>{{ item_names[:4]|map(attribute="value")|join("; ") }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="ramp-id-table-section metabolite-id-sankey-section">
+        <div class="ramp-id-section-header">
+            <h2>Stage Flow</h2>
+            <p>{{ result.snapshot_sankey.nodes|length }} clique node{{ "" if result.snapshot_sankey.nodes|length == 1 else "s" }} · {{ result.snapshot_sankey.links|length }} transition{{ "" if result.snapshot_sankey.links|length == 1 else "s" }}</p>
+        </div>
+        <div class="metabolite-id-sankey-controls">
+            <div>
+                <strong>Stage Order</strong>
+                <span>Drag stages to change the Sankey sequence.</span>
+            </div>
+            <div id="metaboliteIdSankeyOrder" class="metabolite-id-sankey-order"></div>
+        </div>
+        <div id="metaboliteIdSnapshotSankey" class="metabolite-id-sankey"></div>
+        <div id="metaboliteIdSnapshotSankeyTip" class="metabolite-id-sankey-tip"></div>
+    </section>
+
+    <section class="ramp-id-table-section metabolite-id-component-panel">
+        <div class="ramp-id-section-header">
+            <h2>Selected Stage Group</h2>
+            <p>Select a bar in the Sankey plot to inspect that clique.</p>
+        </div>
+        <div id="metaboliteIdSelectedCliqueEmpty" class="ramp-id-structure-empty">No Sankey bar selected.</div>
+        <div id="metaboliteIdSelectedCliquePanel" hidden>
+            <div class="metabolite-id-snapshot-clique-heading">
+                <strong data-selected-clique-title>Stage group</strong>
+                <span data-selected-clique-subtitle></span>
+            </div>
+            <div class="metabolite-id-snapshot-rules" data-selected-clique-rules></div>
+            <div class="metabolite-id-component-layout">
+                <div id="metaboliteIdSelectedCliqueGraph" class="metabolite-id-cy metabolite-id-snapshot-graph"></div>
+                <aside class="metabolite-id-graph-detail">
+                    <h3 data-snapshot-graph-title>Stage Group</h3>
+                    <p data-snapshot-graph-subtitle>Select a node or edge</p>
+                    <div data-snapshot-graph-details class="ramp-id-details"></div>
+                </aside>
+            </div>
+        </div>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Primary Identifier Detail</h2>
+            <p class="mono">{{ metabolite.id }}</p>
+        </div>
+    </section>
+
+    <div class="metabolite-id-grid">
+        <section class="ramp-id-table-section">
+            {% set metabolite_names = metabolite.names or [] %}
+            <div class="ramp-id-section-header">
+                <h2>Names</h2>
+                <p>{{ metabolite_names|length }} source-attributed values</p>
+            </div>
+            <div class="metabolite-id-list">
+                {% for item in metabolite_names %}
+                <div>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.source }}{% if item.source_field %} · {{ item.source_field }}{% endif %}</span>
+                </div>
+                {% else %}
+                <div class="ramp-id-structure-empty">No names on this identifier.</div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="ramp-id-table-section">
+            {% set metabolite_synonyms = metabolite.synonyms or [] %}
+            <div class="ramp-id-section-header">
+                <h2>Synonyms</h2>
+                <p>{{ metabolite_synonyms|length }} source-attributed values</p>
+            </div>
+            <div class="metabolite-id-list metabolite-id-scroll-list">
+                {% for item in metabolite_synonyms %}
+                <div>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.source }}{% if item.source_field %} · {{ item.source_field }}{% endif %}</span>
+                </div>
+                {% else %}
+                <div class="ramp-id-structure-empty">No synonyms on this identifier.</div>
+                {% endfor %}
+            </div>
+        </section>
     </div>
+
+    <section class="ramp-id-table-section">
+        {% set metabolite_chem_props = metabolite.chem_props or [] %}
+        <div class="ramp-id-section-header">
+            <h2>Chemical Properties</h2>
+            <p>{{ metabolite_chem_props|length }} source records</p>
+        </div>
+        <div class="ramp-id-table-wrap">
+            <table class="ramp-id-table">
+                <thead>
+                    <tr>
+                        <th>Source</th>
+                        <th>Source ID</th>
+                        <th>Name</th>
+                        <th>Formula</th>
+                        <th>MW</th>
+                        <th>Mono Mass</th>
+                        <th>InChIKey</th>
+                        <th>SMILES</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prop in metabolite_chem_props %}
+                    <tr>
+                        <td>{{ prop.source }}</td>
+                        <td class="mono">{{ prop.source_id }}</td>
+                        <td>{{ prop.common_name or prop.iupac_name or "" }}</td>
+                        <td class="mono">{{ prop.molecular_formula or "" }}</td>
+                        <td>{{ prop.mw or "" }}</td>
+                        <td>{{ prop.monoisotopic_mass or "" }}</td>
+                        <td class="mono">{{ prop.inchi_key or "" }}</td>
+                        <td class="mono">{{ prop.iso_smiles or prop.isomeric_smiles or prop.canonical_smiles or "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8">No chemical properties on this identifier.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% if primary_result.chemical_entity %}
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>ChEBI ChemicalEntity</h2>
+            <p>{{ primary_result.chemical_entity.name or primary_result.chemical_entity.id }}</p>
+        </div>
+        <dl class="metabolite-id-details">
+            <div><dt>Name</dt><dd>{{ primary_result.chemical_entity.name or "" }}</dd></div>
+            <div><dt>Definition</dt><dd>{{ primary_result.chemical_entity.definition or "" }}</dd></div>
+            <div><dt>Formula</dt><dd class="mono">{{ primary_result.chemical_entity.formula or "" }}</dd></div>
+            <div><dt>Mass</dt><dd>{{ primary_result.chemical_entity.mass or "" }}</dd></div>
+            <div><dt>Monoisotopic Mass</dt><dd>{{ primary_result.chemical_entity.monoisotopic_mass or "" }}</dd></div>
+            <div><dt>InChIKey</dt><dd class="mono">{{ primary_result.chemical_entity.inchi_key or "" }}</dd></div>
+            <div><dt>SMILES</dt><dd class="mono">{{ primary_result.chemical_entity.smiles or "" }}</dd></div>
+            <div><dt>Subsets</dt><dd>{{ primary_result.chemical_entity.subsets|join(", ") }}</dd></div>
+            <div><dt>Alt IDs</dt><dd>{{ primary_result.chemical_entity.alt_ids|join(", ") }}</dd></div>
+        </dl>
+    </section>
     {% endif %}
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
-            <h2>Multi-hit Workbook Rows</h2>
+            <h2>Equivalent Identifier Edges</h2>
             <p>
-                {{ multiramp_rows|length }} rows where final_RaMP_hit_count &gt; 1
-                <a class="btn btn-sm" href="{{ root_path }}/ramp-id-qa/curations.csv">Download curations</a>
+                {{ primary_result.mapping_edge_count }} edge{{ "" if primary_result.mapping_edge_count == 1 else "s" }}
+                {% if primary_result.mapping_edges_truncated %}(showing first {{ primary_result.mapping_edges|length }}){% endif %}
             </p>
         </div>
         <div class="ramp-id-table-wrap">
             <table class="ramp-id-table">
                 <thead>
                     <tr>
-                        <th>Row</th>
-                        <th>Name</th>
-                        <th>Hits</th>
-                        <th>Curation</th>
-                        <th>RaMP IDs</th>
-                        <th>Metabolon</th>
+                        <th>Neighbor</th>
+                        <th>Neighbor Names</th>
+                        <th>Edge</th>
+                        <th>Evidence</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for row in multiramp_rows %}
+                    {% for edge in primary_result.mapping_edges %}
+                    {% set neighbor_names = edge.neighbor.names if edge.neighbor and edge.neighbor.names else [] %}
                     <tr>
-                        <td>{{ row.workbookRow }}</td>
-                        <td><a href="{{ root_path }}{{ row.href }}">{{ row.standardizedName or row.chemicalName or "(unnamed)" }}</a></td>
-                        <td>{{ row.finalRampHitCount }}</td>
+                        <td class="mono">
+                            <a href="{{ root_path }}/ramp-id-qa?id={{ edge.neighbor_id|urlencode }}">{{ edge.neighbor_id }}</a>
+                        </td>
                         <td>
-                            {% set summary = row.curationSummary %}
-                            {% if summary.total %}
-                            <div class="ramp-id-curation-icons" title="{{ summary.total }} curation(s) by {{ summary.reviewers|join(', ') }}">
-                                {% if summary.can_group_count %}
-                                <span class="ramp-id-curation-icon ramp-id-curation-merge">M {{ summary.can_group_count }}</span>
-                                {% endif %}
-                                {% if summary.should_not_group_count %}
-                                <span class="ramp-id-curation-icon ramp-id-curation-keep">K {{ summary.should_not_group_count }}</span>
-                                {% endif %}
-                            </div>
-                            {% else %}
-                            <span class="ramp-id-curation-none">None</span>
+                            {% if neighbor_names %}
+                            {{ neighbor_names[:3]|map(attribute="value")|join("; ") }}
                             {% endif %}
                         </td>
-                        <td class="mono">{{ row.finalRampIds }}</td>
-                        <td>{{ row.metabolonId or row.chemId }}</td>
+                        <td class="mono">{{ edge.start_id }} → {{ edge.end_id }}</td>
+                        <td>
+                            {% for detail in edge.details %}
+                            <div><strong>{{ detail.source }}</strong> {{ detail.source_field }}{% if detail.source_id %} from <span class="mono">{{ detail.source_id }}</span>{% endif %}</div>
+                            {% endfor %}
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6">No workbook rows found.</td></tr>
+                    <tr><td colspan="4">No equivalence edges for this identifier.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </section>
+
+    {% if primary_result.chebi_bridge_edges %}
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>ChEBI Bridge</h2>
+            <p>{{ primary_result.chebi_bridge_edges|length }} bridge edge{{ "" if primary_result.chebi_bridge_edges|length == 1 else "s" }}</p>
+        </div>
+        <pre class="metabolite-id-json">{{ primary_result.chebi_bridge_edges|tojson(indent=2) }}</pre>
+    </section>
+    {% endif %}
+
+    <section class="ramp-id-table-section">
+        <details>
+            <summary>Raw Payload</summary>
+            <pre class="metabolite-id-json">{{ result|tojson(indent=2) }}</pre>
+        </details>
+    </section>
+    {% endif %}
 </div>
 
-{% if selected_ids and not registry_error %}
+{% if result and result.found %}
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
 <script src="{{ root_path }}/static/cytoscape.min.js"></script>
 <script>
 (function () {
-    const rootPath = {{ root_path | tojson }};
-    const graphEl = document.getElementById("rampIdCy");
-    const detailTitle = document.getElementById("rampIdDetailTitle");
-    const detailSub = document.getElementById("rampIdDetailSub");
-    const detailBox = document.getElementById("rampIdDetails");
-    const statsBox = document.getElementById("rampIdStats");
-    const structureTray = document.getElementById("rampIdStructureTray");
-    const structureSummary = document.getElementById("rampIdStructureSummary");
-    const reviewerInput = document.getElementById("rampIdReviewer");
-    const diagnosisForm = document.querySelector(".ramp-id-diagnosis-form");
+    const snapshotGraphs = {{ result.snapshot_graphs|tojson }};
+    const sankeyPayload = {{ result.snapshot_sankey|tojson }};
+    let sankeySnapshotOrder = snapshotOrderFromPayload();
+    let selectedSankeyNodeId = null;
+    let selectedCliqueCy = null;
 
-    if (reviewerInput) {
-        reviewerInput.value = window.localStorage.getItem("rampIdQaReviewer") || "";
-        reviewerInput.addEventListener("input", () => {
-            window.localStorage.setItem("rampIdQaReviewer", reviewerInput.value);
+    function snapshotOrderFromPayload() {
+        const snapshots = [];
+        const seen = new Set();
+        sankeyPayload.nodes
+            .slice()
+            .sort((left, right) => Number(left.stageIndex || 0) - Number(right.stageIndex || 0))
+            .forEach((node) => {
+                if (!node.snapshot_key || seen.has(node.snapshot_key)) {
+                    return;
+                }
+                seen.add(node.snapshot_key);
+                snapshots.push({
+                    key: node.snapshot_key,
+                    name: node.snapshot || node.snapshot_key,
+                    visible: true,
+                });
+            });
+        return snapshots;
+    }
+
+    function buildOrderedSankeyPayload() {
+        const visibleSnapshotOrder = sankeySnapshotOrder.filter((snapshot) => snapshot.visible !== false);
+        const orderBySnapshot = new Map(visibleSnapshotOrder.map((snapshot, index) => [snapshot.key, index]));
+        const nodes = sankeyPayload.nodes
+            .filter((node) => orderBySnapshot.has(node.snapshot_key))
+            .map((node) => ({
+                ...node,
+                stageIndex: orderBySnapshot.get(node.snapshot_key),
+            }));
+        const nodeIds = new Set(nodes.map((node) => node.id));
+        const snapshotByKey = new Map(snapshotGraphs.map((section) => [section.snapshot_key, section]));
+        const linksByPair = new Map();
+        for (let index = 0; index < visibleSnapshotOrder.length - 1; index += 1) {
+            const left = snapshotByKey.get(visibleSnapshotOrder[index].key);
+            const right = snapshotByKey.get(visibleSnapshotOrder[index + 1].key);
+            if (!left || !right) {
+                continue;
+            }
+            const leftByMember = new Map();
+            const rightByMember = new Map();
+            const leftCliqueByNodeId = new Map();
+            (left.cliques || []).forEach((clique) => {
+                const nodeId = `${left.snapshot_key}::${clique.clique_key}`;
+                if (!nodeIds.has(nodeId)) {
+                    return;
+                }
+                leftCliqueByNodeId.set(nodeId, clique);
+                (clique.member_ids || []).forEach((memberId) => leftByMember.set(memberId, nodeId));
+            });
+            (right.cliques || []).forEach((clique) => {
+                const nodeId = `${right.snapshot_key}::${clique.clique_key}`;
+                if (!nodeIds.has(nodeId)) {
+                    return;
+                }
+                (clique.member_ids || []).forEach((memberId) => rightByMember.set(memberId, nodeId));
+            });
+            Array.from(leftByMember.keys()).sort().forEach((memberId) => {
+                if (!rightByMember.has(memberId)) {
+                    return;
+                }
+                const source = leftByMember.get(memberId);
+                const target = rightByMember.get(memberId);
+                const pairKey = `${source}::${target}`;
+                const link = linksByPair.get(pairKey) || {
+                    source,
+                    target,
+                    value: 0,
+                    member_ids: [],
+                    member_names: [],
+                };
+                link.value += 1;
+                if (link.member_ids.length < 25) {
+                    link.member_ids.push(memberId);
+                    const memberName = leftCliqueByNodeId.get(source)?.member_name_by_id?.[memberId];
+                    if (memberName && memberName !== memberId) {
+                        link.member_names.push(memberName);
+                    }
+                }
+                linksByPair.set(pairKey, link);
+            });
+        }
+        const links = Array.from(linksByPair.values());
+        return {nodes, links};
+    }
+
+    function drawSankey() {
+        const container = document.getElementById("metaboliteIdSnapshotSankey");
+        if (!container || !window.d3 || !d3.sankey || !sankeyPayload.nodes.length) {
+            return;
+        }
+        container.innerHTML = "";
+        const orderedPayload = buildOrderedSankeyPayload();
+        if (!orderedPayload.nodes.length) {
+            container.innerHTML = '<div class="ramp-id-structure-empty">No stages selected for the Sankey plot.</div>';
+            return;
+        }
+        const width = Math.max(720, container.clientWidth || 720);
+        const height = Math.max(420, Math.min(900, 180 + orderedPayload.nodes.length * 34));
+        const margin = {top: 24, right: 24, bottom: 24, left: 24};
+        const graph = {
+            nodes: orderedPayload.nodes.map((node) => ({...node})),
+            links: orderedPayload.links.map((link) => ({...link})),
+        };
+        const svg = d3.select(container).append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("viewBox", [0, 0, width, height]);
+        const sankey = d3.sankey()
+            .nodeId((node) => node.id)
+            .nodeWidth(18)
+            .nodePadding(14)
+            .nodeAlign((node) => node.stageIndex)
+            .extent([[margin.left, margin.top], [width - margin.right, height - margin.bottom]]);
+        sankey(graph);
+        const color = d3.scaleOrdinal(d3.schemeTableau10);
+        const tip = d3.select("#metaboliteIdSnapshotSankeyTip");
+        const showTip = (event, html) => {
+            tip.html(html).style("opacity", 1);
+            const box = tip.node().getBoundingClientRect();
+            const pad = 14;
+            let left = event.clientX + 14;
+            let top = event.clientY + 14;
+            if (left + box.width + pad > window.innerWidth) left = event.clientX - box.width - 14;
+            if (top + box.height + pad > window.innerHeight) top = event.clientY - box.height - 14;
+            tip.style("left", `${Math.max(pad, left)}px`).style("top", `${Math.max(pad, top)}px`);
+        };
+        const hideTip = () => tip.style("opacity", 0);
+        svg.append("g")
+            .attr("fill", "none")
+            .selectAll("path")
+            .data(graph.links)
+            .join("path")
+            .attr("d", d3.sankeyLinkHorizontal())
+            .attr("stroke", (link) => link.source.is_singleton_bucket || link.target.is_singleton_bucket ? "#94a3b8" : color(link.source.snapshot_key))
+            .attr("stroke-width", (link) => Math.max(1, link.width))
+            .attr("stroke-opacity", 0.62)
+            .on("mousemove", (event, link) => showTip(event,
+                formatSankeyHover(link.mass_summary, link.member_names, link.member_ids)))
+            .on("mouseleave", hideTip);
+        const node = svg.append("g")
+            .selectAll("g")
+            .data(graph.nodes)
+            .join("g");
+        node.append("rect")
+            .attr("x", (node) => node.x0)
+            .attr("y", (node) => node.y0)
+            .attr("height", (node) => Math.max(1, node.y1 - node.y0))
+            .attr("width", (node) => node.x1 - node.x0)
+            .attr("rx", 3)
+            .attr("fill", (node) => node.is_singleton_bucket ? "#94a3b8" : color(node.snapshot_key))
+            .attr("stroke", (node) => node.id === selectedSankeyNodeId ? "#f59e0b" : "rgba(15, 23, 42, 0.35)")
+            .attr("stroke-width", (node) => node.id === selectedSankeyNodeId ? 3 : 1)
+            .style("cursor", "pointer")
+            .on("mousemove", (event, node) => showTip(event,
+                formatSankeyHover(node.mass_summary, node.name_samples, node.member_id_samples)))
+            .on("mouseleave", hideTip)
+            .on("click", (event, node) => {
+                selectedSankeyNodeId = node.id;
+                renderSelectedSnapshotClique(node);
+                drawSankey();
+            });
+        node.append("text")
+            .attr("x", (node) => node.x0 < width / 2 ? node.x1 + 8 : node.x0 - 8)
+            .attr("y", (node) => (node.y0 + node.y1) / 2 + 4)
+            .attr("text-anchor", (node) => node.x0 < width / 2 ? "start" : "end")
+            .attr("font-size", 11)
+            .attr("font-weight", 700)
+            .text((node) => node.name)
+            .each(function () {
+                const text = d3.select(this);
+                const parts = text.text().split("\\n");
+                text.text("");
+                parts.forEach((part, index) => {
+                    text.append("tspan")
+                        .attr("x", text.attr("x"))
+                        .attr("dy", index ? 13 : 0)
+                        .text(ellipsize(part, 32));
+                });
+            });
+    }
+
+    function renderSankeyOrder() {
+        const container = document.getElementById("metaboliteIdSankeyOrder");
+        if (!container) {
+            return;
+        }
+        container.innerHTML = "";
+        sankeySnapshotOrder.forEach((snapshot) => {
+            const item = document.createElement("article");
+            item.draggable = true;
+            item.className = "metabolite-id-sankey-order-item";
+            item.dataset.snapshotKey = snapshot.key;
+            if (snapshot.visible === false) {
+                item.classList.add("is-hidden");
+            }
+            item.innerHTML = `
+                <label>
+                    <input type="checkbox" ${snapshot.visible === false ? "" : "checked"} aria-label="Show ${escapeHtml(snapshot.name)} in Sankey">
+                    <span></span>
+                </label>
+                <small></small>
+            `;
+            item.querySelector("span").textContent = snapshot.name;
+            item.querySelector("small").textContent = snapshot.key;
+            container.appendChild(item);
         });
     }
-    if (diagnosisForm) {
-        const saveButtons = diagnosisForm.querySelectorAll('button[type="submit"]');
-        const saveNextButton = diagnosisForm.querySelector('button[name="submit_action"][value="save_next"]');
-        const hasNext = {{ 'true' if navigation and navigation.next else 'false' }};
-        function updateSaveButtons() {
-            const selectedIds = diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"]:checked');
-            const selectedDiagnoses = diagnosisForm.querySelectorAll('input[name="diagnosis"]:checked');
-            const canSave = selectedIds.length > 0 && selectedDiagnoses.length > 0;
-            saveButtons.forEach((button) => {
-                button.disabled = !canSave;
-            });
-            if (saveNextButton && !hasNext) {
-                saveNextButton.disabled = true;
+
+    let draggedSankeySnapshotKey = null;
+    const sankeyOrderContainer = document.getElementById("metaboliteIdSankeyOrder");
+    if (sankeyOrderContainer) {
+        sankeyOrderContainer.addEventListener("dragstart", (event) => {
+            const item = event.target.closest(".metabolite-id-sankey-order-item");
+            if (!item) {
+                return;
             }
-        }
-        diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"], input[name="diagnosis"]').forEach((input) => {
-            input.addEventListener("change", updateSaveButtons);
-        });
-        updateSaveButtons();
-        diagnosisForm.addEventListener("submit", (event) => {
-            const selectedIds = diagnosisForm.querySelectorAll('input[name="selected_ramp_ids"]:checked');
-            const selectedDiagnoses = diagnosisForm.querySelectorAll('input[name="diagnosis"]:checked');
-            if (!selectedIds.length || !selectedDiagnoses.length) {
+            if (event.target.closest('input[type="checkbox"]')) {
                 event.preventDefault();
-                window.alert("Select at least one RaMP ID and one diagnosis.");
+                return;
+            }
+            draggedSankeySnapshotKey = item.dataset.snapshotKey;
+            item.classList.add("is-dragging");
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", draggedSankeySnapshotKey);
+        });
+        sankeyOrderContainer.addEventListener("change", (event) => {
+            const checkbox = event.target.closest('.metabolite-id-sankey-order-item input[type="checkbox"]');
+            if (!checkbox) {
+                return;
+            }
+            const item = checkbox.closest(".metabolite-id-sankey-order-item");
+            const snapshot = sankeySnapshotOrder.find((entry) => entry.key === item?.dataset.snapshotKey);
+            if (!snapshot) {
+                return;
+            }
+            snapshot.visible = checkbox.checked;
+            item.classList.toggle("is-hidden", !checkbox.checked);
+            drawSankey();
+        });
+        sankeyOrderContainer.addEventListener("dragover", (event) => {
+            if (draggedSankeySnapshotKey) {
+                event.preventDefault();
             }
         });
+        sankeyOrderContainer.addEventListener("drop", (event) => {
+            event.preventDefault();
+            const target = event.target.closest(".metabolite-id-sankey-order-item");
+            const sourceKey = event.dataTransfer.getData("text/plain") || draggedSankeySnapshotKey;
+            const targetKey = target?.dataset.snapshotKey;
+            if (!sourceKey || !targetKey || sourceKey === targetKey) {
+                return;
+            }
+            const source = sankeySnapshotOrder.find((snapshot) => snapshot.key === sourceKey);
+            if (!source) {
+                return;
+            }
+            const nextOrder = sankeySnapshotOrder.filter((snapshot) => snapshot.key !== sourceKey);
+            let targetIndex = nextOrder.findIndex((snapshot) => snapshot.key === targetKey);
+            if (target) {
+                const box = target.getBoundingClientRect();
+                if (event.clientY > box.top + box.height / 2) {
+                    targetIndex += 1;
+                }
+            }
+            nextOrder.splice(targetIndex, 0, source);
+            sankeySnapshotOrder = nextOrder;
+            renderSankeyOrder();
+            drawSankey();
+        });
+        sankeyOrderContainer.addEventListener("dragend", () => {
+            draggedSankeySnapshotKey = null;
+            sankeyOrderContainer.querySelectorAll(".is-dragging").forEach((item) => item.classList.remove("is-dragging"));
+        });
+    }
+
+    renderSankeyOrder();
+    drawSankey();
+    if (!window.cytoscape) {
+        return;
     }
 
     function escapeHtml(value) {
@@ -295,194 +747,603 @@
             .replaceAll('"', "&quot;");
     }
 
-    function renderStats(stats) {
-        const rows = [
-            ["RaMP", stats.rampCount],
-            ["Sources", stats.sourceCount],
-            ["InChIKeys", stats.inchiKeyCount],
-            ["Stereo-free keys", stats.stereoFreeKeyCount],
-        ];
-        statsBox.innerHTML = rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+    function ellipsize(value, maxLength = 72) {
+        const text = String(value ?? "");
+        return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
     }
 
-    function renderDetails(data) {
-        const keys = [
-            "id", "name", "sourceId", "idType", "dataSources", "sourceNames", "names",
-            "inchiKey", "stereoFreeInchiKey", "masses", "formulas", "smiles", "noStereoSmiles", "inchiKeys",
-        ];
-        detailTitle.textContent = data.label || data.id || "Selection";
-        detailSub.textContent = data.kind || "";
-        detailBox.innerHTML = keys
-            .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
-            .map((key) => `<div><strong>${escapeHtml(key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
-            .join("");
-    }
-
-    function structureImageUrl(smiles, size = 360) {
-        return `https://renderer.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(smiles)}&size=${encodeURIComponent(size)}`;
-    }
-
-    function firstValue(...values) {
-        return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") || "";
-    }
-
-    function massList(molecularWeights, monoisotopicMasses) {
-        const values = [];
-        if (molecularWeights) {
-            values.push(`MW: ${molecularWeights}`);
-        }
-        if (monoisotopicMasses) {
-            values.push(`Monoisotopic: ${monoisotopicMasses}`);
-        }
-        return values.join(" | ");
-    }
-
-    function buildStructureGroups(chemRows) {
-        const groupsByRamp = new Map();
+    function distinctValues(values) {
         const seen = new Set();
-        for (const row of chemRows || []) {
-            const smiles = firstValue(row.iso_smiles);
-            const rampId = firstValue(row.ramp_id, "Unknown RaMP ID");
-            if (!smiles) {
+        const result = [];
+        for (const value of values || []) {
+            const text = String(value ?? "").trim();
+            if (!text || seen.has(text)) {
                 continue;
             }
-            const key = `${rampId}::${firstValue(row.chem_source_id)}::${smiles}`;
-            if (seen.has(key)) {
-                continue;
-            }
-            seen.add(key);
-            if (!groupsByRamp.has(rampId)) {
-                groupsByRamp.set(rampId, []);
-            }
-            groupsByRamp.get(rampId).push({
-                rampId,
-                sourceId: firstValue(row.chem_source_id),
-                dataSource: firstValue(row.chem_data_source),
-                name: firstValue(row.common_name),
-                formula: firstValue(row.mol_formula),
-                masses: massList(firstValue(row.mw), firstValue(row.monoisotop_mass)),
-                inchiKey: firstValue(row.inchi_key),
-                smiles,
-                imageUrl: structureImageUrl(smiles, 500),
-            });
+            seen.add(text);
+            result.push(text);
         }
-        return Array.from(groupsByRamp.entries()).map(([rampId, items]) => ({ rampId, items }));
+        return result;
     }
 
-    function renderStructures(chemRows) {
-        const groups = buildStructureGroups(chemRows);
-        const cardCount = groups.reduce((total, group) => total + group.items.length, 0);
-        structureSummary.textContent = cardCount ? `${cardCount} rendered from chem_props SMILES` : "No SMILES available in chem_props";
-        if (!cardCount) {
-            structureTray.innerHTML = `<div class="ramp-id-structure-empty">No structures available for these RaMP IDs.</div>`;
-            return;
+    function formatHoverSamples(names, ids) {
+        const allNames = distinctValues(names);
+        const allIds = distinctValues(ids);
+        const distinctNames = allNames.slice(0, 10);
+        const distinctIds = allIds.slice(0, 10);
+        const nameHtml = distinctNames.length
+            ? `<strong>Names (${allNames.length.toLocaleString()})</strong><br>${distinctNames.map((name) => escapeHtml(ellipsize(name))).join("<br>")}`
+            : "";
+        const idHtml = distinctIds.length
+            ? `<strong>IDs (${allIds.length.toLocaleString()})</strong><br>${distinctIds.map(escapeHtml).join("<br>")}`
+            : "";
+        return [nameHtml, idHtml].filter(Boolean).join("<br><br>");
+    }
+
+    function formatMassSummary(summary) {
+        if (!summary || !summary.count) {
+            return "";
         }
-        structureTray.innerHTML = groups.map((group) => `
-            <section class="ramp-id-structure-group">
-                <h3>${escapeHtml(group.rampId)} <span>${group.items.length}</span></h3>
-                <div class="ramp-id-structure-cards">
-                    ${group.items.map((item) => `
-                        <article class="ramp-id-structure-card">
-                            <header>
-                                <strong>${escapeHtml(item.sourceId || item.dataSource || item.rampId)}</strong>
-                                <span>${escapeHtml(item.name || item.formula || item.inchiKey || item.smiles)}</span>
-                            </header>
-                            <img src="${escapeHtml(item.imageUrl)}" alt="Rendered structure for ${escapeHtml(item.smiles)}" loading="lazy">
-                            <dl>
-                                ${item.dataSource ? `<div><dt>Source</dt><dd>${escapeHtml(item.dataSource)}</dd></div>` : ""}
-                                ${item.formula ? `<div><dt>Formula</dt><dd>${escapeHtml(item.formula)}</dd></div>` : ""}
-                                ${item.masses ? `<div><dt>Masses</dt><dd>${escapeHtml(item.masses)}</dd></div>` : ""}
-                                ${item.inchiKey ? `<div><dt>InChIKey</dt><dd>${escapeHtml(item.inchiKey)}</dd></div>` : ""}
-                            </dl>
-                            <div class="ramp-id-structure-smiles">${escapeHtml(item.smiles)}</div>
-                        </article>
-                    `).join("")}
+        const formatMass = (value) => Number(value).toLocaleString(undefined, {
+            maximumFractionDigits: 4,
+        });
+        return `<strong>MW</strong><br>min ${formatMass(summary.min)} · median ${formatMass(summary.median)} · max ${formatMass(summary.max)}<br>${Number(summary.count).toLocaleString()} mass value${summary.count === 1 ? "" : "s"}`;
+    }
+
+    function formatSankeyHover(massSummary, names, ids) {
+        const sections = [
+            formatMassSummary(massSummary),
+            formatHoverSamples(names, ids),
+        ].filter(Boolean);
+        return sections.length ? sections.join("<br><br>") : "No sampled IDs";
+    }
+
+    function formatInlineList(values, maxItems = 6) {
+        const distinct = distinctValues(values);
+        if (!distinct.length) {
+            return "";
+        }
+        const shown = distinct.slice(0, maxItems).map((value) => `<code>${escapeHtml(value)}</code>`).join(", ");
+        return distinct.length > maxItems ? `${shown} <span class="subtle">+${distinct.length - maxItems} more</span>` : shown;
+    }
+
+    function detailRow(label, value, options = {}) {
+        if (value === undefined || value === null || value === "") {
+            return "";
+        }
+        const content = options.html ? value : escapeHtml(value);
+        return `<div><strong>${escapeHtml(label)}</strong><span>${content}</span></div>`;
+    }
+
+    function renderChemPropTable(records) {
+        if (!records || !records.length) {
+            return "";
+        }
+        const rows = records.map((prop) => `
+            <tr>
+                <td>${escapeHtml(prop.source || "")}</td>
+                <td><code>${escapeHtml(prop.source_id || "")}</code></td>
+                <td>${escapeHtml(prop.formula || "")}</td>
+                <td>${escapeHtml(prop.mw || "")}</td>
+                <td>${escapeHtml(prop.monoisotopic_mass || "")}</td>
+            </tr>
+        `).join("");
+        return `
+            <section class="metabolite-id-detail-section">
+                <h4>Chemical Property Records</h4>
+                <div class="metabolite-id-detail-table-wrap">
+                    <table class="ramp-id-table">
+                        <thead><tr><th>Source</th><th>Source ID</th><th>Formula</th><th>MW</th><th>Mono Mass</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
                 </div>
             </section>
-        `).join("");
+        `;
     }
 
-    const graphParams = new URLSearchParams({
-        ids: graphEl.dataset.ids,
-        show_individual_ids: graphEl.dataset.showIndividualIds === "true" ? "true" : "false",
-    });
-    fetch(`${rootPath}/ramp-id-qa/api/graph?${graphParams.toString()}`)
-        .then((response) => {
-            if (!response.ok) {
-                return response.json().then((payload) => {
-                    throw new Error(payload.detail || response.statusText);
+    function renderStructureData(data) {
+        const smiles = distinctValues(data.smiles || []);
+        const inchiKeys = distinctValues(data.inchi_keys || []);
+        const entity = data.chemical_entity || {};
+        const renderableStructure = renderableNodeStructure(data);
+        const structureImage = renderableStructure
+            ? `
+                <div class="metabolite-id-structure-render">
+                    <img src="https://opendata.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(renderableStructure)}&size=320"
+                         alt="Chemical structure rendering">
+                </div>
+            `
+            : "";
+        const rows = [
+            detailRow("SMILES", formatInlineList(smiles, 3), {html: true}),
+            detailRow("InChIKey", formatInlineList(inchiKeys, 4), {html: true}),
+            detailRow("ChEBI SMILES", entity.smiles ? `<code>${escapeHtml(entity.smiles)}</code>` : "", {html: true}),
+            detailRow("ChEBI InChIKey", entity.inchi_key ? `<code>${escapeHtml(entity.inchi_key)}</code>` : "", {html: true}),
+        ].filter(Boolean).join("");
+        if (!rows && !structureImage) {
+            return "";
+        }
+        return `
+            <section class="metabolite-id-detail-section">
+                <h4>Structure Data</h4>
+                ${structureImage}
+                <div class="ramp-id-details">${rows}</div>
+            </section>
+        `;
+    }
+
+    function renderableNodeStructure(data) {
+        const smiles = distinctValues(data.smiles || []);
+        const entity = data.chemical_entity || {};
+        return smiles[0] || entity.smiles || "";
+    }
+
+    function graphElementsWithStructureImages(elements) {
+        return (elements || []).map((element) => {
+            if (!element.data || element.group === "edges" || element.data.source || element.data.target) {
+                return element;
+            }
+            const structure = renderableNodeStructure(element.data);
+            if (!structure) {
+                return element;
+            }
+            return {
+                ...element,
+                classes: `${element.classes || ""} has-structure`.trim(),
+                data: {
+                    ...element.data,
+                    structure_image: `https://opendata.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(structure)}&size=220`,
+                },
+            };
+        });
+    }
+
+    function renderDetails(container, data, isEdge) {
+        const panel = container.closest(".metabolite-id-component-layout");
+        const title = panel.querySelector("[data-snapshot-graph-title]");
+        const subtitle = panel.querySelector("[data-snapshot-graph-subtitle]");
+        const details = panel.querySelector("[data-snapshot-graph-details]");
+        title.textContent = data.label || data.id || "Selection";
+        subtitle.textContent = isEdge ? `${data.source} -> ${data.target}` : (data.kind || data.prefix || "MetaboliteIdentifier");
+        if (isEdge) {
+            const keys = ["kind", "source", "target", "label", "sources", "source_count", "detail_count", "snapshot", "snapshot_key"];
+            details.innerHTML = keys
+                .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
+                .map((key) => detailRow(key, data[key]))
+                .join("");
+            return;
+        }
+        const entity = data.chemical_entity || {};
+        details.innerHTML = [
+            `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${
+                [
+                    detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, {html: true}),
+                    detailRow("Prefix", data.prefix),
+                    detailRow("Names", formatInlineList(data.names || [], 6), {html: true}),
+                    detailRow("Name count", data.name_count),
+                    detailRow("Synonym count", data.synonym_count),
+                ].filter(Boolean).join("")
+            }</div></section>`,
+            `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${
+                [
+                    detailRow("MW", data.mass_summary ? `min ${data.mass_summary.min} · median ${data.mass_summary.median} · max ${data.mass_summary.max} (${data.mass_summary.count})` : ""),
+                    detailRow("Formula", formatInlineList(data.formulas || [], 6), {html: true}),
+                    detailRow("Chem prop records", data.chem_prop_count),
+                    detailRow("ChEBI entity", entity.id ? `<code>${escapeHtml(entity.id)}</code>${entity.name ? ` · ${escapeHtml(entity.name)}` : ""}` : "", {html: true}),
+                    detailRow("ChEBI mass", entity.mass),
+                    detailRow("ChEBI mono mass", entity.monoisotopic_mass),
+                    detailRow("ChEBI formula", entity.formula ? `<code>${escapeHtml(entity.formula)}</code>` : "", {html: true}),
+                ].filter(Boolean).join("")
+            }</div></section>`,
+            renderStructureData(data),
+            renderChemPropTable(data.chem_props || []),
+        ].filter(Boolean).join("");
+    }
+
+    function findSnapshotClique(sankeyNode) {
+        const snapshotSection = snapshotGraphs.find((section) => section.snapshot_key === sankeyNode.snapshot_key);
+        const snapshotGraph = snapshotSection?.cliques?.find((clique) => clique.clique_key === sankeyNode.clique_key);
+        return {snapshotSection, snapshotGraph};
+    }
+
+    function renderRuleBadges(container, rules) {
+        container.innerHTML = "";
+        if (!rules || !rules.length) {
+            const item = document.createElement("span");
+            item.textContent = "Baseline only";
+            container.appendChild(item);
+            return;
+        }
+        rules.forEach((rule) => {
+            const item = document.createElement("span");
+            const parameters = Object.entries(rule.parameters || {})
+                .map(([key, value]) => `${key}=${value}`)
+                .join(" · ");
+            item.textContent = parameters ? `${rule.label} · ${parameters}` : rule.label;
+            container.appendChild(item);
+        });
+    }
+
+    function renderSelectedSnapshotClique(sankeyNode) {
+        if (!window.cytoscape) {
+            return;
+        }
+        const empty = document.getElementById("metaboliteIdSelectedCliqueEmpty");
+        const panel = document.getElementById("metaboliteIdSelectedCliquePanel");
+        const container = document.getElementById("metaboliteIdSelectedCliqueGraph");
+        const title = panel?.querySelector("[data-selected-clique-title]");
+        const subtitle = panel?.querySelector("[data-selected-clique-subtitle]");
+        const rules = panel?.querySelector("[data-selected-clique-rules]");
+        const {snapshotSection, snapshotGraph} = findSnapshotClique(sankeyNode);
+        if (!snapshotGraph) {
+            if (selectedCliqueCy) {
+                selectedCliqueCy.destroy();
+                selectedCliqueCy = null;
+            }
+            if (panel) {
+                panel.hidden = true;
+            }
+            if (empty) {
+                empty.textContent = "Could not find the selected group in the stage payload.";
+                empty.hidden = false;
+            }
+            return;
+        }
+        if (empty) {
+            empty.hidden = true;
+        }
+        if (panel) {
+            panel.hidden = false;
+        }
+        if (title) {
+            title.textContent = `${Number(snapshotGraph.clique_size || 0).toLocaleString()} member${snapshotGraph.clique_size === 1 ? "" : "s"}`;
+        }
+        if (subtitle) {
+            const parts = [
+                snapshotSection?.snapshot_name || sankeyNode.snapshot || sankeyNode.snapshot_key,
+                snapshotGraph.is_singleton_bucket ? "Single ID" : snapshotGraph.clique_key,
+            ];
+            if (snapshotGraph.display_truncated) {
+                parts.push(`showing first ${Number(snapshotGraph.display_member_count || 0).toLocaleString()}`);
+            }
+            subtitle.textContent = parts.filter(Boolean).join(" · ");
+        }
+        if (rules) {
+            renderRuleBadges(rules, snapshotSection?.rules || []);
+        }
+        if (selectedCliqueCy) {
+            selectedCliqueCy.destroy();
+            selectedCliqueCy = null;
+        }
+        selectedCliqueCy = cytoscape({
+            container,
+            elements: graphElementsWithStructureImages(snapshotGraph.elements),
+            layout: { name: "cose", animate: false, fit: true, padding: 36 },
+            style: [
+                { selector: "node", style: {
+                    "label": "data(node_label)",
+                    "font-size": 9,
+                    "font-weight": 700,
+                    "text-halign": "center",
+                    "text-valign": "bottom",
+                    "text-margin-y": -5,
+                    "text-wrap": "wrap",
+                    "text-max-width": 62,
+                    "text-background-color": "#ffffff",
+                    "text-background-opacity": 0.88,
+                    "text-background-padding": 2,
+                    "background-color": "#64748b",
+                    "border-color": "#334155",
+                    "border-width": 1,
+                    "shape": "ellipse",
+                    "width": 82,
+                    "height": 82,
+                }},
+                { selector: ".prefix-chebi", style: { "background-color": "#2563eb" }},
+                { selector: ".prefix-hmdb", style: { "background-color": "#059669" }},
+                { selector: ".prefix-pubchem-compound", style: { "background-color": "#9333ea" }},
+                { selector: ".prefix-kegg-compound", style: { "background-color": "#d97706" }},
+                { selector: ".prefix-refmet", style: { "background-color": "#dc2626" }},
+                { selector: ".has-structure", style: {
+                    "background-color": "#ffffff",
+                    "background-image": "data(structure_image)",
+                    "background-fit": "contain",
+                    "background-height": "76%",
+                    "background-width": "76%",
+                    "background-clip": "node",
+                    "background-image-opacity": 1,
+                    "background-image-crossorigin": "null",
+                }},
+                { selector: ".selected-query", style: {
+                    "border-color": "#f59e0b",
+                    "border-width": 5,
+                    "width": 82,
+                    "height": 82,
+                }},
+                { selector: "edge", style: {
+                    "curve-style": "bezier",
+                    "line-color": "#94a3b8",
+                    "target-arrow-color": "#94a3b8",
+                    "target-arrow-shape": "triangle",
+                    "width": 1.5,
+                    "label": "data(label)",
+                    "font-size": 8,
+                    "text-rotation": "autorotate",
+                }},
+                { selector: ".metabolite-equivalence-edge", style: {
+                    "line-style": "solid",
+                    "line-color": "#2563eb",
+                    "target-arrow-shape": "none",
+                    "target-arrow-color": "#2563eb",
+                    "width": 2.5,
+                    "opacity": 0.85,
+                }},
+                { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
+            ],
+        });
+        selectedCliqueCy.on("tap", "node", (event) => renderDetails(container, event.target.data(), false));
+        selectedCliqueCy.on("tap", "edge", (event) => renderDetails(container, event.target.data(), true));
+        selectedCliqueCy.ready(() => {
+            selectedCliqueCy.fit(undefined, 36);
+            const selected = selectedCliqueCy.nodes(".selected-query").first();
+            if (selected.length) {
+                selected.select();
+                renderDetails(container, selected.data(), false);
+            } else {
+                const detailTitle = panel?.querySelector("[data-snapshot-graph-title]");
+                const detailSubtitle = panel?.querySelector("[data-snapshot-graph-subtitle]");
+                const detailValues = panel?.querySelector("[data-snapshot-graph-details]");
+                if (detailTitle) detailTitle.textContent = "Stage Group";
+                if (detailSubtitle) detailSubtitle.textContent = "Select a node or edge";
+                if (detailValues) detailValues.innerHTML = "";
+            }
+        });
+    }
+})();
+</script>
+{% endif %}
+{% if not query_id and overview %}
+<script>
+(function () {
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    document.querySelectorAll(".metabolite-id-snapshot-form").forEach((form) => {
+        const builder = form.querySelector(".metabolite-id-rule-builder");
+        const preset = form.querySelector(".metabolite-id-rule-preset");
+        if (builder) {
+            const rules = JSON.parse(builder.dataset.rules || "[]");
+            const ruleById = new Map(rules.map((rule) => [rule.id, rule]));
+            const availableList = builder.querySelector('[data-rule-list="available"]');
+            const selectedList = builder.querySelector('[data-rule-list="selected"]');
+            const inputs = builder.querySelector(".metabolite-id-rule-inputs");
+            let selectedRuleParameters = {};
+            let draggedRuleId = null;
+
+            function selectedRuleIds() {
+                return Array.from(selectedList.querySelectorAll(".metabolite-id-rule-card"))
+                    .map((card) => card.dataset.ruleId);
+            }
+
+            function defaultRuleParameters(rule) {
+                const values = {};
+                (rule.parameters || []).forEach((parameter) => {
+                    values[parameter.id] = parameter.default ?? "";
+                });
+                return values;
+            }
+
+            function normalizeTextareaValue(value) {
+                if (Array.isArray(value)) {
+                    return value.join("\n");
+                }
+                return String(value ?? "").replaceAll("\\n", "\n");
+            }
+
+            function readSelectedRuleParameters() {
+                selectedList.querySelectorAll(".metabolite-id-rule-card").forEach((card) => {
+                    const ruleId = card.dataset.ruleId;
+                    card.querySelectorAll("[data-rule-parameter-id]").forEach((input) => {
+                        selectedRuleParameters[ruleId] = selectedRuleParameters[ruleId] || {};
+                        selectedRuleParameters[ruleId][input.dataset.ruleParameterId] = input.value;
+                    });
                 });
             }
-            return response.json();
-        })
-        .then((payload) => {
-            renderStats(payload.stats);
-            renderStructures(payload.chemRows);
-            if (payload.warnings?.length) {
-                detailSub.textContent = payload.warnings.join("; ");
+
+            function setPresetRuleParameters(rawParameters) {
+                selectedRuleParameters = {};
+                for (const [ruleId, parameters] of Object.entries(rawParameters || {})) {
+                    selectedRuleParameters[ruleId] = {...parameters};
+                }
             }
-            payload.elements.forEach((element) => {
-                if (element.data) {
-                    element.data.masses = massList(element.data.molecularWeights, element.data.monoisotopicMasses);
+
+            function makeRuleCard(rule, selected) {
+                const card = document.createElement("article");
+                card.className = "metabolite-id-rule-card";
+                card.draggable = true;
+                card.dataset.ruleId = rule.id;
+                card.innerHTML = `
+                    <button type="button" class="metabolite-id-rule-move" data-rule-action="${selected ? "remove" : "add"}" aria-label="${selected ? "Remove" : "Add"} ${rule.label}">${selected ? "-" : "+"}</button>
+                    <div>
+                        <strong></strong>
+                        <small></small>
+                        <div class="metabolite-id-rule-parameters"></div>
+                    </div>
+                `;
+                card.querySelector("strong").textContent = rule.label;
+                card.querySelector("small").textContent = rule.description;
+                const parameterContainer = card.querySelector(".metabolite-id-rule-parameters");
+                if (selected && rule.parameters?.length) {
+                    const values = {
+                        ...defaultRuleParameters(rule),
+                        ...(selectedRuleParameters[rule.id] || {}),
+                    };
+                    parameterContainer.innerHTML = rule.parameters.map((parameter) => `
+                        <label>
+                            <span>${escapeHtml(parameter.label)}</span>
+                            ${parameter.type === "textarea" ? `
+	                                <textarea
+	                                    name="rule_param__${escapeHtml(rule.id)}__${escapeHtml(parameter.id)}"
+	                                    placeholder="${escapeHtml(parameter.placeholder || "")}"
+	                                    data-rule-parameter-id="${escapeHtml(parameter.id)}">${escapeHtml(normalizeTextareaValue(values[parameter.id]))}</textarea>
+                            ` : `
+                                <input
+                                    type="${escapeHtml(parameter.type || "text")}"
+                                    name="rule_param__${escapeHtml(rule.id)}__${escapeHtml(parameter.id)}"
+                                    value="${escapeHtml(values[parameter.id] ?? "")}"
+                                    ${parameter.min !== undefined ? `min="${escapeHtml(parameter.min)}"` : ""}
+                                    ${parameter.step !== undefined ? `step="${escapeHtml(parameter.step)}"` : ""}
+                                    data-rule-parameter-id="${escapeHtml(parameter.id)}">
+                            `}
+                            ${parameter.unit ? `<em>${escapeHtml(parameter.unit)}</em>` : ""}
+                        </label>
+                    `).join("");
+                }
+                return card;
+            }
+
+            function renderRuleLists(nextSelectedIds) {
+                readSelectedRuleParameters();
+                const normalizedSelectedIds = nextSelectedIds.filter((ruleId, index, ids) => {
+                    return ruleById.has(ruleId) && ids.indexOf(ruleId) === index;
+                });
+                const selectedSet = new Set(normalizedSelectedIds);
+                normalizedSelectedIds.forEach((ruleId) => {
+                    if (!selectedRuleParameters[ruleId]) {
+                        selectedRuleParameters[ruleId] = defaultRuleParameters(ruleById.get(ruleId));
+                    }
+                });
+                availableList.innerHTML = "";
+                selectedList.innerHTML = "";
+                normalizedSelectedIds.forEach((ruleId) => {
+                    selectedList.appendChild(makeRuleCard(ruleById.get(ruleId), true));
+                });
+                if (!normalizedSelectedIds.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "metabolite-id-rule-empty";
+                    empty.textContent = "Baseline: no rules selected.";
+                    selectedList.appendChild(empty);
+                }
+                rules.forEach((rule) => {
+                    if (!selectedSet.has(rule.id)) {
+                        availableList.appendChild(makeRuleCard(rule, false));
+                    }
+                });
+                inputs.innerHTML = "";
+                normalizedSelectedIds.forEach((ruleId) => {
+                    const input = document.createElement("input");
+                    input.type = "hidden";
+                    input.name = "enabled_rules";
+                    input.value = ruleId;
+                    inputs.appendChild(input);
+                });
+            }
+
+            function dropRuleOnSelected(ruleId, beforeCard) {
+                const ids = selectedRuleIds().filter((selectedRuleId) => selectedRuleId !== ruleId);
+                const beforeRuleId = beforeCard ? beforeCard.dataset.ruleId : "";
+                if (beforeRuleId) {
+                    ids.splice(ids.indexOf(beforeRuleId), 0, ruleId);
+                } else {
+                    ids.push(ruleId);
+                }
+                renderRuleLists(ids);
+            }
+
+            function nearestDropCard(list, y) {
+                return Array.from(list.querySelectorAll(".metabolite-id-rule-card:not(.is-dragging)"))
+                    .find((card) => {
+                        const box = card.getBoundingClientRect();
+                        return y < box.top + box.height / 2;
+                    });
+            }
+
+            builder.addEventListener("click", (event) => {
+                const button = event.target.closest("[data-rule-action]");
+                if (!button) {
+                    return;
+                }
+                const card = button.closest(".metabolite-id-rule-card");
+                const ruleId = card.dataset.ruleId;
+                if (button.dataset.ruleAction === "add") {
+                    renderRuleLists([...selectedRuleIds(), ruleId]);
+                } else {
+                    renderRuleLists(selectedRuleIds().filter((selectedRuleId) => selectedRuleId !== ruleId));
+                }
+                if (preset) {
+                    preset.value = "";
                 }
             });
-            if (!payload.warnings?.length) {
-                detailSub.textContent = `${payload.elements.length} graph elements`;
-            }
-            const cy = cytoscape({
-                container: graphEl,
-                elements: payload.elements,
-                layout: { name: "cose", animate: false, fit: true, padding: 42 },
-                style: [
-                    { selector: "node", style: {
-                        "label": "data(label)",
-                        "font-size": 10,
-                        "text-wrap": "wrap",
-                        "text-max-width": 120,
-                        "background-color": "#64748b",
-                        "border-width": 1,
-                        "border-color": "#334155",
-                        "width": 42,
-                        "height": 42,
-                    }},
-                    { selector: ".ramp", style: { "background-color": "#176c8c", "width": 58, "height": 58 }},
-                    { selector: ".source", style: { "background-color": "#7c3aed", "shape": "round-rectangle" }},
-                    { selector: ".inchi-key", style: { "background-color": "#0891b2", "shape": "diamond" }},
-                    { selector: ".stereo-free-key", style: {
-                        "background-color": "#d97706",
-                        "border-color": "#92400e",
-                        "border-width": 3,
-                        "shape": "hexagon",
-                        "width": 54,
-                        "height": 54,
-                    }},
-                    { selector: "edge", style: {
-                        "curve-style": "bezier",
-                        "line-color": "#94a3b8",
-                        "target-arrow-color": "#94a3b8",
-                        "target-arrow-shape": "triangle",
-                        "width": 1.5,
-                        "label": "data(label)",
-                        "font-size": 8,
-                        "text-rotation": "autorotate",
-                    }},
-                    { selector: ".stereo-free-edge", style: {
-                        "line-style": "dashed",
-                        "line-color": "#d97706",
-                        "target-arrow-color": "#d97706",
-                        "width": 2.5,
-                    }},
-                    { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
-                ],
+
+            builder.addEventListener("dragstart", (event) => {
+                readSelectedRuleParameters();
+                const card = event.target.closest(".metabolite-id-rule-card");
+                if (!card) {
+                    return;
+                }
+                draggedRuleId = card.dataset.ruleId;
+                card.classList.add("is-dragging");
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", draggedRuleId);
             });
-            cy.on("tap", "node, edge", (event) => renderDetails(event.target.data()));
-            cy.ready(() => cy.fit(undefined, 42));
-        })
-        .catch((error) => {
-            detailTitle.textContent = "Could not load graph";
-            detailSub.textContent = error.message;
-            structureSummary.textContent = "Could not load structures";
+
+            builder.addEventListener("dragend", () => {
+                draggedRuleId = null;
+                builder.querySelectorAll(".is-dragging").forEach((card) => card.classList.remove("is-dragging"));
+                builder.querySelectorAll(".is-drag-over").forEach((list) => list.classList.remove("is-drag-over"));
+            });
+
+            selectedList.addEventListener("dragover", (event) => {
+                if (!draggedRuleId) {
+                    return;
+                }
+                event.preventDefault();
+                selectedList.classList.add("is-drag-over");
+            });
+
+            selectedList.addEventListener("dragleave", (event) => {
+                if (!selectedList.contains(event.relatedTarget)) {
+                    selectedList.classList.remove("is-drag-over");
+                }
+            });
+
+            selectedList.addEventListener("drop", (event) => {
+                event.preventDefault();
+                const ruleId = event.dataTransfer.getData("text/plain") || draggedRuleId;
+                if (!ruleId || !ruleById.has(ruleId)) {
+                    return;
+                }
+                dropRuleOnSelected(ruleId, nearestDropCard(selectedList, event.clientY));
+                selectedList.classList.remove("is-drag-over");
+                if (preset) {
+                    preset.value = "";
+                }
+            });
+
+            if (preset) {
+                preset.addEventListener("change", () => {
+                    const option = preset.selectedOptions[0];
+                    const ids = JSON.parse(option?.dataset.ruleIds || "[]");
+                    const pipelineNameInput = form.querySelector('input[name="pipeline_name"]');
+                    if (pipelineNameInput && option?.dataset.pipelineName) {
+                        pipelineNameInput.value = option.dataset.pipelineName;
+                    }
+                    setPresetRuleParameters(JSON.parse(option?.dataset.ruleParameters || "{}"));
+                    renderRuleLists(ids);
+                });
+            }
+
+            renderRuleLists([]);
+        }
+        form.addEventListener("submit", () => {
+            form.classList.add("is-submitting");
         });
+    });
 })();
 </script>
 {% endif %}

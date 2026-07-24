@@ -40,7 +40,6 @@ IDENTIFIERS_ORG_PREFIXES = {
     "chemspider": "ChemSpider",
     "drugbank": "DRUGBANK",
     "hmdb": "HMDB",
-    "inchikey": "InChIKey",
     "kegg.compound": "KEGG.COMPOUND",
     "kegg.drug": "KEGG.DRUG",
     "kegg.glycan": "KEGG.GLYCAN",
@@ -178,6 +177,8 @@ class WikiPathwaysMetaboliteEquivalenceAdapter(InputAdapter):
                     break
                 graph = Graph()
                 graph.parse(data=archive.read(member).decode("utf-8", "ignore"), format="turtle")
+                if not self._is_human_pathway(graph):
+                    continue
                 for subject in graph.subjects(RDF.type, URIRef(WP + "Metabolite")):
                     record = self._parse_metabolite(graph, subject)
                     if record is None:
@@ -211,6 +212,11 @@ class WikiPathwaysMetaboliteEquivalenceAdapter(InputAdapter):
             "labels": labels,
             "xrefs": cls._unique_xrefs(xrefs),
         }
+
+    @staticmethod
+    def _is_human_pathway(graph: Graph) -> bool:
+        organism = URIRef(WP + "organism")
+        return any(str(obj).endswith("NCBITaxon_9606") for obj in graph.objects(None, organism))
 
     @staticmethod
     def _source_node(record: Dict) -> MetaboliteIdentifier:

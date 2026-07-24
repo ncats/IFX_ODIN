@@ -30,7 +30,8 @@ from src.registry.storage import (
     load_registry_credentials,
 )
 from src.registry.sources.ctd import extract_report_created
-from src.registry.sources.cure import fetch_case_reports, fetch_curated_concepts
+from scripts.repair_registry_stable_filenames import repair_stable_filenames
+from src.registry.sources.cure import CURE_CASE_REPORTS_FILE_NAME, fetch_case_reports, fetch_curated_concepts
 from src.registry.sources.hcop import HCOP_FILE_NAME
 from src.registry.sources.impc import IMPC_FILE_NAME
 from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TINX_URLS, JENSENLAB_TISSUES_FILE_NAME
@@ -46,6 +47,8 @@ from src.registry.sources.ontologies import (
     parse_chebi_readme_metadata,
 )
 from src.registry.sources.metabolite_harmonization import (
+    WIKIPATHWAYS_RDF_WP_FILE_NAME,
+    fetch_wikipathways_rdf_wp,
     fetch_refmet_metabolites_csv,
     parse_wikipathways_rdf_listing,
     _lipidmaps_zip_inner_version,
@@ -55,8 +58,12 @@ from src.registry.sources.external_sources import _drugcentral_version_info, _ve
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
 from src.registry.sources.pathway_sources import (
+    PFOCR_CHEMICAL_GMT_FILE_NAME,
+    PFOCR_GENE_GMT_FILE_NAME,
+    WIKIPATHWAYS_HUMAN_GMT_FILE_NAME,
     fetch_pfocr_human_pathways,
     fetch_reactome,
+    fetch_wikipathways,
     latest_panther_version,
     parse_pfocr_human_pathways_listing,
 )
@@ -273,7 +280,7 @@ def test_cure_case_reports_fetcher_writes_paginated_jsonl(tmp_path: Path, monkey
         "https://cure-api.ncats.io/v2/reports?page=2",
     ]
     output_path = snapshot.files[0].path
-    assert output_path.name == "reports_20260612T153045Z.jsonl"
+    assert output_path.name == CURE_CASE_REPORTS_FILE_NAME
     assert output_path.read_text(encoding="utf-8").splitlines() == [
         '{"id": "report-1"}',
         '{"id": "report-2"}',
@@ -450,9 +457,9 @@ def test_pfocr_human_pathways_fetcher_snapshots_gene_and_chemical_gmts(tmp_path:
         def raise_for_status(self):
             pass
 
-    def fake_download_url(url, work_dir, timeout=60):
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
         downloaded_urls.append(url)
-        local_path = work_dir / Path(url).name
+        local_path = work_dir / (file_name or Path(url).name)
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_text("mock\n", encoding="utf-8")
         return local_path, {
@@ -476,10 +483,60 @@ def test_pfocr_human_pathways_fetcher_snapshots_gene_and_chemical_gmts(tmp_path:
         "https://data.wikipathways.org/pfocr/current/pfocr-20250701-chemical-gmt-Homo_sapiens.gmt",
     ]
     assert [file.path.name for file in snapshot.files] == [
-        "pfocr-20250701-gmt-Homo_sapiens.gmt",
-        "pfocr-20250701-chemical-gmt-Homo_sapiens.gmt",
+        PFOCR_GENE_GMT_FILE_NAME,
+        PFOCR_CHEMICAL_GMT_FILE_NAME,
     ]
     assert snapshot.extra["version_method"]["type"] == "pfocr_filename_date"
+
+
+def test_wikipathways_human_gmt_fetcher_uses_stable_file_name(tmp_path: Path, monkeypatch):
+    listing_html = '<a href="wikipathways-20260610-gmt-Homo_sapiens.gmt">human</a>'
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
+        local_path = work_dir / (file_name or Path(url).name)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {"final_url": url, "content_type": "text/plain"}
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_wikipathways(dest=tmp_path, timeout=10)
+
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.files[0].path.name == WIKIPATHWAYS_HUMAN_GMT_FILE_NAME
+    assert snapshot.extra["version_method"]["evidence"]["file_name"] == "wikipathways-20260610-gmt-Homo_sapiens.gmt"
+
+
+def test_wikipathways_rdf_fetcher_uses_stable_file_name(tmp_path: Path, monkeypatch):
+    listing_html = '<a href="wikipathways-20260610-rdf-wp.zip">rdf</a>'
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
+        local_path = work_dir / (file_name or Path(url).name)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {"final_url": url, "content_type": "application/zip"}
+
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.download_url", fake_download_url)
+
+    snapshot = fetch_wikipathways_rdf_wp(dest=tmp_path, timeout=10)
+
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.files[0].path.name == WIKIPATHWAYS_RDF_WP_FILE_NAME
+    assert snapshot.extra["version_method"]["evidence"]["file_name"] == "wikipathways-20260610-rdf-wp.zip"
 
 
 def test_rhea_reaction_bundle_fetcher_snapshots_rhea_reaction_inputs(tmp_path: Path, monkeypatch):
@@ -1757,7 +1814,7 @@ sources:
 
     assert result[0]["sync_action"] == "refreshed"
     assert sorted(storage.uploaded) == [
-        "sources/antibodypedia/scraped_results/2025-06-27_12-32/antibodypedia_scraped_results_2025-06-27_12-32.csv",
+        "sources/antibodypedia/scraped_results/2025-06-27_12-32/antibodypedia_scraped_results.csv",
         "sources/antibodypedia/scraped_results/2025-06-27_12-32/manifest.yaml",
     ]
     assert registry.is_latest_registered("antibodypedia", "scraped_results") is True
@@ -2144,6 +2201,72 @@ def test_data_registry_local_instance_cannot_upload(tmp_path: Path):
 
     with pytest.raises(ValueError, match="not connected to MinIO"):
         registry.upload_snapshot(manifest_path)
+
+
+def test_registry_stable_filename_repair_dry_run_reports_selected_renames():
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return [
+                    "sources/wikipathways/human_gmt/2026-06-10/manifest.yaml",
+                    "sources/gtex/expression_v11/v11/manifest.yaml",
+                ]
+            if prefix in {"external/", "derived/", "resolvers/"}:
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key == "sources/wikipathways/human_gmt/2026-06-10/manifest.yaml":
+                return """
+kind: source_snapshot
+schema_version: 1
+source: wikipathways
+dataset: human_gmt
+snapshot_id: wikipathways:human_gmt:2026-06-10
+version: '2026-06-10'
+version_date: '2026-06-10'
+files:
+  - path: wikipathways-20260610-gmt-Homo_sapiens.gmt
+    size_bytes: 5
+    sha256: abc
+    content_type: text/plain
+    source_url: https://data.wikipathways.org/current/gmt/wikipathways-20260610-gmt-Homo_sapiens.gmt
+    storage_uri: s3://ifx-registry/sources/wikipathways/human_gmt/2026-06-10/wikipathways-20260610-gmt-Homo_sapiens.gmt
+"""
+            if key == "sources/gtex/expression_v11/v11/manifest.yaml":
+                return """
+kind: source_snapshot
+schema_version: 1
+source: gtex
+dataset: expression_v11
+snapshot_id: gtex:expression_v11:v11
+version: v11
+files:
+  - path: GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+    size_bytes: 5
+    sha256: abc
+    content_type: application/gzip
+    source_url: https://example.org/gtex.gz
+    storage_uri: s3://ifx-registry/sources/gtex/expression_v11/v11/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+"""
+            raise AssertionError(key)
+
+    registry = DataRegistry(FakeStorage())
+
+    results = repair_stable_filenames(registry, cache_dir=Path("/tmp/unused"), apply=False, delete_old=True)
+
+    assert results == [
+        {
+            "source": "wikipathways",
+            "dataset": "human_gmt",
+            "version": "2026-06-10",
+            "manifest_uri": "s3://ifx-registry/sources/wikipathways/human_gmt/2026-06-10/manifest.yaml",
+            "renames": [("wikipathways-20260610-gmt-Homo_sapiens.gmt", "wikipathways_human.gmt")],
+            "action": "would_repair",
+        }
+    ]
 
 
 def test_data_registry_registers_external_source_from_config(tmp_path: Path, monkeypatch):

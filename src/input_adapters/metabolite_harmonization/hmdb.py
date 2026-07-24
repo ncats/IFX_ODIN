@@ -24,13 +24,22 @@ ID_FIELD_PREFIXES = {
     "chebi_id": "CHEBI",
     "kegg_id": "KEGG.COMPOUND",
     "chemspider_id": "ChemSpider",
+    "drugbank_id": "DRUGBANK",
+    "drugbank_metabolite_id": "DRUGBANK.METABOLITE",
+    "phenol_explorer_compound_id": "PhenolExplorer.COMPOUND",
+    "phenol_explorer_metabolite_id": "PhenolExplorer.METABOLITE",
+    "foodb_id": "FoodDB",
+    "knapsack_id": "KNApSAcK",
     "pubchem_compound_id": "PUBCHEM.COMPOUND",
     "cas_registry_number": "CAS",
-    "drugbank_id": "DRUGBANK",
-    "foodb_id": "FoodDB",
     "biocyc_id": "BioCyc",
     "bigg_id": "BiGG",
+    "wikipedia": "Wikipedia",
+    "nugowiki": "NugoWiki",
+    "metagene": "MetaGene",
     "metlin_id": "METLIN",
+    "het_id": "PDB.HET",
+    "lipidmaps_id": "LIPIDMAPS",
 }
 
 
@@ -214,8 +223,10 @@ class HmdbMetaboliteEquivalenceAdapter(InputAdapter):
         value = cls._clean_text(value)
         if not prefix or not value:
             return None
-        if ":" in value:
+        if prefix == "CHEBI" and value.upper().startswith("CHEBI:"):
             value = value.split(":", 1)[1].strip()
+        elif prefix == "PUBCHEM.COMPOUND":
+            value = value.removeprefix("CID").strip()
         return f"{prefix}:{value}"
 
     @classmethod

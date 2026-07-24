@@ -53,17 +53,19 @@ def test_refmet_adapter_emits_nodes_names_and_edges(tmp_path: Path):
         "HMDB:HMDB0015495",
         "LIPIDMAPS:LMPK11000003",
         "KEGG.COMPOUND:C10565",
-        "InChIKey:SBALNGLYQFMKPR-NQTWQHAWSA-N",
         "REFMET:RM0108637",
         "PUBCHEM.COMPOUND:441972",
         "CHEBI:2488",
         "KEGG.COMPOUND:C09020",
     }
     assert expected_node_ids <= set(nodes_by_id)
+    assert "InChIKey:SBALNGLYQFMKPR-NQTWQHAWSA-N" not in nodes_by_id
+    assert "InChIKey:DJWXVEDJWPDUBQ-DEALGVFLSA-N" not in nodes_by_id
 
     assert ("REFMET:RM0108606", "CHEBI:2452") in edge_pairs
     assert ("REFMET:RM0108606", "PUBCHEM.COMPOUND:442840") in edge_pairs
     assert ("REFMET:RM0108606", "LIPIDMAPS:LMPK11000003") in edge_pairs
+    assert ("REFMET:RM0108606", "InChIKey:SBALNGLYQFMKPR-NQTWQHAWSA-N") not in edge_pairs
 
     details = {
         (edge.start_node.id, edge.end_node.id): edge.details[0]

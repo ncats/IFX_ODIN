@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Stage Comparison · Metabolite Harmonization Workbench{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/qa-browser">QA Browser</a>
+<span class="sep">/</span>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
+<span class="sep">/</span>
+<span>Stage Comparison</span>
+{% endblock %}
+
+{% block content %}
+<div class="ramp-id-page metabolite-id-qa-page">
+    <section class="ramp-id-header">
+        <div>
+            <h1>Stage Comparison</h1>
+            <p>Changed clique memberships between two saved harmonization stages.</p>
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="registry-update-error">{{ error }}</div>
+    {% endif %}
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Compare Stages</h2>
+            <p>Exact clique membership matches are skipped.</p>
+        </div>
+        <form method="get" action="{{ root_path }}/ramp-id-qa/stage-comparison" class="metabolite-id-compare-form metabolite-id-compare-form-wide">
+            <label>
+                <span>Compare From</span>
+                <select name="left_stage">
+                    {% for snapshot in comparison.snapshots %}
+                    <option value="{{ snapshot._key }}" {% if snapshot._key == left_snapshot_key %}selected{% endif %}>{{ snapshot.name }} · {{ snapshot.created_at }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>Compare To</span>
+                <select name="right_stage">
+                    {% for snapshot in comparison.snapshots %}
+                    <option value="{{ snapshot._key }}" {% if snapshot._key == right_snapshot_key %}selected{% endif %}>{{ snapshot.name }} · {{ snapshot.created_at }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>Show</span>
+                <input type="number" name="limit" value="{{ limit }}" min="10" max="250" step="10">
+            </label>
+            <button type="submit" class="btn btn-primary">Compare</button>
+        </form>
+    </section>
+
+    {% if comparison.left_snapshot and comparison.right_snapshot %}
+    <section class="ramp-id-overview metabolite-id-overview">
+        <div>
+            <h2>{{ comparison.left_snapshot.name }} → {{ comparison.right_snapshot.name }}</h2>
+            <p>
+                <span class="mono">{{ comparison.left_snapshot._key }}</span>
+                <span> to </span>
+                <span class="mono">{{ comparison.right_snapshot._key }}</span>
+            </p>
+        </div>
+        <dl class="ramp-id-stats">
+            <div><dt>Unchanged Cliques</dt><dd>{{ "{:,}".format(comparison.unchanged_clique_count) }}</dd></div>
+            <div><dt>Changed Components</dt><dd>{{ "{:,}".format(comparison.changed_component_count) }}</dd></div>
+            <div><dt>Recombinations</dt><dd>{{ "{:,}".format(comparison.recombination_count) }}</dd></div>
+            <div><dt>Non-Trivial Splits</dt><dd>{{ "{:,}".format(comparison.nontrivial_split_count) }}</dd></div>
+            <div><dt>From Changed</dt><dd>{{ "{:,}".format(comparison.changed_left_clique_count) }}</dd></div>
+            <div><dt>To Changed</dt><dd>{{ "{:,}".format(comparison.changed_right_clique_count) }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Recombinations</h2>
+            <p>Changed components that contain both non-trivial splits and non-trivial merges.</p>
+        </div>
+        <div class="metabolite-id-compare-list">
+            {% for component in comparison.recombinations %}
+            {% set rank = loop.index %}
+            {% include "ramp_id_snapshot_compare_card.html" %}
+            {% else %}
+            <p>No mixed split/merge recombinations found for this pair.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Non-Trivial Splits</h2>
+            <p>One source clique split into at least two destination cliques with {{ comparison.nontrivial_split_min_size }} or more overlapping IDs each.</p>
+        </div>
+        <div class="metabolite-id-compare-list">
+            {% for component in comparison.nontrivial_splits %}
+            {% set rank = loop.index %}
+            {% include "ramp_id_snapshot_compare_card.html" %}
+            {% else %}
+            <p>No non-trivial clique splits found for this pair.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Most Changed Cliques</h2>
+            <p>Showing {{ comparison.components|length }} of {{ "{:,}".format(comparison.changed_component_count) }} changed component{{ "" if comparison.changed_component_count == 1 else "s" }}.</p>
+        </div>
+        <div class="metabolite-id-compare-list">
+            {% for component in comparison.components %}
+            {% set rank = loop.index %}
+            {% include "ramp_id_snapshot_compare_card.html" %}
+            {% else %}
+            <p>No changed non-singleton cliques found for this snapshot pair.</p>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

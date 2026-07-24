@@ -70,6 +70,16 @@ input_adapters:
     kwargs:
       data_source: pubchem:cid_molecular_info:deps-31c7bedefb74
 
+  - import: ./src/input_adapters/chebi/chebi_obo_adapter.py
+    class: ChebiFullOboAdapter
+    kwargs:
+      data_source: chebi:ontology_full:252
+
+  - import: ./src/input_adapters/metabolite_harmonization/chebi_bridge.py
+    class: ChebiMetaboliteIdentifierBridgeAdapter
+    kwargs:
+      data_source: chebi:ontology_full:252
+
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py
     class: ArangoOutputAdapter

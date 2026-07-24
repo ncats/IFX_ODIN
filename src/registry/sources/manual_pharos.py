@@ -7,6 +7,9 @@ from typing import Dict, List, Optional
 from src.registry.fetchers import SnapshotFile, SourceFetcher, SourceSnapshot
 
 
+ANTIBODYPEDIA_SCRAPED_RESULTS_FILE_NAME = "antibodypedia_scraped_results.csv"
+
+
 def _copy_manual_files(files: List[Path], final_dir: Path) -> List[Path]:
     final_dir.mkdir(parents=True, exist_ok=True)
     copied = []
@@ -157,20 +160,32 @@ def fetch_antibodypedia_scraped_results(
     dest: Path,
     source_file: Path = Path("input_files/manual/antibodypedia/antibodypedia_scraped_results_2025-06-27_12-32.csv"),
 ) -> SourceSnapshot:
+    if not source_file.exists():
+        raise FileNotFoundError(source_file)
     timestamp = source_file.stem.removeprefix("antibodypedia_scraped_results_")
     version_date = timestamp.split("_", 1)[0]
-    return _build_manual_snapshot(
+    dest.mkdir(parents=True, exist_ok=True)
+    local_path = dest / ANTIBODYPEDIA_SCRAPED_RESULTS_FILE_NAME
+    if source_file.resolve() != local_path.resolve():
+        shutil.copy2(source_file, local_path)
+    manual_uri = f"manual://antibodypedia/scraped_results/{source_file.name}"
+    return SourceSnapshot(
         source="antibodypedia",
         dataset="scraped_results",
         version=timestamp,
         version_date=version_date,
-        source_files=[source_file],
-        dest=dest,
+        downloaded_by="ifx-registry-manual",
         homepage="https://www.antibodypedia.com/",
+        upstream_urls=[manual_uri],
+        files=[SnapshotFile(local_path, manual_uri, "text/csv")],
         extra={
             "version_method": {
                 "type": "filename_timestamp",
                 "description": "Use timestamp embedded in the scraped results filename.",
+                "evidence": {
+                    "file_name": source_file.name,
+                    "timestamp": timestamp,
+                },
             },
             "provenance": {
                 "original_location": str(source_file),

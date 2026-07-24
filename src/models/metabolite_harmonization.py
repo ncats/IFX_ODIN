@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from src.core.decorators import facets, indexed, search
+from src.models.chebi import ChemicalEntity
 from src.models.node import Node, Relationship
 
 
@@ -89,6 +90,15 @@ class MetaboliteIdentifierMappingEdge(Relationship):
     details: List[MetaboliteIdentifierMappingDetail] = field(default_factory=list)
 
 
+@dataclass
+@search(text_fields=["source_label"])
+class ChebiChemicalEntityMetaboliteIdentifierEdge(Relationship):
+    start_node: ChemicalEntity
+    end_node: MetaboliteIdentifier
+    source_predicate: str = "same_curie"
+    source_label: Optional[str] = None
+
+
 @dataclass(frozen=True)
 class HmdbGoClassification:
     category: Optional[str] = None
@@ -135,6 +145,7 @@ class ProteinIdentifier(Node):
     hmdb_accession: Optional[str] = None
     secondary_accessions: List[str] = field(default_factory=list)
     prefix: Optional[str] = None
+    is_reviewed: Optional[bool] = None
     name: Optional[str] = None
     synonyms: List[str] = field(default_factory=list)
     protein_type: Optional[str] = None
@@ -356,3 +367,71 @@ class ReactomePathwayParentEdge(Relationship):
     start_node: PathwayIdentifier
     end_node: PathwayIdentifier
     details: List[ReactomePathwayParentDetail] = field(default_factory=list)
+
+
+@dataclass
+@indexed(fields=["id", "source_id", "master_id"])
+@facets(category_fields=["direction", "status", "is_transport"])
+@search(text_fields=["id", "source_id", "label", "equation"])
+class RheaReaction(Node):
+    source_id: Optional[str] = None
+    master_id: Optional[str] = None
+    direction: Optional[str] = None
+    status: Optional[str] = None
+    is_transport: Optional[bool] = None
+    label: Optional[str] = None
+    equation: Optional[str] = None
+    html_equation: Optional[str] = None
+
+
+@dataclass
+@indexed(fields=["id"])
+@facets(category_fields=["ec_level"])
+@search(text_fields=["id", "name"])
+class RheaReactionClass(Node):
+    ec_level: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class RheaReactionClassParentEdge(Relationship):
+    start_node: RheaReactionClass
+    end_node: RheaReactionClass
+
+
+@dataclass
+class RheaReactionReactionClassEdge(Relationship):
+    start_node: RheaReaction
+    end_node: RheaReactionClass
+    source_field: Optional[str] = None
+
+
+@dataclass
+class RheaReactionDirectionEdge(Relationship):
+    start_node: RheaReaction
+    end_node: RheaReaction
+    source_field: Optional[str] = None
+    variant_direction: Optional[str] = None
+
+
+@dataclass
+class RheaMetaboliteReactionEdge(Relationship):
+    start_node: MetaboliteIdentifier
+    end_node: RheaReaction
+    side: Optional[str] = None
+    coefficient: Optional[int] = None
+    participant_uri: Optional[str] = None
+    compound_uri: Optional[str] = None
+    rhea_accession: Optional[str] = None
+    name: Optional[str] = None
+    html_name: Optional[str] = None
+    formula: Optional[str] = None
+    is_cofactor: Optional[bool] = None
+
+
+@dataclass
+class RheaProteinReactionEdge(Relationship):
+    start_node: ProteinIdentifier
+    end_node: RheaReaction
+    source_field: Optional[str] = None
+    source_file: Optional[str] = None

@@ -24,7 +24,6 @@ ID_FIELD_PREFIXES = {
     "LIPIDBANK_ID": "LipidBank",
     "KEGG_ID": "KEGG.COMPOUND",
     "PLANTFA_ID": "PlantFA",
-    "INCHI_KEY": "InChIKey",
 }
 
 

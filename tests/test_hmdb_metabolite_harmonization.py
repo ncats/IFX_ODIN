@@ -109,6 +109,9 @@ def test_hmdb_metabolite_harmonization_adapter_emits_nodes_and_equivalence_edges
     assert ("HMDB:HMDB0000001", "KEGG.COMPOUND:C01152") in edge_pairs
     assert ("HMDB:HMDB0000001", "HMDB:HMDB0004935") in edge_pairs
     assert ("HMDB:HMDB0000002", "PUBCHEM.COMPOUND:92105") in edge_pairs
+    assert ("HMDB:HMDB0000001", "DRUGBANK:DB04151") in edge_pairs
+    assert ("HMDB:HMDB0000001", "FoodDB:FDB093588") in edge_pairs
+    assert ("HMDB:HMDB0000001", "BiGG:bigg1") in edge_pairs
 
     details = {
         (edge.start_node.id, edge.end_node.id): edge.details[0]

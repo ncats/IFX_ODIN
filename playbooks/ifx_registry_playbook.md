@@ -33,6 +33,24 @@ sources/jensenlab/tinx/2026-05-31/
   manifest.yaml
 ```
 
+## Snapshot File Naming
+
+Keep version and date information in the snapshot identity and manifest metadata,
+not in the stored file names inside a snapshot. The versioned registry prefix is
+the version boundary:
+
+```text
+sources/<source>/<dataset>/<version>/<stable-file-name>
+```
+
+Callers should switch versions by updating their registry snapshot pointer, for
+example `source:dataset:version`, while continuing to read the same stable file
+name within the materialized dataset. If an upstream file name contains a release
+date, timestamp, or version token, preserve that original name in `source_url`,
+`upstream.urls`, or `extra.version_method.evidence`, and store the downloaded file
+under a generic adapter-facing name such as `wikipathways_human.gmt` or
+`case_reports.jsonl`.
+
 ## Source Snapshot Manifest
 
 Recommended fields:

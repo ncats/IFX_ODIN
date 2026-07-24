@@ -4,6 +4,7 @@ from src.input_adapters.wikipathways.wikipathways_pathways import (
     WikiPathwaysGenePathwayEdgeAdapter,
     WikiPathwaysPathwayAdapter,
 )
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.gene import Gene
 from src.models.pathway import GenePathwayEdge, Pathway
 
@@ -16,11 +17,22 @@ def _write_wikipathways_fixture(path: Path) -> None:
     )
 
 
+class FakeDataSource:
+    def __init__(self, path: Path):
+        self.path = path
+
+    def file(self, file_name=None):
+        return self.path
+
+    def version_info(self):
+        return DatasourceVersionInfo(version="test", version_date=None, download_date=None)
+
+
 def test_wikipathways_pathway_adapter_emits_pathway_nodes(tmp_path):
     fixture_path = tmp_path / "wikipathways.gmt"
     _write_wikipathways_fixture(fixture_path)
 
-    adapter = WikiPathwaysPathwayAdapter(file_path=str(fixture_path))
+    adapter = WikiPathwaysPathwayAdapter(data_source=FakeDataSource(fixture_path))
     batches = list(adapter.get_all())
 
     assert len(batches) == 1
@@ -33,7 +45,7 @@ def test_wikipathways_gene_pathway_adapter_emits_gene_edges(tmp_path):
     fixture_path = tmp_path / "wikipathways.gmt"
     _write_wikipathways_fixture(fixture_path)
 
-    adapter = WikiPathwaysGenePathwayEdgeAdapter(file_path=str(fixture_path))
+    adapter = WikiPathwaysGenePathwayEdgeAdapter(data_source=FakeDataSource(fixture_path))
     batches = list(adapter.get_all())
 
     assert len(batches) == 1
@@ -50,7 +62,7 @@ def test_wikipathways_adapter_honors_max_rows(tmp_path):
     fixture_path = tmp_path / "wikipathways.gmt"
     _write_wikipathways_fixture(fixture_path)
 
-    adapter = WikiPathwaysGenePathwayEdgeAdapter(file_path=str(fixture_path), max_rows=1)
+    adapter = WikiPathwaysGenePathwayEdgeAdapter(data_source=FakeDataSource(fixture_path), max_rows=1)
     batches = list(adapter.get_all())
 
     edges = batches[0]

@@ -189,7 +189,7 @@ The promoted ChEBI use case is:
 - YAML: `src/use_cases/chebi.yaml`
 - build script: `src/use_cases/build_chebi.py`
 - database: `chebi`
-- adapter: `FullOboAdapter`
+- adapter: `ChebiFullOboAdapter`
 - data source: `chebi:ontology_full:252`
 - resolvers: none
 

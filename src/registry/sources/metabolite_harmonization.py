@@ -15,6 +15,7 @@ from src.registry.sources.common import fetch_multi_file_last_modified_snapshot
 
 WIKIPATHWAYS_RDF_LISTING_URL = "https://data.wikipathways.org/current/rdf/"
 WIKIPATHWAYS_HOMEPAGE = "https://www.wikipathways.org/"
+WIKIPATHWAYS_RDF_WP_FILE_NAME = "wikipathways_rdf_wp.zip"
 REFMET_URL = "https://www.metabolomicsworkbench.org/databases/refmet/refmet_download.php"
 REFMET_HOMEPAGE = "https://www.metabolomicsworkbench.org/databases/refmet/browse.php"
 LIPIDMAPS_URL = "https://www.lipidmaps.org/files/?file=LMSD&ext=sdf.zip"
@@ -50,7 +51,12 @@ def fetch_wikipathways_rdf_wp(*, dest: Path, timeout: int = 60) -> SourceSnapsho
     version, file_name = parse_wikipathways_rdf_listing(response.text)
     file_url = f"{WIKIPATHWAYS_RDF_LISTING_URL}{file_name}"
     work_dir = dest / "wikipathways" / "rdf_wp" / "pending"
-    local_path, metadata = download_url(file_url, work_dir, timeout=timeout)
+    local_path, metadata = download_url(
+        file_url,
+        work_dir,
+        timeout=timeout,
+        file_name=WIKIPATHWAYS_RDF_WP_FILE_NAME,
+    )
     return SourceSnapshot(
         source="wikipathways",
         dataset="rdf_wp",

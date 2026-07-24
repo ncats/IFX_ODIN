@@ -99,15 +99,15 @@ def test_lipidmaps_adapter_emits_nodes_names_synonyms_and_edges(tmp_path: Path):
         "LipidBank:DFA0002",
         "KEGG.COMPOUND:C15989",
         "PlantFA:10010",
-        "InChIKey:NDDJIMSGSZNACM-QWRGUYRKSA-N",
         "LIPIDMAPS:LMFA00000002",
         "PUBCHEM.COMPOUND:42607282",
     }
     assert expected_node_ids <= set(nodes_by_id)
+    assert "InChIKey:NDDJIMSGSZNACM-QWRGUYRKSA-N" not in nodes_by_id
 
     assert ("LIPIDMAPS:LMFA00000001", "CHEBI:137783") in edge_pairs
     assert ("LIPIDMAPS:LMFA00000001", "PUBCHEM.COMPOUND:42607281") in edge_pairs
-    assert ("LIPIDMAPS:LMFA00000001", "InChIKey:NDDJIMSGSZNACM-QWRGUYRKSA-N") in edge_pairs
+    assert ("LIPIDMAPS:LMFA00000001", "InChIKey:NDDJIMSGSZNACM-QWRGUYRKSA-N") not in edge_pairs
 
     details = {
         (edge.start_node.id, edge.end_node.id): edge.details[0]

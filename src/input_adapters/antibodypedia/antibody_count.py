@@ -21,7 +21,7 @@ class AntibodyCountAdapter(InputAdapter):
 
     def __init__(self, data_source):
         super().__init__()
-        self.file_path = str(data_source.file("antibodypedia_scraped_results_2025-06-27_12-32.csv"))
+        self.file_path = str(data_source.file())
         self.version_info = data_source.version_info()
 
     def get_all(self) -> Generator[List[Gene], None, None]:

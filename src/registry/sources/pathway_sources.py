@@ -16,6 +16,9 @@ REACTOME_VERSION_URL = "https://reactome.org/ContentService/data/database/versio
 PATHWAYCOMMONS_DATASOURCES_URL = "https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt"
 WIKIPATHWAYS_GMT_LISTING_URL = "https://data.wikipathways.org/current/gmt/"
 PFOCR_CURRENT_LISTING_URL = "https://data.wikipathways.org/pfocr/current/"
+WIKIPATHWAYS_HUMAN_GMT_FILE_NAME = "wikipathways_human.gmt"
+PFOCR_GENE_GMT_FILE_NAME = "pfocr_gene_gmt.gmt"
+PFOCR_CHEMICAL_GMT_FILE_NAME = "pfocr_chemical_gmt.gmt"
 
 
 def latest_panther_version(timeout: int = 60) -> str:
@@ -231,7 +234,10 @@ def fetch_wikipathways(
     file_url = f"{listing_url}{file_name}"
 
     work_dir = dest / source / dataset / "pending"
-    downloaded = [(*download_url(file_url, work_dir, timeout=timeout), file_url)]
+    downloaded = [(
+        *download_url(file_url, work_dir, timeout=timeout, file_name=WIKIPATHWAYS_HUMAN_GMT_FILE_NAME),
+        file_url,
+    )]
     return _build_snapshot(
         source=source,
         dataset=dataset,
@@ -266,7 +272,10 @@ def fetch_pfocr_human_pathways(
     ]
 
     work_dir = dest / source / dataset / "pending"
-    downloaded = [(*download_url(file_url, work_dir, timeout=timeout), file_url) for file_url in file_urls]
+    downloaded = [
+        (*download_url(file_urls[0], work_dir, timeout=timeout, file_name=PFOCR_GENE_GMT_FILE_NAME), file_urls[0]),
+        (*download_url(file_urls[1], work_dir, timeout=timeout, file_name=PFOCR_CHEMICAL_GMT_FILE_NAME), file_urls[1]),
+    ]
     return _build_snapshot(
         source=source,
         dataset=dataset,

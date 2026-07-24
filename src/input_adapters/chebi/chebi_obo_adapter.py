@@ -96,7 +96,7 @@ CHEBI_PREDICATE_LABELS = {
 }
 
 
-class FullOboAdapter(InputAdapter):
+class ChebiFullOboAdapter(InputAdapter):
     def __init__(
         self,
         data_source,
@@ -548,3 +548,6 @@ class FullOboAdapter(InputAdapter):
             datatype=datatype,
             raw=value,
         )
+
+
+FullOboAdapter = ChebiFullOboAdapter

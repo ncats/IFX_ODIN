@@ -20,7 +20,6 @@ ID_FIELD_PREFIXES = {
     "hmdb_id": "HMDB",
     "lipidmaps_id": "LIPIDMAPS",
     "kegg_id": "KEGG.COMPOUND",
-    "inchi_key": "InChIKey",
 }
 
 
