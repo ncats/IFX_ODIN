@@ -2981,8 +2981,8 @@ details summary:hover { color: var(--accent); }
     border: 1px solid var(--border);
     border-radius: 8px;
     display: grid;
-    grid-template-columns: 5.5rem minmax(14rem, 2fr) minmax(4rem, 0.45fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(8rem, 0.85fr) minmax(16rem, 1.7fr) minmax(8rem, 0.9fr);
-    min-width: 85rem;
+    grid-template-columns: 5.5rem minmax(14rem, 2fr) minmax(4rem, 0.45fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(8rem, 0.85fr) minmax(7rem, 0.75fr) minmax(16rem, 1.7fr) minmax(8rem, 0.9fr);
+    min-width: 92rem;
 }
 
 .metabolite-id-stage-stats-grid-header,
@@ -2993,8 +2993,8 @@ details summary:hover { color: var(--accent); }
     padding: 0.65rem 0.75rem;
 }
 
-.metabolite-id-stage-stats-grid-header:nth-child(10n),
-.metabolite-id-stage-stats-grid-cell:nth-child(10n) {
+.metabolite-id-stage-stats-grid-header:nth-child(11n),
+.metabolite-id-stage-stats-grid-cell:nth-child(11n) {
     border-right: 0;
 }
 

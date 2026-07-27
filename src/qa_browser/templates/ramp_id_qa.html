@@ -63,6 +63,7 @@
                 <div class="metabolite-id-stage-stats-grid-header">Cliques</div>
                 <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
                 <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
+                <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
                 <div class="metabolite-id-stage-stats-grid-header">Largest</div>
                 {% for stage in pipeline_stats.stages %}
@@ -87,6 +88,13 @@
                         {{ "{:,}".format(stage_summary.active_edge_count|default(0, true)) }}
                         {% if stage_summary.ignored_edge_count %}
                         <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
+                        {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        {% if stage_summary.mw_validation_computed %}
+                        {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
+                        {% else %}
+                        <span title="This stage was materialized before MW validation was stored.">Not computed</span>
                         {% endif %}
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
