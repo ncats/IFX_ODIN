@@ -250,6 +250,11 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 collection.add_persistent_index(fields=[field], sparse=True)
 
 
+    @staticmethod
+    def document_handle(collection_name: str, semantic_id: str) -> str:
+        return f"{collection_name}/{ArangoOutputAdapter.safe_key(semantic_id)}"
+
+
     def store(self, objects, single_source = False,
               field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepFirst) -> bool:
 
@@ -363,8 +368,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 for obj in merged_records:
                     edge = {
                         **obj,
-                        "_from": f"{start_labels[0]}/{self.safe_key(obj['start_id'])}",
-                        "_to": f"{end_labels[0]}/{self.safe_key(obj['end_id'])}",
+                        "_from": self.document_handle(start_labels[0], obj["start_id"]),
+                        "_to": self.document_handle(end_labels[0], obj["end_id"]),
                         "_key": generate_edge_key(obj["start_id"], obj["end_id"], label)
                     }
                     edges.append(edge)

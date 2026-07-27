@@ -1416,7 +1416,7 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
           {stage_filter}
           SORT s.created_at DESC
           LIMIT @limit
-          RETURN KEEP(s, "_key", "name", "created_at", "stage_index", "rule_ids", "summary")
+          RETURN KEEP(s, "_key", "name", "created_at", "stage_index", "rule_ids", "summary", "validation")
         """,
         bind_vars=bind_vars,
         max_runtime=120,
@@ -1468,6 +1468,7 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
     for stage in stages:
         summary = stage.get("summary") or {}
         distribution = distribution_by_stage.get(stage["_key"], {})
+        mw_validation = _harmonization_stage_mw_validation_from_doc(stage)
         stage["overview_stats"] = {
             "active_identifier_count": summary.get("active_identifier_count", 0),
             "clique_count": summary.get("clique_count", 0),
@@ -1478,6 +1479,8 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
             "singleton_identifier_count": summary.get("singleton_identifier_count", 0),
             "active_edge_count": summary.get("active_edge_count", 0),
             "ignored_edge_count": summary.get("ignored_edge_count", 0),
+            "mw_warning_count": mw_validation.get("warning_count", 0),
+            "mw_validation_computed": mw_validation.get("computed", False),
             "max_size": distribution.get("max_size") or (
                 (summary.get("largest_clique_sizes") or [0])[0]
             ),
