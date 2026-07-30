@@ -35,6 +35,18 @@ import uvicorn
 from src.core.data_registry import DataRegistry
 from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
+from src.qa_browser.disease_id_graph import (
+    DOWNLOADABLE_FILES,
+    build_disease_graph_payload,
+    compute_dashboard_stats,
+    export_filtered_download,
+    export_flagged_tsv,
+    export_search_tsv,
+    load_disease_graph_data,
+    load_flagged_concepts,
+    parse_disease_ids,
+    search_concepts,
+)
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -73,6 +85,7 @@ _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
+_disease_graph_dir: str = ""
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -5101,6 +5114,151 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
     return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
 
 
+@app.get("/disease-id-qa", response_class=HTMLResponse)
+def disease_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join(parse_disease_ids(ids))
+    error_message = None
+    manifest: dict = {}
+    if _disease_graph_dir:
+        try:
+            data = load_disease_graph_data(_disease_graph_dir)
+            manifest = data.manifest
+        except Exception as exc:
+            error_message = str(exc)
+    else:
+        error_message = "No --disease-graph-dir configured."
+    # Default to graph tab when IDs are provided, dashboard otherwise
+    active_tab = tab if tab else ("graph" if ids else "dashboard")
+    return templates.TemplateResponse(request, "disease_id_qa.html", {
+        "request": request,
+        "ids": ids,
+        "selected_ids": selected_ids,
+        "manifest": manifest,
+        "flagged_rows": [],
+        "error_message": error_message,
+        "active_tab": active_tab,
+    })
+
+
+@app.get("/disease-id-qa/api/graph")
+def disease_id_qa_graph(ids: str = ""):
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_disease_graph_payload(data, parse_disease_ids(ids))
+
+
+@app.get("/disease-id-qa/download/{filename}")
+def disease_id_qa_download(filename: str):
+    """Serve a file from the disease app_graph directory."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if filename not in DOWNLOADABLE_FILES:
+        raise HTTPException(status_code=404, detail=f"File not available: {filename}")
+    file_path = Path(_disease_graph_dir) / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    media_type = "application/json" if filename.endswith(".json") else "text/tab-separated-values"
+    return StreamingResponse(
+        open(file_path, "rb"),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/disease-id-qa/download-flagged")
+def disease_id_qa_download_flagged():
+    """Download flagged concepts as a TSV file."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    tsv_content = export_flagged_tsv(data)
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="flagged_concepts.tsv"'},
+    )
+
+
+@app.get("/disease-id-qa/api/search")
+def disease_id_qa_search(
+    q: str = "",
+    filter: str = "all",
+    page: int = 1,
+    per_page: int = 50,
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+):
+    """Paginated search across all disease concepts."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    per_page = max(1, min(per_page, 200))
+    return search_concepts(
+        data, q=q, filter_mode=filter, page=page, per_page=per_page,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+    )
+
+
+@app.get("/disease-id-qa/download-search")
+def disease_id_qa_download_search(q: str = "", filter: str = "all"):
+    """Download current search results as a TSV file."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    tsv_content = export_search_tsv(data, q=q, filter_mode=filter)
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="disease_search_results.tsv"'},
+    )
+
+
+@app.get("/disease-id-qa/api/dashboard")
+def disease_id_qa_dashboard():
+    """Return dashboard aggregate stats."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return compute_dashboard_stats(data)
+
+
+@app.get("/disease-id-qa/download-filtered")
+def disease_id_qa_download_filtered(
+    q: str = "",
+    filter: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    """Download filtered concepts with selectable columns."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+    content = export_filtered_download(
+        data, q=q, filter_mode=filter,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+        columns=col_list, fmt=format,
+    )
+    if format == "csv":
+        media = "text/csv"
+        ext = "csv"
+    else:
+        media = "text/tab-separated-values"
+        ext = "tsv"
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
+    )
+
+
 @app.get("/registry", response_class=HTMLResponse)
 def registry_home(request: Request):
     catalog, registry_error = _load_registry_catalog_categories([
@@ -7981,9 +8139,12 @@ def main():
     parser.add_argument("--pounce-project-base-url",
                         default="",
                         help="Public base URL for project detail links, e.g. https://pounce-ci.ncats.nih.gov/project")
+    parser.add_argument("--disease-graph-dir",
+                        default="",
+                        help="Path to disease app_graph/ directory (TSV files + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -8042,6 +8203,10 @@ def main():
     _pounce_module.set_public_project_base_url(args.pounce_project_base_url)
     _feedback_module.set_feedback_file(args.feedback_file)
     set_ramp_diagnosis_file(args.ramp_diagnosis_file)
+
+    _disease_graph_dir = args.disease_graph_dir
+    if _disease_graph_dir:
+        print(f"Disease graph dir: {_disease_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

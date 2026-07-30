@@ -1,0 +1,1043 @@
+{% extends "base.html" %}
+{% block title %}Disease ID QA{% endblock %}
+
+{% block content %}
+<div class="disease-id-page">
+    <section class="disease-id-header">
+        <div>
+            <h1>Disease Harmonizer QA</h1>
+            <p>Pipeline <span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>,
+               generated {{ manifest.get("generated_at", "\u2014")[:10] }},
+               commit <span class="mono">{{ manifest.get("git_commit", "\u2014") }}</span>.</p>
+        </div>
+        <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
+            <textarea name="ids" spellcheck="false"
+                placeholder="MONDO:0005148&#10;IFXDisease:CLN0VF6">{{ ids }}</textarea>
+            <input type="hidden" name="tab" value="graph">
+            <button type="submit" class="btn btn-primary">Open graph</button>
+        </form>
+    </section>
+
+    {% if error_message %}
+    <div class="registry-update-error">{{ error_message }}</div>
+    {% endif %}
+
+    <!-- Tab navigation -->
+    <div class="disease-tabs">
+        <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard">Dashboard</button>
+        <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts">Concepts</button>
+        <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph">Graph</button>
+        <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download">Download</button>
+    </div>
+
+    <!-- Tab 1: Dashboard -->
+    <div class="disease-tab-panel{% if active_tab == 'dashboard' %} active{% endif %}" id="tab-dashboard">
+        <div class="dash-hero">
+            <div class="dash-card">
+                <div class="dash-stat" id="dashTotalConcepts">-</div>
+                <div class="dash-label">Total Concepts</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashSourcesCovered">-</div>
+                <div class="dash-label">Sources Covered</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashAvgXrefs">-</div>
+                <div class="dash-label">Avg Xrefs / Concept</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashRareCount">-</div>
+                <div class="dash-label">Rare Diseases</div>
+            </div>
+        </div>
+
+        <div class="dash-charts">
+            <div class="dash-chart-panel">
+                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <dl>
+                        <dt>single_authoritative_source</dt>
+                        <dd>One ontology asserts this mapping with no disagreement.</dd>
+                        <dt>multi_source_supported</dt>
+                        <dd>Multiple sources independently assert this mapping.</dd>
+                        <dt>needs_review</dt>
+                        <dd>Conflicting assertions or insufficient evidence.</dd>
+                        <dt>review_validator_disagreement</dt>
+                        <dd>NodeNorm disagrees with the harmonized resolution.</dd>
+                        <dt>review_obsolete_xref</dt>
+                        <dd>At least one source asserts an obsolete identifier.</dd>
+                    </dl>
+                </div>
+                <div id="dashConfidenceChart" class="bar-chart"></div>
+            </div>
+            <div class="dash-chart-panel">
+                <h3>Quality Grade Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <p>Composite score (1.0 = best). Components: source agreement weight, confidence tier factor, xref count normalization.</p>
+                    <dl>
+                        <dt>1.0 &ndash; 1.5</dt>
+                        <dd>Strong multi-source agreement.</dd>
+                        <dt>1.5 &ndash; 2.0</dt>
+                        <dd>Moderate agreement.</dd>
+                        <dt>2.0 &ndash; 2.5</dt>
+                        <dd>Limited evidence.</dd>
+                        <dt>2.5 &ndash; 3.0</dt>
+                        <dd>Conflicting or weak support.</dd>
+                        <dt>3.0+</dt>
+                        <dd>Unresolved issues requiring review.</dd>
+                    </dl>
+                </div>
+                <div id="dashQualityChart" class="bar-chart"></div>
+            </div>
+        </div>
+        <div class="dash-charts">
+            <div class="dash-chart-panel">
+                <h3>Source Namespace Coverage <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <p>Count of concepts with at least one xref edge in each source namespace.</p>
+                </div>
+                <div id="dashSourceChart" class="bar-chart"></div>
+            </div>
+            <div class="dash-chart-panel">
+                <h3>NodeNorm Validation <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <dl>
+                        <dt>validated</dt>
+                        <dd>NodeNorm canonical CURIE agrees with the harmonized primary_xref.</dd>
+                        <dt>disagreed</dt>
+                        <dd>NodeNorm returns a different canonical CURIE.</dd>
+                        <dt>unvalidated</dt>
+                        <dd>Concept not found in NodeNorm.</dd>
+                    </dl>
+                </div>
+                <div id="dashNodenormChart" class="bar-chart"></div>
+            </div>
+        </div>
+
+        <div class="dash-flagged-summary" id="dashFlaggedSummary">
+        </div>
+    </div>
+
+    <!-- Tab 2: Concepts -->
+    <div class="disease-tab-panel{% if active_tab == 'concepts' %} active{% endif %}" id="tab-concepts">
+        <section class="disease-id-table-section">
+            <div class="disease-id-section-header">
+                <h2>Disease Concepts</h2>
+                <p id="diseaseIdTableStatus">Loading...</p>
+            </div>
+            <div class="disease-id-search-bar">
+                <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input">
+                <select id="filterConfidenceTier" class="filter-select">
+                    <option value="">All tiers</option>
+                    <option value="single_authoritative_source">Single authoritative source</option>
+                    <option value="multi_source_supported">Multi-source supported</option>
+                    <option value="needs_review">Needs review</option>
+                    <option value="review_validator_disagreement">Validator disagreement</option>
+                    <option value="review_obsolete_xref">Obsolete xref</option>
+                </select>
+                <select id="filterQuality" class="filter-select">
+                    <option value="">All scores</option>
+                </select>
+                <select id="filterIsRare" class="filter-select">
+                    <option value="">All</option>
+                    <option value="true">Rare only</option>
+                    <option value="false">Non-rare</option>
+                </select>
+                <select id="filterSource" class="filter-select">
+                    <option value="">All sources</option>
+                </select>
+                <div class="disease-id-filter-toggle">
+                    <button id="diseaseIdFilterAll" class="btn btn-sm disease-id-toggle-btn active">All</button>
+                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Flagged</button>
+                </div>
+                <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn">Download filtered TSV</a>
+            </div>
+            <div class="disease-id-table-wrap">
+                <table class="disease-id-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Primary Xref</th>
+                            <th>Name</th>
+                            <th>Tier</th>
+                            <th>Quality</th>
+                            <th>Sources</th>
+                            <th>Xrefs</th>
+                            <th>Flags</th>
+                            <th>Source Labels</th>
+                        </tr>
+                    </thead>
+                    <tbody id="diseaseIdTableBody">
+                        <tr><td colspan="9">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="disease-id-pagination" id="diseaseIdPagination"></div>
+        </section>
+    </div>
+
+    <!-- Tab 3: Graph -->
+    <div class="disease-tab-panel{% if active_tab == 'graph' %} active{% endif %}" id="tab-graph">
+        {% if selected_ids and not error_message %}
+        <section class="disease-id-graph-panel">
+            <div class="disease-id-graph-col">
+                <div class="disease-id-filter-bar">
+                    <span class="disease-id-filter-group-label">Match type:</span>
+                    <label><input type="checkbox" id="filterExact" checked> Exact</label>
+                    <label><input type="checkbox" id="filterBroad" checked> Broad</label>
+                    <label><input type="checkbox" id="filterNarrow" checked> Narrow</label>
+                    <label><input type="checkbox" id="filterRelated" checked> Related</label>
+                    <label><input type="checkbox" id="filterUnclassified" checked> Unclassified</label>
+                    <span class="disease-id-filter-sep">|</span>
+                    <label><input type="checkbox" id="filterHideObsolete"> Hide obsolete xrefs</label>
+                    <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
+                    <span class="disease-id-filter-sep">|</span>
+                    <label class="disease-id-filter-group-label">Layout:</label>
+                    <select id="graphLayoutSelect" class="filter-select filter-select-sm">
+                        <option value="cose" selected>Cose</option>
+                        <option value="concentric">Concentric</option>
+                        <option value="breadthfirst">Breadthfirst</option>
+                    </select>
+                    <span class="disease-id-filter-sep">|</span>
+                    <button id="graphLegendToggle" class="graph-legend-toggle">Legend</button>
+                </div>
+                <div id="graphLegend" class="graph-legend">
+                    <div class="graph-legend-columns">
+                        <div class="graph-legend-col">
+                            <h4>Edge types</h4>
+                            <div class="graph-legend-edge-list">
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> Exact</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Broad</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> Narrow</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> Related</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> Unclassified</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Decision</span>
+                            </div>
+                            <h4>Conflict indicators</h4>
+                            <div class="graph-legend-edge-list">
+                                <span class="graph-legend-item">&#9888; Unresolved &mdash; thicker edge, amber outline</span>
+                                <span class="graph-legend-item">&#9888; Resolved &mdash; slightly faded edge</span>
+                            </div>
+                        </div>
+                        <div class="graph-legend-col">
+                            <h4>Score components</h4>
+                            <table class="graph-legend-score-table">
+                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite (0&ndash;1)</td></tr>
+                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength</td></tr>
+                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Fuzzy label similarity</td></tr>
+                                <tr><td class="graph-legend-score-name">source_support</td><td># sources asserting this xref</td></tr>
+                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality / proxy patterns</td></tr>
+                            </table>
+                            <p class="graph-legend-formula">xref_confidence = 35% mapping + 25% label + 20% source + 20% structural</p>
+                        </div>
+                    </div>
+                </div>
+                <div id="diseaseIdCy" class="disease-id-cy" data-ids="{{ selected_ids }}"></div>
+            </div>
+            <aside class="disease-id-detail">
+                <h2 id="diseaseIdDetailTitle">Graph</h2>
+                <p id="diseaseIdDetailSub">Loading {{ selected_ids }}</p>
+                <dl id="diseaseIdStats" class="disease-id-stats"></dl>
+                <div id="diseaseIdDetails" class="disease-id-details"></div>
+                <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
+                    <button id="diseaseIdExportJson" class="btn btn-sm">Export graph JSON</button>
+                    <button id="diseaseIdExportFiltered" class="btn btn-sm">Download filtered view</button>
+                </div>
+            </aside>
+        </section>
+        {% else %}
+        <div class="disease-id-graph-empty">
+            <p>Enter one or more disease IDs above and click <strong>Open graph</strong> to visualize cross-reference relationships.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Tab 4: Download -->
+    <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download">
+        <section class="download-panel">
+            <div class="download-controls">
+                <h2>Filtered Download</h2>
+                <div class="download-filters">
+                    <div class="download-filter-row">
+                        <label>Search:
+                            <input type="text" id="dlSearchInput" placeholder="Name or ID..." class="disease-id-search-input">
+                        </label>
+                        <label>Filter:
+                            <select id="dlFilterMode" class="filter-select">
+                                <option value="all">All</option>
+                                <option value="flagged">Flagged only</option>
+                            </select>
+                        </label>
+                        <label>Confidence:
+                            <select id="dlConfidence" class="filter-select">
+                                <option value="">All</option>
+                                <option value="single_authoritative_source">Single authoritative</option>
+                                <option value="multi_source_supported">Multi-source</option>
+                                <option value="needs_review">Needs review</option>
+                                <option value="review_validator_disagreement">Validator disagree</option>
+                                <option value="review_obsolete_xref">Obsolete xref</option>
+                            </select>
+                        </label>
+                        <label>Quality:
+                            <select id="dlQuality" class="filter-select">
+                                <option value="">All</option>
+                            </select>
+                        </label>
+                        <label>Rare:
+                            <select id="dlIsRare" class="filter-select">
+                                <option value="">All</option>
+                                <option value="true">Rare only</option>
+                                <option value="false">Non-rare</option>
+                            </select>
+                        </label>
+                        <label>Source:
+                            <select id="dlSource" class="filter-select">
+                                <option value="">All</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="download-preview" id="dlPreview">
+                    <strong>-</strong> concepts match your filters
+                </div>
+
+                <div class="column-picker">
+                    <h3>Columns to include</h3>
+                    <div class="column-picker-grid">
+                        <div class="column-picker-group">
+                            <h4>Core (always included)</h4>
+                            <label><input type="checkbox" value="ncats_disease_id" checked disabled> ncats_disease_id</label>
+                            <label><input type="checkbox" value="primary_xref" checked disabled> primary_xref</label>
+                            <label><input type="checkbox" value="standard_name" checked disabled> standard_name</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Enrichment</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="definition"> definition</label>
+                            <label><input type="checkbox" class="dl-col-check" value="synonyms"> synonyms</label>
+                            <label><input type="checkbox" class="dl-col-check" value="disease_type"> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" value="is_rare"> is_rare</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Quality</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
+                            <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>NodeNorm</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_validation_status"> nodenorm_validation_status</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="download-actions">
+                    <label>Format:
+                        <select id="dlFormat" class="filter-select">
+                            <option value="tsv">TSV</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                    </label>
+                    <button id="dlDownloadBtn" class="btn btn-primary">Download</button>
+                </div>
+            </div>
+
+            <div class="download-raw">
+                <h3>Raw Files</h3>
+                <div class="disease-id-download-links">
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn">disease_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_xref_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
+                    <span class="disease-id-dl-sep">|</span>
+                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">flagged_concepts.tsv</a>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script>
+(function () {
+    const rootPath = {{ root_path | tojson }};
+
+    /* == Helpers == */
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    function downloadBlob(content, filename, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /* == Tab switching == */
+    const tabBtns = document.querySelectorAll(".disease-tab-btn");
+    const tabPanels = document.querySelectorAll(".disease-tab-panel");
+    tabBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            tabBtns.forEach(b => b.classList.remove("active"));
+            tabPanels.forEach(p => p.classList.remove("active"));
+            btn.classList.add("active");
+            document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+        });
+    });
+
+    /* == Dashboard == */
+    const NS_COLORS = {
+        "MONDO": "#0d9488", "DOID": "#2563eb", "OMIM": "#7c3aed",
+        "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
+    };
+
+    function renderBarChart(container, data, total, colorMap) {
+        container.innerHTML = "";
+        const entries = Object.entries(data);
+        if (!entries.length) { container.textContent = "No data"; return; }
+        const maxVal = Math.max(...entries.map(([, v]) => v));
+        entries.forEach(([label, count]) => {
+            const pct = maxVal > 0 ? (count / maxVal * 100) : 0;
+            const pctOfTotal = total > 0 ? (count / total * 100).toFixed(1) : "0";
+            const color = (colorMap && colorMap[label]) || "var(--accent)";
+            const row = document.createElement("div");
+            row.className = "bar-row";
+            row.innerHTML =
+                `<span class="bar-label">${escapeHtml(label)}</span>` +
+                `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>` +
+                `<span class="bar-value">${count.toLocaleString()} <small>(${pctOfTotal}%)</small></span>`;
+            container.appendChild(row);
+        });
+    }
+
+    function populateFilterDropdowns(stats) {
+        // Source namespace dropdowns
+        const sources = Object.keys(stats.source_coverage).sort();
+        [filterSource, document.getElementById("dlSource")].forEach(sel => {
+            sources.forEach(ns => {
+                const opt = document.createElement("option");
+                opt.value = ns;
+                opt.textContent = ns;
+                sel.appendChild(opt);
+            });
+        });
+        // Quality score dropdowns — bucket into ranges for usability
+        const qualScores = Object.keys(stats.quality_distribution)
+            .filter(v => v !== "unknown")
+            .map(Number)
+            .filter(v => !isNaN(v));
+        if (qualScores.length > 0) {
+            const buckets = [
+                { label: "1.0 - 1.5 (best)", min: 0, max: 1.5 },
+                { label: "1.5 - 2.0", min: 1.5, max: 2.0 },
+                { label: "2.0 - 2.5", min: 2.0, max: 2.5 },
+                { label: "2.5 - 3.0", min: 2.5, max: 3.0 },
+                { label: "3.0+ (worst)", min: 3.0, max: 999 },
+            ];
+            [document.getElementById("filterQuality"), document.getElementById("dlQuality")].forEach(sel => {
+                buckets.forEach(b => {
+                    const opt = document.createElement("option");
+                    opt.value = `${b.min}-${b.max}`;
+                    opt.textContent = b.label;
+                    sel.appendChild(opt);
+                });
+            });
+        }
+    }
+
+    function loadDashboard() {
+        fetch(`${rootPath}/disease-id-qa/api/dashboard`)
+            .then(r => r.json())
+            .then(stats => {
+                document.getElementById("dashTotalConcepts").textContent = stats.total_concepts.toLocaleString();
+                document.getElementById("dashSourcesCovered").textContent = Object.keys(stats.source_coverage).length;
+                document.getElementById("dashAvgXrefs").textContent = stats.avg_xrefs_per_concept;
+                document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
+
+                const tierColors = {
+                    "single_authoritative_source": "#059669",
+                    "multi_source_supported": "#2563eb",
+                    "needs_review": "#f59e0b",
+                    "review_validator_disagreement": "#f97316",
+                    "review_obsolete_xref": "#dc2626",
+                    "unknown": "#94a3b8",
+                };
+                renderBarChart(document.getElementById("dashConfidenceChart"), stats.confidence_distribution, stats.total_concepts, tierColors);
+
+                // Bucket raw quality scores into ranges so the chart is compact
+                const qualBuckets = [
+                    { label: "1.0 \u2013 1.5 (best)", min: 0, max: 1.5, color: "#059669" },
+                    { label: "1.5 \u2013 2.0",        min: 1.5, max: 2.0, color: "#2563eb" },
+                    { label: "2.0 \u2013 2.5",        min: 2.0, max: 2.5, color: "#f59e0b" },
+                    { label: "2.5 \u2013 3.0",        min: 2.5, max: 3.0, color: "#f97316" },
+                    { label: "3.0+ (worst)",           min: 3.0, max: Infinity, color: "#dc2626" },
+                ];
+                const qualBucketed = {};
+                const qualColors = {};
+                qualBuckets.forEach(b => { qualBucketed[b.label] = 0; qualColors[b.label] = b.color; });
+                Object.entries(stats.quality_distribution).forEach(([score, count]) => {
+                    const v = parseFloat(score);
+                    if (isNaN(v)) { qualBucketed["3.0+ (worst)"] = (qualBucketed["3.0+ (worst)"] || 0) + count; return; }
+                    for (const b of qualBuckets) {
+                        if (v >= b.min && v < b.max) { qualBucketed[b.label] += count; return; }
+                    }
+                });
+                renderBarChart(document.getElementById("dashQualityChart"), qualBucketed, stats.total_concepts, qualColors);
+
+                renderBarChart(document.getElementById("dashSourceChart"), stats.source_coverage, stats.total_concepts, NS_COLORS);
+
+                const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#64748b" };
+                renderBarChart(document.getElementById("dashNodenormChart"), stats.nodenorm_distribution, stats.total_concepts, nnColors);
+
+                const summary = document.getElementById("dashFlaggedSummary");
+                summary.innerHTML =
+                    `<div class="dash-card dash-card-wide">` +
+                    `<div class="dash-stat">${stats.flagged_count.toLocaleString()}</div>` +
+                    `<div class="dash-label">Flagged concepts (cardinality, obsolete, or decision issues)</div>` +
+                    `<button class="btn btn-sm" style="margin-top:0.5rem" onclick="document.querySelector('[data-tab=concepts]').click();` +
+                    `setTimeout(function(){document.getElementById('diseaseIdFilterFlagged').click()},100)">` +
+                    `View flagged concepts</button>` +
+                    `</div>`;
+
+                populateFilterDropdowns(stats);
+            })
+            .catch(err => {
+                document.getElementById("dashTotalConcepts").textContent = "Error";
+            });
+    }
+    loadDashboard();
+
+    /* == Concepts tab: search / pagination table == */
+    const searchInput = document.getElementById("diseaseIdSearchInput");
+    const tableBody = document.getElementById("diseaseIdTableBody");
+    const tableStatus = document.getElementById("diseaseIdTableStatus");
+    const paginationEl = document.getElementById("diseaseIdPagination");
+    const downloadSearchBtn = document.getElementById("diseaseIdDownloadSearch");
+    const filterAllBtn = document.getElementById("diseaseIdFilterAll");
+    const filterFlaggedBtn = document.getElementById("diseaseIdFilterFlagged");
+    const filterConfidence = document.getElementById("filterConfidenceTier");
+    const filterQuality = document.getElementById("filterQuality");
+    const filterIsRare = document.getElementById("filterIsRare");
+    const filterSource = document.getElementById("filterSource");
+
+    let currentQuery = "";
+    let currentFilter = "all";
+    let currentPage = 1;
+
+    function getFilterParams() {
+        return {
+            confidence_tier: filterConfidence.value,
+            quality: filterQuality.value,
+            is_rare: filterIsRare.value,
+            source: filterSource.value,
+        };
+    }
+
+    function loadTable(page) {
+        currentPage = page || 1;
+        const fp = getFilterParams();
+        const params = new URLSearchParams({
+            q: currentQuery,
+            filter: currentFilter,
+            page: currentPage,
+            per_page: 50,
+            ...fp,
+        });
+        // Remove empty params
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        tableBody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
+
+        fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
+            .then(r => r.json())
+            .then(data => {
+                tableStatus.textContent =
+                    `${data.total.toLocaleString()} concepts` +
+                    (data.query ? ` matching "${data.query}"` : "") +
+                    (data.filter === "flagged" ? " (flagged only)" : "");
+
+                if (data.rows.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="9">No concepts found.</td></tr>';
+                } else {
+                    tableBody.innerHTML = data.rows.map(r => {
+                        const detailHtml =
+                            `<tr class="row-detail" style="display:none"><td colspan="9"><div class="row-detail-inner">` +
+                            (r.definition ? `<div><strong>Definition:</strong> ${escapeHtml(r.definition)}</div>` : "") +
+                            (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
+                            (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
+                            (r.is_rare ? `<div><strong>Rare:</strong> ${escapeHtml(r.is_rare)}</div>` : "") +
+                            (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
+                            (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
+                            `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
+                            `</div></td></tr>`;
+                        return `<tr class="row-expandable">
+                            <td class="row-expand-toggle">&#9654;</td>
+                            <td class="mono"><a href="${rootPath}${escapeHtml(r.href)}&tab=graph">${escapeHtml(r.primary_xref)}</a></td>
+                            <td>${escapeHtml(r.standard_name) || "(unnamed)"}</td>
+                            <td>${escapeHtml(r.confidence_tier)}</td>
+                            <td>${escapeHtml(r.overall_quality)}</td>
+                            <td>${escapeHtml(r.n_sources)}</td>
+                            <td>${escapeHtml(r.xref_count)}</td>
+                            <td>${escapeHtml(r.flags)}</td>
+                            <td class="disease-id-source-labels">${escapeHtml(r.source_labels)}</td>
+                        </tr>${detailHtml}`;
+                    }).join("");
+
+                    // Attach expand/collapse handlers
+                    tableBody.querySelectorAll(".row-expandable").forEach(row => {
+                        row.addEventListener("click", (e) => {
+                            if (e.target.tagName === "A") return;
+                            const detail = row.nextElementSibling;
+                            const toggle = row.querySelector(".row-expand-toggle");
+                            if (detail && detail.classList.contains("row-detail")) {
+                                const showing = detail.style.display !== "none";
+                                detail.style.display = showing ? "none" : "table-row";
+                                toggle.innerHTML = showing ? "&#9654;" : "&#9660;";
+                                row.classList.toggle("expanded", !showing);
+                            }
+                        });
+                    });
+                }
+
+                renderPagination(data.page, data.total_pages);
+
+                const dlParams = new URLSearchParams({ q: currentQuery, filter: currentFilter });
+                downloadSearchBtn.href = `${rootPath}/disease-id-qa/download-search?${dlParams}`;
+            })
+            .catch(err => {
+                tableBody.innerHTML = `<tr><td colspan="9">Error: ${escapeHtml(err.message)}</td></tr>`;
+            });
+    }
+
+    function renderPagination(page, totalPages) {
+        if (totalPages <= 1) {
+            paginationEl.innerHTML = "";
+            return;
+        }
+        const prevDisabled = page <= 1 ? "disabled" : "";
+        const nextDisabled = page >= totalPages ? "disabled" : "";
+        paginationEl.innerHTML = `
+            <button class="btn btn-sm" ${prevDisabled} data-page="${page - 1}">Prev</button>
+            <span class="disease-id-page-indicator">Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+            <button class="btn btn-sm" ${nextDisabled} data-page="${page + 1}">Next</button>
+        `;
+        paginationEl.querySelectorAll("button[data-page]").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const p = parseInt(btn.dataset.page, 10);
+                if (p >= 1 && p <= totalPages) loadTable(p);
+            });
+        });
+    }
+
+    // Debounced search
+    let searchTimer = null;
+    searchInput.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            currentQuery = searchInput.value.trim();
+            loadTable(1);
+        }, 300);
+    });
+
+    // Filter toggle
+    filterAllBtn.addEventListener("click", () => {
+        currentFilter = "all";
+        filterAllBtn.classList.add("active");
+        filterFlaggedBtn.classList.remove("active");
+        loadTable(1);
+    });
+    filterFlaggedBtn.addEventListener("click", () => {
+        currentFilter = "flagged";
+        filterFlaggedBtn.classList.add("active");
+        filterAllBtn.classList.remove("active");
+        loadTable(1);
+    });
+
+    // Dropdown filters
+    [filterConfidence, filterQuality, filterIsRare, filterSource].forEach(sel => {
+        sel.addEventListener("change", () => loadTable(1));
+    });
+
+    // Initial load
+    loadTable(1);
+
+    /* == Graph panel == */
+    const graphEl = document.getElementById("diseaseIdCy");
+    if (graphEl) {
+        const detailTitle = document.getElementById("diseaseIdDetailTitle");
+        const detailSub = document.getElementById("diseaseIdDetailSub");
+        const detailBox = document.getElementById("diseaseIdDetails");
+        const statsBox = document.getElementById("diseaseIdStats");
+        const graphActions = document.getElementById("diseaseIdGraphActions");
+        const exportBtn = document.getElementById("diseaseIdExportJson");
+        const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
+        const layoutSelect = document.getElementById("graphLayoutSelect");
+
+        const filterExact = document.getElementById("filterExact");
+        const filterBroad = document.getElementById("filterBroad");
+        const filterNarrow = document.getElementById("filterNarrow");
+        const filterRelated = document.getElementById("filterRelated");
+        const filterUnclassified = document.getElementById("filterUnclassified");
+        const filterHideObsolete = document.getElementById("filterHideObsolete");
+        const filterHideDecisions = document.getElementById("filterHideDecisions");
+
+        function renderStats(stats) {
+            const rows = [
+                ["Concepts", stats.conceptCount],
+                ["Xrefs", stats.xrefCount],
+                ["Namespaces", stats.namespaceCount],
+                ["Edges", stats.edgeCount],
+                ["Decisions", stats.decisionCount],
+            ];
+            statsBox.innerHTML = rows.map(([label, value]) =>
+                `<div><dt>${label}</dt><dd>${value}</dd></div>`
+            ).join("");
+        }
+
+        function renderDetails(data) {
+            const keys = [
+                "id", "kind", "standard_name", "ncats_disease_id",
+                "xref_namespace", "xref_label", "is_obsolete", "obsolete_detail",
+                "label_source", "lookup_status",
+                "match_type", "match_type_source", "source_asserted",
+                "agreement_level", "confidence_score", "label_similarity",
+                "mapping_confidence", "label_confidence", "source_support",
+                "structural_confidence", "xref_confidence",
+                "xref_is_obsolete", "override_status", "override_reason",
+                "has_conflict", "conflict_status", "conflict_type",
+                "conflict_resolution", "conflict_detail",
+                "confidence_tier", "overall_quality", "n_sources",
+                "primary_sources", "disease_type", "is_rare",
+                "xref_count", "cardinality_issue_count", "obsolete_xref_count",
+                "nodenorm_canonical_curie",
+                "decision_type", "decision_source", "scenario_id",
+                "status", "auto_decision", "auto_confidence", "auto_rationale",
+                "resolution", "resolution_detail", "reviewed_by", "priority",
+            ];
+            const displayLabels = {
+                "nodenorm_canonical_curie": "node normalization preferred CURIE ID",
+            };
+            detailTitle.textContent = data.label || data.id || "Selection";
+            detailSub.textContent = data.kind || "";
+            detailBox.innerHTML = keys
+                .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
+                .map((key) => `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+                .join("");
+        }
+
+        let cyInstance = null;
+        let fullPayload = null;
+
+        function applyGraphFilters() {
+            if (!cyInstance) return;
+            cyInstance.elements().show();
+            if (!filterExact.checked) cyInstance.elements(".match-exact").hide();
+            if (!filterBroad.checked) cyInstance.elements(".match-broad").hide();
+            if (!filterNarrow.checked) cyInstance.elements(".match-narrow").hide();
+            if (!filterRelated.checked) cyInstance.elements(".match-related").hide();
+            if (!filterUnclassified.checked) cyInstance.elements(".match-unclassified").hide();
+            if (filterHideObsolete.checked) {
+                cyInstance.nodes().filter(n =>
+                    n.data("is_obsolete") === "true" || n.data("is_obsolete") === "True"
+                ).hide();
+                cyInstance.edges().filter(e =>
+                    e.data("xref_is_obsolete") === "true" || e.data("xref_is_obsolete") === "True"
+                ).hide();
+            }
+            if (filterHideDecisions.checked) cyInstance.elements(".decision").hide();
+            cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
+        }
+
+        [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
+         filterHideObsolete, filterHideDecisions].forEach(cb => {
+            cb.addEventListener("change", applyGraphFilters);
+        });
+
+        // Graph legend toggle
+        const legendToggle = document.getElementById("graphLegendToggle");
+        const legendPanel = document.getElementById("graphLegend");
+        if (legendToggle && legendPanel) {
+            legendToggle.addEventListener("click", () => {
+                legendPanel.classList.toggle("expanded");
+                legendToggle.classList.toggle("active");
+            });
+        }
+
+        // Layout selector
+        layoutSelect.addEventListener("change", () => {
+            if (!cyInstance) return;
+            const name = layoutSelect.value;
+            const opts = { name, animate: true, animationDuration: 400, fit: true, padding: 42 };
+            if (name === "concentric") {
+                opts.concentric = node => node.degree();
+                opts.levelWidth = () => 2;
+            }
+            cyInstance.layout(opts).run();
+        });
+
+        fetch(`${rootPath}/disease-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
+            .then((response) => {
+                if (!response.ok) {
+                    return response.json().then((payload) => {
+                        throw new Error(payload.detail || response.statusText);
+                    });
+                }
+                return response.json();
+            })
+            .then((payload) => {
+                fullPayload = payload;
+                renderStats(payload.stats);
+                detailSub.textContent = `${payload.elements.length} graph elements`;
+
+                graphActions.style.display = "flex";
+                exportBtn.addEventListener("click", () =>
+                    downloadBlob(JSON.stringify(payload, null, 2), "disease_graph.json", "application/json")
+                );
+                exportFilteredBtn.addEventListener("click", () => {
+                    if (!cyInstance) return;
+                    const visible = cyInstance.elements(":visible").jsons();
+                    const filtered = { ...payload, elements: visible, stats: {
+                        ...payload.stats,
+                        filteredElementCount: visible.length,
+                    }};
+                    downloadBlob(JSON.stringify(filtered, null, 2), "disease_graph_filtered.json", "application/json");
+                });
+
+                // Namespace color mapping for xref nodes
+                const nsStyleMap = {
+                    mondo:    "#0d9488",
+                    doid:     "#2563eb",
+                    omim:     "#7c3aed",
+                    orphanet: "#ea580c",
+                    medgen:   "#059669",
+                    gard:     "#dc2626",
+                };
+                const nsStyles = Object.entries(nsStyleMap).map(([ns, color]) => ({
+                    selector: `.xref.${ns}`,
+                    style: { "background-color": color },
+                }));
+
+                cyInstance = cytoscape({
+                    container: graphEl,
+                    elements: payload.elements,
+                    layout: { name: "cose", animate: false, fit: true, padding: 42 },
+                    style: [
+                        { selector: "node", style: {
+                            "label": "data(label)",
+                            "font-size": 7,
+                            "text-wrap": "wrap",
+                            "text-max-width": 90,
+                            "background-color": "#64748b",
+                            "border-width": 1,
+                            "border-color": "#334155",
+                            "width": 32,
+                            "height": 32,
+                        }},
+                        { selector: ".concept", style: {
+                            "background-color": "#176c8c",
+                            "width": 46,
+                            "height": 46,
+                            "font-size": 8,
+                            "font-weight": "bold",
+                        }},
+                        { selector: ".xref", style: {
+                            "background-color": "#7c3aed",
+                            "shape": "round-rectangle",
+                            "width": 28,
+                            "height": 28,
+                        }},
+                        ...nsStyles,
+                        { selector: ".decision", style: {
+                            "background-color": "#f59e0b",
+                            "shape": "diamond",
+                            "width": 30,
+                            "height": 30,
+                            "font-size": 6,
+                            "text-wrap": "wrap",
+                            "text-max-width": 80,
+                        }},
+                        { selector: ".decision-resolved", style: {
+                            "background-color": "#059669",
+                        }},
+                        { selector: ".decision-acknowledged", style: {
+                            "background-color": "#2563eb",
+                        }},
+                        { selector: "edge", style: {
+                            "curve-style": "bezier",
+                            "line-color": "#94a3b8",
+                            "target-arrow-color": "#94a3b8",
+                            "target-arrow-shape": "triangle",
+                            "width": 1.5,
+                            "label": "data(label)",
+                            "font-size": 8,
+                            "text-rotation": "autorotate",
+                        }},
+                        { selector: ".match-exact", style: {
+                            "line-color": "#059669",
+                            "target-arrow-color": "#059669",
+                            "line-style": "solid",
+                        }},
+                        { selector: ".match-broad", style: {
+                            "line-color": "#f59e0b",
+                            "target-arrow-color": "#f59e0b",
+                            "line-style": "dashed",
+                        }},
+                        { selector: ".match-narrow", style: {
+                            "line-color": "#f97316",
+                            "target-arrow-color": "#f97316",
+                            "line-style": "dashed",
+                        }},
+                        { selector: ".match-related", style: {
+                            "line-color": "#94a3b8",
+                            "target-arrow-color": "#94a3b8",
+                            "line-style": "dotted",
+                        }},
+                        { selector: ".match-unclassified", style: {
+                            "line-color": "#d1d5db",
+                            "target-arrow-color": "#d1d5db",
+                            "line-style": "dotted",
+                        }},
+                        { selector: ".decision-edge", style: {
+                            "line-color": "#f59e0b",
+                            "target-arrow-color": "#f59e0b",
+                            "target-arrow-shape": "diamond",
+                            "line-style": "dashed",
+                            "width": 1,
+                            "font-size": 7,
+                        }},
+                        { selector: ".has-conflict", style: {
+                            "width": 2.5,
+                            "text-outline-width": 2,
+                            "text-outline-color": "#fef3c7",
+                        }},
+                        { selector: ".conflict-resolved", style: {
+                            "width": 2,
+                            "line-opacity": 0.75,
+                        }},
+                        { selector: ":selected", style: {
+                            "border-width": 5,
+                            "border-color": "#f59e0b",
+                            "shadow-blur": 12,
+                            "shadow-color": "#f59e0b",
+                            "shadow-opacity": 0.5,
+                            "shadow-offset-x": 0,
+                            "shadow-offset-y": 0,
+                        }},
+                    ],
+                });
+                cyInstance.on("tap", "node, edge", (event) => renderDetails(event.target.data()));
+
+                // Tooltip on hover (nodes + edges)
+                let tooltipEl = document.createElement("div");
+                tooltipEl.className = "cy-tooltip";
+                document.body.appendChild(tooltipEl);
+                cyInstance.on("mouseover", "node, edge", (event) => {
+                    const d = event.target.data();
+                    let text = "";
+                    if (event.target.isEdge()) {
+                        text = d.match_type || "";
+                        if (d.xref_confidence) text += ` [${d.xref_confidence}]`;
+                        if (d.has_conflict === "true") {
+                            text += ` \u26a0 ${d.conflict_type || "conflict"}`;
+                            if (d.conflict_status === "resolved") {
+                                text += ` (resolved: ${d.conflict_resolution || "\u2014"})`;
+                            }
+                        }
+                    } else {
+                        text = d.standard_name || d.xref_label || d.decision_type || "";
+                    }
+                    if (!text) return;
+                    tooltipEl.textContent = text;
+                    tooltipEl.style.display = "block";
+                    const pos = event.renderedPosition;
+                    const container = graphEl.getBoundingClientRect();
+                    tooltipEl.style.left = (container.left + pos.x + 12) + "px";
+                    tooltipEl.style.top = (container.top + pos.y - 8 + window.scrollY) + "px";
+                });
+                cyInstance.on("mouseout", "node, edge", () => { tooltipEl.style.display = "none"; });
+
+                cyInstance.ready(() => cyInstance.fit(undefined, 42));
+            })
+            .catch((error) => {
+                detailTitle.textContent = "Could not load graph";
+                detailSub.textContent = error.message;
+            });
+    }
+
+    /* == Download tab == */
+    const dlSearchInput = document.getElementById("dlSearchInput");
+    const dlFilterMode = document.getElementById("dlFilterMode");
+    const dlConfidence = document.getElementById("dlConfidence");
+    const dlQuality = document.getElementById("dlQuality");
+    const dlIsRare = document.getElementById("dlIsRare");
+    const dlSource = document.getElementById("dlSource");
+    const dlFormat = document.getElementById("dlFormat");
+    const dlPreview = document.getElementById("dlPreview");
+    const dlDownloadBtn = document.getElementById("dlDownloadBtn");
+
+    let dlTimer = null;
+    function updateDlPreview() {
+        const params = new URLSearchParams({
+            q: dlSearchInput.value.trim(),
+            filter: dlFilterMode.value,
+            confidence_tier: dlConfidence.value,
+            quality: dlQuality.value,
+            is_rare: dlIsRare.value,
+            source: dlSource.value,
+            per_page: 1,
+            page: 1,
+        });
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
+            .then(r => r.json())
+            .then(data => {
+                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> concepts match your filters`;
+            });
+    }
+
+    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlSource].forEach(el => {
+        el.addEventListener("change", updateDlPreview);
+    });
+    dlSearchInput.addEventListener("input", () => {
+        clearTimeout(dlTimer);
+        dlTimer = setTimeout(updateDlPreview, 300);
+    });
+    updateDlPreview();
+
+    dlDownloadBtn.addEventListener("click", () => {
+        const coreCols = ["ncats_disease_id", "primary_xref", "standard_name"];
+        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")].map(c => c.value);
+        const allCols = [...coreCols, ...extraCols];
+
+        const params = new URLSearchParams({
+            q: dlSearchInput.value.trim(),
+            filter: dlFilterMode.value,
+            confidence_tier: dlConfidence.value,
+            quality: dlQuality.value,
+            is_rare: dlIsRare.value,
+            source: dlSource.value,
+            format: dlFormat.value,
+            columns: allCols.join(","),
+        });
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        window.location.href = `${rootPath}/disease-id-qa/download-filtered?${params}`;
+    });
+})();
+</script>
+{% endblock %}
