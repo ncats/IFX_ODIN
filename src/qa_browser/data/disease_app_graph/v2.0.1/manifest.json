@@ -1,9 +1,9 @@
 {
   "contract_version": "2.0.0",
   "pipeline_version": "2.0.1",
-  "generated_at": "2026-07-31T18:03:45.733151+00:00",
-  "git_commit": "d5cf945",
-  "duration_seconds": 21.95,
+  "generated_at": "2026-07-31T20:02:27.833022+00:00",
+  "git_commit": "1c19829",
+  "duration_seconds": 26.94,
   "files": {
     "disease_concepts.tsv": {
       "rows": 111065,
@@ -60,6 +60,7 @@
         "mapping_confidence",
         "label_confidence",
         "source_support",
+        "asserting_sources",
         "structural_confidence",
         "xref_confidence",
         "xref_is_obsolete",
@@ -68,7 +69,7 @@
       ]
     },
     "xref_labels.tsv": {
-      "rows": 13173,
+      "rows": 293772,
       "key": "xref_id",
       "columns": [
         "xref_id",
