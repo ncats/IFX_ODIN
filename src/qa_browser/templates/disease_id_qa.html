@@ -9,8 +9,7 @@
             <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
                &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
                DOID, GARD via TargetGraph pipeline.
-               Generated {{ manifest.get("generated_at", "\u2014")[:10] }},
-               commit <span class="mono">{{ manifest.get("git_commit", "\u2014") }}</span>.</p>
+               Generated {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
         </div>
         <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
             <textarea name="ids" spellcheck="false"
@@ -310,6 +309,14 @@
                         <label>Quality:
                             <select id="dlQuality" class="filter-select">
                                 <option value="">All</option>
+                            </select>
+                        </label>
+                        <label>Type:
+                            <select id="dlDiseaseType" class="filter-select">
+                                <option value="">All</option>
+                                <option value="biolink:Disease">Disease</option>
+                                <option value="biolink:PhenotypicFeature">Phenotypic Feature</option>
+                                <option value="biolink:DiseaseOrPhenotypicFeature">Disease or Phenotypic</option>
                             </select>
                         </label>
                         <label>Rare:
@@ -1493,6 +1500,7 @@
     const dlConfidence = document.getElementById("dlConfidence");
     const dlQuality = document.getElementById("dlQuality");
     const dlIsRare = document.getElementById("dlIsRare");
+    const dlDiseaseType = document.getElementById("dlDiseaseType");
     const dlFormat = document.getElementById("dlFormat");
     const dlExcludeObsolete = document.getElementById("dlExcludeObsolete");
     const dlPreview = document.getElementById("dlPreview");
@@ -1506,6 +1514,7 @@
             confidence_tier: dlConfidence.value,
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
+            disease_type: dlDiseaseType.value,
             per_page: 1,
             page: 1,
         });
@@ -1518,7 +1527,7 @@
             });
     }
 
-    [dlFilterMode, dlConfidence, dlQuality, dlIsRare].forEach(el => {
+    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
         el.addEventListener("change", updateDlPreview);
     });
     dlSearchInput.addEventListener("input", () => {
@@ -1538,6 +1547,7 @@
             confidence_tier: dlConfidence.value,
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
+            disease_type: dlDiseaseType.value,
             format: dlFormat.value,
             columns: allCols.join(","),
         });

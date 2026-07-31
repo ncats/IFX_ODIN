@@ -566,6 +566,29 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     text-decoration: none;
 }
 
+.workflow-card-disease {
+    color: #ffffff;
+    background:
+        linear-gradient(90deg, rgba(7, 13, 36, 0.82) 0%, rgba(7, 13, 36, 0.55) 42%, rgba(7, 13, 36, 0.15) 100%),
+        url("images/disease-harmonizer.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-color: rgba(139, 92, 246, 0.35);
+}
+
+.workflow-card-disease .db-name,
+.workflow-card-disease .db-card-footer {
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.workflow-card-disease:hover {
+    border-color: #a78bfa;
+    box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.28);
+    text-decoration: none;
+}
+
 .registry-hero {
     background:
         linear-gradient(90deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.64) 42%, rgba(255, 255, 255, 0.08) 100%),

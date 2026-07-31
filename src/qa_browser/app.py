@@ -5199,6 +5199,7 @@ def disease_id_qa_search(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
 ):
     """Paginated search across all disease concepts."""
     if not _disease_graph_dir:
@@ -5208,6 +5209,7 @@ def disease_id_qa_search(
     return search_concepts(
         data, q=q, filter_mode=filter, page=page, per_page=per_page,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+        disease_type=disease_type,
     )
 
 
@@ -5242,6 +5244,7 @@ def disease_id_qa_download_filtered(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
     columns: str = "",
     format: str = "tsv",
     include_sources: str = "",
@@ -5259,6 +5262,7 @@ def disease_id_qa_download_filtered(
     content = export_filtered_download(
         data, q=q, filter_mode=filter,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+        disease_type=disease_type,
         columns=col_list, fmt=format, include_sources=src_set,
         exclude_obsolete=exclude_obsolete.lower() == "true",
     )

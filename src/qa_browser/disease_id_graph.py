@@ -567,6 +567,7 @@ def _match_filters(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
 ) -> bool:
     """Return True if the concept passes all filter criteria."""
     # Flagged filter
@@ -615,6 +616,11 @@ def _match_filters(
         if not _concept_has_source(pxref, source, data):
             return False
 
+    # Disease type (Biolink category)
+    if disease_type:
+        if concept.get("disease_type", "") != disease_type:
+            return False
+
     return True
 
 
@@ -628,6 +634,7 @@ def search_concepts(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
 ) -> dict[str, Any]:
     """Search concepts with pagination and optional filters."""
     q_lower = q.strip().lower()
@@ -639,6 +646,7 @@ def search_concepts(
             q_lower=q_lower, filter_mode=filter_mode,
             confidence_tier=confidence_tier, is_rare=is_rare,
             source=source, quality=quality,
+            disease_type=disease_type,
         ):
             continue
         matches.append((pxref, concept))
@@ -711,6 +719,7 @@ def export_filtered_download(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
     columns: list[str] | None = None,
     fmt: str = "tsv",
     limit: int = 200_000,
@@ -758,6 +767,7 @@ def export_filtered_download(
             q_lower=q_lower, filter_mode=filter_mode,
             confidence_tier=confidence_tier, is_rare=is_rare,
             source=source, quality=quality,
+            disease_type=disease_type,
         ):
             continue
 
