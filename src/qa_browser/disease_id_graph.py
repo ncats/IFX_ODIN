@@ -335,6 +335,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "mapping_confidence": edge_row.get("mapping_confidence", ""),
                     "label_confidence": edge_row.get("label_confidence", ""),
                     "source_support": edge_row.get("source_support", ""),
+                    "asserting_sources": edge_row.get("asserting_sources", ""),
                     "structural_confidence": edge_row.get("structural_confidence", ""),
                     "xref_confidence": xref_conf,
                     "xref_is_obsolete": edge_row.get("xref_is_obsolete", ""),
@@ -705,7 +706,8 @@ def export_search_tsv(
 _XREF_EDGE_COLUMNS = {
     "xref_id", "xref_namespace", "match_type", "match_type_source",
     "agreement_level", "xref_confidence", "mapping_confidence",
-    "label_confidence", "source_support", "structural_confidence",
+    "label_confidence", "source_support", "asserting_sources",
+    "structural_confidence",
     "confidence_score", "label_similarity", "xref_label",
     "xref_is_obsolete", "source_asserted",
 }
@@ -799,6 +801,7 @@ def export_filtered_download(
                 row["mapping_confidence"] = edge.get("mapping_confidence", "")
                 row["label_confidence"] = edge.get("label_confidence", "")
                 row["source_support"] = edge.get("source_support", "")
+                row["asserting_sources"] = edge.get("asserting_sources", "")
                 row["structural_confidence"] = edge.get("structural_confidence", "")
                 row["confidence_score"] = edge.get("confidence_score", "")
                 row["label_similarity"] = edge.get("label_similarity", "")
@@ -955,6 +958,7 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "mapping_confidence": edge.get("mapping_confidence", ""),
             "label_confidence": edge.get("label_confidence", ""),
             "source_support": edge.get("source_support", ""),
+            "asserting_sources": edge.get("asserting_sources", ""),
             "structural_confidence": edge.get("structural_confidence", ""),
         })
 
