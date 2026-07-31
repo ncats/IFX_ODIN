@@ -487,8 +487,20 @@ def _concept_has_source(pxref: str, source: str, data: DiseaseGraphData) -> bool
     return False
 
 
-def _concept_to_row(pxref: str, concept: dict, data: DiseaseGraphData) -> dict[str, Any]:
-    """Convert a concept dict to a search result row."""
+def _concept_to_row(
+    pxref: str,
+    concept: dict,
+    data: DiseaseGraphData,
+    include_sources: set[str] | None = None,
+) -> dict[str, Any]:
+    """Convert a concept dict to a search result row.
+
+    Parameters
+    ----------
+    include_sources : set[str] | None
+        When set, only include xref edge labels whose namespace (upper-cased)
+        is in this set.  ``None`` means include all sources.
+    """
     n_decisions = len(data.decisions_by_pxref.get(pxref, []))
     cardinality = int(concept.get("cardinality_issue_count") or 0)
     obsolete = int(concept.get("obsolete_xref_count") or 0)
@@ -507,6 +519,8 @@ def _concept_to_row(pxref: str, concept: dict, data: DiseaseGraphData) -> dict[s
     for edge in data.edges_by_pxref.get(pxref, []):
         xref_id = edge.get("xref_id", "")
         ns = edge.get("xref_namespace", "")
+        if include_sources and ns.upper() not in include_sources:
+            continue
         label = edge.get("xref_label", "")
         if not label:
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -684,6 +698,7 @@ def export_filtered_download(
     columns: list[str] | None = None,
     fmt: str = "tsv",
     limit: int = 50_000,
+    include_sources: set[str] | None = None,
 ) -> str:
     """Export filtered concepts with selectable columns.
 
@@ -693,6 +708,9 @@ def export_filtered_download(
         Column names to include. ``None`` uses the default set.
     fmt : str
         "tsv" or "csv".
+    include_sources : set[str] | None
+        When set, only include xref edge labels whose namespace (upper-cased)
+        is in this set.  ``None`` means include all sources.
     """
     default_columns = [
         "ncats_disease_id", "primary_xref", "standard_name",
@@ -715,7 +733,7 @@ def export_filtered_download(
             source=source, quality=quality,
         ):
             continue
-        writer.writerow(_concept_to_row(pxref, concept, data))
+        writer.writerow(_concept_to_row(pxref, concept, data, include_sources=include_sources))
         count += 1
         if count >= limit:
             break

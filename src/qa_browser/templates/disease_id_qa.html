@@ -1,13 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Disease ID QA{% endblock %}
+{% block title %}Disease Harmonizer Explorer{% endblock %}
 
 {% block content %}
 <div class="disease-id-page">
     <section class="disease-id-header">
         <div>
-            <h1>Disease Harmonizer QA</h1>
-            <p>Pipeline <span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>,
-               generated {{ manifest.get("generated_at", "\u2014")[:10] }},
+            <h1>Disease Harmonizer Explorer</h1>
+            <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
+               &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
+               DOID, GARD via TargetGraph pipeline.
+               Generated {{ manifest.get("generated_at", "\u2014")[:10] }},
                commit <span class="mono">{{ manifest.get("git_commit", "\u2014") }}</span>.</p>
         </div>
         <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
@@ -290,16 +292,18 @@
                                 <option value="false">Non-rare</option>
                             </select>
                         </label>
-                        <label>Source:
-                            <select id="dlSource" class="filter-select">
-                                <option value="">All</option>
-                            </select>
-                        </label>
                     </div>
                 </div>
 
                 <div class="download-preview" id="dlPreview">
                     <strong>-</strong> concepts match your filters
+                </div>
+
+                <div class="column-picker" id="dlSourcePicker">
+                    <h3>Source namespaces to include</h3>
+                    <div class="column-picker-grid" id="dlSourceGrid">
+                        <!-- Populated dynamically, all checked by default -->
+                    </div>
                 </div>
 
                 <div class="column-picker">
@@ -425,16 +429,26 @@
     }
 
     function populateFilterDropdowns(stats) {
-        // Source namespace dropdowns
+        // Source namespace dropdown (Concepts tab)
         const sources = Object.keys(stats.source_coverage).sort();
-        [filterSource, document.getElementById("dlSource")].forEach(sel => {
-            sources.forEach(ns => {
-                const opt = document.createElement("option");
-                opt.value = ns;
-                opt.textContent = ns;
-                sel.appendChild(opt);
-            });
+        sources.forEach(ns => {
+            const opt = document.createElement("option");
+            opt.value = ns;
+            opt.textContent = ns;
+            filterSource.appendChild(opt);
         });
+
+        // Source namespace checkboxes (Download tab)
+        const sourceGrid = document.getElementById("dlSourceGrid");
+        const group = document.createElement("div");
+        group.className = "column-picker-group";
+        group.innerHTML = "<h4>Sources (uncheck to exclude from xref labels)</h4>";
+        sources.forEach(ns => {
+            const label = document.createElement("label");
+            label.innerHTML = `<input type="checkbox" class="dl-source-check" value="${ns}" checked> ${ns}`;
+            group.appendChild(label);
+        });
+        sourceGrid.appendChild(group);
         // Quality score dropdowns — bucket into ranges for usability
         const qualScores = Object.keys(stats.quality_distribution)
             .filter(v => v !== "unknown")
@@ -984,7 +998,6 @@
     const dlConfidence = document.getElementById("dlConfidence");
     const dlQuality = document.getElementById("dlQuality");
     const dlIsRare = document.getElementById("dlIsRare");
-    const dlSource = document.getElementById("dlSource");
     const dlFormat = document.getElementById("dlFormat");
     const dlPreview = document.getElementById("dlPreview");
     const dlDownloadBtn = document.getElementById("dlDownloadBtn");
@@ -997,7 +1010,6 @@
             confidence_tier: dlConfidence.value,
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
-            source: dlSource.value,
             per_page: 1,
             page: 1,
         });
@@ -1010,7 +1022,7 @@
             });
     }
 
-    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlSource].forEach(el => {
+    [dlFilterMode, dlConfidence, dlQuality, dlIsRare].forEach(el => {
         el.addEventListener("change", updateDlPreview);
     });
     dlSearchInput.addEventListener("input", () => {
@@ -1030,11 +1042,17 @@
             confidence_tier: dlConfidence.value,
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
-            source: dlSource.value,
             format: dlFormat.value,
             columns: allCols.join(","),
         });
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        // Source namespace filter — only send if not all are checked
+        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        const allSourceChecks = document.querySelectorAll(".dl-source-check");
+        if (checkedSources.length < allSourceChecks.length) {
+            params.set("include_sources", checkedSources.join(","));
+        }
 
         window.location.href = `${rootPath}/disease-id-qa/download-filtered?${params}`;
     });

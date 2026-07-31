@@ -1,0 +1,133 @@
+{
+  "contract_version": "2.0.0",
+  "pipeline_version": "2.0.1",
+  "generated_at": "2026-07-30T22:12:00.126029+00:00",
+  "git_commit": "6580071",
+  "duration_seconds": 22.72,
+  "files": {
+    "disease_concepts.tsv": {
+      "rows": 111067,
+      "key": "ncats_disease_id",
+      "alternate_key": "primary_xref",
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "primary_xref_source",
+        "standard_name",
+        "definition",
+        "synonyms",
+        "disease_type",
+        "is_rare",
+        "harmonized_to_ontology",
+        "primary_xref_grounding_type",
+        "confidence_tier",
+        "overall_quality",
+        "n_sources",
+        "primary_source_count",
+        "primary_sources",
+        "primary_conflict_count",
+        "cardinality_issue_count",
+        "obsolete_xref_count",
+        "xref_count",
+        "has_obsolete",
+        "nodenorm_validation_status",
+        "nodenorm_canonical_curie",
+        "nodenorm_canonical_label"
+      ]
+    },
+    "disease_xref_edges.tsv": {
+      "rows": 327617,
+      "key": [
+        "primary_xref",
+        "xref_id",
+        "xref_namespace"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "xref_id",
+        "xref_namespace",
+        "match_type",
+        "match_type_source",
+        "source_asserted",
+        "agreement_level",
+        "confidence_score",
+        "xref_label",
+        "label_similarity",
+        "mapping_confidence",
+        "label_confidence",
+        "source_support",
+        "structural_confidence",
+        "xref_confidence",
+        "xref_is_obsolete",
+        "override_status",
+        "override_reason"
+      ]
+    },
+    "xref_labels.tsv": {
+      "rows": 13173,
+      "key": "xref_id",
+      "columns": [
+        "xref_id",
+        "xref_namespace",
+        "preferred_label",
+        "synonyms",
+        "label_source",
+        "source_version",
+        "access_class",
+        "lookup_status",
+        "is_obsolete",
+        "obsolete_detail",
+        "source_url",
+        "fetched_at"
+      ]
+    },
+    "review_decisions.tsv": {
+      "rows": 8710,
+      "key": "decision_id",
+      "fk": {
+        "primary_xref": "disease_concepts.primary_xref"
+      },
+      "columns": [
+        "decision_id",
+        "decision_source",
+        "primary_xref",
+        "ncats_disease_id",
+        "standard_name",
+        "xref_id",
+        "xref_namespace",
+        "decision_type",
+        "scenario_id",
+        "status",
+        "auto_decision",
+        "auto_confidence",
+        "auto_rationale",
+        "resolution",
+        "resolution_detail",
+        "reviewed_by",
+        "date_found",
+        "date_resolved",
+        "source_value",
+        "consensus_value",
+        "n_sources_agree",
+        "n_sources_total",
+        "evidence_summary",
+        "priority",
+        "LLM_judgment",
+        "LLM_confidence"
+      ]
+    }
+  },
+  "sources": {
+    "disease_ids_file": "src/data/publicdata/disease_data/v2.0.1/cleaned/nodes/disease_ids.tsv",
+    "xref_relationships_file": "src/data/publicdata/disease_data/v2.0.1/harmonized/disease_xref_relationships.tsv",
+    "xref_label_file": "src/data/publicdata/disease_data/v2.0.1/qc/xref_label_lookup.tsv",
+    "divergence_registry_file": "src/data/publicdata/disease_data/v2.0.1/qc/divergence_registry.tsv",
+    "gate_registry_file": "src/data/publicdata/disease_data/v2.0.1/qc/disease_qc_gate_registry.tsv",
+    "blocklist_file": "src/data/publicdata/disease_data/overrides/disease_blocklist.tsv",
+    "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml"
+  }
+}

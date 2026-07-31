@@ -5235,16 +5235,21 @@ def disease_id_qa_download_filtered(
     quality: str = "",
     columns: str = "",
     format: str = "tsv",
+    include_sources: str = "",
 ):
     """Download filtered concepts with selectable columns."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+    src_set = (
+        {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+        if include_sources else None
+    )
     content = export_filtered_download(
         data, q=q, filter_mode=filter,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        columns=col_list, fmt=format,
+        columns=col_list, fmt=format, include_sources=src_set,
     )
     if format == "csv":
         media = "text/csv"
@@ -8205,6 +8210,16 @@ def main():
     set_ramp_diagnosis_file(args.ramp_diagnosis_file)
 
     _disease_graph_dir = args.disease_graph_dir
+    if not _disease_graph_dir:
+        bundled_dir = Path(__file__).parent / "data" / "disease_app_graph"
+        if bundled_dir.is_dir():
+            versions = sorted(
+                [d.name for d in bundled_dir.iterdir() if d.is_dir()],
+                key=lambda v: [int(x) for x in v.lstrip("v").split(".")],
+            )
+            if versions:
+                _disease_graph_dir = str(bundled_dir / versions[-1])
+                print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
 
