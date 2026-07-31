@@ -246,13 +246,58 @@
                         <div class="graph-legend-col">
                             <h4>Score components</h4>
                             <table class="graph-legend-score-table">
-                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite (0&ndash;1)</td></tr>
-                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength</td></tr>
-                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Fuzzy label similarity</td></tr>
-                                <tr><td class="graph-legend-score-name">source_support</td><td># sources asserting this xref</td></tr>
-                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality / proxy patterns</td></tr>
+                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite of the three active sub-scores (0&ndash;1)</td></tr>
+                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength from source-asserted relationship type</td></tr>
+                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Synonym-aware label similarity between standard name and xref label</td></tr>
+                                <tr><td class="graph-legend-score-name">source_support</td><td>Normalized count of independent sources asserting this xref</td></tr>
+                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality &amp; proxy sharing heuristics (displayed only, not in composite)</td></tr>
+                                <tr><td class="graph-legend-score-name">asserting_sources</td><td>Which sources (e.g. mondo|medgen|nodenorm) assert this mapping</td></tr>
                             </table>
-                            <p class="graph-legend-formula">xref_confidence = 35% mapping + 25% label + 20% source + 20% structural</p>
+                            <p class="graph-legend-formula">xref_confidence = 40% mapping + 25% label + 35% source</p>
+                            <button class="graph-legend-detail-toggle" onclick="document.getElementById('graphLegendDetail').classList.toggle('expanded')">More details</button>
+                        </div>
+                    </div>
+                    <div id="graphLegendDetail" class="graph-legend-detail">
+                        <div class="graph-legend-columns">
+                            <div class="graph-legend-col">
+                                <h4>mapping_confidence</h4>
+                                <p>Pass-through of the <code>confidence_score</code> assigned during match-type extraction.
+                                   Each source-asserted relationship type (exactMatch, broadMatch, etc.) maps to a
+                                   numeric confidence based on the specificity of the assertion. Exact matches score highest;
+                                   unclassified or inferred mappings score lowest.</p>
+                                <h4>label_confidence</h4>
+                                <p>Compares the concept's <code>standard_name</code> against the xref's <code>preferred_label</code>
+                                   and all known synonyms. Uses three algorithms and takes the best score:</p>
+                                <ul>
+                                    <li><strong>SequenceMatcher</strong> &mdash; character-level ratio after Unicode normalization</li>
+                                    <li><strong>Containment</strong> &mdash; token overlap / min(token count) &times; 0.98</li>
+                                    <li><strong>Jaccard</strong> &mdash; token overlap / union of tokens</li>
+                                </ul>
+                                <p>Labels are sourced from local transforms (MONDO, DOID, OMIM, Orphanet, MedGen, GARD),
+                                   NodeNorm pre-computed labels (UMLS, MESH, SNOMEDCT, NCIT, ICD10, etc.),
+                                   public OBO downloads (EFO, NCIT, HP), and UMLS REST API lookups.</p>
+                            </div>
+                            <div class="graph-legend-col">
+                                <h4>source_support</h4>
+                                <p>Counts how many independent sources (mondo, doid, medgen, orphanet, omim, gard, nodenorm)
+                                   assert this specific xref ID in the harmonization file. Normalized to 0&ndash;1:</p>
+                                <table class="graph-legend-score-table">
+                                    <tr><td class="graph-legend-score-name">0 sources</td><td>0.00</td></tr>
+                                    <tr><td class="graph-legend-score-name">1 source</td><td>0.50</td></tr>
+                                    <tr><td class="graph-legend-score-name">2 sources</td><td>0.75</td></tr>
+                                    <tr><td class="graph-legend-score-name">3 sources</td><td>0.88</td></tr>
+                                    <tr><td class="graph-legend-score-name">4+ sources</td><td>1.00</td></tr>
+                                </table>
+                                <h4>structural_confidence</h4>
+                                <p>Minimum of two graph-level heuristics. <strong>Not included</strong> in the composite
+                                   <code>xref_confidence</code> score (weight = 0), but still computed and displayed for reference.</p>
+                                <ul>
+                                    <li><strong>Cardinality score</strong> &mdash; one-to-one = 1.0, one-to-many = 0.6,
+                                        many-to-one = 0.5, complex = 0.3</li>
+                                    <li><strong>Proxy sharing</strong> &mdash; how many concepts share this xref ID:
+                                        1 = 1.0, 2&ndash;3 = 0.7, 4+ = 0.4</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -384,6 +429,7 @@
                             <label><input type="checkbox" class="dl-col-check" value="label_confidence"> label_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" value="label_similarity"> label_similarity</label>
                             <label><input type="checkbox" class="dl-col-check" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" value="asserting_sources"> asserting_sources</label>
                             <label><input type="checkbox" class="dl-col-check" value="structural_confidence"> structural_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" value="confidence_score"> confidence_score</label>
                             <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
@@ -1064,7 +1110,7 @@
                 "match_type", "match_type_source", "source_asserted",
                 "agreement_level", "confidence_score", "label_similarity",
                 "mapping_confidence", "label_confidence", "source_support",
-                "structural_confidence", "xref_confidence",
+                "asserting_sources", "structural_confidence", "xref_confidence",
                 "xref_is_obsolete", "override_status", "override_reason",
                 "has_conflict", "conflict_status", "conflict_type",
                 "conflict_resolution", "conflict_detail",
@@ -1078,6 +1124,7 @@
             ];
             const displayLabels = {
                 "nodenorm_canonical_curie": "node normalization preferred CURIE ID",
+                "asserting_sources": "sources asserting this mapping",
             };
             detailTitle.textContent = data.label || data.id || "Selection";
             detailSub.textContent = data.kind || "";
