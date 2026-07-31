@@ -7,7 +7,15 @@ from src.input_adapters.metabolite_harmonization.wikipathways import (
     WikiPathwaysPathwayContextAdapter,
 )
 from src.interfaces.output_adapter import OutputAdapter
-from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge, MetabolitePathwayEdge
+from src.models.metabolite_harmonization import (
+    GeneIdentifier,
+    GenePathwayEdge,
+    MetaboliteIdentifier,
+    MetaboliteIdentifierMappingEdge,
+    MetabolitePathwayEdge,
+    ProteinIdentifier,
+    ProteinPathwayEdge,
+)
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -69,6 +77,16 @@ def _write_wikipathways_zip(path: Path):
         wp:bdbPubChemSubstance <https://identifiers.org/pubchem.substance/136368185> ;
         wp:bdbPharmGKB      <https://identifiers.org/pharmgkb.drug/PA162373091> ;
         wp:bdbPidPathway    <https://identifiers.org/pid.pathway/9606> .
+
+<https://identifiers.org/ncbigene/1234>
+        rdf:type            wp:DataNode , wp:GeneProduct ;
+        wp:bdbEnsembl       <https://identifiers.org/ensembl/ENSG000001234> ;
+        wp:bdbUniprot       <https://identifiers.org/uniprot/P99999> .
+
+<https://identifiers.org/uniprot/P12345>
+        rdf:type            wp:DataNode , wp:Protein ;
+        wp:bdbEntrezGene    <https://identifiers.org/ncbigene/5678> ;
+        wp:bdbWikidata      <http://www.wikidata.org/entity/Q12345> .
 """
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("wp/WP100.ttl", ttl)
@@ -222,7 +240,7 @@ def test_wikipathways_adapter_honors_max_records(tmp_path: Path):
     assert not any(isinstance(record, MetaboliteIdentifier) and record.id == "PUBCHEM.COMPOUND:753" for record in records)
 
 
-def test_wikipathways_pathway_context_preserves_metabolite_identifier_families(tmp_path: Path):
+def test_wikipathways_pathway_context_uses_only_source_native_identifiers(tmp_path: Path):
     zip_path = tmp_path / "wikipathways-rdf-wp.zip"
     _write_wikipathways_zip(zip_path)
     adapter = WikiPathwaysPathwayContextAdapter(rdf_zip_file=str(zip_path))
@@ -239,31 +257,46 @@ def test_wikipathways_pathway_context_preserves_metabolite_identifier_families(t
         if isinstance(edge, MetabolitePathwayEdge)
     }
 
-    expected_ids = {
+    expected_primary_ids = {
         "KEGG.COMPOUND:C00051",
+        "PUBCHEM.COMPOUND:753",
+        "LIPIDMAPS:LMFA01170120",
+        "KNApSAcK:C00000128",
+    }
+    xref_only_ids = {
         "CHEBI:16856",
-        "ChemSpider:111188",
         "HMDB:HMDB0000125",
         "PUBCHEM.COMPOUND:25246407",
-        "PUBCHEM.COMPOUND:124886",
         "Wikidata:Q116907",
-        "PUBCHEM.COMPOUND:753",
         "CHEBI:17754",
-        "LIPIDMAPS:LMFA01170120",
         "Reactome:R-HSA-194002",
         "PUBCHEM.COMPOUND:970",
-        "KNApSAcK:C00000128",
         "KEGG.GLYCAN:G00170",
         "KEGG.DRUG:D11487",
-        "ChEMBL.COMPOUND:CHEMBL1207858",
-        "PUBCHEM.SUBSTANCE:136368185",
-        "PharmGKB.DRUG:PA162373091",
-        "PID.PATHWAY:9606",
     }
 
-    assert expected_ids <= metabolite_nodes
-    assert expected_ids <= metabolite_pathway_edges
-    assert "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N" not in metabolite_nodes
-    assert "InChIKey:RWSXRVCMGQZWBV-WDSKDSINSA-N" not in metabolite_pathway_edges
-    assert "CAS:9050-36-6" not in metabolite_nodes
-    assert "CAS:9050-36-6" not in metabolite_pathway_edges
+    assert metabolite_nodes == expected_primary_ids
+    assert metabolite_pathway_edges == expected_primary_ids
+    assert metabolite_nodes.isdisjoint(xref_only_ids)
+    assert metabolite_pathway_edges.isdisjoint(xref_only_ids)
+
+    gene_nodes = {record.id for record in records if isinstance(record, GeneIdentifier)}
+    gene_pathway_edges = {
+        record.start_node.id for record in records if isinstance(record, GenePathwayEdge)
+    }
+    protein_nodes = {record.id for record in records if isinstance(record, ProteinIdentifier)}
+    protein_pathway_edges = {
+        record.start_node.id for record in records if isinstance(record, ProteinPathwayEdge)
+    }
+    assert gene_nodes == {"NCBIGene:1234"}
+    assert gene_pathway_edges == {"NCBIGene:1234"}
+    assert protein_nodes == {"UniProtKB:P12345"}
+    assert protein_pathway_edges == {"UniProtKB:P12345"}
+
+    pathway_detail = next(
+        edge.details[0]
+        for edge in records
+        if isinstance(edge, MetabolitePathwayEdge)
+        and edge.start_node.id == "KEGG.COMPOUND:C00051"
+    )
+    assert pathway_detail.source_id == "KEGG.COMPOUND:C00051"

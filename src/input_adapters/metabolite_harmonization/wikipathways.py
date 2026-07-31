@@ -418,7 +418,7 @@ class WikiPathwaysPathwayContextAdapter(InputAdapter):
                             MetabolitePathwayDetail(
                                 source="WikiPathways",
                                 source_field="wp:Metabolite",
-                                metabolite_id=metabolite_id,
+                                source_id=metabolite_id,
                                 pathway_id=record["pathway_id"],
                                 pathway_name=record.get("title"),
                                 url=f"https://www.wikipathways.org/pathways/{record['wp_id']}.html",
@@ -546,17 +546,8 @@ class WikiPathwaysPathwayContextAdapter(InputAdapter):
 
     @classmethod
     def _metabolite_ids_for_subject(cls, graph: Graph, subject) -> List[str]:
-        ids = []
         subject_id = WikiPathwaysMetaboliteEquivalenceAdapter._normalize_uri(str(subject))
-        if subject_id is not None:
-            ids.append(subject_id)
-        for predicate, obj in graph.predicate_objects(subject):
-            if not str(predicate).startswith(WP + "bdb"):
-                continue
-            node_id = WikiPathwaysMetaboliteEquivalenceAdapter._normalize_uri(str(obj))
-            if node_id is not None:
-                ids.append(node_id)
-        return ids
+        return [subject_id] if subject_id is not None else []
 
     @classmethod
     def _gene_ids(cls, graph: Graph) -> List[str]:
@@ -576,17 +567,8 @@ class WikiPathwaysPathwayContextAdapter(InputAdapter):
 
     @classmethod
     def _ids_for_subject(cls, graph: Graph, subject, prefix_map: Dict[str, str]) -> List[str]:
-        ids = []
         subject_id = cls._normalize_identifier_uri(str(subject), prefix_map)
-        if subject_id is not None:
-            ids.append(subject_id)
-        for predicate, obj in graph.predicate_objects(subject):
-            if not str(predicate).startswith(WP + "bdb"):
-                continue
-            node_id = cls._normalize_identifier_uri(str(obj), prefix_map)
-            if node_id is not None:
-                ids.append(node_id)
-        return ids
+        return [subject_id] if subject_id is not None else []
 
     @staticmethod
     def _normalize_identifier_uri(uri: str, prefix_map: Dict[str, str]) -> Optional[str]:

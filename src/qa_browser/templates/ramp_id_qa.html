@@ -3,8 +3,6 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="{{ root_path }}/qa-browser">QA Browser</a>
-<span class="sep">/</span>
 {% if query_id %}
 <a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
 <span class="sep">/</span>
@@ -20,6 +18,16 @@
         <div>
             <h1>Metabolite Harmonization Workbench</h1>
             <p>Graph: <span class="mono">metabolite_harmonization</span></p>
+            <div class="ramp-id-header-links">
+                <a class="btn workbench-guide-link" href="{{ root_path }}/ramp-id-qa/about/" target="_blank" rel="noopener noreferrer">
+                    <span class="workbench-guide-icon" aria-hidden="true">▶</span>
+                    <span>
+                        <strong>See how the workbench works</strong>
+                        <small>A quick visual tour</small>
+                    </span>
+                    <span class="workbench-guide-arrow" aria-hidden="true">→</span>
+                </a>
+            </div>
         </div>
         <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form metabolite-id-search">
             <input name="id" value="{{ query_id }}" spellcheck="false" placeholder="CHEBI:4167 CHEBI:17925">
@@ -64,6 +72,7 @@
                 <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
                 <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
                 <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
+                <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
                 <div class="metabolite-id-stage-stats-grid-header">Largest</div>
                 {% for stage in pipeline_stats.stages %}
@@ -95,6 +104,15 @@
                         {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
                         {% else %}
                         <span title="This stage was materialized before MW validation was stored.">Not computed</span>
+                        {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                        {% if not stage_summary.denylist_validation_computed %}
+                        <span title="This stage was materialized before denylist validation was stored.">Not computed</span>
+                        {% elif not stage_summary.denylist_rule_enabled %}
+                        <span title="The 'Ignore RaMP mapping denylist' rule is not enabled for this stage.">Rule not enabled</span>
+                        {% else %}
+                        {{ "{:,}".format(stage_summary.denylist_warning_count|default(0, true)) }}
                         {% endif %}
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
@@ -246,21 +264,30 @@
         </div>
     </section>
 
+    {% for pipeline_sankey in result.snapshot_sankeys %}
     <section class="ramp-id-table-section metabolite-id-sankey-section">
         <div class="ramp-id-section-header">
-            <h2>Stage Flow</h2>
-            <p>{{ result.snapshot_sankey.nodes|length }} clique node{{ "" if result.snapshot_sankey.nodes|length == 1 else "s" }} · {{ result.snapshot_sankey.links|length }} transition{{ "" if result.snapshot_sankey.links|length == 1 else "s" }}</p>
+            <h2>Stage Flow · {{ pipeline_sankey.pipeline_name }}</h2>
+            <p>{{ pipeline_sankey.sankey.nodes|length }} clique node{{ "" if pipeline_sankey.sankey.nodes|length == 1 else "s" }} · {{ pipeline_sankey.sankey.links|length }} transition{{ "" if pipeline_sankey.sankey.links|length == 1 else "s" }}</p>
         </div>
         <div class="metabolite-id-sankey-controls">
             <div>
                 <strong>Stage Order</strong>
-                <span>Drag stages to change the Sankey sequence.</span>
+                <span>Drag stages to change the Sankey sequence for this pipeline.</span>
             </div>
-            <div id="metaboliteIdSankeyOrder" class="metabolite-id-sankey-order"></div>
+            <div id="metaboliteIdSankeyOrder-{{ loop.index }}" class="metabolite-id-sankey-order"></div>
         </div>
-        <div id="metaboliteIdSnapshotSankey" class="metabolite-id-sankey"></div>
-        <div id="metaboliteIdSnapshotSankeyTip" class="metabolite-id-sankey-tip"></div>
+        <div id="metaboliteIdSnapshotSankey-{{ loop.index }}" class="metabolite-id-sankey"></div>
+        <div id="metaboliteIdSnapshotSankeyTip-{{ loop.index }}" class="metabolite-id-sankey-tip"></div>
     </section>
+    {% else %}
+    <section class="ramp-id-table-section metabolite-id-sankey-section">
+        <div class="ramp-id-section-header">
+            <h2>Stage Flow</h2>
+            <p>No materialized pipeline stages are available for these identifiers.</p>
+        </div>
+    </section>
+    {% endfor %}
 
     <section class="ramp-id-table-section metabolite-id-component-panel">
         <div class="ramp-id-section-header">
@@ -461,12 +488,19 @@
 <script>
 (function () {
     const snapshotGraphs = {{ result.snapshot_graphs|tojson }};
-    const sankeyPayload = {{ result.snapshot_sankey|tojson }};
-    let sankeySnapshotOrder = snapshotOrderFromPayload();
-    let selectedSankeyNodeId = null;
+    const sankeyPlots = {{ result.snapshot_sankeys|tojson }};
     let selectedCliqueCy = null;
 
-    function snapshotOrderFromPayload() {
+    function setupSankeyPlot(plot, plotIndex) {
+        const sankeyPayload = plot.sankey;
+        const container = document.getElementById(`metaboliteIdSnapshotSankey-${plotIndex}`);
+        const orderContainer = document.getElementById(`metaboliteIdSankeyOrder-${plotIndex}`);
+        const tip = d3.select(`#metaboliteIdSnapshotSankeyTip-${plotIndex}`);
+        let sankeySnapshotOrder = snapshotOrderFromPayload();
+        let selectedSankeyNodeId = null;
+        let draggedSankeySnapshotKey = null;
+
+        function snapshotOrderFromPayload() {
         const snapshots = [];
         const seen = new Set();
         sankeyPayload.nodes
@@ -484,9 +518,9 @@
                 });
             });
         return snapshots;
-    }
+        }
 
-    function buildOrderedSankeyPayload() {
+        function buildOrderedSankeyPayload() {
         const visibleSnapshotOrder = sankeySnapshotOrder.filter((snapshot) => snapshot.visible !== false);
         const orderBySnapshot = new Map(visibleSnapshotOrder.map((snapshot, index) => [snapshot.key, index]));
         const nodes = sankeyPayload.nodes
@@ -549,10 +583,9 @@
         }
         const links = Array.from(linksByPair.values());
         return {nodes, links};
-    }
+        }
 
-    function drawSankey() {
-        const container = document.getElementById("metaboliteIdSnapshotSankey");
+        function drawSankey() {
         if (!container || !window.d3 || !d3.sankey || !sankeyPayload.nodes.length) {
             return;
         }
@@ -581,7 +614,6 @@
             .extent([[margin.left, margin.top], [width - margin.right, height - margin.bottom]]);
         sankey(graph);
         const color = d3.scaleOrdinal(d3.schemeTableau10);
-        const tip = d3.select("#metaboliteIdSnapshotSankeyTip");
         const showTip = (event, html) => {
             tip.html(html).style("opacity", 1);
             const box = tip.node().getBoundingClientRect();
@@ -645,14 +677,13 @@
                         .text(ellipsize(part, 32));
                 });
             });
-    }
+        }
 
-    function renderSankeyOrder() {
-        const container = document.getElementById("metaboliteIdSankeyOrder");
-        if (!container) {
+        function renderSankeyOrder() {
+        if (!orderContainer) {
             return;
         }
-        container.innerHTML = "";
+        orderContainer.innerHTML = "";
         sankeySnapshotOrder.forEach((snapshot) => {
             const item = document.createElement("article");
             item.draggable = true;
@@ -670,14 +701,12 @@
             `;
             item.querySelector("span").textContent = snapshot.name;
             item.querySelector("small").textContent = snapshot.key;
-            container.appendChild(item);
+            orderContainer.appendChild(item);
         });
-    }
+        }
 
-    let draggedSankeySnapshotKey = null;
-    const sankeyOrderContainer = document.getElementById("metaboliteIdSankeyOrder");
-    if (sankeyOrderContainer) {
-        sankeyOrderContainer.addEventListener("dragstart", (event) => {
+        if (orderContainer) {
+        orderContainer.addEventListener("dragstart", (event) => {
             const item = event.target.closest(".metabolite-id-sankey-order-item");
             if (!item) {
                 return;
@@ -691,7 +720,7 @@
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", draggedSankeySnapshotKey);
         });
-        sankeyOrderContainer.addEventListener("change", (event) => {
+        orderContainer.addEventListener("change", (event) => {
             const checkbox = event.target.closest('.metabolite-id-sankey-order-item input[type="checkbox"]');
             if (!checkbox) {
                 return;
@@ -705,12 +734,12 @@
             item.classList.toggle("is-hidden", !checkbox.checked);
             drawSankey();
         });
-        sankeyOrderContainer.addEventListener("dragover", (event) => {
+        orderContainer.addEventListener("dragover", (event) => {
             if (draggedSankeySnapshotKey) {
                 event.preventDefault();
             }
         });
-        sankeyOrderContainer.addEventListener("drop", (event) => {
+        orderContainer.addEventListener("drop", (event) => {
             event.preventDefault();
             const target = event.target.closest(".metabolite-id-sankey-order-item");
             const sourceKey = event.dataTransfer.getData("text/plain") || draggedSankeySnapshotKey;
@@ -735,14 +764,17 @@
             renderSankeyOrder();
             drawSankey();
         });
-        sankeyOrderContainer.addEventListener("dragend", () => {
+        orderContainer.addEventListener("dragend", () => {
             draggedSankeySnapshotKey = null;
-            sankeyOrderContainer.querySelectorAll(".is-dragging").forEach((item) => item.classList.remove("is-dragging"));
+            orderContainer.querySelectorAll(".is-dragging").forEach((item) => item.classList.remove("is-dragging"));
         });
+        }
+
+        renderSankeyOrder();
+        drawSankey();
     }
 
-    renderSankeyOrder();
-    drawSankey();
+    sankeyPlots.forEach((plot, index) => setupSankeyPlot(plot, index + 1));
     if (!window.cytoscape) {
         return;
     }

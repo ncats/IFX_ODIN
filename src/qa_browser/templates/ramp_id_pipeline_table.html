@@ -43,6 +43,7 @@
             {% set run_active = pipeline._key in overview.active_pipeline_keys %}
             {% set delete_active = pipeline._key in overview.deleting_pipeline_keys %}
             {% set pipeline_jobs = overview.jobs_by_pipeline_key.get(pipeline._key, []) %}
+            {% set stage_stats = (overview.pipeline_stage_stats | selectattr("pipeline_key", "equalto", pipeline._key) | list | first) if overview.pipeline_stage_stats else none %}
             <tr>
                 <td>
                     <div class="metabolite-id-pipeline-name-row">
@@ -56,6 +57,11 @@
                         </details>
                     </div>
                     <div class="mono">{{ pipeline._key }}</div>
+                    {% if stage_stats and stage_stats.code_fingerprint_mismatch %}
+                    <div class="metabolite-id-fingerprint-warning" title="Stages were computed with different code versions: {{ stage_stats.code_fingerprints | join(', ') }}">
+                        ⚠ Code version mismatch — stages should be recomputed
+                    </div>
+                    {% endif %}
                 </td>
                 <td>
                     {% if pipeline.rules %}

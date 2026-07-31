@@ -346,7 +346,7 @@ class HmdbOntologyAdapter(_HmdbMetabolitesXmlAdapter):
                             HmdbOntologyMembershipDetail(
                                 source="HMDB",
                                 source_field="ontology",
-                                metabolite_id=metabolite_id,
+                                source_id=metabolite_id,
                                 ontology_term_id=term_id,
                                 ontology_type=term["ontology_type"],
                                 term_name=term["name"],

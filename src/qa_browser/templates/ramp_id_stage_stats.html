@@ -3,8 +3,6 @@
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="{{ root_path }}/qa-browser">QA Browser</a>
-<span class="sep">/</span>
 <a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
 <span class="sep">/</span>
 <span>Stage Stats</span>
@@ -105,6 +103,78 @@
         {% endif %}
         {% else %}
         <p>MW validation is computed for newly materialized stages.</p>
+        {% endif %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Denylist Validation</h2>
+            {% if stats.denylist_validation.computed and stats.denylist_validation.rule_enabled %}
+            <p>
+                {{ "{:,}".format(stats.denylist_validation.warning_count) }} denylisted pair{{ "" if stats.denylist_validation.warning_count == 1 else "s" }}
+                across {{ "{:,}".format(stats.denylist_validation.affected_clique_count) }} clique{{ "" if stats.denylist_validation.affected_clique_count == 1 else "s" }}
+                still ended up merged, out of {{ "{:,}".format(stats.denylist_validation.denylist_pair_count) }} pairs on the denylist.
+            </p>
+            {% elif stats.denylist_validation.computed %}
+            <p>The "Ignore RaMP mapping denylist" rule is not enabled for this stage.</p>
+            {% else %}
+            <p>Not computed for this stage.</p>
+            {% endif %}
+        </div>
+        {% if stats.denylist_validation.computed and stats.denylist_validation.rule_enabled %}
+        <p>
+            Flags pairs on the RaMP mapping denylist whose direct edge was ignored but who were nonetheless merged into the
+            same harmonized metabolite through some other path. Each one means either the curation is no longer valid, or
+            another edge/identifier needs to be added to the denylist to fully separate them.
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Denylisted Pairs In This Clique</th>
+                    <th>Size</th>
+                    <th>Members</th>
+                    <th>Review</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for warning in stats.denylist_validation.warnings %}
+                <tr>
+                    <td>
+                        <div class="metabolite-id-member-list">
+                        {% for pair in warning.pairs %}
+                            <span class="mono">{{ pair.left_id }} &ndash; {{ pair.right_id }}</span>
+                        {% endfor %}
+                        </div>
+                    </td>
+                    <td>{{ "{:,}".format(warning.size) }}</td>
+                    <td>
+                        <div class="metabolite-id-member-list">
+                        {% for member_id in warning.sample_member_ids %}
+                            <span class="mono">{{ member_id }}</span>
+                        {% endfor %}
+                        </div>
+                    </td>
+                    <td>
+                        <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
+                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&snapshots={{ stats.stage._key|urlencode }}">
+                            Open
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4">No denylisted pairs are still merged in this stage.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if stats.denylist_validation.affected_clique_count > stats.denylist_validation.warnings|length %}
+        <p>Showing the top {{ stats.denylist_validation.warnings|length }} of {{ stats.denylist_validation.affected_clique_count }} affected cliques.</p>
+        {% endif %}
+        {% elif stats.denylist_validation.computed %}
+        <p>Enable the "Ignore RaMP mapping denylist" rule on this stage to check whether denylisted pairs are still merged.</p>
+        {% else %}
+        <p>Denylist validation is computed for newly materialized stages.</p>
         {% endif %}
     </section>
 

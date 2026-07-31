@@ -356,6 +356,7 @@ class RheaReactionAdapter(InputAdapter):
                     yield RheaMetaboliteReactionEdge(
                         start_node=MetaboliteIdentifier(id=metabolite_id),
                         end_node=RheaReaction(id=reaction_id),
+                        source_id=metabolite_id,
                         side=side,
                         coefficient=participant.get("coefficient"),
                         participant_uri=participant.get("participant_uri"),

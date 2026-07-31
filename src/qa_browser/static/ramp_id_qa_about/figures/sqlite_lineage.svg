@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="410" viewBox="0 0 1600 820" role="img" aria-labelledby="title desc">
+  <title id="title">Identifier lineage from evidence graph to RaMP SQLite</title>
+  <desc id="desc">Three source identifier nodes become members of a harmonized clique. RaMP SQLite projects each source identifier as a row paired with the same RAMP_C identifier.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.12"/></filter>
+  </defs>
+  <rect width="1600" height="820" fill="#f8fafc"/>
+  <text x="80" y="76" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">RaMP SQLite is a projection, not a loss of source identity</text>
+  <text x="80" y="120" font-family="Inter, Arial, sans-serif" font-size="22" fill="#475569">The resolved ID groups records; the source ID preserves where each record came from.</text>
+
+  <text x="85" y="194" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">EVIDENCE GRAPH</text>
+  <rect x="70" y="220" width="600" height="510" rx="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
+  <circle cx="250" cy="345" r="83" fill="#e0f2fe" stroke="#0284c7" stroke-width="3"/>
+  <text x="250" y="337" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#075985">HMDB:</text>
+  <text x="250" y="367" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#0369a1">ID_A</text>
+  <circle cx="485" cy="345" r="83" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
+  <text x="485" y="337" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#92400e">CHEBI:</text>
+  <text x="485" y="367" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#b45309">ID_B</text>
+  <circle cx="367" cy="565" r="83" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
+  <text x="367" y="557" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#5b21b6">REFMET:</text>
+  <text x="367" y="587" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#6d28d9">ID_C</text>
+  <line x1="333" y1="345" x2="402" y2="345" stroke="#0f766e" stroke-width="5"/>
+  <line x1="294" y1="416" x2="329" y2="498" stroke="#0f766e" stroke-width="5"/>
+  <line x1="441" y1="416" x2="406" y2="498" stroke="#0f766e" stroke-width="5"/>
+  <text x="367" y="683" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#0f766e">Three separately addressable source IDs</text>
+
+  <line x1="670" y1="470" x2="794" y2="470" stroke="#64748b" stroke-width="5" marker-end="url(#arrow)"/>
+  <text x="732" y="438" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#64748b">harmonize</text>
+
+  <text x="820" y="194" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">SAVED SNAPSHOT</text>
+  <circle cx="940" cy="470" r="125" fill="#dcfce7" stroke="#16a34a" stroke-width="4" filter="url(#shadow)"/>
+  <text x="940" y="438" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="700" fill="#166534">Clique</text>
+  <text x="940" y="474" text-anchor="middle" font-family="ui-monospace, monospace" font-size="20" fill="#15803d">RAMP_C…</text>
+  <text x="940" y="510" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#166534">3 members</text>
+
+  <line x1="1065" y1="470" x2="1173" y2="470" stroke="#64748b" stroke-width="5" marker-end="url(#arrow)"/>
+  <text x="1119" y="438" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#64748b">project</text>
+
+  <text x="1200" y="194" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">RAMP SQLITE · SOURCE TABLE</text>
+  <rect x="1185" y="245" width="350" height="408" rx="20" fill="#ffffff" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
+  <rect x="1215" y="280" width="290" height="61" rx="8" fill="#166534"/>
+  <text x="1285" y="318" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#ffffff">rampId</text>
+  <text x="1434" y="318" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#ffffff">sourceId</text>
+  <line x1="1360" y1="280" x2="1360" y2="606" stroke="#bbf7d0" stroke-width="2"/>
+  <g font-family="ui-monospace, monospace" font-size="16">
+    <rect x="1215" y="341" width="290" height="88" fill="#f0fdf4"/><text x="1285" y="393" text-anchor="middle" fill="#166534">RAMP_C…</text><text x="1434" y="393" text-anchor="middle" fill="#075985">HMDB:ID_A</text>
+    <rect x="1215" y="429" width="290" height="88" fill="#ffffff"/><text x="1285" y="481" text-anchor="middle" fill="#166534">RAMP_C…</text><text x="1434" y="481" text-anchor="middle" fill="#92400e">CHEBI:ID_B</text>
+    <rect x="1215" y="517" width="290" height="89" fill="#f0fdf4"/><text x="1285" y="569" text-anchor="middle" fill="#166534">RAMP_C…</text><text x="1434" y="569" text-anchor="middle" fill="#5b21b6">REFMET:ID_C</text>
+  </g>
+  <text x="1345" y="700" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#166534">One resolved entity · source IDs retained</text>
+</svg>

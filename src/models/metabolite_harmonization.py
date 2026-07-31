@@ -168,7 +168,7 @@ class HmdbOntologyParentEdge(Relationship):
 class HmdbOntologyMembershipDetail:
     source: str
     source_field: str
-    metabolite_id: str
+    source_id: str
     ontology_term_id: str
     ontology_type: str
     term_name: str
@@ -177,7 +177,7 @@ class HmdbOntologyMembershipDetail:
         return {
             "source": self.source,
             "source_field": self.source_field,
-            "metabolite_id": self.metabolite_id,
+            "source_id": self.source_id,
             "ontology_term_id": self.ontology_term_id,
             "ontology_type": self.ontology_type,
             "term_name": self.term_name,
@@ -282,6 +282,7 @@ class GeneIdentifier(Node):
 class HmdbMetaboliteProteinAssociationDetail:
     source: str
     source_field: str
+    source_id: str
     hmdb_metabolite_accession: str
     hmdb_protein_accession: str
     metabolite_name: Optional[str] = None
@@ -292,6 +293,7 @@ class HmdbMetaboliteProteinAssociationDetail:
         return {
             "source": self.source,
             "source_field": self.source_field,
+            "source_id": self.source_id,
             "hmdb_metabolite_accession": self.hmdb_metabolite_accession,
             "hmdb_protein_accession": self.hmdb_protein_accession,
             "metabolite_name": self.metabolite_name,
@@ -343,7 +345,7 @@ class PathwayIdentifier(Node):
 class MetabolitePathwayDetail:
     source: str
     source_field: str
-    metabolite_id: str
+    source_id: str
     pathway_id: str
     pathway_name: Optional[str] = None
     pathway_category: Optional[str] = None
@@ -356,7 +358,7 @@ class MetabolitePathwayDetail:
         return {
             "source": self.source,
             "source_field": self.source_field,
-            "metabolite_id": self.metabolite_id,
+            "source_id": self.source_id,
             "pathway_id": self.pathway_id,
             "pathway_name": self.pathway_name,
             "pathway_category": self.pathway_category,
@@ -510,6 +512,7 @@ class RheaReactionDirectionEdge(Relationship):
 class RheaMetaboliteReactionEdge(Relationship):
     start_node: MetaboliteIdentifier
     end_node: RheaReaction
+    source_id: Optional[str] = None
     side: Optional[str] = None
     coefficient: Optional[int] = None
     participant_uri: Optional[str] = None

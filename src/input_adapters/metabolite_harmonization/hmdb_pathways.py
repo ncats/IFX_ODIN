@@ -88,7 +88,7 @@ class HmdbMetabolitePathwayContextAdapter(InputAdapter):
                             MetabolitePathwayDetail(
                                 source="HMDB",
                                 source_field=pathway["source_field"],
-                                metabolite_id=metabolite_id,
+                                source_id=metabolite_id,
                                 hmdb_metabolite_accession=record["accession"],
                                 pathway_id=pathway_id,
                                 pathway_name=pathway.get("name"),

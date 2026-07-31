@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="410" viewBox="0 0 1600 820" role="img" aria-labelledby="title desc">
+  <title id="title">Canonical graph compared with a source-identifier evidence graph</title>
+  <desc id="desc">A canonical graph resolves source records during ingest. The metabolite evidence graph preserves source identifiers as nodes and defers resolution.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="820" fill="#f8fafc"/>
+  <text x="80" y="78" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">Two different graph contracts</text>
+  <text x="80" y="122" font-family="Inter, Arial, sans-serif" font-size="23" fill="#475569">The difference is when identity is decided—and what remains inspectable afterward.</text>
+
+  <rect x="70" y="175" width="700" height="565" rx="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
+  <text x="110" y="230" font-family="Inter, Arial, sans-serif" font-size="31" font-weight="700" fill="#0f172a">Typical ODIN graph</text>
+  <text x="110" y="267" font-family="Inter, Arial, sans-serif" font-size="21" fill="#64748b">Resolves to a harmonized ID during ETL</text>
+
+  <rect x="110" y="315" width="175" height="78" rx="14" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <text x="197" y="348" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#075985">Source A row</text>
+  <text x="197" y="375" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#0369a1">ID_A</text>
+  <rect x="110" y="425" width="175" height="78" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="197" y="458" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#92400e">Source B row</text>
+  <text x="197" y="485" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#b45309">ID_B</text>
+  <rect x="110" y="535" width="175" height="78" rx="14" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="197" y="568" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#5b21b6">Source C row</text>
+  <text x="197" y="595" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#6d28d9">ID_C</text>
+
+  <line x1="285" y1="354" x2="435" y2="435" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="285" y1="464" x2="435" y2="464" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="285" y1="574" x2="435" y2="493" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="365" y="330" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#64748b">resolve during ETL</text>
+
+  <circle cx="560" cy="464" r="118" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/>
+  <text x="560" y="438" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#166534">Canonical</text>
+  <text x="560" y="470" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#166534">Metabolite</text>
+  <text x="560" y="509" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#15803d">RAMP_C…</text>
+
+  <rect x="830" y="175" width="700" height="565" rx="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
+  <text x="870" y="230" font-family="Inter, Arial, sans-serif" font-size="31" font-weight="700" fill="#0f172a">Metabolite evidence graph</text>
+  <text x="870" y="267" font-family="Inter, Arial, sans-serif" font-size="21" fill="#64748b">Retains source IDs; harmonization is a derived output</text>
+
+  <circle cx="965" cy="410" r="76" fill="#e0f2fe" stroke="#0284c7" stroke-width="3"/>
+  <text x="965" y="402" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#075985">HMDB</text>
+  <text x="965" y="431" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#0369a1">ID_A</text>
+  <circle cx="1190" cy="340" r="76" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
+  <text x="1190" y="332" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#92400e">ChEBI</text>
+  <text x="1190" y="361" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#b45309">ID_B</text>
+  <circle cx="1190" cy="550" r="76" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
+  <text x="1190" y="542" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#5b21b6">RefMet</text>
+  <text x="1190" y="571" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#6d28d9">ID_C</text>
+  <line x1="1038" y1="387" x2="1118" y2="363" stroke="#0f766e" stroke-width="5"/>
+  <line x1="1038" y1="433" x2="1118" y2="519" stroke="#0f766e" stroke-width="5"/>
+  <text x="1108" y="414" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#0f766e">source-reported</text>
+  <text x="1108" y="436" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#0f766e">mapping evidence</text>
+
+  <rect x="1310" y="336" width="165" height="160" rx="18" fill="#f0fdfa" stroke="#0f766e" stroke-width="2" stroke-dasharray="8 7"/>
+  <text x="1392" y="377" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#115e59">Later</text>
+  <text x="1392" y="408" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#0f766e">rules decide</text>
+  <text x="1392" y="434" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#0f766e">whether these</text>
+  <text x="1392" y="460" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#0f766e">IDs form a clique</text>
+  <line x1="1266" y1="410" x2="1302" y2="410" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+</svg>
