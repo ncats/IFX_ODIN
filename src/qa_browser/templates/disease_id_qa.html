@@ -228,14 +228,14 @@
                 <div id="graphLegend" class="graph-legend">
                     <div class="graph-legend-columns">
                         <div class="graph-legend-col">
-                            <h4>Edge types</h4>
+                            <h4>Edge types (match_type)</h4>
                             <div class="graph-legend-edge-list">
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> Exact</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Broad</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> Narrow</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> Related</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> Unclassified</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Decision</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> <strong>Exact</strong> &mdash; source asserts equivalent meaning (skos:exactMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Broad</strong> &mdash; xref has broader scope than the concept (skos:broadMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> <strong>Narrow</strong> &mdash; xref has narrower scope than the concept (skos:narrowMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> <strong>Related</strong> &mdash; associative link, not a synonym (skos:relatedMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -260,11 +260,37 @@
                     <div id="graphLegendDetail" class="graph-legend-detail">
                         <div class="graph-legend-columns">
                             <div class="graph-legend-col">
-                                <h4>mapping_confidence</h4>
-                                <p>Pass-through of the <code>confidence_score</code> assigned during match-type extraction.
-                                   Each source-asserted relationship type (exactMatch, broadMatch, etc.) maps to a
-                                   numeric confidence based on the specificity of the assertion. Exact matches score highest;
-                                   unclassified or inferred mappings score lowest.</p>
+                                <h4>Match type assignment</h4>
+                                <p>Each edge's <code>match_type</code> is determined by checking sources in
+                                   priority order. The pipeline uses the first source that has a SKOS match
+                                   assertion for the xref and stops:</p>
+                                <ol>
+                                    <li><strong>MONDO</strong> &mdash; OWL SKOS predicates (exactMatch, broadMatch, etc.)</li>
+                                    <li><strong>Orphanet</strong> &mdash; mapping relation attributes</li>
+                                    <li><strong>MedGen</strong> &mdash; concept relationship types</li>
+                                    <li><strong>DOID</strong> &mdash; OWL SKOS predicates</li>
+                                </ol>
+                                <p>If none of these four sources asserts a match type for a given xref, the edge
+                                   is labeled <strong>unclassified</strong>. This commonly happens for:</p>
+                                <ul>
+                                    <li><strong>GARD</strong> &mdash; provides ID mappings but no match type metadata</li>
+                                    <li><strong>NodeNorm-only xrefs</strong> (SNOMEDCT, ICD10, MESH, etc.) &mdash;
+                                        only classified if MONDO or DOID also asserts that specific xref</li>
+                                    <li><strong>OMIM / OMIMPS</strong> &mdash; deferred to "unclassified" by default</li>
+                                </ul>
+
+                                <h4>mapping_confidence scores</h4>
+                                <table class="graph-legend-score-table">
+                                    <tr><td class="graph-legend-score-name">exact</td><td>1.0</td></tr>
+                                    <tr><td class="graph-legend-score-name">broad</td><td>0.4</td></tr>
+                                    <tr><td class="graph-legend-score-name">narrow</td><td>0.4</td></tr>
+                                    <tr><td class="graph-legend-score-name">unclassified</td><td>0.3</td></tr>
+                                    <tr><td class="graph-legend-score-name">related</td><td>0.2</td></tr>
+                                </table>
+                                <p>Penalty: &minus;0.2 if sources disagree (contested), &minus;0.1 if match type
+                                   was structurally inferred rather than source-asserted.</p>
+                            </div>
+                            <div class="graph-legend-col">
                                 <h4>label_confidence</h4>
                                 <p>Compares the concept's <code>standard_name</code> against the xref's <code>preferred_label</code>
                                    and all known synonyms. Uses three algorithms and takes the best score:</p>
@@ -276,8 +302,7 @@
                                 <p>Labels are sourced from local transforms (MONDO, DOID, OMIM, Orphanet, MedGen, GARD),
                                    NodeNorm pre-computed labels (UMLS, MESH, SNOMEDCT, NCIT, ICD10, etc.),
                                    public OBO downloads (EFO, NCIT, HP), and UMLS REST API lookups.</p>
-                            </div>
-                            <div class="graph-legend-col">
+
                                 <h4>source_support</h4>
                                 <p>Counts how many independent sources (mondo, doid, medgen, orphanet, omim, gard, nodenorm)
                                    assert this specific xref ID in the harmonization file. Normalized to 0&ndash;1:</p>
@@ -288,6 +313,7 @@
                                     <tr><td class="graph-legend-score-name">3 sources</td><td>0.88</td></tr>
                                     <tr><td class="graph-legend-score-name">4+ sources</td><td>1.00</td></tr>
                                 </table>
+
                                 <h4>structural_confidence</h4>
                                 <p>Minimum of two graph-level heuristics. <strong>Not included</strong> in the composite
                                    <code>xref_confidence</code> score (weight = 0), but still computed and displayed for reference.</p>
