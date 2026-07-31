@@ -12,7 +12,7 @@
     </thead>
     <tbody>
         {% for coll in collections %}
-        <tr class="{{ 'nerd-only' if coll.type == 'edge' }}">
+        <tr class="{{ 'nerd-only' if coll.type == 'edge' and not coll.qa_visible }}">
             <td><a href="{{ root_path }}/db/{{ db_name }}/collection/{{ coll.name }}">{{ coll.name }}</a></td>
             <td><span class="badge {% if coll.type == 'edge' %}badge-edge{% else %}badge-doc{% endif %}">{{ coll.type }}</span></td>
             <td class="mono" style="text-align:right">{{ "{:,}".format(coll.count) }}</td>

@@ -6,6 +6,7 @@ import obonet
 
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
+from src.input_adapters.shared.expression_adapter_base import ExpressionAdapterBase
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import ExpressionDetail, ProteinTissueExpressionEdge
 from src.models.node import EquivalentId

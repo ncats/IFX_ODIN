@@ -15,6 +15,10 @@ PANTHER_CURRENT_RELEASE_URL = "https://data.pantherdb.org/ftp/sequence_classific
 REACTOME_VERSION_URL = "https://reactome.org/ContentService/data/database/version"
 PATHWAYCOMMONS_DATASOURCES_URL = "https://download.baderlab.org/PathwayCommons/PC2/v14/datasources.txt"
 WIKIPATHWAYS_GMT_LISTING_URL = "https://data.wikipathways.org/current/gmt/"
+PFOCR_CURRENT_LISTING_URL = "https://data.wikipathways.org/pfocr/current/"
+WIKIPATHWAYS_HUMAN_GMT_FILE_NAME = "wikipathways_human.gmt"
+PFOCR_GENE_GMT_FILE_NAME = "pfocr_gene_gmt.gmt"
+PFOCR_CHEMICAL_GMT_FILE_NAME = "pfocr_chemical_gmt.gmt"
 
 
 def latest_panther_version(timeout: int = 60) -> str:
@@ -49,6 +53,13 @@ def latest_wikipathways_human_gmt_version(timeout: int = 60) -> str:
     return version
 
 
+def latest_pfocr_human_pathways_version(timeout: int = 60) -> str:
+    response = requests.get(PFOCR_CURRENT_LISTING_URL, timeout=timeout)
+    response.raise_for_status()
+    version, _, _ = parse_pfocr_human_pathways_listing(response.text)
+    return version
+
+
 def parse_pathwaycommons_datasources_version(text: str) -> tuple[str, str, str]:
     match = re.search(r"PC version (\d+) (\d+ \w+ \d+)", text)
     if not match:
@@ -64,6 +75,24 @@ def parse_wikipathways_human_gmt_listing(text: str) -> tuple[str, str]:
         raise ValueError("Could not find WikiPathways Homo sapiens GMT file")
     year, month, day = match.groups()
     return f"{year}-{month}-{day}", match.group(0)
+
+
+def parse_pfocr_human_pathways_listing(text: str) -> tuple[str, str, str]:
+    gene_match = re.search(r"(pfocr-(\d{4})(\d{2})(\d{2})-gmt-Homo_sapiens\.gmt)", text)
+    chemical_match = re.search(r"(pfocr-(\d{4})(\d{2})(\d{2})-chemical-gmt-Homo_sapiens\.gmt)", text)
+    if not gene_match:
+        raise ValueError("Could not find PFOCR Homo sapiens gene GMT file")
+    if not chemical_match:
+        raise ValueError("Could not find PFOCR Homo sapiens chemical GMT file")
+    gene_date = gene_match.groups()[1:]
+    chemical_date = chemical_match.groups()[1:]
+    if gene_date != chemical_date:
+        raise ValueError(
+            f"PFOCR Homo sapiens gene and chemical GMT releases differ: "
+            f"{gene_match.group(1)} vs {chemical_match.group(1)}"
+        )
+    year, month, day = gene_date
+    return f"{year}-{month}-{day}", gene_match.group(1), chemical_match.group(1)
 
 
 def _build_snapshot(
@@ -104,6 +133,7 @@ def fetch_reactome(
         "https://reactome.org/download/current/ReactomePathways.gmt.zip",
         "https://reactome.org/download/current/ReactomePathwaysRelation.txt",
         "https://reactome.org/download/current/UniProt2Reactome_All_Levels.txt",
+        "https://reactome.org/download/current/ChEBI2Reactome_All_Levels.txt",
         "https://reactome.org/download/current/interactors/reactome.homo_sapiens.interactions.tab-delimited.txt",
     ]
     version_url = REACTOME_VERSION_URL
@@ -204,7 +234,10 @@ def fetch_wikipathways(
     file_url = f"{listing_url}{file_name}"
 
     work_dir = dest / source / dataset / "pending"
-    downloaded = [(*download_url(file_url, work_dir, timeout=timeout), file_url)]
+    downloaded = [(
+        *download_url(file_url, work_dir, timeout=timeout, file_name=WIKIPATHWAYS_HUMAN_GMT_FILE_NAME),
+        file_url,
+    )]
     return _build_snapshot(
         source=source,
         dataset=dataset,
@@ -218,6 +251,48 @@ def fetch_wikipathways(
             "type": "wikipathways_filename_date",
             "description": "Scrape current GMT directory and use the YYYYMMDD date embedded in the Homo sapiens GMT filename.",
             "evidence": {"listing_url": listing_url, "file_name": file_name},
+        },
+    )
+
+
+def fetch_pfocr_human_pathways(
+    *,
+    dest: Path,
+    timeout: int = 60,
+) -> SourceSnapshot:
+    source = "pfocr"
+    dataset = "human_pathways"
+    listing_url = PFOCR_CURRENT_LISTING_URL
+    response = requests.get(listing_url, timeout=timeout)
+    response.raise_for_status()
+    version, gene_file_name, chemical_file_name = parse_pfocr_human_pathways_listing(response.text)
+    file_urls = [
+        f"{listing_url}{gene_file_name}",
+        f"{listing_url}{chemical_file_name}",
+    ]
+
+    work_dir = dest / source / dataset / "pending"
+    downloaded = [
+        (*download_url(file_urls[0], work_dir, timeout=timeout, file_name=PFOCR_GENE_GMT_FILE_NAME), file_urls[0]),
+        (*download_url(file_urls[1], work_dir, timeout=timeout, file_name=PFOCR_CHEMICAL_GMT_FILE_NAME), file_urls[1]),
+    ]
+    return _build_snapshot(
+        source=source,
+        dataset=dataset,
+        version=version,
+        version_date=version,
+        homepage="https://wikipathways.github.io/pfocr-database/",
+        urls=[listing_url, *file_urls],
+        files=downloaded,
+        dest=dest,
+        version_method={
+            "type": "pfocr_filename_date",
+            "description": "Scrape the PFOCR current directory and use the shared YYYYMMDD date embedded in the Homo sapiens gene and chemical GMT filenames.",
+            "evidence": {
+                "listing_url": listing_url,
+                "gene_file_name": gene_file_name,
+                "chemical_file_name": chemical_file_name,
+            },
         },
     )
 
@@ -248,3 +323,10 @@ class WikipathwaysHumanGmtFetcher(SourceFunctionFetcher):
     dataset = "human_gmt"
     fetch_function = staticmethod(fetch_wikipathways)
     latest_version_function = staticmethod(latest_wikipathways_human_gmt_version)
+
+
+class PfocrHumanPathwaysFetcher(SourceFunctionFetcher):
+    source = "pfocr"
+    dataset = "human_pathways"
+    fetch_function = staticmethod(fetch_pfocr_human_pathways)
+    latest_version_function = staticmethod(latest_pfocr_human_pathways_version)

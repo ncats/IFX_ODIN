@@ -4,8 +4,7 @@ database_name: &database_name impatient_target_graph
 pchembl_cutoff: &pchembl_cutoff 5
 
 registry:
-  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
-  cache_dir: /tmp/ifx-registry-cache
+  credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
 
 resolvers:
   - label: translator_nn
@@ -99,13 +98,13 @@ input_adapters:
   - import: ./src/input_adapters/iuphar/ligand_node.py
     class: LigandNodeAdapter
     kwargs:
-      data_source: iuphar:ligands_interactions:2026-04-27
+      data_source: iuphar:ligands_interactions:2026-06-15
 
   - import: ./src/input_adapters/iuphar/protein_ligand_edge.py
     class: ProteinLigandEdgeAdapter
     kwargs:
       pchembl_cutoff: *pchembl_cutoff
-      data_source: iuphar:ligands_interactions:2026-04-27
+      data_source: iuphar:ligands_interactions:2026-06-15
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter

@@ -1,14 +1,30 @@
 import csv
+from datetime import date
 from pathlib import Path
 
 from src.input_adapters.hpm.hpm_expression import HPMExpressionAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.expression import ProteinTissueExpressionEdge
 from src.models.protein import Protein
 from src.models.tissue import Tissue
 
 
+class FakeDataSource:
+    def __init__(self, root: Path):
+        self.root = root
+
+    def file(self, file_name: str):
+        return self.root / file_name
+
+    def version_info(self):
+        return DatasourceVersionInfo(
+            version="A draft map of the human proteome (2014)",
+            version_date=date(2014, 5, 29),
+        )
+
+
 def _write_hpm_fixture(tmp_path: Path):
-    data_path = tmp_path / "hpm.csv"
+    data_path = tmp_path / "HPM_protein_level_expression_matrix_Kim_et_al_052914.csv"
     with open(data_path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -35,22 +51,15 @@ def _write_hpm_fixture(tmp_path: Path):
     uberon_map_path = tmp_path / "manual_uberon_map.tsv"
     uberon_map_path.write_text("adult liver\tUBERON:0002107\nadult heart\tUBERON:0000948\n", encoding="utf-8")
 
-    version_path = tmp_path / "version.csv"
-    with open(version_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["version", "version_date"], delimiter="\t")
-        writer.writeheader()
-        writer.writerow({"version": "A draft map of the human proteome (2014)", "version_date": "2014-05-29"})
-
-    return data_path, uberon_map_path, version_path
+    return data_path, uberon_map_path
 
 
 def test_hpm_adapter_emits_protein_expression_edges(tmp_path):
-    data_path, uberon_map_path, version_path = _write_hpm_fixture(tmp_path)
+    _data_path, uberon_map_path = _write_hpm_fixture(tmp_path)
 
     adapter = HPMExpressionAdapter(
-        data_file_path=str(data_path),
         uberon_map_file_path=str(uberon_map_path),
-        version_file_path=str(version_path),
+        data_source=FakeDataSource(tmp_path),
         max_rows=1,
     )
 

@@ -404,6 +404,54 @@ def test_load_registry_graphs_lists_graph_metadata(monkeypatch):
     assert graphs[0]["adapters"][0]["name"] == "CUREAdapter"
 
 
+def test_registry_catalog_loader_caches_requested_categories(monkeypatch):
+    calls = []
+
+    class FakeRegistry:
+        def list_source_snapshots(self):
+            calls.append("sources")
+            return [{"snapshot_id": "source:v1"}]
+
+        def list_derived_artifacts(self):
+            calls.append("derived")
+            return [{"snapshot_id": "derived:v1"}]
+
+        def list_external_sources(self):
+            calls.append("external")
+            return [{"registration_id": "external:v1"}]
+
+        def list_resolver_snapshots(self):
+            calls.append("resolvers")
+            return [{"snapshot_id": "resolver:v1"}]
+
+    def fake_with_registry_endpoint_fallback(operation, *, error_prefix):
+        return operation(FakeRegistry())
+
+    monkeypatch.setattr(qa_app, "_minio_credentials", {"url": "example"})
+    monkeypatch.setattr(qa_app, "_with_registry_endpoint_fallback", fake_with_registry_endpoint_fallback)
+    qa_app._registry_catalog_cache.update({
+        "loaded_at": {},
+        "source_snapshots": None,
+        "derived_artifacts": None,
+        "external_registrations": None,
+        "resolver_snapshots": None,
+    })
+
+    catalog, error = qa_app._load_registry_catalog_categories([
+        "source_snapshots",
+        "derived_artifacts",
+        "external_registrations",
+    ])
+    assert error is None
+    assert set(catalog) == {"source_snapshots", "derived_artifacts", "external_registrations"}
+    assert calls == ["sources", "derived", "external"]
+
+    catalog, error = qa_app._load_registry_catalog_categories(["source_snapshots"])
+    assert error is None
+    assert catalog["source_snapshots"] == [{"snapshot_id": "source:v1"}]
+    assert calls == ["sources", "derived", "external"]
+
+
 def test_with_graph_usages_accepts_external_registration_id():
     entry = with_graph_usages(
         {

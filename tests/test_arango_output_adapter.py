@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from src.models.protein import Protein
+from src.models.test_models import TestEdge, TestNode
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
 from arango.exceptions import DocumentUpdateError
@@ -50,8 +53,61 @@ class FailingUpdateCollection(FakeCollection):
 
 
 class FakeGraph:
+    def __init__(self, edge_collection=None):
+        self.edge_collection = edge_collection or FakeCollection()
+
     def has_edge_collection(self, label):
         return False
+
+    def create_edge_definition(self, label, from_vertex_collections, to_vertex_collections):
+        return self.edge_collection
+
+
+class FakeCursor(list):
+    pass
+
+
+class FakeAql:
+    def execute(self, query):
+        if "RETURN COUNT" in query:
+            return FakeCursor([4])
+        if "COLLECT value = item" in query:
+            return FakeCursor([
+                {"value": "hmdb\t5.0\t2026-01-01\t2026-01-02", "count": 2},
+                {"value": "", "count": 1},
+            ])
+        if "COLLECT combo = key" in query:
+            return FakeCursor([
+                {"combination": "hmdb\t5.0\t2026-01-01\t2026-01-02", "count": 2},
+                {"combination": "", "count": 1},
+            ])
+        return FakeCursor([])
+
+
+class FakeMetadataDb:
+    aql = FakeAql()
+
+    def collections(self):
+        return [
+            {"system": False, "name": "TestCollection"},
+            {"system": False, "name": "MetaboliteHarmonizationClique"},
+        ]
+
+
+class FakeMalformedAql:
+    def execute(self, query):
+        if "RETURN COUNT" in query:
+            return FakeCursor([1])
+        if "COLLECT value = item" in query:
+            return FakeCursor([{"value": "bad-source-fragment", "count": 1}])
+        return FakeCursor([])
+
+
+class FakeMalformedMetadataDb:
+    aql = FakeMalformedAql()
+
+    def collections(self):
+        return [{"system": False, "name": "TestCollection"}]
 
 
 def make_protein(protein_id: str, name: str, entity_resolution: str, provenance: str) -> Protein:
@@ -114,6 +170,31 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     assert disease_metadata["kwargs"]["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
     assert "local_dir" not in disease_metadata["resolver_snapshot"]
     assert disease_metadata["fingerprint"]
+
+
+def test_arango_output_adapter_get_metadata_skips_empty_source_combinations_and_qa_artifacts():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.metadata_store_label = "metadata_store"
+    adapter.get_db = lambda: FakeMetadataDb()
+
+    metadata = adapter.get_metadata()
+
+    collection = metadata.collections[0]
+    assert collection.name == "TestCollection"
+    assert collection.total_count == 4
+    assert [source.name for source in collection.sources] == ["hmdb"]
+    assert collection.marginal_source_counts == {"hmdb": 2}
+    assert collection.joint_source_counts == {"hmdb": 2}
+    assert [collection.name for collection in metadata.collections] == ["TestCollection"]
+
+
+def test_arango_output_adapter_get_metadata_rejects_malformed_nonempty_source():
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.metadata_store_label = "metadata_store"
+    adapter.get_db = lambda: FakeMalformedMetadataDb()
+
+    with pytest.raises(ValueError):
+        adapter.get_metadata()
 
 
 def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_snapshot(tmp_path):
@@ -269,6 +350,33 @@ def test_get_node_merge_fetch_fields_keeps_only_merge_relevant_fields():
         "resolved_ids",
         "updates",
     ]
+
+
+def test_document_handle_uses_same_safe_key_as_node_writes():
+    assert (
+        ArangoOutputAdapter.document_handle("MetaboliteIdentifier", "CAS:100-09-4")
+        == "MetaboliteIdentifier/CAS:100_minus_09_minus_4"
+    )
+
+
+def test_store_writes_edge_handles_with_safe_document_keys():
+    collection = FakeCollection()
+    adapter = build_adapter([], collection)
+    adapter.get_graph = lambda: FakeGraph(collection)
+    edge = TestEdge(
+        start_node=TestNode(id="CAS:100-09-4"),
+        end_node=TestNode(id="PUBCHEM.COMPOUND:62698"),
+        provenance="test-source",
+    )
+    edge.entity_resolution = "test-resolver"
+
+    adapter.store([edge], single_source=True)
+
+    edge_doc = collection.insert_calls[0]["docs"][0]
+    assert edge_doc["_from"] == "TestNode/CAS:100_minus_09_minus_4"
+    assert edge_doc["_to"] == "TestNode/PUBCHEM.COMPOUND:62698"
+    assert edge_doc["start_id"] == "CAS:100-09-4"
+    assert edge_doc["end_id"] == "PUBCHEM.COMPOUND:62698"
 
 
 def test_store_uses_update_many_for_existing_nodes_and_insert_many_for_new_nodes():

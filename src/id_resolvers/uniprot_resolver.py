@@ -40,11 +40,17 @@ class UniProtResolver(IdResolver):
         return match_list
 
     def __init__(self,
-                 uniprot_json_path: str,
+                 uniprot_json_path: Optional[str] = None,
+                 data_source=None,
+                 file_name: str = "uniprot-human-reviewed.json.gz",
                  types: Optional[List[str]] = None,
                  no_match_behavior="Allow",
                  multi_match_behavior="All"):
         self.alias_map = {}
+        if data_source is not None:
+            uniprot_json_path = str(data_source.file(file_name))
+        if uniprot_json_path is None:
+            raise ValueError("UniProtResolver requires uniprot_json_path or data_source")
         self.uniprot_json_path = uniprot_json_path
         IdResolver.__init__(
             self,

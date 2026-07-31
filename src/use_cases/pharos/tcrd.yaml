@@ -10,8 +10,7 @@ pubmed_credentials: &pubmed_credentials ./src/use_cases/secrets/ifx_pubmed_crede
 meets_idg_criteria: &meets_idg_criteria true
 
 registry:
-  credentials: ./src/use_cases/secrets/ifxdev_minio.yaml
-  cache_dir: /tmp/ifx-registry-cache
+  credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
 
 resolvers:
   # Important: keep Disease resolution and Target resolution aligned with src/use_cases/pharos/pharos.yaml.

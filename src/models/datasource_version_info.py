@@ -28,7 +28,16 @@ class DataSourceDetails:
 
     @staticmethod
     def parse_tsv(tsv_str: str) -> "DataSourceDetails":
-        name, version, version_date, download_date = tsv_str.split('\t')
+        values = tsv_str.split('\t')
+        if len(values) == 1:
+            name = values[0]
+            version = None
+            version_date = None
+            download_date = None
+        elif len(values) == 4:
+            name, version, version_date, download_date = values
+        else:
+            raise ValueError(f"Expected datasource string with 1 or 4 tab-separated fields, got {len(values)}: {tsv_str}")
         dsv = DataSourceDetails(
             name=name,
             version=version if version else None,

@@ -1,5 +1,7 @@
 import gzip
+import json
 import os
+import zipfile
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from pathlib import Path
@@ -20,19 +22,58 @@ from src.registry.manifest import (
     write_manifest,
 )
 from src.registry.fetchers import ExternalSourceProvider, ExternalSourceRegistration, MaterializedDataset, SnapshotFile, SourceFetcher, SourceSnapshot
-from src.registry.storage import DEFAULT_REGISTRY_BUCKET, MinioStorage
+from src.registry.storage import (
+    DEFAULT_REGISTRY_BUCKET,
+    AwsAssumeRoleCredentials,
+    AwsAssumeRoleStorage,
+    MinioStorage,
+    load_registry_credentials,
+)
 from src.registry.sources.ctd import extract_report_created
-from src.registry.sources.cure import fetch_case_reports, fetch_curated_concepts
+from scripts.repair_registry_stable_filenames import repair_stable_filenames
+from src.registry.sources.cure import CURE_CASE_REPORTS_FILE_NAME, fetch_case_reports, fetch_curated_concepts
 from src.registry.sources.hcop import HCOP_FILE_NAME
 from src.registry.sources.impc import IMPC_FILE_NAME
 from src.registry.sources.jensenlab import JENSENLAB_DISEASE_URLS, JENSENLAB_TINX_URLS, JENSENLAB_TISSUES_FILE_NAME
 from src.registry.sources.mgi import MGI_HMD_FILE_NAME
 from src.registry.sources.mp import MP_FILE_NAME, extract_obo_data_version
 from src.registry.sources.ncbi import NCBI_GENE_SUMMARY_URLS, NCBI_PUBLICATION_URLS
+from src.registry.sources.ontologies import (
+    CHEBI_FULL_OBO_URL,
+    CHEBI_ONTOLOGY_README_URL,
+    extract_chebi_obo_metadata,
+    fetch_chebi_full_ontology,
+    latest_chebi_full_ontology_version,
+    parse_chebi_readme_metadata,
+)
+from src.registry.sources.metabolite_harmonization import (
+    WIKIPATHWAYS_RDF_WP_FILE_NAME,
+    fetch_wikipathways_rdf_wp,
+    fetch_refmet_metabolites_csv,
+    parse_wikipathways_rdf_listing,
+    _lipidmaps_zip_inner_version,
+    _refmet_version_from_file,
+)
 from src.registry.sources.external_sources import _drugcentral_version_info, _version_token
 from src.registry.sources.bioplex import latest_bioplex_version
 from src.registry.sources.gtex import latest_gtex_version
-from src.registry.sources.pathway_sources import latest_panther_version
+from src.registry.sources.pathway_sources import (
+    PFOCR_CHEMICAL_GMT_FILE_NAME,
+    PFOCR_GENE_GMT_FILE_NAME,
+    WIKIPATHWAYS_HUMAN_GMT_FILE_NAME,
+    fetch_pfocr_human_pathways,
+    fetch_reactome,
+    fetch_wikipathways,
+    latest_panther_version,
+    parse_pfocr_human_pathways_listing,
+)
+from src.registry.sources.expasy import EXPASY_ENZYME_URLS, fetch_expasy_enzyme
+from src.registry.sources.rhea import (
+    RHEA_REACTION_BUNDLE_URLS,
+    RHEA_RELEASE_PROPERTIES_URL,
+    fetch_rhea_reaction_bundle,
+    parse_rhea_release_properties,
+)
 from src.registry.sources.ramp import fetch_ramp_sqlite_database, latest_ramp_sqlite_database_version
 from src.registry.sources.string import latest_string_version
 from src.shared.db_credentials import DBCredentials
@@ -45,6 +86,46 @@ from src.core.config import _resolve_registry_data_sources
 
 def test_parse_http_date_to_iso():
     assert parse_http_date_to_iso("Wed, 10 Jun 2026 12:34:56 GMT") == "2026-06-10"
+
+
+def test_load_registry_credentials_supports_aws_assume_role_yaml(tmp_path: Path):
+    credentials_path = tmp_path / "aws_registry.yaml"
+    credentials_path.write_text(
+        "\n".join([
+            "type: aws_assume_role",
+            "access_key_id: AKIAEXAMPLE123456789",
+            "secret_access_key: fakeSecretAccessKeyValueForTestsOnly",
+            "role_arn: arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users",
+            "bucket: aws-ifx-registry",
+            "region: us-east-1",
+            "session_name: ifx-registry-test",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    credentials = load_registry_credentials(credentials_path)
+
+    assert isinstance(credentials, AwsAssumeRoleCredentials)
+    assert credentials.bucket == "aws-ifx-registry"
+    assert credentials.role_arn == "arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users"
+    assert credentials.region == "us-east-1"
+    assert credentials.session_name == "ifx-registry-test"
+
+
+def test_data_registry_uses_aws_assume_role_storage_for_aws_credentials():
+    credentials = AwsAssumeRoleCredentials(
+        access_key_id="AKIAEXAMPLE123456789",
+        secret_access_key="fakeSecretAccessKeyValueForTestsOnly",
+        role_arn="arn:aws:iam::853771734544:role/ncats-ifx-programmatic-users",
+        bucket="aws-ifx-registry",
+        region="us-east-1",
+    )
+
+    registry = DataRegistry.from_credentials(credentials)
+
+    assert isinstance(registry.storage, AwsAssumeRoleStorage)
+    assert registry.storage.bucket == "aws-ifx-registry"
 
 
 def test_drugcentral_version_info_uses_dbversion_row(tmp_path: Path, monkeypatch):
@@ -199,7 +280,7 @@ def test_cure_case_reports_fetcher_writes_paginated_jsonl(tmp_path: Path, monkey
         "https://cure-api.ncats.io/v2/reports?page=2",
     ]
     output_path = snapshot.files[0].path
-    assert output_path.name == "reports_20260612T153045Z.jsonl"
+    assert output_path.name == CURE_CASE_REPORTS_FILE_NAME
     assert output_path.read_text(encoding="utf-8").splitlines() == [
         '{"id": "report-1"}',
         '{"id": "report-2"}',
@@ -304,6 +385,285 @@ def test_ramp_sqlite_fetcher_selects_latest_github_db_release(tmp_path: Path, mo
     assert snapshot.extra["version_method"]["type"] == "github_main_db_directory"
     assert snapshot.extra["version_method"]["evidence"]["sha"] == "new"
     assert snapshot.extra["version_method"]["evidence"]["github_download_url"] == "https://raw.githubusercontent.com/ncats/RaMP-DB/main/db/RaMP_SQLite_v3.0.7.sqlite.gz"
+
+
+def test_wikipathways_rdf_listing_parser_finds_rdf_wp_release():
+    html = '<a href="wikipathways-20260610-rdf-wp.zip">wikipathways-20260610-rdf-wp.zip</a>'
+
+    version, file_name = parse_wikipathways_rdf_listing(html)
+
+    assert version == "2026-06-10"
+    assert file_name == "wikipathways-20260610-rdf-wp.zip"
+
+
+def test_reactome_pathways_fetcher_includes_metabolite_pathway_mapping(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        metadata = {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 12:34:56 GMT",
+            "version_date": "2026-06-10",
+        }
+        return local_path, metadata
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.latest_reactome_version", lambda timeout=60: "96")
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_reactome(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "reactome"
+    assert snapshot.dataset == "pathways"
+    assert snapshot.version == "96"
+    assert snapshot.version_date == "2026-06-10"
+    assert "https://reactome.org/download/current/ChEBI2Reactome_All_Levels.txt" in downloaded_urls
+    assert [file.path.name for file in snapshot.files] == [
+        "ReactomePathways.gmt.zip",
+        "ReactomePathwaysRelation.txt",
+        "UniProt2Reactome_All_Levels.txt",
+        "ChEBI2Reactome_All_Levels.txt",
+        "reactome.homo_sapiens.interactions.tab-delimited.txt",
+    ]
+
+
+def test_pfocr_human_pathways_listing_parser_requires_gene_and_chemical_files():
+    html = """
+    <a href="pfocr-20250701-chemical-gmt-Homo_sapiens.gmt">chemical</a>
+    <a href="pfocr-20250701-gmt-Homo_sapiens.gmt">gene</a>
+    """
+
+    version, gene_file_name, chemical_file_name = parse_pfocr_human_pathways_listing(html)
+
+    assert version == "2025-07-01"
+    assert gene_file_name == "pfocr-20250701-gmt-Homo_sapiens.gmt"
+    assert chemical_file_name == "pfocr-20250701-chemical-gmt-Homo_sapiens.gmt"
+
+
+def test_pfocr_human_pathways_fetcher_snapshots_gene_and_chemical_gmts(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+    listing_html = """
+    <a href="pfocr-20250701-chemical-gmt-Homo_sapiens.gmt">chemical</a>
+    <a href="pfocr-20250701-gmt-Homo_sapiens.gmt">gene</a>
+    """
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
+        downloaded_urls.append(url)
+        local_path = work_dir / (file_name or Path(url).name)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Tue, 05 Aug 2025 12:07:00 GMT",
+            "version_date": "2025-08-05",
+        }
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_pfocr_human_pathways(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "pfocr"
+    assert snapshot.dataset == "human_pathways"
+    assert snapshot.version == "2025-07-01"
+    assert snapshot.version_date == "2025-07-01"
+    assert downloaded_urls == [
+        "https://data.wikipathways.org/pfocr/current/pfocr-20250701-gmt-Homo_sapiens.gmt",
+        "https://data.wikipathways.org/pfocr/current/pfocr-20250701-chemical-gmt-Homo_sapiens.gmt",
+    ]
+    assert [file.path.name for file in snapshot.files] == [
+        PFOCR_GENE_GMT_FILE_NAME,
+        PFOCR_CHEMICAL_GMT_FILE_NAME,
+    ]
+    assert snapshot.extra["version_method"]["type"] == "pfocr_filename_date"
+
+
+def test_wikipathways_human_gmt_fetcher_uses_stable_file_name(tmp_path: Path, monkeypatch):
+    listing_html = '<a href="wikipathways-20260610-gmt-Homo_sapiens.gmt">human</a>'
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
+        local_path = work_dir / (file_name or Path(url).name)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {"final_url": url, "content_type": "text/plain"}
+
+    monkeypatch.setattr("src.registry.sources.pathway_sources.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.pathway_sources.download_url", fake_download_url)
+
+    snapshot = fetch_wikipathways(dest=tmp_path, timeout=10)
+
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.files[0].path.name == WIKIPATHWAYS_HUMAN_GMT_FILE_NAME
+    assert snapshot.extra["version_method"]["evidence"]["file_name"] == "wikipathways-20260610-gmt-Homo_sapiens.gmt"
+
+
+def test_wikipathways_rdf_fetcher_uses_stable_file_name(tmp_path: Path, monkeypatch):
+    listing_html = '<a href="wikipathways-20260610-rdf-wp.zip">rdf</a>'
+
+    class FakeResponse:
+        text = listing_html
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60, file_name=None):
+        local_path = work_dir / (file_name or Path(url).name)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {"final_url": url, "content_type": "application/zip"}
+
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.download_url", fake_download_url)
+
+    snapshot = fetch_wikipathways_rdf_wp(dest=tmp_path, timeout=10)
+
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.files[0].path.name == WIKIPATHWAYS_RDF_WP_FILE_NAME
+    assert snapshot.extra["version_method"]["evidence"]["file_name"] == "wikipathways-20260610-rdf-wp.zip"
+
+
+def test_rhea_reaction_bundle_fetcher_snapshots_rhea_reaction_inputs(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    class FakeResponse:
+        text = "rhea.release.number=141\nrhea.release.date=2026-06-10\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 13:00:00 GMT",
+            "version_date": "2026-06-10",
+        }
+
+    monkeypatch.setattr("src.registry.sources.rhea.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("src.registry.sources.rhea.download_url", fake_download_url)
+    monkeypatch.setattr("src.registry.sources.common.download_url", fake_download_url)
+
+    snapshot = fetch_rhea_reaction_bundle(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "rhea"
+    assert snapshot.dataset == "reaction_bundle"
+    assert snapshot.version == "141"
+    assert snapshot.version_date == "2026-06-10"
+    assert downloaded_urls == [RHEA_RELEASE_PROPERTIES_URL, *RHEA_REACTION_BUNDLE_URLS]
+    assert [file.path.name for file in snapshot.files] == [
+        "rhea-release.properties",
+        "rhea.rdf.gz",
+        "rhea2uniprot_sprot.tsv",
+        "rhea2uniprot_trembl.tsv.gz",
+        "rhea2ec.tsv",
+        "rhea-directions.tsv",
+    ]
+    assert snapshot.extra["version_method"]["type"] == "rhea_release_properties"
+    assert snapshot.extra["version_method"]["evidence"]["rhea_release_number"] == "141"
+
+
+def test_rhea_release_properties_parser_extracts_release_number_and_date():
+    version, version_date = parse_rhea_release_properties(
+        "rhea.release.number=141\nrhea.release.date=2026-06-10\n"
+    )
+
+    assert version == "141"
+    assert version_date == "2026-06-10"
+
+
+def test_expasy_enzyme_fetcher_snapshots_enzyme_class_and_details(tmp_path: Path, monkeypatch):
+    downloaded_urls = []
+
+    def fake_download_url(url, work_dir, timeout=60):
+        downloaded_urls.append(url)
+        local_path = work_dir / Path(url).name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text("mock\n", encoding="utf-8")
+        return local_path, {
+            "final_url": url,
+            "content_type": "text/plain",
+            "last_modified": "Wed, 10 Jun 2026 13:00:00 GMT",
+            "version_date": "2026-06-10",
+        }
+
+    monkeypatch.setattr("src.registry.sources.common.download_url", fake_download_url)
+
+    snapshot = fetch_expasy_enzyme(dest=tmp_path, timeout=10)
+
+    assert snapshot.source == "expasy"
+    assert snapshot.dataset == "enzyme"
+    assert snapshot.version == "2026-06-10"
+    assert snapshot.version_date == "2026-06-10"
+    assert downloaded_urls == EXPASY_ENZYME_URLS
+    assert [file.path.name for file in snapshot.files] == [
+        "enzclass.txt",
+        "enzyme.dat",
+    ]
+    assert snapshot.extra["version_method"]["type"] == "multi_file_max_last_modified"
+
+
+def test_lipidmaps_zip_inner_version_uses_structures_sdf_timestamp(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        info = zipfile.ZipInfo("structures.sdf", date_time=(2026, 6, 30, 3, 45, 0))
+        archive.writestr(info, "mock sdf")
+
+    assert _lipidmaps_zip_inner_version(zip_path) == "2026-06-30"
+
+
+def test_refmet_fetcher_uses_content_hash_version(tmp_path: Path, monkeypatch):
+    payload = b"refmet_id,refmet_name\nRM1,Example\n"
+
+    class FakeResponse:
+        url = "https://example.org/refmet.csv"
+        headers = {
+            "Content-Type": "text/csv",
+            "Content-Length": str(len(payload)),
+        }
+
+        def raise_for_status(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield payload
+
+    monkeypatch.setattr("src.registry.sources.metabolite_harmonization.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    snapshot = fetch_refmet_metabolites_csv(dest=tmp_path, timeout=10)
+
+    expected_version = _refmet_version_from_file(snapshot.files[0].path)
+    assert snapshot.source == "refmet"
+    assert snapshot.dataset == "metabolites_csv"
+    assert snapshot.version == expected_version
+    assert snapshot.version.startswith("sha256-")
+    assert snapshot.extra["version_method"]["type"] == "content_hash"
 
 
 def test_verify_manifest_files_catches_modified_file(tmp_path: Path):
@@ -910,6 +1270,85 @@ files: []
     ]
 
 
+def test_data_registry_reports_missing_manual_file_as_manual_unavailable(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  example:
+    datasets:
+      manual:
+        fetch:
+          module: fake_fetcher_module
+          class: ManualFetcher
+          version_strategy: local_file_mtime
+""",
+        encoding="utf-8",
+    )
+
+    class ManualFetcher(SourceFetcher):
+        source = "example"
+        dataset = "manual"
+
+        def fetch(self, *, dest, timeout):
+            return tmp_path / "manifest.yaml"
+
+        def get_latest_version(self, *, timeout):
+            raise FileNotFoundError("input_files/manual/example.tsv")
+
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return ["sources/example/manual/2026-05-14/manifest.yaml"]
+            if prefix == "external/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            return """
+kind: source_snapshot
+schema_version: 1
+source: example
+dataset: manual
+snapshot_id: example:manual:2026-05-14
+version: '2026-05-14'
+version_date: '2026-05-14'
+files: []
+"""
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 30)
+
+    monkeypatch.setattr("src.core.data_registry.date", FrozenDate)
+    monkeypatch.setattr(
+        "src.core.data_registry.importlib.import_module",
+        lambda module_name: SimpleNamespace(ManualFetcher=ManualFetcher),
+    )
+    registry = DataRegistry(FakeStorage(), sources_config_path=config_path)
+
+    assert registry.check_all_latest_registered() == [{
+        "source": "example",
+        "dataset": "manual",
+        "version_strategy": "local_file_mtime",
+        "latest_version": "2026-05-14",
+        "registered_versions": ["2026-05-14"],
+        "latest_registered_version": "2026-05-14",
+        "days_since_last_update": 47,
+        "is_latest_registered": None,
+        "error": None,
+        "check_status": "manual_unavailable",
+        "manual_check_message": (
+            "Manual source file is not available in this environment; "
+            "use the latest registered snapshot or refresh from an operator-managed checkout."
+        ),
+        "manual_source_error": "input_files/manual/example.tsv",
+    }]
+
+
 def test_data_registry_reports_metadata_version_mismatch(tmp_path: Path, monkeypatch):
     config_path = tmp_path / "registry_sources.yaml"
     config_path.write_text(
@@ -1375,7 +1814,7 @@ sources:
 
     assert result[0]["sync_action"] == "refreshed"
     assert sorted(storage.uploaded) == [
-        "sources/antibodypedia/scraped_results/2025-06-27_12-32/antibodypedia_scraped_results_2025-06-27_12-32.csv",
+        "sources/antibodypedia/scraped_results/2025-06-27_12-32/antibodypedia_scraped_results.csv",
         "sources/antibodypedia/scraped_results/2025-06-27_12-32/manifest.yaml",
     ]
     assert registry.is_latest_registered("antibodypedia", "scraped_results") is True
@@ -1762,6 +2201,72 @@ def test_data_registry_local_instance_cannot_upload(tmp_path: Path):
 
     with pytest.raises(ValueError, match="not connected to MinIO"):
         registry.upload_snapshot(manifest_path)
+
+
+def test_registry_stable_filename_repair_dry_run_reports_selected_renames():
+    class FakeStorage:
+        bucket = "ifx-registry"
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return [
+                    "sources/wikipathways/human_gmt/2026-06-10/manifest.yaml",
+                    "sources/gtex/expression_v11/v11/manifest.yaml",
+                ]
+            if prefix in {"external/", "derived/", "resolvers/"}:
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key == "sources/wikipathways/human_gmt/2026-06-10/manifest.yaml":
+                return """
+kind: source_snapshot
+schema_version: 1
+source: wikipathways
+dataset: human_gmt
+snapshot_id: wikipathways:human_gmt:2026-06-10
+version: '2026-06-10'
+version_date: '2026-06-10'
+files:
+  - path: wikipathways-20260610-gmt-Homo_sapiens.gmt
+    size_bytes: 5
+    sha256: abc
+    content_type: text/plain
+    source_url: https://data.wikipathways.org/current/gmt/wikipathways-20260610-gmt-Homo_sapiens.gmt
+    storage_uri: s3://ifx-registry/sources/wikipathways/human_gmt/2026-06-10/wikipathways-20260610-gmt-Homo_sapiens.gmt
+"""
+            if key == "sources/gtex/expression_v11/v11/manifest.yaml":
+                return """
+kind: source_snapshot
+schema_version: 1
+source: gtex
+dataset: expression_v11
+snapshot_id: gtex:expression_v11:v11
+version: v11
+files:
+  - path: GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+    size_bytes: 5
+    sha256: abc
+    content_type: application/gzip
+    source_url: https://example.org/gtex.gz
+    storage_uri: s3://ifx-registry/sources/gtex/expression_v11/v11/GTEx_Analysis_2025_08_22_v11_RNASeQCv2.4.3_gene_tpm.gct.gz
+"""
+            raise AssertionError(key)
+
+    registry = DataRegistry(FakeStorage())
+
+    results = repair_stable_filenames(registry, cache_dir=Path("/tmp/unused"), apply=False, delete_old=True)
+
+    assert results == [
+        {
+            "source": "wikipathways",
+            "dataset": "human_gmt",
+            "version": "2026-06-10",
+            "manifest_uri": "s3://ifx-registry/sources/wikipathways/human_gmt/2026-06-10/manifest.yaml",
+            "renames": [("wikipathways-20260610-gmt-Homo_sapiens.gmt", "wikipathways_human.gmt")],
+            "action": "would_repair",
+        }
+    ]
 
 
 def test_data_registry_registers_external_source_from_config(tmp_path: Path, monkeypatch):
@@ -2199,6 +2704,142 @@ files:
     assert post_build_status[0]["latest_build_key"] == manifest["build_key"]
 
 
+def test_data_registry_sync_derived_artifact_builds_from_derived_snapshot(tmp_path: Path):
+    config_path = tmp_path / "registry_sources.yaml"
+    config_path.write_text(
+        """
+sources:
+  pubchem:
+    datasets:
+      cid_molecular_info:
+        derived:
+          module: src.registry.derived.pubchem
+          class: PubchemCidMolecularInfoBuilder
+          dependencies:
+            - kind: derived
+              source: pubchem
+              dataset: compound_records
+          output:
+            file_name: cid_molecular_info.tsv
+          transform:
+            name: pubchem_cid_molecular_info
+            version: 1
+            code_ref: src/registry/derived/pubchem.py
+""",
+        encoding="utf-8",
+    )
+    source_dir = tmp_path / "source_files"
+    source_dir.mkdir()
+    records_manifest_path = source_dir / "pubchem_compound_records_manifest.tsv"
+    records_manifest_path.write_text(
+        "\t".join(["cid", "pubchem_id", "batch_file", "status", "http_status", "payload_sha256", "error"])
+        + "\n"
+        + "\t".join(["92105", "PUBCHEM.COMPOUND:92105", "pubchem_compound_records_batch_000001.json.gz", "ok", "200", "abc", ""])
+        + "\n",
+        encoding="utf-8",
+    )
+    batch_path = source_dir / "pubchem_compound_records_batch_000001.json.gz"
+    payload = {
+        "PC_Compounds": [
+            {
+                "id": {"id": {"cid": 92105}},
+                "props": [
+                    {"urn": {"label": "Molecular Formula"}, "value": {"sval": "C7H11N3O2"}},
+                    {"urn": {"label": "Molecular Weight"}, "value": {"sval": "169.18"}},
+                    {"urn": {"label": "Monoisotopic Weight"}, "value": {"sval": "169.085126602"}},
+                    {"urn": {"label": "InChIKey"}, "value": {"sval": "BRMWTNUJHUMWMS-LURJTMIESA-N"}},
+                    {"urn": {"label": "InChI"}, "value": {"sval": "InChI=1S/C7H11N3O2"}},
+                    {"urn": {"label": "SMILES", "name": "Canonical"}, "value": {"sval": "CN1C=NC=C1CC(N)C(=O)O"}},
+                    {"urn": {"label": "SMILES", "name": "Isomeric"}, "value": {"sval": "CN1C=NC=C1C[C@H](N)C(=O)O"}},
+                    {"urn": {"label": "IUPAC Name", "name": "Preferred"}, "value": {"sval": "2-amino-3-(1-methylimidazol-4-yl)propanoic acid"}},
+                ],
+            }
+        ]
+    }
+    with gzip.open(batch_path, "wt", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+    source_keys = {
+        "derived/pubchem/compound_records/v1/pubchem_compound_records_manifest.tsv": records_manifest_path,
+        "derived/pubchem/compound_records/v1/pubchem_compound_records_batch_000001.json.gz": batch_path,
+    }
+
+    class DerivedDependencyStorage(FakeStorageForRegistry):
+        def __init__(self):
+            self.uploaded = {}
+
+        def list_keys(self, prefix):
+            if prefix == "sources/":
+                return []
+            if prefix == "derived/":
+                return [
+                    "derived/pubchem/compound_records/v1/manifest.yaml",
+                    *sorted(self.uploaded),
+                ]
+            if prefix == "external/":
+                return []
+            if prefix == "resolvers/":
+                return []
+            raise AssertionError(prefix)
+
+        def read_text(self, key):
+            if key == "derived/pubchem/compound_records/v1/manifest.yaml":
+                return """
+kind: derived_snapshot
+schema_version: 1
+source: pubchem
+dataset: compound_records
+snapshot_id: pubchem:compound_records:v1
+version: v1
+version_date: '2026-07-01'
+manifest_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/manifest.yaml
+files:
+  - path: pubchem_compound_records_manifest.tsv
+    storage_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/pubchem_compound_records_manifest.tsv
+  - path: pubchem_compound_records_batch_000001.json.gz
+    storage_uri: s3://ifx-registry/derived/pubchem/compound_records/v1/pubchem_compound_records_batch_000001.json.gz
+"""
+            return self.uploaded[key].decode("utf-8")
+
+        def download_file(self, key, local_path):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(source_keys[key].read_bytes())
+            return local_path
+
+        def upload_file(self, local_path, key, content_type=None):
+            self.uploaded[key] = Path(local_path).read_bytes()
+            return f"s3://ifx-registry/{key}"
+
+    storage = DerivedDependencyStorage()
+    registry = DataRegistry(storage, sources_config_path=config_path)
+
+    plan = registry.sync_derived_artifacts()
+
+    assert [(entry["dataset"], entry["latest_version"], entry["sync_action"]) for entry in plan] == [
+        ("cid_molecular_info", "v1", "would_build"),
+    ]
+
+    result = registry.sync_derived_artifacts(dest=tmp_path / "cache", dry_run=False)
+
+    assert result[0]["sync_action"] == "built"
+    output_path = tmp_path / "cache" / "pubchem" / "cid_molecular_info" / "v1" / "cid_molecular_info.tsv"
+    output_rows = output_path.read_text(encoding="utf-8").splitlines()
+    assert output_rows == [
+        "pubchem_id\tcid\tmonoisotopic_mass\tinchikey\tinchi_key_prefix\tmolecular_formula\tmolecular_weight\tcanonical_smiles\tisomeric_smiles\tinchi\tiupac_name",
+        "PUBCHEM.COMPOUND:92105\t92105\t169.085126602\tBRMWTNUJHUMWMS-LURJTMIESA-N\tBRMWTNUJHUMWMS\tC7H11N3O2\t169.18\tCN1C=NC=C1CC(N)C(=O)O\tCN1C=NC=C1C[C@H](N)C(=O)O\tInChI=1S/C7H11N3O2\t2-amino-3-(1-methylimidazol-4-yl)propanoic acid",
+    ]
+    manifest = read_manifest(tmp_path / "cache" / "pubchem" / "cid_molecular_info" / "v1" / "manifest.yaml")
+    assert manifest["derived_from"] == [{
+        "snapshot_id": "pubchem:compound_records:v1",
+        "manifest_uri": "s3://ifx-registry/derived/pubchem/compound_records/v1/manifest.yaml",
+    }]
+    assert manifest["stats"]["row_count"] == 1
+    assert sorted(storage.uploaded) == [
+        "derived/pubchem/cid_molecular_info/v1/cid_molecular_info.tsv",
+        "derived/pubchem/cid_molecular_info/v1/manifest.yaml",
+    ]
+
+
 def test_data_registry_sync_resolvers_registers_snapshot_manifest(tmp_path: Path):
     resolvers_config_path = tmp_path / "registry_resolvers.yaml"
     resolvers_config_path.write_text(
@@ -2419,6 +3060,92 @@ def test_extract_obo_data_version(tmp_path: Path):
     )
 
     assert extract_obo_data_version(obo_path) == "2026-05-01"
+
+
+def test_parse_chebi_readme_metadata():
+    text = (
+        "Title:                 ChEBI ontology\n"
+        "ChEBI Release:         252\n"
+        "Date of last update:   2026-05-01\n"
+    )
+
+    assert parse_chebi_readme_metadata(text) == ("252", "2026-05-01")
+
+
+def test_extract_chebi_obo_metadata_handles_gzip(tmp_path: Path):
+    obo_path = tmp_path / "chebi.obo.gz"
+    with gzip.open(obo_path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "format-version: 1.2\n"
+            "data-version: 252\n"
+            "date: 01:05:2026 16:42\n"
+            "\n"
+            "[Term]\n"
+        )
+
+    assert extract_chebi_obo_metadata(obo_path) == ("252", "2026-05-01")
+
+
+def test_latest_chebi_full_ontology_version_parses_readme(monkeypatch):
+    class FakeResponse:
+        text = "ChEBI Release: 252\nDate of last update: 2026-05-01\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        assert url == CHEBI_ONTOLOGY_README_URL
+        return FakeResponse()
+
+    monkeypatch.setattr("src.registry.sources.ontologies.requests.get", fake_get)
+
+    assert latest_chebi_full_ontology_version() == "252"
+
+
+def test_fetch_chebi_full_ontology_uses_release_and_validates_obo(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        text = "ChEBI Release: 252\nDate of last update: 2026-05-01\n"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        assert url == CHEBI_ONTOLOGY_README_URL
+        return FakeResponse()
+
+    def fake_download_url(url, dest, timeout=60):
+        assert url == CHEBI_FULL_OBO_URL
+        path = dest / "chebi.obo.gz"
+        dest.mkdir(parents=True, exist_ok=True)
+        with gzip.open(path, "wt", encoding="utf-8") as handle:
+            handle.write(
+                "format-version: 1.2\n"
+                "data-version: 252\n"
+                "date: 01:05:2026 16:42\n"
+                "\n"
+                "[Term]\n"
+            )
+        return path, {
+            "final_url": url,
+            "content_type": "application/x-gzip",
+            "last_modified": "Fri, 01 May 2026 15:57:22 GMT",
+        }
+
+    monkeypatch.setattr("src.registry.sources.ontologies.requests.get", fake_get)
+    monkeypatch.setattr("src.registry.sources.ontologies.download_url", fake_download_url)
+
+    snapshot = fetch_chebi_full_ontology(dest=tmp_path)
+
+    assert snapshot.source == "chebi"
+    assert snapshot.dataset == "ontology_full"
+    assert snapshot.version == "252"
+    assert snapshot.version_date == "2026-05-01"
+    assert snapshot.upstream_urls == [CHEBI_FULL_OBO_URL, CHEBI_ONTOLOGY_README_URL]
+    assert snapshot.files[0].path.name == "chebi.obo.gz"
+    evidence = snapshot.extra["version_method"]["evidence"]
+    assert evidence["readme_release"] == "252"
+    assert evidence["obo_data_version"] == "252"
+    assert evidence["obo_date"] == "2026-05-01"
 
 
 def test_external_registration_version_token_is_path_safe():

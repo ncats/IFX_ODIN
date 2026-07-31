@@ -21,6 +21,7 @@ def build_downloaded_snapshot(
     downloaded: List[Tuple[Path, Dict[str, Optional[str]], str]],
     dest: Path,
     version_method: Dict,
+    extra: Optional[Dict] = None,
 ) -> SourceSnapshot:
     dest.mkdir(parents=True, exist_ok=True)
     moved = []
@@ -39,7 +40,7 @@ def build_downloaded_snapshot(
         homepage=homepage,
         upstream_urls=urls,
         files=snapshot_files,
-        extra={"version_method": version_method},
+        extra={"version_method": version_method, **(extra or {})},
     )
 
 

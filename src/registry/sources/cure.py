@@ -15,6 +15,7 @@ CURE_HOMEPAGE = "https://cure.ncats.io/"
 CURE_REPORTS_LIMIT = 100
 CURE_REPORTS_SORT = "latest"
 USER_AGENT = "IFX_ODIN/ifx-registry-cure-fetcher"
+CURE_CASE_REPORTS_FILE_NAME = "case_reports.jsonl"
 
 
 def _utc_timestamp() -> str:
@@ -66,7 +67,7 @@ def fetch_case_reports(
     version = f"reports_{timestamp}"
     version_date = _version_date_from_timestamp(timestamp)
     dest.mkdir(parents=True, exist_ok=True)
-    output_path = dest / f"{version}.jsonl"
+    output_path = dest / CURE_CASE_REPORTS_FILE_NAME
 
     next_url: Optional[str] = _build_reports_url()
     total_written = 0

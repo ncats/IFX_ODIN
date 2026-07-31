@@ -21,6 +21,7 @@ class DataSourceName(SimpleEnum):
     BioPlex = "BioPlex"
     WikiPathways = "WikiPathways"
     PathwayCommons = "PathwayCommons"
+    PFOCR = "PFOCR"
     CLO = "Cell Line Ontology (CLO)"
     CURE = "CURE-ID"
     ENSEMBL = "Ensembl"
@@ -53,6 +54,7 @@ class DataSourceName(SimpleEnum):
     ManualUpdate = "Manual Update"
     Mondo = "Mondo"
     DiseaseOntology = "Disease Ontology"
+    ChEBI = "ChEBI"
     CTD = "CTD"
     UBERON = 'UBERON'
     PANTHERClasses = "PANTHER Protein Classes"
@@ -61,6 +63,12 @@ class DataSourceName(SimpleEnum):
     SureChEMBL = "SureChEMBL"
     PHIPSTER = "P-HIPSTer"
     RDAS = "RDAS"
+    HMDB = "HMDB"
+    LipidMaps = "LipidMaps"
+    RefMet = "RefMet"
+    PubChem = "PubChem"
+    ExPASy = "ExPASy"
+    RHEA = "RHEA"
 
 class Prefix(SimpleEnum):
     CAS = 'CAS'                         	# from TNN

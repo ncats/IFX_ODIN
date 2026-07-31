@@ -1,0 +1,1571 @@
+{% extends "base.html" %}
+{% block title %}Disease Harmonizer Explorer{% endblock %}
+
+{% block content %}
+<div class="disease-id-page">
+    <section class="disease-id-header">
+        <div>
+            <h1>Disease Harmonizer Explorer</h1>
+            <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
+               &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
+               DOID, GARD via TargetGraph pipeline.
+               Generated {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
+        </div>
+        <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
+            <textarea name="ids" spellcheck="false"
+                placeholder="MONDO:0005148&#10;IFXDisease:CLN0VF6">{{ ids }}</textarea>
+            <input type="hidden" name="tab" value="graph">
+            <button type="submit" class="btn btn-primary">Open graph</button>
+        </form>
+    </section>
+
+    {% if error_message %}
+    <div class="registry-update-error">{{ error_message }}</div>
+    {% endif %}
+
+    <!-- Tab navigation -->
+    <div class="disease-tabs">
+        <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard">Dashboard</button>
+        <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts">Concepts</button>
+        <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph">Graph</button>
+        <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download">Download</button>
+        <button class="disease-tab-btn{% if active_tab == 'changes' %} active{% endif %}" data-tab="changes">Changes</button>
+        <button class="disease-tab-btn{% if active_tab == 'api' %} active{% endif %}" data-tab="api">API</button>
+    </div>
+
+    <!-- Tab 1: Dashboard -->
+    <div class="disease-tab-panel{% if active_tab == 'dashboard' %} active{% endif %}" id="tab-dashboard">
+        <div class="dash-hero">
+            <div class="dash-card">
+                <div class="dash-stat" id="dashTotalConcepts">-</div>
+                <div class="dash-label">Total Concepts</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashSourcesCovered">-</div>
+                <div class="dash-label">Sources Covered</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashAvgXrefs">-</div>
+                <div class="dash-label">Avg Xrefs / Concept</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashRareCount">-</div>
+                <div class="dash-label">Rare Diseases</div>
+            </div>
+        </div>
+
+        <div class="dash-charts">
+            <div class="dash-chart-panel">
+                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <dl>
+                        <dt>single_authoritative_source</dt>
+                        <dd>One ontology asserts this mapping with no disagreement.</dd>
+                        <dt>multi_source_supported</dt>
+                        <dd>Multiple sources independently assert this mapping.</dd>
+                        <dt>needs_review</dt>
+                        <dd>Conflicting assertions or insufficient evidence.</dd>
+                        <dt>review_validator_disagreement</dt>
+                        <dd>NodeNorm disagrees with the harmonized resolution.</dd>
+                        <dt>review_obsolete_xref</dt>
+                        <dd>At least one source asserts an obsolete identifier.</dd>
+                    </dl>
+                </div>
+                <div id="dashConfidenceChart" class="bar-chart"></div>
+            </div>
+            <div class="dash-chart-panel">
+                <h3>Quality Grade Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <p>Composite score (1.0 = best). Components: source agreement weight, confidence tier factor, xref count normalization.</p>
+                    <dl>
+                        <dt>1.0 &ndash; 1.5</dt>
+                        <dd>Strong multi-source agreement.</dd>
+                        <dt>1.5 &ndash; 2.0</dt>
+                        <dd>Moderate agreement.</dd>
+                        <dt>2.0 &ndash; 2.5</dt>
+                        <dd>Limited evidence.</dd>
+                        <dt>2.5 &ndash; 3.0</dt>
+                        <dd>Conflicting or weak support.</dd>
+                        <dt>3.0+</dt>
+                        <dd>Unresolved issues requiring review.</dd>
+                    </dl>
+                </div>
+                <div id="dashQualityChart" class="bar-chart"></div>
+            </div>
+        </div>
+        <div class="dash-charts">
+            <div class="dash-chart-panel">
+                <h3>Source Namespace Coverage <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <p>Count of concepts with at least one xref edge in each source namespace.</p>
+                </div>
+                <div id="dashSourceChart" class="bar-chart"></div>
+            </div>
+            <div class="dash-chart-panel">
+                <h3>NodeNorm Validation <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
+                <div class="chart-legend">
+                    <dl>
+                        <dt>validated</dt>
+                        <dd>NodeNorm canonical CURIE agrees with the harmonized primary_xref.</dd>
+                        <dt>disagreed</dt>
+                        <dd>NodeNorm returns a different canonical CURIE.</dd>
+                        <dt>unvalidated</dt>
+                        <dd>Concept not found in NodeNorm.</dd>
+                    </dl>
+                </div>
+                <div id="dashNodenormChart" class="bar-chart"></div>
+            </div>
+        </div>
+
+        <!-- Agreement Heatmap -->
+        <div class="dash-charts">
+            <div class="dash-chart-panel dash-chart-wide">
+                <h3>Source Co-occurrence Overlap (Jaccard)</h3>
+                <div class="heatmap-container">
+                    <canvas id="dashAgreementHeatmap" width="500" height="500"></canvas>
+                    <div class="heatmap-tooltip" id="heatmapTooltip"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sankey Diagram -->
+        <div class="dash-charts">
+            <div class="dash-chart-panel dash-chart-wide">
+                <h3>Source &rarr; Confidence Tier Flow</h3>
+                <div class="sankey-container">
+                    <canvas id="dashSankeyChart" width="700" height="400"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="dash-flagged-summary" id="dashFlaggedSummary">
+        </div>
+    </div>
+
+    <!-- Tab 2: Concepts -->
+    <div class="disease-tab-panel{% if active_tab == 'concepts' %} active{% endif %}" id="tab-concepts">
+        <section class="disease-id-table-section">
+            <div class="disease-id-section-header">
+                <h2>Disease Concepts</h2>
+                <p id="diseaseIdTableStatus">Loading...</p>
+            </div>
+            <div class="disease-id-search-bar">
+                <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input">
+                <select id="filterConfidenceTier" class="filter-select">
+                    <option value="">All tiers</option>
+                    <option value="single_authoritative_source">Single authoritative source</option>
+                    <option value="multi_source_supported">Multi-source supported</option>
+                    <option value="needs_review">Needs review</option>
+                    <option value="review_validator_disagreement">Validator disagreement</option>
+                    <option value="review_obsolete_xref">Obsolete xref</option>
+                </select>
+                <select id="filterQuality" class="filter-select">
+                    <option value="">All scores</option>
+                </select>
+                <select id="filterIsRare" class="filter-select">
+                    <option value="">All</option>
+                    <option value="true">Rare only</option>
+                    <option value="false">Non-rare</option>
+                </select>
+                <select id="filterSource" class="filter-select">
+                    <option value="">All sources</option>
+                </select>
+                <div class="disease-id-filter-toggle">
+                    <button id="diseaseIdFilterAll" class="btn btn-sm disease-id-toggle-btn active">All</button>
+                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Flagged</button>
+                </div>
+                <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn">Download filtered TSV</a>
+            </div>
+            <div class="disease-id-table-wrap">
+                <table class="disease-id-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Primary Xref</th>
+                            <th>Name</th>
+                            <th>Tier</th>
+                            <th>Quality</th>
+                            <th>Sources</th>
+                            <th>Xrefs</th>
+                            <th>Flags</th>
+                            <th>Source Labels</th>
+                        </tr>
+                    </thead>
+                    <tbody id="diseaseIdTableBody">
+                        <tr><td colspan="9">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="disease-id-pagination" id="diseaseIdPagination"></div>
+        </section>
+    </div>
+
+    <!-- Tab 3: Graph -->
+    <div class="disease-tab-panel{% if active_tab == 'graph' %} active{% endif %}" id="tab-graph">
+        {% if selected_ids and not error_message %}
+        <section class="disease-id-graph-panel">
+            <div class="disease-id-graph-col">
+                <div class="disease-id-filter-bar">
+                    <span class="disease-id-filter-group-label">Match type:</span>
+                    <label><input type="checkbox" id="filterExact" checked> Exact</label>
+                    <label><input type="checkbox" id="filterBroad" checked> Broad</label>
+                    <label><input type="checkbox" id="filterNarrow" checked> Narrow</label>
+                    <label><input type="checkbox" id="filterRelated" checked> Related</label>
+                    <label><input type="checkbox" id="filterUnclassified" checked> Unclassified</label>
+                    <span class="disease-id-filter-sep">|</span>
+                    <label><input type="checkbox" id="filterHideObsolete"> Hide obsolete xrefs</label>
+                    <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
+                    <span class="disease-id-filter-sep">|</span>
+                    <label class="disease-id-filter-group-label">Layout:</label>
+                    <select id="graphLayoutSelect" class="filter-select filter-select-sm">
+                        <option value="cose" selected>Cose</option>
+                        <option value="concentric">Concentric</option>
+                        <option value="breadthfirst">Breadthfirst</option>
+                    </select>
+                    <span class="disease-id-filter-sep">|</span>
+                    <button id="graphLegendToggle" class="graph-legend-toggle">Legend</button>
+                </div>
+                <div id="graphLegend" class="graph-legend">
+                    <div class="graph-legend-columns">
+                        <div class="graph-legend-col">
+                            <h4>Edge types</h4>
+                            <div class="graph-legend-edge-list">
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> Exact</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Broad</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> Narrow</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> Related</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> Unclassified</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Decision</span>
+                            </div>
+                            <h4>Conflict indicators</h4>
+                            <div class="graph-legend-edge-list">
+                                <span class="graph-legend-item">&#9888; Unresolved &mdash; thicker edge, amber outline</span>
+                                <span class="graph-legend-item">&#9888; Resolved &mdash; slightly faded edge</span>
+                            </div>
+                        </div>
+                        <div class="graph-legend-col">
+                            <h4>Score components</h4>
+                            <table class="graph-legend-score-table">
+                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite (0&ndash;1)</td></tr>
+                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength</td></tr>
+                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Fuzzy label similarity</td></tr>
+                                <tr><td class="graph-legend-score-name">source_support</td><td># sources asserting this xref</td></tr>
+                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality / proxy patterns</td></tr>
+                            </table>
+                            <p class="graph-legend-formula">xref_confidence = 35% mapping + 25% label + 20% source + 20% structural</p>
+                        </div>
+                    </div>
+                </div>
+                <div id="diseaseIdCy" class="disease-id-cy" data-ids="{{ selected_ids }}"></div>
+            </div>
+            <aside class="disease-id-detail">
+                <h2 id="diseaseIdDetailTitle">Graph</h2>
+                <p id="diseaseIdDetailSub">Loading {{ selected_ids }}</p>
+                <dl id="diseaseIdStats" class="disease-id-stats"></dl>
+                <div id="diseaseIdDetails" class="disease-id-details"></div>
+                <div id="diseaseIdConceptActions" style="display:none;margin-top:0.75rem;">
+                    <button id="expandNeighborsBtn" class="graph-action-btn">Expand neighbors</button>
+                    <button id="showProvenanceBtn" class="graph-action-btn">Show provenance</button>
+                </div>
+                <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
+                    <button id="diseaseIdExportJson" class="btn btn-sm">Export graph JSON</button>
+                    <button id="diseaseIdExportFiltered" class="btn btn-sm">Download filtered view</button>
+                </div>
+            </aside>
+        </section>
+        {% else %}
+        <div class="disease-id-graph-empty">
+            <p>Enter one or more disease IDs above and click <strong>Open graph</strong> to visualize cross-reference relationships.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Tab 4: Download -->
+    <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download">
+        <section class="download-panel">
+            <div class="download-controls">
+                <h2>Filtered Download</h2>
+                <div class="download-filters">
+                    <div class="download-filter-row">
+                        <label>Search:
+                            <input type="text" id="dlSearchInput" placeholder="Name or ID..." class="disease-id-search-input">
+                        </label>
+                        <label>Filter:
+                            <select id="dlFilterMode" class="filter-select">
+                                <option value="all">All</option>
+                                <option value="flagged">Flagged only</option>
+                            </select>
+                        </label>
+                        <label>Confidence:
+                            <select id="dlConfidence" class="filter-select">
+                                <option value="">All</option>
+                                <option value="single_authoritative_source">Single authoritative</option>
+                                <option value="multi_source_supported">Multi-source</option>
+                                <option value="needs_review">Needs review</option>
+                                <option value="review_validator_disagreement">Validator disagree</option>
+                                <option value="review_obsolete_xref">Obsolete xref</option>
+                            </select>
+                        </label>
+                        <label>Quality:
+                            <select id="dlQuality" class="filter-select">
+                                <option value="">All</option>
+                            </select>
+                        </label>
+                        <label>Type:
+                            <select id="dlDiseaseType" class="filter-select">
+                                <option value="">All</option>
+                                <option value="biolink:Disease">Disease</option>
+                                <option value="biolink:PhenotypicFeature">Phenotypic Feature</option>
+                                <option value="biolink:DiseaseOrPhenotypicFeature">Disease or Phenotypic</option>
+                            </select>
+                        </label>
+                        <label>Rare:
+                            <select id="dlIsRare" class="filter-select">
+                                <option value="">All</option>
+                                <option value="true">Rare only</option>
+                                <option value="false">Non-rare</option>
+                            </select>
+                        </label>
+                        <label style="flex-direction:row;align-items:center;gap:0.35rem;align-self:end;padding-bottom:0.35rem;">
+                            <input type="checkbox" id="dlExcludeObsolete">
+                            Exclude obsolete xrefs
+                        </label>
+                    </div>
+                </div>
+
+                <div class="download-preview" id="dlPreview">
+                    <strong>-</strong> concepts match your filters
+                </div>
+
+                <div class="column-picker" id="dlSourcePicker">
+                    <h3>Source namespaces to include</h3>
+                    <div class="column-picker-grid" id="dlSourceGrid">
+                        <!-- Populated dynamically, all checked by default -->
+                    </div>
+                </div>
+
+                <div class="column-picker">
+                    <h3>Columns to include</h3>
+                    <div class="column-picker-grid">
+                        <div class="column-picker-group">
+                            <h4>Core (always included)</h4>
+                            <label><input type="checkbox" value="ncats_disease_id" checked disabled> ncats_disease_id</label>
+                            <label><input type="checkbox" value="primary_xref" checked disabled> primary_xref</label>
+                            <label><input type="checkbox" value="standard_name" checked disabled> standard_name</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Enrichment</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="definition"> definition</label>
+                            <label><input type="checkbox" class="dl-col-check" value="synonyms"> synonyms</label>
+                            <label><input type="checkbox" class="dl-col-check" value="disease_type"> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" value="is_rare"> is_rare</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Quality</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
+                            <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Xref Edges</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_id" checked> xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_namespace" checked> xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_label" checked> xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" value="match_type" checked> match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" value="match_type_source"> match_type_source</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_confidence" checked> xref_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" value="agreement_level"> agreement_level</label>
+                            <label><input type="checkbox" class="dl-col-check" value="xref_is_obsolete"> xref_is_obsolete</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Scoring Detail</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="mapping_confidence"> mapping_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" value="label_confidence"> label_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" value="label_similarity"> label_similarity</label>
+                            <label><input type="checkbox" class="dl-col-check" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" value="structural_confidence"> structural_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" value="confidence_score"> confidence_score</label>
+                            <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>NodeNorm</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
+                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_validation_status"> nodenorm_validation_status</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="download-actions">
+                    <label>Format:
+                        <select id="dlFormat" class="filter-select">
+                            <option value="tsv">TSV</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                    </label>
+                    <button id="dlDownloadBtn" class="btn btn-primary">Download</button>
+                </div>
+            </div>
+
+            <div class="download-raw">
+                <h3>Raw Files</h3>
+                <div class="disease-id-download-links">
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn">disease_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_xref_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
+                    <span class="disease-id-dl-sep">|</span>
+                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">flagged_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn">SSSOM mappings</a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Tab 5: Changes -->
+    <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes">
+        <div id="changesContent" class="changes-loading">Loading version diff...</div>
+    </div>
+
+    <!-- Tab 6: API -->
+    <div class="disease-tab-panel{% if active_tab == 'api' %} active{% endif %}" id="tab-api">
+        <div class="api-tab-content">
+            <h2>Public REST API</h2>
+            <p style="color:var(--text-muted);font-size:0.86rem;margin:0 0 1rem;">
+                These endpoints return JSON and are documented in the auto-generated
+                <a href="{{ root_path }}/docs" target="_blank">OpenAPI spec</a>.
+            </p>
+            <div class="api-endpoint-list">
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/resolve/{curie}</span>
+                    <div class="api-endpoint-desc">Resolve any disease CURIE to its harmonized concept with all xrefs, decisions, and NodeNorm data.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/search?q=...&amp;limit=20&amp;offset=0</span>
+                    <div class="api-endpoint-desc">Search disease concepts by name or ID. Supports confidence_tier and source filters.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/stats</span>
+                    <div class="api-endpoint-desc">Return aggregate harmonization statistics: concept counts, tier distribution, pipeline version.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/sources</span>
+                    <div class="api-endpoint-desc">Return available source namespaces with per-namespace concept coverage counts.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Provenance modal -->
+<div id="provenanceModal" class="modal-overlay" style="display:none">
+    <div class="modal-content">
+        <button class="modal-close" id="provModalClose">&times;</button>
+        <h2>Provenance: <span id="provConceptName"></span></h2>
+        <div id="provTimeline" class="prov-timeline"></div>
+    </div>
+</div>
+
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script>
+(function () {
+    const rootPath = {{ root_path | tojson }};
+
+    /* == Helpers == */
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    function downloadBlob(content, filename, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /* == Tab switching == */
+    const tabBtns = document.querySelectorAll(".disease-tab-btn");
+    const tabPanels = document.querySelectorAll(".disease-tab-panel");
+    let changesLoaded = false;
+    tabBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            tabBtns.forEach(b => b.classList.remove("active"));
+            tabPanels.forEach(p => p.classList.remove("active"));
+            btn.classList.add("active");
+            document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+            if (btn.dataset.tab === "changes" && !changesLoaded) {
+                changesLoaded = true;
+                loadChangesTab();
+            }
+        });
+    });
+
+    /* == Dashboard == */
+    const NS_COLORS = {
+        "MONDO": "#0d9488", "DOID": "#2563eb", "OMIM": "#7c3aed",
+        "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
+    };
+
+    function renderBarChart(container, data, total, colorMap) {
+        container.innerHTML = "";
+        const entries = Object.entries(data);
+        if (!entries.length) { container.textContent = "No data"; return; }
+        const maxVal = Math.max(...entries.map(([, v]) => v));
+        entries.forEach(([label, count]) => {
+            const pct = maxVal > 0 ? (count / maxVal * 100) : 0;
+            const pctOfTotal = total > 0 ? (count / total * 100).toFixed(1) : "0";
+            const color = (colorMap && colorMap[label]) || "var(--accent)";
+            const row = document.createElement("div");
+            row.className = "bar-row";
+            row.innerHTML =
+                `<span class="bar-label">${escapeHtml(label)}</span>` +
+                `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>` +
+                `<span class="bar-value">${count.toLocaleString()} <small>(${pctOfTotal}%)</small></span>`;
+            container.appendChild(row);
+        });
+    }
+
+    function populateFilterDropdowns(stats) {
+        // Source namespace dropdown (Concepts tab)
+        const sources = Object.keys(stats.source_coverage).sort();
+        sources.forEach(ns => {
+            const opt = document.createElement("option");
+            opt.value = ns;
+            opt.textContent = ns;
+            filterSource.appendChild(opt);
+        });
+
+        // Source namespace checkboxes (Download tab)
+        const sourceGrid = document.getElementById("dlSourceGrid");
+        const group = document.createElement("div");
+        group.className = "column-picker-group";
+        group.innerHTML = "<h4>Sources (uncheck to exclude from xref labels)</h4>";
+        sources.forEach(ns => {
+            const label = document.createElement("label");
+            label.innerHTML = `<input type="checkbox" class="dl-source-check" value="${ns}" checked> ${ns}`;
+            group.appendChild(label);
+        });
+        sourceGrid.appendChild(group);
+        // Quality score dropdowns — bucket into ranges for usability
+        const qualScores = Object.keys(stats.quality_distribution)
+            .filter(v => v !== "unknown")
+            .map(Number)
+            .filter(v => !isNaN(v));
+        if (qualScores.length > 0) {
+            const buckets = [
+                { label: "1.0 - 1.5 (best)", min: 0, max: 1.5 },
+                { label: "1.5 - 2.0", min: 1.5, max: 2.0 },
+                { label: "2.0 - 2.5", min: 2.0, max: 2.5 },
+                { label: "2.5 - 3.0", min: 2.5, max: 3.0 },
+                { label: "3.0+ (worst)", min: 3.0, max: 999 },
+            ];
+            [document.getElementById("filterQuality"), document.getElementById("dlQuality")].forEach(sel => {
+                buckets.forEach(b => {
+                    const opt = document.createElement("option");
+                    opt.value = `${b.min}-${b.max}`;
+                    opt.textContent = b.label;
+                    sel.appendChild(opt);
+                });
+            });
+        }
+    }
+
+    /* == Heatmap rendering (canvas) == */
+    function renderHeatmap(canvas, matrixData) {
+        const ctx = canvas.getContext("2d");
+        const sources = matrixData.sources;
+        const matrix = matrixData.matrix;
+        const counts = matrixData.counts;
+        const n = sources.length;
+        if (n === 0) return;
+
+        const labelWidth = 80;
+        const cellSize = Math.min(40, Math.floor((canvas.width - labelWidth - 10) / n));
+        canvas.width = labelWidth + cellSize * n + 10;
+        canvas.height = labelWidth + cellSize * n + 10;
+
+        const ox = labelWidth;
+        const oy = labelWidth;
+
+        ctx.font = "11px -apple-system, sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+
+        // Row labels
+        for (let i = 0; i < n; i++) {
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillText(sources[i], ox - 6, oy + i * cellSize + cellSize / 2);
+        }
+
+        // Column labels (rotated)
+        ctx.save();
+        ctx.textAlign = "left";
+        for (let j = 0; j < n; j++) {
+            ctx.save();
+            ctx.translate(ox + j * cellSize + cellSize / 2, oy - 6);
+            ctx.rotate(-Math.PI / 4);
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillText(sources[j], 0, 0);
+            ctx.restore();
+        }
+        ctx.restore();
+
+        // Cells
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                const rate = matrix[i][j];
+                const x = ox + j * cellSize;
+                const y = oy + i * cellSize;
+
+                // Color: red (0) -> yellow (0.5) -> green (1)
+                let r, g, b;
+                if (rate < 0.5) {
+                    const t = rate / 0.5;
+                    r = 220; g = Math.round(80 + 150 * t); b = 60;
+                } else {
+                    const t = (rate - 0.5) / 0.5;
+                    r = Math.round(220 - 180 * t); g = Math.round(230 - 30 * t); b = Math.round(60 + 40 * t);
+                }
+                if (i === j) { r = 200; g = 200; b = 200; }
+
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+
+                // Value text
+                if (cellSize >= 28 && i !== j) {
+                    ctx.fillStyle = rate > 0.6 ? "#1a1a2e" : "#ffffff";
+                    ctx.font = "10px monospace";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText((rate * 100).toFixed(0) + "%", x + cellSize / 2 - 0.5, y + cellSize / 2);
+                }
+            }
+        }
+
+        // Hover tooltip
+        const tooltip = document.getElementById("heatmapTooltip");
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+            const j = Math.floor((mx - ox) / cellSize);
+            const i = Math.floor((my - oy) / cellSize);
+            if (i >= 0 && i < n && j >= 0 && j < n && i !== j) {
+                const rate = (matrix[i][j] * 100).toFixed(1);
+                const overlap = counts[i][j];
+                tooltip.textContent = `${sources[i]} \u2229 ${sources[j]}: ${rate}% Jaccard overlap (${overlap.toLocaleString()} shared concepts)`;
+                tooltip.style.display = "block";
+                tooltip.style.left = (e.clientX - canvas.parentElement.getBoundingClientRect().left + 12) + "px";
+                tooltip.style.top = (e.clientY - canvas.parentElement.getBoundingClientRect().top - 8) + "px";
+            } else {
+                tooltip.style.display = "none";
+            }
+        });
+        canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    }
+
+    /* == Sankey rendering (canvas) == */
+    function renderSankey(canvas, flowData) {
+        const ctx = canvas.getContext("2d");
+        const nodes = flowData.nodes;
+        const links = flowData.links;
+        if (!nodes.length || !links.length) return;
+
+        const W = canvas.width;
+        const H = canvas.height;
+        const pad = 40;
+        const nodeWidth = 20;
+        const colGap = W - 2 * pad - 2 * nodeWidth;
+
+        // Separate source and tier nodes
+        const srcNodes = nodes.filter(n => n.type === "source");
+        const tierNodes = nodes.filter(n => n.type === "tier");
+
+        // Compute total flow per node
+        const nodeFlows = {};
+        nodes.forEach(n => { nodeFlows[n.id] = 0; });
+        links.forEach(l => {
+            nodeFlows[l.source] += l.value;
+            nodeFlows[l.target] += l.value;
+        });
+
+        // Layout: left column (sources), right column (tiers)
+        const layoutColumn = (colNodes, x) => {
+            const totalFlow = colNodes.reduce((s, n) => s + (nodeFlows[n.id] || 1), 0);
+            const usableH = H - 2 * pad - (colNodes.length - 1) * 4;
+            let y = pad;
+            const positions = {};
+            colNodes.forEach(n => {
+                const h = Math.max(6, (nodeFlows[n.id] / totalFlow) * usableH);
+                positions[n.id] = { x, y, w: nodeWidth, h, label: n.label };
+                y += h + 4;
+            });
+            return positions;
+        };
+
+        const srcPos = layoutColumn(srcNodes, pad);
+        const tierPos = layoutColumn(tierNodes, W - pad - nodeWidth);
+        const allPos = { ...srcPos, ...tierPos };
+
+        // Track cumulative offsets for stacking links
+        const srcOffsets = {};
+        const tgtOffsets = {};
+        Object.keys(allPos).forEach(id => { srcOffsets[id] = 0; tgtOffsets[id] = 0; });
+
+        // Draw links as bezier curves
+        links.forEach(l => {
+            const sp = allPos[l.source];
+            const tp = allPos[l.target];
+            if (!sp || !tp) return;
+
+            const srcTotal = nodeFlows[l.source] || 1;
+            const tgtTotal = nodeFlows[l.target] || 1;
+            const linkHSrc = (l.value / srcTotal) * sp.h;
+            const linkHTgt = (l.value / tgtTotal) * tp.h;
+
+            const y0 = sp.y + srcOffsets[l.source];
+            const y1 = tp.y + tgtOffsets[l.target];
+
+            srcOffsets[l.source] += linkHSrc;
+            tgtOffsets[l.target] += linkHTgt;
+
+            const x0 = sp.x + sp.w;
+            const x1 = tp.x;
+            const cpx = x0 + colGap * 0.4;
+            const cpx2 = x1 - colGap * 0.4;
+
+            // Get source color
+            const srcColor = NS_COLORS[sp.label] || "#94a3b8";
+
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.bezierCurveTo(cpx, y0, cpx2, y1, x1, y1);
+            ctx.bezierCurveTo(cpx2, y1 + linkHTgt, cpx, y0 + linkHSrc, x0, y0 + linkHSrc);
+            ctx.closePath();
+            ctx.fillStyle = srcColor + "40";  // 25% opacity
+            ctx.fill();
+            ctx.strokeStyle = srcColor + "80";
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+        });
+
+        // Draw nodes
+        Object.entries(allPos).forEach(([id, p]) => {
+            const node = nodes.find(n => n.id === id);
+            const color = (node && node.type === "source") ? (NS_COLORS[p.label] || "#64748b") : "#94a3b8";
+            ctx.fillStyle = color;
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+
+            // Labels
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.font = "11px -apple-system, sans-serif";
+            ctx.textBaseline = "middle";
+            if (node && node.type === "source") {
+                ctx.textAlign = "right";
+                ctx.fillText(p.label, p.x - 4, p.y + p.h / 2);
+            } else {
+                ctx.textAlign = "left";
+                const shortLabel = p.label.length > 20 ? p.label.slice(0, 18) + "\u2026" : p.label;
+                ctx.fillText(shortLabel, p.x + p.w + 4, p.y + p.h / 2);
+            }
+        });
+    }
+
+    function loadDashboard() {
+        fetch(`${rootPath}/disease-id-qa/api/dashboard`)
+            .then(r => r.json())
+            .then(stats => {
+                document.getElementById("dashTotalConcepts").textContent = stats.total_concepts.toLocaleString();
+                document.getElementById("dashSourcesCovered").textContent = Object.keys(stats.source_coverage).length;
+                document.getElementById("dashAvgXrefs").textContent = stats.avg_xrefs_per_concept;
+                document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
+
+                const tierColors = {
+                    "single_authoritative_source": "#059669",
+                    "multi_source_supported": "#2563eb",
+                    "needs_review": "#f59e0b",
+                    "review_validator_disagreement": "#f97316",
+                    "review_obsolete_xref": "#dc2626",
+                    "unknown": "#94a3b8",
+                };
+                renderBarChart(document.getElementById("dashConfidenceChart"), stats.confidence_distribution, stats.total_concepts, tierColors);
+
+                // Bucket raw quality scores into ranges so the chart is compact
+                const qualBuckets = [
+                    { label: "1.0 \u2013 1.5 (best)", min: 0, max: 1.5, color: "#059669" },
+                    { label: "1.5 \u2013 2.0",        min: 1.5, max: 2.0, color: "#2563eb" },
+                    { label: "2.0 \u2013 2.5",        min: 2.0, max: 2.5, color: "#f59e0b" },
+                    { label: "2.5 \u2013 3.0",        min: 2.5, max: 3.0, color: "#f97316" },
+                    { label: "3.0+ (worst)",           min: 3.0, max: Infinity, color: "#dc2626" },
+                ];
+                const qualBucketed = {};
+                const qualColors = {};
+                qualBuckets.forEach(b => { qualBucketed[b.label] = 0; qualColors[b.label] = b.color; });
+                Object.entries(stats.quality_distribution).forEach(([score, count]) => {
+                    const v = parseFloat(score);
+                    if (isNaN(v)) { qualBucketed["3.0+ (worst)"] = (qualBucketed["3.0+ (worst)"] || 0) + count; return; }
+                    for (const b of qualBuckets) {
+                        if (v >= b.min && v < b.max) { qualBucketed[b.label] += count; return; }
+                    }
+                });
+                renderBarChart(document.getElementById("dashQualityChart"), qualBucketed, stats.total_concepts, qualColors);
+
+                renderBarChart(document.getElementById("dashSourceChart"), stats.source_coverage, stats.total_concepts, NS_COLORS);
+
+                const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#64748b" };
+                renderBarChart(document.getElementById("dashNodenormChart"), stats.nodenorm_distribution, stats.total_concepts, nnColors);
+
+                const summary = document.getElementById("dashFlaggedSummary");
+                summary.innerHTML =
+                    `<div class="dash-card dash-card-wide">` +
+                    `<div class="dash-stat">${stats.flagged_count.toLocaleString()}</div>` +
+                    `<div class="dash-label">Flagged concepts (cardinality, obsolete, or decision issues)</div>` +
+                    `<button class="btn btn-sm" style="margin-top:0.5rem" onclick="document.querySelector('[data-tab=concepts]').click();` +
+                    `setTimeout(function(){document.getElementById('diseaseIdFilterFlagged').click()},100)">` +
+                    `View flagged concepts</button>` +
+                    `</div>`;
+
+                populateFilterDropdowns(stats);
+            })
+            .catch(err => {
+                document.getElementById("dashTotalConcepts").textContent = "Error";
+            });
+
+        // Load heatmap data
+        fetch(`${rootPath}/disease-id-qa/api/agreement-matrix`)
+            .then(r => r.json())
+            .then(matrixData => {
+                renderHeatmap(document.getElementById("dashAgreementHeatmap"), matrixData);
+            })
+            .catch(() => {});
+
+        // Load sankey data
+        fetch(`${rootPath}/disease-id-qa/api/source-flows`)
+            .then(r => r.json())
+            .then(flowData => {
+                renderSankey(document.getElementById("dashSankeyChart"), flowData);
+            })
+            .catch(() => {});
+    }
+    loadDashboard();
+
+    /* == Concepts tab: search / pagination table == */
+    const searchInput = document.getElementById("diseaseIdSearchInput");
+    const tableBody = document.getElementById("diseaseIdTableBody");
+    const tableStatus = document.getElementById("diseaseIdTableStatus");
+    const paginationEl = document.getElementById("diseaseIdPagination");
+    const downloadSearchBtn = document.getElementById("diseaseIdDownloadSearch");
+    const filterAllBtn = document.getElementById("diseaseIdFilterAll");
+    const filterFlaggedBtn = document.getElementById("diseaseIdFilterFlagged");
+    const filterConfidence = document.getElementById("filterConfidenceTier");
+    const filterQuality = document.getElementById("filterQuality");
+    const filterIsRare = document.getElementById("filterIsRare");
+    const filterSource = document.getElementById("filterSource");
+
+    let currentQuery = "";
+    let currentFilter = "all";
+    let currentPage = 1;
+
+    function getFilterParams() {
+        return {
+            confidence_tier: filterConfidence.value,
+            quality: filterQuality.value,
+            is_rare: filterIsRare.value,
+            source: filterSource.value,
+        };
+    }
+
+    function loadTable(page) {
+        currentPage = page || 1;
+        const fp = getFilterParams();
+        const params = new URLSearchParams({
+            q: currentQuery,
+            filter: currentFilter,
+            page: currentPage,
+            per_page: 50,
+            ...fp,
+        });
+        // Remove empty params
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        tableBody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
+
+        fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
+            .then(r => r.json())
+            .then(data => {
+                tableStatus.textContent =
+                    `${data.total.toLocaleString()} concepts` +
+                    (data.query ? ` matching "${data.query}"` : "") +
+                    (data.filter === "flagged" ? " (flagged only)" : "");
+
+                if (data.rows.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="9">No concepts found.</td></tr>';
+                } else {
+                    tableBody.innerHTML = data.rows.map(r => {
+                        const detailHtml =
+                            `<tr class="row-detail" style="display:none"><td colspan="9"><div class="row-detail-inner">` +
+                            (r.definition ? `<div><strong>Definition:</strong> ${escapeHtml(r.definition)}</div>` : "") +
+                            (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
+                            (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
+                            (r.is_rare ? `<div><strong>Rare:</strong> ${escapeHtml(r.is_rare)}</div>` : "") +
+                            (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
+                            (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
+                            `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
+                            `</div></td></tr>`;
+                        return `<tr class="row-expandable">
+                            <td class="row-expand-toggle">&#9654;</td>
+                            <td class="mono"><a href="${rootPath}${escapeHtml(r.href)}&tab=graph">${escapeHtml(r.primary_xref)}</a></td>
+                            <td>${escapeHtml(r.standard_name) || "(unnamed)"}</td>
+                            <td>${escapeHtml(r.confidence_tier)}</td>
+                            <td>${escapeHtml(r.overall_quality)}</td>
+                            <td>${escapeHtml(r.n_sources)}</td>
+                            <td>${escapeHtml(r.xref_count)}</td>
+                            <td>${escapeHtml(r.flags)}</td>
+                            <td class="disease-id-source-labels">${escapeHtml(r.source_labels)}</td>
+                        </tr>${detailHtml}`;
+                    }).join("");
+
+                    // Attach expand/collapse handlers
+                    tableBody.querySelectorAll(".row-expandable").forEach(row => {
+                        row.addEventListener("click", (e) => {
+                            if (e.target.tagName === "A") return;
+                            const detail = row.nextElementSibling;
+                            const toggle = row.querySelector(".row-expand-toggle");
+                            if (detail && detail.classList.contains("row-detail")) {
+                                const showing = detail.style.display !== "none";
+                                detail.style.display = showing ? "none" : "table-row";
+                                toggle.innerHTML = showing ? "&#9654;" : "&#9660;";
+                                row.classList.toggle("expanded", !showing);
+                            }
+                        });
+                    });
+                }
+
+                renderPagination(data.page, data.total_pages);
+
+                const dlParams = new URLSearchParams({ q: currentQuery, filter: currentFilter });
+                downloadSearchBtn.href = `${rootPath}/disease-id-qa/download-search?${dlParams}`;
+            })
+            .catch(err => {
+                tableBody.innerHTML = `<tr><td colspan="9">Error: ${escapeHtml(err.message)}</td></tr>`;
+            });
+    }
+
+    function renderPagination(page, totalPages) {
+        if (totalPages <= 1) {
+            paginationEl.innerHTML = "";
+            return;
+        }
+        const prevDisabled = page <= 1 ? "disabled" : "";
+        const nextDisabled = page >= totalPages ? "disabled" : "";
+        paginationEl.innerHTML = `
+            <button class="btn btn-sm" ${prevDisabled} data-page="${page - 1}">Prev</button>
+            <span class="disease-id-page-indicator">Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+            <button class="btn btn-sm" ${nextDisabled} data-page="${page + 1}">Next</button>
+        `;
+        paginationEl.querySelectorAll("button[data-page]").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const p = parseInt(btn.dataset.page, 10);
+                if (p >= 1 && p <= totalPages) loadTable(p);
+            });
+        });
+    }
+
+    // Debounced search
+    let searchTimer = null;
+    searchInput.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            currentQuery = searchInput.value.trim();
+            loadTable(1);
+        }, 300);
+    });
+
+    // Filter toggle
+    filterAllBtn.addEventListener("click", () => {
+        currentFilter = "all";
+        filterAllBtn.classList.add("active");
+        filterFlaggedBtn.classList.remove("active");
+        loadTable(1);
+    });
+    filterFlaggedBtn.addEventListener("click", () => {
+        currentFilter = "flagged";
+        filterFlaggedBtn.classList.add("active");
+        filterAllBtn.classList.remove("active");
+        loadTable(1);
+    });
+
+    // Dropdown filters
+    [filterConfidence, filterQuality, filterIsRare, filterSource].forEach(sel => {
+        sel.addEventListener("change", () => loadTable(1));
+    });
+
+    // Initial load
+    loadTable(1);
+
+    /* == Graph panel == */
+    const graphEl = document.getElementById("diseaseIdCy");
+    if (graphEl) {
+        const detailTitle = document.getElementById("diseaseIdDetailTitle");
+        const detailSub = document.getElementById("diseaseIdDetailSub");
+        const detailBox = document.getElementById("diseaseIdDetails");
+        const statsBox = document.getElementById("diseaseIdStats");
+        const graphActions = document.getElementById("diseaseIdGraphActions");
+        const exportBtn = document.getElementById("diseaseIdExportJson");
+        const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
+        const layoutSelect = document.getElementById("graphLayoutSelect");
+        const conceptActions = document.getElementById("diseaseIdConceptActions");
+        const expandBtn = document.getElementById("expandNeighborsBtn");
+        const provBtn = document.getElementById("showProvenanceBtn");
+
+        const filterExact = document.getElementById("filterExact");
+        const filterBroad = document.getElementById("filterBroad");
+        const filterNarrow = document.getElementById("filterNarrow");
+        const filterRelated = document.getElementById("filterRelated");
+        const filterUnclassified = document.getElementById("filterUnclassified");
+        const filterHideObsolete = document.getElementById("filterHideObsolete");
+        const filterHideDecisions = document.getElementById("filterHideDecisions");
+
+        let selectedConceptPxref = null;
+
+        function renderStats(stats) {
+            const rows = [
+                ["Concepts", stats.conceptCount],
+                ["Xrefs", stats.xrefCount],
+                ["Namespaces", stats.namespaceCount],
+                ["Edges", stats.edgeCount],
+                ["Decisions", stats.decisionCount],
+            ];
+            statsBox.innerHTML = rows.map(([label, value]) =>
+                `<div><dt>${label}</dt><dd>${value}</dd></div>`
+            ).join("");
+        }
+
+        function renderDetails(data) {
+            const keys = [
+                "id", "kind", "standard_name", "ncats_disease_id",
+                "xref_namespace", "xref_label", "is_obsolete", "obsolete_detail",
+                "label_source", "lookup_status",
+                "match_type", "match_type_source", "source_asserted",
+                "agreement_level", "confidence_score", "label_similarity",
+                "mapping_confidence", "label_confidence", "source_support",
+                "structural_confidence", "xref_confidence",
+                "xref_is_obsolete", "override_status", "override_reason",
+                "has_conflict", "conflict_status", "conflict_type",
+                "conflict_resolution", "conflict_detail",
+                "confidence_tier", "overall_quality", "n_sources",
+                "primary_sources", "disease_type", "is_rare",
+                "xref_count", "cardinality_issue_count", "obsolete_xref_count",
+                "nodenorm_canonical_curie",
+                "decision_type", "decision_source", "scenario_id",
+                "status", "auto_decision", "auto_confidence", "auto_rationale",
+                "resolution", "resolution_detail", "reviewed_by", "priority",
+            ];
+            const displayLabels = {
+                "nodenorm_canonical_curie": "node normalization preferred CURIE ID",
+            };
+            detailTitle.textContent = data.label || data.id || "Selection";
+            detailSub.textContent = data.kind || "";
+            detailBox.innerHTML = keys
+                .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
+                .map((key) => `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+                .join("");
+
+            // Show concept-specific actions
+            if (data.kind === "concept") {
+                selectedConceptPxref = data.id.replace("concept::", "");
+                conceptActions.style.display = "flex";
+            } else {
+                selectedConceptPxref = null;
+                conceptActions.style.display = "none";
+            }
+        }
+
+        let cyInstance = null;
+        let fullPayload = null;
+
+        function applyGraphFilters() {
+            if (!cyInstance) return;
+            cyInstance.elements().show();
+            if (!filterExact.checked) cyInstance.elements(".match-exact").hide();
+            if (!filterBroad.checked) cyInstance.elements(".match-broad").hide();
+            if (!filterNarrow.checked) cyInstance.elements(".match-narrow").hide();
+            if (!filterRelated.checked) cyInstance.elements(".match-related").hide();
+            if (!filterUnclassified.checked) cyInstance.elements(".match-unclassified").hide();
+            if (filterHideObsolete.checked) {
+                cyInstance.nodes().filter(n =>
+                    n.data("is_obsolete") === "true" || n.data("is_obsolete") === "True"
+                ).hide();
+                cyInstance.edges().filter(e =>
+                    e.data("xref_is_obsolete") === "true" || e.data("xref_is_obsolete") === "True"
+                ).hide();
+            }
+            if (filterHideDecisions.checked) cyInstance.elements(".decision").hide();
+            cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
+        }
+
+        [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
+         filterHideObsolete, filterHideDecisions].forEach(cb => {
+            cb.addEventListener("change", applyGraphFilters);
+        });
+
+        // Graph legend toggle
+        const legendToggle = document.getElementById("graphLegendToggle");
+        const legendPanel = document.getElementById("graphLegend");
+        if (legendToggle && legendPanel) {
+            legendToggle.addEventListener("click", () => {
+                legendPanel.classList.toggle("expanded");
+                legendToggle.classList.toggle("active");
+            });
+        }
+
+        // Layout selector
+        layoutSelect.addEventListener("change", () => {
+            if (!cyInstance) return;
+            const name = layoutSelect.value;
+            const opts = { name, animate: true, animationDuration: 400, fit: true, padding: 42 };
+            if (name === "concentric") {
+                opts.concentric = node => node.degree();
+                opts.levelWidth = () => 2;
+            }
+            cyInstance.layout(opts).run();
+        });
+
+        // Expand neighbors button
+        expandBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref || !cyInstance) return;
+            expandBtn.disabled = true;
+            expandBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(payload => {
+                    if (payload.elements && payload.elements.length > 0) {
+                        const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                        const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
+                        if (newElements.length > 0) {
+                            cyInstance.add(newElements);
+                            cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                        }
+                    }
+                    expandBtn.disabled = false;
+                    expandBtn.textContent = "Expand neighbors";
+                })
+                .catch(() => {
+                    expandBtn.disabled = false;
+                    expandBtn.textContent = "Expand neighbors";
+                });
+        });
+
+        // Show provenance button
+        provBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref) return;
+            provBtn.disabled = true;
+            provBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/provenance/${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(data => {
+                    showProvenanceModal(data.primary_xref, data.steps);
+                    provBtn.disabled = false;
+                    provBtn.textContent = "Show provenance";
+                })
+                .catch(() => {
+                    provBtn.disabled = false;
+                    provBtn.textContent = "Show provenance";
+                });
+        });
+
+        fetch(`${rootPath}/disease-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
+            .then((response) => {
+                if (!response.ok) {
+                    return response.json().then((payload) => {
+                        throw new Error(payload.detail || response.statusText);
+                    });
+                }
+                return response.json();
+            })
+            .then((payload) => {
+                fullPayload = payload;
+                renderStats(payload.stats);
+                detailSub.textContent = `${payload.elements.length} graph elements`;
+
+                graphActions.style.display = "flex";
+                exportBtn.addEventListener("click", () =>
+                    downloadBlob(JSON.stringify(payload, null, 2), "disease_graph.json", "application/json")
+                );
+                exportFilteredBtn.addEventListener("click", () => {
+                    if (!cyInstance) return;
+                    const visible = cyInstance.elements(":visible").jsons();
+                    const filtered = { ...payload, elements: visible, stats: {
+                        ...payload.stats,
+                        filteredElementCount: visible.length,
+                    }};
+                    downloadBlob(JSON.stringify(filtered, null, 2), "disease_graph_filtered.json", "application/json");
+                });
+
+                // Namespace color mapping for xref nodes
+                const nsStyleMap = {
+                    mondo:    "#0d9488",
+                    doid:     "#2563eb",
+                    omim:     "#7c3aed",
+                    orphanet: "#ea580c",
+                    medgen:   "#059669",
+                    gard:     "#dc2626",
+                };
+                const nsStyles = Object.entries(nsStyleMap).map(([ns, color]) => ({
+                    selector: `.xref.${ns}`,
+                    style: { "background-color": color },
+                }));
+
+                cyInstance = cytoscape({
+                    container: graphEl,
+                    elements: payload.elements,
+                    layout: { name: "cose", animate: false, fit: true, padding: 42 },
+                    style: [
+                        { selector: "node", style: {
+                            "label": "data(label)",
+                            "font-size": 7,
+                            "text-wrap": "wrap",
+                            "text-max-width": 90,
+                            "background-color": "#64748b",
+                            "border-width": 1,
+                            "border-color": "#334155",
+                            "width": 32,
+                            "height": 32,
+                        }},
+                        { selector: ".concept", style: {
+                            "background-color": "#176c8c",
+                            "width": 46,
+                            "height": 46,
+                            "font-size": 8,
+                            "font-weight": "bold",
+                        }},
+                        { selector: ".xref", style: {
+                            "background-color": "#7c3aed",
+                            "shape": "round-rectangle",
+                            "width": 28,
+                            "height": 28,
+                        }},
+                        ...nsStyles,
+                        { selector: ".decision", style: {
+                            "background-color": "#f59e0b",
+                            "shape": "diamond",
+                            "width": 30,
+                            "height": 30,
+                            "font-size": 6,
+                            "text-wrap": "wrap",
+                            "text-max-width": 80,
+                        }},
+                        { selector: ".decision-resolved", style: {
+                            "background-color": "#059669",
+                        }},
+                        { selector: ".decision-acknowledged", style: {
+                            "background-color": "#2563eb",
+                        }},
+                        { selector: "edge", style: {
+                            "curve-style": "bezier",
+                            "line-color": "#94a3b8",
+                            "target-arrow-color": "#94a3b8",
+                            "target-arrow-shape": "triangle",
+                            "width": 1.5,
+                            "label": "data(label)",
+                            "font-size": 8,
+                            "text-rotation": "autorotate",
+                        }},
+                        { selector: ".match-exact", style: {
+                            "line-color": "#059669",
+                            "target-arrow-color": "#059669",
+                            "line-style": "solid",
+                        }},
+                        { selector: ".match-broad", style: {
+                            "line-color": "#f59e0b",
+                            "target-arrow-color": "#f59e0b",
+                            "line-style": "dashed",
+                        }},
+                        { selector: ".match-narrow", style: {
+                            "line-color": "#f97316",
+                            "target-arrow-color": "#f97316",
+                            "line-style": "dashed",
+                        }},
+                        { selector: ".match-related", style: {
+                            "line-color": "#94a3b8",
+                            "target-arrow-color": "#94a3b8",
+                            "line-style": "dotted",
+                        }},
+                        { selector: ".match-unclassified", style: {
+                            "line-color": "#d1d5db",
+                            "target-arrow-color": "#d1d5db",
+                            "line-style": "dotted",
+                        }},
+                        { selector: ".decision-edge", style: {
+                            "line-color": "#f59e0b",
+                            "target-arrow-color": "#f59e0b",
+                            "target-arrow-shape": "diamond",
+                            "line-style": "dashed",
+                            "width": 1,
+                            "font-size": 7,
+                        }},
+                        { selector: ".has-conflict", style: {
+                            "width": 2.5,
+                            "text-outline-width": 2,
+                            "text-outline-color": "#fef3c7",
+                        }},
+                        { selector: ".conflict-resolved", style: {
+                            "width": 2,
+                            "line-opacity": 0.75,
+                        }},
+                        { selector: ":selected", style: {
+                            "border-width": 5,
+                            "border-color": "#f59e0b",
+                            "shadow-blur": 12,
+                            "shadow-color": "#f59e0b",
+                            "shadow-opacity": 0.5,
+                            "shadow-offset-x": 0,
+                            "shadow-offset-y": 0,
+                        }},
+                    ],
+                });
+                cyInstance.on("tap", "node, edge", (event) => renderDetails(event.target.data()));
+
+                // Tooltip on hover (nodes + edges)
+                let tooltipEl = document.createElement("div");
+                tooltipEl.className = "cy-tooltip";
+                document.body.appendChild(tooltipEl);
+                cyInstance.on("mouseover", "node, edge", (event) => {
+                    const d = event.target.data();
+                    let text = "";
+                    if (event.target.isEdge()) {
+                        text = d.match_type || "";
+                        if (d.xref_confidence) text += ` [${d.xref_confidence}]`;
+                        if (d.has_conflict === "true") {
+                            text += ` \u26a0 ${d.conflict_type || "conflict"}`;
+                            if (d.conflict_status === "resolved") {
+                                text += ` (resolved: ${d.conflict_resolution || "\u2014"})`;
+                            }
+                        }
+                    } else {
+                        text = d.standard_name || d.xref_label || d.decision_type || "";
+                    }
+                    if (!text) return;
+                    tooltipEl.textContent = text;
+                    tooltipEl.style.display = "block";
+                    const pos = event.renderedPosition;
+                    const container = graphEl.getBoundingClientRect();
+                    tooltipEl.style.left = (container.left + pos.x + 12) + "px";
+                    tooltipEl.style.top = (container.top + pos.y - 8 + window.scrollY) + "px";
+                });
+                cyInstance.on("mouseout", "node, edge", () => { tooltipEl.style.display = "none"; });
+
+                cyInstance.ready(() => cyInstance.fit(undefined, 42));
+            })
+            .catch((error) => {
+                detailTitle.textContent = "Could not load graph";
+                detailSub.textContent = error.message;
+            });
+    }
+
+    /* == Provenance modal == */
+    const provModal = document.getElementById("provenanceModal");
+    const provClose = document.getElementById("provModalClose");
+    const provTimeline = document.getElementById("provTimeline");
+    const provConceptName = document.getElementById("provConceptName");
+
+    if (provClose) {
+        provClose.addEventListener("click", () => { provModal.style.display = "none"; });
+        provModal.addEventListener("click", (e) => {
+            if (e.target === provModal) provModal.style.display = "none";
+        });
+    }
+
+    function showProvenanceModal(pxref, steps) {
+        provConceptName.textContent = pxref;
+        provTimeline.innerHTML = "";
+        steps.forEach(s => {
+            const div = document.createElement("div");
+            let cls = "prov-step";
+            if (s.step === "conflict_detected") cls += " conflict";
+            else if (s.step === "resolution" || s.step === "auto_decision" || s.step === "manual_resolution") cls += " resolved";
+            else if (s.step === "confidence_scoring") cls += " scoring";
+            div.className = cls;
+
+            let html = `<div class="prov-step-type">${escapeHtml(s.step)}</div><div class="prov-step-detail">`;
+            if (s.step === "source_assertion") {
+                html += `<strong>Source:</strong> ${escapeHtml(s.source)} <strong>Xref:</strong> ${escapeHtml(s.xref)} <strong>Match:</strong> ${escapeHtml(s.match_type)}`;
+            } else if (s.step === "confidence_scoring") {
+                html += `<strong>Xref:</strong> ${escapeHtml(s.xref)}`;
+                if (s.scores) {
+                    html += ` <strong>Confidence:</strong> ${escapeHtml(s.scores.xref_confidence)}`;
+                }
+            } else if (s.step === "nodenorm_validation") {
+                html += `<strong>Status:</strong> ${escapeHtml(s.status)} <strong>Canonical:</strong> ${escapeHtml(s.canonical)}`;
+            } else if (s.step === "conflict_detected") {
+                html += `<strong>Type:</strong> ${escapeHtml(s.type)} <strong>Xref:</strong> ${escapeHtml(s.xref)}`;
+            } else if (s.step === "auto_decision" || s.step === "manual_resolution") {
+                html += `<strong>Decision:</strong> ${escapeHtml(s.decision)}`;
+                if (s.confidence) html += ` <strong>Confidence:</strong> ${escapeHtml(s.confidence)}`;
+                if (s.rationale) html += `<br><strong>Rationale:</strong> ${escapeHtml(s.rationale)}`;
+            } else if (s.step === "resolution") {
+                html += `<strong>Tier:</strong> ${escapeHtml(s.status)} <strong>Quality:</strong> ${escapeHtml(s.overall_quality)}`;
+            } else {
+                // Generic
+                Object.entries(s).filter(([k]) => k !== "step").forEach(([k, v]) => {
+                    if (v && typeof v !== "object") html += `<strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)} `;
+                });
+            }
+            html += `</div>`;
+            div.innerHTML = html;
+            provTimeline.appendChild(div);
+        });
+        provModal.style.display = "flex";
+    }
+
+    /* == Changes tab == */
+    function loadChangesTab() {
+        const container = document.getElementById("changesContent");
+        fetch(`${rootPath}/disease-id-qa/api/version-diff`)
+            .then(r => {
+                if (!r.ok) throw new Error(r.status === 404 ? "No baseline dataset available" : "Failed to load");
+                return r.json();
+            })
+            .then(diff => {
+                const s = diff.summary;
+                let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
+                html += `<div class="changes-summary">`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Concepts Removed</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
+                html += `</div>`;
+
+                // Added concepts table
+                if (diff.added_concepts.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
+                    diff.added_concepts.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                // Removed concepts table
+                if (diff.removed_concepts.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Removed Concepts (${diff.removed_concepts.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Reason</th></tr></thead><tbody>`;
+                    diff.removed_concepts.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.reason)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                // Tier changes table
+                if (diff.tier_changes.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
+                    diff.tier_changes.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                        html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
+            });
+    }
+
+    /* == Download tab == */
+    const dlSearchInput = document.getElementById("dlSearchInput");
+    const dlFilterMode = document.getElementById("dlFilterMode");
+    const dlConfidence = document.getElementById("dlConfidence");
+    const dlQuality = document.getElementById("dlQuality");
+    const dlIsRare = document.getElementById("dlIsRare");
+    const dlDiseaseType = document.getElementById("dlDiseaseType");
+    const dlFormat = document.getElementById("dlFormat");
+    const dlExcludeObsolete = document.getElementById("dlExcludeObsolete");
+    const dlPreview = document.getElementById("dlPreview");
+    const dlDownloadBtn = document.getElementById("dlDownloadBtn");
+
+    let dlTimer = null;
+    function updateDlPreview() {
+        const params = new URLSearchParams({
+            q: dlSearchInput.value.trim(),
+            filter: dlFilterMode.value,
+            confidence_tier: dlConfidence.value,
+            quality: dlQuality.value,
+            is_rare: dlIsRare.value,
+            disease_type: dlDiseaseType.value,
+            per_page: 1,
+            page: 1,
+        });
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
+            .then(r => r.json())
+            .then(data => {
+                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> concepts match your filters`;
+            });
+    }
+
+    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
+        el.addEventListener("change", updateDlPreview);
+    });
+    dlSearchInput.addEventListener("input", () => {
+        clearTimeout(dlTimer);
+        dlTimer = setTimeout(updateDlPreview, 300);
+    });
+    updateDlPreview();
+
+    dlDownloadBtn.addEventListener("click", () => {
+        const coreCols = ["ncats_disease_id", "primary_xref", "standard_name"];
+        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")].map(c => c.value);
+        const allCols = [...coreCols, ...extraCols];
+
+        const params = new URLSearchParams({
+            q: dlSearchInput.value.trim(),
+            filter: dlFilterMode.value,
+            confidence_tier: dlConfidence.value,
+            quality: dlQuality.value,
+            is_rare: dlIsRare.value,
+            disease_type: dlDiseaseType.value,
+            format: dlFormat.value,
+            columns: allCols.join(","),
+        });
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+
+        // Source namespace filter — only send if not all are checked
+        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        const allSourceChecks = document.querySelectorAll(".dl-source-check");
+        if (checkedSources.length < allSourceChecks.length) {
+            params.set("include_sources", checkedSources.join(","));
+        }
+
+        if (dlExcludeObsolete.checked) {
+            params.set("exclude_obsolete", "true");
+        }
+
+        window.location.href = `${rootPath}/disease-id-qa/download-filtered?${params}`;
+    });
+})();
+</script>
+{% endblock %}

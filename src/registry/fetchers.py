@@ -52,6 +52,7 @@ class ResolvedDependency:
     snapshot_id: str
     manifest_uri: str
     manifest: Dict[str, Any]
+    kind: str = "source_snapshot"
     local_dir: Optional[Path] = None
 
     def file(self, file_name: str) -> Path:
