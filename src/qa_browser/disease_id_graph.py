@@ -567,6 +567,7 @@ def _match_filters(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
 ) -> bool:
     """Return True if the concept passes all filter criteria."""
     # Flagged filter
@@ -615,6 +616,11 @@ def _match_filters(
         if not _concept_has_source(pxref, source, data):
             return False
 
+    # Disease type (Biolink category)
+    if disease_type:
+        if concept.get("disease_type", "") != disease_type:
+            return False
+
     return True
 
 
@@ -628,6 +634,7 @@ def search_concepts(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
 ) -> dict[str, Any]:
     """Search concepts with pagination and optional filters."""
     q_lower = q.strip().lower()
@@ -639,6 +646,7 @@ def search_concepts(
             q_lower=q_lower, filter_mode=filter_mode,
             confidence_tier=confidence_tier, is_rare=is_rare,
             source=source, quality=quality,
+            disease_type=disease_type,
         ):
             continue
         matches.append((pxref, concept))
@@ -694,6 +702,15 @@ def export_search_tsv(
     return buf.getvalue()
 
 
+_XREF_EDGE_COLUMNS = {
+    "xref_id", "xref_namespace", "match_type", "match_type_source",
+    "agreement_level", "xref_confidence", "mapping_confidence",
+    "label_confidence", "source_support", "structural_confidence",
+    "confidence_score", "label_similarity", "xref_label",
+    "xref_is_obsolete", "source_asserted",
+}
+
+
 def export_filtered_download(
     data: DiseaseGraphData,
     q: str = "",
@@ -702,13 +719,18 @@ def export_filtered_download(
     is_rare: str = "",
     source: str = "",
     quality: str = "",
+    disease_type: str = "",
     columns: list[str] | None = None,
     fmt: str = "tsv",
-    limit: int = 50_000,
+    limit: int = 200_000,
     include_sources: set[str] | None = None,
     exclude_obsolete: bool = False,
 ) -> str:
     """Export filtered concepts with selectable columns.
+
+    When any xref edge column is selected, the output switches from one row
+    per concept to one row per xref edge (concept fields repeated on each
+    row).
 
     Parameters
     ----------
@@ -717,11 +739,10 @@ def export_filtered_download(
     fmt : str
         "tsv" or "csv".
     include_sources : set[str] | None
-        When set, only include xref edge labels whose namespace (upper-cased)
+        When set, only include xref edges whose namespace (upper-cased)
         is in this set.  ``None`` means include all sources.
     exclude_obsolete : bool
-        When True, omit xref edges where ``xref_is_obsolete`` is true from
-        source labels.
+        When True, omit xref edges where ``xref_is_obsolete`` is true.
     """
     default_columns = [
         "ncats_disease_id", "primary_xref", "standard_name",
@@ -729,6 +750,10 @@ def export_filtered_download(
     ]
     use_columns = columns if columns else default_columns
     delimiter = "," if fmt == "csv" else "\t"
+
+    # Determine whether any xref edge columns were requested
+    requested_edge_cols = [c for c in use_columns if c in _XREF_EDGE_COLUMNS]
+    edge_mode = len(requested_edge_cols) > 0
 
     q_lower = q.strip().lower()
     buf = io.StringIO()
@@ -742,14 +767,54 @@ def export_filtered_download(
             q_lower=q_lower, filter_mode=filter_mode,
             confidence_tier=confidence_tier, is_rare=is_rare,
             source=source, quality=quality,
+            disease_type=disease_type,
         ):
             continue
-        writer.writerow(_concept_to_row(
+
+        concept_row = _concept_to_row(
             pxref, concept, data,
             include_sources=include_sources,
             exclude_obsolete=exclude_obsolete,
-        ))
-        count += 1
+        )
+
+        if not edge_mode:
+            writer.writerow(concept_row)
+            count += 1
+        else:
+            edges = data.edges_by_pxref.get(pxref, [])
+            wrote_any = False
+            for edge in edges:
+                ns = _normalize_ns(edge.get("xref_namespace", ""))
+                if include_sources and ns.upper() not in include_sources:
+                    continue
+                if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
+                    continue
+                row = dict(concept_row)
+                row["xref_id"] = edge.get("xref_id", "")
+                row["xref_namespace"] = ns
+                row["match_type"] = edge.get("match_type", "")
+                row["match_type_source"] = edge.get("match_type_source", "")
+                row["agreement_level"] = edge.get("agreement_level", "")
+                row["xref_confidence"] = edge.get("xref_confidence", "")
+                row["mapping_confidence"] = edge.get("mapping_confidence", "")
+                row["label_confidence"] = edge.get("label_confidence", "")
+                row["source_support"] = edge.get("source_support", "")
+                row["structural_confidence"] = edge.get("structural_confidence", "")
+                row["confidence_score"] = edge.get("confidence_score", "")
+                row["label_similarity"] = edge.get("label_similarity", "")
+                row["xref_label"] = edge.get("xref_label", "")
+                row["xref_is_obsolete"] = edge.get("xref_is_obsolete", "")
+                row["source_asserted"] = edge.get("source_asserted", "")
+                writer.writerow(row)
+                count += 1
+                wrote_any = True
+                if count >= limit:
+                    break
+            # Concepts with no matching edges still get a row
+            if not wrote_any:
+                writer.writerow(concept_row)
+                count += 1
+
         if count >= limit:
             break
 
