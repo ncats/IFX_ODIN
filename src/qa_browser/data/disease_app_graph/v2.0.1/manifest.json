@@ -1,9 +1,9 @@
 {
   "contract_version": "2.0.0",
   "pipeline_version": "2.0.1",
-  "generated_at": "2026-07-31T20:02:27.833022+00:00",
-  "git_commit": "1c19829",
-  "duration_seconds": 26.94,
+  "generated_at": "2026-07-31T20:34:36.026380+00:00",
+  "git_commit": "4d3d9b8",
+  "duration_seconds": 27.35,
   "files": {
     "disease_concepts.tsv": {
       "rows": 111065,
