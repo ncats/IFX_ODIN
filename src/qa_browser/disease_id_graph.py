@@ -22,6 +22,7 @@ class DiseaseGraphData:
         "decisions_by_pxref",
         "manifest",
         "_dashboard_stats",
+        "_xref_to_pxrefs",
     )
 
     def __init__(self) -> None:
@@ -32,6 +33,7 @@ class DiseaseGraphData:
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.manifest: dict = {}
         self._dashboard_stats: dict | None = None
+        self._xref_to_pxrefs: dict[str, set[str]] | None = None
 
 
 _singleton: DiseaseGraphData | None = None
@@ -492,6 +494,7 @@ def _concept_to_row(
     concept: dict,
     data: DiseaseGraphData,
     include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
 ) -> dict[str, Any]:
     """Convert a concept dict to a search result row.
 
@@ -500,6 +503,8 @@ def _concept_to_row(
     include_sources : set[str] | None
         When set, only include xref edge labels whose namespace (upper-cased)
         is in this set.  ``None`` means include all sources.
+    exclude_obsolete : bool
+        When True, skip xref edges where ``xref_is_obsolete`` is true.
     """
     n_decisions = len(data.decisions_by_pxref.get(pxref, []))
     cardinality = int(concept.get("cardinality_issue_count") or 0)
@@ -520,6 +525,8 @@ def _concept_to_row(
         xref_id = edge.get("xref_id", "")
         ns = edge.get("xref_namespace", "")
         if include_sources and ns.upper() not in include_sources:
+            continue
+        if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
             continue
         label = edge.get("xref_label", "")
         if not label:
@@ -699,6 +706,7 @@ def export_filtered_download(
     fmt: str = "tsv",
     limit: int = 50_000,
     include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
 ) -> str:
     """Export filtered concepts with selectable columns.
 
@@ -711,6 +719,9 @@ def export_filtered_download(
     include_sources : set[str] | None
         When set, only include xref edge labels whose namespace (upper-cased)
         is in this set.  ``None`` means include all sources.
+    exclude_obsolete : bool
+        When True, omit xref edges where ``xref_is_obsolete`` is true from
+        source labels.
     """
     default_columns = [
         "ncats_disease_id", "primary_xref", "standard_name",
@@ -733,12 +744,579 @@ def export_filtered_download(
             source=source, quality=quality,
         ):
             continue
-        writer.writerow(_concept_to_row(pxref, concept, data, include_sources=include_sources))
+        writer.writerow(_concept_to_row(
+            pxref, concept, data,
+            include_sources=include_sources,
+            exclude_obsolete=exclude_obsolete,
+        ))
         count += 1
         if count >= limit:
             break
 
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# SSSOM Export
+# ---------------------------------------------------------------------------
+
+_MATCH_TYPE_TO_SKOS: dict[str, str] = {
+    "exact": "skos:exactMatch",
+    "broad": "skos:broadMatch",
+    "narrow": "skos:narrowMatch",
+    "related": "skos:relatedMatch",
+}
+
+_MATCH_SOURCE_TO_SEMAPV: dict[str, str] = {
+    "lexical": "semapv:LexicalMatching",
+    "logical": "semapv:LogicalReasoning",
+    "manual": "semapv:ManualMappingCuration",
+    "composite": "semapv:CompositeMatching",
+    "semantic": "semapv:SemanticSimilarityThresholdMatching",
+}
+
+_CURIE_MAP: dict[str, str] = {
+    "MONDO": "http://purl.obolibrary.org/obo/MONDO_",
+    "OMIM": "https://omim.org/entry/",
+    "DOID": "http://purl.obolibrary.org/obo/DOID_",
+    "Orphanet": "http://www.orpha.net/ORDO/Orphanet_",
+    "MedGen": "https://www.ncbi.nlm.nih.gov/medgen/",
+    "GARD": "https://rarediseases.info.nih.gov/diseases/",
+    "MESH": "http://id.nlm.nih.gov/mesh/",
+    "UMLS": "https://uts.nlm.nih.gov/uts/umls/concept/",
+    "EFO": "http://www.ebi.ac.uk/efo/EFO_",
+    "HP": "http://purl.obolibrary.org/obo/HP_",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "semapv": "https://w3id.org/semapv/vocab/",
+}
+
+
+def _match_type_to_skos(match_type: str) -> str:
+    """Map a match_type string to the corresponding SKOS predicate CURIE."""
+    return _MATCH_TYPE_TO_SKOS.get(match_type, "skos:closeMatch")
+
+
+def _match_source_to_semapv(match_type_source: str) -> str:
+    """Map a match_type_source string to a semapv justification CURIE."""
+    src = match_type_source.strip().lower()
+    for key, val in _MATCH_SOURCE_TO_SEMAPV.items():
+        if key in src:
+            return val
+    return "semapv:UnspecifiedMatching"
+
+
+def export_sssom(
+    data: DiseaseGraphData,
+    include_sources: set[str] | None = None,
+) -> str:
+    """Export xref edges as SSSOM TSV with metadata header."""
+    version = data.manifest.get("pipeline_version", "unknown")
+
+    # Build metadata header
+    lines: list[str] = []
+    lines.append("#curie_map:")
+    for prefix, uri in _CURIE_MAP.items():
+        lines.append(f"#  {prefix}: {uri}")
+    lines.append(f"#mapping_set_id: https://github.com/ncats/IFX_ODIN/disease-harmonizer")
+    lines.append(f"#mapping_set_version: {version}")
+    lines.append("#creator_label: TargetGraph Disease Harmonizer")
+    lines.append("")
+
+    # TSV header
+    columns = [
+        "subject_id", "subject_label", "predicate_id",
+        "object_id", "object_label",
+        "mapping_justification", "confidence",
+        "subject_source", "object_source", "comment",
+    ]
+    lines.append("\t".join(columns))
+
+    for pxref, concept in data.concepts_by_pxref.items():
+        for edge in data.edges_by_pxref.get(pxref, []):
+            ns = edge.get("xref_namespace", "")
+            if include_sources and ns.upper() not in {s.upper() for s in include_sources}:
+                continue
+            xref_id = edge.get("xref_id", "")
+            if not xref_id:
+                continue
+            match_type = edge.get("match_type", "unclassified")
+            match_source = edge.get("match_type_source", "")
+            label_row = data.labels_by_xref_id.get(xref_id, {})
+            object_label = edge.get("xref_label", "") or label_row.get("preferred_label", "")
+            if object_label in ("nan", "NaN"):
+                object_label = ""
+            confidence = edge.get("xref_confidence", "")
+            row = [
+                pxref,
+                concept.get("standard_name", ""),
+                _match_type_to_skos(match_type),
+                xref_id,
+                object_label,
+                _match_source_to_semapv(match_source),
+                confidence,
+                concept.get("primary_xref_source", ""),
+                ns,
+                edge.get("agreement_level", ""),
+            ]
+            lines.append("\t".join(row))
+
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Public REST API helpers
+# ---------------------------------------------------------------------------
+
+def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None:
+    """Resolve a CURIE to full concept data including all xref edges and decisions."""
+    pxref = _resolve_to_pxref(data, curie)
+    if pxref is None:
+        return None
+    concept = data.concepts_by_pxref[pxref]
+    edges = data.edges_by_pxref.get(pxref, [])
+    decisions = data.decisions_by_pxref.get(pxref, [])
+
+    xrefs = []
+    for edge in edges:
+        xrefs.append({
+            "xref_id": edge.get("xref_id", ""),
+            "namespace": edge.get("xref_namespace", ""),
+            "match_type": edge.get("match_type", ""),
+            "confidence": edge.get("xref_confidence", ""),
+            "agreement_level": edge.get("agreement_level", ""),
+            "match_type_source": edge.get("match_type_source", ""),
+            "xref_label": edge.get("xref_label", ""),
+            "xref_is_obsolete": edge.get("xref_is_obsolete", ""),
+            "mapping_confidence": edge.get("mapping_confidence", ""),
+            "label_confidence": edge.get("label_confidence", ""),
+            "source_support": edge.get("source_support", ""),
+            "structural_confidence": edge.get("structural_confidence", ""),
+        })
+
+    decision_list = []
+    for dec in decisions:
+        decision_list.append({
+            "decision_id": dec.get("decision_id", ""),
+            "decision_type": dec.get("decision_type", ""),
+            "xref_id": dec.get("xref_id", ""),
+            "status": dec.get("status", ""),
+            "auto_decision": dec.get("auto_decision", ""),
+            "auto_confidence": dec.get("auto_confidence", ""),
+            "auto_rationale": dec.get("auto_rationale", ""),
+        })
+
+    return {
+        "ncats_disease_id": concept.get("ncats_disease_id", ""),
+        "primary_xref": pxref,
+        "standard_name": concept.get("standard_name", ""),
+        "confidence_tier": concept.get("confidence_tier", ""),
+        "overall_quality": concept.get("overall_quality", ""),
+        "n_sources": concept.get("n_sources", ""),
+        "disease_type": concept.get("disease_type", ""),
+        "is_rare": concept.get("is_rare", ""),
+        "definition": concept.get("definition", ""),
+        "synonyms": concept.get("synonyms", ""),
+        "xrefs": xrefs,
+        "decisions": decision_list,
+        "nodenorm": {
+            "canonical_curie": concept.get("nodenorm_canonical_curie", ""),
+            "canonical_label": concept.get("nodenorm_canonical_label", ""),
+            "validation_status": concept.get("nodenorm_validation_status", ""),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Source Agreement Matrix (for heatmap)
+# ---------------------------------------------------------------------------
+
+_NS_CASE_NORMALIZE: dict[str, str] = {
+    "snomedct": "SNOMEDCT",
+    "medgen": "MEDGEN",
+}
+
+
+def _normalize_ns(ns: str) -> str:
+    """Normalize namespace casing (e.g. snomedct → SNOMEDCT)."""
+    return _NS_CASE_NORMALIZE.get(ns, ns)
+
+
+def compute_source_agreement_matrix(data: DiseaseGraphData) -> dict[str, Any]:
+    """Compute pairwise source co-occurrence overlap for the heatmap.
+
+    For each pair of sources (A, B) this measures Jaccard overlap:
+    how many concepts have xrefs from both A and B, divided by concepts
+    that have xrefs from either A or B.  This shows which sources tend
+    to cover the same disease space.
+    """
+    # Build per-source concept sets (with namespace normalization)
+    source_concepts: dict[str, set[str]] = defaultdict(set)
+    for pxref, edges in data.edges_by_pxref.items():
+        seen: set[str] = set()
+        for edge in edges:
+            ns = _normalize_ns(edge.get("xref_namespace", "").strip())
+            if ns and ns not in seen:
+                seen.add(ns)
+                source_concepts[ns].add(pxref)
+
+    # Pick top sources by concept count, exclude very small ones
+    ranked = sorted(source_concepts.keys(), key=lambda k: -len(source_concepts[k]))
+    sources = [s for s in ranked if len(source_concepts[s]) >= 500][:10]
+    if not sources:
+        sources = ranked[:6]
+
+    n = len(sources)
+    overlap_counts = [[0] * n for _ in range(n)]
+    union_counts = [[0] * n for _ in range(n)]
+    matrix = [[0.0] * n for _ in range(n)]
+
+    for i in range(n):
+        for j in range(i, n):
+            sa, sb = source_concepts[sources[i]], source_concepts[sources[j]]
+            ov = len(sa & sb)
+            un = len(sa | sb)
+            overlap_counts[i][j] = ov
+            overlap_counts[j][i] = ov
+            union_counts[i][j] = un
+            union_counts[j][i] = un
+            rate = round(ov / un, 4) if un > 0 else 0.0
+            matrix[i][j] = rate
+            matrix[j][i] = rate
+
+    return {
+        "sources": sources,
+        "matrix": matrix,
+        "counts": overlap_counts,
+        "union_counts": union_counts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Source Flow Data (for Sankey diagram)
+# ---------------------------------------------------------------------------
+
+def compute_source_flow_data(data: DiseaseGraphData) -> dict[str, Any]:
+    """Compute flows: source namespace -> confidence tier."""
+    # Count: for each (namespace, tier), how many concepts have an edge in that namespace
+    flow_counts: Counter[tuple[str, str]] = Counter()
+    all_ns: set[str] = set()
+    all_tiers: set[str] = set()
+
+    for pxref, concept in data.concepts_by_pxref.items():
+        tier = concept.get("confidence_tier", "").strip() or "unknown"
+        all_tiers.add(tier)
+        seen_ns: set[str] = set()
+        for edge in data.edges_by_pxref.get(pxref, []):
+            ns = _normalize_ns(edge.get("xref_namespace", "").strip())
+            if ns and ns not in seen_ns:
+                seen_ns.add(ns)
+                all_ns.add(ns)
+                flow_counts[(ns, tier)] += 1
+
+    # Build node list — only top namespaces by count
+    ns_totals = Counter({ns: sum(flow_counts[(ns, t)] for t in all_tiers) for ns in all_ns})
+    top_ns = [ns for ns, _ in ns_totals.most_common(8)]
+
+    nodes: list[dict[str, str]] = []
+    ns_ids: dict[str, str] = {}
+    tier_ids: dict[str, str] = {}
+
+    for ns in top_ns:
+        nid = f"src_{ns}"
+        ns_ids[ns] = nid
+        nodes.append({"id": nid, "label": ns, "type": "source"})
+
+    tier_order = [
+        "multi_source_supported",
+        "single_authoritative_source",
+        "needs_review",
+        "review_validator_disagreement",
+        "review_obsolete_xref",
+    ]
+    for tier in tier_order:
+        if tier in all_tiers:
+            tid = f"tier_{tier}"
+            tier_ids[tier] = tid
+            nodes.append({"id": tid, "label": tier, "type": "tier"})
+    # Add any remaining tiers
+    for tier in sorted(all_tiers):
+        if tier not in tier_ids:
+            tid = f"tier_{tier}"
+            tier_ids[tier] = tid
+            nodes.append({"id": tid, "label": tier, "type": "tier"})
+
+    links: list[dict[str, Any]] = []
+    for ns in top_ns:
+        for tier in all_tiers:
+            count = flow_counts.get((ns, tier), 0)
+            if count > 0 and ns in ns_ids and tier in tier_ids:
+                links.append({
+                    "source": ns_ids[ns],
+                    "target": tier_ids[tier],
+                    "value": count,
+                })
+
+    return {"nodes": nodes, "links": links}
+
+
+# ---------------------------------------------------------------------------
+# Version Diff
+# ---------------------------------------------------------------------------
+
+_baseline_singleton: DiseaseGraphData | None = None
+
+
+def load_baseline_data(baseline_dir: str | Path) -> DiseaseGraphData:
+    """Lazily load baseline dataset for version comparison."""
+    global _baseline_singleton
+    if _baseline_singleton is not None:
+        return _baseline_singleton
+
+    baseline_dir = Path(baseline_dir)
+    if not baseline_dir.is_dir():
+        raise HTTPException(status_code=500, detail=f"Baseline dir not found: {baseline_dir}")
+
+    data = DiseaseGraphData()
+    manifest_path = baseline_dir / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path, encoding="utf-8") as fh:
+            data.manifest = json.load(fh)
+
+    for row in _read_tsv(baseline_dir / "disease_concepts.tsv"):
+        pxref = row.get("primary_xref", "")
+        ncats_id = row.get("ncats_disease_id", "")
+        if pxref:
+            data.concepts_by_pxref[pxref] = row
+        if ncats_id:
+            data.concepts_by_ncats_id[ncats_id] = row
+
+    for row in _read_tsv(baseline_dir / "disease_xref_edges.tsv"):
+        pxref = row.get("primary_xref", "")
+        if pxref:
+            data.edges_by_pxref[pxref].append(row)
+
+    for row in _read_tsv(baseline_dir / "review_decisions.tsv"):
+        pxref = row.get("primary_xref", "")
+        if pxref:
+            data.decisions_by_pxref[pxref].append(row)
+
+    _baseline_singleton = data
+    n_concepts = len(data.concepts_by_pxref)
+    n_edges = sum(len(v) for v in data.edges_by_pxref.values())
+    print(f"Baseline loaded: {n_concepts:,} concepts, {n_edges:,} edges")
+    return data
+
+
+def compute_version_diff(
+    current: DiseaseGraphData,
+    baseline: DiseaseGraphData,
+) -> dict[str, Any]:
+    """Compute delta between two versioned datasets."""
+    current_pxrefs = set(current.concepts_by_pxref.keys())
+    baseline_pxrefs = set(baseline.concepts_by_pxref.keys())
+
+    added_pxrefs = current_pxrefs - baseline_pxrefs
+    removed_pxrefs = baseline_pxrefs - current_pxrefs
+    shared_pxrefs = current_pxrefs & baseline_pxrefs
+
+    # Tier changes
+    tier_changes: list[dict[str, str]] = []
+    quality_changes: list[dict[str, str]] = []
+    for pxref in shared_pxrefs:
+        cur = current.concepts_by_pxref[pxref]
+        base = baseline.concepts_by_pxref[pxref]
+        cur_tier = cur.get("confidence_tier", "")
+        base_tier = base.get("confidence_tier", "")
+        if cur_tier != base_tier:
+            tier_changes.append({
+                "primary_xref": pxref,
+                "standard_name": cur.get("standard_name", ""),
+                "old_tier": base_tier,
+                "new_tier": cur_tier,
+            })
+        cur_q = cur.get("overall_quality", "")
+        base_q = base.get("overall_quality", "")
+        if cur_q != base_q:
+            quality_changes.append({
+                "primary_xref": pxref,
+                "standard_name": cur.get("standard_name", ""),
+                "old_quality": base_q,
+                "new_quality": cur_q,
+            })
+
+    # Edge diffs
+    current_edge_keys: set[tuple[str, str]] = set()
+    for pxref, edges in current.edges_by_pxref.items():
+        for e in edges:
+            current_edge_keys.add((pxref, e.get("xref_id", "")))
+    baseline_edge_keys: set[tuple[str, str]] = set()
+    for pxref, edges in baseline.edges_by_pxref.items():
+        for e in edges:
+            baseline_edge_keys.add((pxref, e.get("xref_id", "")))
+
+    edges_added = len(current_edge_keys - baseline_edge_keys)
+    edges_removed = len(baseline_edge_keys - current_edge_keys)
+
+    # Decision counts
+    cur_resolved = sum(
+        1 for decs in current.decisions_by_pxref.values()
+        for d in decs if d.get("status") == "resolved"
+    )
+    base_resolved = sum(
+        1 for decs in baseline.decisions_by_pxref.values()
+        for d in decs if d.get("status") == "resolved"
+    )
+    decisions_resolved = cur_resolved - base_resolved
+
+    added_concepts = [
+        {"primary_xref": p, "standard_name": current.concepts_by_pxref[p].get("standard_name", "")}
+        for p in sorted(added_pxrefs)[:500]
+    ]
+    removed_concepts = [
+        {"primary_xref": p, "standard_name": baseline.concepts_by_pxref[p].get("standard_name", "")}
+        for p in sorted(removed_pxrefs)[:500]
+    ]
+
+    baseline_version = baseline.manifest.get("pipeline_version", "unknown")
+    current_version = current.manifest.get("pipeline_version", "unknown")
+
+    return {
+        "summary": {
+            "concepts_added": len(added_pxrefs),
+            "concepts_removed": len(removed_pxrefs),
+            "tier_changes": len(tier_changes),
+            "quality_changes": len(quality_changes),
+            "edges_added": edges_added,
+            "edges_removed": edges_removed,
+            "decisions_resolved": max(0, decisions_resolved),
+        },
+        "added_concepts": added_concepts,
+        "removed_concepts": removed_concepts,
+        "tier_changes": tier_changes[:500],
+        "quality_changes": quality_changes[:500],
+        "baseline_version": baseline_version,
+        "current_version": current_version,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Concept Neighborhood Expansion
+# ---------------------------------------------------------------------------
+
+def find_concept_neighbors(
+    data: DiseaseGraphData,
+    pxref: str,
+    max_neighbors: int = 10,
+) -> list[str]:
+    """Find concepts that share xref IDs with the given concept."""
+    # Build reverse index on first call (cache on singleton)
+    if data._xref_to_pxrefs is None:
+        rev: dict[str, set[str]] = defaultdict(set)
+        for px, edges in data.edges_by_pxref.items():
+            for e in edges:
+                xid = e.get("xref_id", "")
+                if xid:
+                    rev[xid].add(px)
+        data._xref_to_pxrefs = dict(rev)
+
+    xref_to_pxrefs = data._xref_to_pxrefs
+
+    # Get all xref_ids for this concept
+    my_xrefs = {e.get("xref_id", "") for e in data.edges_by_pxref.get(pxref, []) if e.get("xref_id")}
+
+    # Find other concepts sharing xrefs, ranked by overlap count
+    overlap: Counter[str] = Counter()
+    for xid in my_xrefs:
+        for other in xref_to_pxrefs.get(xid, set()):
+            if other != pxref:
+                overlap[other] += 1
+
+    return [px for px, _ in overlap.most_common(max_neighbors)]
+
+
+# ---------------------------------------------------------------------------
+# Provenance Chain
+# ---------------------------------------------------------------------------
+
+def build_provenance_chain(
+    data: DiseaseGraphData,
+    pxref: str,
+) -> list[dict[str, Any]]:
+    """Build ordered provenance steps for a concept."""
+    if pxref not in data.concepts_by_pxref:
+        return []
+
+    concept = data.concepts_by_pxref[pxref]
+    steps: list[dict[str, Any]] = []
+
+    # Step 1: Source assertions (one per xref edge)
+    for edge in data.edges_by_pxref.get(pxref, []):
+        steps.append({
+            "step": "source_assertion",
+            "source": edge.get("xref_namespace", ""),
+            "xref": edge.get("xref_id", ""),
+            "match_type": edge.get("match_type", ""),
+            "source_asserted": edge.get("source_asserted", ""),
+        })
+
+    # Step 2: Confidence scoring (per xref with confidence)
+    scored_xrefs: set[str] = set()
+    for edge in data.edges_by_pxref.get(pxref, []):
+        xid = edge.get("xref_id", "")
+        conf = edge.get("xref_confidence", "")
+        if xid and conf and xid not in scored_xrefs:
+            scored_xrefs.add(xid)
+            steps.append({
+                "step": "confidence_scoring",
+                "xref": xid,
+                "scores": {
+                    "xref_confidence": conf,
+                    "mapping_confidence": edge.get("mapping_confidence", ""),
+                    "label_confidence": edge.get("label_confidence", ""),
+                    "source_support": edge.get("source_support", ""),
+                    "structural_confidence": edge.get("structural_confidence", ""),
+                },
+            })
+
+    # Step 3: NodeNorm validation
+    nn_status = concept.get("nodenorm_validation_status", "")
+    if nn_status:
+        steps.append({
+            "step": "nodenorm_validation",
+            "status": nn_status,
+            "canonical": concept.get("nodenorm_canonical_curie", ""),
+            "canonical_label": concept.get("nodenorm_canonical_label", ""),
+        })
+
+    # Step 4: Conflicts and decisions
+    for dec in data.decisions_by_pxref.get(pxref, []):
+        steps.append({
+            "step": "conflict_detected",
+            "type": dec.get("decision_type", ""),
+            "xref": dec.get("xref_id", ""),
+            "decision_source": dec.get("decision_source", ""),
+            "priority": dec.get("priority", ""),
+        })
+        auto_dec = dec.get("auto_decision", "")
+        resolution = dec.get("resolution", "")
+        if auto_dec or resolution:
+            steps.append({
+                "step": "auto_decision" if auto_dec else "manual_resolution",
+                "decision": auto_dec or resolution,
+                "confidence": dec.get("auto_confidence", ""),
+                "rationale": dec.get("auto_rationale", "") or dec.get("resolution_detail", ""),
+                "xref": dec.get("xref_id", ""),
+            })
+
+    # Step 5: Final resolution status
+    steps.append({
+        "step": "resolution",
+        "status": concept.get("confidence_tier", ""),
+        "overall_quality": concept.get("overall_quality", ""),
+        "n_sources": concept.get("n_sources", ""),
+    })
+
+    return steps
 
 
 # Names of files that can be served from the app_graph directory.

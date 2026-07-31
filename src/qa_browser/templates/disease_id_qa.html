@@ -30,6 +30,8 @@
         <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts">Concepts</button>
         <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph">Graph</button>
         <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download">Download</button>
+        <button class="disease-tab-btn{% if active_tab == 'changes' %} active{% endif %}" data-tab="changes">Changes</button>
+        <button class="disease-tab-btn{% if active_tab == 'api' %} active{% endif %}" data-tab="api">API</button>
     </div>
 
     <!-- Tab 1: Dashboard -->
@@ -113,6 +115,27 @@
                     </dl>
                 </div>
                 <div id="dashNodenormChart" class="bar-chart"></div>
+            </div>
+        </div>
+
+        <!-- Agreement Heatmap -->
+        <div class="dash-charts">
+            <div class="dash-chart-panel dash-chart-wide">
+                <h3>Source Co-occurrence Overlap (Jaccard)</h3>
+                <div class="heatmap-container">
+                    <canvas id="dashAgreementHeatmap" width="500" height="500"></canvas>
+                    <div class="heatmap-tooltip" id="heatmapTooltip"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sankey Diagram -->
+        <div class="dash-charts">
+            <div class="dash-chart-panel dash-chart-wide">
+                <h3>Source &rarr; Confidence Tier Flow</h3>
+                <div class="sankey-container">
+                    <canvas id="dashSankeyChart" width="700" height="400"></canvas>
+                </div>
             </div>
         </div>
 
@@ -241,6 +264,10 @@
                 <p id="diseaseIdDetailSub">Loading {{ selected_ids }}</p>
                 <dl id="diseaseIdStats" class="disease-id-stats"></dl>
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
+                <div id="diseaseIdConceptActions" style="display:none;margin-top:0.75rem;">
+                    <button id="expandNeighborsBtn" class="graph-action-btn">Expand neighbors</button>
+                    <button id="showProvenanceBtn" class="graph-action-btn">Show provenance</button>
+                </div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
                     <button id="diseaseIdExportJson" class="btn btn-sm">Export graph JSON</button>
                     <button id="diseaseIdExportFiltered" class="btn btn-sm">Download filtered view</button>
@@ -291,6 +318,10 @@
                                 <option value="true">Rare only</option>
                                 <option value="false">Non-rare</option>
                             </select>
+                        </label>
+                        <label style="flex-direction:row;align-items:center;gap:0.35rem;align-self:end;padding-bottom:0.35rem;">
+                            <input type="checkbox" id="dlExcludeObsolete">
+                            Exclude obsolete xrefs
                         </label>
                     </div>
                 </div>
@@ -359,9 +390,57 @@
                     <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
                     <span class="disease-id-dl-sep">|</span>
                     <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">flagged_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn">SSSOM mappings</a>
                 </div>
             </div>
         </section>
+    </div>
+
+    <!-- Tab 5: Changes -->
+    <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes">
+        <div id="changesContent" class="changes-loading">Loading version diff...</div>
+    </div>
+
+    <!-- Tab 6: API -->
+    <div class="disease-tab-panel{% if active_tab == 'api' %} active{% endif %}" id="tab-api">
+        <div class="api-tab-content">
+            <h2>Public REST API</h2>
+            <p style="color:var(--text-muted);font-size:0.86rem;margin:0 0 1rem;">
+                These endpoints return JSON and are documented in the auto-generated
+                <a href="{{ root_path }}/docs" target="_blank">OpenAPI spec</a>.
+            </p>
+            <div class="api-endpoint-list">
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/resolve/{curie}</span>
+                    <div class="api-endpoint-desc">Resolve any disease CURIE to its harmonized concept with all xrefs, decisions, and NodeNorm data.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/search?q=...&amp;limit=20&amp;offset=0</span>
+                    <div class="api-endpoint-desc">Search disease concepts by name or ID. Supports confidence_tier and source filters.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/stats</span>
+                    <div class="api-endpoint-desc">Return aggregate harmonization statistics: concept counts, tier distribution, pipeline version.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/sources</span>
+                    <div class="api-endpoint-desc">Return available source namespaces with per-namespace concept coverage counts.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Provenance modal -->
+<div id="provenanceModal" class="modal-overlay" style="display:none">
+    <div class="modal-content">
+        <button class="modal-close" id="provModalClose">&times;</button>
+        <h2>Provenance: <span id="provConceptName"></span></h2>
+        <div id="provTimeline" class="prov-timeline"></div>
     </div>
 </div>
 
@@ -394,12 +473,17 @@
     /* == Tab switching == */
     const tabBtns = document.querySelectorAll(".disease-tab-btn");
     const tabPanels = document.querySelectorAll(".disease-tab-panel");
+    let changesLoaded = false;
     tabBtns.forEach(btn => {
         btn.addEventListener("click", () => {
             tabBtns.forEach(b => b.classList.remove("active"));
             tabPanels.forEach(p => p.classList.remove("active"));
             btn.classList.add("active");
             document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+            if (btn.dataset.tab === "changes" && !changesLoaded) {
+                changesLoaded = true;
+                loadChangesTab();
+            }
         });
     });
 
@@ -473,6 +557,207 @@
         }
     }
 
+    /* == Heatmap rendering (canvas) == */
+    function renderHeatmap(canvas, matrixData) {
+        const ctx = canvas.getContext("2d");
+        const sources = matrixData.sources;
+        const matrix = matrixData.matrix;
+        const counts = matrixData.counts;
+        const n = sources.length;
+        if (n === 0) return;
+
+        const labelWidth = 80;
+        const cellSize = Math.min(40, Math.floor((canvas.width - labelWidth - 10) / n));
+        canvas.width = labelWidth + cellSize * n + 10;
+        canvas.height = labelWidth + cellSize * n + 10;
+
+        const ox = labelWidth;
+        const oy = labelWidth;
+
+        ctx.font = "11px -apple-system, sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+
+        // Row labels
+        for (let i = 0; i < n; i++) {
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillText(sources[i], ox - 6, oy + i * cellSize + cellSize / 2);
+        }
+
+        // Column labels (rotated)
+        ctx.save();
+        ctx.textAlign = "left";
+        for (let j = 0; j < n; j++) {
+            ctx.save();
+            ctx.translate(ox + j * cellSize + cellSize / 2, oy - 6);
+            ctx.rotate(-Math.PI / 4);
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillText(sources[j], 0, 0);
+            ctx.restore();
+        }
+        ctx.restore();
+
+        // Cells
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                const rate = matrix[i][j];
+                const x = ox + j * cellSize;
+                const y = oy + i * cellSize;
+
+                // Color: red (0) -> yellow (0.5) -> green (1)
+                let r, g, b;
+                if (rate < 0.5) {
+                    const t = rate / 0.5;
+                    r = 220; g = Math.round(80 + 150 * t); b = 60;
+                } else {
+                    const t = (rate - 0.5) / 0.5;
+                    r = Math.round(220 - 180 * t); g = Math.round(230 - 30 * t); b = Math.round(60 + 40 * t);
+                }
+                if (i === j) { r = 200; g = 200; b = 200; }
+
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+
+                // Value text
+                if (cellSize >= 28 && i !== j) {
+                    ctx.fillStyle = rate > 0.6 ? "#1a1a2e" : "#ffffff";
+                    ctx.font = "10px monospace";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText((rate * 100).toFixed(0) + "%", x + cellSize / 2 - 0.5, y + cellSize / 2);
+                }
+            }
+        }
+
+        // Hover tooltip
+        const tooltip = document.getElementById("heatmapTooltip");
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+            const j = Math.floor((mx - ox) / cellSize);
+            const i = Math.floor((my - oy) / cellSize);
+            if (i >= 0 && i < n && j >= 0 && j < n && i !== j) {
+                const rate = (matrix[i][j] * 100).toFixed(1);
+                const overlap = counts[i][j];
+                tooltip.textContent = `${sources[i]} \u2229 ${sources[j]}: ${rate}% Jaccard overlap (${overlap.toLocaleString()} shared concepts)`;
+                tooltip.style.display = "block";
+                tooltip.style.left = (e.clientX - canvas.parentElement.getBoundingClientRect().left + 12) + "px";
+                tooltip.style.top = (e.clientY - canvas.parentElement.getBoundingClientRect().top - 8) + "px";
+            } else {
+                tooltip.style.display = "none";
+            }
+        });
+        canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    }
+
+    /* == Sankey rendering (canvas) == */
+    function renderSankey(canvas, flowData) {
+        const ctx = canvas.getContext("2d");
+        const nodes = flowData.nodes;
+        const links = flowData.links;
+        if (!nodes.length || !links.length) return;
+
+        const W = canvas.width;
+        const H = canvas.height;
+        const pad = 40;
+        const nodeWidth = 20;
+        const colGap = W - 2 * pad - 2 * nodeWidth;
+
+        // Separate source and tier nodes
+        const srcNodes = nodes.filter(n => n.type === "source");
+        const tierNodes = nodes.filter(n => n.type === "tier");
+
+        // Compute total flow per node
+        const nodeFlows = {};
+        nodes.forEach(n => { nodeFlows[n.id] = 0; });
+        links.forEach(l => {
+            nodeFlows[l.source] += l.value;
+            nodeFlows[l.target] += l.value;
+        });
+
+        // Layout: left column (sources), right column (tiers)
+        const layoutColumn = (colNodes, x) => {
+            const totalFlow = colNodes.reduce((s, n) => s + (nodeFlows[n.id] || 1), 0);
+            const usableH = H - 2 * pad - (colNodes.length - 1) * 4;
+            let y = pad;
+            const positions = {};
+            colNodes.forEach(n => {
+                const h = Math.max(6, (nodeFlows[n.id] / totalFlow) * usableH);
+                positions[n.id] = { x, y, w: nodeWidth, h, label: n.label };
+                y += h + 4;
+            });
+            return positions;
+        };
+
+        const srcPos = layoutColumn(srcNodes, pad);
+        const tierPos = layoutColumn(tierNodes, W - pad - nodeWidth);
+        const allPos = { ...srcPos, ...tierPos };
+
+        // Track cumulative offsets for stacking links
+        const srcOffsets = {};
+        const tgtOffsets = {};
+        Object.keys(allPos).forEach(id => { srcOffsets[id] = 0; tgtOffsets[id] = 0; });
+
+        // Draw links as bezier curves
+        links.forEach(l => {
+            const sp = allPos[l.source];
+            const tp = allPos[l.target];
+            if (!sp || !tp) return;
+
+            const srcTotal = nodeFlows[l.source] || 1;
+            const tgtTotal = nodeFlows[l.target] || 1;
+            const linkHSrc = (l.value / srcTotal) * sp.h;
+            const linkHTgt = (l.value / tgtTotal) * tp.h;
+
+            const y0 = sp.y + srcOffsets[l.source];
+            const y1 = tp.y + tgtOffsets[l.target];
+
+            srcOffsets[l.source] += linkHSrc;
+            tgtOffsets[l.target] += linkHTgt;
+
+            const x0 = sp.x + sp.w;
+            const x1 = tp.x;
+            const cpx = x0 + colGap * 0.4;
+            const cpx2 = x1 - colGap * 0.4;
+
+            // Get source color
+            const srcColor = NS_COLORS[sp.label] || "#94a3b8";
+
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.bezierCurveTo(cpx, y0, cpx2, y1, x1, y1);
+            ctx.bezierCurveTo(cpx2, y1 + linkHTgt, cpx, y0 + linkHSrc, x0, y0 + linkHSrc);
+            ctx.closePath();
+            ctx.fillStyle = srcColor + "40";  // 25% opacity
+            ctx.fill();
+            ctx.strokeStyle = srcColor + "80";
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+        });
+
+        // Draw nodes
+        Object.entries(allPos).forEach(([id, p]) => {
+            const node = nodes.find(n => n.id === id);
+            const color = (node && node.type === "source") ? (NS_COLORS[p.label] || "#64748b") : "#94a3b8";
+            ctx.fillStyle = color;
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+
+            // Labels
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.font = "11px -apple-system, sans-serif";
+            ctx.textBaseline = "middle";
+            if (node && node.type === "source") {
+                ctx.textAlign = "right";
+                ctx.fillText(p.label, p.x - 4, p.y + p.h / 2);
+            } else {
+                ctx.textAlign = "left";
+                const shortLabel = p.label.length > 20 ? p.label.slice(0, 18) + "\u2026" : p.label;
+                ctx.fillText(shortLabel, p.x + p.w + 4, p.y + p.h / 2);
+            }
+        });
+    }
+
     function loadDashboard() {
         fetch(`${rootPath}/disease-id-qa/api/dashboard`)
             .then(r => r.json())
@@ -532,6 +817,22 @@
             .catch(err => {
                 document.getElementById("dashTotalConcepts").textContent = "Error";
             });
+
+        // Load heatmap data
+        fetch(`${rootPath}/disease-id-qa/api/agreement-matrix`)
+            .then(r => r.json())
+            .then(matrixData => {
+                renderHeatmap(document.getElementById("dashAgreementHeatmap"), matrixData);
+            })
+            .catch(() => {});
+
+        // Load sankey data
+        fetch(`${rootPath}/disease-id-qa/api/source-flows`)
+            .then(r => r.json())
+            .then(flowData => {
+                renderSankey(document.getElementById("dashSankeyChart"), flowData);
+            })
+            .catch(() => {});
     }
     loadDashboard();
 
@@ -700,6 +1001,9 @@
         const exportBtn = document.getElementById("diseaseIdExportJson");
         const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
         const layoutSelect = document.getElementById("graphLayoutSelect");
+        const conceptActions = document.getElementById("diseaseIdConceptActions");
+        const expandBtn = document.getElementById("expandNeighborsBtn");
+        const provBtn = document.getElementById("showProvenanceBtn");
 
         const filterExact = document.getElementById("filterExact");
         const filterBroad = document.getElementById("filterBroad");
@@ -708,6 +1012,8 @@
         const filterUnclassified = document.getElementById("filterUnclassified");
         const filterHideObsolete = document.getElementById("filterHideObsolete");
         const filterHideDecisions = document.getElementById("filterHideDecisions");
+
+        let selectedConceptPxref = null;
 
         function renderStats(stats) {
             const rows = [
@@ -751,6 +1057,15 @@
                 .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
                 .map((key) => `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
                 .join("");
+
+            // Show concept-specific actions
+            if (data.kind === "concept") {
+                selectedConceptPxref = data.id.replace("concept::", "");
+                conceptActions.style.display = "flex";
+            } else {
+                selectedConceptPxref = null;
+                conceptActions.style.display = "none";
+            }
         }
 
         let cyInstance = null;
@@ -801,6 +1116,49 @@
                 opts.levelWidth = () => 2;
             }
             cyInstance.layout(opts).run();
+        });
+
+        // Expand neighbors button
+        expandBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref || !cyInstance) return;
+            expandBtn.disabled = true;
+            expandBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(payload => {
+                    if (payload.elements && payload.elements.length > 0) {
+                        const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                        const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
+                        if (newElements.length > 0) {
+                            cyInstance.add(newElements);
+                            cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                        }
+                    }
+                    expandBtn.disabled = false;
+                    expandBtn.textContent = "Expand neighbors";
+                })
+                .catch(() => {
+                    expandBtn.disabled = false;
+                    expandBtn.textContent = "Expand neighbors";
+                });
+        });
+
+        // Show provenance button
+        provBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref) return;
+            provBtn.disabled = true;
+            provBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/provenance/${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(data => {
+                    showProvenanceModal(data.primary_xref, data.steps);
+                    provBtn.disabled = false;
+                    provBtn.textContent = "Show provenance";
+                })
+                .catch(() => {
+                    provBtn.disabled = false;
+                    provBtn.textContent = "Show provenance";
+                });
         });
 
         fetch(`${rootPath}/disease-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
@@ -992,6 +1350,122 @@
             });
     }
 
+    /* == Provenance modal == */
+    const provModal = document.getElementById("provenanceModal");
+    const provClose = document.getElementById("provModalClose");
+    const provTimeline = document.getElementById("provTimeline");
+    const provConceptName = document.getElementById("provConceptName");
+
+    if (provClose) {
+        provClose.addEventListener("click", () => { provModal.style.display = "none"; });
+        provModal.addEventListener("click", (e) => {
+            if (e.target === provModal) provModal.style.display = "none";
+        });
+    }
+
+    function showProvenanceModal(pxref, steps) {
+        provConceptName.textContent = pxref;
+        provTimeline.innerHTML = "";
+        steps.forEach(s => {
+            const div = document.createElement("div");
+            let cls = "prov-step";
+            if (s.step === "conflict_detected") cls += " conflict";
+            else if (s.step === "resolution" || s.step === "auto_decision" || s.step === "manual_resolution") cls += " resolved";
+            else if (s.step === "confidence_scoring") cls += " scoring";
+            div.className = cls;
+
+            let html = `<div class="prov-step-type">${escapeHtml(s.step)}</div><div class="prov-step-detail">`;
+            if (s.step === "source_assertion") {
+                html += `<strong>Source:</strong> ${escapeHtml(s.source)} <strong>Xref:</strong> ${escapeHtml(s.xref)} <strong>Match:</strong> ${escapeHtml(s.match_type)}`;
+            } else if (s.step === "confidence_scoring") {
+                html += `<strong>Xref:</strong> ${escapeHtml(s.xref)}`;
+                if (s.scores) {
+                    html += ` <strong>Confidence:</strong> ${escapeHtml(s.scores.xref_confidence)}`;
+                }
+            } else if (s.step === "nodenorm_validation") {
+                html += `<strong>Status:</strong> ${escapeHtml(s.status)} <strong>Canonical:</strong> ${escapeHtml(s.canonical)}`;
+            } else if (s.step === "conflict_detected") {
+                html += `<strong>Type:</strong> ${escapeHtml(s.type)} <strong>Xref:</strong> ${escapeHtml(s.xref)}`;
+            } else if (s.step === "auto_decision" || s.step === "manual_resolution") {
+                html += `<strong>Decision:</strong> ${escapeHtml(s.decision)}`;
+                if (s.confidence) html += ` <strong>Confidence:</strong> ${escapeHtml(s.confidence)}`;
+                if (s.rationale) html += `<br><strong>Rationale:</strong> ${escapeHtml(s.rationale)}`;
+            } else if (s.step === "resolution") {
+                html += `<strong>Tier:</strong> ${escapeHtml(s.status)} <strong>Quality:</strong> ${escapeHtml(s.overall_quality)}`;
+            } else {
+                // Generic
+                Object.entries(s).filter(([k]) => k !== "step").forEach(([k, v]) => {
+                    if (v && typeof v !== "object") html += `<strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)} `;
+                });
+            }
+            html += `</div>`;
+            div.innerHTML = html;
+            provTimeline.appendChild(div);
+        });
+        provModal.style.display = "flex";
+    }
+
+    /* == Changes tab == */
+    function loadChangesTab() {
+        const container = document.getElementById("changesContent");
+        fetch(`${rootPath}/disease-id-qa/api/version-diff`)
+            .then(r => {
+                if (!r.ok) throw new Error(r.status === 404 ? "No baseline dataset available" : "Failed to load");
+                return r.json();
+            })
+            .then(diff => {
+                const s = diff.summary;
+                let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
+                html += `<div class="changes-summary">`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Concepts Removed</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+                html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
+                html += `</div>`;
+
+                // Added concepts table
+                if (diff.added_concepts.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
+                    diff.added_concepts.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                // Removed concepts table
+                if (diff.removed_concepts.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Removed Concepts (${diff.removed_concepts.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
+                    diff.removed_concepts.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                // Tier changes table
+                if (diff.tier_changes.length > 0) {
+                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+                    html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
+                    diff.tier_changes.forEach(c => {
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                        html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
+                    });
+                    html += `</tbody></table></div></div>`;
+                }
+
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
+            });
+    }
+
     /* == Download tab == */
     const dlSearchInput = document.getElementById("dlSearchInput");
     const dlFilterMode = document.getElementById("dlFilterMode");
@@ -999,6 +1473,7 @@
     const dlQuality = document.getElementById("dlQuality");
     const dlIsRare = document.getElementById("dlIsRare");
     const dlFormat = document.getElementById("dlFormat");
+    const dlExcludeObsolete = document.getElementById("dlExcludeObsolete");
     const dlPreview = document.getElementById("dlPreview");
     const dlDownloadBtn = document.getElementById("dlDownloadBtn");
 
@@ -1052,6 +1527,10 @@
         const allSourceChecks = document.querySelectorAll(".dl-source-check");
         if (checkedSources.length < allSourceChecks.length) {
             params.set("include_sources", checkedSources.join(","));
+        }
+
+        if (dlExcludeObsolete.checked) {
+            params.set("exclude_obsolete", "true");
         }
 
         window.location.href = `${rootPath}/disease-id-qa/download-filtered?${params}`;

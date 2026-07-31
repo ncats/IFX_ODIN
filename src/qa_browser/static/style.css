@@ -5511,3 +5511,312 @@ details summary:hover { color: var(--accent); }
         color: #86efac;
     }
 }
+
+/* ── Dashboard: wide chart panels ────────────────────────────────────────── */
+
+.dash-chart-wide {
+    grid-column: 1 / -1;
+}
+
+/* ── Heatmap canvas ──────────────────────────────────────────────────────── */
+
+.heatmap-container {
+    position: relative;
+}
+
+.heatmap-container canvas {
+    display: block;
+    max-width: 100%;
+}
+
+.heatmap-tooltip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    color: var(--text);
+    display: none;
+    font-size: 0.75rem;
+    max-width: 260px;
+    padding: 0.35rem 0.55rem;
+    pointer-events: none;
+    position: absolute;
+    white-space: nowrap;
+    z-index: 200;
+}
+
+/* ── Sankey canvas ───────────────────────────────────────────────────────── */
+
+.sankey-container {
+    position: relative;
+}
+
+.sankey-container canvas {
+    display: block;
+    max-width: 100%;
+}
+
+/* ── Changes tab ─────────────────────────────────────────────────────────── */
+
+.changes-loading {
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    padding: 2rem;
+    text-align: center;
+}
+
+.changes-unavailable {
+    background: var(--bg-card, var(--bg-alt));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    padding: 2rem;
+    text-align: center;
+}
+
+.changes-summary {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    margin-bottom: 1.25rem;
+}
+
+.changes-summary .dash-card .dash-stat {
+    font-size: 1.4rem;
+}
+
+.changes-section {
+    margin-bottom: 1.25rem;
+}
+
+.changes-section h3 {
+    cursor: pointer;
+    font-size: 0.88rem;
+    margin: 0 0 0.5rem;
+    user-select: none;
+}
+
+.changes-section h3::before {
+    content: "\25B6";
+    display: inline-block;
+    font-size: 0.65rem;
+    margin-right: 0.35rem;
+    transition: transform 0.15s;
+}
+
+.changes-section.expanded h3::before {
+    transform: rotate(90deg);
+}
+
+.changes-section-body {
+    display: none;
+    max-height: 400px;
+    overflow: auto;
+}
+
+.changes-section.expanded .changes-section-body {
+    display: block;
+    animation: fadeTabIn 0.15s ease;
+}
+
+.changes-table {
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    width: 100%;
+}
+
+.changes-table th,
+.changes-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 0.55rem;
+    text-align: left;
+}
+
+.changes-table th {
+    background: var(--bg-alt);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    position: sticky;
+    text-transform: uppercase;
+    top: 0;
+}
+
+.changes-version-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Modal overlay ───────────────────────────────────────────────────────── */
+
+.modal-overlay {
+    align-items: center;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    position: fixed;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    max-height: 80vh;
+    max-width: 640px;
+    overflow-y: auto;
+    padding: 1.5rem;
+    position: relative;
+    width: 90%;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0.25rem;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.75rem;
+}
+
+.modal-close:hover {
+    color: var(--text);
+}
+
+.modal-content h2 {
+    font-size: 1rem;
+    margin: 0 0 1rem;
+    padding-right: 2rem;
+}
+
+/* ── Provenance timeline ─────────────────────────────────────────────────── */
+
+.prov-timeline {
+    padding-left: 2rem;
+    position: relative;
+}
+
+.prov-step {
+    border-left: 2px solid var(--border);
+    padding: 0.75rem 0 0.75rem 1.5rem;
+    position: relative;
+}
+
+.prov-step::before {
+    background: var(--accent);
+    border-radius: 50%;
+    content: "";
+    height: 10px;
+    left: -6px;
+    position: absolute;
+    top: 1rem;
+    width: 10px;
+}
+
+.prov-step.conflict::before {
+    background: var(--danger);
+}
+
+.prov-step.resolved::before {
+    background: var(--success);
+}
+
+.prov-step.scoring::before {
+    background: #f59e0b;
+}
+
+.prov-step-type {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.prov-step-detail {
+    font-size: 0.82rem;
+    margin-top: 0.2rem;
+}
+
+.prov-step-detail strong {
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 0.2rem;
+}
+
+.prov-step:last-child {
+    border-left-color: transparent;
+}
+
+/* ── Graph: expand/provenance buttons ────────────────────────────────────── */
+
+.graph-action-btn {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.35rem 0.7rem;
+}
+
+.graph-action-btn:hover {
+    background: var(--bg-hover);
+}
+
+@media (prefers-color-scheme: dark) {
+    .modal-overlay {
+        background: rgba(0, 0, 0, 0.65);
+    }
+}
+
+/* ── API tab ─────────────────────────────────────────────────────────────── */
+
+.api-tab-content {
+    padding: 1rem 0;
+}
+
+.api-endpoint-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.api-endpoint {
+    background: var(--bg-card, var(--bg-alt));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+}
+
+.api-endpoint-method {
+    background: var(--accent);
+    border-radius: 3px;
+    color: #fff;
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    margin-right: 0.5rem;
+    padding: 0.1rem 0.4rem;
+}
+
+.api-endpoint-path {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.api-endpoint-desc {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    margin-top: 0.3rem;
+}

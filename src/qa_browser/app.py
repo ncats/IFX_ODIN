@@ -38,13 +38,21 @@ from src.models.node import Node
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
     build_disease_graph_payload,
+    build_provenance_chain,
     compute_dashboard_stats,
+    compute_source_agreement_matrix,
+    compute_source_flow_data,
+    compute_version_diff,
     export_filtered_download,
     export_flagged_tsv,
     export_search_tsv,
+    export_sssom,
+    find_concept_neighbors,
+    load_baseline_data,
     load_disease_graph_data,
     load_flagged_concepts,
     parse_disease_ids,
+    resolve_concept,
     search_concepts,
 )
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
@@ -86,6 +94,7 @@ _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
 _minio_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
+_baseline_graph_dir: str = ""
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -5236,6 +5245,7 @@ def disease_id_qa_download_filtered(
     columns: str = "",
     format: str = "tsv",
     include_sources: str = "",
+    exclude_obsolete: str = "",
 ):
     """Download filtered concepts with selectable columns."""
     if not _disease_graph_dir:
@@ -5250,6 +5260,7 @@ def disease_id_qa_download_filtered(
         data, q=q, filter_mode=filter,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
         columns=col_list, fmt=format, include_sources=src_set,
+        exclude_obsolete=exclude_obsolete.lower() == "true",
     )
     if format == "csv":
         media = "text/csv"
@@ -5262,6 +5273,172 @@ def disease_id_qa_download_filtered(
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — SSSOM download
+# ---------------------------------------------------------------------------
+
+@app.get("/disease-id-qa/download-sssom")
+def disease_id_qa_download_sssom(include_sources: str = ""):
+    """Download xref edges in SSSOM TSV format."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    src_set = (
+        {s.strip() for s in include_sources.split(",") if s.strip()}
+        if include_sources else None
+    )
+    content = export_sssom(data, include_sources=src_set)
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="disease_mappings.sssom.tsv"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Public REST API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/disease/resolve/{curie:path}")
+def api_resolve_disease(curie: str):
+    """Resolve any disease CURIE to its harmonized concept with all xrefs."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    result = resolve_concept(data, curie)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"CURIE not found: {curie}")
+    return result
+
+
+@app.get("/api/v1/disease/search")
+def api_search_diseases(q: str = "", limit: int = 20, offset: int = 0,
+                        confidence_tier: str = "", source: str = ""):
+    """Search disease concepts by name or ID."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    page = (offset // limit) + 1
+    result = search_concepts(
+        data, q=q, page=page, per_page=limit,
+        confidence_tier=confidence_tier, source=source,
+    )
+    return {
+        "results": result["rows"],
+        "total": result["total"],
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@app.get("/api/v1/disease/stats")
+def api_disease_stats():
+    """Return aggregate harmonization statistics."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    stats = compute_dashboard_stats(data)
+    return {
+        "total_concepts": stats["total_concepts"],
+        "total_edges": stats["total_edges"],
+        "sources_covered": len(stats["source_coverage"]),
+        "avg_xrefs_per_concept": stats["avg_xrefs_per_concept"],
+        "rare_count": stats["rare_count"],
+        "flagged_count": stats["flagged_count"],
+        "confidence_distribution": stats["confidence_distribution"],
+        "pipeline_version": data.manifest.get("pipeline_version", ""),
+        "generated_at": data.manifest.get("generated_at", ""),
+    }
+
+
+@app.get("/api/v1/disease/sources")
+def api_disease_sources():
+    """Return available source namespaces with coverage counts."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    stats = compute_dashboard_stats(data)
+    return {
+        "sources": [
+            {"namespace": ns, "concept_count": count}
+            for ns, count in sorted(stats["source_coverage"].items(), key=lambda x: -x[1])
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Agreement Matrix & Source Flows
+# ---------------------------------------------------------------------------
+
+@app.get("/disease-id-qa/api/agreement-matrix")
+def disease_id_qa_agreement_matrix():
+    """Return pairwise source agreement matrix for the heatmap."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return compute_source_agreement_matrix(data)
+
+
+@app.get("/disease-id-qa/api/source-flows")
+def disease_id_qa_source_flows():
+    """Return source namespace to confidence tier flow data for the Sankey diagram."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return compute_source_flow_data(data)
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Version Diff
+# ---------------------------------------------------------------------------
+
+
+@app.get("/disease-id-qa/api/version-diff")
+def disease_id_qa_version_diff():
+    """Compute delta between current and baseline datasets."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not _baseline_graph_dir:
+        raise HTTPException(status_code=404, detail="No baseline dataset available for comparison.")
+    current = load_disease_graph_data(_disease_graph_dir)
+    baseline = load_baseline_data(_baseline_graph_dir)
+    return compute_version_diff(current, baseline)
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Graph Neighborhood & Provenance
+# ---------------------------------------------------------------------------
+
+@app.get("/disease-id-qa/api/graph/neighbors")
+def disease_id_qa_graph_neighbors(pxref: str = ""):
+    """Return Cytoscape elements for concepts sharing xrefs with the given concept."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not pxref:
+        raise HTTPException(status_code=400, detail="pxref parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    neighbors = find_concept_neighbors(data, pxref, max_neighbors=10)
+    if not neighbors:
+        return {"elements": []}
+    # Build graph payload for the neighbors (include the original concept too)
+    all_ids = [pxref] + neighbors
+    return build_disease_graph_payload(data, all_ids)
+
+
+@app.get("/disease-id-qa/api/provenance/{pxref:path}")
+def disease_id_qa_provenance(pxref: str):
+    """Return the provenance chain for a concept."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    chain = build_provenance_chain(data, pxref)
+    if not chain:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {pxref}")
+    return {"primary_xref": pxref, "steps": chain}
 
 
 @app.get("/registry", response_class=HTMLResponse)
@@ -8147,9 +8324,12 @@ def main():
     parser.add_argument("--disease-graph-dir",
                         default="",
                         help="Path to disease app_graph/ directory (TSV files + manifest.json)")
+    parser.add_argument("--baseline-graph-dir",
+                        default="",
+                        help="Path to baseline disease app_graph/ directory for version diff")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -8222,6 +8402,21 @@ def main():
                 print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
+
+    _baseline_graph_dir = args.baseline_graph_dir
+    if not _baseline_graph_dir:
+        bundled_dir = Path(__file__).parent / "data" / "disease_app_graph"
+        if bundled_dir.is_dir():
+            versions = sorted(
+                [d.name for d in bundled_dir.iterdir() if d.is_dir()],
+                key=lambda v: [int(x) for x in v.lstrip("v").split(".")],
+            )
+            # Use the second-highest version as baseline (highest is current)
+            if len(versions) >= 2:
+                _baseline_graph_dir = str(bundled_dir / versions[-2])
+                print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
+    if _baseline_graph_dir:
+        print(f"Baseline graph dir: {_baseline_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
