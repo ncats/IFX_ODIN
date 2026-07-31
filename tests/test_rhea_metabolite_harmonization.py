@@ -202,6 +202,7 @@ def test_rhea_reaction_adapter_emits_active_reactions_and_context_edges(tmp_path
         for edge in metabolite_edges
     }
     assert any(edge.name == "H2O" and edge.formula == "H2O" for edge in metabolite_edges)
+    assert all(edge.source_id == edge.start_node.id for edge in metabolite_edges)
     assert protein_edges == {
         ("UniProtKB:P00001", "RHEA:10000", "rhea2uniprot_sprot.tsv"),
         ("UniProtKB:P00002", "RHEA:10001", "rhea2uniprot_trembl.tsv.gz"),

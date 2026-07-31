@@ -235,7 +235,7 @@ class ReactomePathwayContextAdapter(InputAdapter):
                 MetabolitePathwayDetail(
                     source=REACTOME_SOURCE,
                     source_field=record["source_field"],
-                    metabolite_id=metabolite_id,
+                    source_id=metabolite_id,
                     pathway_id=pathway_id,
                     pathway_name=record.get("pathway_name"),
                     url=record.get("url"),

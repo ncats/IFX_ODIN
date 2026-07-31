@@ -81,6 +81,22 @@ Names, synonyms, and chemical properties are stored on the relevant identifier
 node as source-attributed nested data. We do not copy a name from one identifier
 to another just because a source reports an equivalence.
 
+Biological associations are likewise stored only on the identifier the source
+used for that assertion. An adapter must not copy a pathway, reaction,
+classification, ontology, or protein association onto every equivalent
+identifier. The equivalence edges already connect those identifiers, and
+downstream clique materialization can traverse or project the association when
+needed. Association evidence uses `source_id` to preserve the source-native
+metabolite identifier even if a downstream representation later rewires the
+edge to a harmonized metabolite.
+
+The adapter audit found that HMDB, Reactome, PFOCR, Rhea, and LipidMaps already
+follow this invariant. WikiPathways pathway context was the exception: it
+expanded each RDF subject through all of its BridgeDb `bdb*` fields. The
+pathway adapter now emits metabolite, gene, and protein pathway edges only for
+the normalized RDF subject. The separate WikiPathways metabolite-equivalence
+adapter continues to emit the BridgeDb identifiers and mapping edges.
+
 InChIKey can appear in two ways:
 
 - as source-reported identifier evidence, for example `InChIKey:...`;
@@ -159,6 +175,13 @@ Rules should be independently configurable, ordered, and inspectable. A saved
 snapshot should record which rules ran, their order, parameters, and summary
 statistics.
 
+The WikiPathways prefix rule may also ignore configured BridgeDb source fields.
+If an identifier is introduced only as a WikiPathways xref through ignored
+fields, the rule removes its WikiPathways node support as well as its mapping
+detail. It remains active when it is also a WikiPathways source subject, is
+introduced through an allowed WikiPathways field, or has support from another
+datasource.
+
 ## Known Granularity Problems
 
 The graph intentionally does not solve metabolite granularity at ingest time.
@@ -192,7 +215,8 @@ only when the graph shape has not changed.
 
 - How to export a backward-compatible RaMP SQLite database from this graph.
 - Which rule profile becomes the released RaMP harmonization policy.
-- How expert curation decisions should be stored and replayed.
+- How expert curation decisions should be stored and replayed. See
+  `designs/metabolite_harmonization_curation_design.md`.
 - Whether additional class systems from RefMet or ChEBI should become
   first-class graph context.
 - Whether broader pathway sources belong in this graph later.

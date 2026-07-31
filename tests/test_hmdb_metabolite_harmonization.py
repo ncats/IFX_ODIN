@@ -319,6 +319,10 @@ def test_hmdb_ontology_adapter_emits_terms_parent_edges_and_memberships(tmp_path
     assert (biofluid.id, blood.id) in parent_pairs
     assert ("HMDB:HMDB0000001", endogenous.id) in member_pairs
     assert ("HMDB:HMDB0000001", blood.id) in member_pairs
+    assert all(
+        edge.details[0].source_id == edge.start_node.id
+        for edge in member_edges
+    )
     assert all(edge.end_node.id != source.id for edge in member_edges)
     assert ("Pathway", "Pathway") not in terms_by_name
     assert ("Pathway", "Acetaminophen Metabolism Pathway") not in terms_by_name

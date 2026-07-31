@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metabolite Harmonization Evidence Graph</title>
+  <style>
+    :root { --ink:#0f172a; --muted:#475569; --teal:#0f766e; --teal-soft:#ccfbf1; --green:#16a34a; --purple:#7c3aed; --paper:#f8fafc; }
+    * { box-sizing: border-box; }
+    html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#0f172a; font-family:Inter, Aptos, Arial, sans-serif; color:var(--ink); }
+    .app-nav { position:fixed; inset:0 0 auto; z-index:20; height:42px; padding:0 1.5rem; display:flex; align-items:center; gap:1rem; background:#f5f6f8; border-bottom:1px solid #d1d5db; color:#1a1a2e; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+    .app-nav a { color:#2563eb; text-decoration:none; }
+    .app-nav a:hover { text-decoration:underline; }
+    .app-brand { color:#1a1a2e; font-size:15px; font-weight:700; white-space:nowrap; }
+    .app-breadcrumb { display:flex; align-items:center; gap:.4rem; color:#6b7280; font-size:13px; }
+    .app-breadcrumb .sep { color:#d1d5db; }
+    .app-mode-switch { margin-left:auto; display:flex; overflow:hidden; border:1px solid #d1d5db; border-radius:999px; cursor:pointer; font-size:12px; font-weight:600; }
+    .app-mode-switch span { padding:.3rem .85rem; white-space:nowrap; }
+    .app-mode-switch span { color:#6b7280; }
+    body:not(.nerd-mode) .app-mode-switch [data-mode="qa"], body.nerd-mode .app-mode-switch [data-mode="nerd"] { background:#2563eb; color:#fff; }
+    .deck { position:fixed; inset:42px 0 0; }
+    .slide { display:none; position:absolute; inset:0; width:min(100vw, calc((100vh - 42px) * 1.7778)); height:min(56.25vw, calc(100vh - 42px)); margin:auto; padding:5.3vh 6.2vw; background:var(--paper); overflow:hidden; }
+    .slide.active { display:block; }
+    .eyebrow { margin:0 0 1.2vh; color:var(--teal); font-size:1.3vw; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+    h1 { max-width:82%; margin:0; font-size:4.2vw; line-height:1.02; letter-spacing:-.045em; }
+    h2 { margin:0 0 2.3vh; font-size:2.85vw; line-height:1.08; letter-spacing:-.03em; }
+    h3 { margin:0 0 1vh; font-size:1.55vw; }
+    p { margin:.5vh 0; font-size:1.55vw; line-height:1.42; color:var(--muted); }
+    .subtitle { max-width:70%; margin-top:2.5vh; font-size:1.8vw; }
+    .accent { color:var(--teal); }
+    .footer { position:absolute; left:6.2vw; right:6.2vw; bottom:2.5vh; display:flex; justify-content:space-between; color:#64748b; font-size:.9vw; }
+    .hero-line { position:absolute; left:0; right:0; bottom:0; height:1.4vh; background:linear-gradient(90deg,#0284c7,var(--teal),var(--green)); }
+    .title-graphic { position:absolute; width:35vw; height:35vw; right:-4vw; bottom:-4vw; border-radius:50%; background:radial-gradient(circle at 35% 35%,#f0fdfa 0 10%,#ccfbf1 11% 29%,#99f6e4 30% 31%,transparent 32%), radial-gradient(circle at 67% 35%,#fef3c7 0 7%,#fde68a 8% 17%,transparent 18%), radial-gradient(circle at 52% 68%,#ede9fe 0 8%,#c4b5fd 9% 20%,transparent 21%); opacity:.95; }
+    .title-graphic::after { content:""; position:absolute; inset:13%; border:4px solid #0f766e; border-radius:50%; opacity:.35; }
+    .figure { width:100%; max-height:72vh; object-fit:contain; display:block; }
+    .figure.tall { max-height:76vh; }
+    .cards { display:grid; grid-template-columns:1fr 1fr; gap:2.2vw; margin-top:3vh; }
+    .card { padding:2.2vw; border-radius:1.4vw; background:white; border:2px solid #cbd5e1; box-shadow:0 12px 30px rgba(15,23,42,.08); }
+    .card.evidence { border-color:var(--teal); }
+    .card.decision { border-color:var(--purple); }
+    .card p { font-size:1.34vw; }
+    .tag { display:inline-block; margin:.7vh .35vw .2vh 0; padding:.45vh .7vw; border-radius:999px; background:#f1f5f9; font-size:1vw; font-weight:700; color:#334155; }
+    .rule { margin:1.3vh 0; padding:1.3vh 1vw; border-left:6px solid var(--purple); background:#f5f3ff; border-radius:.5vw; font-size:1.28vw; color:#5b21b6; }
+    .quote { max-width:84%; margin:8vh auto 0; font-size:3.05vw; line-height:1.25; font-weight:750; letter-spacing:-.025em; }
+    .quote strong { color:var(--teal); }
+    .small-note { font-size:1.05vw; color:#64748b; }
+    .two-col { display:grid; grid-template-columns:1.15fr .85fr; gap:4vw; align-items:start; }
+    ul { margin:1.5vh 0 0; padding-left:1.6vw; }
+    li { margin:1.4vh 0; font-size:1.42vw; line-height:1.35; color:#334155; }
+    .callout { margin-top:3vh; padding:2vh 1.5vw; border-radius:1vw; background:#ecfeff; border:2px solid #14b8a6; font-size:1.35vw; font-weight:700; color:#115e59; }
+    .screenshot-layout { display:grid; grid-template-columns:1.35fr .65fr; gap:2.4vw; align-items:center; margin-top:1.5vh; }
+    .screenshot { display:block; width:100%; max-height:66vh; object-fit:contain; border:2px solid #cbd5e1; border-radius:1vw; background:white; box-shadow:0 12px 30px rgba(15,23,42,.12); }
+    .screenshot.wide { max-height:60vh; margin:1.5vh auto 0; }
+    .screenshot-caption { margin-top:1vh; text-align:center; font-size:1vw; color:#64748b; }
+    .side-copy { padding:1.8vw; border-radius:1.2vw; background:white; border:2px solid #cbd5e1; box-shadow:0 10px 24px rgba(15,23,42,.07); }
+    .side-copy p { font-size:1.28vw; }
+    .side-copy li { font-size:1.24vw; margin:1.2vh 0; }
+    .controls { position:fixed; right:1rem; bottom:1rem; z-index:5; display:flex; gap:.4rem; opacity:.4; }
+    .controls:hover { opacity:1; }
+    button { border:0; border-radius:.5rem; padding:.5rem .8rem; background:#fff; color:#0f172a; cursor:pointer; }
+    @media print {
+      html, body { overflow:visible; background:white; }
+      .app-nav { display:none; }
+      .deck { position:static; height:auto; }
+      .slide { display:block !important; position:relative; width:13.333in; height:7.5in; max-width:none; max-height:none; page-break-after:always; padding:.55in .7in; }
+      .controls { display:none; }
+      @page { size:13.333in 7.5in; margin:0; }
+    }
+  </style>
+</head>
+<body>
+<nav class="app-nav" aria-label="QA Browser navigation">
+  <span class="app-brand">QA Browser</span>
+  <div class="app-breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/ramp-id-qa">Metabolite Harmonization Workbench</a>
+    <span class="sep">/</span>
+    <span>How the workbench works</span>
+  </div>
+  <div class="app-mode-switch" aria-label="Display mode" onclick="toggleDeckMode()">
+    <span data-mode="qa">QA Mode</span>
+    <span data-mode="nerd">Nerd Mode</span>
+  </div>
+</nav>
+<main class="deck">
+  <section class="slide active">
+    <p class="eyebrow">RaMP · metabolite harmonization</p>
+    <h1>From source identifiers to <span class="accent">resolved metabolites</span></h1>
+    <p class="subtitle">A source-faithful evidence graph that separates what data providers assert from the identity decisions RaMP ultimately publishes.</p>
+    <div class="title-graphic" aria-hidden="true"></div>
+    <div class="footer"><span>IFX_ODIN</span><span>1</span></div><div class="hero-line"></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">The key distinction</p>
+    <h2>This is not the usual ODIN graph</h2>
+    <img class="figure tall" src="figures/canonical_vs_evidence.svg" alt="Canonical graph compared with a source-identifier evidence graph">
+    <div class="footer"><span>Source identity remains first-class</span><span>2</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Architectural contract</p>
+    <h2>The graph records evidence—not the final identity decision</h2>
+    <img class="figure tall" src="figures/evidence_to_decision.svg" alt="Worked example showing durable source evidence transformed into two revisable harmonized clique decisions">
+    <div class="footer"><span>Evidence can remain stable while policy evolves</span><span>3</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Inspectable policy</p>
+    <h2>Rules that were hidden in code become visible</h2>
+    <div class="screenshot-layout">
+      <div>
+        <img class="screenshot" src="screenshots/qa_rule_pipeline.png" alt="QA Browser Selected Rule Order showing ordered and parameterized metabolite harmonization rules">
+        <div class="screenshot-caption">Actual QA Browser view</div>
+      </div>
+      <aside class="side-copy">
+        <h3>The rule pipeline is now a first-class artifact</h3>
+        <ul>
+          <li>Rule order is explicit.</li>
+          <li>Parameters and excluded prefixes are visible.</li>
+          <li>Each stage can be saved, compared, and reproduced.</li>
+          <li>Policy changes no longer require interpreting hidden build logic.</li>
+        </ul>
+      </aside>
+    </div>
+    <div class="footer"><span>From implicit build logic to an inspectable policy</span><span>4</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Snapshot validation</p>
+    <h2>Validate each resulting harmonized set</h2>
+    <img class="figure tall" src="figures/validation_checks.svg" alt="Validation checks for molecular-weight conflicts and denylisted equivalences that remain connected transitively">
+    <div class="footer"><span>Validation makes problematic cliques reviewable</span><span>5</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Expert review and curation</p>
+    <h2>Questionable equivalences become obvious in context</h2>
+    <div class="screenshot-layout">
+      <div>
+        <img class="screenshot" src="screenshots/qa_mw_discrepancy_graph.png" alt="QA Browser graph showing a metabolite clique with molecular weights 707.4 and 282.2 connected by source mapping edges">
+        <div class="screenshot-caption">A 707.4 Da structure is grouped with several 282.2 Da structures</div>
+      </div>
+      <aside class="side-copy">
+        <h3>The graph exposes the evidence behind the alert</h3>
+        <p>The molecular-weight discrepancy is immediately visible, together with the source mappings responsible for the connection.</p>
+        <div class="callout" style="margin-top:2vh;">Future development: select a specific mapping edge and add it to the curation list, then generate a new snapshot without deleting the source evidence.</div>
+      </aside>
+    </div>
+    <div class="footer"><span>Validation leads directly to evidence-aware curation</span><span>6</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Traceability</p>
+    <h2>Follow a resolved metabolite through the rule pipeline</h2>
+    <img class="screenshot wide" src="screenshots/qa_pipeline_sankey.png" alt="QA Browser Sankey plot tracing a set of metabolite identifiers through successive harmonization stages">
+    <div class="callout" style="margin:1.5vh auto 0; max-width:88%; text-align:center;">The Sankey view shows when a clique stays together, splits, or loses members—and retains the source IDs and molecular-weight range at each stage.</div>
+    <div class="footer"><span>Trace the result backward through every decision</span><span>7</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">End-to-end flow</p>
+    <h2>Evidence first; identity decisions second</h2>
+    <img class="figure tall" src="figures/harmonization_pipeline.svg" alt="Metabolite harmonization pipeline">
+    <div class="footer"><span>Source assertions → rules → snapshot → RaMP SQLite extract</span><span>8</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">The one-sentence explanation</p>
+    <div class="quote">The metabolite harmonization graph preserves <strong>source-native identifier lineage</strong>, deferring resolution into canonical RaMP metabolites while maintaining traceability to the identifiers and assertions in the original data.</div>
+    <div class="callout" style="max-width:72%; margin:5vh auto 0; text-align:center;">The graph preserves the evidence. The snapshot records the decision. The export carries the lineage.</div>
+    <div class="footer"><span>Metabolite harmonization evidence graph</span><span>9</span></div><div class="hero-line"></div>
+  </section>
+</main>
+<nav class="controls" aria-label="Slide controls"><button id="prev" aria-label="Previous slide">←</button><button id="next" aria-label="Next slide">→</button></nav>
+<script>
+  if (localStorage.getItem('nerdMode') === 'true') document.body.classList.add('nerd-mode');
+  function toggleDeckMode() {
+    const isNerd = document.body.classList.toggle('nerd-mode');
+    localStorage.setItem('nerdMode', isNerd);
+  }
+  const slides = [...document.querySelectorAll('.slide')]; let index = 0;
+  function show(next) { index = Math.max(0, Math.min(slides.length - 1, next)); slides.forEach((s, i) => s.classList.toggle('active', i === index)); history.replaceState(null, '', `#${index + 1}`); }
+  document.getElementById('prev').onclick = () => show(index - 1); document.getElementById('next').onclick = () => show(index + 1);
+  document.addEventListener('keydown', e => { if (['ArrowRight','PageDown',' '].includes(e.key)) show(index + 1); if (['ArrowLeft','PageUp'].includes(e.key)) show(index - 1); if (e.key === 'Home') show(0); if (e.key === 'End') show(slides.length - 1); });
+  const initial = Number(location.hash.slice(1)); if (initial) show(initial - 1);
+</script>
+</body>
+</html>

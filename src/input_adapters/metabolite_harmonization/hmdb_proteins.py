@@ -121,6 +121,7 @@ class HmdbProteinContextAdapter(InputAdapter):
                             HmdbMetaboliteProteinAssociationDetail(
                                 source="HMDB",
                                 source_field="metabolite_associations",
+                                source_id=metabolite_id,
                                 hmdb_metabolite_accession=hmdb_metabolite_accession,
                                 hmdb_protein_accession=hmdb_protein_accession,
                                 metabolite_name=self._clean_text(association.get("name")),

@@ -2726,6 +2726,67 @@ details summary:hover { color: var(--accent); }
     margin: 0;
 }
 
+.ramp-id-header-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.8rem;
+}
+
+.workbench-guide-link {
+    align-items: center;
+    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, #7c3aed));
+    border: 1px solid color-mix(in srgb, var(--accent) 78%, black);
+    box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 24%, transparent);
+    color: #fff;
+    display: inline-flex;
+    gap: 0.65rem;
+    padding: 0.65rem 0.8rem;
+    text-decoration: none;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.workbench-guide-link:hover {
+    box-shadow: 0 7px 18px color-mix(in srgb, var(--accent) 34%, transparent);
+    opacity: 1;
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+.workbench-guide-link strong,
+.workbench-guide-link small {
+    display: block;
+}
+
+.workbench-guide-link strong {
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.workbench-guide-link small {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 0.15rem;
+}
+
+.workbench-guide-icon {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 9px;
+    height: 1.75rem;
+    justify-content: center;
+    padding-left: 2px;
+    width: 1.75rem;
+}
+
+.workbench-guide-arrow {
+    font-size: 17px;
+    margin-left: 0.15rem;
+}
+
 .ramp-id-form {
     display: grid;
     gap: 0.7rem;
@@ -2844,6 +2905,15 @@ details summary:hover { color: var(--accent); }
 
 .metabolite-id-pipeline-rename {
     display: inline-block;
+}
+
+.metabolite-id-fingerprint-warning {
+    color: #b45309;
+    font-size: 0.82em;
+    margin-top: 0.2rem;
+}
+@media (prefers-color-scheme: dark) {
+    .metabolite-id-fingerprint-warning { color: #fbbf24; }
 }
 
 .metabolite-id-pipeline-rename summary {
@@ -2981,8 +3051,8 @@ details summary:hover { color: var(--accent); }
     border: 1px solid var(--border);
     border-radius: 8px;
     display: grid;
-    grid-template-columns: 5.5rem minmax(14rem, 2fr) minmax(4rem, 0.45fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(8rem, 0.85fr) minmax(7rem, 0.75fr) minmax(16rem, 1.7fr) minmax(8rem, 0.9fr);
-    min-width: 92rem;
+    grid-template-columns: 5.5rem minmax(14rem, 2fr) minmax(4rem, 0.45fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(7rem, 0.75fr) minmax(8rem, 0.85fr) minmax(7rem, 0.75fr) minmax(8rem, 0.85fr) minmax(16rem, 1.7fr) minmax(8rem, 0.9fr);
+    min-width: 100rem;
 }
 
 .metabolite-id-stage-stats-grid-header,
@@ -2993,8 +3063,8 @@ details summary:hover { color: var(--accent); }
     padding: 0.65rem 0.75rem;
 }
 
-.metabolite-id-stage-stats-grid-header:nth-child(11n),
-.metabolite-id-stage-stats-grid-cell:nth-child(11n) {
+.metabolite-id-stage-stats-grid-header:nth-child(12n),
+.metabolite-id-stage-stats-grid-cell:nth-child(12n) {
     border-right: 0;
 }
 

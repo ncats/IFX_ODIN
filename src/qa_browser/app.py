@@ -3,6 +3,7 @@ import csv
 import gzip
 import hashlib
 import importlib.util
+import inspect
 import io
 import json
 import math
@@ -71,6 +72,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 
 
 @asynccontextmanager
@@ -81,6 +83,11 @@ async def _app_lifespan(_app: FastAPI):
 
 app = FastAPI(title="QA Browser", lifespan=_app_lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount(
+    "/ramp-id-qa/about",
+    StaticFiles(directory=str(RAMP_ID_QA_ABOUT_DIR), html=True),
+    name="ramp_id_qa_about",
+)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["root_path"] = ""
 
@@ -181,6 +188,9 @@ _WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS = [
     "UniProtKB",
     "PharmGKB.DRUG",
 ]
+_WIKIPATHWAYS_IGNORED_SOURCE_FIELD_DEFAULTS = [
+    "bdbKeggCompound",
+]
 _LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
@@ -210,7 +220,7 @@ _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_wikipathways_prefixes",
         "label": "Ignore WikiPathways prefixes",
-        "description": "Drop WikiPathways-reported equivalence edges to configured identifier prefixes.",
+        "description": "Drop WikiPathways-reported equivalence edges to configured identifier prefixes or BridgeDb source fields.",
         "parameters": [
             {
                 "id": "prefixes",
@@ -218,6 +228,13 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "type": "textarea",
                 "default": "\n".join(_WIKIPATHWAYS_IGNORED_PREFIX_DEFAULTS),
                 "placeholder": "PUBCHEM.SUBSTANCE\nKEGG.DRUG\nReactome",
+            },
+            {
+                "id": "source_fields",
+                "label": "Source fields",
+                "type": "textarea",
+                "default": "\n".join(_WIKIPATHWAYS_IGNORED_SOURCE_FIELD_DEFAULTS),
+                "placeholder": "bdbKeggCompound",
             },
         ],
     },
@@ -239,6 +256,11 @@ _METABOLITE_HARMONIZATION_RULES = [
         "id": "remove_refmet_only_metabolites",
         "label": "Cleanup: Remove RefMet-only Metabolites",
         "description": "Remove harmonized metabolites whose surviving equivalence support is only RefMet. Use this last.",
+    },
+    {
+        "id": "remove_enrichment_only_metabolites",
+        "label": "Cleanup: Remove Secondary-Source-Only Metabolites",
+        "description": "Remove harmonized metabolites whose only sourcing is from secondary databases (RefMet, PubChem, ChEBI, LipidMaps) and have no meaningful biological connections. Subsumes the RefMet-only cleanup. Use this last.",
     },
     {
         "id": "merge_shared_inchikey_prefix",
@@ -271,6 +293,8 @@ _metabolite_snapshot_jobs: dict = {}
 _metabolite_snapshot_jobs_lock = threading.Lock()
 _METABOLITE_MW_SPREAD_WARNING_THRESHOLD = 0.10
 _METABOLITE_MW_SPREAD_WARNING_LIMIT = 50
+_METABOLITE_DENYLIST_STILL_MERGED_LIMIT = 50
+_METABOLITE_COMPARE_MAX_IDS = 500
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
 }
@@ -307,6 +331,25 @@ def _is_qa_visible_edge_collection(collection_name: str) -> bool:
 _GENERIC_STRUCTURE_TOKEN_RE = re.compile(r"(?<![A-Za-z])R\d*(?![a-z])")
 
 
+def _harmonization_code_fingerprint() -> str:
+    """Short hash of the functions that most affect harmonization results.
+
+    Stored in each stage doc so mismatches across a pipeline's stages are
+    immediately detectable (different fingerprint = different server code).
+    """
+    code = "\n".join(
+        inspect.getsource(fn)
+        for fn in [
+            _value_has_generic_structure_token,
+            _load_generic_structure_ids,
+            _wikipathways_xref_only_ids_from_rows,
+            _filter_identifier_support_for_rules,
+            _active_metabolite_identifier_mapping_edges_for_rules,
+        ]
+    )
+    return hashlib.sha1(code.encode()).hexdigest()[:12]
+
+
 def _structure_values_for_generic_check(structure: dict) -> List[tuple[str, str]]:
     values = []
     for field in ("smiles", "formula", "inchi"):
@@ -317,7 +360,7 @@ def _structure_values_for_generic_check(structure: dict) -> List[tuple[str, str]
 
 
 def _value_has_generic_structure_token(field: str, value: str) -> bool:
-    if "*" in value:
+    if field != "inchi" and "*" in value:  # * is multiplicity in InChI, not a wildcard
         return True
     if "[R" in value or "(R)" in value:
         return True
@@ -482,16 +525,21 @@ def _normalize_metabolite_rule_parameters(rule_ids: List[str], rule_parameters: 
     normalized = {}
     submitted = rule_parameters or {}
     for rule_id in rule_ids:
+        rule = next((item for item in _METABOLITE_HARMONIZATION_RULES if item["id"] == rule_id), None)
         defaults = _default_metabolite_rule_parameters(rule_id)
         if not defaults:
             continue
+        parameter_types = {
+            parameter["id"]: parameter.get("type")
+            for parameter in (rule or {}).get("parameters", [])
+        }
         normalized[rule_id] = {}
         for parameter_id, default_value in defaults.items():
             raw_value = submitted.get(rule_id, {}).get(parameter_id, default_value)
             if parameter_id == "mw_cutoff":
                 parsed_value = _parse_optional_float(raw_value)
                 normalized[rule_id][parameter_id] = parsed_value if parsed_value is not None else default_value
-            elif parameter_id == "prefixes":
+            elif parameter_types.get(parameter_id) == "textarea":
                 normalized[rule_id][parameter_id] = _normalize_prefix_list(raw_value)
             else:
                 normalized[rule_id][parameter_id] = raw_value
@@ -836,10 +884,100 @@ def _metabolite_support_source_name(source) -> str:
     return str(source).strip().split("\t", 1)[0]
 
 
+def _wikipathways_xref_only_ids_from_rows(
+    mapping_rows: Iterable[dict],
+    pathway_primary_ids: Iterable[str],
+    ignored_source_fields: Iterable[str],
+) -> set:
+    ignored_fields = {
+        str(source_field).strip().lower()
+        for source_field in ignored_source_fields
+        if source_field is not None and str(source_field).strip()
+    }
+    if not ignored_fields:
+        return set()
+
+    primary_ids = {
+        identifier
+        for identifier in pathway_primary_ids
+        if identifier
+    }
+    source_fields_by_xref_id: Dict[str, set] = {}
+    for edge in mapping_rows:
+        start_id = edge.get("start_id")
+        end_id = edge.get("end_id")
+        for detail in edge.get("details") or []:
+            if str(detail.get("source") or "").strip().lower() != "wikipathways":
+                continue
+            source_id = detail.get("source_id")
+            source_field = str(detail.get("source_field") or "").strip().lower()
+            if not source_id or not source_field:
+                continue
+            primary_ids.add(source_id)
+            if source_id == start_id:
+                xref_id = end_id
+            elif source_id == end_id:
+                xref_id = start_id
+            else:
+                continue
+            if xref_id and xref_id != source_id:
+                source_fields_by_xref_id.setdefault(xref_id, set()).add(source_field)
+
+    return {
+        identifier
+        for identifier, source_fields in source_fields_by_xref_id.items()
+        if identifier not in primary_ids
+        and source_fields
+        and source_fields.issubset(ignored_fields)
+    }
+
+
+def _load_wikipathways_xref_only_ids_for_ignored_source_fields(
+    db,
+    ignored_source_fields: Iterable[str],
+) -> set:
+    mapping_rows = db.aql.execute(
+        """
+        FOR e IN MetaboliteIdentifierMappingEdge
+          FILTER LENGTH(
+            FOR detail IN e.details || []
+              FILTER LOWER(detail.source || "") == "wikipathways"
+              RETURN 1
+          ) > 0
+          RETURN {
+            start_id: e.start_id,
+            end_id: e.end_id,
+            details: e.details || []
+          }
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    pathway_primary_ids = db.aql.execute(
+        """
+        FOR e IN MetabolitePathwayEdge
+          FILTER LENGTH(
+            FOR detail IN e.details || []
+              FILTER LOWER(detail.source || "") == "wikipathways"
+              RETURN 1
+          ) > 0
+          RETURN DISTINCT e.start_id
+        """,
+        batch_size=10000,
+        max_runtime=600,
+    )
+    return _wikipathways_xref_only_ids_from_rows(
+        mapping_rows,
+        pathway_primary_ids,
+        ignored_source_fields,
+    )
+
+
 def _filter_identifier_support_for_rules(
     support_by_id: Dict[str, set],
     rule_ids: List[str],
     rule_parameters: dict,
+    wikipathways_ignored_source_field_ids: Optional[set] = None,
 ) -> Dict[str, set]:
     filtered = {identifier: set(sources) for identifier, sources in support_by_id.items()}
     source_prefix_rules = [
@@ -860,6 +998,14 @@ def _filter_identifier_support_for_rules(
                     source for source in sources
                     if str(source).lower() != source_name
                 }
+    if "ignore_wikipathways_prefixes" in rule_ids:
+        for identifier in wikipathways_ignored_source_field_ids or set():
+            if identifier not in filtered:
+                continue
+            filtered[identifier] = {
+                source for source in filtered[identifier]
+                if str(source).lower() != "wikipathways"
+            }
     return filtered
 
 
@@ -880,10 +1026,15 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             for prefix in rule_parameters.get("ignore_hmdb_prefixes", {}).get("prefixes", [])
         }
     wikipathways_ignored_prefixes = set()
+    wikipathways_ignored_source_fields = set()
     if "ignore_wikipathways_prefixes" in rule_ids:
         wikipathways_ignored_prefixes = {
             prefix.lower()
             for prefix in rule_parameters.get("ignore_wikipathways_prefixes", {}).get("prefixes", [])
+        }
+        wikipathways_ignored_source_fields = {
+            field
+            for field in rule_parameters.get("ignore_wikipathways_prefixes", {}).get("source_fields", [])
         }
     lipidmaps_ignored_prefixes = set()
     if "ignore_lipidmaps_prefixes" in rule_ids:
@@ -900,6 +1051,8 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
         "hmdb_ignored_prefix_count": len(hmdb_ignored_prefixes),
         "wikipathways_ignored_prefixes": sorted(wikipathways_ignored_prefixes),
         "wikipathways_ignored_prefix_count": len(wikipathways_ignored_prefixes),
+        "wikipathways_ignored_source_fields": sorted(wikipathways_ignored_source_fields),
+        "wikipathways_ignored_source_field_count": len(wikipathways_ignored_source_fields),
         "lipidmaps_ignored_prefixes": sorted(lipidmaps_ignored_prefixes),
         "lipidmaps_ignored_prefix_count": len(lipidmaps_ignored_prefixes),
         "ignored_edge_count": 0,
@@ -964,6 +1117,20 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
                 summary[f"{summary_prefix}_ignored_detail_count"] += removed_count
                 if removed_count and not active_details:
                     summary[f"{summary_prefix}_ignored_edge_count"] += 1
+        if wikipathways_ignored_source_fields:
+            before_count = len(active_details)
+            active_details = [
+                detail for detail in active_details
+                if not (
+                    str(detail.get("source") or "").lower() == "wikipathways"
+                    and detail.get("source_field") in wikipathways_ignored_source_fields
+                )
+            ]
+            removed_count = before_count - len(active_details)
+            if removed_count:
+                summary["wikipathways_prefix_ignored_detail_count"] += removed_count
+                if not active_details:
+                    summary["wikipathways_prefix_ignored_edge_count"] += 1
         if details and not active_details:
             summary["ignored_edge_count"] += 1
             continue
@@ -1145,6 +1312,78 @@ def _remove_refmet_only_metabolites(
     }
 
 
+_SECONDARY_SOURCES = {"refmet", "pubchem", "chebi", "lipidmaps"}
+
+_BIO_CONTEXT_EDGE_COLLECTIONS = [
+    "MetabolitePathwayEdge",
+    "HmdbMetaboliteProteinAssociationEdge",
+    "RheaMetaboliteReactionEdge",
+    "MetaboliteClassificationEdge",
+    "HmdbMetaboliteOntologyEdge",
+]
+
+
+def _load_bio_connected_ids(db) -> set:
+    connected = set()
+    for coll in _BIO_CONTEXT_EDGE_COLLECTIONS:
+        for doc_id in db.aql.execute(
+            f"FOR e IN {coll} RETURN DISTINCT e._from", batch_size=10000
+        ):
+            connected.add(doc_id.split("/", 1)[-1])
+    return connected
+
+
+def _remove_enrichment_only_metabolites(
+    active_ids: set,
+    active_edges: List[dict],
+    groups: List[List[str]],
+    support_by_id: Dict[str, set],
+    bio_connected_ids: set,
+) -> tuple[set, List[dict], List[List[str]], dict]:
+    removed_ids = set()
+
+    def is_secondary_only(identifiers: Iterable[str]) -> bool:
+        sources = {
+            _metabolite_support_source_name(source).lower()
+            for identifier in identifiers
+            for source in support_by_id.get(identifier, set())
+            if source is not None and str(source).strip()
+        }
+        if not sources or not (sources <= _SECONDARY_SOURCES):
+            return False
+        return not any(identifier in bio_connected_ids for identifier in identifiers)
+
+    kept_groups = []
+    removed_group_count = 0
+    for members in groups:
+        if is_secondary_only(members):
+            removed_group_count += 1
+            removed_ids.update(members)
+        else:
+            kept_groups.append(members)
+
+    grouped_ids = {member_id for members in groups for member_id in members}
+    enrichment_singleton_ids = {
+        identifier
+        for identifier in active_ids
+        if identifier not in grouped_ids and is_secondary_only([identifier])
+    }
+    removed_ids.update(enrichment_singleton_ids)
+
+    filtered_active_ids = set(active_ids) - removed_ids
+    filtered_active_edges = [
+        edge for edge in active_edges
+        if edge["start_id"] in filtered_active_ids and edge["end_id"] in filtered_active_ids
+    ]
+    return filtered_active_ids, filtered_active_edges, kept_groups, {
+        "enrichment_only_removed_metabolite_count": removed_group_count + len(enrichment_singleton_ids),
+        "enrichment_only_removed_group_count": removed_group_count,
+        "enrichment_only_removed_singleton_count": len(enrichment_singleton_ids),
+        "enrichment_only_removed_identifier_count": len(removed_ids),
+        "enrichment_only_removed_edge_count": len(active_edges) - len(filtered_active_edges),
+    }
+
+
 def _load_metabolite_identifier_handles(db, identifier_ids: set) -> Dict[str, str]:
     handles_by_id: Dict[str, str] = {}
     for identifiers in _chunked_records(sorted(identifier_ids), 5000):
@@ -1277,7 +1516,25 @@ def _ensure_harmonization_stage(
 
     created_at = datetime.now(timezone.utc).isoformat()
     support_by_id = _load_metabolite_identifier_source_support(db)
-    filtered_support_by_id = _filter_identifier_support_for_rules(support_by_id, rule_ids, rule_parameters)
+    wikipathways_ignored_source_fields = (
+        rule_parameters.get("ignore_wikipathways_prefixes", {}).get("source_fields", [])
+        if "ignore_wikipathways_prefixes" in rule_ids
+        else []
+    )
+    wikipathways_ignored_source_field_ids = (
+        _load_wikipathways_xref_only_ids_for_ignored_source_fields(
+            db,
+            wikipathways_ignored_source_fields,
+        )
+        if wikipathways_ignored_source_fields
+        else set()
+    )
+    filtered_support_by_id = _filter_identifier_support_for_rules(
+        support_by_id,
+        rule_ids,
+        rule_parameters,
+        wikipathways_ignored_source_field_ids,
+    )
     active_ids = {
         identifier
         for identifier, sources in filtered_support_by_id.items()
@@ -1307,6 +1564,22 @@ def _ensure_harmonization_stage(
             groups,
             filtered_support_by_id,
         )
+    enrichment_only_summary = {
+        "enrichment_only_removed_metabolite_count": 0,
+        "enrichment_only_removed_group_count": 0,
+        "enrichment_only_removed_singleton_count": 0,
+        "enrichment_only_removed_identifier_count": 0,
+        "enrichment_only_removed_edge_count": 0,
+    }
+    if "remove_enrichment_only_metabolites" in rule_ids:
+        bio_connected_ids = _load_bio_connected_ids(db)
+        active_ids, active_edges, groups, enrichment_only_summary = _remove_enrichment_only_metabolites(
+            active_ids,
+            active_edges,
+            groups,
+            filtered_support_by_id,
+            bio_connected_ids,
+        )
     non_singleton_member_count = sum(len(members) for members in groups)
     singleton_count = max(len(active_ids) - non_singleton_member_count, 0)
     summary = {
@@ -1314,6 +1587,10 @@ def _ensure_harmonization_stage(
         **edge_summary,
         **merge_summary,
         **refmet_only_summary,
+        **enrichment_only_summary,
+        "wikipathways_ignored_source_field_identifier_count": len(
+            wikipathways_ignored_source_field_ids
+        ),
         "active_identifier_count": len(active_ids),
         "active_edge_count": len(active_edges),
         "harmonized_metabolite_count": len(groups),
@@ -1324,6 +1601,9 @@ def _ensure_harmonization_stage(
     }
     mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
     mw_validation = _build_harmonization_stage_mw_validation(groups, mass_values_by_id)
+    denylist_rule_enabled = "ignore_ramp_mapping_denylist" in rule_ids
+    denylist_pairs = _load_ramp_mapping_denylist_pairs() if denylist_rule_enabled else set()
+    denylist_validation = _build_harmonization_stage_denylist_validation(groups, denylist_pairs, denylist_rule_enabled)
     stage_doc = {
         "_key": stage_key,
         "id": f"HarmonizationStage:{stage_key}",
@@ -1333,6 +1613,7 @@ def _ensure_harmonization_stage(
         "status": "complete",
         "graph_database": "metabolite_harmonization",
         "engine_version": _HARMONIZATION_ENGINE_VERSION,
+        "code_fingerprint": _harmonization_code_fingerprint(),
         "stage_index": stage_index,
         "rule_ids": rule_ids,
         "rule_parameters": rule_parameters,
@@ -1340,6 +1621,7 @@ def _ensure_harmonization_stage(
         "summary": summary,
         "validation": {
             "mw_spread": mw_validation,
+            "denylist_still_merged": denylist_validation,
         },
         "materialization": {
             "active_identifier_chunks": _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
@@ -1491,6 +1773,7 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
         summary = stage.get("summary") or {}
         distribution = distribution_by_stage.get(stage["_key"], {})
         mw_validation = _harmonization_stage_mw_validation_from_doc(stage)
+        denylist_validation = _harmonization_stage_denylist_validation_from_doc(stage)
         stage["overview_stats"] = {
             "active_identifier_count": summary.get("active_identifier_count", 0),
             "clique_count": summary.get("clique_count", 0),
@@ -1503,6 +1786,9 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
             "ignored_edge_count": summary.get("ignored_edge_count", 0),
             "mw_warning_count": mw_validation.get("warning_count", 0),
             "mw_validation_computed": mw_validation.get("computed", False),
+            "denylist_warning_count": denylist_validation.get("warning_count", 0),
+            "denylist_validation_computed": denylist_validation.get("computed", False),
+            "denylist_rule_enabled": denylist_validation.get("rule_enabled", False),
             "max_size": distribution.get("max_size") or (
                 (summary.get("largest_clique_sizes") or [0])[0]
             ),
@@ -1560,11 +1846,14 @@ def _list_harmonization_pipeline_stage_overview_stats(pipelines: List[dict]) -> 
         stages.sort(key=_stage_sort_key)
         if not stages:
             continue
+        fingerprints = {s.get("code_fingerprint") for s in stages if s.get("code_fingerprint")}
         pipeline_stats.append({
             "pipeline_key": pipeline.get("_key"),
             "pipeline_name": pipeline.get("name"),
             "run": latest_run,
             "stages": stages,
+            "code_fingerprint_mismatch": len(fingerprints) > 1,
+            "code_fingerprints": sorted(fingerprints),
         })
     return pipeline_stats
 
@@ -1942,6 +2231,7 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
         "largest_groups": largest_groups,
         "source_counts": source_counts,
         "mw_validation": _harmonization_stage_mw_validation_from_doc(stage),
+        "denylist_validation": _harmonization_stage_denylist_validation_from_doc(stage),
     }
 
 
@@ -2641,7 +2931,7 @@ def _build_harmonization_stage_mw_validation(
             "spread": spread,
             "spread_percent": spread * 100,
             "member_mass_examples": _metabolite_member_mass_examples(member_rows),
-            "comparison_ids": " ".join(members[:25]),
+            "comparison_ids": " ".join(members[:_METABOLITE_COMPARE_MAX_IDS]),
         })
     warnings.sort(key=lambda item: (-(item["spread"] or 0), -(item["size"] or 0), item.get("representative_id") or ""))
     return {
@@ -2651,6 +2941,71 @@ def _build_harmonization_stage_mw_validation(
         "warning_count": len(warnings),
         "display_limit": limit,
         "warnings": warnings[:limit],
+    }
+
+
+def _build_harmonization_stage_denylist_validation(
+    groups: List[List[str]],
+    denylist_pairs: set[tuple[str, str]],
+    rule_enabled: bool,
+    limit: int = _METABOLITE_DENYLIST_STILL_MERGED_LIMIT,
+) -> dict:
+    group_index_by_id: Dict[str, int] = {}
+    for rank, members in enumerate(groups, start=1):
+        for member_id in members:
+            group_index_by_id[member_id] = rank
+
+    pairs_by_rank: Dict[int, List[tuple[str, str]]] = {}
+    for left, right in sorted(denylist_pairs):
+        left_rank = group_index_by_id.get(left)
+        right_rank = group_index_by_id.get(right)
+        if left_rank is None or right_rank is None or left_rank != right_rank:
+            continue
+        pairs_by_rank.setdefault(left_rank, []).append((left, right))
+
+    total_pair_count = sum(len(pairs) for pairs in pairs_by_rank.values())
+
+    warnings = []
+    for rank, pairs in pairs_by_rank.items():
+        members = groups[rank - 1]
+        flagged_ids = sorted({identifier for pair in pairs for identifier in pair})
+        remaining_members = [member_id for member_id in members if member_id not in flagged_ids]
+        ordered_member_ids = flagged_ids + remaining_members
+        warnings.append({
+            "rank_by_size": rank,
+            "size": len(members),
+            "pair_count": len(pairs),
+            "pairs": [{"left_id": left, "right_id": right} for left, right in pairs],
+            "sample_member_ids": ordered_member_ids[:12],
+            "comparison_ids": " ".join(ordered_member_ids[:_METABOLITE_COMPARE_MAX_IDS]),
+        })
+    warnings.sort(key=lambda item: (-(item["pair_count"] or 0), -(item["size"] or 0), item["rank_by_size"]))
+    return {
+        "computed": True,
+        "rule_enabled": rule_enabled,
+        "denylist_pair_count": len(denylist_pairs),
+        "warning_count": total_pair_count,
+        "affected_clique_count": len(pairs_by_rank),
+        "display_limit": limit,
+        "warnings": warnings[:limit],
+    }
+
+
+def _harmonization_stage_denylist_validation_from_doc(
+    stage: dict,
+    limit: int = _METABOLITE_DENYLIST_STILL_MERGED_LIMIT,
+) -> dict:
+    existing = (stage.get("validation") or {}).get("denylist_still_merged")
+    if isinstance(existing, dict):
+        return existing
+    return {
+        "computed": False,
+        "rule_enabled": False,
+        "denylist_pair_count": 0,
+        "warning_count": 0,
+        "affected_clique_count": 0,
+        "display_limit": limit,
+        "warnings": [],
     }
 
 
@@ -3058,20 +3413,74 @@ def _load_metabolite_snapshot_union(
             ),
         })
 
-    sankey = _build_metabolite_snapshot_sankey(snapshot_sections)
+    sankeys = _build_metabolite_snapshot_sankeys(snapshot_sections)
     return {
         "memberships": memberships,
         "member_ids": union_member_ids,
         "snapshot_graphs": snapshot_sections,
-        "sankey": sankey,
+        "sankeys": sankeys,
     }
 
 
-def _build_metabolite_snapshot_sankey(snapshot_sections: List[dict]) -> dict:
+def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[dict]:
+    """Build one stage-flow Sankey for each pipeline represented by the stages."""
+    sections_by_key = {
+        section["snapshot_key"]: section
+        for section in snapshot_sections
+    }
+    pipelines = _list_harmonization_pipelines(limit=100)
+    sankeys = []
+    assigned_stage_keys = set()
+    for pipeline in pipelines:
+        latest_run = (pipeline.get("runs") or [None])[0] or {}
+        ordered_stage_keys = [
+            stage.get("_key")
+            for stage in sorted(latest_run.get("stages") or [], key=_stage_sort_key)
+            if stage.get("_key") in sections_by_key
+        ]
+        if not ordered_stage_keys:
+            continue
+        assigned_stage_keys.update(ordered_stage_keys)
+        sections = [sections_by_key[key] for key in ordered_stage_keys]
+        sankeys.append({
+            "pipeline_key": pipeline.get("_key"),
+            "pipeline_name": pipeline.get("name") or pipeline.get("_key"),
+            "sankey": _build_metabolite_snapshot_sankey(sections, ordered_stage_keys),
+        })
+
+    unassigned_sections = [
+        section for section in snapshot_sections
+        if section.get("snapshot_key") not in assigned_stage_keys
+    ]
+    if unassigned_sections:
+        unassigned_sections.sort(key=lambda section: section.get("snapshot_created_at") or "")
+        sankeys.append({
+            "pipeline_key": "unassigned",
+            "pipeline_name": "Stages not assigned to a pipeline",
+            "sankey": _build_metabolite_snapshot_sankey(
+                unassigned_sections,
+                [section["snapshot_key"] for section in unassigned_sections],
+            ),
+        })
+    return sankeys
+
+
+def _build_metabolite_snapshot_sankey(
+    snapshot_sections: List[dict],
+    ordered_snapshot_keys: Optional[List[str]] = None,
+) -> dict:
     nodes = []
     links_by_pair: Dict[tuple[str, str], dict] = {}
     node_ids = set()
-    ordered_sections = sorted(snapshot_sections, key=lambda section: section.get("snapshot_created_at") or "")
+    if ordered_snapshot_keys:
+        section_by_key = {section["snapshot_key"]: section for section in snapshot_sections}
+        ordered_sections = [
+            section_by_key[key]
+            for key in ordered_snapshot_keys
+            if key in section_by_key
+        ]
+    else:
+        ordered_sections = sorted(snapshot_sections, key=lambda section: section.get("snapshot_created_at") or "")
     for stage_index, section in enumerate(ordered_sections):
         for clique in section.get("cliques", []):
             node_id = f"{section['snapshot_key']}::{clique['clique_key']}"
@@ -3214,7 +3623,7 @@ def _load_metabolite_identifier_qa(
         result["snapshot_memberships"] = snapshot_union["memberships"]
         result["snapshot_union_ids"] = snapshot_union["member_ids"]
         result["snapshot_graphs"] = snapshot_union["snapshot_graphs"]
-        result["snapshot_sankey"] = snapshot_union["sankey"]
+        result["snapshot_sankeys"] = snapshot_union["sankeys"]
     return result
 
 
@@ -3243,8 +3652,11 @@ def _load_metabolite_identifier_qa_many(
     query_ids = _parse_metabolite_identifier_query(value)
     if not query_ids:
         raise HTTPException(status_code=400, detail="Provide at least one metabolite identifier.")
-    if len(query_ids) > 12:
-        raise HTTPException(status_code=400, detail="Compare 12 or fewer identifiers at a time.")
+    if len(query_ids) > _METABOLITE_COMPARE_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Compare {_METABOLITE_COMPARE_MAX_IDS} or fewer identifiers at a time.",
+        )
 
     results = [
         _load_metabolite_identifier_qa(identifier, snapshot_keys, include_snapshot_union=False)
@@ -3264,7 +3676,7 @@ def _load_metabolite_identifier_qa_many(
     combined_result["snapshot_memberships"] = snapshot_union["memberships"]
     combined_result["snapshot_union_ids"] = snapshot_union["member_ids"]
     combined_result["snapshot_graphs"] = snapshot_union["snapshot_graphs"]
-    combined_result["snapshot_sankey"] = snapshot_union["sankey"]
+    combined_result["snapshot_sankeys"] = snapshot_union["sankeys"]
     combined_result["selected_snapshot_keys"] = snapshot_keys or []
     return combined_result
 

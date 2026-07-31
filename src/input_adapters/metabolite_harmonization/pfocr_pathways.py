@@ -163,7 +163,7 @@ class PfocrPathwayContextAdapter(InputAdapter):
                             MetabolitePathwayDetail(
                                 source=PFOCR_SOURCE,
                                 source_field=record["source_field"],
-                                metabolite_id=metabolite_id,
+                                source_id=metabolite_id,
                                 pathway_id=record["pathway_id"],
                                 pathway_name=record.get("title"),
                                 url=self._figure_url(record["figure_id"]),
