@@ -1172,10 +1172,68 @@ def compute_version_diff(
         {"primary_xref": p, "standard_name": current.concepts_by_pxref[p].get("standard_name", "")}
         for p in sorted(added_pxrefs)[:500]
     ]
-    removed_concepts = [
-        {"primary_xref": p, "standard_name": baseline.concepts_by_pxref[p].get("standard_name", "")}
-        for p in sorted(removed_pxrefs)[:500]
-    ]
+    # Build reverse index: xref_id → set of current primary_xrefs
+    current_xref_owners: dict[str, set[str]] = defaultdict(set)
+    for px, edges in current.edges_by_pxref.items():
+        for e in edges:
+            xid = e.get("xref_id", "")
+            if xid:
+                current_xref_owners[xid].add(px)
+
+    removed_concepts: list[dict[str, str]] = []
+    for p in sorted(removed_pxrefs)[:500]:
+        base_concept = baseline.concepts_by_pxref[p]
+        name = base_concept.get("standard_name", "")
+
+        # Classify removal reason
+        base_edges = baseline.edges_by_pxref.get(p, [])
+        base_xref_ids = [e.get("xref_id", "") for e in base_edges if e.get("xref_id", "")]
+
+        # Check if xrefs moved to another concept (merged)
+        new_owners: set[str] = set()
+        for xid in base_xref_ids:
+            new_owners.update(current_xref_owners.get(xid, set()))
+        new_owners.discard(p)
+
+        # Check if all baseline xrefs were obsolete
+        all_obsolete = (
+            len(base_edges) > 0
+            and all(
+                e.get("xref_is_obsolete", "").lower() in ("true", "1")
+                for e in base_edges
+                if e.get("xref_id", "")
+            )
+        )
+
+        # Check if baseline had decisions that led to removal
+        base_decisions = baseline.decisions_by_pxref.get(p, [])
+        had_omit_decision = any(
+            "omit" in d.get("decision", "").lower() or "drop" in d.get("decision", "").lower()
+            for d in base_decisions
+        )
+
+        if new_owners:
+            merged_into = sorted(new_owners)[:3]
+            reason = f"merged → {', '.join(merged_into)}"
+        elif all_obsolete:
+            reason = "all xrefs obsolete"
+        elif had_omit_decision:
+            reason = "omitted by review decision"
+        elif len(base_xref_ids) == 0:
+            reason = "no xref edges"
+        else:
+            # Check if the primary_xref itself is now an xref under another concept
+            if p in current_xref_owners:
+                absorbed_into = sorted(current_xref_owners[p])[:3]
+                reason = f"absorbed → {', '.join(absorbed_into)}"
+            else:
+                reason = "source no longer provides"
+
+        removed_concepts.append({
+            "primary_xref": p,
+            "standard_name": name,
+            "reason": reason,
+        })
 
     baseline_version = baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("pipeline_version", "unknown")

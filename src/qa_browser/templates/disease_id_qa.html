@@ -1440,9 +1440,9 @@
                 if (diff.removed_concepts.length > 0) {
                     html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
                     html += `<h3>Removed Concepts (${diff.removed_concepts.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
+                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Reason</th></tr></thead><tbody>`;
                     diff.removed_concepts.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
+                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.reason)}</td></tr>`;
                     });
                     html += `</tbody></table></div></div>`;
                 }
