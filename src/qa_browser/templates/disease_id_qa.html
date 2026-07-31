@@ -1154,9 +1154,18 @@
             };
             detailTitle.textContent = data.label || data.id || "Selection";
             detailSub.textContent = data.kind || "";
+            // Keys that should display even when empty (show "(none)" instead of hiding)
+            const showWhenEmpty = new Set(["asserting_sources"]);
             detailBox.innerHTML = keys
-                .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
-                .map((key) => `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+                .filter((key) => {
+                    if (data[key] !== undefined && data[key] !== null && data[key] !== "") return true;
+                    return showWhenEmpty.has(key) && key in data;
+                })
+                .map((key) => {
+                    const val = (data[key] === undefined || data[key] === null || data[key] === "")
+                        ? "(none)" : data[key];
+                    return `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(val)}</span></div>`;
+                })
                 .join("");
 
             // Show concept-specific actions
