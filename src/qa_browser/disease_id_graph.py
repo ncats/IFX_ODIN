@@ -142,7 +142,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         # Source namespace coverage from edges
         seen_ns: set[str] = set()
         for edge in data.edges_by_pxref.get(pxref, []):
-            ns = edge.get("xref_namespace", "").strip()
+            ns = _normalize_ns(edge.get("xref_namespace", "").strip())
             if ns:
                 seen_ns.add(ns)
         for ns in seen_ns:
@@ -242,7 +242,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
             xref_id = edge_row.get("xref_id", "")
             if not xref_id:
                 continue
-            ns = edge_row.get("xref_namespace", "").lower()
+            ns = _normalize_ns(edge_row.get("xref_namespace", "")).lower()
             namespaces.add(ns)
             xref_node_id = f"xref::{xref_id}"
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -254,7 +254,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "id": xref_node_id,
                     "label": xref_display,
                     "kind": "xref",
-                    "xref_namespace": edge_row.get("xref_namespace", ""),
+                    "xref_namespace": _normalize_ns(edge_row.get("xref_namespace", "")),
                     "xref_label": pref_label,
                     "is_obsolete": label_row.get("is_obsolete", ""),
                     "obsolete_detail": label_row.get("obsolete_detail", ""),
@@ -523,7 +523,7 @@ def _concept_to_row(
     source_labels: list[str] = []
     for edge in data.edges_by_pxref.get(pxref, []):
         xref_id = edge.get("xref_id", "")
-        ns = edge.get("xref_namespace", "")
+        ns = _normalize_ns(edge.get("xref_namespace", ""))
         if include_sources and ns.upper() not in include_sources:
             continue
         if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
@@ -833,7 +833,7 @@ def export_sssom(
 
     for pxref, concept in data.concepts_by_pxref.items():
         for edge in data.edges_by_pxref.get(pxref, []):
-            ns = edge.get("xref_namespace", "")
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
             if include_sources and ns.upper() not in {s.upper() for s in include_sources}:
                 continue
             xref_id = edge.get("xref_id", "")
@@ -880,7 +880,7 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
     for edge in edges:
         xrefs.append({
             "xref_id": edge.get("xref_id", ""),
-            "namespace": edge.get("xref_namespace", ""),
+            "namespace": _normalize_ns(edge.get("xref_namespace", "")),
             "match_type": edge.get("match_type", ""),
             "confidence": edge.get("xref_confidence", ""),
             "agreement_level": edge.get("agreement_level", ""),
@@ -1253,7 +1253,7 @@ def build_provenance_chain(
     for edge in data.edges_by_pxref.get(pxref, []):
         steps.append({
             "step": "source_assertion",
-            "source": edge.get("xref_namespace", ""),
+            "source": _normalize_ns(edge.get("xref_namespace", "")),
             "xref": edge.get("xref_id", ""),
             "match_type": edge.get("match_type", ""),
             "source_asserted": edge.get("source_asserted", ""),
