@@ -1,0 +1,40 @@
+global:
+  qc_mode: true
+
+hmdb:
+  # download step (if you have hmdb_download wired similarly)
+  base_url: "https://hmdb.ca/system/downloads/current/"   # example; use what your downloader expects
+  raw_file: "src/data/publicdata/metabolite_data/raw/hmdb_metabolites.xml"
+  dl_metadata_file: "src/data/publicdata/metabolite_data/metadata/hmdb_download_metadata.json"
+  download_log_file: "src/data/publicdata/metabolite_data/metadata/hmdb_download.log"
+
+  # transform step
+  cleaned_file: "src/data/publicdata/metabolite_data/cleaned/sources/hmdb_metabolites.tsv"
+  transform_metadata_file: "src/data/publicdata/metabolite_data/metadata/hmdb_transform_metadata.json"
+  log_file: "src/data/publicdata/metabolite_data/metadata/hmdb_transform.log"
+
+  # optional transformer controls (match the script I provided)
+  output_sep: "\t"
+  include_all_fields_json: false
+  max_diseases: 200
+  max_pathways: 200
+  max_proteins: 500
+
+  annotation_tags:
+    - description
+    - chemical_formula
+    - average_molecular_weight
+    - monisotopic_molecular_weight
+    - iupac_name
+    - smiles
+    - inchi
+    - inchikey
+    - cas_registry_number
+    - pubchem_compound_id
+    - chebi_id
+    - kegg_id
+    - drugbank_id
+    - foodb_id
+    - metlin_id
+    - wikipedia_id
+    - state

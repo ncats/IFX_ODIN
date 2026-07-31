@@ -1,180 +1,211 @@
 #!/usr/bin/env python
-
-# mondo_download.py - Modular MONDO downloader with optimized diff tracking
+# mondo_download.py - Download MONDO ontology with metadata/hash tracking only
 
 import os
-import sys
-import yaml
 import json
+import yaml
+import hashlib
 import logging
-import time
 import argparse
-import shutil
-from datetime import datetime
-from pathlib import Path
 import requests
-from deepdiff import DeepDiff
+import email.utils
+from pathlib import Path
+from datetime import datetime
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    handlers = [
-        logging.FileHandler(log_file, mode="a"),
-        logging.StreamHandler(sys.stdout),
-    ]
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=handlers,
-        force=True,
+        handlers=[
+            logging.FileHandler(log_file, mode="a"),
+            logging.StreamHandler()
+        ],
+        force=True
     )
+
+
+def sha256sum(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def head_metadata(url: str):
+    out = {
+        "last_modified": "unknown",
+        "last_modified_iso": None,
+        "etag": None,
+        "content_length": None,
+    }
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=30)
+        r.raise_for_status()
+
+        lm = r.headers.get("Last-Modified") or r.headers.get("last-modified")
+        etag = r.headers.get("ETag") or r.headers.get("etag")
+        clen = r.headers.get("Content-Length") or r.headers.get("content-length")
+
+        if lm:
+            out["last_modified"] = lm
+            try:
+                dt = email.utils.parsedate_to_datetime(lm)
+                out["last_modified_iso"] = dt.isoformat()
+            except Exception:
+                out["last_modified_iso"] = None
+
+        out["etag"] = etag
+        out["content_length"] = int(clen) if clen and str(clen).isdigit() else None
+
+    except Exception as e:
+        logging.warning(f"MONDO HEAD failed for {url}: {e}")
+
+    return out
+
+
+def should_skip_download(dest: Path, old_meta: dict, remote_meta: dict) -> bool:
+    if not dest.exists():
+        return False
+
+    old_lm = old_meta.get("last_modified")
+    old_etag = old_meta.get("etag")
+    old_clen = old_meta.get("content_length")
+
+    new_lm = remote_meta.get("last_modified")
+    new_etag = remote_meta.get("etag")
+    new_clen = remote_meta.get("content_length")
+
+    if old_lm and new_lm and old_etag and new_etag:
+        return old_lm == new_lm and old_etag == new_etag
+
+    if old_lm and new_lm:
+        if old_lm == new_lm:
+            if old_clen is not None and new_clen is not None:
+                return old_clen == new_clen
+            return True
+
+    if old_etag and new_etag:
+        return old_etag == new_etag
+
+    return False
+
+
+def download_stream_to_temp(url: str, temp_path: Path):
+    response = requests.get(url, stream=True, timeout=(30, 180))
+    response.raise_for_status()
+
+    total_bytes = int(response.headers.get("Content-Length", 0))
+    written = 0
+
+    with open(temp_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if not chunk:
+                continue
+            f.write(chunk)
+            written += len(chunk)
+
+            if total_bytes > 0 and written % (25 * 1024 * 1024) < len(chunk):
+                pct = written / total_bytes * 100
+                logging.info(f"  Downloaded {written:,}/{total_bytes:,} bytes ({pct:.1f}%)")
+            elif total_bytes == 0 and written % (50 * 1024 * 1024) < len(chunk):
+                logging.info(f"  Downloaded {written:,} bytes...")
+
 
 class MondoDownloader:
     def __init__(self, full_config):
-        self.full_config = full_config
         self.cfg = full_config["mondo"]
-        self.qc_mode = full_config.get("global", {}).get("qc_mode", False)
-        setup_logging(os.path.abspath(self.cfg["log_file"]))
-        self.download_url = self.cfg.get("download_url", "https://purl.obolibrary.org/obo/mondo.json")
-        self.mondo_file = Path(self.cfg["mondo_file"])
+        setup_logging(self.cfg["log_file"])
+
+        self.download_url = self.cfg["download_url"]
+        self.owl_file = Path(self.cfg["raw_file"])
         self.metadata_file = Path(self.cfg["dl_metadata_file"])
 
-        os.makedirs(self.mondo_file.parent, exist_ok=True)
+        os.makedirs(self.owl_file.parent, exist_ok=True)
         os.makedirs(self.metadata_file.parent, exist_ok=True)
 
-    def compute_structured_diff(self, old_file, new_file):
-        base = self.mondo_file.stem
-        summary_file = self.mondo_file.with_name(f"{base}.diff.txt")
-        changed_ids_file = self.mondo_file.with_name(f"{base}.changed_ids.json")
-        full_diff_file = self.mondo_file.with_name(f"{base}.diff.json")
-
+    def _load_old_metadata(self):
+        if not self.metadata_file.exists():
+            return {}
         try:
-            logging.info("📂 Loading MONDO JSON files for comparison...")
-            with open(old_file, "r", encoding="utf-8") as f1:
-                old_data = json.load(f1)
-            with open(new_file, "r", encoding="utf-8") as f2:
-                new_data = json.load(f2)
-
-            old_graph = {d["@id"]: d for d in old_data.get("@graph", []) if "@id" in d}
-            new_graph = {d["@id"]: d for d in new_data.get("@graph", []) if "@id" in d}
-
-            old_ids = set(old_graph)
-            new_ids = set(new_graph)
-
-            added = sorted(new_ids - old_ids)
-            removed = sorted(old_ids - new_ids)
-            common = old_ids & new_ids
-
-            updated = []
-            for mid in common:
-                if old_graph[mid] != new_graph[mid]:
-                    updated.append(mid)
-
-            changed_ids = added + removed + updated
-            summary = [
-                f"🔄 MONDO DIFF SUMMARY: {base}",
-                f"➕ Added IDs: {len(added)}",
-                f"➖ Removed IDs: {len(removed)}",
-                f"✏️  Updated IDs: {len(updated)}",
-                "",
-                f"Sample Added: {added[:3]}",
-                f"Sample Removed: {removed[:3]}",
-                f"Sample Updated: {updated[:3]}",
-            ]
-            logging.info("\n".join(summary))
-
-            with open(summary_file, "w") as f:
-                f.write("\n".join(summary))
-
-            with open(changed_ids_file, "w") as f:
-                json.dump({"changed_ids": changed_ids}, f, indent=2)
-
-            # Prompt to save full DeepDiff
-            save_full = input("💡 Save full DeepDiff JSON diff as well? (y/N): ").strip().lower()
-            if save_full == "y":
-                from deepdiff import DeepDiff
-                logging.info("🔍 Running full DeepDiff...")
-                start = time.time()
-                diff = DeepDiff(list(old_graph.values()), list(new_graph.values()), ignore_order=True)
-                logging.info(f"✅ Full DeepDiff completed in {time.time() - start:.2f} sec")
-
-                with open(full_diff_file, "w") as f:
-                    json.dump(diff, f, indent=2)
-                logging.info(f"📝 Full JSON diff written: {full_diff_file}")
-            else:
-                full_diff_file = None
-
-            return str(changed_ids_file), str(full_diff_file)
-
+            with open(self.metadata_file) as f:
+                return json.load(f)
         except Exception as e:
-            logging.warning(f"⚠️ Structured diff generation failed: {e}")
-            return None, None
+            logging.warning(f"Could not read old metadata: {e}")
+            return {}
 
     def download(self):
-        tmp_file = self.mondo_file.with_suffix(".json.tmp")
-        backup_file = None
-        changed_ids_path = None
-        full_diff_path = None
-        status = "new"
+        remote_meta = head_metadata(self.download_url)
+        old_meta = self._load_old_metadata()
 
-        try:
-            logging.info(f"🌐 Downloading: {self.download_url}")
-            response = requests.get(self.download_url, stream=True)
-            response.raise_for_status()
+        logging.info("🌐 Remote MONDO metadata:")
+        logging.info(f"  Last-Modified: {remote_meta.get('last_modified')}")
+        logging.info(f"  ETag:          {remote_meta.get('etag')}")
+        logging.info(f"  Content-Length:{remote_meta.get('content_length')}")
 
-            with open(tmp_file, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+        if should_skip_download(self.owl_file, old_meta, remote_meta):
+            logging.info("✅ Skipping MONDO download — remote metadata unchanged.")
+            meta = {
+                **old_meta,
+                "timestamp": datetime.now().isoformat(),
+                "status": "skipped",
+                "last_modified": remote_meta.get("last_modified"),
+                "last_modified_iso": remote_meta.get("last_modified_iso"),
+                "etag": remote_meta.get("etag"),
+                "content_length": remote_meta.get("content_length"),
+            }
+            with open(self.metadata_file, "w") as f:
+                json.dump(meta, f, indent=2)
+            return
 
-            if self.mondo_file.exists():
-                with open(self.mondo_file, "rb") as f1, open(tmp_file, "rb") as f2:
-                    if f1.read() == f2.read():
-                        os.remove(tmp_file)
-                        status = "skipped"
-                        logging.info("✅ No update needed.")
-                    else:
-                        logging.info("🔄 MONDO file update detected.")
-                        backup_file = self.mondo_file.with_name(f"{self.mondo_file.stem}.backup")
-                        shutil.copy2(self.mondo_file, backup_file)
-                        changed_ids_path, full_diff_path = self.compute_structured_diff(backup_file, tmp_file)
-                        os.replace(tmp_file, self.mondo_file)
-                        status = "updated"
-            else:
-                os.replace(tmp_file, self.mondo_file)
+        temp_path = self.owl_file.with_suffix(self.owl_file.suffix + ".tmp")
 
-        finally:
-            # 🧼 Clean up files unless QC mode is on
-            if not self.qc_mode:
-                for f in [changed_ids_path, full_diff_path, str(backup_file) if backup_file else None]:
-                    if f and os.path.exists(f):
-                        os.remove(f)
+        logging.info(f"⬇️  Downloading MONDO from {self.download_url}")
+        download_stream_to_temp(self.download_url, temp_path)
+        logging.info(f"✅ Temp MONDO download saved to {temp_path}")
 
-            # Always clean up temp file if it somehow survives
-            if tmp_file.exists():
-                os.remove(tmp_file)
+        logging.info("🔍 Computing hash for temp download...")
+        new_hash = sha256sum(temp_path)
+        logging.info("✅ Temp hash complete")
 
-        return status, changed_ids_path, full_diff_path
+        old_hash = old_meta.get("sha256")
+        changed = True
 
-    def run(self):
-        status, changed_ids_path, full_diff_path = self.download()
+        if self.owl_file.exists() and old_hash == new_hash:
+            changed = False
+            logging.info("✅ MONDO content hash unchanged after download.")
+            temp_path.unlink(missing_ok=True)
+        else:
+            logging.info("🔄 Replacing old MONDO file...")
+            os.replace(temp_path, self.owl_file)
+            logging.info(f"✅ MONDO raw file updated → {self.owl_file}")
+
+        final_hash = old_hash if not changed else sha256sum(self.owl_file)
 
         meta = {
             "timestamp": datetime.now().isoformat(),
-            "mondo_file": str(self.mondo_file),
-            "mondo_found": self.mondo_file.exists(),
-            "status": status,
-            "changed_ids_json": changed_ids_path,
-            "full_diff_json": full_diff_path,
+            "download_url": self.download_url,
+            "raw_file": str(self.owl_file),
+            "last_modified": remote_meta.get("last_modified"),
+            "last_modified_iso": remote_meta.get("last_modified_iso"),
+            "etag": remote_meta.get("etag"),
+            "content_length": remote_meta.get("content_length"),
+            "sha256": final_hash,
+            "changed": changed,
         }
-
         with open(self.metadata_file, "w") as f:
             json.dump(meta, f, indent=2)
+        logging.info(f"📝 Metadata saved → {self.metadata_file}")
 
-        logging.info(f"📦 Metadata written → {self.metadata_file}")
-        logging.info(f"💾 MONDO file saved at: {self.mondo_file}")
+    def run(self):
+        self.download()
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="MONDO file downloader with diff tracking")
-    parser.add_argument("--config", required=True, help="YAML config path")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Download MONDO ontology")
+    parser.add_argument("--config", required=True, help="Path to YAML config")
     args = parser.parse_args()
 
     with open(args.config) as f:

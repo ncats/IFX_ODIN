@@ -1,135 +1,162 @@
 #!/usr/bin/env python
-
-# orphanet_download.py - Downloads OWL and XML files from Orphanet with diff tracking
+# orphanet_download.py - Download Orphanet OWL/XML with metadata/hash tracking only
 
 import os
-import sys
 import json
+import yaml
+import hashlib
 import logging
 import argparse
-import shutil
-import difflib
 import requests
-import yaml
-from datetime import datetime
+import email.utils
 from pathlib import Path
+from datetime import datetime
+
 
 def setup_logging(log_file):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    handlers = [
-        logging.FileHandler(log_file, mode="a"),
-        logging.StreamHandler(sys.stdout),
-    ]
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=handlers,
-        force=True,
+        handlers=[logging.FileHandler(log_file, mode="a"), logging.StreamHandler()],
+        force=True
     )
+
+
+def sha256sum(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def head_metadata(url: str):
+    out = {"last_modified": "unknown", "last_modified_iso": None, "etag": None, "content_length": None}
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=30)
+        r.raise_for_status()
+        lm = r.headers.get("Last-Modified") or r.headers.get("last-modified")
+        etag = r.headers.get("ETag") or r.headers.get("etag")
+        clen = r.headers.get("Content-Length") or r.headers.get("content-length")
+        if lm:
+            out["last_modified"] = lm
+            try:
+                out["last_modified_iso"] = email.utils.parsedate_to_datetime(lm).isoformat()
+            except Exception:
+                pass
+        out["etag"] = etag
+        out["content_length"] = int(clen) if clen and str(clen).isdigit() else None
+    except Exception as e:
+        logging.warning(f"Orphanet HEAD failed for {url}: {e}")
+    return out
+
+
+def should_skip_download(dest: Path, old_meta: dict, remote_meta: dict) -> bool:
+    if not dest.exists():
+        return False
+    old_lm = old_meta.get("last_modified")
+    old_etag = old_meta.get("etag")
+    old_clen = old_meta.get("content_length")
+    new_lm = remote_meta.get("last_modified")
+    new_etag = remote_meta.get("etag")
+    new_clen = remote_meta.get("content_length")
+    if old_lm and new_lm and old_etag and new_etag:
+        return old_lm == new_lm and old_etag == new_etag
+    if old_lm and new_lm:
+        if old_lm == new_lm:
+            if old_clen is not None and new_clen is not None:
+                return old_clen == new_clen
+            return True
+    if old_etag and new_etag:
+        return old_etag == new_etag
+    return False
+
 
 class OrphanetDownloader:
     def __init__(self, full_config):
         self.cfg = full_config["orphanet"]
-        self.qc_mode = full_config.get("global", {}).get("qc_mode", False)
-
-        setup_logging(os.path.abspath(self.cfg["log_file"]))
-
+        setup_logging(self.cfg["log_file"])
         self.owl_url = self.cfg["owl_url"]
-        self.owl_file = Path(self.cfg["owl_file"])
-
         self.xml_url = self.cfg["xml_url"]
+        self.owl_file = Path(self.cfg["owl_file"])
         self.xml_file = Path(self.cfg["xml_file"])
-
         self.metadata_file = Path(self.cfg["dl_metadata_file"])
 
-        os.makedirs(self.owl_file.parent, exist_ok=True)
-        os.makedirs(self.xml_file.parent, exist_ok=True)
-        os.makedirs(self.metadata_file.parent, exist_ok=True)
+        self.owl_file.parent.mkdir(parents=True, exist_ok=True)
+        self.xml_file.parent.mkdir(parents=True, exist_ok=True)
+        self.metadata_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def download_with_diff(self, url, dest):
-        temp_file = dest.with_suffix(dest.suffix + ".tmp")
-        backup_file = dest.with_name(dest.stem + ".backup")
-        diff_txt = dest.with_name(dest.stem + ".diff.txt")
-        diff_html = dest.with_name(dest.stem + ".diff.html")
+    def _old_meta(self):
+        if not self.metadata_file.exists():
+            return {}
+        try:
+            return json.load(open(self.metadata_file))
+        except Exception:
+            return {}
 
-        logging.info(f"⬇️  Attempting download from: {url}")
-        response = requests.get(url, stream=True)
+    def _download_one(self, url: str, dest: Path, old_meta: dict, label: str):
+        remote_meta = head_metadata(url)
+        old_file_meta = old_meta.get(label, {})
 
-        if response.status_code != 200:
-            logging.error(f"❌ Failed to download {url} (HTTP {response.status_code})")
-            if "ordo" in url.lower():
-                logging.warning(
-                    "⚠️  The hardcoded ORDO OWL version URL may be outdated.\n"
-                    "   👉 Please check https://www.orphadata.com/ordo/ for the latest OWL file link."
-                )
-            elif "en_product6" in url.lower():
-                logging.warning(
-                    "⚠️  The hardcoded XML gene association URL may have changed.\n"
-                    "   👉 Please verify the XML link via https://www.orphadata.com/data/xml/"
-                )
-            raise RuntimeError(f"Download failed: HTTP {response.status_code}")
+        if should_skip_download(dest, old_file_meta, remote_meta):
+            return {
+                **old_file_meta,
+                "status": "skipped",
+                "last_modified": remote_meta.get("last_modified"),
+                "last_modified_iso": remote_meta.get("last_modified_iso"),
+                "etag": remote_meta.get("etag"),
+                "content_length": remote_meta.get("content_length"),
+            }
 
-        with open(temp_file, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1024):
-                f.write(chunk)
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        r = requests.get(url, stream=True, timeout=(30, 180))
+        r.raise_for_status()
 
-        if dest.exists():
-            with open(dest, "rb") as f1, open(temp_file, "rb") as f2:
-                if f1.read() == f2.read():
-                    os.remove(temp_file)
-                    logging.info(f"✅ No change: {dest}")
-                    return "skipped", None, None
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(1024 * 1024):
+                if chunk:
+                    f.write(chunk)
 
-            shutil.copy2(dest, backup_file)
+        new_hash = sha256sum(tmp)
+        old_hash = old_file_meta.get("sha256")
+        changed = True
 
-            with open(backup_file, "r", encoding="utf-8", errors="ignore") as old_f, \
-                open(temp_file, "r", encoding="utf-8", errors="ignore") as new_f:
+        if dest.exists() and new_hash == old_hash:
+            changed = False
+            tmp.unlink(missing_ok=True)
+        else:
+            os.replace(tmp, dest)
 
-                old_lines = old_f.readlines()
-                new_lines = new_f.readlines()
-
-            with open(diff_txt, "w") as f:
-                f.writelines(difflib.unified_diff(old_lines, new_lines, fromfile="old", tofile="new"))
-
-            with open(diff_html, "w") as f:
-                f.write(difflib.HtmlDiff().make_file(old_lines, new_lines, "Old", "New"))
-
-            os.replace(temp_file, dest)
-            logging.info(f"📝 Updated: {dest}")
-            return "updated", str(diff_txt), str(diff_html)
-
-        os.replace(temp_file, dest)
-        logging.info(f"✅ New file saved: {dest}")
-        return "new", None, None
+        return {
+            "url": url,
+            "path": str(dest),
+            "last_modified": remote_meta.get("last_modified"),
+            "last_modified_iso": remote_meta.get("last_modified_iso"),
+            "etag": remote_meta.get("etag"),
+            "content_length": remote_meta.get("content_length"),
+            "sha256": old_hash if not changed else sha256sum(dest),
+            "changed": changed,
+            "status": "updated" if changed else "skipped",
+        }
 
     def run(self):
-        owl_status, owl_diff_txt, owl_diff_html = self.download_with_diff(self.owl_url, self.owl_file)
-        xml_status, xml_diff_txt, xml_diff_html = self.download_with_diff(self.xml_url, self.xml_file)
+        old_meta = self._old_meta()
 
-        if not self.qc_mode:
-            for f in [self.owl_file.with_suffix(".backup"), owl_diff_txt, owl_diff_html,
-                      self.xml_file.with_suffix(".backup"), xml_diff_txt, xml_diff_html]:
-                if f and os.path.exists(f):
-                    os.remove(f)
+        owl_meta = self._download_one(self.owl_url, self.owl_file, old_meta, "owl")
+        xml_meta = self._download_one(self.xml_url, self.xml_file, old_meta, "xml")
 
         meta = {
             "timestamp": datetime.now().isoformat(),
-            "owl_file": str(self.owl_file),
-            "xml_file": str(self.xml_file),
-            "owl_status": owl_status,
-            "xml_status": xml_status,
-            "owl_diff_txt": owl_diff_txt,
-            "owl_diff_html": owl_diff_html,
-            "xml_diff_txt": xml_diff_txt,
-            "xml_diff_html": xml_diff_html,
+            "owl": owl_meta,
+            "xml": xml_meta,
         }
-        with open(self.metadata_file, "w") as f:
-            json.dump(meta, f, indent=2)
-        logging.info(f"📝 Metadata saved → {self.metadata_file}")
+        json.dump(meta, open(self.metadata_file, "w"), indent=2)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Download Orphanet OWL and XML files")
-    parser.add_argument("--config", required=True, help="YAML config path")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.config))
     OrphanetDownloader(cfg).run()

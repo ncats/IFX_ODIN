@@ -27,26 +27,8 @@ import shutil
 # Suppress SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def setup_logging(log_file):
-    root = logging.getLogger()
-    # If we've already added handlers, do nothing.
-    if root.handlers:
-        return
-
-    root.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-    # Always add console handler
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    root.addHandler(ch)
-
-    # And only add file handler if requested
-    if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
+from publicdata.target_data.download_utils import setup_logging
+from publicdata.target_data.shared.output_versioning import save_versioned_output
 
 class TranscriptResolver:
     def __init__(self, full_cfg):
@@ -94,7 +76,7 @@ class TranscriptResolver:
         logging.info("STEP 1: fetch_biomart_data")
 
         output_csv = self.biomart_csv
-        temp_csv   = output_csv + ".temp"
+        temp_csv   = output_csv + ".tmp"
 
         # build the query string
         bm_query = quote("""
@@ -118,13 +100,15 @@ class TranscriptResolver:
 
         # 1) download into temp_csv
         try:
+            print(f"  ⬇ Downloading BioMart data from ensembl.org …")
             with requests.get(url, stream=True, verify=False) as resp:
                 resp.raise_for_status()
-                total = int(resp.headers.get("content-length", 0))
-                with tqdm(total=total, unit="iB", unit_scale=True,
-                          desc=os.path.basename(output_csv)) as bar, \
+                total = int(resp.headers.get("content-length", 0)) or None
+                with tqdm(total=total, unit="B", unit_scale=True, unit_divisor=1024,
+                          desc=os.path.basename(output_csv),
+                          miniters=1, dynamic_ncols=True) as bar, \
                      open(temp_csv, "wb") as tmpf:
-                    for chunk in resp.iter_content(1024):
+                    for chunk in resp.iter_content(65536):
                         tmpf.write(chunk)
                         bar.update(len(chunk))
         except HTTPError as e:
@@ -135,13 +119,43 @@ class TranscriptResolver:
                                 start_time=start, end_time=datetime.now())
             return
 
-        # 2) compute hashes
+        # 2) validate download — BioMart may return HTML or plain-text error pages
+        with open(temp_csv, "r", encoding="utf-8", errors="ignore") as f:
+            first_line = f.readline().strip()
+
+        first_line_lower = first_line.lower()
+        biomart_error = (
+            first_line.startswith("<")
+            or first_line_lower.startswith("<!doctype")
+            or first_line_lower.startswith("query error")
+            or "biomart::exception" in first_line_lower
+            or "could not connect to mysql database" in first_line_lower
+            or "can't connect to mysql server" in first_line_lower
+        )
+
+        if biomart_error:
+            logging.error(
+                "BioMart returned an error response instead of TSV data. First line: %s",
+                first_line
+            )
+            print("  ⚠️  BioMart returned an error response — skipping update, keeping existing data.")
+            os.remove(temp_csv)
+            self.log_provenance(
+                "fetch_biomart_data",
+                "BioMart error response",
+                details={"status": "error_response", "first_line": first_line[:500]},
+                start_time=start,
+                end_time=datetime.now()
+            )
+            return
+
+        # 3) compute hashes
         new_hash = self._compute_hash(temp_csv)
         old_hash = None
         if os.path.exists(output_csv):
             old_hash = self._compute_hash(output_csv)
 
-        # 3) decide action
+        # 4) decide action
         status = None
         diff_txt  = None
         diff_html = None
@@ -166,27 +180,42 @@ class TranscriptResolver:
                 diff_html = os.path.join(qc_dir, f"{base}_diff_{ts}.html")
 
                 try:
-                    with open(backup,  "r", encoding="utf-8", errors="ignore") as fo, \
-                         open(temp_csv, "r", encoding="utf-8", errors="ignore") as fn:
+                    MAX_DIFF_LINES = 50_000  # skip diffs on very large files
+                    with open(backup,  "r", encoding="utf-8", errors="ignore") as fo:
                         old_lines = fo.readlines()
+                    with open(temp_csv, "r", encoding="utf-8", errors="ignore") as fn:
                         new_lines = fn.readlines()
 
-                    # unified diff, zero-context
-                    dtext = "".join(difflib.unified_diff(
-                        old_lines, new_lines,
-                        fromfile="old", tofile="new", n=0
-                    ))
-                    with open(diff_txt, "w", encoding="utf-8") as f:
-                        f.write(dtext)
+                    if max(len(old_lines), len(new_lines)) > MAX_DIFF_LINES:
+                        logging.info(
+                            "Files too large for diff (%d / %d lines, limit %d). "
+                            "Writing line-count summary only.",
+                            len(old_lines), len(new_lines), MAX_DIFF_LINES
+                        )
+                        with open(diff_txt, "w", encoding="utf-8") as f:
+                            f.write(f"old: {len(old_lines)} lines\n"
+                                    f"new: {len(new_lines)} lines\n"
+                                    f"Diff skipped (>{MAX_DIFF_LINES} lines).\n")
+                        diff_html = None
+                    else:
+                        # unified diff, zero-context
+                        print("  generating unified diff …")
+                        dtext = "".join(difflib.unified_diff(
+                            old_lines, new_lines,
+                            fromfile="old", tofile="new", n=0
+                        ))
+                        with open(diff_txt, "w", encoding="utf-8") as f:
+                            f.write(dtext)
 
-                    # HTML diff
-                    html = difflib.HtmlDiff().make_file(
-                        old_lines, new_lines,
-                        fromdesc="old", todesc="new",
-                        context=True, numlines=0
-                    )
-                    with open(diff_html, "w", encoding="utf-8") as f:
-                        f.write(html)
+                        # HTML diff
+                        print("  generating HTML diff …")
+                        html = difflib.HtmlDiff().make_file(
+                            old_lines, new_lines,
+                            fromdesc="old", todesc="new",
+                            context=True, numlines=0
+                        )
+                        with open(diff_html, "w", encoding="utf-8") as f:
+                            f.write(html)
 
                     logging.info("Diffs written: %s, %s", diff_txt, diff_html)
                 except Exception as e:
@@ -219,39 +248,104 @@ class TranscriptResolver:
     def process_biomart_csv(self):
         start = datetime.now()
         logging.info("STEP 2: process_biomart_csv")
+
         df = pd.read_csv(self.biomart_csv, sep="\t", dtype=str)
         print("BioMart original columns:", df.columns.tolist())
+
+        # Support both BioMart GUI/display headers and raw attribute headers
         renames = {
-            "Gene stable ID":                 "ensembl_gene_id",
-            "Transcript stable ID":           "ensembl_transcript_id",
-            "Transcript stable ID version":   "ensembl_transcript_id_version",
-            "Transcript type":                 "ensembl_transcript_type",
-            "Transcript start (bp)":          "ensembl_trans_bp_start",
-            "Transcript end (bp)":            "ensembl_trans_bp_end",
+            # BioMart display labels
+            "Gene stable ID": "ensembl_gene_id",
+            "Transcript stable ID": "ensembl_transcript_id",
+            "Transcript stable ID version": "ensembl_transcript_id_version",
+            "Transcript type": "ensembl_transcript_type",
+            "Transcript start (bp)": "ensembl_trans_bp_start",
+            "Transcript end (bp)": "ensembl_trans_bp_end",
             "Transcription start site (TSS)": "ensembl_trans_start_site",
             "Transcript length (including UTRs and CDS)": "ensembl_trans_length",
-            "Gene name":                      "ensembl_symbol",
-            "Transcript name":                "ensembl_transcript_name",
-            "Transcript count":               "ensembl_transcript_count"
+            "Gene name": "ensembl_symbol",
+            "Transcript name": "ensembl_transcript_name",
+
+            # BioMart attribute-style headers
+            "ensembl_gene_id": "ensembl_gene_id",
+            "ensembl_transcript_id": "ensembl_transcript_id",
+            "ensembl_transcript_id_version": "ensembl_transcript_id_version",
+            "transcript_biotype": "ensembl_transcript_type",
+            "transcript_start": "ensembl_trans_bp_start",
+            "transcript_end": "ensembl_trans_bp_end",
+            "transcription_start_site": "ensembl_trans_start_site",
+            "transcript_length": "ensembl_trans_length",
+            "external_gene_name": "ensembl_symbol",
+            "external_transcript_name": "ensembl_transcript_name",
         }
+
         df.rename(columns=renames, inplace=True)
         logging.info("Renamed BioMart columns")
+
+        # Fail fast if BioMart returned junk or an unexpected schema
+        required = [
+            "ensembl_gene_id",
+            "ensembl_transcript_id",
+            "ensembl_transcript_id_version",
+        ]
+        missing = [c for c in required if c not in df.columns]
+
+        if missing:
+            msg = (
+                f"BioMart file is invalid or missing required columns: {missing}. "
+                f"Observed columns: {df.columns.tolist()}"
+            )
+            logging.error(msg)
+            self.log_provenance(
+                "process_biomart_csv",
+                "ERROR",
+                details={
+                    "missing_columns": missing,
+                    "observed_columns": df.columns.tolist()
+                },
+                start_time=start,
+                end_time=datetime.now()
+            )
+            raise ValueError(msg)
+
+        # Normalize empties
+        df = df.where(pd.notnull(df), None)
+
         end = datetime.now()
-        self.log_provenance("process_biomart_csv", "Renamed BioMart columns", details={"renamed": list(renames.items())}, start_time=start, end_time=end)
+        self.log_provenance(
+            "process_biomart_csv",
+            "Renamed and validated BioMart columns",
+            details={"columns": df.columns.tolist()},
+            start_time=start,
+            end_time=end
+        )
         return df
 
     def merge_isoforms(self, df):
         start = datetime.now()
         logging.info("STEP 3: merge_isoforms")
+
+        if "ensembl_transcript_id_version" not in df.columns:
+            raise ValueError(
+                "Cannot merge isoforms: 'ensembl_transcript_id_version' is missing from BioMart dataframe."
+            )
+
         iso = pd.read_csv(self.isoform_csv, low_memory=False)
         keep = [
-            'ensembl_transcript_id_version','ensembl_transcript_tsl',
-            'ensembl_canonical','ensembl_refseq_NM',
-            'ensembl_refseq_NR','ensembl_refseq_MANEselect'
+            'ensembl_transcript_id_version', 'ensembl_transcript_tsl',
+            'ensembl_canonical', 'ensembl_refseq_NM',
+            'ensembl_refseq_NR', 'ensembl_refseq_MANEselect'
         ]
-        iso = iso[keep]
+        iso = iso[[c for c in keep if c in iso.columns]]
+
+        if "ensembl_transcript_id_version" not in iso.columns:
+            raise ValueError(
+                "Cannot merge isoforms: 'ensembl_transcript_id_version' is missing from isoform file."
+            )
+
         merged = pd.merge(df, iso, on='ensembl_transcript_id_version', how='left')
         logging.info("Merged isoform data (%d rows)", len(merged))
+
         end = datetime.now()
         self.log_provenance("merge_isoforms", "Merged isoform data", start_time=start, end_time=end)
         return merged
@@ -259,7 +353,7 @@ class TranscriptResolver:
     def merge_refseq_ensembl(self, df):
         start = datetime.now()
         logging.info("STEP 4: merge_refseq_ensembl")
-        xref = pd.read_csv(self.refseq_ensembl_csv)
+        xref = pd.read_csv(self.refseq_ensembl_csv, sep=None, engine="python", dtype=str)
         xref = xref.loc[:, ~xref.columns.duplicated()]
         lower = {c.lower(): c for c in xref.columns}
         rna_key = lower.get("rna_nucleotide_accession.version")
@@ -284,6 +378,27 @@ class TranscriptResolver:
         r = pd.read_csv(self.refseq_csv, low_memory=False)
         keep = ['refseq_ncbi_id','refseq_status','refseq_rna_id','refseq_symbol']
         r = r[[c for c in keep if c in r.columns]].replace('-', pd.NA)
+
+        if 'refseq_nuc_accession' not in df.columns:
+            fallback_cols = [
+                c for c in [
+                    'ensembl_refseq_MANEselect',
+                    'ensembl_refseq_NM',
+                    'ensembl_refseq_NR',
+                ] if c in df.columns
+            ]
+            if fallback_cols:
+                df['refseq_nuc_accession'] = (
+                    df[fallback_cols]
+                    .apply(lambda row: next((v for v in row if pd.notna(v) and str(v).strip()), pd.NA), axis=1)
+                )
+                logging.info(
+                    "Derived refseq_nuc_accession from fallback columns: %s",
+                    fallback_cols,
+                )
+            else:
+                df['refseq_nuc_accession'] = pd.NA
+
         wanted = set(df['refseq_nuc_accession'].dropna().unique())
         if wanted:
             r = r[r['refseq_rna_id'].isin(wanted)]
@@ -405,13 +520,19 @@ class TranscriptResolver:
     def save_outputs(self, df):
         start = datetime.now()
         logging.info("STEP 10: save_outputs")
-        os.makedirs(os.path.dirname(self.transformed_path), exist_ok=True)
-        df.to_csv(self.transformed_path, index=False)
+        ver_result = save_versioned_output(
+            df=df,
+            output_path=self.transformed_path,
+            id_col="ensembl_transcript_id_version",
+            sep=",",
+            output_kind="provenance_merge_table",
+        )
+        self.metadata["output_versioning"] = ver_result
+        end = datetime.now()
+        self.log_provenance("save_outputs", "Saved final CSV & metadata", start_time=start, end_time=end)
         with open(self.metadata_file, "w") as mf:
             json.dump(self.metadata, mf, indent=2)
         logging.info("Saved final data to %s and metadata to %s", self.transformed_path, self.metadata_file)
-        end = datetime.now()
-        self.log_provenance("save_outputs", "Saved final CSV & metadata", start_time=start, end_time=end)
 
     def run(self):
         self.fetch_biomart_data()
@@ -428,7 +549,7 @@ class TranscriptResolver:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Merge transcript sources with provenance & metadata")
-    p.add_argument("--config", type=str,
+    parser.add_argument("--config", type=str,
                default="config/targets_config.yaml",
                help="YAML config (default: config/targets_config.yaml)")
 
