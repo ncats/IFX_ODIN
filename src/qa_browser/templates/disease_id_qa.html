@@ -9,7 +9,7 @@
             <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
                &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
                DOID, GARD via TargetGraph pipeline.
-               Generated {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
+               Updated last: {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
         </div>
         <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
             <textarea name="ids" spellcheck="false"
@@ -56,15 +56,16 @@
 
         <div class="dash-charts">
             <div class="dash-chart-panel">
-                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain confidence tier distribution" aria-expanded="false" aria-controls="confidenceTierHelp">?</button></h3>
+                <div class="chart-legend" id="confidenceTierHelp">
+                    <p>Concept-level status assigned by the TargetGraph disease harmonization pipeline after source merge, NodeNorm validation, obsolete xref checks, and QC decision handling.</p>
                     <dl>
                         <dt>single_authoritative_source</dt>
-                        <dd>One ontology asserts this mapping with no disagreement.</dd>
+                        <dd>One authoritative source supports the concept and no unresolved disagreement is present.</dd>
                         <dt>multi_source_supported</dt>
-                        <dd>Multiple sources independently assert this mapping.</dd>
+                        <dd>Two or more independent sources support the harmonized concept.</dd>
                         <dt>needs_review</dt>
-                        <dd>Conflicting assertions or insufficient evidence.</dd>
+                        <dd>Unresolved source conflict, cardinality issue, or other evidence gap needs review.</dd>
                         <dt>review_validator_disagreement</dt>
                         <dd>NodeNorm disagrees with the harmonized resolution.</dd>
                         <dt>review_obsolete_xref</dt>
@@ -74,18 +75,18 @@
                 <div id="dashConfidenceChart" class="bar-chart"></div>
             </div>
             <div class="dash-chart-panel">
-                <h3>Quality Grade Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
-                    <p>Composite score (1.0 = best). Components: source agreement weight, confidence tier factor, xref count normalization.</p>
+                <h3>Quality Score Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain quality score distribution" aria-expanded="false" aria-controls="qualityScoreHelp">?</button></h3>
+                <div class="chart-legend" id="qualityScoreHelp">
+                    <p>The dashboard buckets the numeric <code>overall_quality</code> value from <code>disease_ids.tsv</code>. Lower is better. The upstream pipeline calculates this concept-level score from source agreement and QC penalties; conflicts, obsolete xrefs, cardinality problems, validator disagreement, and sparse support increase the score.</p>
                     <dl>
                         <dt>1.0 &ndash; 1.5</dt>
-                        <dd>Strong multi-source agreement.</dd>
+                        <dd>Best-scoring concepts with strong agreement and little or no QC penalty.</dd>
                         <dt>1.5 &ndash; 2.0</dt>
-                        <dd>Moderate agreement.</dd>
+                        <dd>Generally well-supported concepts with minor evidence limitations.</dd>
                         <dt>2.0 &ndash; 2.5</dt>
-                        <dd>Limited evidence.</dd>
+                        <dd>Moderate uncertainty, often from limited support or validator/source disagreement.</dd>
                         <dt>2.5 &ndash; 3.0</dt>
-                        <dd>Conflicting or weak support.</dd>
+                        <dd>Clearer QC burden from conflicts, cardinality issues, obsolete references, or weak support.</dd>
                         <dt>3.0+</dt>
                         <dd>Unresolved issues requiring review.</dd>
                     </dl>
@@ -95,15 +96,15 @@
         </div>
         <div class="dash-charts">
             <div class="dash-chart-panel">
-                <h3>Source Namespace Coverage <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>Source Namespace Coverage <button class="chart-legend-toggle" type="button" aria-label="Explain source namespace coverage" aria-expanded="false" aria-controls="sourceNamespaceHelp">?</button></h3>
+                <div class="chart-legend" id="sourceNamespaceHelp">
                     <p>Count of concepts with at least one xref edge in each source namespace.</p>
                 </div>
                 <div id="dashSourceChart" class="bar-chart"></div>
             </div>
             <div class="dash-chart-panel">
-                <h3>NodeNorm Validation <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>NodeNorm Validation <button class="chart-legend-toggle" type="button" aria-label="Explain NodeNorm validation" aria-expanded="false" aria-controls="nodenormValidationHelp">?</button></h3>
+                <div class="chart-legend" id="nodenormValidationHelp">
                     <dl>
                         <dt>validated</dt>
                         <dd>NodeNorm canonical CURIE agrees with the harmonized primary_xref.</dd>
@@ -120,7 +121,10 @@
         <!-- Agreement Heatmap -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source Co-occurrence Overlap (Jaccard)</h3>
+                <h3>Source Co-occurrence Overlap (Jaccard) <button class="chart-legend-toggle" type="button" aria-label="Explain source co-occurrence overlap" aria-expanded="false" aria-controls="sourceOverlapHelp">?</button></h3>
+                <div class="chart-legend" id="sourceOverlapHelp">
+                    <p>Pairwise source overlap is computed as Jaccard similarity: concepts with xrefs from both sources divided by concepts with xrefs from either source. Darker cells indicate that two namespaces tend to cover the same concepts.</p>
+                </div>
                 <div class="heatmap-container">
                     <canvas id="dashAgreementHeatmap" width="500" height="500"></canvas>
                     <div class="heatmap-tooltip" id="heatmapTooltip"></div>
@@ -131,7 +135,10 @@
         <!-- Sankey Diagram -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source &rarr; Confidence Tier Flow</h3>
+                <h3>Source &rarr; Confidence Tier Flow <button class="chart-legend-toggle" type="button" aria-label="Explain source to tier flow" aria-expanded="false" aria-controls="sourceTierFlowHelp">?</button></h3>
+                <div class="chart-legend" id="sourceTierFlowHelp">
+                    <p>Each band counts concepts that have at least one xref edge in a source namespace and belong to a pipeline confidence tier. A concept can contribute to multiple source namespaces when it has xrefs from multiple systems.</p>
+                </div>
                 <div class="sankey-container">
                     <canvas id="dashSankeyChart" width="700" height="400"></canvas>
                 </div>
@@ -215,6 +222,7 @@
                     <span class="disease-id-filter-sep">|</span>
                     <label><input type="checkbox" id="filterHideObsolete"> Hide obsolete xrefs</label>
                     <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
+                    <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label class="disease-id-filter-group-label">Layout:</label>
                     <select id="graphLayoutSelect" class="filter-select filter-select-sm">
@@ -236,6 +244,7 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> <strong>Related</strong> &mdash; associative link, not a synonym (skos:relatedMatch)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -266,14 +275,15 @@
                                    assertion for the xref and stops:</p>
                                 <ol>
                                     <li><strong>MONDO</strong> &mdash; OWL SKOS predicates (exactMatch, broadMatch, etc.)</li>
+                                    <li><strong>GARD</strong> &mdash; GARD-owned GARD IDs are treated as curated exact xrefs</li>
                                     <li><strong>Orphanet</strong> &mdash; mapping relation attributes</li>
                                     <li><strong>MedGen</strong> &mdash; concept relationship types</li>
                                     <li><strong>DOID</strong> &mdash; OWL SKOS predicates</li>
                                 </ol>
-                                <p>If none of these four sources asserts a match type for a given xref, the edge
+                                <p>If none of these sources asserts a match type for a given xref, the edge
                                    is labeled <strong>unclassified</strong>. This commonly happens for:</p>
                                 <ul>
-                                    <li><strong>GARD</strong> &mdash; provides ID mappings but no match type metadata</li>
+                                    <li><strong>Stale GARD references from non-GARD sources</strong> &mdash; retained for review and obsolete-source reporting</li>
                                     <li><strong>NodeNorm-only xrefs</strong> (SNOMEDCT, ICD10, MESH, etc.) &mdash;
                                         only classified if MONDO or DOID also asserts that specific xref</li>
                                     <li><strong>OMIM / OMIMPS</strong> &mdash; deferred to "unclassified" by default</li>
@@ -336,6 +346,7 @@
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
                 <div id="diseaseIdConceptActions" style="display:none;margin-top:0.75rem;">
                     <button id="expandNeighborsBtn" class="graph-action-btn">Expand neighbors</button>
+                    <button id="expandHierarchyBtn" class="graph-action-btn">Expand hierarchy</button>
                     <button id="showProvenanceBtn" class="graph-action-btn">Show provenance</button>
                 </div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
@@ -461,6 +472,13 @@
                             <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
                         </div>
                         <div class="column-picker-group">
+                            <h4>Hierarchy</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parent_count"> hierarchy_parent_count</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_child_count"> hierarchy_child_count</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parents"> hierarchy_parents</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_children"> hierarchy_children</label>
+                        </div>
+                        <div class="column-picker-group">
                             <h4>NodeNorm</h4>
                             <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
                             <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
@@ -485,6 +503,7 @@
                 <div class="disease-id-download-links">
                     <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn">disease_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_xref_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_hierarchy_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
@@ -509,11 +528,46 @@
                 These endpoints return JSON and are documented in the auto-generated
                 <a href="{{ root_path }}/docs" target="_blank">OpenAPI spec</a>.
             </p>
+            <section class="api-resolver-panel">
+                <div class="api-resolver-head">
+                    <h3>Disease Resolver</h3>
+                    <div class="api-resolver-controls">
+                        <label>Limit
+                            <select id="apiResolverLimit" class="filter-select filter-select-sm">
+                                <option value="3">3</option>
+                                <option value="5" selected>5</option>
+                                <option value="10">10</option>
+                            </select>
+                        </label>
+                        <label class="api-resolver-checkbox">
+                            <input type="checkbox" id="apiResolverObsolete">
+                            Include obsolete
+                        </label>
+                        <button id="apiResolverRun" class="btn btn-primary">Resolve</button>
+                    </div>
+                </div>
+                <textarea id="apiResolverInput" class="api-resolver-input" rows="5">striate palmoplantar keratoderma
+MONDO:0018865
+C4707237</textarea>
+                <div id="apiResolverStatus" class="api-resolver-status"></div>
+                <div id="apiResolverResults" class="api-resolver-results"></div>
+                <pre id="apiResolverJson" class="api-json-preview"></pre>
+            </section>
             <div class="api-endpoint-list">
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
                     <span class="api-endpoint-path">/api/v1/disease/resolve/{curie}</span>
                     <div class="api-endpoint-desc">Resolve any disease CURIE to its harmonized concept with all xrefs, decisions, and NodeNorm data.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/resolve-name?q=...&amp;limit=5</span>
+                    <div class="api-endpoint-desc">Rank harmonized disease candidates from a name, synonym, xref label, CURIE, or bare UMLS CUI.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">POST</span>
+                    <span class="api-endpoint-path">/api/v1/disease/bulk-resolve?limit=5</span>
+                    <div class="api-endpoint-desc">Resolve a JSON body such as {"queries":["Alzheimer disease","C4707237"]}.</div>
                 </div>
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
@@ -584,6 +638,17 @@
                 changesLoaded = true;
                 loadChangesTab();
             }
+        });
+    });
+
+    document.querySelectorAll(".chart-legend-toggle").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("aria-controls");
+            const legend = targetId ? document.getElementById(targetId) : null;
+            if (!legend) return;
+            const expanded = !legend.classList.contains("expanded");
+            legend.classList.toggle("expanded", expanded);
+            btn.setAttribute("aria-expanded", expanded ? "true" : "false");
         });
     });
 
@@ -989,12 +1054,20 @@
                     tableBody.innerHTML = '<tr><td colspan="9">No concepts found.</td></tr>';
                 } else {
                     tableBody.innerHTML = data.rows.map(r => {
+                        const parentCount = Number(r.hierarchy_parent_count || 0);
+                        const childCount = Number(r.hierarchy_child_count || 0);
+                        const hierarchyHtml = (parentCount || childCount)
+                            ? `<div><strong>Hierarchy:</strong> ${parentCount} parents; ${childCount} children</div>` +
+                              (r.hierarchy_parents ? `<div><strong>Parents:</strong> ${escapeHtml(r.hierarchy_parents)}</div>` : "") +
+                              (r.hierarchy_children ? `<div><strong>Children:</strong> ${escapeHtml(r.hierarchy_children)}</div>` : "")
+                            : "";
                         const detailHtml =
                             `<tr class="row-detail" style="display:none"><td colspan="9"><div class="row-detail-inner">` +
                             (r.definition ? `<div><strong>Definition:</strong> ${escapeHtml(r.definition)}</div>` : "") +
                             (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
                             (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
                             (r.is_rare ? `<div><strong>Rare:</strong> ${escapeHtml(r.is_rare)}</div>` : "") +
+                            hierarchyHtml +
                             (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
                             (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
                             `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
@@ -1103,6 +1176,7 @@
         const layoutSelect = document.getElementById("graphLayoutSelect");
         const conceptActions = document.getElementById("diseaseIdConceptActions");
         const expandBtn = document.getElementById("expandNeighborsBtn");
+        const hierarchyBtn = document.getElementById("expandHierarchyBtn");
         const provBtn = document.getElementById("showProvenanceBtn");
 
         const filterExact = document.getElementById("filterExact");
@@ -1112,6 +1186,7 @@
         const filterUnclassified = document.getElementById("filterUnclassified");
         const filterHideObsolete = document.getElementById("filterHideObsolete");
         const filterHideDecisions = document.getElementById("filterHideDecisions");
+        const filterHideHierarchy = document.getElementById("filterHideHierarchy");
 
         let selectedConceptPxref = null;
 
@@ -1123,6 +1198,9 @@
                 ["Edges", stats.edgeCount],
                 ["Decisions", stats.decisionCount],
             ];
+            if (stats.hierarchyEdgeCount !== undefined) {
+                rows.push(["Hierarchy", stats.hierarchyEdgeCount]);
+            }
             statsBox.innerHTML = rows.map(([label, value]) =>
                 `<div><dt>${label}</dt><dd>${value}</dd></div>`
             ).join("");
@@ -1143,7 +1221,11 @@
                 "confidence_tier", "overall_quality", "n_sources",
                 "primary_sources", "disease_type", "is_rare",
                 "xref_count", "cardinality_issue_count", "obsolete_xref_count",
+                "hierarchy_parent_count", "hierarchy_child_count",
                 "nodenorm_canonical_curie",
+                "relationship_type", "predicate", "hierarchy_source",
+                "parent_primary_xref", "parent_label",
+                "child_primary_xref", "child_label",
                 "decision_type", "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
                 "resolution", "resolution_detail", "reviewed_by", "priority",
@@ -1198,11 +1280,13 @@
                 ).hide();
             }
             if (filterHideDecisions.checked) cyInstance.elements(".decision").hide();
+            if (filterHideHierarchy.checked) cyInstance.elements(".hierarchy-edge, .hierarchy-context").hide();
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
+            cyInstance.nodes(".hierarchy-context").filter(n => n.connectedEdges(":visible").length === 0).hide();
         }
 
         [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
-         filterHideObsolete, filterHideDecisions].forEach(cb => {
+         filterHideObsolete, filterHideDecisions, filterHideHierarchy].forEach(cb => {
             cb.addEventListener("change", applyGraphFilters);
         });
 
@@ -1228,6 +1312,17 @@
             cyInstance.layout(opts).run();
         });
 
+        function addGraphPayloadElements(payload) {
+            if (!cyInstance || !payload.elements || payload.elements.length === 0) return;
+            const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+            const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
+            if (newElements.length > 0) {
+                cyInstance.add(newElements);
+                cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                applyGraphFilters();
+            }
+        }
+
         // Expand neighbors button
         expandBtn.addEventListener("click", () => {
             if (!selectedConceptPxref || !cyInstance) return;
@@ -1236,20 +1331,31 @@
             fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(selectedConceptPxref)}`)
                 .then(r => r.json())
                 .then(payload => {
-                    if (payload.elements && payload.elements.length > 0) {
-                        const existingIds = new Set(cyInstance.elements().map(e => e.id()));
-                        const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
-                        if (newElements.length > 0) {
-                            cyInstance.add(newElements);
-                            cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
-                        }
-                    }
+                    addGraphPayloadElements(payload);
                     expandBtn.disabled = false;
                     expandBtn.textContent = "Expand neighbors";
                 })
                 .catch(() => {
                     expandBtn.disabled = false;
                     expandBtn.textContent = "Expand neighbors";
+                });
+        });
+
+        // Expand hierarchy button
+        hierarchyBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref || !cyInstance) return;
+            hierarchyBtn.disabled = true;
+            hierarchyBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/graph/hierarchy?pxref=${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(payload => {
+                    addGraphPayloadElements(payload);
+                    hierarchyBtn.disabled = false;
+                    hierarchyBtn.textContent = "Expand hierarchy";
+                })
+                .catch(() => {
+                    hierarchyBtn.disabled = false;
+                    hierarchyBtn.textContent = "Expand hierarchy";
                 });
         });
 
@@ -1336,6 +1442,19 @@
                             "font-size": 8,
                             "font-weight": "bold",
                         }},
+                        { selector: ".hierarchy-context", style: {
+                            "background-color": "#0284c7",
+                            "border-width": 2,
+                            "border-color": "#bae6fd",
+                            "width": 40,
+                            "height": 40,
+                        }},
+                        { selector: ".hierarchy-parent", style: {
+                            "shape": "hexagon",
+                        }},
+                        { selector: ".hierarchy-child", style: {
+                            "shape": "ellipse",
+                        }},
                         { selector: ".xref", style: {
                             "background-color": "#7c3aed",
                             "shape": "round-rectangle",
@@ -1401,6 +1520,14 @@
                             "width": 1,
                             "font-size": 7,
                         }},
+                        { selector: ".hierarchy-edge", style: {
+                            "line-color": "#0284c7",
+                            "target-arrow-color": "#0284c7",
+                            "target-arrow-shape": "triangle",
+                            "line-style": "solid",
+                            "width": 2,
+                            "font-size": 7,
+                        }},
                         { selector: ".has-conflict", style: {
                             "width": 2.5,
                             "text-outline-width": 2,
@@ -1431,7 +1558,13 @@
                     const d = event.target.data();
                     let text = "";
                     if (event.target.isEdge()) {
-                        text = d.match_type || "";
+                        if (d.kind === "hierarchy_edge") {
+                            const child = d.child_label || d.child_primary_xref || "";
+                            const parent = d.parent_label || d.parent_primary_xref || "";
+                            text = `${child} subclass_of ${parent}`;
+                        } else {
+                            text = d.match_type || "";
+                        }
                         if (d.xref_confidence) text += ` [${d.xref_confidence}]`;
                         if (d.has_conflict === "true") {
                             text += ` \u26a0 ${d.conflict_type || "conflict"}`;
@@ -1575,6 +1708,111 @@
                 container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
             });
     }
+
+    /* == API tab: resolver search == */
+    const apiResolverInput = document.getElementById("apiResolverInput");
+    const apiResolverLimit = document.getElementById("apiResolverLimit");
+    const apiResolverObsolete = document.getElementById("apiResolverObsolete");
+    const apiResolverRun = document.getElementById("apiResolverRun");
+    const apiResolverStatus = document.getElementById("apiResolverStatus");
+    const apiResolverResults = document.getElementById("apiResolverResults");
+    const apiResolverJson = document.getElementById("apiResolverJson");
+
+    function renderApiResolver(payload) {
+        const rows = payload.results || [payload];
+        let html = `<table class="api-resolver-table"><thead><tr>` +
+            `<th>Query</th><th>Best ID</th><th>Label</th><th>Score</th><th>Status</th><th>Evidence</th><th>Warnings</th>` +
+            `</tr></thead><tbody>`;
+
+        rows.forEach(item => {
+            const best = item.best;
+            if (!best) {
+                html += `<tr><td>${escapeHtml(item.query)}</td><td colspan="6">No match</td></tr>`;
+                return;
+            }
+            const warnings = (best.warnings || []).join(", ");
+            const evidence = [
+                best.matched_field,
+                best.matched_source,
+                best.matched_xref_id,
+                best.matched_xref_match_type,
+            ].filter(Boolean).join(" | ");
+            html += `<tr>` +
+                `<td>${escapeHtml(item.query)}</td>` +
+                `<td class="mono"><a href="${rootPath}${escapeHtml(best.href)}">${escapeHtml(best.primary_xref)}</a></td>` +
+                `<td>${escapeHtml(best.standard_name)}</td>` +
+                `<td>${escapeHtml(best.resolver_score)}</td>` +
+                `<td>${escapeHtml(best.match_status)}</td>` +
+                `<td>${escapeHtml(evidence || best.matched_term)}</td>` +
+                `<td>${escapeHtml(warnings)}</td>` +
+                `</tr>`;
+
+            if ((item.candidates || []).length > 1) {
+                const candidates = item.candidates.slice(1, 4).map(c =>
+                    `${c.primary_xref} (${c.resolver_score}) ${c.standard_name}`
+                ).join(" | ");
+                html += `<tr class="api-resolver-alt-row"><td></td><td colspan="6">${escapeHtml(candidates)}</td></tr>`;
+            }
+        });
+
+        html += `</tbody></table>`;
+        apiResolverResults.innerHTML = html;
+        apiResolverJson.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function runApiResolver() {
+        const queries = apiResolverInput.value
+            .split(/\n+/)
+            .map(v => v.trim())
+            .filter(Boolean);
+        if (!queries.length) {
+            apiResolverStatus.textContent = "Enter a query.";
+            apiResolverResults.innerHTML = "";
+            apiResolverJson.textContent = "";
+            return;
+        }
+
+        apiResolverRun.disabled = true;
+        apiResolverRun.textContent = "Resolving...";
+        apiResolverStatus.textContent = `${queries.length} query${queries.length === 1 ? "" : "ies"}`;
+
+        const limit = apiResolverLimit.value;
+        const includeObsolete = apiResolverObsolete.checked ? "true" : "false";
+        const request = queries.length === 1
+            ? fetch(`${rootPath}/api/v1/disease/resolve-name?q=${encodeURIComponent(queries[0])}&limit=${limit}&include_obsolete=${includeObsolete}`)
+            : fetch(`${rootPath}/api/v1/disease/bulk-resolve?limit=${limit}&include_obsolete=${includeObsolete}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ queries }),
+            });
+
+        request
+            .then(r => {
+                if (!r.ok) {
+                    return r.json().then(payload => {
+                        throw new Error(payload.detail || r.statusText);
+                    });
+                }
+                return r.json();
+            })
+            .then(payload => {
+                renderApiResolver(payload);
+                apiResolverStatus.textContent = queries.length === 1
+                    ? `${(payload.candidates || []).length} candidates`
+                    : `${payload.count} queries resolved`;
+            })
+            .catch(err => {
+                apiResolverStatus.textContent = err.message;
+                apiResolverResults.innerHTML = "";
+                apiResolverJson.textContent = "";
+            })
+            .finally(() => {
+                apiResolverRun.disabled = false;
+                apiResolverRun.textContent = "Resolve";
+            });
+    }
+
+    apiResolverRun.addEventListener("click", runApiResolver);
 
     /* == Download tab == */
     const dlSearchInput = document.getElementById("dlSearchInput");

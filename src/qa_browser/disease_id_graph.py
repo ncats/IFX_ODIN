@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import csv
+import re
 import io
 import json
+from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -18,22 +20,28 @@ class DiseaseGraphData:
         "concepts_by_pxref",
         "concepts_by_ncats_id",
         "edges_by_pxref",
+        "hierarchy_by_child",
+        "hierarchy_by_parent",
         "labels_by_xref_id",
         "decisions_by_pxref",
         "manifest",
         "_dashboard_stats",
         "_xref_to_pxrefs",
+        "_resolver_terms",
     )
 
     def __init__(self) -> None:
         self.concepts_by_pxref: dict[str, dict] = {}
         self.concepts_by_ncats_id: dict[str, dict] = {}
         self.edges_by_pxref: dict[str, list[dict]] = defaultdict(list)
+        self.hierarchy_by_child: dict[str, list[dict]] = defaultdict(list)
+        self.hierarchy_by_parent: dict[str, list[dict]] = defaultdict(list)
         self.labels_by_xref_id: dict[str, dict] = {}
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.manifest: dict = {}
         self._dashboard_stats: dict | None = None
         self._xref_to_pxrefs: dict[str, set[str]] | None = None
+        self._resolver_terms: list[dict[str, Any]] | None = None
 
 
 _singleton: DiseaseGraphData | None = None
@@ -88,13 +96,26 @@ def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
         if pxref:
             data.decisions_by_pxref[pxref].append(row)
 
+    # --- hierarchy edges (optional; added in disease app_graph v2.0.1+) ---
+    hierarchy_path = data_dir / "disease_hierarchy_edges.tsv"
+    if hierarchy_path.exists():
+        for row in _read_tsv(hierarchy_path):
+            child = row.get("child_primary_xref", "")
+            parent = row.get("parent_primary_xref", "")
+            if child:
+                data.hierarchy_by_child[child].append(row)
+            if parent:
+                data.hierarchy_by_parent[parent].append(row)
+
     _singleton = data
     n_concepts = len(data.concepts_by_pxref)
     n_edges = sum(len(v) for v in data.edges_by_pxref.values())
+    n_hierarchy = sum(len(v) for v in data.hierarchy_by_child.values())
     n_labels = len(data.labels_by_xref_id)
     n_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
     print(
-        f"Disease graph loaded: {n_concepts:,} concepts, {n_edges:,} edges, "
+        f"Disease graph loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
+        f"{n_hierarchy:,} hierarchy edges, "
         f"{n_labels:,} labels, {n_decisions:,} decisions"
     )
     return data
@@ -107,6 +128,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
 
     total_concepts = len(data.concepts_by_pxref)
     total_edges = sum(len(v) for v in data.edges_by_pxref.values())
+    total_hierarchy_edges = sum(len(v) for v in data.hierarchy_by_child.values())
     total_labels = len(data.labels_by_xref_id)
     total_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
 
@@ -153,6 +175,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     stats = {
         "total_concepts": total_concepts,
         "total_edges": total_edges,
+        "total_hierarchy_edges": total_hierarchy_edges,
         "total_labels": total_labels,
         "total_decisions": total_decisions,
         "confidence_distribution": dict(confidence_dist.most_common()),
@@ -185,6 +208,38 @@ def _resolve_to_pxref(data: DiseaseGraphData, query_id: str) -> str | None:
     if concept:
         return concept.get("primary_xref")
     return None
+
+
+def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "concept") -> dict | None:
+    """Build one Cytoscape concept node."""
+    concept = data.concepts_by_pxref.get(pxref)
+    if concept is None:
+        return None
+    concept_node_id = f"concept::{pxref}"
+    standard_name = concept.get("standard_name", "")
+    concept_label = f"{pxref}\n{standard_name}" if standard_name else pxref
+    return {
+        "data": {
+            "id": concept_node_id,
+            "label": concept_label,
+            "kind": "concept",
+            "standard_name": concept.get("standard_name", ""),
+            "ncats_disease_id": concept.get("ncats_disease_id", ""),
+            "confidence_tier": concept.get("confidence_tier", ""),
+            "overall_quality": concept.get("overall_quality", ""),
+            "n_sources": concept.get("n_sources", ""),
+            "primary_sources": concept.get("primary_sources", ""),
+            "disease_type": concept.get("disease_type", ""),
+            "is_rare": concept.get("is_rare", ""),
+            "xref_count": concept.get("xref_count", ""),
+            "cardinality_issue_count": concept.get("cardinality_issue_count", ""),
+            "obsolete_xref_count": concept.get("obsolete_xref_count", ""),
+            "nodenorm_canonical_curie": concept.get("nodenorm_canonical_curie", ""),
+            "hierarchy_parent_count": str(len(data.hierarchy_by_child.get(pxref, []))),
+            "hierarchy_child_count": str(len(data.hierarchy_by_parent.get(pxref, []))),
+        },
+        "classes": classes,
+    }
 
 
 def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) -> dict[str, Any]:
@@ -226,6 +281,8 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                 "cardinality_issue_count": concept.get("cardinality_issue_count", ""),
                 "obsolete_xref_count": concept.get("obsolete_xref_count", ""),
                 "nodenorm_canonical_curie": concept.get("nodenorm_canonical_curie", ""),
+                "hierarchy_parent_count": str(len(data.hierarchy_by_child.get(pxref, []))),
+                "hierarchy_child_count": str(len(data.hierarchy_by_parent.get(pxref, []))),
             },
             "classes": "concept",
         }
@@ -423,6 +480,95 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
     }
 
 
+def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict[str, Any]:
+    """Build immediate MONDO parent/child context for one concept."""
+    pxref = _resolve_to_pxref(data, query_id)
+    if pxref is None:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {query_id}")
+
+    concept_nodes: dict[str, dict] = {}
+    edges: dict[str, dict] = {}
+
+    def add_node(node_pxref: str, extra_classes: str) -> None:
+        node = _concept_graph_node(data, node_pxref, f"concept {extra_classes}".strip())
+        if node is None:
+            return
+        if node_pxref in concept_nodes:
+            existing = set(concept_nodes[node_pxref].get("classes", "").split())
+            existing.update(node.get("classes", "").split())
+            concept_nodes[node_pxref]["classes"] = " ".join(sorted(existing))
+        else:
+            concept_nodes[node_pxref] = node
+
+    add_node(pxref, "hierarchy-focus")
+
+    for row in data.hierarchy_by_child.get(pxref, []):
+        parent = row.get("parent_primary_xref", "")
+        child = row.get("child_primary_xref", pxref)
+        if not parent or not child:
+            continue
+        add_node(parent, "hierarchy-context hierarchy-parent")
+        add_node(child, "hierarchy-focus")
+        edge_id = f"hier-edge::{child}::{parent}"
+        edges[edge_id] = {
+            "data": {
+                "id": edge_id,
+                "source": f"concept::{child}",
+                "target": f"concept::{parent}",
+                "label": "subclass_of",
+                "kind": "hierarchy_edge",
+                "relationship_type": row.get("relationship_type", ""),
+                "predicate": row.get("predicate", ""),
+                "hierarchy_source": row.get("source", ""),
+                "parent_primary_xref": parent,
+                "parent_label": row.get("parent_label", ""),
+                "child_primary_xref": child,
+                "child_label": row.get("child_label", ""),
+            },
+            "classes": "hierarchy-edge hierarchy-parent-edge",
+        }
+
+    for row in data.hierarchy_by_parent.get(pxref, []):
+        parent = row.get("parent_primary_xref", pxref)
+        child = row.get("child_primary_xref", "")
+        if not parent or not child:
+            continue
+        add_node(parent, "hierarchy-focus")
+        add_node(child, "hierarchy-context hierarchy-child")
+        edge_id = f"hier-edge::{child}::{parent}"
+        edges[edge_id] = {
+            "data": {
+                "id": edge_id,
+                "source": f"concept::{child}",
+                "target": f"concept::{parent}",
+                "label": "subclass_of",
+                "kind": "hierarchy_edge",
+                "relationship_type": row.get("relationship_type", ""),
+                "predicate": row.get("predicate", ""),
+                "hierarchy_source": row.get("source", ""),
+                "parent_primary_xref": parent,
+                "parent_label": row.get("parent_label", ""),
+                "child_primary_xref": child,
+                "child_label": row.get("child_label", ""),
+            },
+            "classes": "hierarchy-edge hierarchy-child-edge",
+        }
+
+    elements = [*concept_nodes.values(), *edges.values()]
+    return {
+        "queryIds": [query_id],
+        "missingIds": [],
+        "stats": {
+            "conceptCount": len(concept_nodes),
+            "hierarchyEdgeCount": len(edges),
+            "parentCount": len(data.hierarchy_by_child.get(pxref, [])),
+            "childCount": len(data.hierarchy_by_parent.get(pxref, [])),
+        },
+        "manifest": data.manifest,
+        "elements": elements,
+    }
+
+
 def load_flagged_concepts(data: DiseaseGraphData, limit: int = 500) -> list[dict[str, Any]]:
     """Return concepts with QC flags for the landing page table."""
     flagged: list[dict[str, Any]] = []
@@ -490,6 +636,23 @@ def _concept_has_source(pxref: str, source: str, data: DiseaseGraphData) -> bool
     return False
 
 
+def _format_hierarchy_refs(rows: list[dict], role: str, limit: int = 12) -> str:
+    """Format a capped parent/child list for table rows and downloads."""
+    id_key = f"{role}_primary_xref"
+    label_key = f"{role}_label"
+    values: list[str] = []
+    for row in rows[:limit]:
+        curie = row.get(id_key, "")
+        label = row.get(label_key, "")
+        if curie and label:
+            values.append(f"{curie}: {label}")
+        elif curie:
+            values.append(curie)
+    if len(rows) > limit:
+        values.append(f"+{len(rows) - limit} more")
+    return " | ".join(values)
+
+
 def _concept_to_row(
     pxref: str,
     concept: dict,
@@ -519,6 +682,9 @@ def _concept_to_row(
         flags.append(f"obsolete({obsolete})")
     if n_decisions > 0:
         flags.append(f"decisions({n_decisions})")
+
+    parents = data.hierarchy_by_child.get(pxref, [])
+    children = data.hierarchy_by_parent.get(pxref, [])
 
     # Build compact source labels: "MONDO: Diabetes | OMIM: Type 2 diabetes"
     source_labels: list[str] = []
@@ -553,7 +719,358 @@ def _concept_to_row(
         "nodenorm_canonical_curie": concept.get("nodenorm_canonical_curie", ""),
         "nodenorm_canonical_label": concept.get("nodenorm_canonical_label", ""),
         "nodenorm_validation_status": concept.get("nodenorm_validation_status", ""),
+        "hierarchy_parent_count": len(parents),
+        "hierarchy_child_count": len(children),
+        "hierarchy_parents": _format_hierarchy_refs(parents, "parent"),
+        "hierarchy_children": _format_hierarchy_refs(children, "child"),
         "href": f"/disease-id-qa?ids={pxref}",
+    }
+
+
+def _split_pipe(value: Any) -> list[str]:
+    text = str(value or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [part.strip() for part in text.split("|") if part.strip()]
+
+
+def _normalize_resolver_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text or text == "nan":
+        return ""
+    text = text.replace("'", "")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalize_resolver_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"C\d{7}", text) or re.fullmatch(r"CN\d+", text):
+        return f"UMLS:{text}"
+    return text
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        text = str(value or "").strip()
+        return float(text) if text else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _lexical_score(query_norm: str, term_norm: str) -> float:
+    if not query_norm or not term_norm:
+        return 0.0
+    if query_norm == term_norm:
+        return 1.0
+
+    query_tokens = query_norm.split()
+    term_tokens = term_norm.split()
+    if not query_tokens or not term_tokens:
+        return 0.0
+
+    token_overlap = len(set(query_tokens) & set(term_tokens))
+    containment = token_overlap / max(1, min(len(set(query_tokens)), len(set(term_tokens))))
+    jaccard = token_overlap / max(1, len(set(query_tokens) | set(term_tokens)))
+    sequence = SequenceMatcher(None, query_norm, term_norm).ratio()
+
+    substring_score = 0.0
+    if query_norm in term_norm or term_norm in query_norm:
+        shorter = min(len(query_tokens), len(term_tokens))
+        longer = max(len(query_tokens), len(term_tokens))
+        substring_score = 0.82 + 0.12 * (shorter / max(1, longer))
+
+    return round(max(sequence, containment * 0.96, jaccard * 0.9, substring_score), 4)
+
+
+def _tier_score(tier: str) -> float:
+    return {
+        "multi_source_supported": 0.92,
+        "single_authoritative_source": 0.86,
+        "needs_review": 0.58,
+        "review_validator_disagreement": 0.42,
+        "review_obsolete_xref": 0.25,
+    }.get((tier or "").strip(), 0.5)
+
+
+def _field_prior(field: str) -> float:
+    return {
+        "primary_xref": 1.0,
+        "ncats_disease_id": 1.0,
+        "xref_id": 0.98,
+        "standard_name": 0.96,
+        "synonym": 0.93,
+        "xref_label": 0.9,
+        "xref_synonym": 0.86,
+    }.get(field, 0.82)
+
+
+def _relationship_to_query(term: dict[str, Any], lexical: float) -> str:
+    if term.get("obsolete"):
+        return "obsolete_identifier"
+    match_type = term.get("match_type", "")
+    if match_type in {"broad", "narrow", "related"}:
+        return f"{match_type}_xref_match"
+    if lexical >= 0.98:
+        return "equivalent_candidate"
+    return "lexical_candidate"
+
+
+def _resolver_match_status(score: float, lexical: float) -> str:
+    if lexical >= 0.98 and score >= 0.9:
+        return "exact"
+    if score >= 0.82:
+        return "probable_exact"
+    if score >= 0.68:
+        return "possible"
+    return "weak"
+
+
+def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
+    if data._resolver_terms is not None:
+        return data._resolver_terms
+
+    terms: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+
+    def add_term(
+        pxref: str,
+        raw_term: str,
+        field: str,
+        *,
+        source: str = "",
+        xref_id: str = "",
+        match_type: str = "",
+        xref_confidence: str = "",
+        obsolete: bool = False,
+    ) -> None:
+        raw_term = str(raw_term or "").strip()
+        if not raw_term or raw_term.lower() == "nan":
+            return
+        norm = _normalize_resolver_text(raw_term)
+        key = (pxref, norm, field, xref_id)
+        if not norm or key in seen:
+            return
+        seen.add(key)
+        terms.append({
+            "pxref": pxref,
+            "term": raw_term,
+            "norm": norm,
+            "field": field,
+            "source": source,
+            "xref_id": xref_id,
+            "match_type": match_type,
+            "xref_confidence": xref_confidence,
+            "obsolete": obsolete,
+        })
+
+    for pxref, concept in data.concepts_by_pxref.items():
+        add_term(pxref, pxref, "primary_xref", source=concept.get("primary_xref_source", ""))
+        add_term(pxref, concept.get("ncats_disease_id", ""), "ncats_disease_id")
+        add_term(pxref, concept.get("standard_name", ""), "standard_name")
+        for synonym in _split_pipe(concept.get("synonyms", "")):
+            add_term(pxref, synonym, "synonym")
+
+        for edge in data.edges_by_pxref.get(pxref, []):
+            xref_id = edge.get("xref_id", "")
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
+            is_obsolete = edge.get("xref_is_obsolete", "").lower() in {"true", "1"}
+            is_obsolete = is_obsolete or edge.get("override_status", "") == "blocked"
+            add_term(
+                pxref,
+                xref_id,
+                "xref_id",
+                source=ns,
+                xref_id=xref_id,
+                match_type=edge.get("match_type", ""),
+                xref_confidence=edge.get("xref_confidence", ""),
+                obsolete=is_obsolete,
+            )
+            add_term(
+                pxref,
+                edge.get("xref_label", ""),
+                "xref_label",
+                source=ns,
+                xref_id=xref_id,
+                match_type=edge.get("match_type", ""),
+                xref_confidence=edge.get("xref_confidence", ""),
+                obsolete=is_obsolete,
+            )
+            label_row = data.labels_by_xref_id.get(xref_id, {})
+            add_term(
+                pxref,
+                label_row.get("preferred_label", ""),
+                "xref_label",
+                source=ns,
+                xref_id=xref_id,
+                match_type=edge.get("match_type", ""),
+                xref_confidence=edge.get("xref_confidence", ""),
+                obsolete=is_obsolete,
+            )
+            for synonym in _split_pipe(label_row.get("synonyms", "")):
+                add_term(
+                    pxref,
+                    synonym,
+                    "xref_synonym",
+                    source=ns,
+                    xref_id=xref_id,
+                    match_type=edge.get("match_type", ""),
+                    xref_confidence=edge.get("xref_confidence", ""),
+                    obsolete=is_obsolete,
+                )
+
+    data._resolver_terms = terms
+    return terms
+
+
+def resolve_name_candidates(
+    data: DiseaseGraphData,
+    query: str,
+    limit: int = 10,
+    include_obsolete: bool = False,
+) -> dict[str, Any]:
+    """Resolve a free-text disease name or CURIE against harmonized concepts."""
+    query = str(query or "").strip()
+    query_id = _normalize_resolver_id(query)
+    query_norm = _normalize_resolver_text(query_id)
+    if not query_norm:
+        return {"query": query, "normalized_query": "", "candidates": [], "best": None}
+    id_like_query = bool(
+        re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*:\S+", query_id)
+        or re.fullmatch(r"UMLS:C\d{7}", query_id)
+        or re.fullmatch(r"UMLS:CN\d+", query_id)
+    )
+
+    candidate_terms: dict[str, tuple[dict[str, Any], float]] = {}
+
+    direct_pxref = _resolve_to_pxref(data, query_id)
+    if direct_pxref:
+        candidate_terms[direct_pxref] = ({
+            "pxref": direct_pxref,
+            "term": query_id,
+            "norm": query_norm,
+            "field": "primary_xref",
+            "source": "primary",
+            "xref_id": "",
+            "match_type": "exact",
+            "xref_confidence": "1.0",
+            "obsolete": False,
+        }, 1.0)
+
+    for term in _resolver_index(data):
+        if term.get("obsolete") and not include_obsolete:
+            continue
+        if id_like_query:
+            if term.get("field") not in {"primary_xref", "ncats_disease_id", "xref_id"}:
+                continue
+            if _normalize_resolver_id(term.get("term", "")).lower() != query_id.lower():
+                continue
+            lexical = 1.0
+        else:
+            lexical = 1.0 if query_id == term.get("term") else _lexical_score(query_norm, term.get("norm", ""))
+        if lexical < 0.58:
+            continue
+        pxref = term["pxref"]
+        current = candidate_terms.get(pxref)
+        if current is None or lexical > current[1]:
+            candidate_terms[pxref] = (term, lexical)
+
+    candidates: list[dict[str, Any]] = []
+    for pxref, (term, lexical) in candidate_terms.items():
+        concept = data.concepts_by_pxref.get(pxref, {})
+        source_count = int(_safe_float(concept.get("n_sources", 0)))
+        source_score = min(1.0, 0.55 + source_count * 0.09)
+        xref_score = _safe_float(term.get("xref_confidence", ""), 0.0)
+        harmonizer_score = max(_tier_score(concept.get("confidence_tier", "")), xref_score)
+        prior = _field_prior(term.get("field", ""))
+
+        penalty = 0.0
+        if term.get("obsolete"):
+            penalty += 0.22
+        if term.get("match_type") == "broad" or term.get("match_type") == "narrow":
+            penalty += 0.06
+        elif term.get("match_type") == "related":
+            penalty += 0.12
+        elif term.get("match_type") == "unclassified":
+            penalty += 0.03
+
+        score = (
+            0.86 * lexical
+            + 0.08 * harmonizer_score
+            + 0.04 * source_score
+            + 0.02 * prior
+            - penalty
+        )
+        if lexical >= 0.98 and term.get("field") in {"primary_xref", "ncats_disease_id", "xref_id", "standard_name", "synonym"}:
+            score += 0.02
+        score = max(0.0, min(1.0, score))
+        warnings: list[str] = []
+        if term.get("obsolete"):
+            warnings.append("obsolete_or_blocked_xref_match")
+        if term.get("match_type") in {"broad", "narrow", "related"}:
+            warnings.append(f"{term.get('match_type')}_xref_match")
+        if source_count <= 1:
+            warnings.append("single_source_concept")
+        if score < 0.68:
+            warnings.append("low_resolver_score")
+
+        candidates.append({
+            "primary_xref": pxref,
+            "ncats_disease_id": concept.get("ncats_disease_id", ""),
+            "standard_name": concept.get("standard_name", ""),
+            "resolver_score": round(score, 4),
+            "lexical_score": round(lexical, 4),
+            "match_status": _resolver_match_status(score, lexical),
+            "relationship_to_query": _relationship_to_query(term, lexical),
+            "matched_term": term.get("term", ""),
+            "matched_field": term.get("field", ""),
+            "matched_source": term.get("source", ""),
+            "matched_xref_id": term.get("xref_id", ""),
+            "matched_xref_match_type": term.get("match_type", ""),
+            "xref_confidence": term.get("xref_confidence", ""),
+            "confidence_tier": concept.get("confidence_tier", ""),
+            "overall_quality": concept.get("overall_quality", ""),
+            "n_sources": concept.get("n_sources", ""),
+            "is_rare": concept.get("is_rare", ""),
+            "disease_type": concept.get("disease_type", ""),
+            "hierarchy_parent_count": len(data.hierarchy_by_child.get(pxref, [])),
+            "hierarchy_child_count": len(data.hierarchy_by_parent.get(pxref, [])),
+            "warnings": warnings,
+            "href": f"/disease-id-qa?ids={pxref}&tab=graph",
+        })
+
+    candidates.sort(key=lambda row: (-row["resolver_score"], -row["lexical_score"], row["standard_name"]))
+    candidates = candidates[: max(1, min(limit, 50))]
+    if len(candidates) > 1 and candidates[0]["resolver_score"] - candidates[1]["resolver_score"] <= 0.03:
+        candidates[0]["warnings"] = sorted(set(candidates[0]["warnings"] + ["ambiguous_close_candidate"]))
+
+    return {
+        "query": query,
+        "normalized_query": query_norm,
+        "best": candidates[0] if candidates else None,
+        "candidates": candidates,
+    }
+
+
+def bulk_resolve_names(
+    data: DiseaseGraphData,
+    queries: list[str],
+    limit: int = 5,
+    include_obsolete: bool = False,
+) -> dict[str, Any]:
+    clean_queries = [str(q).strip() for q in queries if str(q).strip()]
+    return {
+        "count": len(clean_queries),
+        "limit": limit,
+        "results": [
+            resolve_name_candidates(
+                data,
+                query,
+                limit=limit,
+                include_obsolete=include_obsolete,
+            )
+            for query in clean_queries
+        ],
     }
 
 
@@ -867,6 +1384,8 @@ def _match_type_to_skos(match_type: str) -> str:
 def _match_source_to_semapv(match_type_source: str) -> str:
     """Map a match_type_source string to a semapv justification CURIE."""
     src = match_type_source.strip().lower()
+    if src == "gard_curated_xref":
+        return "semapv:ManualMappingCuration"
     for key, val in _MATCH_SOURCE_TO_SEMAPV.items():
         if key in src:
             return val
@@ -974,6 +1493,27 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "auto_rationale": dec.get("auto_rationale", ""),
         })
 
+    parents = [
+        {
+            "primary_xref": row.get("parent_primary_xref", ""),
+            "ncats_disease_id": row.get("parent_ncats_disease_id", ""),
+            "label": row.get("parent_label", ""),
+            "predicate": row.get("predicate", ""),
+            "source": row.get("source", ""),
+        }
+        for row in data.hierarchy_by_child.get(pxref, [])
+    ]
+    children = [
+        {
+            "primary_xref": row.get("child_primary_xref", ""),
+            "ncats_disease_id": row.get("child_ncats_disease_id", ""),
+            "label": row.get("child_label", ""),
+            "predicate": row.get("predicate", ""),
+            "source": row.get("source", ""),
+        }
+        for row in data.hierarchy_by_parent.get(pxref, [])
+    ]
+
     return {
         "ncats_disease_id": concept.get("ncats_disease_id", ""),
         "primary_xref": pxref,
@@ -987,6 +1527,10 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
         "synonyms": concept.get("synonyms", ""),
         "xrefs": xrefs,
         "decisions": decision_list,
+        "hierarchy": {
+            "parents": parents,
+            "children": children,
+        },
         "nodenorm": {
             "canonical_curie": concept.get("nodenorm_canonical_curie", ""),
             "canonical_label": concept.get("nodenorm_canonical_label", ""),
@@ -1450,6 +1994,7 @@ def build_provenance_chain(
 DOWNLOADABLE_FILES = frozenset({
     "disease_concepts.tsv",
     "disease_xref_edges.tsv",
+    "disease_hierarchy_edges.tsv",
     "xref_labels.tsv",
     "review_decisions.tsv",
     "manifest.json",

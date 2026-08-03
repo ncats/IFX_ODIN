@@ -39,7 +39,9 @@ from src.models.node import Node
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
     build_disease_graph_payload,
+    build_hierarchy_graph_payload,
     build_provenance_chain,
+    bulk_resolve_names,
     compute_dashboard_stats,
     compute_source_agreement_matrix,
     compute_source_flow_data,
@@ -54,6 +56,7 @@ from src.qa_browser.disease_id_graph import (
     load_flagged_concepts,
     parse_disease_ids,
     resolve_concept,
+    resolve_name_candidates,
     search_concepts,
 )
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
@@ -5751,6 +5754,54 @@ def api_search_diseases(q: str = "", limit: int = 20, offset: int = 0,
     }
 
 
+@app.get("/api/v1/disease/resolve-name")
+def api_resolve_disease_name(q: str = "", limit: int = 10, include_obsolete: bool = False):
+    """Resolve a free-text disease name, synonym, xref label, or CURIE."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="q parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    limit = max(1, min(limit, 50))
+    return resolve_name_candidates(
+        data,
+        q,
+        limit=limit,
+        include_obsolete=include_obsolete,
+    )
+
+
+@app.post("/api/v1/disease/bulk-resolve")
+async def api_bulk_resolve_disease_names(
+    request: Request,
+    limit: int = 5,
+    include_obsolete: bool = False,
+):
+    """Resolve a list of disease names, synonyms, xref labels, or CURIEs."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    payload = await request.json()
+    if isinstance(payload, list):
+        queries = payload
+    elif isinstance(payload, dict):
+        queries = payload.get("queries") or payload.get("names") or []
+    else:
+        queries = []
+    if isinstance(queries, str):
+        queries = [line.strip() for line in queries.splitlines() if line.strip()]
+    if not isinstance(queries, list) or not queries:
+        raise HTTPException(status_code=400, detail="Request body must include a queries list.")
+    queries = [str(q).strip() for q in queries if str(q).strip()][:500]
+    data = load_disease_graph_data(_disease_graph_dir)
+    limit = max(1, min(limit, 20))
+    return bulk_resolve_names(
+        data,
+        queries,
+        limit=limit,
+        include_obsolete=include_obsolete,
+    )
+
+
 @app.get("/api/v1/disease/stats")
 def api_disease_stats():
     """Return aggregate harmonization statistics."""
@@ -5843,6 +5894,17 @@ def disease_id_qa_graph_neighbors(pxref: str = ""):
     # Build graph payload for the neighbors (include the original concept too)
     all_ids = [pxref] + neighbors
     return build_disease_graph_payload(data, all_ids)
+
+
+@app.get("/disease-id-qa/api/graph/hierarchy")
+def disease_id_qa_graph_hierarchy(pxref: str = ""):
+    """Return Cytoscape elements for immediate MONDO parent/child context."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not pxref:
+        raise HTTPException(status_code=400, detail="pxref parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_hierarchy_graph_payload(data, pxref)
 
 
 @app.get("/disease-id-qa/api/provenance/{pxref:path}")

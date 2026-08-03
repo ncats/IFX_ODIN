@@ -15,6 +15,7 @@ from src.qa_browser.disease_id_graph import (
     find_concept_neighbors,
     build_provenance_chain,
     resolve_concept,
+    resolve_name_candidates,
     search_concepts,
 )
 
@@ -78,6 +79,69 @@ class TestMatchSourceToSemapv:
 
     def test_unknown(self):
         assert _match_source_to_semapv("some_other_thing") == "semapv:UnspecifiedMatching"
+
+
+class TestDiseaseResolver:
+    """Verify resolver ranking behavior on small in-memory fixtures."""
+
+    def test_exact_base_name_beats_numbered_subtype(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:BASE"] = {
+            "primary_xref": "MONDO:BASE",
+            "ncats_disease_id": "IFXDisease:BASE",
+            "standard_name": "Alzheimer disease",
+            "confidence_tier": "needs_review",
+            "n_sources": "5",
+        }
+        data.concepts_by_pxref["MONDO:SUB"] = {
+            "primary_xref": "MONDO:SUB",
+            "ncats_disease_id": "IFXDisease:SUB",
+            "standard_name": "Alzheimer disease 10",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+
+        result = resolve_name_candidates(data, "Alzheimer disease", limit=2)
+
+        assert result["best"]["primary_xref"] == "MONDO:BASE"
+        assert result["best"]["match_status"] == "exact"
+
+    def test_bare_umls_cui_is_exact_only(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:TARGET"] = {
+            "primary_xref": "MONDO:TARGET",
+            "ncats_disease_id": "IFXDisease:TARGET",
+            "standard_name": "striate palmoplantar keratoderma",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+        data.concepts_by_pxref["MONDO:OTHER"] = {
+            "primary_xref": "MONDO:OTHER",
+            "ncats_disease_id": "IFXDisease:OTHER",
+            "standard_name": "other disease",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+        data.edges_by_pxref["MONDO:TARGET"].append({
+            "xref_id": "UMLS:C4707237",
+            "xref_namespace": "UMLS",
+            "xref_label": "Striate palmoplantar keratoderma",
+            "match_type": "exact",
+            "xref_confidence": "1.0",
+        })
+        data.edges_by_pxref["MONDO:OTHER"].append({
+            "xref_id": "UMLS:C4707238",
+            "xref_namespace": "UMLS",
+            "xref_label": "Other disease",
+            "match_type": "exact",
+            "xref_confidence": "1.0",
+        })
+
+        result = resolve_name_candidates(data, "C4707237", limit=5)
+
+        assert len(result["candidates"]) == 1
+        assert result["best"]["primary_xref"] == "MONDO:TARGET"
+        assert result["best"]["matched_term"] == "UMLS:C4707237"
 
 
 # ---------------------------------------------------------------------------
