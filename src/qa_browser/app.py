@@ -53,6 +53,7 @@ from src.qa_browser.disease_id_graph import (
     find_concept_neighbors,
     load_baseline_data,
     load_disease_graph_data,
+    load_version_data,
     load_flagged_concepts,
     parse_disease_ids,
     resolve_concept,
@@ -76,6 +77,7 @@ BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
+DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
 
 
 @asynccontextmanager
@@ -5592,7 +5594,7 @@ def disease_id_qa_download(filename: str):
 
 @app.get("/disease-id-qa/download-flagged")
 def disease_id_qa_download_flagged():
-    """Download flagged concepts as a TSV file."""
+    """Download concepts that still need review/action as a TSV file."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
@@ -5600,7 +5602,7 @@ def disease_id_qa_download_flagged():
     return StreamingResponse(
         io.BytesIO(tsv_content.encode("utf-8")),
         media_type="text/tab-separated-values",
-        headers={"Content-Disposition": 'attachment; filename="flagged_concepts.tsv"'},
+        headers={"Content-Disposition": 'attachment; filename="needs_action_concepts.tsv"'},
     )
 
 
@@ -5814,9 +5816,17 @@ def api_disease_stats():
         "total_edges": stats["total_edges"],
         "sources_covered": len(stats["source_coverage"]),
         "avg_xrefs_per_concept": stats["avg_xrefs_per_concept"],
+        "multi_source_count": stats.get("multi_source_count", 0),
+        "multi_source_percent": stats.get("multi_source_percent", 0),
+        "source_only_count": stats.get("source_only_count", 0),
         "rare_count": stats["rare_count"],
         "flagged_count": stats["flagged_count"],
+        "needs_action_count": stats.get("needs_action_count", stats["flagged_count"]),
+        "needs_review_count": stats.get("needs_review_count", 0),
+        "qc_decision_count": stats.get("qc_decision_count", 0),
+        "auto_cleared_count": stats.get("auto_cleared_count", 0),
         "confidence_distribution": stats["confidence_distribution"],
+        "disease_type_distribution": stats.get("disease_type_distribution", {}),
         "pipeline_version": data.manifest.get("pipeline_version", ""),
         "generated_at": data.manifest.get("generated_at", ""),
     }
@@ -5864,15 +5874,142 @@ def disease_id_qa_source_flows():
 # ---------------------------------------------------------------------------
 
 
+def _normalize_disease_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _disease_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_disease_version(version))]
+    return tuple(parts or [0])
+
+
+def _candidate_disease_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _disease_graph_dir:
+        graph_path = Path(_disease_graph_dir)
+        if graph_path.name.startswith("v") or graph_path.parent.name == "disease_app_graph":
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(DISEASE_APP_GRAPH_BUNDLED_DIR)
+
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            key = str(root)
+        if key not in seen and root.is_dir():
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _discover_disease_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_disease_graph_dir).resolve() if _disease_graph_dir else None
+    baseline_path = Path(_baseline_graph_dir).resolve() if _baseline_graph_dir else None
+
+    for root in _candidate_disease_version_roots():
+        for child in root.iterdir():
+            if not child.is_dir() or not (child / "manifest.json").exists():
+                continue
+            with open(child / "manifest.json", encoding="utf-8") as fh:
+                manifest = json.load(fh)
+            version = _normalize_disease_version(
+                manifest.get("pipeline_version", "") or child.name
+            )
+            if not version:
+                continue
+            resolved = child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": child.name,
+                "path": str(child),
+                "updated_at": manifest.get("generated_at", ""),
+                "contract_version": manifest.get("contract_version", ""),
+                "concept_rows": manifest.get("files", {}).get("disease_concepts.tsv", {}).get("rows"),
+                "xref_edge_rows": manifest.get("files", {}).get("disease_xref_edges.tsv", {}).get("rows"),
+                "current": bool(current_path and resolved == current_path),
+                "baseline": bool(baseline_path and resolved == baseline_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"] or entry["baseline"]:
+                version_by_key[version] = entry
+
+    return sorted(
+        version_by_key.values(),
+        key=lambda row: _disease_version_sort_key(row["version"]),
+    )
+
+
+def _default_disease_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = next((v["version"] for v in versions if v.get("baseline")), "")
+    if not baseline and len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _disease_version_dir(version: str) -> Path | None:
+    wanted = _normalize_disease_version(version)
+    for entry in _discover_disease_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+@app.get("/disease-id-qa/api/versions")
+def disease_id_qa_versions():
+    """List bundled/versioned disease app_graph datasets available for diffs."""
+    versions = _discover_disease_versions()
+    default_from, default_to = _default_disease_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
 @app.get("/disease-id-qa/api/version-diff")
-def disease_id_qa_version_diff():
-    """Compute delta between current and baseline datasets."""
+def disease_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned disease app_graph datasets."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
-    if not _baseline_graph_dir:
-        raise HTTPException(status_code=404, detail="No baseline dataset available for comparison.")
-    current = load_disease_graph_data(_disease_graph_dir)
-    baseline = load_baseline_data(_baseline_graph_dir)
+    versions = _discover_disease_versions()
+    default_from, default_to = _default_disease_version_pair(versions)
+    from_version = _normalize_disease_version(from_version or default_from)
+    to_version = _normalize_disease_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different disease graph versions.")
+
+    from_dir = _disease_version_dir(from_version)
+    to_dir = _disease_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Disease graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Disease graph version not found: {to_version}")
+
+    baseline = load_version_data(from_dir)
+    current = load_disease_graph_data(_disease_graph_dir) if to_dir.resolve() == Path(_disease_graph_dir).resolve() else load_version_data(to_dir)
     return compute_version_diff(current, baseline)
 
 
@@ -8869,11 +9006,11 @@ def main():
 
     _disease_graph_dir = args.disease_graph_dir
     if not _disease_graph_dir:
-        bundled_dir = Path(__file__).parent / "data" / "disease_app_graph"
+        bundled_dir = DISEASE_APP_GRAPH_BUNDLED_DIR
         if bundled_dir.is_dir():
             versions = sorted(
                 [d.name for d in bundled_dir.iterdir() if d.is_dir()],
-                key=lambda v: [int(x) for x in v.lstrip("v").split(".")],
+                key=_disease_version_sort_key,
             )
             if versions:
                 _disease_graph_dir = str(bundled_dir / versions[-1])
@@ -8883,11 +9020,11 @@ def main():
 
     _baseline_graph_dir = args.baseline_graph_dir
     if not _baseline_graph_dir:
-        bundled_dir = Path(__file__).parent / "data" / "disease_app_graph"
+        bundled_dir = DISEASE_APP_GRAPH_BUNDLED_DIR
         if bundled_dir.is_dir():
             versions = sorted(
                 [d.name for d in bundled_dir.iterdir() if d.is_dir()],
-                key=lambda v: [int(x) for x in v.lstrip("v").split(".")],
+                key=_disease_version_sort_key,
             )
             # Use the second-highest version as baseline (highest is current)
             if len(versions) >= 2:

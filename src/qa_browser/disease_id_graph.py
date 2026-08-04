@@ -52,13 +52,106 @@ def _read_tsv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh, delimiter="\t"))
 
 
-def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
-    """Load TSVs + manifest, build indexes, cache as module singleton."""
-    global _singleton
-    if _singleton is not None:
-        return _singleton
+_RESOLVED_DECISION_STATUSES = {"resolved", "acknowledged", "wontfix"}
 
-    data_dir = Path(data_dir)
+
+def _join_unique(values: list[str] | tuple[str, ...]) -> str:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in seen:
+            seen.add(text)
+            unique.append(text)
+    return "|".join(unique)
+
+
+def _decision_action(decision: dict) -> str:
+    return decision.get("auto_decision", "") or decision.get("resolution", "")
+
+
+def _decision_display_type(decision: dict) -> str:
+    """Prefer the curator/QC action over raw divergence labels for resolved rows."""
+    raw_type = decision.get("decision_type", "")
+    status = decision.get("status", "")
+    action = _decision_action(decision)
+    action_key = action.lower().replace(" ", "_")
+    if status in _RESOLVED_DECISION_STATUSES:
+        if action_key in {"omit_obsolete_xref", "remove_obsolete_xref"}:
+            return "resolved_obsolete_xref"
+        if action_key:
+            return f"resolved_{action_key}"
+    return raw_type
+
+
+def _decision_graph_group_key(decision: dict) -> tuple[str, ...]:
+    status = decision.get("status", "")
+    if status in _RESOLVED_DECISION_STATUSES:
+        return (
+            "resolved",
+            decision.get("xref_id", ""),
+            _decision_display_type(decision),
+            status,
+            _decision_action(decision),
+        )
+    return ("raw", decision.get("decision_id", ""))
+
+
+def _graph_id_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "_", str(value).strip() or "none")
+
+
+def _merge_decision_group(pxref: str, decisions: list[dict]) -> dict:
+    first = dict(decisions[0])
+    ids = [d.get("decision_id", "") for d in decisions]
+    display_type = _decision_display_type(first)
+    status = first.get("status", "")
+    action = _decision_action(first)
+    if len(decisions) > 1:
+        first["decision_id"] = "::".join([
+            "merged_decision",
+            _graph_id_part(pxref),
+            _graph_id_part(first.get("xref_id", "")),
+            _graph_id_part(display_type),
+            _graph_id_part(status),
+            _graph_id_part(action),
+        ])
+    first["source_decision_ids"] = _join_unique(ids)
+    first["decision_type"] = _join_unique([d.get("decision_type", "") for d in decisions])
+    first["decision_source"] = _join_unique([d.get("decision_source", "") for d in decisions])
+    first["scenario_id"] = _join_unique([d.get("scenario_id", "") for d in decisions])
+    first["auto_confidence"] = _join_unique([d.get("auto_confidence", "") for d in decisions])
+    first["auto_rationale"] = _join_unique([d.get("auto_rationale", "") for d in decisions])
+    first["resolution"] = _join_unique([d.get("resolution", "") for d in decisions])
+    first["resolution_detail"] = _join_unique([d.get("resolution_detail", "") for d in decisions])
+    first["reviewed_by"] = _join_unique([d.get("reviewed_by", "") for d in decisions])
+    first["priority"] = _join_unique([d.get("priority", "") for d in decisions])
+    return first
+
+
+def _aggregate_graph_decisions(pxref: str, decisions: list[dict]) -> list[dict]:
+    grouped: dict[tuple[str, ...], list[dict]] = {}
+    for decision in decisions:
+        grouped.setdefault(_decision_graph_group_key(decision), []).append(decision)
+    return [_merge_decision_group(pxref, group) for group in grouped.values()]
+
+
+def _pick_edge_decision(decisions: list[dict]) -> dict:
+    """Pick the decision most useful for the graph label."""
+    if not decisions:
+        return {}
+    for decision in decisions:
+        if decision.get("status", "") == "open":
+            return decision
+    for decision in decisions:
+        action = _decision_action(decision)
+        action_key = action.lower().replace(" ", "_")
+        if action_key in {"omit_obsolete_xref", "remove_obsolete_xref"}:
+            return decision
+    return decisions[0]
+
+
+def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
     if not data_dir.is_dir():
         raise HTTPException(status_code=500, detail=f"Disease app_graph dir not found: {data_dir}")
 
@@ -69,7 +162,6 @@ def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
         with open(manifest_path, encoding="utf-8") as fh:
             data.manifest = json.load(fh)
 
-    # --- concepts ---
     for row in _read_tsv(data_dir / "disease_concepts.tsv"):
         pxref = row.get("primary_xref", "")
         ncats_id = row.get("ncats_disease_id", "")
@@ -78,25 +170,25 @@ def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
         if ncats_id:
             data.concepts_by_ncats_id[ncats_id] = row
 
-    # --- xref edges ---
     for row in _read_tsv(data_dir / "disease_xref_edges.tsv"):
         pxref = row.get("primary_xref", "")
         if pxref:
             data.edges_by_pxref[pxref].append(row)
 
-    # --- xref labels ---
-    for row in _read_tsv(data_dir / "xref_labels.tsv"):
-        xref_id = row.get("xref_id", "")
-        if xref_id:
-            data.labels_by_xref_id[xref_id] = row
+    xref_labels_path = data_dir / "xref_labels.tsv"
+    if xref_labels_path.exists():
+        for row in _read_tsv(xref_labels_path):
+            xref_id = row.get("xref_id", "")
+            if xref_id:
+                data.labels_by_xref_id[xref_id] = row
 
-    # --- review decisions ---
-    for row in _read_tsv(data_dir / "review_decisions.tsv"):
-        pxref = row.get("primary_xref", "")
-        if pxref:
-            data.decisions_by_pxref[pxref].append(row)
+    review_decisions_path = data_dir / "review_decisions.tsv"
+    if review_decisions_path.exists():
+        for row in _read_tsv(review_decisions_path):
+            pxref = row.get("primary_xref", "")
+            if pxref:
+                data.decisions_by_pxref[pxref].append(row)
 
-    # --- hierarchy edges (optional; added in disease app_graph v2.0.1+) ---
     hierarchy_path = data_dir / "disease_hierarchy_edges.tsv"
     if hierarchy_path.exists():
         for row in _read_tsv(hierarchy_path):
@@ -107,17 +199,32 @@ def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
             if parent:
                 data.hierarchy_by_parent[parent].append(row)
 
-    _singleton = data
+    return data
+
+
+def _print_graph_load(label: str, data: DiseaseGraphData) -> None:
     n_concepts = len(data.concepts_by_pxref)
     n_edges = sum(len(v) for v in data.edges_by_pxref.values())
     n_hierarchy = sum(len(v) for v in data.hierarchy_by_child.values())
     n_labels = len(data.labels_by_xref_id)
     n_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
     print(
-        f"Disease graph loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
+        f"{label} loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
         f"{n_hierarchy:,} hierarchy edges, "
         f"{n_labels:,} labels, {n_decisions:,} decisions"
     )
+
+
+def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
+    """Load TSVs + manifest, build indexes, cache as module singleton."""
+    global _singleton
+    if _singleton is not None:
+        return _singleton
+
+    data_dir = Path(data_dir)
+    data = _load_app_graph_data(data_dir)
+    _singleton = data
+    _print_graph_load("Disease graph", data)
     return data
 
 
@@ -136,8 +243,14 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     quality_dist: Counter[str] = Counter()
     source_coverage: Counter[str] = Counter()
     nodenorm_dist: Counter[str] = Counter()
+    triage_dist: Counter[str] = Counter()
+    disease_type_dist: Counter[str] = Counter()
     rare_count = 0
     flagged_count = 0
+    qc_decision_count = 0
+    auto_cleared_count = 0
+    multi_source_count = 0
+    source_only_count = 0
     total_xrefs = 0
 
     for pxref, concept in data.concepts_by_pxref.items():
@@ -150,13 +263,31 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         nn_status = concept.get("nodenorm_validation_status", "").strip()
         nodenorm_dist[nn_status if nn_status else "unknown"] += 1
 
+        disease_type = concept.get("disease_type", "").strip()
+        disease_type_dist[disease_type if disease_type else "unknown"] += 1
+
+        triage_bucket = concept.get("needs_review_triage_bucket", "").strip()
+        if triage_bucket and triage_bucket != "not_needs_review":
+            triage_dist[triage_bucket] += 1
+        if concept.get("needs_review_auto_cleared", "").lower() == "true":
+            auto_cleared_count += 1
+        if _needs_review_decision(concept):
+            qc_decision_count += 1
+
         if concept.get("is_rare", "").lower() == "true":
             rare_count += 1
+
+        n_sources = _safe_int(concept.get("n_sources"))
+        if n_sources > 1:
+            multi_source_count += 1
+        else:
+            source_only_count += 1
 
         xc = int(concept.get("xref_count") or 0)
         total_xrefs += xc
 
-        # Flagged?
+        # Action-needed concepts only. Historical QC decisions remain visible
+        # separately through needs_review_decision/evidence_note.
         decisions = data.decisions_by_pxref.get(pxref, [])
         if _is_flagged(concept, decisions):
             flagged_count += 1
@@ -171,6 +302,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
             source_coverage[ns] += 1
 
     avg_xrefs = round(total_xrefs / total_concepts, 1) if total_concepts else 0
+    multi_source_percent = round((multi_source_count / total_concepts) * 100, 1) if total_concepts else 0
 
     stats = {
         "total_concepts": total_concepts,
@@ -182,8 +314,17 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "quality_distribution": dict(quality_dist.most_common()),
         "source_coverage": dict(source_coverage.most_common()),
         "nodenorm_distribution": dict(nodenorm_dist.most_common()),
+        "disease_type_distribution": dict(disease_type_dist.most_common()),
+        "triage_distribution": dict(triage_dist.most_common()),
         "rare_count": rare_count,
         "flagged_count": flagged_count,
+        "needs_action_count": flagged_count,
+        "needs_review_count": confidence_dist.get("needs_review", 0),
+        "qc_decision_count": qc_decision_count,
+        "auto_cleared_count": auto_cleared_count,
+        "multi_source_count": multi_source_count,
+        "multi_source_percent": multi_source_percent,
+        "source_only_count": source_only_count,
         "avg_xrefs_per_concept": avg_xrefs,
     }
     data._dashboard_stats = stats
@@ -241,6 +382,10 @@ def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "conc
             "standard_name": concept.get("standard_name", ""),
             "ncats_disease_id": concept.get("ncats_disease_id", ""),
             "confidence_tier": concept.get("confidence_tier", ""),
+            "confidence_tier_original": concept.get("confidence_tier_original", ""),
+            "needs_review_auto_cleared": concept.get("needs_review_auto_cleared", ""),
+            "needs_review_triage_bucket": concept.get("needs_review_triage_bucket", ""),
+            "needs_review_decision": _needs_review_decision(concept),
             "overall_quality": concept.get("overall_quality", ""),
             "n_sources": concept.get("n_sources", ""),
             "primary_sources": concept.get("primary_sources", ""),
@@ -287,6 +432,10 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                 "standard_name": concept.get("standard_name", ""),
                 "ncats_disease_id": concept.get("ncats_disease_id", ""),
                 "confidence_tier": concept.get("confidence_tier", ""),
+                "confidence_tier_original": concept.get("confidence_tier_original", ""),
+                "needs_review_auto_cleared": concept.get("needs_review_auto_cleared", ""),
+                "needs_review_triage_bucket": concept.get("needs_review_triage_bucket", ""),
+                "needs_review_decision": _needs_review_decision(concept),
                 "overall_quality": concept.get("overall_quality", ""),
                 "n_sources": concept.get("n_sources", ""),
                 "primary_sources": concept.get("primary_sources", ""),
@@ -351,37 +500,38 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
             has_conflict = ""
             conflict_status = ""
             conflict_type = ""
+            raw_conflict_type = ""
             conflict_resolution = ""
             conflict_detail = ""
             edge_classes = f"match-{match_type}"
 
             if edge_decs:
                 has_conflict = "true"
-                # Pick the most relevant decision (prefer open over resolved)
-                best = edge_decs[0]
-                for d in edge_decs:
-                    if d.get("status", "") == "open":
-                        best = d
-                        break
+                best = _pick_edge_decision(edge_decs)
+                matching_decs = [
+                    d for d in edge_decs
+                    if _decision_graph_group_key(d) == _decision_graph_group_key(best)
+                ]
                 dec_status = best.get("status", "")
-                dec_type = best.get("decision_type", "")
-                dec_resolution = (
-                    best.get("auto_decision", "")
-                    or best.get("resolution", "")
+                dec_type = _join_unique([d.get("decision_type", "") for d in matching_decs])
+                dec_display_type = _decision_display_type(best)
+                dec_resolution = _decision_action(best)
+                dec_detail = _join_unique([
+                    d.get("auto_rationale", "") or d.get("resolution_detail", "")
+                    for d in matching_decs
+                ])
+                conflict_status = (
+                    dec_status if dec_status in _RESOLVED_DECISION_STATUSES else "open"
                 )
-                dec_detail = (
-                    best.get("auto_rationale", "")
-                    or best.get("resolution_detail", "")
-                )
-                conflict_status = "resolved" if dec_status == "resolved" else "open"
-                conflict_type = dec_type
+                conflict_type = dec_display_type
+                raw_conflict_type = dec_type
                 conflict_resolution = dec_resolution
                 conflict_detail = dec_detail
                 edge_classes += " has-conflict"
 
                 # Append conflict info to edge label
                 if conflict_status == "open":
-                    edge_label += " \u26a0 " + (dec_type or "conflict")
+                    edge_label += " \u26a0 " + (dec_display_type or "conflict")
                 else:
                     short_res = dec_resolution.replace("_", " ") if dec_resolution else "resolved"
                     # Truncate long resolutions for the label
@@ -416,6 +566,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "has_conflict": has_conflict,
                     "conflict_status": conflict_status,
                     "conflict_type": conflict_type,
+                    "raw_conflict_type": raw_conflict_type,
                     "conflict_resolution": conflict_resolution,
                     "conflict_detail": conflict_detail,
                 },
@@ -423,19 +574,21 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
             }
 
         # --- decisions ---
-        for dec in data.decisions_by_pxref.get(pxref, []):
+        for dec in _aggregate_graph_decisions(pxref, data.decisions_by_pxref.get(pxref, [])):
             dec_id = dec.get("decision_id", "")
             if not dec_id:
                 continue
             dec_node_id = f"decision::{dec_id}"
             dec_type = dec.get("decision_type", "")
             dec_status = dec.get("status", "")
-            dec_resolution = dec.get("auto_decision", "")
+            dec_resolution = _decision_action(dec)
+            dec_display_type = _decision_display_type(dec)
+            dec_label_type = dec_display_type.replace("_", " ")
             # Build a descriptive label: "conflict [open]" or "conflict [resolved: downgrade_match_type]"
             if dec_resolution:
-                dec_label = f"{dec_type}\n[{dec_status}: {dec_resolution}]"
+                dec_label = f"{dec_label_type}\n[{dec_status}: {dec_resolution}]"
             else:
-                dec_label = f"{dec_type}\n[{dec_status}]"
+                dec_label = f"{dec_label_type}\n[{dec_status}]"
             dec_xref_id = dec.get("xref_id", "")
             decision_nodes[dec_id] = {
                 "data": {
@@ -443,8 +596,10 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "label": dec_label,
                     "kind": "decision",
                     "decision_id": dec_id,
+                    "source_decision_ids": dec.get("source_decision_ids", dec_id),
                     "decision_source": dec.get("decision_source", ""),
-                    "decision_type": dec_type,
+                    "decision_type": dec_display_type,
+                    "raw_decision_type": dec_type,
                     "scenario_id": dec.get("scenario_id", ""),
                     "status": dec_status,
                     "auto_decision": dec_resolution,
@@ -585,15 +740,14 @@ def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict
 
 
 def load_flagged_concepts(data: DiseaseGraphData, limit: int = 500) -> list[dict[str, Any]]:
-    """Return concepts with QC flags for the landing page table."""
+    """Return concepts that still need review/action for the landing page table."""
     flagged: list[dict[str, Any]] = []
     for pxref, concept in data.concepts_by_pxref.items():
         cardinality = int(concept.get("cardinality_issue_count") or 0)
         obsolete = int(concept.get("obsolete_xref_count") or 0)
         has_obsolete = concept.get("has_obsolete", "").lower() == "true"
-        n_decisions = len(data.decisions_by_pxref.get(pxref, []))
 
-        if cardinality == 0 and obsolete == 0 and not has_obsolete and n_decisions == 0:
+        if not _is_flagged(concept, data.decisions_by_pxref.get(pxref, [])):
             continue
 
         flags: list[str] = []
@@ -601,13 +755,19 @@ def load_flagged_concepts(data: DiseaseGraphData, limit: int = 500) -> list[dict
             flags.append(f"cardinality({cardinality})")
         if obsolete > 0 or has_obsolete:
             flags.append(f"obsolete({obsolete})")
-        if n_decisions > 0:
-            flags.append(f"decisions({n_decisions})")
+        _append_needs_review_flags(concept, flags)
 
         flagged.append({
             "primary_xref": pxref,
             "standard_name": concept.get("standard_name", ""),
             "confidence_tier": concept.get("confidence_tier", ""),
+            "confidence_tier_original": concept.get("confidence_tier_original", ""),
+            "needs_review_auto_cleared": concept.get("needs_review_auto_cleared", ""),
+            "needs_review_triage_bucket": concept.get("needs_review_triage_bucket", ""),
+            "needs_review_triage_action": concept.get("needs_review_triage_action", ""),
+            "needs_review_problem_namespaces": concept.get("needs_review_problem_namespaces", ""),
+            "needs_review_decision": _needs_review_decision(concept),
+            "evidence_note": concept.get("evidence_note", ""),
             "overall_quality": concept.get("overall_quality", ""),
             "n_sources": concept.get("n_sources", ""),
             "xref_count": concept.get("xref_count", ""),
@@ -621,12 +781,17 @@ def load_flagged_concepts(data: DiseaseGraphData, limit: int = 500) -> list[dict
 
 
 def export_flagged_tsv(data: DiseaseGraphData, limit: int = 5000) -> str:
-    """Return flagged concepts as a TSV string for download."""
+    """Return action-needed concepts as a TSV string for download."""
     rows = load_flagged_concepts(data, limit=limit)
     if not rows:
         return ""
-    columns = ["primary_xref", "standard_name", "confidence_tier", "overall_quality",
-               "n_sources", "xref_count", "flags"]
+    columns = [
+        "primary_xref", "standard_name", "confidence_tier",
+        "confidence_tier_original", "needs_review_auto_cleared",
+        "needs_review_triage_bucket", "needs_review_triage_action",
+        "needs_review_problem_namespaces", "needs_review_decision",
+        "evidence_note", "overall_quality", "n_sources", "xref_count", "flags",
+    ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=columns, delimiter="\t", extrasaction="ignore")
     writer.writeheader()
@@ -635,11 +800,53 @@ def export_flagged_tsv(data: DiseaseGraphData, limit: int = 5000) -> str:
 
 
 def _is_flagged(concept: dict, decisions: list[dict]) -> bool:
-    """Return True if a concept has any QC flag."""
-    cardinality = int(concept.get("cardinality_issue_count") or 0)
-    obsolete = int(concept.get("obsolete_xref_count") or 0)
-    has_obsolete = concept.get("has_obsolete", "").lower() == "true"
-    return cardinality > 0 or obsolete > 0 or has_obsolete or len(decisions) > 0
+    """Return True if a concept still needs review/action.
+
+    Do not treat decision provenance, original review status, or auto-cleared
+    triage as flagged. In the UI, "flagged" should mean unresolved.
+    """
+    tier = concept.get("confidence_tier", "").strip().lower()
+    if tier in {"needs_review", "review_validator_disagreement", "review_obsolete_xref"}:
+        return True
+
+    triage_bucket = concept.get("needs_review_triage_bucket", "").strip()
+    triage_action = concept.get("needs_review_triage_action", "").strip()
+    auto_cleared = concept.get("needs_review_auto_cleared", "").lower() == "true"
+    return (
+        bool(triage_bucket and triage_bucket != "not_needs_review")
+        and triage_action == "manual_review"
+        and not auto_cleared
+    )
+
+
+def _needs_review_decision(concept: dict) -> str:
+    """Return the concept-level needs-review triage decision for UI/export."""
+    bucket = concept.get("needs_review_triage_bucket", "").strip()
+    if not bucket or bucket == "not_needs_review":
+        return ""
+    action = concept.get("needs_review_triage_action", "").strip()
+    auto_cleared = concept.get("needs_review_auto_cleared", "").lower() == "true"
+    prefix = "auto-cleared" if auto_cleared else "review-retained"
+    if action:
+        return f"{prefix}: {bucket} ({action})"
+    return f"{prefix}: {bucket}"
+
+
+def _append_needs_review_flags(concept: dict, flags: list[str]) -> None:
+    """Append action-needed concept-level review flag text in-place."""
+    original_tier = concept.get("confidence_tier_original", "").strip()
+    current_tier = concept.get("confidence_tier", "").strip()
+    bucket = concept.get("needs_review_triage_bucket", "").strip()
+    auto_cleared = concept.get("needs_review_auto_cleared", "").lower() == "true"
+    if current_tier == "needs_review":
+        flags.append("needs_review")
+    elif current_tier in {"review_validator_disagreement", "review_obsolete_xref"}:
+        flags.append(current_tier)
+    if bucket and bucket != "not_needs_review":
+        if not auto_cleared:
+            flags.append(f"review_retained({bucket})")
+        elif original_tier == "needs_review" and current_tier == "needs_review":
+            flags.append(f"auto_clear_inconsistent({bucket})")
 
 
 def _concept_has_source(pxref: str, source: str, data: DiseaseGraphData) -> bool:
@@ -685,18 +892,18 @@ def _concept_to_row(
     exclude_obsolete : bool
         When True, skip xref edges where ``xref_is_obsolete`` is true.
     """
-    n_decisions = len(data.decisions_by_pxref.get(pxref, []))
+    decisions = data.decisions_by_pxref.get(pxref, [])
     cardinality = int(concept.get("cardinality_issue_count") or 0)
     obsolete = int(concept.get("obsolete_xref_count") or 0)
     has_obsolete = concept.get("has_obsolete", "").lower() == "true"
+    action_needed = _is_flagged(concept, decisions)
 
     flags: list[str] = []
-    if cardinality > 0:
+    if action_needed and cardinality > 0:
         flags.append(f"cardinality({cardinality})")
-    if obsolete > 0 or has_obsolete:
+    if action_needed and (obsolete > 0 or has_obsolete):
         flags.append(f"obsolete({obsolete})")
-    if n_decisions > 0:
-        flags.append(f"decisions({n_decisions})")
+    _append_needs_review_flags(concept, flags)
 
     parents = data.hierarchy_by_child.get(pxref, [])
     children = data.hierarchy_by_parent.get(pxref, [])
@@ -722,6 +929,18 @@ def _concept_to_row(
         "ncats_disease_id": concept.get("ncats_disease_id", ""),
         "standard_name": concept.get("standard_name", ""),
         "confidence_tier": concept.get("confidence_tier", ""),
+        "confidence_tier_original": concept.get("confidence_tier_original", ""),
+        "confidence_tier_triaged": concept.get("confidence_tier_triaged", ""),
+        "needs_review_auto_cleared": concept.get("needs_review_auto_cleared", ""),
+        "needs_review_triage_bucket": concept.get("needs_review_triage_bucket", ""),
+        "needs_review_triage_action": concept.get("needs_review_triage_action", ""),
+        "needs_review_problem_namespaces": concept.get("needs_review_problem_namespaces", ""),
+        "needs_review_cardinality_namespaces": concept.get("needs_review_cardinality_namespaces", ""),
+        "needs_review_obsolete_namespaces": concept.get("needs_review_obsolete_namespaces", ""),
+        "needs_review_validator_namespaces": concept.get("needs_review_validator_namespaces", ""),
+        "needs_review_decision": _needs_review_decision(concept),
+        "authority_consensus": concept.get("authority_consensus", ""),
+        "evidence_note": concept.get("evidence_note", ""),
         "overall_quality": concept.get("overall_quality", ""),
         "n_sources": concept.get("n_sources", ""),
         "xref_count": concept.get("xref_count", ""),
@@ -769,6 +988,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         text = str(value or "").strip()
         return float(text) if text else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        text = str(value or "").strip()
+        return int(float(text)) if text else default
     except (TypeError, ValueError):
         return default
 
@@ -1211,8 +1438,14 @@ def export_search_tsv(
 ) -> str:
     """Export search results as a TSV string (no pagination, capped at *limit* rows)."""
     q_lower = q.strip().lower()
-    columns = ["primary_xref", "standard_name", "confidence_tier", "overall_quality",
-               "n_sources", "xref_count", "flags", "source_labels"]
+    columns = [
+        "primary_xref", "standard_name", "confidence_tier",
+        "confidence_tier_original", "needs_review_auto_cleared",
+        "needs_review_triage_bucket", "needs_review_triage_action",
+        "needs_review_problem_namespaces", "needs_review_decision",
+        "evidence_note", "overall_quality", "n_sources", "xref_count",
+        "flags", "source_labels",
+    ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=columns, delimiter="\t", extrasaction="ignore")
     writer.writeheader()
@@ -1280,7 +1513,9 @@ def export_filtered_download(
     """
     default_columns = [
         "ncats_disease_id", "primary_xref", "standard_name",
-        "confidence_tier", "overall_quality", "n_sources", "xref_count",
+        "confidence_tier", "confidence_tier_original",
+        "needs_review_auto_cleared", "needs_review_triage_bucket",
+        "needs_review_decision", "overall_quality", "n_sources", "xref_count",
     ]
     use_columns = columns if columns else default_columns
     delimiter = "," if fmt == "csv" else "\t"
@@ -1691,48 +1926,67 @@ def compute_source_flow_data(data: DiseaseGraphData) -> dict[str, Any]:
 # Version Diff
 # ---------------------------------------------------------------------------
 
-_baseline_singleton: DiseaseGraphData | None = None
+_version_graph_cache: dict[str, DiseaseGraphData] = {}
+
+
+def load_version_data(data_dir: str | Path) -> DiseaseGraphData:
+    """Load any versioned app_graph directory, cached by absolute path."""
+    data_dir = Path(data_dir)
+    cache_key = str(data_dir.resolve())
+    if cache_key in _version_graph_cache:
+        return _version_graph_cache[cache_key]
+    data = _load_app_graph_data(data_dir)
+    _version_graph_cache[cache_key] = data
+    _print_graph_load(f"Disease version {data_dir.name}", data)
+    return data
 
 
 def load_baseline_data(baseline_dir: str | Path) -> DiseaseGraphData:
-    """Lazily load baseline dataset for version comparison."""
-    global _baseline_singleton
-    if _baseline_singleton is not None:
-        return _baseline_singleton
+    """Backward-compatible wrapper for version comparison."""
+    return load_version_data(baseline_dir)
 
-    baseline_dir = Path(baseline_dir)
-    if not baseline_dir.is_dir():
-        raise HTTPException(status_code=500, detail=f"Baseline dir not found: {baseline_dir}")
 
-    data = DiseaseGraphData()
-    manifest_path = baseline_dir / "manifest.json"
-    if manifest_path.exists():
-        with open(manifest_path, encoding="utf-8") as fh:
-            data.manifest = json.load(fh)
+def _concept_biolink_category(concept: dict) -> str:
+    return concept.get("disease_type", "").strip() or "unknown"
 
-    for row in _read_tsv(baseline_dir / "disease_concepts.tsv"):
-        pxref = row.get("primary_xref", "")
-        ncats_id = row.get("ncats_disease_id", "")
-        if pxref:
-            data.concepts_by_pxref[pxref] = row
-        if ncats_id:
-            data.concepts_by_ncats_id[ncats_id] = row
 
-    for row in _read_tsv(baseline_dir / "disease_xref_edges.tsv"):
-        pxref = row.get("primary_xref", "")
-        if pxref:
-            data.edges_by_pxref[pxref].append(row)
+def _concept_type_distribution(data: DiseaseGraphData) -> Counter[str]:
+    return Counter(_concept_biolink_category(concept) for concept in data.concepts_by_pxref.values())
 
-    for row in _read_tsv(baseline_dir / "review_decisions.tsv"):
-        pxref = row.get("primary_xref", "")
-        if pxref:
-            data.decisions_by_pxref[pxref].append(row)
 
-    _baseline_singleton = data
-    n_concepts = len(data.concepts_by_pxref)
-    n_edges = sum(len(v) for v in data.edges_by_pxref.values())
-    print(f"Baseline loaded: {n_concepts:,} concepts, {n_edges:,} edges")
-    return data
+def _edge_namespace_distribution(data: DiseaseGraphData) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for edges in data.edges_by_pxref.values():
+        for edge in edges:
+            ns = _normalize_ns(edge.get("xref_namespace", "").strip()) or "unknown"
+            counts[ns] += 1
+    return counts
+
+
+def _distribution_delta(
+    baseline: Counter[str],
+    current: Counter[str],
+    key_name: str,
+) -> list[dict[str, Any]]:
+    rows = []
+    for key in sorted(set(baseline) | set(current)):
+        old_count = int(baseline.get(key, 0))
+        new_count = int(current.get(key, 0))
+        rows.append({
+            key_name: key,
+            "old_count": old_count,
+            "new_count": new_count,
+            "delta": new_count - old_count,
+        })
+    return sorted(rows, key=lambda r: (-abs(r["delta"]), r[key_name]))
+
+
+def _xref_edge_key(pxref: str, edge: dict) -> tuple[str, str, str]:
+    return (
+        pxref,
+        edge.get("xref_id", ""),
+        _normalize_ns(edge.get("xref_namespace", "").strip()),
+    )
 
 
 def compute_version_diff(
@@ -1750,6 +2004,7 @@ def compute_version_diff(
     # Tier changes
     tier_changes: list[dict[str, str]] = []
     quality_changes: list[dict[str, str]] = []
+    disease_type_changes: list[dict[str, str]] = []
     for pxref in shared_pxrefs:
         cur = current.concepts_by_pxref[pxref]
         base = baseline.concepts_by_pxref[pxref]
@@ -1771,19 +2026,46 @@ def compute_version_diff(
                 "old_quality": base_q,
                 "new_quality": cur_q,
             })
+        cur_type = _concept_biolink_category(cur)
+        base_type = _concept_biolink_category(base)
+        if cur_type != base_type:
+            disease_type_changes.append({
+                "primary_xref": pxref,
+                "standard_name": cur.get("standard_name", ""),
+                "old_category": base_type,
+                "new_category": cur_type,
+            })
 
     # Edge diffs
-    current_edge_keys: set[tuple[str, str]] = set()
+    current_edge_keys: set[tuple[str, str, str]] = set()
     for pxref, edges in current.edges_by_pxref.items():
         for e in edges:
-            current_edge_keys.add((pxref, e.get("xref_id", "")))
-    baseline_edge_keys: set[tuple[str, str]] = set()
+            current_edge_keys.add(_xref_edge_key(pxref, e))
+    baseline_edge_keys: set[tuple[str, str, str]] = set()
     for pxref, edges in baseline.edges_by_pxref.items():
         for e in edges:
-            baseline_edge_keys.add((pxref, e.get("xref_id", "")))
+            baseline_edge_keys.add(_xref_edge_key(pxref, e))
 
-    edges_added = len(current_edge_keys - baseline_edge_keys)
-    edges_removed = len(baseline_edge_keys - current_edge_keys)
+    added_edge_keys = current_edge_keys - baseline_edge_keys
+    removed_edge_keys = baseline_edge_keys - current_edge_keys
+    edges_added = len(added_edge_keys)
+    edges_removed = len(removed_edge_keys)
+    edges_added_by_namespace = Counter(key[2] or "unknown" for key in added_edge_keys)
+    edges_removed_by_namespace = Counter(key[2] or "unknown" for key in removed_edge_keys)
+
+    baseline_type_dist = _concept_type_distribution(baseline)
+    current_type_dist = _concept_type_distribution(current)
+    baseline_ns_dist = _edge_namespace_distribution(baseline)
+    current_ns_dist = _edge_namespace_distribution(current)
+
+    added_by_category = Counter(
+        _concept_biolink_category(current.concepts_by_pxref[p])
+        for p in added_pxrefs
+    )
+    removed_by_category = Counter(
+        _concept_biolink_category(baseline.concepts_by_pxref[p])
+        for p in removed_pxrefs
+    )
 
     # Decision counts
     cur_resolved = sum(
@@ -1797,7 +2079,11 @@ def compute_version_diff(
     decisions_resolved = cur_resolved - base_resolved
 
     added_concepts = [
-        {"primary_xref": p, "standard_name": current.concepts_by_pxref[p].get("standard_name", "")}
+        {
+            "primary_xref": p,
+            "standard_name": current.concepts_by_pxref[p].get("standard_name", ""),
+            "disease_type": _concept_biolink_category(current.concepts_by_pxref[p]),
+        }
         for p in sorted(added_pxrefs)[:500]
     ]
     # Build reverse index: xref_id → set of current primary_xrefs
@@ -1807,9 +2093,17 @@ def compute_version_diff(
             xid = e.get("xref_id", "")
             if xid:
                 current_xref_owners[xid].add(px)
+    baseline_xref_owners: dict[str, set[str]] = defaultdict(set)
+    for px, edges in baseline.edges_by_pxref.items():
+        for e in edges:
+            xid = e.get("xref_id", "")
+            if xid:
+                baseline_xref_owners[xid].add(px)
 
     removed_concepts: list[dict[str, str]] = []
-    for p in sorted(removed_pxrefs)[:500]:
+    legacy_source_only_rows: list[dict[str, str]] = []
+    other_removed_rows: list[dict[str, str]] = []
+    for p in sorted(removed_pxrefs):
         base_concept = baseline.concepts_by_pxref[p]
         name = base_concept.get("standard_name", "")
 
@@ -1822,6 +2116,11 @@ def compute_version_diff(
         for xid in base_xref_ids:
             new_owners.update(current_xref_owners.get(xid, set()))
         new_owners.discard(p)
+        previous_xref_owners = baseline_xref_owners.get(p, set()) - {p}
+        source_only_fallback = (
+            base_concept.get("harmonized_to_ontology", "").lower() == "false"
+            or "fallback" in base_concept.get("primary_xref_grounding_type", "").lower()
+        )
 
         # Check if all baseline xrefs were obsolete
         all_obsolete = (
@@ -1836,32 +2135,59 @@ def compute_version_diff(
         # Check if baseline had decisions that led to removal
         base_decisions = baseline.decisions_by_pxref.get(p, [])
         had_omit_decision = any(
-            "omit" in d.get("decision", "").lower() or "drop" in d.get("decision", "").lower()
+            "omit" in (
+                d.get("auto_decision", "")
+                or d.get("resolution", "")
+                or d.get("decision", "")
+            ).lower()
+            or "drop" in (
+                d.get("auto_decision", "")
+                or d.get("resolution", "")
+                or d.get("decision", "")
+            ).lower()
             for d in base_decisions
         )
 
+        bucket = "other_removed"
         if new_owners:
             merged_into = sorted(new_owners)[:3]
-            reason = f"merged → {', '.join(merged_into)}"
+            reason = f"Merged into {', '.join(merged_into)}"
+            bucket = "retired_concept"
+        elif p in current_xref_owners:
+            absorbed_into = sorted(current_xref_owners[p])[:3]
+            reason = f"Now represented as an xref under {', '.join(absorbed_into)}"
+            bucket = "retired_concept"
         elif all_obsolete:
-            reason = "all xrefs obsolete"
+            reason = "Removed because previous xrefs are obsolete"
+            bucket = "retired_concept"
         elif had_omit_decision:
-            reason = "omitted by review decision"
+            reason = "Removed by QC review decision"
+            bucket = "retired_concept"
+        elif source_only_fallback and previous_xref_owners:
+            reason = "Older single-source export row; not a harmonized concept in the current release"
+            bucket = "legacy_source_only"
+        elif source_only_fallback:
+            reason = "Older single-source export row; not a harmonized concept in the current release"
+            bucket = "legacy_source_only"
+        elif previous_xref_owners:
+            reason = "Previous xref evidence is not retained in the current release"
         elif len(base_xref_ids) == 0:
-            reason = "no xref edges"
+            reason = "Older row had no exported xref evidence"
         else:
-            # Check if the primary_xref itself is now an xref under another concept
-            if p in current_xref_owners:
-                absorbed_into = sorted(current_xref_owners[p])[:3]
-                reason = f"absorbed → {', '.join(absorbed_into)}"
-            else:
-                reason = "source no longer provides"
+            reason = "Source evidence is not present in the current release"
 
-        removed_concepts.append({
+        item = {
             "primary_xref": p,
             "standard_name": name,
+            "disease_type": _concept_biolink_category(base_concept),
             "reason": reason,
-        })
+        }
+        if bucket == "retired_concept":
+            removed_concepts.append(item)
+        elif bucket == "legacy_source_only":
+            legacy_source_only_rows.append(item)
+        else:
+            other_removed_rows.append(item)
 
     baseline_version = baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("pipeline_version", "unknown")
@@ -1869,17 +2195,40 @@ def compute_version_diff(
     return {
         "summary": {
             "concepts_added": len(added_pxrefs),
-            "concepts_removed": len(removed_pxrefs),
+            "concepts_removed": len(removed_concepts),
+            "raw_primary_rows_absent": len(removed_pxrefs),
+            "legacy_source_only_removed": len(legacy_source_only_rows),
+            "other_removed_rows": len(other_removed_rows),
             "tier_changes": len(tier_changes),
             "quality_changes": len(quality_changes),
+            "disease_type_changes": len(disease_type_changes),
             "edges_added": edges_added,
             "edges_removed": edges_removed,
             "decisions_resolved": max(0, decisions_resolved),
+            "source_namespaces_added": sum(1 for ns, count in current_ns_dist.items() if count and not baseline_ns_dist.get(ns)),
+            "source_namespaces_removed": sum(1 for ns, count in baseline_ns_dist.items() if count and not current_ns_dist.get(ns)),
         },
         "added_concepts": added_concepts,
-        "removed_concepts": removed_concepts,
+        "removed_concepts": removed_concepts[:500],
+        "legacy_source_only_rows": legacy_source_only_rows[:200],
+        "other_removed_rows": other_removed_rows[:200],
         "tier_changes": tier_changes[:500],
         "quality_changes": quality_changes[:500],
+        "disease_type_changes": disease_type_changes[:500],
+        "biolink_category_distribution": {
+            "baseline": dict(baseline_type_dist.most_common()),
+            "current": dict(current_type_dist.most_common()),
+            "delta": _distribution_delta(baseline_type_dist, current_type_dist, "category"),
+            "added": dict(added_by_category.most_common()),
+            "removed": dict(removed_by_category.most_common()),
+        },
+        "source_namespace_distribution": {
+            "baseline": dict(baseline_ns_dist.most_common()),
+            "current": dict(current_ns_dist.most_common()),
+            "delta": _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace"),
+            "edges_added": dict(edges_added_by_namespace.most_common()),
+            "edges_removed": dict(edges_removed_by_namespace.most_common()),
+        },
         "baseline_version": baseline_version,
         "current_version": current_version,
     }

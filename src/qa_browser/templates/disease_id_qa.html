@@ -45,8 +45,11 @@
                 <div class="dash-label">Sources Covered</div>
             </div>
             <div class="dash-card">
-                <div class="dash-stat" id="dashAvgXrefs">-</div>
-                <div class="dash-label">Avg Xrefs / Concept</div>
+                <div class="dash-stat" id="dashMultiSourceConcepts">-</div>
+                <div class="dash-label">Multi-source Concepts <button class="chart-legend-toggle" type="button" aria-label="Explain multi-source concepts" aria-expanded="false" aria-controls="multiSourceHelp">?</button></div>
+                <div class="chart-legend" id="multiSourceHelp">
+                    <p>Percent of concepts with <code>n_sources &gt; 1</code>. This is the dashboard's main harmonization coverage signal: concepts connected across independent resources. The older average xrefs per concept value is retained in the API as xref density, but it is less useful when many concepts are source-only or have exactly one xref.</p>
+                </div>
             </div>
             <div class="dash-card">
                 <div class="dash-stat" id="dashRareCount">-</div>
@@ -116,6 +119,13 @@
                 </div>
                 <div id="dashNodenormChart" class="bar-chart"></div>
             </div>
+            <div class="dash-chart-panel">
+                <h3>Biolink Category Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain Biolink category distribution" aria-expanded="false" aria-controls="biolinkCategoryHelp">?</button></h3>
+                <div class="chart-legend" id="biolinkCategoryHelp">
+                    <p>Concept-level Biolink category assigned during TargetGraph disease ID generation. This separates disease concepts from phenotype-labeled concepts now that phenotype mappings are included again.</p>
+                </div>
+                <div id="dashDiseaseTypeChart" class="bar-chart"></div>
+            </div>
         </div>
 
         <!-- Agreement Heatmap -->
@@ -179,7 +189,7 @@
                 </select>
                 <div class="disease-id-filter-toggle">
                     <button id="diseaseIdFilterAll" class="btn btn-sm disease-id-toggle-btn active">All</button>
-                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Flagged</button>
+                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Needs action</button>
                 </div>
                 <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn">Download filtered TSV</a>
             </div>
@@ -377,7 +387,7 @@
                         <label>Filter:
                             <select id="dlFilterMode" class="filter-select">
                                 <option value="all">All</option>
-                                <option value="flagged">Flagged only</option>
+                                <option value="flagged">Needs action only</option>
                             </select>
                         </label>
                         <label>Confidence:
@@ -447,9 +457,19 @@
                         <div class="column-picker-group">
                             <h4>Quality</h4>
                             <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier_original" checked> confidence_tier_original</label>
                             <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
                             <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
                             <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Review Decision</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_auto_cleared" checked> needs_review_auto_cleared</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_bucket" checked> needs_review_triage_bucket</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_action"> needs_review_triage_action</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_problem_namespaces" checked> needs_review_problem_namespaces</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_decision" checked> needs_review_decision</label>
+                            <label><input type="checkbox" class="dl-col-check" value="evidence_note"> evidence_note</label>
                         </div>
                         <div class="column-picker-group">
                             <h4>Xref Edges</h4>
@@ -510,7 +530,7 @@
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
                     <span class="disease-id-dl-sep">|</span>
-                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">flagged_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">needs_action_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn">SSSOM mappings</a>
                 </div>
             </div>
@@ -519,6 +539,15 @@
 
     <!-- Tab 5: Changes -->
     <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes">
+        <div class="changes-controls">
+            <label>From
+                <select id="changesFromVersion" class="filter-select-sm"></select>
+            </label>
+            <label>To
+                <select id="changesToVersion" class="filter-select-sm"></select>
+            </label>
+            <button type="button" class="btn btn-sm" id="changesCompareBtn">Compare versions</button>
+        </div>
         <div id="changesContent" class="changes-loading">Loading version diff...</div>
     </div>
 
@@ -931,7 +960,12 @@ C4707237</textarea>
             .then(stats => {
                 document.getElementById("dashTotalConcepts").textContent = stats.total_concepts.toLocaleString();
                 document.getElementById("dashSourcesCovered").textContent = Object.keys(stats.source_coverage).length;
-                document.getElementById("dashAvgXrefs").textContent = stats.avg_xrefs_per_concept;
+                document.getElementById("dashMultiSourceConcepts").textContent =
+                    `${Number(stats.multi_source_percent || 0).toFixed(1)}%`;
+                document.getElementById("dashMultiSourceConcepts").title =
+                    `${Number(stats.multi_source_count || 0).toLocaleString()} concepts with n_sources > 1; ` +
+                    `${Number(stats.source_only_count || 0).toLocaleString()} source-only concepts; ` +
+                    `avg xrefs/concept ${stats.avg_xrefs_per_concept}`;
                 document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
 
                 const tierColors = {
@@ -969,14 +1003,30 @@ C4707237</textarea>
                 const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#64748b" };
                 renderBarChart(document.getElementById("dashNodenormChart"), stats.nodenorm_distribution, stats.total_concepts, nnColors);
 
+                const diseaseTypeColors = {
+                    "biolink:Disease": "#2563eb",
+                    "biolink:PhenotypicFeature": "#f59e0b",
+                    "biolink:DiseaseOrPhenotypicFeature": "#7c3aed",
+                    "unknown": "#94a3b8",
+                };
+                renderBarChart(document.getElementById("dashDiseaseTypeChart"), stats.disease_type_distribution || {}, stats.total_concepts, diseaseTypeColors);
+
                 const summary = document.getElementById("dashFlaggedSummary");
+                const needsAction = Number(stats.needs_action_count || stats.flagged_count || 0);
+                const needsReview = Number(stats.needs_review_count || 0);
+                const autoCleared = Number(stats.auto_cleared_count || 0);
+                const qcDecisions = Number(stats.qc_decision_count || 0);
                 summary.innerHTML =
                     `<div class="dash-card dash-card-wide">` +
-                    `<div class="dash-stat">${stats.flagged_count.toLocaleString()}</div>` +
-                    `<div class="dash-label">Flagged concepts (cardinality, obsolete, or decision issues)</div>` +
+                    `<div class="dash-stat">${needsAction.toLocaleString()}</div>` +
+                    `<div class="dash-label">Concepts needing action` +
+                    (needsReview ? `; ${needsReview.toLocaleString()} retained as needs_review` : "") +
+                    (autoCleared ? `; ${autoCleared.toLocaleString()} auto-cleared review flags shown as QC decisions` : "") +
+                    (qcDecisions ? `; ${qcDecisions.toLocaleString()} concepts carry QC decision notes` : "") +
+                    `</div>` +
                     `<button class="btn btn-sm" style="margin-top:0.5rem" onclick="document.querySelector('[data-tab=concepts]').click();` +
                     `setTimeout(function(){document.getElementById('diseaseIdFilterFlagged').click()},100)">` +
-                    `View flagged concepts</button>` +
+                    `View concepts needing action</button>` +
                     `</div>`;
 
                 populateFilterDropdowns(stats);
@@ -1050,7 +1100,7 @@ C4707237</textarea>
                 tableStatus.textContent =
                     `${data.total.toLocaleString()} concepts` +
                     (data.query ? ` matching "${data.query}"` : "") +
-                    (data.filter === "flagged" ? " (flagged only)" : "");
+                    (data.filter === "flagged" ? " (needs action only)" : "");
 
                 if (data.rows.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="9">No concepts found.</td></tr>';
@@ -1069,6 +1119,10 @@ C4707237</textarea>
                             (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
                             (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
                             (r.is_rare ? `<div><strong>Rare:</strong> ${escapeHtml(r.is_rare)}</div>` : "") +
+                            (r.confidence_tier_original && r.confidence_tier_original !== r.confidence_tier ? `<div><strong>Original tier:</strong> ${escapeHtml(r.confidence_tier_original)}</div>` : "") +
+                            (r.needs_review_decision ? `<div><strong>Review decision:</strong> ${escapeHtml(r.needs_review_decision)}</div>` : "") +
+                            (r.needs_review_problem_namespaces ? `<div><strong>Review namespace:</strong> ${escapeHtml(r.needs_review_problem_namespaces)}</div>` : "") +
+                            (r.evidence_note ? `<div><strong>Decision note:</strong> ${escapeHtml(r.evidence_note)}</div>` : "") +
                             hierarchyHtml +
                             (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
                             (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
@@ -1220,16 +1274,21 @@ C4707237</textarea>
                 "asserting_sources", "structural_confidence", "xref_confidence",
                 "xref_is_obsolete", "override_status", "override_reason",
                 "has_conflict", "conflict_status", "conflict_type",
-                "conflict_resolution", "conflict_detail",
+                "raw_conflict_type", "conflict_resolution", "conflict_detail",
                 "confidence_tier", "overall_quality", "n_sources",
                 "primary_sources", "disease_type", "is_rare",
+                "confidence_tier_original", "needs_review_auto_cleared",
+                "needs_review_triage_bucket", "needs_review_triage_action",
+                "needs_review_problem_namespaces", "needs_review_decision",
+                "evidence_note",
                 "xref_count", "cardinality_issue_count", "obsolete_xref_count",
                 "hierarchy_parent_count", "hierarchy_child_count",
                 "nodenorm_canonical_curie",
                 "relationship_type", "predicate", "hierarchy_source",
                 "parent_primary_xref", "parent_label",
                 "child_primary_xref", "child_label",
-                "decision_type", "decision_source", "scenario_id",
+                "decision_type", "raw_decision_type", "source_decision_ids",
+                "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
                 "resolution", "resolution_detail", "reviewed_by", "priority",
             ];
@@ -1665,60 +1724,154 @@ C4707237</textarea>
     }
 
     /* == Changes tab == */
-    function loadChangesTab() {
+    function formatVersionOption(v) {
+        const date = v.updated_at ? ` (${String(v.updated_at).slice(0, 10)})` : "";
+        const current = v.current ? " current" : "";
+        return `v${v.version}${date}${current}`;
+    }
+
+    function populateVersionSelect(select, versions, selectedVersion) {
+        select.innerHTML = "";
+        versions.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.version;
+            opt.textContent = formatVersionOption(v);
+            if (v.version === selectedVersion) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    function renderDeltaTable(title, rows, keyName, labelName) {
+        if (!rows || rows.length === 0) return "";
+        const shown = rows.filter(r => Number(r.delta || 0) !== 0).slice(0, 40);
+        if (shown.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>${escapeHtml(title)} (${shown.length})</h3>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>${escapeHtml(labelName)}</th><th>From</th><th>To</th><th>Delta</th></tr></thead><tbody>`;
+        shown.forEach(r => {
+            const delta = Number(r.delta || 0);
+            const deltaText = delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString();
+            html += `<tr><td>${escapeHtml(r[keyName])}</td>`;
+            html += `<td>${Number(r.old_count || 0).toLocaleString()}</td>`;
+            html += `<td>${Number(r.new_count || 0).toLocaleString()}</td>`;
+            html += `<td>${deltaText}</td></tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
+    function renderVersionDiff(diff) {
+        const s = diff.summary;
+        let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
+        html += `<div class="changes-version-label">Biolink category deltas use the exported <code>disease_type</code> field; older releases without populated categories appear as <code>unknown</code>.</div>`;
+        html += `<div class="changes-version-label">Retired concepts are limited to concepts merged into another concept, absorbed as an xref, obsolete, or removed by QC. Older single-source rows from previous exports are counted separately because they were not harmonized concepts.</div>`;
+        if (Number(s.legacy_source_only_removed || 0) > 0) {
+            html += `<div class="changes-version-label">Excluded from the retired-concepts table: ${Number(s.legacy_source_only_removed || 0).toLocaleString()} older single-source rows from the previous export.</div>`;
+        }
+        html += `<div class="changes-summary">`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired / Merged Concepts</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.disease_type_changes.toLocaleString()}</div><div class="dash-label">Biolink Category Changes</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
+        html += `</div>`;
+
+        html += renderDeltaTable(
+            "Biolink Category Distribution",
+            diff.biolink_category_distribution && diff.biolink_category_distribution.delta,
+            "category",
+            "Category"
+        );
+        html += renderDeltaTable(
+            "Source Namespace Edge Changes",
+            diff.source_namespace_distribution && diff.source_namespace_distribution.delta,
+            "namespace",
+            "Namespace"
+        );
+
+        if (diff.added_concepts.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Biolink Category</th></tr></thead><tbody>`;
+            diff.added_concepts.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.removed_concepts.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Retired / Merged Concepts (${diff.removed_concepts.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Name</th><th>Biolink Category</th><th>What happened</th></tr></thead><tbody>`;
+            diff.removed_concepts.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.disease_type_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Biolink Category Changes (${diff.disease_type_changes.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Category</th><th>New Category</th></tr></thead><tbody>`;
+            diff.disease_type_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                html += `<td>${escapeHtml(c.old_category)}</td><td>${escapeHtml(c.new_category)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.tier_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
+            diff.tier_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+        return html;
+    }
+
+    function loadSelectedVersionDiff() {
         const container = document.getElementById("changesContent");
-        fetch(`${rootPath}/disease-id-qa/api/version-diff`)
+        const fromVersion = document.getElementById("changesFromVersion").value;
+        const toVersion = document.getElementById("changesToVersion").value;
+        container.className = "changes-loading";
+        container.textContent = "Loading version diff...";
+        const params = new URLSearchParams({ from_version: fromVersion, to_version: toVersion });
+        fetch(`${rootPath}/disease-id-qa/api/version-diff?${params}`)
             .then(r => {
-                if (!r.ok) throw new Error(r.status === 404 ? "No baseline dataset available" : "Failed to load");
+                if (!r.ok) throw new Error(r.status === 404 ? "Version dataset not available" : "Failed to load");
                 return r.json();
             })
             .then(diff => {
-                const s = diff.summary;
-                let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
-                html += `<div class="changes-summary">`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Concepts Removed</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
-                html += `</div>`;
+                container.className = "";
+                container.innerHTML = renderVersionDiff(diff);
+            })
+            .catch(err => {
+                container.className = "changes-unavailable";
+                container.innerHTML = escapeHtml(err.message);
+            });
+    }
 
-                // Added concepts table
-                if (diff.added_concepts.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
-                    diff.added_concepts.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                // Removed concepts table
-                if (diff.removed_concepts.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Removed Concepts (${diff.removed_concepts.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Reason</th></tr></thead><tbody>`;
-                    diff.removed_concepts.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.reason)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                // Tier changes table
-                if (diff.tier_changes.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
-                    diff.tier_changes.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
-                        html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                container.innerHTML = html;
+    function loadChangesTab() {
+        const container = document.getElementById("changesContent");
+        fetch(`${rootPath}/disease-id-qa/api/versions`)
+            .then(r => {
+                if (!r.ok) throw new Error("No versioned disease datasets available");
+                return r.json();
+            })
+            .then(payload => {
+                const versions = payload.versions || [];
+                if (versions.length < 2) throw new Error("At least two disease graph versions are required for comparison");
+                populateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version);
+                populateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version);
+                document.getElementById("changesCompareBtn").onclick = loadSelectedVersionDiff;
+                loadSelectedVersionDiff();
             })
             .catch(err => {
                 container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;

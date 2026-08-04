@@ -1,12 +1,12 @@
 {
   "contract_version": "2.0.0",
   "pipeline_version": "2.0.1",
-  "generated_at": "2026-07-31T20:34:36.026380+00:00",
-  "git_commit": "4d3d9b8",
-  "duration_seconds": 27.35,
+  "generated_at": "2026-08-04T18:58:55.524426+00:00",
+  "git_commit": "412ef04",
+  "duration_seconds": 22.06,
   "files": {
     "disease_concepts.tsv": {
-      "rows": 111065,
+      "rows": 112969,
       "key": "ncats_disease_id",
       "alternate_key": "primary_xref",
       "columns": [
@@ -21,12 +21,25 @@
         "harmonized_to_ontology",
         "primary_xref_grounding_type",
         "confidence_tier",
+        "confidence_tier_original",
+        "confidence_tier_triaged",
+        "needs_review_auto_cleared",
+        "needs_review_triage_bucket",
+        "needs_review_triage_action",
+        "needs_review_problem_namespaces",
+        "needs_review_cardinality_namespaces",
+        "needs_review_obsolete_namespaces",
+        "needs_review_validator_namespaces",
+        "authority_consensus",
+        "evidence_note",
         "overall_quality",
         "n_sources",
         "primary_source_count",
         "primary_sources",
         "primary_conflict_count",
         "cardinality_issue_count",
+        "primary_conflict_count_after_triage",
+        "cardinality_issue_count_after_triage",
         "obsolete_xref_count",
         "xref_count",
         "has_obsolete",
@@ -36,7 +49,7 @@
       ]
     },
     "disease_xref_edges.tsv": {
-      "rows": 320295,
+      "rows": 145665,
       "key": [
         "primary_xref",
         "xref_id",
@@ -68,8 +81,30 @@
         "override_reason"
       ]
     },
+    "disease_hierarchy_edges.tsv": {
+      "rows": 46447,
+      "key": [
+        "parent_primary_xref",
+        "child_primary_xref"
+      ],
+      "fk": {
+        "parent_ncats_disease_id": "disease_concepts.ncats_disease_id",
+        "child_ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "parent_primary_xref",
+        "parent_ncats_disease_id",
+        "parent_label",
+        "child_primary_xref",
+        "child_ncats_disease_id",
+        "child_label",
+        "relationship_type",
+        "predicate",
+        "source"
+      ]
+    },
     "xref_labels.tsv": {
-      "rows": 293772,
+      "rows": 143748,
       "key": "xref_id",
       "columns": [
         "xref_id",
@@ -129,6 +164,8 @@
     "divergence_registry_file": "src/data/publicdata/disease_data/v2.0.1/qc/divergence_registry.tsv",
     "gate_registry_file": "src/data/publicdata/disease_data/v2.0.1/qc/disease_qc_gate_registry.tsv",
     "blocklist_file": "src/data/publicdata/disease_data/overrides/disease_blocklist.tsv",
-    "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml"
+    "auto_blocklist_file": "src/data/publicdata/disease_data/v2.0.1/overrides/disease_blocklist_auto.tsv",
+    "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml",
+    "hierarchy_child_to_parents_file": "src/data/publicdata/disease_data/v2.0.1/cleaned/sources/child_to_parents.json"
   }
 }
