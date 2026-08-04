@@ -14,6 +14,7 @@ from src.qa_browser.disease_id_graph import (
     export_sssom,
     find_concept_neighbors,
     build_provenance_chain,
+    build_disease_graph_payload,
     resolve_concept,
     resolve_name_candidates,
     search_concepts,
@@ -142,6 +143,28 @@ class TestDiseaseResolver:
         assert len(result["candidates"]) == 1
         assert result["best"]["primary_xref"] == "MONDO:TARGET"
         assert result["best"]["matched_term"] == "UMLS:C4707237"
+
+
+class TestDiseaseGraphPayload:
+    """Verify graph payload metadata and classes."""
+
+    def test_phenotype_concepts_get_graph_class(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:PHENO"] = {
+            "primary_xref": "MONDO:PHENO",
+            "ncats_disease_id": "IFXDisease:PHENO",
+            "standard_name": "phenotypic feature example",
+            "disease_type": "biolink:PhenotypicFeature",
+        }
+
+        payload = build_disease_graph_payload(data, ["MONDO:PHENO"])
+        concept_node = next(
+            element for element in payload["elements"]
+            if element["data"]["id"] == "concept::MONDO:PHENO"
+        )
+
+        assert "concept" in concept_node["classes"].split()
+        assert "phenotype-concept" in concept_node["classes"].split()
 
 
 # ---------------------------------------------------------------------------

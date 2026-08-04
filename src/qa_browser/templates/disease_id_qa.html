@@ -223,6 +223,7 @@
                     <label><input type="checkbox" id="filterHideObsolete"> Hide obsolete xrefs</label>
                     <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
                     <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
+                    <label><input type="checkbox" id="filterHidePhenotypes"> Hide phenotypic features</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label class="disease-id-filter-group-label">Layout:</label>
                     <select id="graphLayoutSelect" class="filter-select filter-select-sm">
@@ -245,6 +246,7 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#be5a38"></span> <strong>Phenotypic feature</strong> &mdash; concept typed as biolink:PhenotypicFeature</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -1187,6 +1189,7 @@ C4707237</textarea>
         const filterHideObsolete = document.getElementById("filterHideObsolete");
         const filterHideDecisions = document.getElementById("filterHideDecisions");
         const filterHideHierarchy = document.getElementById("filterHideHierarchy");
+        const filterHidePhenotypes = document.getElementById("filterHidePhenotypes");
 
         let selectedConceptPxref = null;
 
@@ -1281,12 +1284,15 @@ C4707237</textarea>
             }
             if (filterHideDecisions.checked) cyInstance.elements(".decision").hide();
             if (filterHideHierarchy.checked) cyInstance.elements(".hierarchy-edge, .hierarchy-context").hide();
+            if (filterHidePhenotypes.checked) {
+                cyInstance.nodes(".phenotype-concept, .mixed-disease-phenotype-concept").hide();
+            }
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".hierarchy-context").filter(n => n.connectedEdges(":visible").length === 0).hide();
         }
 
         [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
-         filterHideObsolete, filterHideDecisions, filterHideHierarchy].forEach(cb => {
+         filterHideObsolete, filterHideDecisions, filterHideHierarchy, filterHidePhenotypes].forEach(cb => {
             cb.addEventListener("change", applyGraphFilters);
         });
 
@@ -1441,6 +1447,16 @@ C4707237</textarea>
                             "height": 46,
                             "font-size": 8,
                             "font-weight": "bold",
+                        }},
+                        { selector: ".phenotype-concept", style: {
+                            "background-color": "#be5a38",
+                            "border-color": "#fed7aa",
+                            "shape": "round-rectangle",
+                        }},
+                        { selector: ".mixed-disease-phenotype-concept", style: {
+                            "background-color": "#7c3aed",
+                            "border-color": "#c4b5fd",
+                            "shape": "round-diamond",
                         }},
                         { selector: ".hierarchy-context", style: {
                             "background-color": "#0284c7",

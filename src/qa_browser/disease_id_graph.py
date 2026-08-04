@@ -210,6 +210,21 @@ def _resolve_to_pxref(data: DiseaseGraphData, query_id: str) -> str | None:
     return None
 
 
+def _concept_type_class(concept: dict) -> str:
+    disease_type = concept.get("disease_type", "")
+    if disease_type == "biolink:PhenotypicFeature":
+        return "phenotype-concept"
+    if disease_type == "biolink:DiseaseOrPhenotypicFeature":
+        return "mixed-disease-phenotype-concept"
+    return "disease-concept"
+
+
+def _concept_classes(concept: dict, classes: str = "concept") -> str:
+    parts = [part for part in classes.split() if part]
+    parts.append(_concept_type_class(concept))
+    return " ".join(dict.fromkeys(parts))
+
+
 def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "concept") -> dict | None:
     """Build one Cytoscape concept node."""
     concept = data.concepts_by_pxref.get(pxref)
@@ -238,7 +253,7 @@ def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "conc
             "hierarchy_parent_count": str(len(data.hierarchy_by_child.get(pxref, []))),
             "hierarchy_child_count": str(len(data.hierarchy_by_parent.get(pxref, []))),
         },
-        "classes": classes,
+        "classes": _concept_classes(concept, classes),
     }
 
 
@@ -284,7 +299,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                 "hierarchy_parent_count": str(len(data.hierarchy_by_child.get(pxref, []))),
                 "hierarchy_child_count": str(len(data.hierarchy_by_parent.get(pxref, []))),
             },
-            "classes": "concept",
+            "classes": _concept_classes(concept, "concept"),
         }
 
         # --- build decision lookup keyed by xref_id for this concept ---
