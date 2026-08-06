@@ -71,6 +71,13 @@ from src.qa_browser.registry_usage import (
     load_graph_registry_usage_cached,
     with_graph_usages,
 )
+from src.qa_browser.target_id_graph import (
+    build_target_graph_payload,
+    compute_target_stats,
+    export_targets,
+    load_target_graph_data,
+    search_targets,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -79,6 +86,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
+TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
 
 
 @asynccontextmanager
@@ -108,6 +116,7 @@ _minio_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
+_target_graph_dir: str = ""
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -5549,15 +5558,17 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
 
 def _load_cure_entity_resolver():
     graph_dir = _disease_graph_dir or ""
+    target_graph_dir = _target_graph_dir or ""
+    cache_key = (graph_dir, target_graph_dir)
     with _cure_entity_resolver_lock:
         if (
             _cure_entity_resolver_cache.get("index") is not None
-            and _cure_entity_resolver_cache.get("graph_dir") == graph_dir
+            and _cure_entity_resolver_cache.get("graph_dir") == cache_key
         ):
             return _cure_entity_resolver_cache["index"]
-        index = build_cure_entity_resolver_index(graph_dir)
+        index = build_cure_entity_resolver_index(graph_dir, target_graph_dir)
         _cure_entity_resolver_cache.update({
-            "graph_dir": graph_dir,
+            "graph_dir": cache_key,
             "index": index,
             "loaded_at": datetime.now(timezone.utc).isoformat(),
         })
@@ -5590,6 +5601,7 @@ def cure_entity_resolver_stats():
     stats = index.stats()
     stats["loaded_at"] = _cure_entity_resolver_cache.get("loaded_at")
     stats["disease_graph_dir"] = _disease_graph_dir
+    stats["target_graph_dir"] = _target_graph_dir
     return stats
 
 
@@ -5613,6 +5625,7 @@ async def cure_entity_resolver_resolve(request: Request):
         "phenotype",
         "adverse_event",
         "gene",
+        "protein",
         "sequence_variant",
     }
     if entity_type not in allowed_entity_types:
@@ -5638,6 +5651,71 @@ async def cure_entity_resolver_resolve(request: Request):
         "index": index.stats(),
         "results": results,
     }
+
+
+# ---------------------------------------------------------------------------
+# Target Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+def _load_target_graph():
+    if not _target_graph_dir:
+        raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
+    return load_target_graph_data(_target_graph_dir)
+
+
+@app.get("/target-id-qa", response_class=HTMLResponse)
+def target_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    return templates.TemplateResponse(request, "target_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+    })
+
+
+@app.get("/target-id-qa/api/stats")
+def target_id_qa_stats():
+    data = _load_target_graph()
+    return compute_target_stats(data)
+
+
+@app.get("/target-id-qa/api/search")
+def target_id_qa_search(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_target_graph()
+    return search_targets(data, q=q, target_type=target_type, namespace=namespace, page=page, per_page=per_page)
+
+
+@app.get("/target-id-qa/api/graph")
+def target_id_qa_graph(ids: str = ""):
+    data = _load_target_graph()
+    return build_target_graph_payload(data, ids)
+
+
+@app.get("/target-id-qa/download-filtered")
+def target_id_qa_download_filtered(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    format: str = "tsv",
+):
+    data = _load_target_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    filename = f"target_harmonizer_filtered.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)
@@ -9042,9 +9120,12 @@ def main():
     parser.add_argument("--baseline-graph-dir",
                         default="",
                         help="Path to baseline disease app_graph/ directory for version diff")
+    parser.add_argument("--target-graph-dir",
+                        default="",
+                        help="Path to target app_graph/ directory (target_nodes.tsv + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir, _target_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -9132,6 +9213,16 @@ def main():
                 print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
     if _baseline_graph_dir:
         print(f"Baseline graph dir: {_baseline_graph_dir}")
+
+    _target_graph_dir = args.target_graph_dir
+    if not _target_graph_dir:
+        bundled_dir = TARGET_APP_GRAPH_BUNDLED_DIR
+        current_dir = bundled_dir / "current"
+        if current_dir.is_dir():
+            _target_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled target data: {_target_graph_dir}")
+    if _target_graph_dir:
+        print(f"Target graph dir: {_target_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

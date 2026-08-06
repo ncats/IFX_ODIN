@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.0.0",
+  "pipeline": "TargetGraph target harmonizer",
+  "generated_at": "2026-08-06T16:49:21.589908+00:00",
+  "source_files": {
+    "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.tsv",
+    "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids.tsv",
+    "transcript_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.tsv"
+  },
+  "files": {
+    "target_nodes.tsv": {
+      "rows": 893967,
+      "key": "target_id",
+      "columns": [
+        "target_id",
+        "target_type",
+        "primary_id",
+        "symbol",
+        "name",
+        "description",
+        "category",
+        "ids",
+        "id_namespaces",
+        "source_namespaces",
+        "mapping_ratio",
+        "quality_note",
+        "canonical_status",
+        "canonical_ifx_id",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "node_counts": {
+    "gene": 193394,
+    "protein": 166833,
+    "transcript": 533740
+  },
+  "identifier_namespace_concept_counts": {
+    "ENSEMBL": 683261,
+    "NCBIGene": 327133,
+    "UniProtKB": 166833,
+    "NodeNorm": 166829,
+    "UniRef100": 156568,
+    "RefSeq": 148731,
+    "UMLS": 71409,
+    "HGNC": 45053,
+    "MIM": 18936
+  }
+}

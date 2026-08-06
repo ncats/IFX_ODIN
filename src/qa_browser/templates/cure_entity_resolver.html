@@ -26,6 +26,7 @@
                     <option value="phenotype">Phenotype</option>
                     <option value="adverse_event">Adverse event</option>
                     <option value="gene">Gene</option>
+                    <option value="protein">Protein</option>
                     <option value="sequence_variant">Sequence variant</option>
                 </select>
             </label>
@@ -99,6 +100,8 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
             ["Identifier Source", evidenceValue(evidence, ["identifier_source"])],
             ["Manual QC", evidenceValue(evidence, ["human_decision", "llm_decision"])],
             ["Node Type", evidenceValue(evidence, ["node_type"])],
+            ["Target ID", evidenceValue(evidence, ["target_id"])],
+            ["Target Primary", evidenceValue(evidence, ["primary_id"])],
             ["CURE Drug ID", evidenceValue(evidence, ["cure_drug_identifier", "cure_drug_id"])],
             ["Ingredients", evidenceValue(evidence, ["active_ingredients"])],
             ["Brand/Product", evidenceValue(evidence, ["brand_product_candidates"])],
@@ -156,6 +159,7 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
             <span>${Number(types.drug || 0).toLocaleString()} drug</span>
             <span>${clinical.toLocaleString()} clinical</span>
             <span>${Number(types.gene || 0).toLocaleString()} gene</span>
+            <span>${Number(types.protein || 0).toLocaleString()} protein</span>
             <span>${Object.keys(sources).length} sources</span>
         `;
     }

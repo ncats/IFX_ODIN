@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}Target Harmonizer Explorer{% endblock %}
+{% block breadcrumb %}<a href="{{ root_path }}/target-id-qa">Target Harmonizer Explorer</a>{% endblock %}
+
+{% block content %}
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+
+<div class="target-explorer-shell">
+    <section class="target-explorer-header">
+        <div>
+            <h1>Target Harmonizer Explorer</h1>
+            <div class="target-explorer-subtitle">Genes, proteins, and transcripts harmonized from HGNC, NCBI, Ensembl, UniProt, RefSeq, and NodeNorm.</div>
+        </div>
+        <div class="target-open-box">
+            <textarea id="targetOpenIds" rows="3" spellcheck="false">{{ selected_ids }}</textarea>
+            <button class="btn btn-primary" id="targetOpenGraph" type="button">Open graph</button>
+        </div>
+    </section>
+
+    <nav class="target-tabs">
+        <button class="target-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
+        <button class="target-tab-btn" data-tab="concepts" type="button">Concepts</button>
+        <button class="target-tab-btn" data-tab="graph" type="button">Graph</button>
+        <button class="target-tab-btn" data-tab="download" type="button">Download</button>
+    </nav>
+
+    <section class="target-tab-panel" data-panel="dashboard">
+        <div class="target-stat-grid" id="targetStats"></div>
+        <div class="target-dashboard-grid">
+            <section class="target-panel">
+                <h2>Target Type Distribution</h2>
+                <div class="target-bars" id="targetTypeBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Identifier Coverage</h2>
+                <div class="target-bars" id="targetNamespaceBars"></div>
+            </section>
+        </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="concepts">
+        <div class="target-filter-row">
+            <input id="targetSearch" type="search" placeholder="Search symbol, name, IFX ID, or external ID...">
+            <select id="targetTypeFilter">
+                <option value="">All types</option>
+                <option value="gene">Genes</option>
+                <option value="protein">Proteins</option>
+                <option value="transcript">Transcripts</option>
+            </select>
+            <select id="targetNamespaceFilter">
+                <option value="">All identifiers</option>
+            </select>
+            <button class="btn btn-primary" id="targetSearchBtn" type="button">Search</button>
+        </div>
+        <div class="target-table-wrap">
+            <table class="target-table">
+                <thead>
+                    <tr>
+                        <th>Target ID</th>
+                        <th>Type</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Primary ID</th>
+                        <th>Identifiers</th>
+                    </tr>
+                </thead>
+                <tbody id="targetRows"></tbody>
+            </table>
+        </div>
+        <div class="target-pager">
+            <button class="btn" id="targetPrevPage" type="button">Prev</button>
+            <span id="targetPageLabel"></span>
+            <button class="btn" id="targetNextPage" type="button">Next</button>
+        </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="graph">
+        <div class="target-graph-toolbar">
+            <span id="targetGraphLabel">Enter a target ID, symbol, or external identifier.</span>
+        </div>
+        <div id="targetGraph" class="target-graph"></div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="download">
+        <div class="target-panel">
+            <div class="target-filter-row">
+                <input id="targetDownloadSearch" type="search" placeholder="Filter download by search text...">
+                <select id="targetDownloadType">
+                    <option value="">All types</option>
+                    <option value="gene">Genes</option>
+                    <option value="protein">Proteins</option>
+                    <option value="transcript">Transcripts</option>
+                </select>
+                <select id="targetDownloadNamespace">
+                    <option value="">All identifiers</option>
+                </select>
+                <select id="targetDownloadFormat">
+                    <option value="tsv">TSV</option>
+                    <option value="csv">CSV</option>
+                </select>
+                <button class="btn btn-primary" id="targetDownloadBtn" type="button">Download</button>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+(function () {
+    const rootPath = "{{ root_path }}";
+    const activeTab = "{{ active_tab }}";
+    let currentPage = 1;
+    let totalPages = 1;
+    let cy = null;
+
+    const panels = Array.from(document.querySelectorAll(".target-tab-panel"));
+    const buttons = Array.from(document.querySelectorAll(".target-tab-btn"));
+    const rowsEl = document.getElementById("targetRows");
+    const pageLabel = document.getElementById("targetPageLabel");
+
+    function escapeHtml(value) {
+        return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function setTab(tab) {
+        buttons.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+        panels.forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
+        if (tab === "graph") loadGraph();
+    }
+
+    function paramsFromFilters(prefix) {
+        const q = document.getElementById(`${prefix}Search`)?.value || "";
+        const targetType = document.getElementById(`${prefix}Type`)?.value || document.getElementById(`${prefix}TypeFilter`)?.value || "";
+        const namespace = document.getElementById(`${prefix}Namespace`)?.value || document.getElementById(`${prefix}NamespaceFilter`)?.value || "";
+        return {q, target_type: targetType, namespace};
+    }
+
+    function renderBars(container, values) {
+        const entries = Object.entries(values || {}).slice(0, 12);
+        const max = Math.max(1, ...entries.map(([, v]) => Number(v) || 0));
+        container.innerHTML = entries.map(([label, value]) => {
+            const pct = Math.max(2, ((Number(value) || 0) / max) * 100);
+            return `<div class="target-bar-row"><span>${escapeHtml(label)}</span><div><i style="width:${pct}%"></i></div><code>${Number(value || 0).toLocaleString()}</code></div>`;
+        }).join("");
+    }
+
+    function populateNamespaceSelects(values) {
+        const namespaces = Object.keys(values || {});
+        for (const id of ["targetNamespaceFilter", "targetDownloadNamespace"]) {
+            const select = document.getElementById(id);
+            const current = select.value;
+            select.innerHTML = '<option value="">All identifiers</option>' + namespaces.map(ns => `<option value="${escapeHtml(ns)}">${escapeHtml(ns)}</option>`).join("");
+            select.value = current;
+        }
+    }
+
+    async function loadStats() {
+        const response = await fetch(`${rootPath}/target-id-qa/api/stats`);
+        const stats = await response.json();
+        const typeCounts = stats.type_counts || {};
+        const namespaces = stats.identifier_namespace_counts || {};
+        document.getElementById("targetStats").innerHTML = `
+            <div><strong>${Number(stats.total_targets || 0).toLocaleString()}</strong><span>Total targets</span></div>
+            <div><strong>${Number(typeCounts.gene || 0).toLocaleString()}</strong><span>Genes</span></div>
+            <div><strong>${Number(typeCounts.protein || 0).toLocaleString()}</strong><span>Proteins</span></div>
+            <div><strong>${Number(typeCounts.transcript || 0).toLocaleString()}</strong><span>Transcripts</span></div>
+        `;
+        renderBars(document.getElementById("targetTypeBars"), typeCounts);
+        renderBars(document.getElementById("targetNamespaceBars"), namespaces);
+        populateNamespaceSelects(namespaces);
+    }
+
+    async function search(page) {
+        currentPage = page || currentPage;
+        const params = new URLSearchParams(paramsFromFilters("target"));
+        params.set("page", String(currentPage));
+        params.set("per_page", "50");
+        const response = await fetch(`${rootPath}/target-id-qa/api/search?${params}`);
+        const payload = await response.json();
+        totalPages = payload.total_pages || 1;
+        currentPage = payload.page || 1;
+        rowsEl.innerHTML = (payload.rows || []).map(row => `
+            <tr>
+                <td><button class="target-link" data-id="${escapeHtml(row.target_id)}" type="button">${escapeHtml(row.target_id)}</button></td>
+                <td>${escapeHtml(row.target_type)}</td>
+                <td>${escapeHtml(row.symbol)}</td>
+                <td>${escapeHtml(row.name)}</td>
+                <td><code>${escapeHtml(row.primary_id)}</code></td>
+                <td>${escapeHtml((row.id_namespaces || "").replaceAll("|", " · "))}</td>
+            </tr>
+        `).join("");
+        pageLabel.textContent = `Page ${currentPage.toLocaleString()} of ${totalPages.toLocaleString()} (${Number(payload.total || 0).toLocaleString()} targets)`;
+    }
+
+    async function loadGraph() {
+        const ids = document.getElementById("targetOpenIds").value.trim();
+        if (!ids) return;
+        const response = await fetch(`${rootPath}/target-id-qa/api/graph?ids=${encodeURIComponent(ids)}`);
+        const payload = await response.json();
+        const elements = payload.elements || [];
+        document.getElementById("targetGraphLabel").textContent = `${elements.length.toLocaleString()} graph elements`;
+        if (!cy) {
+            cy = cytoscape({
+                container: document.getElementById("targetGraph"),
+                elements,
+                style: [
+                    {selector: "node", style: {"label": "data(label)", "font-size": 10, "text-wrap": "wrap", "text-max-width": 140, "background-color": "#64748b", "color": "#111827", "width": 30, "height": 30}},
+                    {selector: ".gene", style: {"background-color": "#2563eb"}},
+                    {selector: ".protein", style: {"background-color": "#059669"}},
+                    {selector: ".transcript", style: {"background-color": "#d97706"}},
+                    {selector: ".xref", style: {"shape": "round-rectangle", "background-color": "#94a3b8", "width": 80, "height": 24}},
+                    {selector: ".neighbor", style: {"opacity": 0.72}},
+                    {selector: "edge", style: {"curve-style": "bezier", "target-arrow-shape": "triangle", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8}}
+                ],
+                layout: {name: "cose", animate: false}
+            });
+        } else {
+            cy.elements().remove();
+            cy.add(elements);
+            cy.layout({name: "cose", animate: false}).run();
+        }
+    }
+
+    function download() {
+        const params = new URLSearchParams(paramsFromFilters("targetDownload"));
+        params.set("format", document.getElementById("targetDownloadFormat").value || "tsv");
+        window.location.href = `${rootPath}/target-id-qa/download-filtered?${params}`;
+    }
+
+    document.getElementById("targetOpenGraph").addEventListener("click", () => setTab("graph"));
+    document.getElementById("targetSearchBtn").addEventListener("click", () => search(1));
+    document.getElementById("targetSearch").addEventListener("keydown", event => {
+        if (event.key === "Enter") search(1);
+    });
+    document.getElementById("targetPrevPage").addEventListener("click", () => search(Math.max(1, currentPage - 1)));
+    document.getElementById("targetNextPage").addEventListener("click", () => search(Math.min(totalPages, currentPage + 1)));
+    document.getElementById("targetDownloadBtn").addEventListener("click", download);
+    rowsEl.addEventListener("click", event => {
+        const btn = event.target.closest(".target-link");
+        if (!btn) return;
+        document.getElementById("targetOpenIds").value = btn.dataset.id;
+        setTab("graph");
+    });
+    buttons.forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
+
+    loadStats().then(() => search(1));
+    setTab(activeTab || "dashboard");
+})();
+</script>
+{% endblock %}

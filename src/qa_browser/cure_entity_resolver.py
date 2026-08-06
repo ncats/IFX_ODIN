@@ -75,6 +75,7 @@ NODE_TYPE_TO_ENTITY_TYPE = {
     "disease": "disease",
     "drug": "drug",
     "gene": "gene",
+    "protein": "protein",
     "phenotypicfeature": "phenotype",
     "sequencevariant": "sequence_variant",
 }
@@ -83,6 +84,7 @@ ENTITY_TYPE_BIOLINK = {
     "disease": "biolink:Disease",
     "drug": "biolink:Drug",
     "gene": "biolink:Gene",
+    "protein": "biolink:Protein",
     "phenotype": "biolink:PhenotypicFeature",
     "sequence_variant": "biolink:SequenceVariant",
 }
@@ -93,9 +95,27 @@ ENTITY_TYPE_FILTERS = {
     "disease": {"disease", "phenotype", "adverse_event"},
     "drug": {"drug"},
     "gene": {"gene"},
+    "protein": {"protein"},
     "phenotype": {"phenotype"},
     "adverse_event": {"adverse_event"},
     "sequence_variant": {"sequence_variant"},
+}
+_SOURCE_PRIORITY = {
+    "target_harmonizer": 0,
+    "disease_harmonizer": 1,
+    "disease_harmonizer_xref": 2,
+    "cure_rasopathy_manual_qc": 3,
+    "cure_phase1c_review": 4,
+    "cure_drug_input": 5,
+}
+_ENTITY_PRIORITY = {
+    "gene": 0,
+    "protein": 1,
+    "disease": 2,
+    "phenotype": 3,
+    "adverse_event": 4,
+    "drug": 5,
+    "sequence_variant": 6,
 }
 
 
@@ -194,6 +214,24 @@ def rxnorm_identifiers(*values: Any) -> list[str]:
     return list(dict.fromkeys(identifiers))
 
 
+def candidate_preference(row: dict[str, Any]) -> tuple[int, int, int, str]:
+    evidence = row.get("evidence") or {}
+    canonical_status = str(evidence.get("canonical_status", "")).lower()
+    category = str(evidence.get("category", "")).lower()
+    if "true|canonical" in canonical_status or category == "canonical":
+        canonical_rank = 0
+    elif "canonical" in canonical_status:
+        canonical_rank = 1
+    else:
+        canonical_rank = 2
+    return (
+        _SOURCE_PRIORITY.get(row.get("source", ""), 99),
+        _ENTITY_PRIORITY.get(row.get("entity_type", ""), 99),
+        canonical_rank,
+        str(row.get("label", "")),
+    )
+
+
 @dataclass
 class ResolverTerm:
     term: str
@@ -271,7 +309,14 @@ class CureEntityResolverIndex:
                 continue
             row = score_term(query, query_norm, query_tokens, term, detected_type)
             current = scored.get(term.concept_id)
-            if current is None or row["resolver_score"] > current["resolver_score"]:
+            if (
+                current is None
+                or row["resolver_score"] > current["resolver_score"]
+                or (
+                    row["resolver_score"] == current["resolver_score"]
+                    and candidate_preference(row) < candidate_preference(current)
+                )
+            ):
                 scored[term.concept_id] = row
 
         candidates = sorted(
@@ -279,7 +324,7 @@ class CureEntityResolverIndex:
             key=lambda row: (
                 -row["resolver_score"],
                 -row["lexical_score"],
-                row["entity_type"],
+                candidate_preference(row),
                 row["label"],
             ),
         )[: max(1, min(top_k, 20))]
@@ -394,7 +439,10 @@ def score_term(
     }
 
 
-def build_cure_entity_resolver_index(disease_graph_dir: str | Path | None = None) -> CureEntityResolverIndex:
+def build_cure_entity_resolver_index(
+    disease_graph_dir: str | Path | None = None,
+    target_graph_dir: str | Path | None = None,
+) -> CureEntityResolverIndex:
     warnings: list[str] = []
     terms: list[ResolverTerm] = []
 
@@ -404,6 +452,8 @@ def build_cure_entity_resolver_index(disease_graph_dir: str | Path | None = None
         os.getenv("CURE_RASOPATHY_MANUAL_QC_FILE", str(DEFAULT_CURE_RASOPATHY_MANUAL_QC_FILE))
     )
 
+    if target_graph_dir:
+        terms.extend(load_target_harmonizer_terms(Path(target_graph_dir), warnings))
     terms.extend(load_rasopathy_manual_qc_terms(rasopathy_manual_qc, warnings))
     terms.extend(load_cure_drug_input_terms(drug_input, warnings))
     terms.extend(load_cure_phase1c_terms(drug_review_dir, warnings))
@@ -486,6 +536,94 @@ def load_rasopathy_manual_qc_terms(path: Path, warnings: list[str]) -> list[Reso
                     evidence=evidence,
                 )
             )
+    return terms
+
+
+def load_target_harmonizer_terms(graph_dir: Path, warnings: list[str]) -> list[ResolverTerm]:
+    nodes_file = graph_dir / "target_nodes.tsv"
+    if not nodes_file.exists():
+        warnings.append(f"Target harmonizer nodes file not found: {nodes_file}")
+        return []
+
+    terms: list[ResolverTerm] = []
+    with open(nodes_file, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            target_type = compact_id(row.get("target_type"))
+            if target_type == "transcript":
+                break
+            if target_type not in {"gene", "protein"}:
+                continue
+            target_id = compact_id(row.get("target_id"))
+            primary_id = compact_id(row.get("primary_id"))
+            symbol = compact_id(row.get("symbol"))
+            name = compact_id(row.get("name"))
+            identifiers = curie_values(row.get("ids"))
+            if target_type == "gene":
+                preferred = next((x for x in identifiers if x.startswith("NCBIGene:")), "")
+                biolink = "biolink:Gene"
+            else:
+                preferred = next((x for x in identifiers if x.startswith("UniProtKB:")), "")
+                biolink = "biolink:Protein"
+            concept_id = preferred or primary_id or target_id
+            if not concept_id:
+                continue
+            label = symbol or name or concept_id
+            evidence = {
+                "identifier_source": "target_harmonizer",
+                "target_id": target_id,
+                "target_type": target_type,
+                "primary_id": primary_id,
+                "symbol": symbol,
+                "name": name,
+                "target_identifiers": "|".join(identifiers[:50]),
+                "id_namespaces": compact_id(row.get("id_namespaces")),
+                "source_namespaces": compact_id(row.get("source_namespaces")),
+                "mapping_ratio": compact_id(row.get("mapping_ratio")),
+                "category": compact_id(row.get("category")),
+                "canonical_status": compact_id(row.get("canonical_status")),
+                "canonical_ifx_id": compact_id(row.get("canonical_ifx_id")),
+            }
+            searchable_identifiers: list[str] = []
+            for identifier in identifiers:
+                namespace = identifier.split(":", 1)[0]
+                if target_type == "gene" and namespace in {"NCBIGene", "HGNC", "ENSEMBL"}:
+                    searchable_identifiers.append(identifier)
+                elif target_type == "protein" and (
+                    identifier == preferred
+                    or identifier == primary_id
+                    or namespace in {"RefSeq", "ENSEMBL", "NCBIGene"}
+                ):
+                    searchable_identifiers.append(identifier)
+
+            term_values: list[tuple[str, str]] = [
+                (symbol, "target_symbol"),
+                (name, "target_name"),
+                (primary_id, "target_primary_id"),
+                (target_id, "target_ifx_id"),
+            ]
+            term_values.extend((identifier, "target_identifier") for identifier in searchable_identifiers)
+            seen: set[tuple[str, str]] = set()
+            for term, kind in term_values:
+                term = compact_id(term)
+                if not term:
+                    continue
+                key = (normalize_text(term), kind)
+                if key in seen:
+                    continue
+                seen.add(key)
+                terms.append(
+                    ResolverTerm(
+                        term=term,
+                        concept_id=concept_id,
+                        label=label,
+                        entity_type=target_type,
+                        biolink_category=biolink,
+                        source="target_harmonizer",
+                        term_kind=kind,
+                        identifiers=identifiers[:20],
+                        evidence=evidence,
+                    )
+                )
     return terms
 
 
