@@ -60,6 +60,7 @@ from src.qa_browser.disease_id_graph import (
     resolve_name_candidates,
     search_concepts,
 )
+from src.qa_browser.cure_entity_resolver import build_cure_entity_resolver_index
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -147,6 +148,12 @@ _resolver_warmup_status: dict = {
     "warmed": 0,
     "errors": [],
 }
+_cure_entity_resolver_cache: dict = {
+    "graph_dir": None,
+    "index": None,
+    "loaded_at": None,
+}
+_cure_entity_resolver_lock = threading.Lock()
 _REGISTRY_USAGE_TTL_SECONDS = 60
 _REGISTRY_CATALOG_TTL_SECONDS = int(os.getenv("QA_BROWSER_REGISTRY_CATALOG_TTL_SECONDS", "300"))
 _RESOLVER_API_MAX_IDS = 1000
@@ -5538,6 +5545,87 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
     if len(query_ids) == 1:
         return _load_metabolite_identifier_qa(query_ids[0], selected_snapshot_keys)
     return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
+
+
+def _load_cure_entity_resolver():
+    graph_dir = _disease_graph_dir or ""
+    with _cure_entity_resolver_lock:
+        if (
+            _cure_entity_resolver_cache.get("index") is not None
+            and _cure_entity_resolver_cache.get("graph_dir") == graph_dir
+        ):
+            return _cure_entity_resolver_cache["index"]
+        index = build_cure_entity_resolver_index(graph_dir)
+        _cure_entity_resolver_cache.update({
+            "graph_dir": graph_dir,
+            "index": index,
+            "loaded_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return index
+
+
+def _parse_cure_resolver_queries(value) -> list[str]:
+    if isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = re.split(r"[\r\n]+", str(value or ""))
+    queries = []
+    for raw in raw_values:
+        text = str(raw or "").strip()
+        if text:
+            queries.append(text)
+    return queries
+
+
+@app.get("/cure-entity-resolver", response_class=HTMLResponse)
+def cure_entity_resolver(request: Request):
+    return templates.TemplateResponse(request, "cure_entity_resolver.html", {
+        "request": request,
+    })
+
+
+@app.get("/cure-entity-resolver/api/stats")
+def cure_entity_resolver_stats():
+    index = _load_cure_entity_resolver()
+    stats = index.stats()
+    stats["loaded_at"] = _cure_entity_resolver_cache.get("loaded_at")
+    stats["disease_graph_dir"] = _disease_graph_dir
+    return stats
+
+
+@app.post("/cure-entity-resolver/api/resolve")
+async def cure_entity_resolver_resolve(request: Request):
+    payload = await request.json()
+    queries = _parse_cure_resolver_queries(
+        payload.get("queries") if "queries" in payload else payload.get("text", "")
+    )
+    if not queries:
+        raise HTTPException(status_code=400, detail="Provide at least one query.")
+    if len(queries) > 1000:
+        raise HTTPException(status_code=400, detail="At most 1000 queries are allowed per request.")
+    entity_type = str(payload.get("entity_type") or "auto").strip().lower()
+    if entity_type not in {"auto", "drug", "disease"}:
+        raise HTTPException(status_code=400, detail="entity_type must be auto, drug, or disease.")
+    try:
+        top_k = int(payload.get("top_k", 5))
+    except Exception:
+        top_k = 5
+    top_k = max(1, min(top_k, 10))
+
+    index = _load_cure_entity_resolver()
+    results = await run_in_threadpool(
+        index.resolve_many,
+        queries,
+        entity_type=entity_type,
+        top_k=top_k,
+    )
+    return {
+        "query_count": len(queries),
+        "entity_type": entity_type,
+        "top_k": top_k,
+        "index": index.stats(),
+        "results": results,
+    }
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)

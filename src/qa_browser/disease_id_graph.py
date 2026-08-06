@@ -66,6 +66,14 @@ def _join_unique(values: list[str] | tuple[str, ...]) -> str:
     return "|".join(unique)
 
 
+def _nodenorm_status(concept: dict) -> str:
+    """Support both old app_graph and current TargetGraph NodeNorm column names."""
+    return (
+        concept.get("nodenorm_validation_status", "")
+        or concept.get("nodenorm_concordance", "")
+    )
+
+
 def _decision_action(decision: dict) -> str:
     return decision.get("auto_decision", "") or decision.get("resolution", "")
 
@@ -260,7 +268,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         quality = concept.get("overall_quality", "").strip()
         quality_dist[quality if quality else "unknown"] += 1
 
-        nn_status = concept.get("nodenorm_validation_status", "").strip()
+        nn_status = _nodenorm_status(concept).strip()
         nodenorm_dist[nn_status if nn_status else "unknown"] += 1
 
         disease_type = concept.get("disease_type", "").strip()
@@ -937,7 +945,11 @@ def _concept_to_row(
         "needs_review_problem_namespaces": concept.get("needs_review_problem_namespaces", ""),
         "needs_review_cardinality_namespaces": concept.get("needs_review_cardinality_namespaces", ""),
         "needs_review_obsolete_namespaces": concept.get("needs_review_obsolete_namespaces", ""),
-        "needs_review_validator_namespaces": concept.get("needs_review_validator_namespaces", ""),
+        "needs_review_validator_namespaces": (
+            concept.get("needs_review_validator_namespaces", "")
+            or concept.get("needs_review_discordant_namespaces", "")
+        ),
+        "needs_review_discordant_namespaces": concept.get("needs_review_discordant_namespaces", ""),
         "needs_review_decision": _needs_review_decision(concept),
         "authority_consensus": concept.get("authority_consensus", ""),
         "evidence_note": concept.get("evidence_note", ""),
@@ -952,7 +964,7 @@ def _concept_to_row(
         "disease_type": concept.get("disease_type", ""),
         "nodenorm_canonical_curie": concept.get("nodenorm_canonical_curie", ""),
         "nodenorm_canonical_label": concept.get("nodenorm_canonical_label", ""),
-        "nodenorm_validation_status": concept.get("nodenorm_validation_status", ""),
+        "nodenorm_validation_status": _nodenorm_status(concept),
         "hierarchy_parent_count": len(parents),
         "hierarchy_child_count": len(children),
         "hierarchy_parents": _format_hierarchy_refs(parents, "parent"),
@@ -1784,7 +1796,7 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
         "nodenorm": {
             "canonical_curie": concept.get("nodenorm_canonical_curie", ""),
             "canonical_label": concept.get("nodenorm_canonical_label", ""),
-            "validation_status": concept.get("nodenorm_validation_status", ""),
+            "validation_status": _nodenorm_status(concept),
         },
     }
 
@@ -2314,7 +2326,7 @@ def build_provenance_chain(
             })
 
     # Step 3: NodeNorm validation
-    nn_status = concept.get("nodenorm_validation_status", "")
+    nn_status = _nodenorm_status(concept)
     if nn_status:
         steps.append({
             "step": "nodenorm_validation",
