@@ -6,15 +6,20 @@ from pathlib import Path
 
 from src.qa_browser.disease_id_graph import (
     DiseaseGraphData,
+    _concept_to_row,
+    _is_flagged,
     _match_type_to_skos,
     _match_source_to_semapv,
     compute_dashboard_stats,
     compute_source_agreement_matrix,
     compute_source_flow_data,
+    compute_version_diff,
     export_sssom,
     find_concept_neighbors,
     build_provenance_chain,
+    build_disease_graph_payload,
     resolve_concept,
+    resolve_name_candidates,
     search_concepts,
 )
 
@@ -78,6 +83,322 @@ class TestMatchSourceToSemapv:
 
     def test_unknown(self):
         assert _match_source_to_semapv("some_other_thing") == "semapv:UnspecifiedMatching"
+
+
+class TestNeedsReviewDecisionFlags:
+    """Verify concept-level triage decisions are separate from unresolved flags."""
+
+    def test_auto_cleared_needs_review_is_not_flagged(self):
+        data = DiseaseGraphData()
+        concept = {
+            "primary_xref": "MONDO:AUTO",
+            "ncats_disease_id": "IFXDisease:AUTO",
+            "standard_name": "example disease",
+            "confidence_tier": "multi_source_supported",
+            "confidence_tier_original": "needs_review",
+            "needs_review_auto_cleared": "true",
+            "needs_review_triage_bucket": "auto_clear_umls_proxy",
+            "needs_review_triage_action": "set_confidence_tier_multi_source_supported",
+            "needs_review_problem_namespaces": "UMLS",
+            "evidence_note": "Only UMLS proxy noise drove the original review tier.",
+            "cardinality_issue_count": "0",
+            "obsolete_xref_count": "0",
+            "has_obsolete": "false",
+        }
+
+        assert _is_flagged(concept, []) is False
+
+        row = _concept_to_row("MONDO:AUTO", concept, data)
+        assert row["flags"] == ""
+        assert row["needs_review_decision"].startswith("auto-cleared:")
+        assert row["needs_review_problem_namespaces"] == "UMLS"
+
+    def test_review_retained_needs_review_is_flagged(self):
+        data = DiseaseGraphData()
+        concept = {
+            "primary_xref": "MONDO:REVIEW",
+            "ncats_disease_id": "IFXDisease:REVIEW",
+            "standard_name": "example disease",
+            "confidence_tier": "needs_review",
+            "confidence_tier_original": "needs_review",
+            "needs_review_auto_cleared": "false",
+            "needs_review_triage_bucket": "review_gard_grouping_or_conflict",
+            "needs_review_triage_action": "manual_review",
+            "needs_review_problem_namespaces": "GARD",
+            "cardinality_issue_count": "0",
+            "obsolete_xref_count": "0",
+            "has_obsolete": "false",
+        }
+
+        assert _is_flagged(concept, []) is True
+
+        row = _concept_to_row("MONDO:REVIEW", concept, data)
+        assert "needs_review" in row["flags"]
+        assert "review_retained(review_gard_grouping_or_conflict)" in row["flags"]
+        assert row["needs_review_decision"].startswith("review-retained:")
+
+
+class TestDiseaseResolver:
+    """Verify resolver ranking behavior on small in-memory fixtures."""
+
+    def test_exact_base_name_beats_numbered_subtype(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:BASE"] = {
+            "primary_xref": "MONDO:BASE",
+            "ncats_disease_id": "IFXDisease:BASE",
+            "standard_name": "Alzheimer disease",
+            "confidence_tier": "needs_review",
+            "n_sources": "5",
+        }
+        data.concepts_by_pxref["MONDO:SUB"] = {
+            "primary_xref": "MONDO:SUB",
+            "ncats_disease_id": "IFXDisease:SUB",
+            "standard_name": "Alzheimer disease 10",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+
+        result = resolve_name_candidates(data, "Alzheimer disease", limit=2)
+
+        assert result["best"]["primary_xref"] == "MONDO:BASE"
+        assert result["best"]["match_status"] == "exact"
+
+    def test_bare_umls_cui_is_exact_only(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:TARGET"] = {
+            "primary_xref": "MONDO:TARGET",
+            "ncats_disease_id": "IFXDisease:TARGET",
+            "standard_name": "striate palmoplantar keratoderma",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+        data.concepts_by_pxref["MONDO:OTHER"] = {
+            "primary_xref": "MONDO:OTHER",
+            "ncats_disease_id": "IFXDisease:OTHER",
+            "standard_name": "other disease",
+            "confidence_tier": "multi_source_supported",
+            "n_sources": "5",
+        }
+        data.edges_by_pxref["MONDO:TARGET"].append({
+            "xref_id": "UMLS:C4707237",
+            "xref_namespace": "UMLS",
+            "xref_label": "Striate palmoplantar keratoderma",
+            "match_type": "exact",
+            "xref_confidence": "1.0",
+        })
+        data.edges_by_pxref["MONDO:OTHER"].append({
+            "xref_id": "UMLS:C4707238",
+            "xref_namespace": "UMLS",
+            "xref_label": "Other disease",
+            "match_type": "exact",
+            "xref_confidence": "1.0",
+        })
+
+        result = resolve_name_candidates(data, "C4707237", limit=5)
+
+        assert len(result["candidates"]) == 1
+        assert result["best"]["primary_xref"] == "MONDO:TARGET"
+        assert result["best"]["matched_term"] == "UMLS:C4707237"
+
+
+class TestDiseaseGraphPayload:
+    """Verify graph payload metadata and classes."""
+
+    def test_phenotype_concepts_get_graph_class(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:PHENO"] = {
+            "primary_xref": "MONDO:PHENO",
+            "ncats_disease_id": "IFXDisease:PHENO",
+            "standard_name": "phenotypic feature example",
+            "disease_type": "biolink:PhenotypicFeature",
+        }
+
+        payload = build_disease_graph_payload(data, ["MONDO:PHENO"])
+        concept_node = next(
+            element for element in payload["elements"]
+            if element["data"]["id"] == "concept::MONDO:PHENO"
+        )
+
+        assert "concept" in concept_node["classes"].split()
+        assert "phenotype-concept" in concept_node["classes"].split()
+
+    def test_duplicate_resolved_obsolete_decisions_are_collapsed(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:DUP"] = {
+            "primary_xref": "MONDO:DUP",
+            "ncats_disease_id": "IFXDisease:DUP",
+            "standard_name": "duplicate obsolete decision example",
+        }
+        data.edges_by_pxref["MONDO:DUP"].append({
+            "primary_xref": "MONDO:DUP",
+            "xref_id": "GARD:OLD",
+            "xref_namespace": "GARD",
+            "xref_label": "obsolete GARD example",
+            "match_type": "unclassified",
+            "xref_confidence": "0.2",
+        })
+        data.decisions_by_pxref["MONDO:DUP"].extend([
+            {
+                "decision_id": "row_majority",
+                "primary_xref": "MONDO:DUP",
+                "xref_id": "GARD:OLD",
+                "decision_type": "majority_dissent",
+                "status": "resolved",
+                "auto_decision": "omit_obsolete_xref",
+                "resolution": "Remove obsolete xref",
+            },
+            {
+                "decision_id": "row_obsolete",
+                "primary_xref": "MONDO:DUP",
+                "xref_id": "GARD:OLD",
+                "decision_type": "obsolete_ref",
+                "status": "resolved",
+                "auto_decision": "omit_obsolete_xref",
+                "resolution": "Remove obsolete xref",
+            },
+        ])
+
+        payload = build_disease_graph_payload(data, ["MONDO:DUP"])
+        decision_nodes = [
+            element["data"]
+            for element in payload["elements"]
+            if element["data"].get("kind") == "decision"
+        ]
+        decision_edges = [
+            element["data"]
+            for element in payload["elements"]
+            if element["data"].get("kind") == "decision_edge"
+        ]
+        xref_edge = next(
+            element["data"]
+            for element in payload["elements"]
+            if element["data"].get("kind") == "xref_edge"
+        )
+
+        assert len(decision_nodes) == 1
+        assert len(decision_edges) == 1
+        assert decision_nodes[0]["decision_type"] == "resolved_obsolete_xref"
+        assert decision_nodes[0]["raw_decision_type"] == "majority_dissent|obsolete_ref"
+        assert decision_nodes[0]["source_decision_ids"] == "row_majority|row_obsolete"
+        assert xref_edge["conflict_type"] == "resolved_obsolete_xref"
+        assert xref_edge["raw_conflict_type"] == "majority_dissent|obsolete_ref"
+
+
+class TestVersionDiff:
+    """Verify version diffs expose category and source namespace changes."""
+
+    def test_diff_tracks_biolink_categories_and_source_namespaces(self):
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "1.0.1"}
+        current.manifest = {"pipeline_version": "2.0.1"}
+
+        baseline.concepts_by_pxref["MONDO:BASE"] = {
+            "primary_xref": "MONDO:BASE",
+            "standard_name": "base disease",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+        baseline.edges_by_pxref["MONDO:BASE"].append({
+            "xref_id": "DOID:1",
+            "xref_namespace": "DOID",
+        })
+
+        current.concepts_by_pxref["MONDO:BASE"] = {
+            "primary_xref": "MONDO:BASE",
+            "standard_name": "base disease",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:PhenotypicFeature",
+        }
+        current.concepts_by_pxref["MONDO:NEW"] = {
+            "primary_xref": "MONDO:NEW",
+            "standard_name": "new phenotype",
+            "confidence_tier": "single_authoritative_source",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:PhenotypicFeature",
+        }
+        current.edges_by_pxref["MONDO:BASE"].extend([
+            {"xref_id": "DOID:1", "xref_namespace": "DOID"},
+            {"xref_id": "EFO:1", "xref_namespace": "EFO"},
+        ])
+        current.edges_by_pxref["MONDO:NEW"].append({
+            "xref_id": "SNOMEDCT:1",
+            "xref_namespace": "SNOMEDCT",
+        })
+
+        diff = compute_version_diff(current, baseline)
+
+        assert diff["summary"]["concepts_added"] == 1
+        assert diff["summary"]["disease_type_changes"] == 1
+        category_delta = {
+            row["category"]: row["delta"]
+            for row in diff["biolink_category_distribution"]["delta"]
+        }
+        assert category_delta["biolink:Disease"] == -1
+        assert category_delta["biolink:PhenotypicFeature"] == 2
+        namespace_delta = {
+            row["namespace"]: row["delta"]
+            for row in diff["source_namespace_distribution"]["delta"]
+        }
+        assert namespace_delta["EFO"] == 1
+        assert namespace_delta["SNOMEDCT"] == 1
+        assert diff["disease_type_changes"][0]["new_category"] == "biolink:PhenotypicFeature"
+
+    def test_source_only_rows_are_excluded_from_retired_concepts(self):
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "1.0.1"}
+        current.manifest = {"pipeline_version": "2.0.1"}
+        baseline.concepts_by_pxref["ICD10CM:T30.3"] = {
+            "primary_xref": "ICD10CM:T30.3",
+            "standard_name": "Partial deep dermal and full thickness burns",
+            "harmonized_to_ontology": "false",
+            "primary_xref_grounding_type": "other_namespace_fallback",
+            "confidence_tier": "single_authoritative_source",
+            "overall_quality": "1.0",
+        }
+
+        diff = compute_version_diff(current, baseline)
+
+        assert diff["removed_concepts"] == []
+        assert diff["summary"]["concepts_removed"] == 0
+        assert diff["summary"]["legacy_source_only_removed"] == 1
+        assert diff["legacy_source_only_rows"][0]["reason"] == (
+            "Older single-source export row; not a harmonized concept in the current release"
+        )
+
+    def test_merged_concepts_remain_in_retired_concepts(self):
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "1.0.1"}
+        current.manifest = {"pipeline_version": "2.0.1"}
+        baseline.concepts_by_pxref["GARD:3096"] = {
+            "primary_xref": "GARD:3096",
+            "standard_name": "Erythrokeratoderma variabilis progressiva",
+            "confidence_tier": "single_authoritative_source",
+            "overall_quality": "1.0",
+        }
+        baseline.edges_by_pxref["GARD:3096"].append({
+            "xref_id": "UMLS:C0000001",
+            "xref_namespace": "UMLS",
+        })
+        current.concepts_by_pxref["MONDO:0018853"] = {
+            "primary_xref": "MONDO:0018853",
+            "standard_name": "Erythrokeratoderma variabilis progressiva",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+        }
+        current.edges_by_pxref["MONDO:0018853"].append({
+            "xref_id": "UMLS:C0000001",
+            "xref_namespace": "UMLS",
+        })
+
+        diff = compute_version_diff(current, baseline)
+
+        assert diff["summary"]["concepts_removed"] == 1
+        assert diff["removed_concepts"][0]["reason"] == "Merged into MONDO:0018853"
 
 
 # ---------------------------------------------------------------------------

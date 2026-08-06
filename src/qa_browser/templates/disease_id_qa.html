@@ -9,7 +9,7 @@
             <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
                &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
                DOID, GARD via TargetGraph pipeline.
-               Generated {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
+               Updated last: {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
         </div>
         <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
             <textarea name="ids" spellcheck="false"
@@ -45,8 +45,11 @@
                 <div class="dash-label">Sources Covered</div>
             </div>
             <div class="dash-card">
-                <div class="dash-stat" id="dashAvgXrefs">-</div>
-                <div class="dash-label">Avg Xrefs / Concept</div>
+                <div class="dash-stat" id="dashMultiSourceConcepts">-</div>
+                <div class="dash-label">Multi-source Concepts <button class="chart-legend-toggle" type="button" aria-label="Explain multi-source concepts" aria-expanded="false" aria-controls="multiSourceHelp">?</button></div>
+                <div class="chart-legend" id="multiSourceHelp">
+                    <p>Percent of concepts with <code>n_sources &gt; 1</code>. This is the dashboard's main harmonization coverage signal: concepts connected across independent resources. The older average xrefs per concept value is retained in the API as xref density, but it is less useful when many concepts are source-only or have exactly one xref.</p>
+                </div>
             </div>
             <div class="dash-card">
                 <div class="dash-stat" id="dashRareCount">-</div>
@@ -56,15 +59,16 @@
 
         <div class="dash-charts">
             <div class="dash-chart-panel">
-                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>Confidence Tier Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain confidence tier distribution" aria-expanded="false" aria-controls="confidenceTierHelp">?</button></h3>
+                <div class="chart-legend" id="confidenceTierHelp">
+                    <p>Concept-level status assigned by the TargetGraph disease harmonization pipeline after source merge, NodeNorm validation, obsolete xref checks, and QC decision handling.</p>
                     <dl>
                         <dt>single_authoritative_source</dt>
-                        <dd>One ontology asserts this mapping with no disagreement.</dd>
+                        <dd>One authoritative source supports the concept and no unresolved disagreement is present.</dd>
                         <dt>multi_source_supported</dt>
-                        <dd>Multiple sources independently assert this mapping.</dd>
+                        <dd>Two or more independent sources support the harmonized concept.</dd>
                         <dt>needs_review</dt>
-                        <dd>Conflicting assertions or insufficient evidence.</dd>
+                        <dd>Unresolved source conflict, cardinality issue, or other evidence gap needs review.</dd>
                         <dt>review_validator_disagreement</dt>
                         <dd>NodeNorm disagrees with the harmonized resolution.</dd>
                         <dt>review_obsolete_xref</dt>
@@ -74,18 +78,18 @@
                 <div id="dashConfidenceChart" class="bar-chart"></div>
             </div>
             <div class="dash-chart-panel">
-                <h3>Quality Grade Distribution <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
-                    <p>Composite score (1.0 = best). Components: source agreement weight, confidence tier factor, xref count normalization.</p>
+                <h3>Quality Score Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain quality score distribution" aria-expanded="false" aria-controls="qualityScoreHelp">?</button></h3>
+                <div class="chart-legend" id="qualityScoreHelp">
+                    <p>The dashboard buckets the numeric <code>overall_quality</code> value from <code>disease_ids.tsv</code>. Lower is better. The upstream pipeline calculates this concept-level score from source agreement and QC penalties; conflicts, obsolete xrefs, cardinality problems, validator disagreement, and sparse support increase the score.</p>
                     <dl>
                         <dt>1.0 &ndash; 1.5</dt>
-                        <dd>Strong multi-source agreement.</dd>
+                        <dd>Best-scoring concepts with strong agreement and little or no QC penalty.</dd>
                         <dt>1.5 &ndash; 2.0</dt>
-                        <dd>Moderate agreement.</dd>
+                        <dd>Generally well-supported concepts with minor evidence limitations.</dd>
                         <dt>2.0 &ndash; 2.5</dt>
-                        <dd>Limited evidence.</dd>
+                        <dd>Moderate uncertainty, often from limited support or validator/source disagreement.</dd>
                         <dt>2.5 &ndash; 3.0</dt>
-                        <dd>Conflicting or weak support.</dd>
+                        <dd>Clearer QC burden from conflicts, cardinality issues, obsolete references, or weak support.</dd>
                         <dt>3.0+</dt>
                         <dd>Unresolved issues requiring review.</dd>
                     </dl>
@@ -95,15 +99,15 @@
         </div>
         <div class="dash-charts">
             <div class="dash-chart-panel">
-                <h3>Source Namespace Coverage <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>Source Namespace Coverage <button class="chart-legend-toggle" type="button" aria-label="Explain source namespace coverage" aria-expanded="false" aria-controls="sourceNamespaceHelp">?</button></h3>
+                <div class="chart-legend" id="sourceNamespaceHelp">
                     <p>Count of concepts with at least one xref edge in each source namespace.</p>
                 </div>
                 <div id="dashSourceChart" class="bar-chart"></div>
             </div>
             <div class="dash-chart-panel">
-                <h3>NodeNorm Validation <button class="chart-legend-toggle" onclick="this.nextElementSibling.classList.toggle('expanded')">?</button></h3>
-                <div class="chart-legend">
+                <h3>NodeNorm Validation <button class="chart-legend-toggle" type="button" aria-label="Explain NodeNorm validation" aria-expanded="false" aria-controls="nodenormValidationHelp">?</button></h3>
+                <div class="chart-legend" id="nodenormValidationHelp">
                     <dl>
                         <dt>validated</dt>
                         <dd>NodeNorm canonical CURIE agrees with the harmonized primary_xref.</dd>
@@ -115,12 +119,22 @@
                 </div>
                 <div id="dashNodenormChart" class="bar-chart"></div>
             </div>
+            <div class="dash-chart-panel">
+                <h3>Biolink Category Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain Biolink category distribution" aria-expanded="false" aria-controls="biolinkCategoryHelp">?</button></h3>
+                <div class="chart-legend" id="biolinkCategoryHelp">
+                    <p>Concept-level Biolink category assigned during TargetGraph disease ID generation. This separates disease concepts from phenotype-labeled concepts now that phenotype mappings are included again.</p>
+                </div>
+                <div id="dashDiseaseTypeChart" class="bar-chart"></div>
+            </div>
         </div>
 
         <!-- Agreement Heatmap -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source Co-occurrence Overlap (Jaccard)</h3>
+                <h3>Source Co-occurrence Overlap (Jaccard) <button class="chart-legend-toggle" type="button" aria-label="Explain source co-occurrence overlap" aria-expanded="false" aria-controls="sourceOverlapHelp">?</button></h3>
+                <div class="chart-legend" id="sourceOverlapHelp">
+                    <p>Pairwise source overlap is computed as Jaccard similarity: concepts with xrefs from both sources divided by concepts with xrefs from either source. Darker cells indicate that two namespaces tend to cover the same concepts.</p>
+                </div>
                 <div class="heatmap-container">
                     <canvas id="dashAgreementHeatmap" width="500" height="500"></canvas>
                     <div class="heatmap-tooltip" id="heatmapTooltip"></div>
@@ -131,7 +145,10 @@
         <!-- Sankey Diagram -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source &rarr; Confidence Tier Flow</h3>
+                <h3>Source &rarr; Confidence Tier Flow <button class="chart-legend-toggle" type="button" aria-label="Explain source to tier flow" aria-expanded="false" aria-controls="sourceTierFlowHelp">?</button></h3>
+                <div class="chart-legend" id="sourceTierFlowHelp">
+                    <p>Each band counts concepts that have at least one xref edge in a source namespace and belong to a pipeline confidence tier. A concept can contribute to multiple source namespaces when it has xrefs from multiple systems.</p>
+                </div>
                 <div class="sankey-container">
                     <canvas id="dashSankeyChart" width="700" height="400"></canvas>
                 </div>
@@ -172,7 +189,7 @@
                 </select>
                 <div class="disease-id-filter-toggle">
                     <button id="diseaseIdFilterAll" class="btn btn-sm disease-id-toggle-btn active">All</button>
-                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Flagged</button>
+                    <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Needs action</button>
                 </div>
                 <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn">Download filtered TSV</a>
             </div>
@@ -215,6 +232,8 @@
                     <span class="disease-id-filter-sep">|</span>
                     <label><input type="checkbox" id="filterHideObsolete"> Hide obsolete xrefs</label>
                     <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
+                    <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
+                    <label><input type="checkbox" id="filterHidePhenotypes"> Hide phenotypic features</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label class="disease-id-filter-group-label">Layout:</label>
                     <select id="graphLayoutSelect" class="filter-select filter-select-sm">
@@ -228,14 +247,16 @@
                 <div id="graphLegend" class="graph-legend">
                     <div class="graph-legend-columns">
                         <div class="graph-legend-col">
-                            <h4>Edge types</h4>
+                            <h4>Edge types (match_type)</h4>
                             <div class="graph-legend-edge-list">
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> Exact</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Broad</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> Narrow</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> Related</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> Unclassified</span>
-                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> Decision</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> <strong>Exact</strong> &mdash; source asserts equivalent meaning (skos:exactMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Broad</strong> &mdash; xref has broader scope than the concept (skos:broadMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> <strong>Narrow</strong> &mdash; xref has narrower scope than the concept (skos:narrowMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#94a3b8"></span> <strong>Related</strong> &mdash; associative link, not a synonym (skos:relatedMatch)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#be5a38"></span> <strong>Phenotypic feature</strong> &mdash; concept typed as biolink:PhenotypicFeature</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -246,13 +267,85 @@
                         <div class="graph-legend-col">
                             <h4>Score components</h4>
                             <table class="graph-legend-score-table">
-                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite (0&ndash;1)</td></tr>
-                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength</td></tr>
-                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Fuzzy label similarity</td></tr>
-                                <tr><td class="graph-legend-score-name">source_support</td><td># sources asserting this xref</td></tr>
-                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality / proxy patterns</td></tr>
+                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite of the three active sub-scores (0&ndash;1)</td></tr>
+                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength from source-asserted relationship type</td></tr>
+                                <tr><td class="graph-legend-score-name">label_confidence</td><td>Synonym-aware label similarity between standard name and xref label</td></tr>
+                                <tr><td class="graph-legend-score-name">source_support</td><td>Normalized count of independent sources asserting this xref</td></tr>
+                                <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality &amp; proxy sharing heuristics (displayed only, not in composite)</td></tr>
+                                <tr><td class="graph-legend-score-name">asserting_sources</td><td>Which sources (e.g. mondo|medgen|nodenorm) assert this mapping</td></tr>
                             </table>
-                            <p class="graph-legend-formula">xref_confidence = 35% mapping + 25% label + 20% source + 20% structural</p>
+                            <p class="graph-legend-formula">xref_confidence = 40% mapping + 25% label + 35% source</p>
+                            <button class="graph-legend-detail-toggle" onclick="document.getElementById('graphLegendDetail').classList.toggle('expanded')">More details</button>
+                        </div>
+                    </div>
+                    <div id="graphLegendDetail" class="graph-legend-detail">
+                        <div class="graph-legend-columns">
+                            <div class="graph-legend-col">
+                                <h4>Match type assignment</h4>
+                                <p>Each edge's <code>match_type</code> is determined by checking sources in
+                                   priority order. The pipeline uses the first source that has a SKOS match
+                                   assertion for the xref and stops:</p>
+                                <ol>
+                                    <li><strong>MONDO</strong> &mdash; OWL SKOS predicates (exactMatch, broadMatch, etc.)</li>
+                                    <li><strong>GARD</strong> &mdash; GARD-owned GARD IDs are treated as curated exact xrefs</li>
+                                    <li><strong>Orphanet</strong> &mdash; mapping relation attributes</li>
+                                    <li><strong>MedGen</strong> &mdash; concept relationship types</li>
+                                    <li><strong>DOID</strong> &mdash; OWL SKOS predicates</li>
+                                </ol>
+                                <p>If none of these sources asserts a match type for a given xref, the edge
+                                   is labeled <strong>unclassified</strong>. This commonly happens for:</p>
+                                <ul>
+                                    <li><strong>Stale GARD references from non-GARD sources</strong> &mdash; retained for review and obsolete-source reporting</li>
+                                    <li><strong>NodeNorm-only xrefs</strong> (SNOMEDCT, ICD10, MESH, etc.) &mdash;
+                                        only classified if MONDO or DOID also asserts that specific xref</li>
+                                    <li><strong>OMIM / OMIMPS</strong> &mdash; deferred to "unclassified" by default</li>
+                                </ul>
+
+                                <h4>mapping_confidence scores</h4>
+                                <table class="graph-legend-score-table">
+                                    <tr><td class="graph-legend-score-name">exact</td><td>1.0</td></tr>
+                                    <tr><td class="graph-legend-score-name">broad</td><td>0.4</td></tr>
+                                    <tr><td class="graph-legend-score-name">narrow</td><td>0.4</td></tr>
+                                    <tr><td class="graph-legend-score-name">unclassified</td><td>0.3</td></tr>
+                                    <tr><td class="graph-legend-score-name">related</td><td>0.2</td></tr>
+                                </table>
+                                <p>Penalty: &minus;0.2 if sources disagree (contested), &minus;0.1 if match type
+                                   was structurally inferred rather than source-asserted.</p>
+                            </div>
+                            <div class="graph-legend-col">
+                                <h4>label_confidence</h4>
+                                <p>Compares the concept's <code>standard_name</code> against the xref's <code>preferred_label</code>
+                                   and all known synonyms. Uses three algorithms and takes the best score:</p>
+                                <ul>
+                                    <li><strong>SequenceMatcher</strong> &mdash; character-level ratio after Unicode normalization</li>
+                                    <li><strong>Containment</strong> &mdash; token overlap / min(token count) &times; 0.98</li>
+                                    <li><strong>Jaccard</strong> &mdash; token overlap / union of tokens</li>
+                                </ul>
+                                <p>Labels are sourced from local transforms (MONDO, DOID, OMIM, Orphanet, MedGen, GARD),
+                                   NodeNorm pre-computed labels (UMLS, MESH, SNOMEDCT, NCIT, ICD10, etc.),
+                                   public OBO downloads (EFO, NCIT, HP), and UMLS REST API lookups.</p>
+
+                                <h4>source_support</h4>
+                                <p>Counts how many independent sources (mondo, doid, medgen, orphanet, omim, gard, nodenorm)
+                                   assert this specific xref ID in the harmonization file. Normalized to 0&ndash;1:</p>
+                                <table class="graph-legend-score-table">
+                                    <tr><td class="graph-legend-score-name">0 sources</td><td>0.00</td></tr>
+                                    <tr><td class="graph-legend-score-name">1 source</td><td>0.50</td></tr>
+                                    <tr><td class="graph-legend-score-name">2 sources</td><td>0.75</td></tr>
+                                    <tr><td class="graph-legend-score-name">3 sources</td><td>0.88</td></tr>
+                                    <tr><td class="graph-legend-score-name">4+ sources</td><td>1.00</td></tr>
+                                </table>
+
+                                <h4>structural_confidence</h4>
+                                <p>Minimum of two graph-level heuristics. <strong>Not included</strong> in the composite
+                                   <code>xref_confidence</code> score (weight = 0), but still computed and displayed for reference.</p>
+                                <ul>
+                                    <li><strong>Cardinality score</strong> &mdash; one-to-one = 1.0, one-to-many = 0.6,
+                                        many-to-one = 0.5, complex = 0.3</li>
+                                    <li><strong>Proxy sharing</strong> &mdash; how many concepts share this xref ID:
+                                        1 = 1.0, 2&ndash;3 = 0.7, 4+ = 0.4</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -265,6 +358,7 @@
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
                 <div id="diseaseIdConceptActions" style="display:none;margin-top:0.75rem;">
                     <button id="expandNeighborsBtn" class="graph-action-btn">Expand neighbors</button>
+                    <button id="expandHierarchyBtn" class="graph-action-btn">Expand hierarchy</button>
                     <button id="showProvenanceBtn" class="graph-action-btn">Show provenance</button>
                 </div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
@@ -293,7 +387,7 @@
                         <label>Filter:
                             <select id="dlFilterMode" class="filter-select">
                                 <option value="all">All</option>
-                                <option value="flagged">Flagged only</option>
+                                <option value="flagged">Needs action only</option>
                             </select>
                         </label>
                         <label>Confidence:
@@ -363,9 +457,19 @@
                         <div class="column-picker-group">
                             <h4>Quality</h4>
                             <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier_original" checked> confidence_tier_original</label>
                             <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
                             <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
                             <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Review Decision</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_auto_cleared" checked> needs_review_auto_cleared</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_bucket" checked> needs_review_triage_bucket</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_action"> needs_review_triage_action</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_problem_namespaces" checked> needs_review_problem_namespaces</label>
+                            <label><input type="checkbox" class="dl-col-check" value="needs_review_decision" checked> needs_review_decision</label>
+                            <label><input type="checkbox" class="dl-col-check" value="evidence_note"> evidence_note</label>
                         </div>
                         <div class="column-picker-group">
                             <h4>Xref Edges</h4>
@@ -384,9 +488,17 @@
                             <label><input type="checkbox" class="dl-col-check" value="label_confidence"> label_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" value="label_similarity"> label_similarity</label>
                             <label><input type="checkbox" class="dl-col-check" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" value="asserting_sources"> asserting_sources</label>
                             <label><input type="checkbox" class="dl-col-check" value="structural_confidence"> structural_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" value="confidence_score"> confidence_score</label>
                             <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
+                        </div>
+                        <div class="column-picker-group">
+                            <h4>Hierarchy</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parent_count"> hierarchy_parent_count</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_child_count"> hierarchy_child_count</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parents"> hierarchy_parents</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_children"> hierarchy_children</label>
                         </div>
                         <div class="column-picker-group">
                             <h4>NodeNorm</h4>
@@ -413,11 +525,12 @@
                 <div class="disease-id-download-links">
                     <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn">disease_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_xref_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_hierarchy_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
                     <span class="disease-id-dl-sep">|</span>
-                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">flagged_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">needs_action_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn">SSSOM mappings</a>
                 </div>
             </div>
@@ -426,6 +539,15 @@
 
     <!-- Tab 5: Changes -->
     <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes">
+        <div class="changes-controls">
+            <label>From
+                <select id="changesFromVersion" class="filter-select-sm"></select>
+            </label>
+            <label>To
+                <select id="changesToVersion" class="filter-select-sm"></select>
+            </label>
+            <button type="button" class="btn btn-sm" id="changesCompareBtn">Compare versions</button>
+        </div>
         <div id="changesContent" class="changes-loading">Loading version diff...</div>
     </div>
 
@@ -437,11 +559,46 @@
                 These endpoints return JSON and are documented in the auto-generated
                 <a href="{{ root_path }}/docs" target="_blank">OpenAPI spec</a>.
             </p>
+            <section class="api-resolver-panel">
+                <div class="api-resolver-head">
+                    <h3>Disease Resolver</h3>
+                    <div class="api-resolver-controls">
+                        <label>Limit
+                            <select id="apiResolverLimit" class="filter-select filter-select-sm">
+                                <option value="3">3</option>
+                                <option value="5" selected>5</option>
+                                <option value="10">10</option>
+                            </select>
+                        </label>
+                        <label class="api-resolver-checkbox">
+                            <input type="checkbox" id="apiResolverObsolete">
+                            Include obsolete
+                        </label>
+                        <button id="apiResolverRun" class="btn btn-primary">Resolve</button>
+                    </div>
+                </div>
+                <textarea id="apiResolverInput" class="api-resolver-input" rows="5">striate palmoplantar keratoderma
+MONDO:0018865
+C4707237</textarea>
+                <div id="apiResolverStatus" class="api-resolver-status"></div>
+                <div id="apiResolverResults" class="api-resolver-results"></div>
+                <pre id="apiResolverJson" class="api-json-preview"></pre>
+            </section>
             <div class="api-endpoint-list">
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
                     <span class="api-endpoint-path">/api/v1/disease/resolve/{curie}</span>
                     <div class="api-endpoint-desc">Resolve any disease CURIE to its harmonized concept with all xrefs, decisions, and NodeNorm data.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/api/v1/disease/resolve-name?q=...&amp;limit=5</span>
+                    <div class="api-endpoint-desc">Rank harmonized disease candidates from a name, synonym, xref label, CURIE, or bare UMLS CUI.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">POST</span>
+                    <span class="api-endpoint-path">/api/v1/disease/bulk-resolve?limit=5</span>
+                    <div class="api-endpoint-desc">Resolve a JSON body such as {"queries":["Alzheimer disease","C4707237"]}.</div>
                 </div>
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
@@ -512,6 +669,17 @@
                 changesLoaded = true;
                 loadChangesTab();
             }
+        });
+    });
+
+    document.querySelectorAll(".chart-legend-toggle").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("aria-controls");
+            const legend = targetId ? document.getElementById(targetId) : null;
+            if (!legend) return;
+            const expanded = !legend.classList.contains("expanded");
+            legend.classList.toggle("expanded", expanded);
+            btn.setAttribute("aria-expanded", expanded ? "true" : "false");
         });
     });
 
@@ -792,7 +960,12 @@
             .then(stats => {
                 document.getElementById("dashTotalConcepts").textContent = stats.total_concepts.toLocaleString();
                 document.getElementById("dashSourcesCovered").textContent = Object.keys(stats.source_coverage).length;
-                document.getElementById("dashAvgXrefs").textContent = stats.avg_xrefs_per_concept;
+                document.getElementById("dashMultiSourceConcepts").textContent =
+                    `${Number(stats.multi_source_percent || 0).toFixed(1)}%`;
+                document.getElementById("dashMultiSourceConcepts").title =
+                    `${Number(stats.multi_source_count || 0).toLocaleString()} concepts with n_sources > 1; ` +
+                    `${Number(stats.source_only_count || 0).toLocaleString()} source-only concepts; ` +
+                    `avg xrefs/concept ${stats.avg_xrefs_per_concept}`;
                 document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
 
                 const tierColors = {
@@ -830,14 +1003,30 @@
                 const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#64748b" };
                 renderBarChart(document.getElementById("dashNodenormChart"), stats.nodenorm_distribution, stats.total_concepts, nnColors);
 
+                const diseaseTypeColors = {
+                    "biolink:Disease": "#2563eb",
+                    "biolink:PhenotypicFeature": "#f59e0b",
+                    "biolink:DiseaseOrPhenotypicFeature": "#7c3aed",
+                    "unknown": "#94a3b8",
+                };
+                renderBarChart(document.getElementById("dashDiseaseTypeChart"), stats.disease_type_distribution || {}, stats.total_concepts, diseaseTypeColors);
+
                 const summary = document.getElementById("dashFlaggedSummary");
+                const needsAction = Number(stats.needs_action_count || stats.flagged_count || 0);
+                const needsReview = Number(stats.needs_review_count || 0);
+                const autoCleared = Number(stats.auto_cleared_count || 0);
+                const qcDecisions = Number(stats.qc_decision_count || 0);
                 summary.innerHTML =
                     `<div class="dash-card dash-card-wide">` +
-                    `<div class="dash-stat">${stats.flagged_count.toLocaleString()}</div>` +
-                    `<div class="dash-label">Flagged concepts (cardinality, obsolete, or decision issues)</div>` +
+                    `<div class="dash-stat">${needsAction.toLocaleString()}</div>` +
+                    `<div class="dash-label">Concepts needing action` +
+                    (needsReview ? `; ${needsReview.toLocaleString()} retained as needs_review` : "") +
+                    (autoCleared ? `; ${autoCleared.toLocaleString()} auto-cleared review flags shown as QC decisions` : "") +
+                    (qcDecisions ? `; ${qcDecisions.toLocaleString()} concepts carry QC decision notes` : "") +
+                    `</div>` +
                     `<button class="btn btn-sm" style="margin-top:0.5rem" onclick="document.querySelector('[data-tab=concepts]').click();` +
                     `setTimeout(function(){document.getElementById('diseaseIdFilterFlagged').click()},100)">` +
-                    `View flagged concepts</button>` +
+                    `View concepts needing action</button>` +
                     `</div>`;
 
                 populateFilterDropdowns(stats);
@@ -911,18 +1100,30 @@
                 tableStatus.textContent =
                     `${data.total.toLocaleString()} concepts` +
                     (data.query ? ` matching "${data.query}"` : "") +
-                    (data.filter === "flagged" ? " (flagged only)" : "");
+                    (data.filter === "flagged" ? " (needs action only)" : "");
 
                 if (data.rows.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="9">No concepts found.</td></tr>';
                 } else {
                     tableBody.innerHTML = data.rows.map(r => {
+                        const parentCount = Number(r.hierarchy_parent_count || 0);
+                        const childCount = Number(r.hierarchy_child_count || 0);
+                        const hierarchyHtml = (parentCount || childCount)
+                            ? `<div><strong>Hierarchy:</strong> ${parentCount} parents; ${childCount} children</div>` +
+                              (r.hierarchy_parents ? `<div><strong>Parents:</strong> ${escapeHtml(r.hierarchy_parents)}</div>` : "") +
+                              (r.hierarchy_children ? `<div><strong>Children:</strong> ${escapeHtml(r.hierarchy_children)}</div>` : "")
+                            : "";
                         const detailHtml =
                             `<tr class="row-detail" style="display:none"><td colspan="9"><div class="row-detail-inner">` +
                             (r.definition ? `<div><strong>Definition:</strong> ${escapeHtml(r.definition)}</div>` : "") +
                             (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
                             (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
                             (r.is_rare ? `<div><strong>Rare:</strong> ${escapeHtml(r.is_rare)}</div>` : "") +
+                            (r.confidence_tier_original && r.confidence_tier_original !== r.confidence_tier ? `<div><strong>Original tier:</strong> ${escapeHtml(r.confidence_tier_original)}</div>` : "") +
+                            (r.needs_review_decision ? `<div><strong>Review decision:</strong> ${escapeHtml(r.needs_review_decision)}</div>` : "") +
+                            (r.needs_review_problem_namespaces ? `<div><strong>Review namespace:</strong> ${escapeHtml(r.needs_review_problem_namespaces)}</div>` : "") +
+                            (r.evidence_note ? `<div><strong>Decision note:</strong> ${escapeHtml(r.evidence_note)}</div>` : "") +
+                            hierarchyHtml +
                             (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
                             (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
                             `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
@@ -1031,6 +1232,7 @@
         const layoutSelect = document.getElementById("graphLayoutSelect");
         const conceptActions = document.getElementById("diseaseIdConceptActions");
         const expandBtn = document.getElementById("expandNeighborsBtn");
+        const hierarchyBtn = document.getElementById("expandHierarchyBtn");
         const provBtn = document.getElementById("showProvenanceBtn");
 
         const filterExact = document.getElementById("filterExact");
@@ -1040,6 +1242,8 @@
         const filterUnclassified = document.getElementById("filterUnclassified");
         const filterHideObsolete = document.getElementById("filterHideObsolete");
         const filterHideDecisions = document.getElementById("filterHideDecisions");
+        const filterHideHierarchy = document.getElementById("filterHideHierarchy");
+        const filterHidePhenotypes = document.getElementById("filterHidePhenotypes");
 
         let selectedConceptPxref = null;
 
@@ -1051,6 +1255,9 @@
                 ["Edges", stats.edgeCount],
                 ["Decisions", stats.decisionCount],
             ];
+            if (stats.hierarchyEdgeCount !== undefined) {
+                rows.push(["Hierarchy", stats.hierarchyEdgeCount]);
+            }
             statsBox.innerHTML = rows.map(([label, value]) =>
                 `<div><dt>${label}</dt><dd>${value}</dd></div>`
             ).join("");
@@ -1064,26 +1271,45 @@
                 "match_type", "match_type_source", "source_asserted",
                 "agreement_level", "confidence_score", "label_similarity",
                 "mapping_confidence", "label_confidence", "source_support",
-                "structural_confidence", "xref_confidence",
+                "asserting_sources", "structural_confidence", "xref_confidence",
                 "xref_is_obsolete", "override_status", "override_reason",
                 "has_conflict", "conflict_status", "conflict_type",
-                "conflict_resolution", "conflict_detail",
+                "raw_conflict_type", "conflict_resolution", "conflict_detail",
                 "confidence_tier", "overall_quality", "n_sources",
                 "primary_sources", "disease_type", "is_rare",
+                "confidence_tier_original", "needs_review_auto_cleared",
+                "needs_review_triage_bucket", "needs_review_triage_action",
+                "needs_review_problem_namespaces", "needs_review_decision",
+                "evidence_note",
                 "xref_count", "cardinality_issue_count", "obsolete_xref_count",
+                "hierarchy_parent_count", "hierarchy_child_count",
                 "nodenorm_canonical_curie",
-                "decision_type", "decision_source", "scenario_id",
+                "relationship_type", "predicate", "hierarchy_source",
+                "parent_primary_xref", "parent_label",
+                "child_primary_xref", "child_label",
+                "decision_type", "raw_decision_type", "source_decision_ids",
+                "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
                 "resolution", "resolution_detail", "reviewed_by", "priority",
             ];
             const displayLabels = {
                 "nodenorm_canonical_curie": "node normalization preferred CURIE ID",
+                "asserting_sources": "sources asserting this mapping",
             };
             detailTitle.textContent = data.label || data.id || "Selection";
             detailSub.textContent = data.kind || "";
+            // Keys that should display even when empty (show "(none)" instead of hiding)
+            const showWhenEmpty = new Set(["asserting_sources"]);
             detailBox.innerHTML = keys
-                .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
-                .map((key) => `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+                .filter((key) => {
+                    if (data[key] !== undefined && data[key] !== null && data[key] !== "") return true;
+                    return showWhenEmpty.has(key) && key in data;
+                })
+                .map((key) => {
+                    const val = (data[key] === undefined || data[key] === null || data[key] === "")
+                        ? "(none)" : data[key];
+                    return `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(val)}</span></div>`;
+                })
                 .join("");
 
             // Show concept-specific actions
@@ -1116,11 +1342,16 @@
                 ).hide();
             }
             if (filterHideDecisions.checked) cyInstance.elements(".decision").hide();
+            if (filterHideHierarchy.checked) cyInstance.elements(".hierarchy-edge, .hierarchy-context").hide();
+            if (filterHidePhenotypes.checked) {
+                cyInstance.nodes(".phenotype-concept, .mixed-disease-phenotype-concept").hide();
+            }
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
+            cyInstance.nodes(".hierarchy-context").filter(n => n.connectedEdges(":visible").length === 0).hide();
         }
 
         [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
-         filterHideObsolete, filterHideDecisions].forEach(cb => {
+         filterHideObsolete, filterHideDecisions, filterHideHierarchy, filterHidePhenotypes].forEach(cb => {
             cb.addEventListener("change", applyGraphFilters);
         });
 
@@ -1146,6 +1377,17 @@
             cyInstance.layout(opts).run();
         });
 
+        function addGraphPayloadElements(payload) {
+            if (!cyInstance || !payload.elements || payload.elements.length === 0) return;
+            const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+            const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
+            if (newElements.length > 0) {
+                cyInstance.add(newElements);
+                cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                applyGraphFilters();
+            }
+        }
+
         // Expand neighbors button
         expandBtn.addEventListener("click", () => {
             if (!selectedConceptPxref || !cyInstance) return;
@@ -1154,20 +1396,31 @@
             fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(selectedConceptPxref)}`)
                 .then(r => r.json())
                 .then(payload => {
-                    if (payload.elements && payload.elements.length > 0) {
-                        const existingIds = new Set(cyInstance.elements().map(e => e.id()));
-                        const newElements = payload.elements.filter(e => !existingIds.has(e.data.id));
-                        if (newElements.length > 0) {
-                            cyInstance.add(newElements);
-                            cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
-                        }
-                    }
+                    addGraphPayloadElements(payload);
                     expandBtn.disabled = false;
                     expandBtn.textContent = "Expand neighbors";
                 })
                 .catch(() => {
                     expandBtn.disabled = false;
                     expandBtn.textContent = "Expand neighbors";
+                });
+        });
+
+        // Expand hierarchy button
+        hierarchyBtn.addEventListener("click", () => {
+            if (!selectedConceptPxref || !cyInstance) return;
+            hierarchyBtn.disabled = true;
+            hierarchyBtn.textContent = "Loading...";
+            fetch(`${rootPath}/disease-id-qa/api/graph/hierarchy?pxref=${encodeURIComponent(selectedConceptPxref)}`)
+                .then(r => r.json())
+                .then(payload => {
+                    addGraphPayloadElements(payload);
+                    hierarchyBtn.disabled = false;
+                    hierarchyBtn.textContent = "Expand hierarchy";
+                })
+                .catch(() => {
+                    hierarchyBtn.disabled = false;
+                    hierarchyBtn.textContent = "Expand hierarchy";
                 });
         });
 
@@ -1254,6 +1507,29 @@
                             "font-size": 8,
                             "font-weight": "bold",
                         }},
+                        { selector: ".phenotype-concept", style: {
+                            "background-color": "#be5a38",
+                            "border-color": "#fed7aa",
+                            "shape": "round-rectangle",
+                        }},
+                        { selector: ".mixed-disease-phenotype-concept", style: {
+                            "background-color": "#7c3aed",
+                            "border-color": "#c4b5fd",
+                            "shape": "round-diamond",
+                        }},
+                        { selector: ".hierarchy-context", style: {
+                            "background-color": "#0284c7",
+                            "border-width": 2,
+                            "border-color": "#bae6fd",
+                            "width": 40,
+                            "height": 40,
+                        }},
+                        { selector: ".hierarchy-parent", style: {
+                            "shape": "hexagon",
+                        }},
+                        { selector: ".hierarchy-child", style: {
+                            "shape": "ellipse",
+                        }},
                         { selector: ".xref", style: {
                             "background-color": "#7c3aed",
                             "shape": "round-rectangle",
@@ -1319,6 +1595,14 @@
                             "width": 1,
                             "font-size": 7,
                         }},
+                        { selector: ".hierarchy-edge", style: {
+                            "line-color": "#0284c7",
+                            "target-arrow-color": "#0284c7",
+                            "target-arrow-shape": "triangle",
+                            "line-style": "solid",
+                            "width": 2,
+                            "font-size": 7,
+                        }},
                         { selector: ".has-conflict", style: {
                             "width": 2.5,
                             "text-outline-width": 2,
@@ -1349,7 +1633,13 @@
                     const d = event.target.data();
                     let text = "";
                     if (event.target.isEdge()) {
-                        text = d.match_type || "";
+                        if (d.kind === "hierarchy_edge") {
+                            const child = d.child_label || d.child_primary_xref || "";
+                            const parent = d.parent_label || d.parent_primary_xref || "";
+                            text = `${child} subclass_of ${parent}`;
+                        } else {
+                            text = d.match_type || "";
+                        }
                         if (d.xref_confidence) text += ` [${d.xref_confidence}]`;
                         if (d.has_conflict === "true") {
                             text += ` \u26a0 ${d.conflict_type || "conflict"}`;
@@ -1434,65 +1724,264 @@
     }
 
     /* == Changes tab == */
-    function loadChangesTab() {
+    function formatVersionOption(v) {
+        const date = v.updated_at ? ` (${String(v.updated_at).slice(0, 10)})` : "";
+        const current = v.current ? " current" : "";
+        return `v${v.version}${date}${current}`;
+    }
+
+    function populateVersionSelect(select, versions, selectedVersion) {
+        select.innerHTML = "";
+        versions.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.version;
+            opt.textContent = formatVersionOption(v);
+            if (v.version === selectedVersion) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    function renderDeltaTable(title, rows, keyName, labelName) {
+        if (!rows || rows.length === 0) return "";
+        const shown = rows.filter(r => Number(r.delta || 0) !== 0).slice(0, 40);
+        if (shown.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>${escapeHtml(title)} (${shown.length})</h3>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>${escapeHtml(labelName)}</th><th>From</th><th>To</th><th>Delta</th></tr></thead><tbody>`;
+        shown.forEach(r => {
+            const delta = Number(r.delta || 0);
+            const deltaText = delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString();
+            html += `<tr><td>${escapeHtml(r[keyName])}</td>`;
+            html += `<td>${Number(r.old_count || 0).toLocaleString()}</td>`;
+            html += `<td>${Number(r.new_count || 0).toLocaleString()}</td>`;
+            html += `<td>${deltaText}</td></tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
+    function renderVersionDiff(diff) {
+        const s = diff.summary;
+        let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
+        html += `<div class="changes-version-label">Biolink category deltas use the exported <code>disease_type</code> field; older releases without populated categories appear as <code>unknown</code>.</div>`;
+        html += `<div class="changes-version-label">Retired concepts are limited to concepts merged into another concept, absorbed as an xref, obsolete, or removed by QC. Older single-source rows from previous exports are counted separately because they were not harmonized concepts.</div>`;
+        if (Number(s.legacy_source_only_removed || 0) > 0) {
+            html += `<div class="changes-version-label">Excluded from the retired-concepts table: ${Number(s.legacy_source_only_removed || 0).toLocaleString()} older single-source rows from the previous export.</div>`;
+        }
+        html += `<div class="changes-summary">`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired / Merged Concepts</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.disease_type_changes.toLocaleString()}</div><div class="dash-label">Biolink Category Changes</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
+        html += `</div>`;
+
+        html += renderDeltaTable(
+            "Biolink Category Distribution",
+            diff.biolink_category_distribution && diff.biolink_category_distribution.delta,
+            "category",
+            "Category"
+        );
+        html += renderDeltaTable(
+            "Source Namespace Edge Changes",
+            diff.source_namespace_distribution && diff.source_namespace_distribution.delta,
+            "namespace",
+            "Namespace"
+        );
+
+        if (diff.added_concepts.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Biolink Category</th></tr></thead><tbody>`;
+            diff.added_concepts.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.removed_concepts.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Retired / Merged Concepts (${diff.removed_concepts.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Name</th><th>Biolink Category</th><th>What happened</th></tr></thead><tbody>`;
+            diff.removed_concepts.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.disease_type_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Biolink Category Changes (${diff.disease_type_changes.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Category</th><th>New Category</th></tr></thead><tbody>`;
+            diff.disease_type_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                html += `<td>${escapeHtml(c.old_category)}</td><td>${escapeHtml(c.new_category)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.tier_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
+            diff.tier_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
+                html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+        return html;
+    }
+
+    function loadSelectedVersionDiff() {
         const container = document.getElementById("changesContent");
-        fetch(`${rootPath}/disease-id-qa/api/version-diff`)
+        const fromVersion = document.getElementById("changesFromVersion").value;
+        const toVersion = document.getElementById("changesToVersion").value;
+        container.className = "changes-loading";
+        container.textContent = "Loading version diff...";
+        const params = new URLSearchParams({ from_version: fromVersion, to_version: toVersion });
+        fetch(`${rootPath}/disease-id-qa/api/version-diff?${params}`)
             .then(r => {
-                if (!r.ok) throw new Error(r.status === 404 ? "No baseline dataset available" : "Failed to load");
+                if (!r.ok) throw new Error(r.status === 404 ? "Version dataset not available" : "Failed to load");
                 return r.json();
             })
             .then(diff => {
-                const s = diff.summary;
-                let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
-                html += `<div class="changes-summary">`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Concepts Removed</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
-                html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
-                html += `</div>`;
+                container.className = "";
+                container.innerHTML = renderVersionDiff(diff);
+            })
+            .catch(err => {
+                container.className = "changes-unavailable";
+                container.innerHTML = escapeHtml(err.message);
+            });
+    }
 
-                // Added concepts table
-                if (diff.added_concepts.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th></tr></thead><tbody>`;
-                    diff.added_concepts.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                // Removed concepts table
-                if (diff.removed_concepts.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Removed Concepts (${diff.removed_concepts.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Reason</th></tr></thead><tbody>`;
-                    diff.removed_concepts.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.reason)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                // Tier changes table
-                if (diff.tier_changes.length > 0) {
-                    html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-                    html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
-                    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
-                    diff.tier_changes.forEach(c => {
-                        html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
-                        html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
-                    });
-                    html += `</tbody></table></div></div>`;
-                }
-
-                container.innerHTML = html;
+    function loadChangesTab() {
+        const container = document.getElementById("changesContent");
+        fetch(`${rootPath}/disease-id-qa/api/versions`)
+            .then(r => {
+                if (!r.ok) throw new Error("No versioned disease datasets available");
+                return r.json();
+            })
+            .then(payload => {
+                const versions = payload.versions || [];
+                if (versions.length < 2) throw new Error("At least two disease graph versions are required for comparison");
+                populateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version);
+                populateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version);
+                document.getElementById("changesCompareBtn").onclick = loadSelectedVersionDiff;
+                loadSelectedVersionDiff();
             })
             .catch(err => {
                 container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
             });
     }
+
+    /* == API tab: resolver search == */
+    const apiResolverInput = document.getElementById("apiResolverInput");
+    const apiResolverLimit = document.getElementById("apiResolverLimit");
+    const apiResolverObsolete = document.getElementById("apiResolverObsolete");
+    const apiResolverRun = document.getElementById("apiResolverRun");
+    const apiResolverStatus = document.getElementById("apiResolverStatus");
+    const apiResolverResults = document.getElementById("apiResolverResults");
+    const apiResolverJson = document.getElementById("apiResolverJson");
+
+    function renderApiResolver(payload) {
+        const rows = payload.results || [payload];
+        let html = `<table class="api-resolver-table"><thead><tr>` +
+            `<th>Query</th><th>Best ID</th><th>Label</th><th>Score</th><th>Status</th><th>Evidence</th><th>Warnings</th>` +
+            `</tr></thead><tbody>`;
+
+        rows.forEach(item => {
+            const best = item.best;
+            if (!best) {
+                html += `<tr><td>${escapeHtml(item.query)}</td><td colspan="6">No match</td></tr>`;
+                return;
+            }
+            const warnings = (best.warnings || []).join(", ");
+            const evidence = [
+                best.matched_field,
+                best.matched_source,
+                best.matched_xref_id,
+                best.matched_xref_match_type,
+            ].filter(Boolean).join(" | ");
+            html += `<tr>` +
+                `<td>${escapeHtml(item.query)}</td>` +
+                `<td class="mono"><a href="${rootPath}${escapeHtml(best.href)}">${escapeHtml(best.primary_xref)}</a></td>` +
+                `<td>${escapeHtml(best.standard_name)}</td>` +
+                `<td>${escapeHtml(best.resolver_score)}</td>` +
+                `<td>${escapeHtml(best.match_status)}</td>` +
+                `<td>${escapeHtml(evidence || best.matched_term)}</td>` +
+                `<td>${escapeHtml(warnings)}</td>` +
+                `</tr>`;
+
+            if ((item.candidates || []).length > 1) {
+                const candidates = item.candidates.slice(1, 4).map(c =>
+                    `${c.primary_xref} (${c.resolver_score}) ${c.standard_name}`
+                ).join(" | ");
+                html += `<tr class="api-resolver-alt-row"><td></td><td colspan="6">${escapeHtml(candidates)}</td></tr>`;
+            }
+        });
+
+        html += `</tbody></table>`;
+        apiResolverResults.innerHTML = html;
+        apiResolverJson.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function runApiResolver() {
+        const queries = apiResolverInput.value
+            .split(/\n+/)
+            .map(v => v.trim())
+            .filter(Boolean);
+        if (!queries.length) {
+            apiResolverStatus.textContent = "Enter a query.";
+            apiResolverResults.innerHTML = "";
+            apiResolverJson.textContent = "";
+            return;
+        }
+
+        apiResolverRun.disabled = true;
+        apiResolverRun.textContent = "Resolving...";
+        apiResolverStatus.textContent = `${queries.length} query${queries.length === 1 ? "" : "ies"}`;
+
+        const limit = apiResolverLimit.value;
+        const includeObsolete = apiResolverObsolete.checked ? "true" : "false";
+        const request = queries.length === 1
+            ? fetch(`${rootPath}/api/v1/disease/resolve-name?q=${encodeURIComponent(queries[0])}&limit=${limit}&include_obsolete=${includeObsolete}`)
+            : fetch(`${rootPath}/api/v1/disease/bulk-resolve?limit=${limit}&include_obsolete=${includeObsolete}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ queries }),
+            });
+
+        request
+            .then(r => {
+                if (!r.ok) {
+                    return r.json().then(payload => {
+                        throw new Error(payload.detail || r.statusText);
+                    });
+                }
+                return r.json();
+            })
+            .then(payload => {
+                renderApiResolver(payload);
+                apiResolverStatus.textContent = queries.length === 1
+                    ? `${(payload.candidates || []).length} candidates`
+                    : `${payload.count} queries resolved`;
+            })
+            .catch(err => {
+                apiResolverStatus.textContent = err.message;
+                apiResolverResults.innerHTML = "";
+                apiResolverJson.textContent = "";
+            })
+            .finally(() => {
+                apiResolverRun.disabled = false;
+                apiResolverRun.textContent = "Resolve";
+            });
+    }
+
+    apiResolverRun.addEventListener("click", runApiResolver);
 
     /* == Download tab == */
     const dlSearchInput = document.getElementById("dlSearchInput");

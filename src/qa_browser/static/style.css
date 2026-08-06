@@ -5495,7 +5495,13 @@ details summary:hover { color: var(--accent); }
 .graph-legend-columns {
     display: grid;
     gap: 1rem;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: auto 1fr;
+    min-width: 0;
+}
+
+.graph-legend-col {
+    min-width: 0;
+    overflow: hidden;
 }
 
 @media (max-width: 720px) {
@@ -5539,6 +5545,7 @@ details summary:hover { color: var(--accent); }
 .graph-legend-score-table {
     border-collapse: collapse;
     font-size: 0.74rem;
+    table-layout: fixed;
     width: 100%;
 }
 
@@ -5547,6 +5554,8 @@ details summary:hover { color: var(--accent); }
     border-bottom: 1px solid var(--border);
     padding: 0.2rem 0.5rem 0.2rem 0;
     vertical-align: top;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .graph-legend-score-table tr:last-child td {
@@ -5558,7 +5567,7 @@ details summary:hover { color: var(--accent); }
     font-family: var(--mono);
     font-weight: 700;
     white-space: nowrap;
-    width: 1%;
+    width: 10.5rem;
 }
 
 .graph-legend-score-table td:last-child {
@@ -5570,6 +5579,59 @@ details summary:hover { color: var(--accent); }
     font-family: var(--mono);
     font-size: 0.68rem;
     margin: 0.4rem 0 0;
+}
+
+.graph-legend-detail-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-top: 0.5rem;
+    padding: 0.2rem 0.6rem;
+}
+
+.graph-legend-detail-toggle:hover {
+    background: var(--bg-hover);
+}
+
+.graph-legend-detail {
+    border-top: 1px solid var(--border);
+    display: none;
+    font-size: 0.76rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+}
+
+.graph-legend-detail.expanded {
+    display: block;
+    animation: fadeTabIn 0.15s ease;
+}
+
+.graph-legend-detail p {
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0.25rem 0 0.5rem;
+}
+
+.graph-legend-detail ul {
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0.2rem 0 0.5rem;
+    padding-left: 1.2rem;
+}
+
+.graph-legend-detail li {
+    margin-bottom: 0.15rem;
+}
+
+.graph-legend-detail code {
+    background: var(--bg-hover);
+    border-radius: 3px;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.3rem;
 }
 
 /* ── Conflict badge (detail panel & edge labels) ─────────────────────────── */
@@ -5651,6 +5713,21 @@ details summary:hover { color: var(--accent); }
 
 /* ── Changes tab ─────────────────────────────────────────────────────────── */
 
+.changes-controls {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.changes-controls label {
+    color: var(--text-muted);
+    display: grid;
+    font-size: 0.76rem;
+    gap: 0.25rem;
+}
+
 .changes-loading {
     color: var(--text-muted);
     font-size: 0.86rem;
@@ -5721,8 +5798,11 @@ details summary:hover { color: var(--accent); }
 .changes-table th,
 .changes-table td {
     border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
     padding: 0.35rem 0.55rem;
     text-align: left;
+    vertical-align: top;
+    white-space: normal;
 }
 
 .changes-table th {
@@ -5733,6 +5813,10 @@ details summary:hover { color: var(--accent); }
     position: sticky;
     text-transform: uppercase;
     top: 0;
+}
+
+.changes-reason-cell {
+    min-width: 18rem;
 }
 
 .changes-version-label {
@@ -5881,6 +5965,109 @@ details summary:hover { color: var(--accent); }
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+}
+
+.api-resolver-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 0 0 1rem;
+    padding: 1rem;
+}
+
+.api-resolver-head {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.api-resolver-head h3 {
+    font-size: 1rem;
+    margin: 0;
+}
+
+.api-resolver-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.api-resolver-controls label {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 0.78rem;
+    gap: 0.35rem;
+}
+
+.api-resolver-checkbox {
+    white-space: nowrap;
+}
+
+.api-resolver-input {
+    background: var(--bg-input, var(--bg));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    min-height: 6.2rem;
+    padding: 0.7rem;
+    resize: vertical;
+    width: 100%;
+}
+
+.api-resolver-status {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    margin-top: 0.6rem;
+    min-height: 1rem;
+}
+
+.api-resolver-results {
+    margin-top: 0.75rem;
+    overflow-x: auto;
+}
+
+.api-resolver-table {
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    width: 100%;
+}
+
+.api-resolver-table th,
+.api-resolver-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.45rem 0.5rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.api-resolver-table th {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+.api-resolver-alt-row td {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    padding-top: 0;
+}
+
+.api-json-preview {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.72rem;
+    max-height: 20rem;
+    margin: 0.85rem 0 0;
+    overflow: auto;
+    padding: 0.75rem;
+    white-space: pre-wrap;
 }
 
 .api-endpoint {
