@@ -20,8 +20,13 @@
                 <span>Entity Type</span>
                 <select id="cureEntityType">
                     <option value="auto">Auto</option>
+                    <option value="all">All entity types</option>
                     <option value="drug">Drug</option>
-                    <option value="disease">Disease / phenotype</option>
+                    <option value="clinical">Disease / phenotype / adverse event</option>
+                    <option value="phenotype">Phenotype</option>
+                    <option value="adverse_event">Adverse event</option>
+                    <option value="gene">Gene</option>
+                    <option value="sequence_variant">Sequence variant</option>
                 </select>
             </label>
             <label>
@@ -35,6 +40,8 @@
             <button class="btn btn-primary" id="cureResolveBtn" type="button">Resolve</button>
         </div>
         <textarea id="cureResolverInput" class="cure-resolver-input" rows="9">Cardiofaciocutaneous Syndrome
+Clobetasol
+BRAF
 Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
     </section>
 
@@ -79,7 +86,7 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
         const evidence = candidate.evidence || {};
         const sub = [
             candidate.entity_type,
-            candidate.biollink_category || candidate.biolink_category,
+            candidate.biolink_category,
             candidate.source,
             candidate.term_kind
         ].filter(Boolean).join(" · ");
@@ -87,6 +94,12 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
             ["Matched", candidate.matched_term],
             ["Score", candidate.resolver_score],
             ["Status", candidate.match_status],
+            ["Final ID", evidenceValue(evidence, ["final_curie_id", "standard_id", "rxnorm_identifiers"])],
+            ["Final Label", evidenceValue(evidence, ["final_curie_label", "standard_name"])],
+            ["Identifier Source", evidenceValue(evidence, ["identifier_source"])],
+            ["Manual QC", evidenceValue(evidence, ["human_decision", "llm_decision"])],
+            ["Node Type", evidenceValue(evidence, ["node_type"])],
+            ["CURE Drug ID", evidenceValue(evidence, ["cure_drug_identifier", "cure_drug_id"])],
             ["Ingredients", evidenceValue(evidence, ["active_ingredients"])],
             ["Brand/Product", evidenceValue(evidence, ["brand_product_candidates"])],
             ["Dose", evidenceValue(evidence, ["dose_strength"])],
@@ -137,10 +150,12 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
     function renderStats(payload) {
         const types = payload.entity_types || {};
         const sources = payload.sources || {};
+        const clinical = Number(types.disease || 0) + Number(types.phenotype || 0) + Number(types.adverse_event || 0);
         stats.innerHTML = `
             <span>${Number(payload.term_count || 0).toLocaleString()} terms</span>
             <span>${Number(types.drug || 0).toLocaleString()} drug</span>
-            <span>${Number(types.disease || 0).toLocaleString()} disease</span>
+            <span>${clinical.toLocaleString()} clinical</span>
+            <span>${Number(types.gene || 0).toLocaleString()} gene</span>
             <span>${Object.keys(sources).length} sources</span>
         `;
     }

@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import math
 import os
 import re
@@ -15,6 +16,8 @@ except Exception:  # pragma: no cover - the page reports a missing dependency.
     pd = None
 
 
+BASE_DIR = Path(__file__).parent
+DEFAULT_CUREID_DATA_DIR = BASE_DIR / "data" / "cureid"
 DEFAULT_CURE_DRUG_INPUT_FILE = Path(
     "/Users/mainejl/Documents/Projects/ODIN/CUREID/drug_resolver2.6/data/input/"
     "2026.04.09-all_cureid_drugs.csv"
@@ -23,6 +26,7 @@ DEFAULT_CURE_DRUG_REVIEW_DIR = Path(
     "/Users/mainejl/Documents/Projects/ODIN/CUREID/drug_resolver2.6/data/phase1c_review/"
     "reviewer_batches_current"
 )
+DEFAULT_CURE_RASOPATHY_MANUAL_QC_FILE = DEFAULT_CUREID_DATA_DIR / "rasopathy_manual_qc.tsv"
 
 _GREEK = {
     "α": "alpha",
@@ -63,6 +67,36 @@ _DISEASE_HINT_RE = re.compile(
     r")\b",
     re.I,
 )
+_RXCUI_RE = re.compile(r"\b(?:RXCUI[:=]?\s*)?([0-9]{2,})\s*\(([A-Z0-9]+)\)")
+_RXCUI_URL_RE = re.compile(r"/rxcui/([0-9]{2,})(?:/|$)")
+
+NODE_TYPE_TO_ENTITY_TYPE = {
+    "adverseevent": "adverse_event",
+    "disease": "disease",
+    "drug": "drug",
+    "gene": "gene",
+    "phenotypicfeature": "phenotype",
+    "sequencevariant": "sequence_variant",
+}
+ENTITY_TYPE_BIOLINK = {
+    "adverse_event": "biolink:PhenotypicFeature",
+    "disease": "biolink:Disease",
+    "drug": "biolink:Drug",
+    "gene": "biolink:Gene",
+    "phenotype": "biolink:PhenotypicFeature",
+    "sequence_variant": "biolink:SequenceVariant",
+}
+ENTITY_TYPE_FILTERS = {
+    "all": set(),
+    "auto": set(),
+    "clinical": {"disease", "phenotype", "adverse_event"},
+    "disease": {"disease", "phenotype", "adverse_event"},
+    "drug": {"drug"},
+    "gene": {"gene"},
+    "phenotype": {"phenotype"},
+    "adverse_event": {"adverse_event"},
+    "sequence_variant": {"sequence_variant"},
+}
 
 
 def normalize_text(value: Any) -> str:
@@ -114,6 +148,50 @@ def compact_id(value: Any) -> str:
     if re.fullmatch(r"\d+\.0", text):
         return text[:-2]
     return text
+
+
+def normalize_entity_type(value: Any) -> str:
+    key = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return NODE_TYPE_TO_ENTITY_TYPE.get(key, key or "unknown")
+
+
+def entity_type_filter(value: str, detected_type: str = "unknown") -> set[str]:
+    requested = (value or "auto").strip().lower()
+    if requested == "auto":
+        if detected_type == "drug":
+            return {"drug"}
+        if detected_type == "disease":
+            return set(ENTITY_TYPE_FILTERS["clinical"])
+        return set()
+    return set(ENTITY_TYPE_FILTERS.get(requested, {requested}))
+
+
+def curie_values(value: Any) -> list[str]:
+    values: list[str] = []
+    for part in split_values(value):
+        text = compact_id(part)
+        if ":" in text:
+            values.append(text)
+    return values
+
+
+def local_mapping_id(namespace: str, label: str, ids: Iterable[str]) -> str:
+    payload = "|".join([namespace, normalize_text(label), *sorted(ids)])
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    return f"CURE-ID:{namespace}:{digest}"
+
+
+def rxnorm_identifiers(*values: Any) -> list[str]:
+    identifiers: list[str] = []
+    for value in values:
+        text = compact_id(value)
+        if not text:
+            continue
+        for match in _RXCUI_RE.finditer(text):
+            identifiers.append(f"RXCUI:{match.group(1)}")
+        for match in _RXCUI_URL_RE.finditer(text):
+            identifiers.append(f"RXCUI:{match.group(1)}")
+    return list(dict.fromkeys(identifiers))
 
 
 @dataclass
@@ -180,9 +258,7 @@ class CureEntityResolverIndex:
         query_tokens = token_set(query)
         detected_type = detect_entity_type(query)
         requested_type = (entity_type or "auto").strip().lower()
-        type_filter = detected_type if requested_type == "auto" and detected_type != "unknown" else ""
-        if requested_type != "auto":
-            type_filter = requested_type
+        type_filter = entity_type_filter(requested_type, detected_type)
 
         candidate_indices: set[int] = set(self.exact_index.get(query_norm, []))
         for token in query_tokens:
@@ -191,7 +267,7 @@ class CureEntityResolverIndex:
         scored: dict[str, dict[str, Any]] = {}
         for idx in candidate_indices:
             term = self.terms[idx]
-            if type_filter and term.entity_type != type_filter:
+            if type_filter and term.entity_type not in type_filter:
                 continue
             row = score_term(query, query_norm, query_tokens, term, detected_type)
             current = scored.get(term.concept_id)
@@ -257,6 +333,8 @@ def score_term(
     if exact:
         if label_norm == query_norm:
             score = 1.0
+        elif term.term_kind.startswith("manual_qc"):
+            score = 0.99
         elif term.term_kind in {"standard_name", "label"}:
             score = 0.98
         elif term.term_kind == "synonym":
@@ -274,10 +352,14 @@ def score_term(
         score = max(score, 0.88)
     if detected_type != "unknown" and detected_type == term.entity_type:
         score = min(1.0, score + 0.025)
+    elif detected_type == "disease" and term.entity_type in {"phenotype", "adverse_event"}:
+        score = min(1.0, score + 0.015)
     elif detected_type != "unknown" and term.entity_type != detected_type:
         score = max(0.0, score - 0.04)
 
-    if exact and label_norm == query_norm and term.term_kind in {"label", "standard_name", "primary_xref"}:
+    if exact and term.term_kind.startswith("manual_qc"):
+        match_status = "reviewed_manual_qc"
+    elif exact and label_norm == query_norm and term.term_kind in {"label", "standard_name", "primary_xref"}:
         match_status = "exact_label"
     elif exact and label_norm != query_norm and term.term_kind == "xref_label":
         match_status = "exact_xref_label_to_related_concept"
@@ -318,13 +400,93 @@ def build_cure_entity_resolver_index(disease_graph_dir: str | Path | None = None
 
     drug_input = Path(os.getenv("CURE_ENTITY_DRUG_INPUT_FILE", str(DEFAULT_CURE_DRUG_INPUT_FILE)))
     drug_review_dir = Path(os.getenv("CURE_ENTITY_DRUG_REVIEW_DIR", str(DEFAULT_CURE_DRUG_REVIEW_DIR)))
+    rasopathy_manual_qc = Path(
+        os.getenv("CURE_RASOPATHY_MANUAL_QC_FILE", str(DEFAULT_CURE_RASOPATHY_MANUAL_QC_FILE))
+    )
 
+    terms.extend(load_rasopathy_manual_qc_terms(rasopathy_manual_qc, warnings))
     terms.extend(load_cure_drug_input_terms(drug_input, warnings))
     terms.extend(load_cure_phase1c_terms(drug_review_dir, warnings))
     if disease_graph_dir:
         terms.extend(load_disease_terms(Path(disease_graph_dir), warnings))
 
     return CureEntityResolverIndex(terms, warnings)
+
+
+def load_rasopathy_manual_qc_terms(path: Path, warnings: list[str]) -> list[ResolverTerm]:
+    if not path.exists():
+        warnings.append(f"CURE rasopathy manual-QC file not found: {path}")
+        return []
+
+    rows: list[dict[str, Any]] = []
+    if path.suffix.lower() in {".xlsx", ".xls"}:
+        if pd is None:
+            warnings.append("pandas is not available; CURE rasopathy manual-QC workbook was skipped.")
+            return []
+        try:
+            rows = pd.read_excel(path, dtype=str).fillna("").to_dict("records")
+        except Exception as exc:
+            warnings.append(f"Could not read {path}: {exc}")
+            return []
+    else:
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+
+    terms: list[ResolverTerm] = []
+    for row in rows:
+        original = compact_id(row.get("original_node_label"))
+        final_label = compact_id(row.get("final_curie_label"))
+        final_ids = curie_values(row.get("final_curie_id"))
+        if not original or not final_ids:
+            continue
+        node_type = compact_id(row.get("node_type"))
+        entity_type = normalize_entity_type(node_type)
+        label = final_label or original
+        concept_id = final_ids[0] if len(final_ids) == 1 else local_mapping_id("RasopathyManualQC", original, final_ids)
+        identifiers = final_ids[:]
+        evidence = {
+            "use_case": "rasopathies",
+            "identifier_source": "manual_qc_final_curie",
+            "original_node_label": original,
+            "node_type": node_type,
+            "final_curie_id": "|".join(final_ids),
+            "final_curie_label": final_label,
+            "human_decision": compact_id(row.get("human_decision")),
+            "llm_decision": compact_id(row.get("llm_decision")),
+            "llm_error_tag": compact_id(row.get("llm_error_tag")),
+            "sri_match_type": compact_id(row.get("sri_match_type")),
+            "sri_best_curie": compact_id(row.get("sri_best_curie")),
+            "sri_best_label": compact_id(row.get("sri_best_label")),
+        }
+        term_values: list[tuple[str, str]] = [
+            (original, "manual_qc_original_label"),
+            (final_label, "manual_qc_final_label"),
+        ]
+        term_values.extend((identifier, "manual_qc_identifier") for identifier in final_ids)
+
+        seen: set[tuple[str, str]] = set()
+        for term, kind in term_values:
+            term = compact_id(term)
+            if not term:
+                continue
+            key = (normalize_text(term), kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            terms.append(
+                ResolverTerm(
+                    term=term,
+                    concept_id=concept_id,
+                    label=label,
+                    entity_type=entity_type,
+                    biolink_category=ENTITY_TYPE_BIOLINK.get(entity_type, "biolink:NamedThing"),
+                    source="cure_rasopathy_manual_qc",
+                    term_kind=kind,
+                    identifiers=identifiers,
+                    evidence=evidence,
+                )
+            )
+    return terms
 
 
 def load_cure_drug_input_terms(path: Path, warnings: list[str]) -> list[ResolverTerm]:
@@ -351,12 +513,15 @@ def load_cure_drug_input_terms(path: Path, warnings: list[str]) -> list[Resolver
         standard_name = compact_id(row.get("Standard Name"))
         if not cure_id and not raw_name:
             continue
-        concept_id = f"CURE-ID:Drug:{cure_id}" if cure_id else f"CURE-ID:Drug:raw:{normalize_text(raw_name)}"
+        cure_identifier = f"CURE-ID:Drug:{cure_id}" if cure_id else ""
+        concept_id = standard_id or cure_identifier or f"CURE-ID:Drug:raw:{normalize_text(raw_name)}"
         label = standard_name or raw_name
-        identifiers = [standard_id] if standard_id else []
+        identifiers = [value for value in (standard_id, cure_identifier) if value]
         evidence = {
             "cure_drug_id": cure_id,
+            "cure_drug_identifier": cure_identifier,
             "raw_drug_name": raw_name,
+            "identifier_source": "source_standard_id" if standard_id else "cure_drug_row_id_only",
             "standard_id": standard_id,
             "standard_name": standard_name,
         }
@@ -409,6 +574,7 @@ def _phase1c_row_terms(row: dict[str, Any], workbook_name: str) -> list[Resolver
     active = compact_id(row.get("Active ingredients"))
     brand = compact_id(row.get("Brand/product candidates"))
     phase1a = compact_id(row.get("Phase 1A final output"))
+    rxnorm_ids = rxnorm_identifiers(row.get("RxNorm brand evidence"), row.get("RxNorm source links"))
     label = corrected or generic or proposed or phase1a or raw_name
     if not label and not cure_id:
         return []
@@ -420,6 +586,10 @@ def _phase1c_row_terms(row: dict[str, Any], workbook_name: str) -> list[Resolver
         "generic_or_concept_label": generic,
         "active_ingredients": active,
         "brand_product_candidates": brand,
+        "identifier_source": "rxnorm_brand_evidence" if rxnorm_ids else "phase1c_review_no_external_id",
+        "rxnorm_identifiers": "|".join(rxnorm_ids),
+        "rxnorm_brand_evidence": compact_id(row.get("RxNorm brand evidence")),
+        "rxnorm_source_links": compact_id(row.get("RxNorm source links")),
         "dose_strength": compact_id(row.get("Dose/strength")),
         "formulation_route": compact_id(row.get("Formulation/route")),
         "phase1b_confidence": compact_id(row.get("Phase 1B confidence")),
@@ -456,7 +626,7 @@ def _phase1c_row_terms(row: dict[str, Any], workbook_name: str) -> list[Resolver
                 biolink_category="biolink:Drug",
                 source="cure_phase1c_review",
                 term_kind=kind,
-                identifiers=[],
+                identifiers=rxnorm_ids,
                 evidence=evidence,
             )
         )

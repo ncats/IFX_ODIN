@@ -5604,8 +5604,20 @@ async def cure_entity_resolver_resolve(request: Request):
     if len(queries) > 1000:
         raise HTTPException(status_code=400, detail="At most 1000 queries are allowed per request.")
     entity_type = str(payload.get("entity_type") or "auto").strip().lower()
-    if entity_type not in {"auto", "drug", "disease"}:
-        raise HTTPException(status_code=400, detail="entity_type must be auto, drug, or disease.")
+    allowed_entity_types = {
+        "auto",
+        "all",
+        "clinical",
+        "drug",
+        "disease",
+        "phenotype",
+        "adverse_event",
+        "gene",
+        "sequence_variant",
+    }
+    if entity_type not in allowed_entity_types:
+        allowed = ", ".join(sorted(allowed_entity_types))
+        raise HTTPException(status_code=400, detail=f"entity_type must be one of: {allowed}.")
     try:
         top_k = int(payload.get("top_k", 5))
     except Exception:
