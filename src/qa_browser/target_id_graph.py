@@ -209,7 +209,45 @@ def _target_to_row(row: dict[str, str]) -> dict[str, Any]:
         "quality_note": row.get("quality_note", ""),
         "canonical_status": row.get("canonical_status", ""),
         "canonical_ifx_id": row.get("canonical_ifx_id", ""),
+        "source_annotations": row.get("source_annotations", ""),
     }
+
+
+def _target_relation(
+    source_id: str,
+    source_row: dict[str, str],
+    target_id: str,
+    target_row: dict[str, str],
+    evidence_identifier: str,
+) -> tuple[str, str, str, str, dict[str, Any]]:
+    source_type = (source_row.get("target_type", "") or "").lower()
+    target_type = (target_row.get("target_type", "") or "").lower()
+    evidence_namespace = evidence_identifier.split(":", 1)[0] if ":" in evidence_identifier else ""
+
+    def relation(
+        edge_source: str,
+        edge_target: str,
+        predicate: str,
+        relation_kind: str,
+        classes: str,
+    ) -> tuple[str, str, str, str, dict[str, Any]]:
+        return edge_source, edge_target, predicate, classes, {
+            "kind": "target_relation_edge",
+            "predicate": predicate,
+            "relation_kind": relation_kind,
+            "evidence_identifier": evidence_identifier,
+            "evidence_namespace": evidence_namespace,
+        }
+
+    if source_type == "gene" and target_type == "transcript":
+        return relation(source_id, target_id, "biolink:transcribed_to", "gene_to_transcript", "target-relation-edge transcription-edge")
+    if source_type == "transcript" and target_type == "gene":
+        return relation(target_id, source_id, "biolink:transcribed_to", "gene_to_transcript", "target-relation-edge transcription-edge")
+    if source_type == "gene" and target_type == "protein":
+        return relation(source_id, target_id, "biolink:has_gene_product", "gene_to_protein", "target-relation-edge gene-product-edge")
+    if source_type == "protein" and target_type == "gene":
+        return relation(target_id, source_id, "biolink:has_gene_product", "gene_to_protein", "target-relation-edge gene-product-edge")
+    return relation(source_id, target_id, "biolink:related_to", "shared_identifier_context", "target-relation-edge related-edge")
 
 
 def search_targets(
@@ -286,12 +324,17 @@ def build_target_graph_payload(data: TargetGraphData, ids: str, max_identifier_n
         seen_nodes.add(node_id)
         elements.append({"data": {"id": node_id, "label": label, **(payload or {})}, "classes": classes})
 
-    def add_edge(source: str, target: str, label: str, classes: str) -> None:
-        edge_id = f"{source}->{target}:{label}"
+    def add_edge(source: str, target: str, label: str, classes: str, payload: dict[str, Any] | None = None) -> None:
+        payload = payload or {}
+        evidence_key = payload.get("evidence_identifier", "")
+        edge_id = f"{source}->{target}:{label}:{evidence_key}"
         if edge_id in seen_edges:
             return
         seen_edges.add(edge_id)
-        elements.append({"data": {"id": edge_id, "source": source, "target": target, "label": label}, "classes": classes})
+        elements.append({
+            "data": {"id": edge_id, "source": source, "target": target, "label": label, **payload},
+            "classes": classes,
+        })
 
     for target_id in selected:
         row = data.nodes_by_id[target_id]
@@ -304,7 +347,18 @@ def build_target_graph_payload(data: TargetGraphData, ids: str, max_identifier_n
         for xref in _split_pipe(row.get("ids", ""))[:max_identifier_nodes]:
             xid = f"xref:{xref}"
             add_node(xid, xref, "xref", {"xref_id": xref, "namespace": xref.split(":", 1)[0]})
-            add_edge(target_id, xid, "has_identifier", "identifier-edge")
+            add_edge(
+                target_id,
+                xid,
+                "biolink:same_as",
+                "identifier-edge",
+                {
+                    "kind": "identifier_edge",
+                    "predicate": "biolink:same_as",
+                    "evidence_identifier": xref,
+                    "evidence_namespace": xref.split(":", 1)[0] if ":" in xref else "",
+                },
+            )
             neighbor_ids = sorted(
                 data.ids_to_targets.get(xref, []),
                 key=lambda tid: (
@@ -325,7 +379,8 @@ def build_target_graph_payload(data: TargetGraphData, ids: str, max_identifier_n
                     f"target neighbor {neighbor.get('target_type', '')}",
                     _target_to_row(neighbor),
                 )
-                add_edge(neighbor_id, xid, "shares_identifier", "shared-identifier-edge")
+                rel_source, rel_target, predicate, classes, payload = _target_relation(target_id, row, neighbor_id, neighbor, xref)
+                add_edge(rel_source, rel_target, predicate, classes, payload)
     return {"elements": elements, "selected": selected}
 
 

@@ -78,7 +78,21 @@
         <div class="target-graph-toolbar">
             <span id="targetGraphLabel">Enter a target ID, symbol, or external identifier.</span>
         </div>
-        <div id="targetGraph" class="target-graph"></div>
+        <div class="target-graph-legend" aria-label="Target graph legend">
+            <span><i class="target-legend-node target-legend-gene"></i> Gene</span>
+            <span><i class="target-legend-node target-legend-transcript"></i> Transcript</span>
+            <span><i class="target-legend-node target-legend-protein"></i> Protein</span>
+            <span><i class="target-legend-node target-legend-xref"></i> Identifier</span>
+            <span><i class="target-legend-line target-legend-same"></i> biolink:same_as</span>
+            <span><i class="target-legend-line target-legend-transcribed"></i> biolink:transcribed_to</span>
+            <span><i class="target-legend-line target-legend-product"></i> biolink:has_gene_product</span>
+        </div>
+        <div class="target-graph-layout">
+            <div id="targetGraph" class="target-graph"></div>
+            <aside class="target-graph-detail" id="targetGraphDetail">
+                <h2>No Selection</h2>
+            </aside>
+        </div>
     </section>
 
     <section class="target-tab-panel" data-panel="download">
@@ -116,6 +130,7 @@
     const buttons = Array.from(document.querySelectorAll(".target-tab-btn"));
     const rowsEl = document.getElementById("targetRows");
     const pageLabel = document.getElementById("targetPageLabel");
+    const graphDetail = document.getElementById("targetGraphDetail");
 
     function escapeHtml(value) {
         return String(value == null ? "" : value)
@@ -156,6 +171,76 @@
             select.innerHTML = '<option value="">All identifiers</option>' + namespaces.map(ns => `<option value="${escapeHtml(ns)}">${escapeHtml(ns)}</option>`).join("");
             select.value = current;
         }
+    }
+
+    function parseJsonObject(value) {
+        if (!value) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch (_err) {
+            return {};
+        }
+    }
+
+    function detailRows(rows) {
+        return rows
+            .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+            .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value)).replaceAll("|", " · ")}</dd></div>`)
+            .join("");
+    }
+
+    function renderElementDetail(ele) {
+        const d = ele.data();
+        if (ele.isEdge && ele.isEdge()) {
+            graphDetail.innerHTML = `
+                <h2>${escapeHtml(d.predicate || d.label || "Edge")}</h2>
+                <dl class="target-detail-list">
+                    ${detailRows([
+                        ["Biolink predicate", d.predicate || d.label],
+                        ["Relation", d.relation_kind],
+                        ["Evidence identifier", d.evidence_identifier],
+                        ["Evidence namespace", d.evidence_namespace],
+                        ["Source node", d.source],
+                        ["Target node", d.target],
+                    ])}
+                </dl>
+            `;
+            return;
+        }
+
+        const annotations = parseJsonObject(d.source_annotations);
+        const isIdentifier = Boolean(d.xref_id);
+        const title = d.symbol || d.name || d.xref_id || d.label || d.id;
+        const coreRows = isIdentifier
+            ? [
+                ["Identifier", d.xref_id],
+                ["Namespace", d.namespace],
+            ]
+            : [
+                ["Target ID", d.target_id || d.id],
+                ["Type", d.target_type],
+                ["Primary ID", d.primary_id],
+                ["Symbol", d.symbol],
+                ["Name", d.name],
+                ["Description", d.description],
+                ["Category", d.category],
+                ["Mapping ratio", d.mapping_ratio],
+                ["Quality note", d.quality_note],
+                ["Canonical status", d.canonical_status],
+                ["Canonical IFX ID", d.canonical_ifx_id],
+                ["Identifier namespaces", d.id_namespaces],
+                ["Source namespaces", d.source_namespaces],
+                ["Identifiers", d.ids],
+            ];
+        const annotationHtml = Object.keys(annotations).length
+            ? `<h3>Source Annotations</h3><dl class="target-detail-list target-detail-annotations">${detailRows(Object.entries(annotations))}</dl>`
+            : "";
+        graphDetail.innerHTML = `
+            <h2>${escapeHtml(title)}</h2>
+            <dl class="target-detail-list">${detailRows(coreRows)}</dl>
+            ${annotationHtml}
+        `;
     }
 
     async function loadStats() {
@@ -202,27 +287,43 @@
         const response = await fetch(`${rootPath}/target-id-qa/api/graph?ids=${encodeURIComponent(ids)}`);
         const payload = await response.json();
         const elements = payload.elements || [];
-        document.getElementById("targetGraphLabel").textContent = `${elements.length.toLocaleString()} graph elements`;
+        const nodeCount = elements.filter(ele => !(ele.data || {}).source).length;
+        const edgeCount = elements.length - nodeCount;
+        document.getElementById("targetGraphLabel").textContent =
+            `${nodeCount.toLocaleString()} nodes · ${edgeCount.toLocaleString()} edges`;
         if (!cy) {
             cy = cytoscape({
                 container: document.getElementById("targetGraph"),
                 elements,
                 style: [
-                    {selector: "node", style: {"label": "data(label)", "font-size": 10, "text-wrap": "wrap", "text-max-width": 140, "background-color": "#64748b", "color": "#111827", "width": 30, "height": 30}},
+                    {selector: "node", style: {"label": "data(label)", "font-size": 10, "text-wrap": "wrap", "text-max-width": 140, "background-color": "#64748b", "color": "#111827", "width": 30, "height": 30, "border-width": 1, "border-color": "#ffffff"}},
                     {selector: ".gene", style: {"background-color": "#2563eb"}},
                     {selector: ".protein", style: {"background-color": "#059669"}},
                     {selector: ".transcript", style: {"background-color": "#d97706"}},
                     {selector: ".xref", style: {"shape": "round-rectangle", "background-color": "#94a3b8", "width": 80, "height": 24}},
                     {selector: ".neighbor", style: {"opacity": 0.72}},
-                    {selector: "edge", style: {"curve-style": "bezier", "target-arrow-shape": "triangle", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8}}
+                    {selector: "edge", style: {"curve-style": "bezier", "target-arrow-shape": "triangle", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8, "text-background-color": "#ffffff", "text-background-opacity": 0.85, "text-background-padding": 2}},
+                    {selector: ".identifier-edge", style: {"line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "line-style": "dashed", "width": 1.2}},
+                    {selector: ".target-relation-edge", style: {"width": 2.4}},
+                    {selector: ".transcription-edge", style: {"line-color": "#d97706", "target-arrow-color": "#d97706"}},
+                    {selector: ".gene-product-edge", style: {"line-color": "#059669", "target-arrow-color": "#059669"}},
+                    {selector: ".related-edge", style: {"line-color": "#64748b", "target-arrow-color": "#64748b", "line-style": "dotted", "width": 1.4}},
+                    {selector: "node.selected-element", style: {"border-width": 4, "border-color": "#111827"}},
+                    {selector: "edge.selected-element", style: {"width": 4}}
                 ],
                 layout: {name: "cose", animate: false}
+            });
+            cy.on("tap", "node, edge", event => {
+                cy.elements().removeClass("selected-element");
+                event.target.addClass("selected-element");
+                renderElementDetail(event.target);
             });
         } else {
             cy.elements().remove();
             cy.add(elements);
             cy.layout({name: "cose", animate: false}).run();
         }
+        graphDetail.innerHTML = `<h2>No Selection</h2>`;
     }
 
     function download() {
