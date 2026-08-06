@@ -5704,11 +5704,13 @@ def target_id_qa_download_filtered(
     q: str = "",
     target_type: str = "",
     namespace: str = "",
+    columns: str = "",
     format: str = "tsv",
 ):
     data = _load_target_graph()
     fmt = "csv" if format == "csv" else "tsv"
-    content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt)
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt, columns=selected_columns)
     media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
     filename = f"target_harmonizer_filtered.{fmt}"
     return StreamingResponse(
@@ -5749,7 +5751,13 @@ def disease_id_qa_graph(ids: str = ""):
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
-    return build_disease_graph_payload(data, parse_disease_ids(ids))
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, parse_disease_ids(ids), target_data=target_data)
 
 
 @app.get("/disease-id-qa/download/{filename}")
@@ -6208,7 +6216,13 @@ def disease_id_qa_graph_neighbors(pxref: str = ""):
         return {"elements": []}
     # Build graph payload for the neighbors (include the original concept too)
     all_ids = [pxref] + neighbors
-    return build_disease_graph_payload(data, all_ids)
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, all_ids, target_data=target_data)
 
 
 @app.get("/disease-id-qa/api/graph/hierarchy")

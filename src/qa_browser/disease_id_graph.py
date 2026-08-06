@@ -8,9 +8,12 @@ import json
 from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from fastapi import HTTPException
+
+if TYPE_CHECKING:
+    from src.qa_browser.target_id_graph import TargetGraphData
 
 
 class DiseaseGraphData:
@@ -24,6 +27,7 @@ class DiseaseGraphData:
         "hierarchy_by_parent",
         "labels_by_xref_id",
         "decisions_by_pxref",
+        "associations_by_ncats_id",
         "manifest",
         "_dashboard_stats",
         "_xref_to_pxrefs",
@@ -38,6 +42,7 @@ class DiseaseGraphData:
         self.hierarchy_by_parent: dict[str, list[dict]] = defaultdict(list)
         self.labels_by_xref_id: dict[str, dict] = {}
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
+        self.associations_by_ncats_id: dict[str, list[dict]] = defaultdict(list)
         self.manifest: dict = {}
         self._dashboard_stats: dict | None = None
         self._xref_to_pxrefs: dict[str, set[str]] | None = None
@@ -207,6 +212,13 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
             if parent:
                 data.hierarchy_by_parent[parent].append(row)
 
+    gene_assoc_path = data_dir / "disease_gene_associations.tsv"
+    if gene_assoc_path.exists():
+        for row in _read_tsv(gene_assoc_path):
+            ncats_id = row.get("ncats_disease_id", "")
+            if ncats_id:
+                data.associations_by_ncats_id[ncats_id].append(row)
+
     return data
 
 
@@ -216,10 +228,12 @@ def _print_graph_load(label: str, data: DiseaseGraphData) -> None:
     n_hierarchy = sum(len(v) for v in data.hierarchy_by_child.values())
     n_labels = len(data.labels_by_xref_id)
     n_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
+    n_gene_assoc = sum(len(v) for v in data.associations_by_ncats_id.values())
     print(
         f"{label} loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
         f"{n_hierarchy:,} hierarchy edges, "
-        f"{n_labels:,} labels, {n_decisions:,} decisions"
+        f"{n_labels:,} labels, {n_decisions:,} decisions, "
+        f"{n_gene_assoc:,} gene associations"
     )
 
 
@@ -312,6 +326,27 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     avg_xrefs = round(total_xrefs / total_concepts, 1) if total_concepts else 0
     multi_source_percent = round((multi_source_count / total_concepts) * 100, 1) if total_concepts else 0
 
+    # Gene association stats
+    total_gene_associations = sum(len(v) for v in data.associations_by_ncats_id.values())
+    unique_genes: set[str] = set()
+    concepts_with_genes = 0
+    gene_tier_dist: Counter[str] = Counter()
+    gene_source_coverage: Counter[str] = Counter()
+    for ncats_id, assocs in data.associations_by_ncats_id.items():
+        if assocs:
+            concepts_with_genes += 1
+        for assoc in assocs:
+            symbol = assoc.get("subject_symbol", "").strip()
+            if symbol:
+                unique_genes.add(symbol)
+            tier = assoc.get("support_tier", "").strip()
+            if tier:
+                gene_tier_dist[tier] += 1
+            for src in assoc.get("supporting_sources", "").split("|"):
+                src = src.strip()
+                if src:
+                    gene_source_coverage[src] += 1
+
     stats = {
         "total_concepts": total_concepts,
         "total_edges": total_edges,
@@ -334,6 +369,11 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "multi_source_percent": multi_source_percent,
         "source_only_count": source_only_count,
         "avg_xrefs_per_concept": avg_xrefs,
+        "total_gene_associations": total_gene_associations,
+        "unique_genes": len(unique_genes),
+        "concepts_with_genes": concepts_with_genes,
+        "gene_support_tier_distribution": dict(gene_tier_dist.most_common()),
+        "gene_source_coverage": dict(gene_source_coverage.most_common()),
     }
     data._dashboard_stats = stats
     return stats
@@ -410,7 +450,67 @@ def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "conc
     }
 
 
-def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) -> dict[str, Any]:
+def _extract_primary_predicate(predicates_str: str) -> str:
+    """Pick the primary biolink predicate from a pipe-delimited string."""
+    if not predicates_str or predicates_str == "nan":
+        return ""
+    parts = [p.strip() for p in predicates_str.split("|") if p.strip()]
+    for part in parts:
+        if part.startswith("biolink:"):
+            return part
+    return parts[0] if parts else ""
+
+
+def _short_predicate(predicate: str) -> str:
+    """Strip ``biolink:`` prefix for display labels."""
+    return predicate.replace("biolink:", "") if predicate else ""
+
+
+def _resolve_target_id_safe(target_data: "TargetGraphData | None", symbol: str) -> str | None:
+    """Resolve a gene symbol to a target_id, returning None on failure."""
+    if target_data is None:
+        return None
+    try:
+        from src.qa_browser.target_id_graph import _resolve_target_id
+        return _resolve_target_id(target_data, symbol)
+    except Exception:
+        return None
+
+
+def _target_relation(
+    source_id: str,
+    target_id: str,
+    predicate: str,
+    edge_row: dict | None = None,
+) -> dict:
+    """Build a Cytoscape edge element for a target harmonizer relation."""
+    edge_id = f"target-rel::{source_id}::{target_id}::{predicate}"
+    label = _short_predicate(predicate)
+    classes = "target-relation-edge"
+    if predicate == "biolink:has_gene_product":
+        classes += " gene-product-edge"
+    elif predicate == "biolink:transcribed_to":
+        classes += " transcription-edge"
+    data: dict[str, Any] = {
+        "id": edge_id,
+        "source": source_id,
+        "target": target_id,
+        "label": label,
+        "kind": "target_relation_edge",
+        "predicate": predicate,
+    }
+    if edge_row:
+        data["relation_kind"] = edge_row.get("relation_kind", "")
+        data["evidence_identifier"] = edge_row.get("evidence_identifier", "")
+        data["evidence_namespace"] = edge_row.get("evidence_namespace", "")
+    return {"data": data, "classes": classes}
+
+
+def build_disease_graph_payload(
+    data: DiseaseGraphData,
+    query_ids: list[str],
+    target_data: "TargetGraphData | None" = None,
+) -> dict[str, Any]:
     """Build Cytoscape elements for the given disease IDs."""
     if not query_ids:
         raise HTTPException(status_code=400, detail="Provide at least one disease ID.")
@@ -418,9 +518,12 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
     concept_nodes: dict[str, dict] = {}
     xref_nodes: dict[str, dict] = {}
     decision_nodes: dict[str, dict] = {}
+    gene_nodes: dict[str, dict] = {}
+    target_product_nodes: dict[str, dict] = {}
     edges: dict[str, dict] = {}
     missing: list[str] = []
     namespaces: set[str] = set()
+    seen_target_products: set[str] = set()
 
     for qid in query_ids:
         pxref = _resolve_to_pxref(data, qid)
@@ -636,10 +739,134 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "classes": "decision-edge",
                 }
 
+        # --- gene associations ---
+        ncats_id = concept.get("ncats_disease_id", "")
+        for assoc in data.associations_by_ncats_id.get(ncats_id, []):
+            symbol = assoc.get("subject_symbol", "").strip()
+            if not symbol:
+                continue
+            gene_node_id = f"gene::{symbol}"
+            tier = assoc.get("support_tier", "unknown")
+            n_sources = assoc.get("n_supporting_sources", "")
+            gene_public_id = assoc.get("gene_public_id", "")
+            primary_predicate = _extract_primary_predicate(assoc.get("predicates", ""))
+
+            # Enriched gene label: "SYMBOL\nHGNC:xxxxx"
+            gene_label = f"{symbol}\n{gene_public_id}" if gene_public_id else symbol
+
+            # Resolve symbol to target harmonizer
+            target_tid = _resolve_target_id_safe(target_data, symbol)
+            gene_classes = "gene"
+            gene_data: dict[str, Any] = {
+                "id": gene_node_id,
+                "label": gene_label,
+                "kind": "gene",
+                "ncats_gene_id": assoc.get("ncats_gene_id", ""),
+                "gene_public_id": gene_public_id,
+                "subject_symbol": symbol,
+                "source_subject_ids": assoc.get("source_subject_ids", ""),
+            }
+
+            if target_tid and target_data is not None:
+                gene_classes = "gene target-linked"
+                tnode = target_data.nodes_by_id.get(target_tid, {})
+                gene_data["target_id"] = target_tid
+                gene_data["target_name"] = tnode.get("target_name", "")
+                gene_data["target_primary_id"] = tnode.get("primary_id", "")
+                gene_data["target_ids"] = tnode.get("ids", "")
+                gene_data["target_mapping_ratio"] = tnode.get("mapping_ratio", "")
+
+            gene_nodes.setdefault(symbol, {
+                "data": gene_data,
+                "classes": gene_classes,
+            })
+
+            # Enriched association edge label
+            short_pred = _short_predicate(primary_predicate)
+            assoc_label = f"{short_pred}\n[{tier}, {n_sources} src]" if short_pred else f"{tier} [{n_sources}]"
+
+            assoc_edge_id = f"assoc::{pxref}::{symbol}"
+            edges[assoc_edge_id] = {
+                "data": {
+                    "id": assoc_edge_id,
+                    "source": concept_node_id,
+                    "target": gene_node_id,
+                    "label": assoc_label,
+                    "kind": "association_edge",
+                    "subject_symbol": symbol,
+                    "ncats_gene_id": assoc.get("ncats_gene_id", ""),
+                    "gene_public_id": gene_public_id,
+                    "primary_predicate": primary_predicate,
+                    "support_tier": tier,
+                    "support_score_raw": assoc.get("support_score_raw", ""),
+                    "n_supporting_sources": n_sources,
+                    "supporting_sources": assoc.get("supporting_sources", ""),
+                    "curated_support_count": assoc.get("curated_support_count", ""),
+                    "predicates": assoc.get("predicates", ""),
+                    "evidence_types": assoc.get("evidence_types", ""),
+                    "evidence_labels": assoc.get("evidence_labels", ""),
+                    "publications": assoc.get("publications", ""),
+                    "source_subject_ids": assoc.get("source_subject_ids", ""),
+                    "source_disease_ids": assoc.get("source_disease_ids", ""),
+                    "primary_knowledge_sources": assoc.get("primary_knowledge_sources", ""),
+                    "aggregator_knowledge_sources": assoc.get("aggregator_knowledge_sources", ""),
+                    "provided_bys": assoc.get("provided_bys", ""),
+                },
+                "classes": f"association-edge support-{_graph_id_part(tier)}",
+            }
+
+            # --- expand target harmonizer products ---
+            if target_tid and target_data is not None:
+                product_count = 0
+                for rel in target_data.relation_edges_by_target.get(target_tid, []):
+                    if product_count >= 10:
+                        break
+                    predicate = rel.get("predicate", "")
+                    if predicate not in ("biolink:has_gene_product", "biolink:transcribed_to"):
+                        continue
+                    rel_source = rel.get("source_id", "")
+                    rel_target = rel.get("target_id", "")
+                    product_tid = rel_target if rel_source == target_tid else rel_source
+                    if product_tid in seen_target_products:
+                        continue
+                    seen_target_products.add(product_tid)
+                    product_node = target_data.nodes_by_id.get(product_tid)
+                    if not product_node:
+                        continue
+                    product_type = product_node.get("target_type", "")
+                    product_node_id = f"target-product::{product_tid}"
+                    product_symbol = product_node.get("symbol", product_tid)
+                    product_name = product_node.get("target_name", "")
+                    product_label = f"{product_symbol}\n{product_name}" if product_name else product_symbol
+                    if product_type == "protein":
+                        p_classes = "target-product protein"
+                    elif product_type == "transcript":
+                        p_classes = "target-product transcript"
+                    else:
+                        p_classes = "target-product"
+                    target_product_nodes[product_tid] = {
+                        "data": {
+                            "id": product_node_id,
+                            "label": product_label,
+                            "kind": "target_product",
+                            "target_type": product_type,
+                            "target_id": product_tid,
+                            "target_name": product_name,
+                            "target_primary_id": product_node.get("primary_id", ""),
+                            "target_ids": product_node.get("ids", ""),
+                        },
+                        "classes": p_classes,
+                    }
+                    rel_edge = _target_relation(gene_node_id, product_node_id, predicate, rel)
+                    edges[rel_edge["data"]["id"]] = rel_edge
+                    product_count += 1
+
     elements = [
         *concept_nodes.values(),
         *xref_nodes.values(),
         *decision_nodes.values(),
+        *gene_nodes.values(),
+        *target_product_nodes.values(),
         *edges.values(),
     ]
 
@@ -652,6 +879,8 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
             "namespaceCount": len(namespaces),
             "edgeCount": len(edges),
             "decisionCount": len(decision_nodes),
+            "geneCount": len(gene_nodes),
+            "targetProductCount": len(target_product_nodes),
         },
         "manifest": data.manifest,
         "elements": elements,
@@ -2373,5 +2602,6 @@ DOWNLOADABLE_FILES = frozenset({
     "disease_hierarchy_edges.tsv",
     "xref_labels.tsv",
     "review_decisions.tsv",
+    "disease_gene_associations.tsv",
     "manifest.json",
 })

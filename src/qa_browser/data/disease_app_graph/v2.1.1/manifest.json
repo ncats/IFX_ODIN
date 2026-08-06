@@ -1,9 +1,9 @@
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-06T13:40:16.124285+00:00",
+  "generated_at": "2026-08-06T17:01:32.450194+00:00",
   "git_commit": "7ffd39f",
-  "duration_seconds": 27.98,
+  "duration_seconds": 26.06,
   "files": {
     "disease_concepts.tsv": {
       "rows": 113089,
@@ -155,6 +155,31 @@
         "LLM_judgment",
         "LLM_confidence"
       ]
+    },
+    "disease_gene_associations.tsv": {
+      "rows": 15114,
+      "key": [
+        "ncats_disease_id",
+        "ncats_gene_id"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "ncats_gene_id",
+        "subject_symbol",
+        "supporting_sources",
+        "n_supporting_sources",
+        "support_tier",
+        "support_score_raw",
+        "curated_support_count",
+        "predicates",
+        "evidence_types",
+        "evidence_labels",
+        "publications"
+      ]
     }
   },
   "sources": {
@@ -166,6 +191,7 @@
     "blocklist_file": "src/data/publicdata/disease_data/overrides/disease_blocklist.tsv",
     "auto_blocklist_file": "src/data/publicdata/disease_data/v2.1.1/overrides/disease_blocklist_auto.tsv",
     "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml",
-    "hierarchy_child_to_parents_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/sources/child_to_parents.json"
+    "hierarchy_child_to_parents_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/sources/child_to_parents.json",
+    "gene_support_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/final/harmonized_disease_gene_support.tsv"
   }
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,19 @@ TARGET_NODE_COLUMNS = [
     "source_annotations",
     "createdAt",
     "updatedAt",
+]
+
+TARGET_EDGE_COLUMNS = [
+    "source_id",
+    "predicate",
+    "target_id",
+    "relation_kind",
+    "evidence_identifier",
+    "evidence_namespace",
+    "evidence_source",
+    "support_tier",
+    "support_ratio",
+    "support_score",
 ]
 
 
@@ -236,35 +250,202 @@ def _portable_path(path: Path) -> str:
     return text
 
 
+def _latest_source_file(target_data_dir: Path, basename: str) -> Path:
+    pattern = re.compile(rf"^{re.escape(basename)}(?:_(\d{{4}}-\d{{2}}-\d{{2}}))?\.tsv$")
+    candidates: list[tuple[str, float, Path]] = []
+    for path in target_data_dir.glob(f"{basename}*.tsv"):
+        match = pattern.match(path.name)
+        if match:
+            candidates.append((match.group(1) or "", path.stat().st_mtime, path))
+    if not candidates:
+        raise FileNotFoundError(target_data_dir / f"{basename}.tsv")
+    return max(candidates, key=lambda item: (item[0] != "", item[0], item[1]))[2]
+
+
+def _read_source_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def _edge(
+    source_id: str,
+    predicate: str,
+    target_id: str,
+    relation_kind: str,
+    evidence_identifier: str,
+    evidence_source: str,
+    support_tier: str = "",
+    support_ratio: str = "",
+    support_score: str = "",
+) -> dict[str, str]:
+    evidence_namespace = evidence_identifier.split(":", 1)[0] if ":" in evidence_identifier else ""
+    return {
+        "source_id": source_id,
+        "predicate": predicate,
+        "target_id": target_id,
+        "relation_kind": relation_kind,
+        "evidence_identifier": evidence_identifier,
+        "evidence_namespace": evidence_namespace,
+        "evidence_source": evidence_source,
+        "support_tier": support_tier,
+        "support_ratio": support_ratio,
+        "support_score": support_score,
+    }
+
+
 def build(target_data_dir: Path, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     sources = {
-        "gene_ids": target_data_dir / "gene_ids.tsv",
-        "protein_ids": target_data_dir / "protein_ids.tsv",
-        "transcript_ids": target_data_dir / "transcript_ids.tsv",
+        "gene_ids": _latest_source_file(target_data_dir, "gene_ids"),
+        "protein_ids": _latest_source_file(target_data_dir, "protein_ids"),
+        "transcript_ids": _latest_source_file(target_data_dir, "transcript_ids"),
     }
     for path in sources.values():
         if not path.exists():
             raise FileNotFoundError(path)
 
+    gene_rows = _read_source_rows(sources["gene_ids"])
+    protein_rows = _read_source_rows(sources["protein_ids"])
+    transcript_rows = _read_source_rows(sources["transcript_ids"])
+
     type_counts: Counter[str] = Counter()
     namespace_counts: Counter[str] = Counter()
+    annotation_counts: Counter[str] = Counter()
     row_count = 0
+    gene_by_ensembl: dict[str, str] = {}
+    gene_by_ncbi: dict[str, str] = {}
+    transcript_by_ensembl: dict[str, str] = {}
+    transcript_gene_by_transcript: dict[str, str] = {}
     nodes_path = out_dir / "target_nodes.tsv"
     with nodes_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=TARGET_NODE_COLUMNS, delimiter="\t", extrasaction="ignore")
         writer.writeheader()
-        for source_path, mapper in [
-            (sources["gene_ids"], _gene_row),
-            (sources["protein_ids"], _protein_row),
-            (sources["transcript_ids"], _transcript_row),
+        for source_rows, mapper in [
+            (gene_rows, _gene_row),
+            (protein_rows, _protein_row),
+            (transcript_rows, _transcript_row),
         ]:
-            for row in _iter_rows(source_path, mapper):
+            for source_row in source_rows:
+                row = mapper(source_row)
+                if not row.get("target_id"):
+                    continue
                 writer.writerow(row)
                 row_count += 1
                 type_counts[row["target_type"]] += 1
                 for namespace in _parts(row["id_namespaces"]):
                     namespace_counts[namespace] += 1
+                if row.get("source_annotations"):
+                    annotation_counts.update(json.loads(row["source_annotations"]).keys())
+                if row["target_type"] == "gene":
+                    for identifier in _parts(row["ids"]):
+                        if identifier.startswith("ENSEMBL:ENSG"):
+                            gene_by_ensembl[identifier] = row["target_id"]
+                        elif identifier.startswith("NCBIGene:"):
+                            gene_by_ncbi[identifier] = row["target_id"]
+                elif row["target_type"] == "transcript":
+                    for identifier in _parts(row["ids"]):
+                        if identifier.startswith("ENSEMBL:ENST"):
+                            transcript_by_ensembl[identifier] = row["target_id"]
+                    gene_id = gene_by_ensembl.get(_curie("ENSEMBL", source_row.get("ensembl_gene_id")))
+                    if gene_id:
+                        transcript_gene_by_transcript[row["target_id"]] = gene_id
+
+    edge_count = 0
+    edge_predicate_counts: Counter[str] = Counter()
+    seen_edges: set[tuple[str, str, str, str, str]] = set()
+    edges_path = out_dir / "target_edges.tsv"
+    with edges_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=TARGET_EDGE_COLUMNS, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+
+        def write_edge(edge: dict[str, str]) -> None:
+            nonlocal edge_count
+            key = (
+                edge["source_id"],
+                edge["predicate"],
+                edge["target_id"],
+                edge["evidence_identifier"],
+                edge["evidence_source"],
+            )
+            if not edge["source_id"] or not edge["target_id"] or key in seen_edges:
+                return
+            seen_edges.add(key)
+            writer.writerow(edge)
+            edge_count += 1
+            edge_predicate_counts[edge["predicate"]] += 1
+
+        for row in transcript_rows:
+            transcript_id = transcript_by_ensembl.get(_curie("ENSEMBL", row.get("ensembl_transcript_id_version")))
+            if not transcript_id:
+                transcript_id = transcript_by_ensembl.get(_curie("ENSEMBL", row.get("ensembl_transcript_id")))
+            gene_identifier = _curie("ENSEMBL", row.get("ensembl_gene_id"))
+            gene_id = gene_by_ensembl.get(gene_identifier)
+            if gene_id and transcript_id:
+                write_edge(_edge(
+                    gene_id,
+                    "biolink:transcribed_to",
+                    transcript_id,
+                    "gene_to_transcript",
+                    gene_identifier,
+                    "transcript_ids.ensembl_gene_id",
+                    support_tier=_clean(row.get("ensembl_transcript_tsl")),
+                    support_score=_clean(row.get("ensembl_canonical")),
+                ))
+
+        for row in protein_rows:
+            protein_id = _clean(row.get("ncats_protein_id"))
+            protein_support_tier = _clean(row.get("Mapping_Support_Tier")) or _clean(row.get("protein_grouping_reason"))
+            protein_support_ratio = _clean(row.get("Mapping_Support_Ratio")) or _clean(row.get("Total_Mapping_Ratio"))
+            protein_support_score = _clean(row.get("Mapping_Support_Score")) or _clean(row.get("Total_Mapping_Score"))
+            linked_gene_ids: set[str] = set()
+
+            for transcript_value in _parts(row.get("consolidated_ensembl_transcript_id")):
+                transcript_identifier = _curie("ENSEMBL", transcript_value)
+                transcript_id = transcript_by_ensembl.get(transcript_identifier)
+                if not transcript_id:
+                    continue
+                write_edge(_edge(
+                    transcript_id,
+                    "biolink:translates_to",
+                    protein_id,
+                    "transcript_to_protein",
+                    transcript_identifier,
+                    "protein_ids.consolidated_ensembl_transcript_id",
+                    support_tier=protein_support_tier,
+                    support_ratio=protein_support_ratio,
+                    support_score=protein_support_score,
+                ))
+                gene_id = transcript_gene_by_transcript.get(transcript_id)
+                if gene_id:
+                    linked_gene_ids.add(gene_id)
+                    write_edge(_edge(
+                        gene_id,
+                        "biolink:has_gene_product",
+                        protein_id,
+                        "gene_to_protein_via_transcript",
+                        transcript_identifier,
+                        "protein_ids.consolidated_ensembl_transcript_id",
+                        support_tier=protein_support_tier,
+                        support_ratio=protein_support_ratio,
+                        support_score=protein_support_score,
+                    ))
+
+            for ncbi_value in _parts(row.get("uniprot_NCBI_id")):
+                gene_identifier = _curie("NCBIGene", ncbi_value)
+                gene_id = gene_by_ncbi.get(gene_identifier)
+                if gene_id:
+                    linked_gene_ids.add(gene_id)
+                    write_edge(_edge(
+                        gene_id,
+                        "biolink:has_gene_product",
+                        protein_id,
+                        "gene_to_protein_via_ncbi_gene",
+                        gene_identifier,
+                        "protein_ids.uniprot_NCBI_id",
+                        support_tier=protein_support_tier,
+                        support_ratio=protein_support_ratio,
+                        support_score=protein_support_score,
+                    ))
 
     manifest = {
         "contract_version": "1.0.0",
@@ -276,9 +457,16 @@ def build(target_data_dir: Path, out_dir: Path) -> None:
                 "rows": row_count,
                 "key": "target_id",
                 "columns": TARGET_NODE_COLUMNS,
+            },
+            "target_edges.tsv": {
+                "rows": edge_count,
+                "key": "source_id,predicate,target_id,evidence_identifier",
+                "columns": TARGET_EDGE_COLUMNS,
             }
         },
         "node_counts": dict(type_counts),
+        "edge_predicate_counts": dict(edge_predicate_counts),
+        "annotation_counts": dict(annotation_counts.most_common()),
         "identifier_namespace_concept_counts": dict(namespace_counts.most_common()),
     }
     with (out_dir / "manifest.json").open("w", encoding="utf-8") as fh:

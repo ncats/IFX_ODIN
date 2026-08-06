@@ -55,6 +55,13 @@
                 <div class="dash-stat" id="dashRareCount">-</div>
                 <div class="dash-label">Rare Diseases</div>
             </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="dashGeneAssocCount">-</div>
+                <div class="dash-label">Gene Associations <button class="chart-legend-toggle" type="button" aria-label="Explain gene associations" aria-expanded="false" aria-controls="geneAssocHelp">?</button></div>
+                <div class="chart-legend" id="geneAssocHelp">
+                    <p>Disease-gene association pairs aggregated from ClinGen, OMIM, Orphanet, Monarch, MedGen, and Jensen. Each row represents one disease-gene pair with a support tier and score.</p>
+                </div>
+            </div>
         </div>
 
         <div class="dash-charts">
@@ -234,6 +241,7 @@
                     <label><input type="checkbox" id="filterHideDecisions"> Hide decisions</label>
                     <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
                     <label><input type="checkbox" id="filterHidePhenotypes"> Hide phenotypic features</label>
+                    <label><input type="checkbox" id="filterHideGeneAssoc" checked> Hide gene associations</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label class="disease-id-filter-group-label">Layout:</label>
                     <select id="graphLayoutSelect" class="filter-select filter-select-sm">
@@ -257,6 +265,9 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#be5a38"></span> <strong>Phenotypic feature</strong> &mdash; concept typed as biolink:PhenotypicFeature</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0d9488"></span> <strong>Gene association</strong> &mdash; disease-gene link with support tier; purple border = target harmonizer linked</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#7c3aed"></span> <strong>Protein</strong> &mdash; gene product from target harmonizer (biolink:has_gene_product)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#2563eb"></span> <strong>Transcript</strong> &mdash; transcription product from target harmonizer (biolink:transcribed_to)</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -528,6 +539,7 @@
                     <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_hierarchy_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_gene_associations.tsv" class="btn btn-sm disease-id-dl-btn">disease_gene_associations.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
                     <span class="disease-id-dl-sep">|</span>
                     <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">needs_action_concepts.tsv</a>
@@ -968,6 +980,13 @@ C4707237</textarea>
                     `avg xrefs/concept ${stats.avg_xrefs_per_concept}`;
                 document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
 
+                const geneAssocEl = document.getElementById("dashGeneAssocCount");
+                const totalGeneAssoc = Number(stats.total_gene_associations || 0);
+                geneAssocEl.textContent = totalGeneAssoc.toLocaleString();
+                geneAssocEl.title =
+                    `${Number(stats.unique_genes || 0).toLocaleString()} unique genes; ` +
+                    `${Number(stats.concepts_with_genes || 0).toLocaleString()} concepts with gene associations`;
+
                 const tierColors = {
                     "single_authoritative_source": "#059669",
                     "multi_source_supported": "#2563eb",
@@ -1244,6 +1263,7 @@ C4707237</textarea>
         const filterHideDecisions = document.getElementById("filterHideDecisions");
         const filterHideHierarchy = document.getElementById("filterHideHierarchy");
         const filterHidePhenotypes = document.getElementById("filterHidePhenotypes");
+        const filterHideGeneAssoc = document.getElementById("filterHideGeneAssoc");
 
         let selectedConceptPxref = null;
 
@@ -1257,6 +1277,12 @@ C4707237</textarea>
             ];
             if (stats.hierarchyEdgeCount !== undefined) {
                 rows.push(["Hierarchy", stats.hierarchyEdgeCount]);
+            }
+            if (stats.geneCount !== undefined && stats.geneCount > 0) {
+                rows.push(["Genes", stats.geneCount]);
+            }
+            if (stats.targetProductCount !== undefined && stats.targetProductCount > 0) {
+                rows.push(["Gene products", stats.targetProductCount]);
             }
             statsBox.innerHTML = rows.map(([label, value]) =>
                 `<div><dt>${label}</dt><dd>${value}</dd></div>`
@@ -1291,10 +1317,36 @@ C4707237</textarea>
                 "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
                 "resolution", "resolution_detail", "reviewed_by", "priority",
+                "subject_symbol", "ncats_gene_id", "gene_public_id",
+                "support_tier", "support_score_raw", "n_supporting_sources",
+                "supporting_sources", "curated_support_count",
+                "primary_predicate", "predicates",
+                "evidence_types", "evidence_labels", "publications",
+                "source_subject_ids", "source_disease_ids",
+                "primary_knowledge_sources", "aggregator_knowledge_sources", "provided_bys",
+                "target_id", "target_name", "target_primary_id", "target_ids", "target_mapping_ratio",
+                "target_type",
+                "relation_kind", "evidence_identifier", "evidence_namespace",
             ];
             const displayLabels = {
                 "nodenorm_canonical_curie": "node normalization preferred CURIE ID",
                 "asserting_sources": "sources asserting this mapping",
+                "gene_public_id": "public gene identifier",
+                "source_subject_ids": "source gene identifiers",
+                "source_disease_ids": "source disease identifiers",
+                "primary_predicate": "primary biolink predicate",
+                "primary_knowledge_sources": "primary knowledge sources",
+                "aggregator_knowledge_sources": "aggregator knowledge sources",
+                "provided_bys": "provided by",
+                "target_id": "target harmonizer ID",
+                "target_name": "target name",
+                "target_primary_id": "target primary identifier",
+                "target_ids": "target cross-references",
+                "target_mapping_ratio": "target mapping ratio",
+                "target_type": "target type",
+                "relation_kind": "relation kind",
+                "evidence_identifier": "evidence identifier",
+                "evidence_namespace": "evidence namespace",
             };
             detailTitle.textContent = data.label || data.id || "Selection";
             detailSub.textContent = data.kind || "";
@@ -1346,12 +1398,18 @@ C4707237</textarea>
             if (filterHidePhenotypes.checked) {
                 cyInstance.nodes(".phenotype-concept, .mixed-disease-phenotype-concept").hide();
             }
+            if (filterHideGeneAssoc.checked) {
+                cyInstance.elements(".gene, .association-edge, .target-product, .target-relation-edge").hide();
+            }
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
+            cyInstance.nodes(".target-product").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".hierarchy-context").filter(n => n.connectedEdges(":visible").length === 0).hide();
+            cyInstance.nodes(".gene").filter(n => n.connectedEdges(":visible").length === 0).hide();
         }
 
         [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
-         filterHideObsolete, filterHideDecisions, filterHideHierarchy, filterHidePhenotypes].forEach(cb => {
+         filterHideObsolete, filterHideDecisions, filterHideHierarchy, filterHidePhenotypes,
+         filterHideGeneAssoc].forEach(cb => {
             cb.addEventListener("change", applyGraphFilters);
         });
 
@@ -1603,6 +1661,81 @@ C4707237</textarea>
                             "width": 2,
                             "font-size": 7,
                         }},
+                        { selector: ".gene", style: {
+                            "background-color": "#0d9488",
+                            "shape": "round-diamond",
+                            "width": 34,
+                            "height": 34,
+                            "font-size": 8,
+                            "font-weight": "bold",
+                            "border-color": "#5eead4",
+                        }},
+                        { selector: ".association-edge", style: {
+                            "line-color": "#0d9488",
+                            "target-arrow-color": "#0d9488",
+                            "target-arrow-shape": "triangle",
+                            "line-style": "solid",
+                            "width": 2,
+                            "font-size": 7,
+                        }},
+                        { selector: ".support-high_confidence", style: {
+                            "line-color": "#059669",
+                            "target-arrow-color": "#059669",
+                            "width": 3,
+                        }},
+                        { selector: ".support-supported", style: {
+                            "line-color": "#0d9488",
+                            "target-arrow-color": "#0d9488",
+                            "width": 2,
+                        }},
+                        { selector: ".support-provisional", style: {
+                            "line-color": "#f59e0b",
+                            "target-arrow-color": "#f59e0b",
+                            "line-style": "dashed",
+                            "width": 1.5,
+                        }},
+                        { selector: ".support-weak", style: {
+                            "line-color": "#94a3b8",
+                            "target-arrow-color": "#94a3b8",
+                            "line-style": "dotted",
+                            "width": 1,
+                        }},
+                        { selector: ".gene.target-linked", style: {
+                            "border-color": "#7c3aed",
+                            "border-width": 3,
+                        }},
+                        { selector: ".target-product.protein", style: {
+                            "background-color": "#7c3aed",
+                            "shape": "round-rectangle",
+                            "width": 30,
+                            "height": 30,
+                            "font-size": 7,
+                            "border-color": "#a78bfa",
+                            "border-width": 1,
+                        }},
+                        { selector: ".target-product.transcript", style: {
+                            "background-color": "#2563eb",
+                            "shape": "round-pentagon",
+                            "width": 28,
+                            "height": 28,
+                            "font-size": 7,
+                            "border-color": "#60a5fa",
+                            "border-width": 1,
+                        }},
+                        { selector: ".target-relation-edge", style: {
+                            "line-style": "dashed",
+                            "width": 1.5,
+                            "font-size": 7,
+                            "target-arrow-shape": "triangle",
+                        }},
+                        { selector: ".gene-product-edge", style: {
+                            "line-color": "#7c3aed",
+                            "target-arrow-color": "#7c3aed",
+                        }},
+                        { selector: ".transcription-edge", style: {
+                            "line-color": "#2563eb",
+                            "target-arrow-color": "#2563eb",
+                        }},
                         { selector: ".has-conflict", style: {
                             "width": 2.5,
                             "text-outline-width": 2,
@@ -1637,6 +1770,12 @@ C4707237</textarea>
                             const child = d.child_label || d.child_primary_xref || "";
                             const parent = d.parent_label || d.parent_primary_xref || "";
                             text = `${child} subclass_of ${parent}`;
+                        } else if (d.kind === "association_edge") {
+                            const pred = (d.primary_predicate || "").replace("biolink:", "");
+                            const srcList = (d.supporting_sources || "").replace(/\|/g, ", ");
+                            text = `${d.subject_symbol || ""} ${pred || "associated"} [${d.support_tier || ""}] (${d.n_supporting_sources || 0} sources${srcList ? ": " + srcList : ""})`;
+                        } else if (d.kind === "target_relation_edge") {
+                            text = `${(d.predicate || "").replace("biolink:", "")}`;
                         } else {
                             text = d.match_type || "";
                         }
@@ -1648,7 +1787,7 @@ C4707237</textarea>
                             }
                         }
                     } else {
-                        text = d.standard_name || d.xref_label || d.decision_type || "";
+                        text = d.standard_name || d.xref_label || d.decision_type || d.subject_symbol || d.target_name || "";
                     }
                     if (!text) return;
                     tooltipEl.textContent = text;

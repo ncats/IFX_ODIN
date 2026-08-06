@@ -85,6 +85,7 @@
             <span><i class="target-legend-node target-legend-xref"></i> Identifier</span>
             <span><i class="target-legend-line target-legend-same"></i> biolink:same_as</span>
             <span><i class="target-legend-line target-legend-transcribed"></i> biolink:transcribed_to</span>
+            <span><i class="target-legend-line target-legend-translates"></i> biolink:translates_to</span>
             <span><i class="target-legend-line target-legend-product"></i> biolink:has_gene_product</span>
         </div>
         <div class="target-graph-layout">
@@ -114,6 +115,12 @@
                 </select>
                 <button class="btn btn-primary" id="targetDownloadBtn" type="button">Download</button>
             </div>
+            <div class="target-download-actions">
+                <button class="btn btn-sm" id="targetSelectDefaultColumns" type="button">Default columns</button>
+                <button class="btn btn-sm" id="targetSelectAllColumns" type="button">Select all</button>
+                <button class="btn btn-sm" id="targetClearColumns" type="button">Clear</button>
+            </div>
+            <div class="target-column-picker" id="targetColumnPicker"></div>
         </div>
     </section>
 </div>
@@ -131,6 +138,11 @@
     const rowsEl = document.getElementById("targetRows");
     const pageLabel = document.getElementById("targetPageLabel");
     const graphDetail = document.getElementById("targetGraphDetail");
+    const defaultDownloadColumns = new Set([
+        "target_id", "target_type", "primary_id", "symbol", "name", "description", "category",
+        "ids", "id_namespaces", "source_namespaces", "mapping_ratio", "quality_note",
+        "canonical_status", "canonical_ifx_id",
+    ]);
 
     function escapeHtml(value) {
         return String(value == null ? "" : value)
@@ -173,6 +185,29 @@
         }
     }
 
+    function renderColumnPicker(groups) {
+        const picker = document.getElementById("targetColumnPicker");
+        picker.innerHTML = (groups || []).map(group => `
+            <fieldset>
+                <legend>${escapeHtml(group.label)}</legend>
+                ${(group.columns || []).map(column => `
+                    <label>
+                        <input type="checkbox" value="${escapeHtml(column)}" ${defaultDownloadColumns.has(column) ? "checked" : ""}>
+                        <span>${escapeHtml(column)}</span>
+                    </label>
+                `).join("")}
+            </fieldset>
+        `).join("");
+    }
+
+    function setDownloadColumns(mode) {
+        document.querySelectorAll("#targetColumnPicker input[type='checkbox']").forEach(input => {
+            if (mode === "all") input.checked = true;
+            else if (mode === "clear") input.checked = false;
+            else input.checked = defaultDownloadColumns.has(input.value);
+        });
+    }
+
     function parseJsonObject(value) {
         if (!value) return {};
         try {
@@ -201,6 +236,10 @@
                         ["Relation", d.relation_kind],
                         ["Evidence identifier", d.evidence_identifier],
                         ["Evidence namespace", d.evidence_namespace],
+                        ["Evidence source", d.evidence_source],
+                        ["Support tier", d.support_tier],
+                        ["Support ratio", d.support_ratio],
+                        ["Support score", d.support_score],
                         ["Source node", d.source],
                         ["Target node", d.target],
                     ])}
@@ -257,6 +296,7 @@
         renderBars(document.getElementById("targetTypeBars"), typeCounts);
         renderBars(document.getElementById("targetNamespaceBars"), namespaces);
         populateNamespaceSelects(namespaces);
+        renderColumnPicker(stats.download_column_groups || []);
     }
 
     async function search(page) {
@@ -306,6 +346,7 @@
                     {selector: ".identifier-edge", style: {"line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "line-style": "dashed", "width": 1.2}},
                     {selector: ".target-relation-edge", style: {"width": 2.4}},
                     {selector: ".transcription-edge", style: {"line-color": "#d97706", "target-arrow-color": "#d97706"}},
+                    {selector: ".translation-edge", style: {"line-color": "#7c3aed", "target-arrow-color": "#7c3aed"}},
                     {selector: ".gene-product-edge", style: {"line-color": "#059669", "target-arrow-color": "#059669"}},
                     {selector: ".related-edge", style: {"line-color": "#64748b", "target-arrow-color": "#64748b", "line-style": "dotted", "width": 1.4}},
                     {selector: "node.selected-element", style: {"border-width": 4, "border-color": "#111827"}},
@@ -329,6 +370,8 @@
     function download() {
         const params = new URLSearchParams(paramsFromFilters("targetDownload"));
         params.set("format", document.getElementById("targetDownloadFormat").value || "tsv");
+        const columns = Array.from(document.querySelectorAll("#targetColumnPicker input[type='checkbox']:checked")).map(input => input.value);
+        if (columns.length) params.set("columns", columns.join(","));
         window.location.href = `${rootPath}/target-id-qa/download-filtered?${params}`;
     }
 
@@ -340,6 +383,9 @@
     document.getElementById("targetPrevPage").addEventListener("click", () => search(Math.max(1, currentPage - 1)));
     document.getElementById("targetNextPage").addEventListener("click", () => search(Math.min(totalPages, currentPage + 1)));
     document.getElementById("targetDownloadBtn").addEventListener("click", download);
+    document.getElementById("targetSelectDefaultColumns").addEventListener("click", () => setDownloadColumns("default"));
+    document.getElementById("targetSelectAllColumns").addEventListener("click", () => setDownloadColumns("all"));
+    document.getElementById("targetClearColumns").addEventListener("click", () => setDownloadColumns("clear"));
     rowsEl.addEventListener("click", event => {
         const btn = event.target.closest(".target-link");
         if (!btn) return;
