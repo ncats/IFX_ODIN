@@ -242,6 +242,8 @@
                     <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
                     <label><input type="checkbox" id="filterHidePhenotypes"> Hide phenotypic features</label>
                     <label><input type="checkbox" id="filterHideGeneAssoc" checked> Hide gene associations</label>
+                    <label id="filterShowTranscriptsLabel" style="display:none"><input type="checkbox" id="filterShowTranscripts"> Transcripts (<span id="diseaseTranscriptCount">0</span>)</label>
+                    <label id="filterShowProteinsLabel" style="display:none"><input type="checkbox" id="filterShowProteins"> Proteins (<span id="diseaseProteinCount">0</span>)</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label class="disease-id-filter-group-label">Layout:</label>
                     <select id="graphLayoutSelect" class="filter-select filter-select-sm">
@@ -268,6 +270,7 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0d9488"></span> <strong>Gene association</strong> &mdash; disease-gene link with support tier; purple border = target harmonizer linked</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#7c3aed"></span> <strong>Protein</strong> &mdash; gene product from target harmonizer (biolink:has_gene_product)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#2563eb"></span> <strong>Transcript</strong> &mdash; transcription product from target harmonizer (biolink:transcribed_to)</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#7c3aed"></span> <strong>Translates to</strong> &mdash; transcript to protein (biolink:translates_to)</span>
                             </div>
                             <h4>Conflict indicators</h4>
                             <div class="graph-legend-edge-list">
@@ -1264,6 +1267,12 @@ C4707237</textarea>
         const filterHideHierarchy = document.getElementById("filterHideHierarchy");
         const filterHidePhenotypes = document.getElementById("filterHidePhenotypes");
         const filterHideGeneAssoc = document.getElementById("filterHideGeneAssoc");
+        const filterShowTranscripts = document.getElementById("filterShowTranscripts");
+        const filterShowProteins = document.getElementById("filterShowProteins");
+        const transcriptsLabel = document.getElementById("filterShowTranscriptsLabel");
+        const proteinsLabel = document.getElementById("filterShowProteinsLabel");
+        const transcriptCountSpan = document.getElementById("diseaseTranscriptCount");
+        const proteinCountSpan = document.getElementById("diseaseProteinCount");
 
         let selectedConceptPxref = null;
 
@@ -1281,8 +1290,12 @@ C4707237</textarea>
             if (stats.geneCount !== undefined && stats.geneCount > 0) {
                 rows.push(["Genes", stats.geneCount]);
             }
-            if (stats.targetProductCount !== undefined && stats.targetProductCount > 0) {
-                rows.push(["Gene products", stats.targetProductCount]);
+            if (fullPayload && (fullPayload.geneTranscripts || fullPayload.geneProteins)) {
+                const nLinked = new Set([
+                    ...Object.keys(fullPayload.geneTranscripts || {}),
+                    ...Object.keys(fullPayload.geneProteins || {}),
+                ]).size;
+                if (nLinked > 0) rows.push(["Target-linked", nLinked]);
             }
             statsBox.innerHTML = rows.map(([label, value]) =>
                 `<div><dt>${label}</dt><dd>${value}</dd></div>`
@@ -1372,6 +1385,7 @@ C4707237</textarea>
                 selectedConceptPxref = null;
                 conceptActions.style.display = "none";
             }
+
         }
 
         let cyInstance = null;
@@ -1399,7 +1413,7 @@ C4707237</textarea>
                 cyInstance.nodes(".phenotype-concept, .mixed-disease-phenotype-concept").hide();
             }
             if (filterHideGeneAssoc.checked) {
-                cyInstance.elements(".gene, .association-edge, .target-product, .target-relation-edge").hide();
+                cyInstance.elements(".gene, .association-edge, .target-product, .target-relation-edge, .translation-edge, .gene-product-edge, .transcription-edge").hide();
             }
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".target-product").filter(n => n.connectedEdges(":visible").length === 0).hide();
@@ -1411,6 +1425,112 @@ C4707237</textarea>
          filterHideObsolete, filterHideDecisions, filterHideHierarchy, filterHidePhenotypes,
          filterHideGeneAssoc].forEach(cb => {
             cb.addEventListener("change", applyGraphFilters);
+        });
+
+        // When gene associations are hidden, disable and uncheck product checkboxes
+        filterHideGeneAssoc.addEventListener("change", () => {
+            if (filterHideGeneAssoc.checked) {
+                if (filterShowTranscripts.checked) {
+                    filterShowTranscripts.checked = false;
+                    toggleDiseaseProducts("transcript", false);
+                }
+                if (filterShowProteins.checked) {
+                    filterShowProteins.checked = false;
+                    toggleDiseaseProducts("protein", false);
+                }
+                filterShowTranscripts.disabled = true;
+                filterShowProteins.disabled = true;
+            } else {
+                filterShowTranscripts.disabled = false;
+                filterShowProteins.disabled = false;
+            }
+        });
+
+        // --- Product toggle checkboxes ---
+        function toggleDiseaseProducts(type, show) {
+            if (!cyInstance || !fullPayload) return;
+            const source = type === "transcript"
+                ? fullPayload.geneTranscripts
+                : fullPayload.geneProteins;
+            if (!source) return;
+            const transcriptsVisible = filterShowTranscripts.checked;
+            if (show) {
+                for (const [symbol, elements] of Object.entries(source)) {
+                    const geneNode = cyInstance.getElementById(`gene::${symbol}`);
+                    if (!geneNode.length) continue;
+                    const genePos = geneNode.position();
+                    // Filter elements: for proteins, skip fallback edges when transcripts are shown,
+                    // skip translates_to edges when transcripts are hidden
+                    const toAdd = elements.filter(el => {
+                        if (cyInstance.getElementById(el.data.id).length) return false;
+                        if (type === "protein" && el.data.source) {
+                            // It's an edge
+                            if (el.data._fallback && transcriptsVisible) return false;
+                            if (!el.data._fallback && el.classes && el.classes.includes("translation-edge") && !transcriptsVisible) return false;
+                        }
+                        return true;
+                    });
+                    if (!toAdd.length) continue;
+                    const added = cyInstance.add(toAdd);
+                    const newNodes = added.nodes();
+                    const radius = 80;
+                    const offset = type === "transcript" ? 0 : Math.PI / 2;
+                    newNodes.forEach((node, i) => {
+                        const angle = offset + (2 * Math.PI * i) / Math.max(1, newNodes.length);
+                        node.position({
+                            x: genePos.x + radius * Math.cos(angle),
+                            y: genePos.y + radius * Math.sin(angle),
+                        });
+                    });
+                }
+            } else {
+                // Remove elements by collecting their IDs
+                for (const elements of Object.values(source)) {
+                    const ids = new Set(elements.map(el => el.data.id));
+                    cyInstance.elements().filter(el => ids.has(el.data("id"))).remove();
+                }
+                // If removing transcripts while proteins visible, swap translates_to → fallback
+                if (type === "transcript" && filterShowProteins.checked && fullPayload.geneProteins) {
+                    for (const [symbol, elements] of Object.entries(fullPayload.geneProteins)) {
+                        // Remove translates_to edges whose source transcript was just removed
+                        const ttEdges = elements.filter(el =>
+                            el.data.source && !el.data._fallback &&
+                            el.classes && el.classes.includes("translation-edge")
+                        );
+                        const ttIds = new Set(ttEdges.map(e => e.data.id));
+                        cyInstance.elements().filter(el => ttIds.has(el.data("id"))).remove();
+                        // Add fallback has_gene_product edges
+                        const fallbacks = elements.filter(el =>
+                            el.data._fallback && !cyInstance.getElementById(el.data.id).length
+                        );
+                        if (fallbacks.length) cyInstance.add(fallbacks);
+                    }
+                }
+            }
+            // If toggling transcripts ON while proteins visible, swap fallback → translates_to
+            if (type === "transcript" && show && filterShowProteins.checked && fullPayload.geneProteins) {
+                for (const [symbol, elements] of Object.entries(fullPayload.geneProteins)) {
+                    // Remove fallback edges
+                    const fallbacks = elements.filter(el => el.data._fallback);
+                    const fbIds = new Set(fallbacks.map(e => e.data.id));
+                    cyInstance.elements().filter(el => fbIds.has(el.data("id"))).remove();
+                    // Add translates_to edges
+                    const ttEdges = elements.filter(el =>
+                        el.data.source && !el.data._fallback &&
+                        el.classes && el.classes.includes("translation-edge") &&
+                        !cyInstance.getElementById(el.data.id).length
+                    );
+                    if (ttEdges.length) cyInstance.add(ttEdges);
+                }
+            }
+            applyGraphFilters();
+        }
+
+        filterShowTranscripts.addEventListener("change", () => {
+            toggleDiseaseProducts("transcript", filterShowTranscripts.checked);
+        });
+        filterShowProteins.addEventListener("change", () => {
+            toggleDiseaseProducts("protein", filterShowProteins.checked);
         });
 
         // Graph legend toggle
@@ -1513,6 +1633,26 @@ C4707237</textarea>
                 fullPayload = payload;
                 renderStats(payload.stats);
                 detailSub.textContent = `${payload.elements.length} graph elements`;
+
+                // Show product filter checkboxes if target data available
+                if (payload.geneProductCounts) {
+                    let totalT = 0, totalP = 0;
+                    for (const c of Object.values(payload.geneProductCounts)) {
+                        totalT += c.transcripts || 0;
+                        totalP += c.proteins || 0;
+                    }
+                    const genesHidden = filterHideGeneAssoc.checked;
+                    if (totalT > 0) {
+                        transcriptCountSpan.textContent = totalT;
+                        transcriptsLabel.style.display = "";
+                        filterShowTranscripts.disabled = genesHidden;
+                    }
+                    if (totalP > 0) {
+                        proteinCountSpan.textContent = totalP;
+                        proteinsLabel.style.display = "";
+                        filterShowProteins.disabled = genesHidden;
+                    }
+                }
 
                 graphActions.style.display = "flex";
                 exportBtn.addEventListener("click", () =>
@@ -1735,6 +1875,10 @@ C4707237</textarea>
                         { selector: ".transcription-edge", style: {
                             "line-color": "#2563eb",
                             "target-arrow-color": "#2563eb",
+                        }},
+                        { selector: ".translation-edge", style: {
+                            "line-color": "#7c3aed",
+                            "target-arrow-color": "#7c3aed",
                         }},
                         { selector: ".has-conflict", style: {
                             "width": 2.5,

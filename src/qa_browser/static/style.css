@@ -6644,6 +6644,11 @@ details summary:hover { color: var(--accent); }
     background: #059669;
 }
 
+.target-legend-canonical {
+    background: #059669;
+    border: 2px solid #facc15;
+}
+
 .target-legend-xref {
     background: #94a3b8;
     border-radius: 0.22rem;

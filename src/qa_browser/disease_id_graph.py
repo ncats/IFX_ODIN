@@ -491,6 +491,8 @@ def _target_relation(
         classes += " gene-product-edge"
     elif predicate == "biolink:transcribed_to":
         classes += " transcription-edge"
+    elif predicate == "biolink:translates_to":
+        classes += " translation-edge"
     data: dict[str, Any] = {
         "id": edge_id,
         "source": source_id,
@@ -519,7 +521,9 @@ def build_disease_graph_payload(
     xref_nodes: dict[str, dict] = {}
     decision_nodes: dict[str, dict] = {}
     gene_nodes: dict[str, dict] = {}
-    target_product_nodes: dict[str, dict] = {}
+    gene_transcripts: dict[str, list[dict]] = {}
+    gene_proteins: dict[str, list[dict]] = {}
+    gene_product_counts: dict[str, dict[str, int]] = {}
     edges: dict[str, dict] = {}
     missing: list[str] = []
     namespaces: set[str] = set()
@@ -815,62 +819,145 @@ def build_disease_graph_payload(
                 "classes": f"association-edge support-{_graph_id_part(tier)}",
             }
 
-            # --- expand target harmonizer products ---
-            if target_tid and target_data is not None:
-                product_count = 0
+            # --- collect target products for on-demand expansion ---
+            if target_tid and target_data is not None and symbol not in gene_transcripts and symbol not in gene_proteins:
+                # Step 1: Collect transcripts and proteins from gene edges
+                candidate_transcripts: list[tuple[dict, str]] = []  # (product_el, tid)
+                candidate_proteins: list[tuple[dict, str, dict]] = []  # (product_el, tid, gene_edge)
+                seen_tids: set[str] = set()
                 for rel in target_data.relation_edges_by_target.get(target_tid, []):
-                    if product_count >= 10:
-                        break
-                    predicate = rel.get("predicate", "")
-                    if predicate not in ("biolink:has_gene_product", "biolink:transcribed_to"):
+                    rel_predicate = rel.get("predicate", "")
+                    if rel_predicate not in ("biolink:has_gene_product", "biolink:transcribed_to"):
                         continue
                     rel_source = rel.get("source_id", "")
                     rel_target = rel.get("target_id", "")
                     product_tid = rel_target if rel_source == target_tid else rel_source
-                    if product_tid in seen_target_products:
+                    if product_tid in seen_target_products or product_tid in seen_tids:
                         continue
-                    seen_target_products.add(product_tid)
+                    seen_tids.add(product_tid)
                     product_node = target_data.nodes_by_id.get(product_tid)
                     if not product_node:
                         continue
                     product_type = product_node.get("target_type", "")
                     product_node_id = f"target-product::{product_tid}"
-                    product_symbol = product_node.get("symbol", product_tid)
-                    product_name = product_node.get("target_name", "")
-                    product_label = f"{product_symbol}\n{product_name}" if product_name else product_symbol
+                    product_primary_id = product_node.get("primary_id", "")
+                    product_label = product_primary_id or product_node.get("symbol", product_tid)
                     if product_type == "protein":
                         p_classes = "target-product protein"
                     elif product_type == "transcript":
                         p_classes = "target-product transcript"
                     else:
                         p_classes = "target-product"
-                    target_product_nodes[product_tid] = {
+                    product_el = {
                         "data": {
                             "id": product_node_id,
                             "label": product_label,
                             "kind": "target_product",
                             "target_type": product_type,
                             "target_id": product_tid,
-                            "target_name": product_name,
-                            "target_primary_id": product_node.get("primary_id", ""),
+                            "target_name": product_node.get("target_name", ""),
+                            "target_primary_id": product_primary_id,
                             "target_ids": product_node.get("ids", ""),
                         },
                         "classes": p_classes,
                     }
-                    rel_edge = _target_relation(gene_node_id, product_node_id, predicate, rel)
-                    edges[rel_edge["data"]["id"]] = rel_edge
-                    product_count += 1
+                    if product_type == "protein":
+                        candidate_proteins.append((product_el, product_tid, rel))
+                    elif product_type == "transcript":
+                        candidate_transcripts.append((product_el, product_tid))
+
+                # Step 2: Build translates_to index (protein_tid → (transcript_tid, edge_row))
+                transcript_tid_set = {tid for _, tid in candidate_transcripts}
+                translates_to_map: dict[str, tuple[str, dict]] = {}
+                for _, p_tid, _ in candidate_proteins:
+                    for tt_edge in target_data.relation_edges_by_target.get(p_tid, []):
+                        if tt_edge.get("predicate") != "biolink:translates_to":
+                            continue
+                        src = tt_edge.get("source_id", "")
+                        tgt = tt_edge.get("target_id", "")
+                        tt_tid = src if tgt == p_tid else tgt
+                        if tt_tid in transcript_tid_set:
+                            translates_to_map[p_tid] = (tt_tid, tt_edge)
+                            break
+
+                # Step 3: Cap selection — up to 5 each, overflow fills other slots
+                max_products = 10
+                max_per_type = 5
+                transcripts_take = candidate_transcripts[:max_per_type]
+                proteins_take = candidate_proteins[:max_per_type]
+                remaining = max_products - len(proteins_take) - len(transcripts_take)
+                if remaining > 0 and len(candidate_proteins) > max_per_type:
+                    proteins_take.extend(candidate_proteins[max_per_type:max_per_type + remaining])
+                    remaining = max_products - len(proteins_take) - len(transcripts_take)
+                if remaining > 0 and len(candidate_transcripts) > max_per_type:
+                    transcripts_take.extend(candidate_transcripts[max_per_type:max_per_type + remaining])
+
+                # Step 4: Build separate transcript and protein element lists
+                selected_transcript_tids = {tid for _, tid in transcripts_take}
+                t_elements: list[dict] = []
+                p_elements: list[dict] = []
+
+                for product_el, t_tid in transcripts_take:
+                    seen_target_products.add(t_tid)
+                    t_elements.append(product_el)
+                    t_elements.append(_target_relation(
+                        gene_node_id, product_el["data"]["id"],
+                        "biolink:transcribed_to",
+                    ))
+
+                for product_el, p_tid, gene_rel in proteins_take:
+                    seen_target_products.add(p_tid)
+                    product_el["data"]["subject_symbol"] = symbol
+                    p_elements.append(product_el)
+                    # Use translates_to when the translating transcript is
+                    # in the transcript set; otherwise fall back to
+                    # has_gene_product from the gene node.
+                    if p_tid in translates_to_map:
+                        tt_tid, tt_edge = translates_to_map[p_tid]
+                        if tt_tid in selected_transcript_tids:
+                            transcript_node_id = f"target-product::{tt_tid}"
+                            p_elements.append(_target_relation(
+                                transcript_node_id, product_el["data"]["id"],
+                                "biolink:translates_to", tt_edge,
+                            ))
+                            # Fallback edge for when transcripts are hidden
+                            fallback = _target_relation(
+                                gene_node_id, product_el["data"]["id"],
+                                "biolink:has_gene_product", gene_rel,
+                            )
+                            fallback["data"]["_fallback"] = True
+                            p_elements.append(fallback)
+                            continue
+                    p_elements.append(_target_relation(
+                        gene_node_id, product_el["data"]["id"],
+                        "biolink:has_gene_product", gene_rel,
+                    ))
+
+                total_proteins = len(candidate_proteins)
+                total_transcripts = len(candidate_transcripts)
+                if t_elements:
+                    gene_transcripts[symbol] = t_elements
+                if p_elements:
+                    gene_proteins[symbol] = p_elements
+                gene_product_counts[symbol] = {
+                    "transcripts": total_transcripts,
+                    "proteins": total_proteins,
+                }
+                gene_nodes[symbol]["data"]["target_protein_count"] = str(total_proteins)
+                gene_nodes[symbol]["data"]["target_transcript_count"] = str(total_transcripts)
+                gene_nodes[symbol]["data"]["target_product_count"] = str(
+                    total_proteins + total_transcripts
+                )
 
     elements = [
         *concept_nodes.values(),
         *xref_nodes.values(),
         *decision_nodes.values(),
         *gene_nodes.values(),
-        *target_product_nodes.values(),
         *edges.values(),
     ]
 
-    return {
+    result: dict[str, Any] = {
         "queryIds": query_ids,
         "missingIds": missing,
         "stats": {
@@ -880,11 +967,17 @@ def build_disease_graph_payload(
             "edgeCount": len(edges),
             "decisionCount": len(decision_nodes),
             "geneCount": len(gene_nodes),
-            "targetProductCount": len(target_product_nodes),
         },
         "manifest": data.manifest,
         "elements": elements,
     }
+    if gene_transcripts:
+        result["geneTranscripts"] = gene_transcripts
+    if gene_proteins:
+        result["geneProteins"] = gene_proteins
+    if gene_product_counts:
+        result["geneProductCounts"] = gene_product_counts
+    return result
 
 
 def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict[str, Any]:

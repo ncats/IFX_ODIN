@@ -367,11 +367,212 @@ def search_targets(
     return {"rows": rows, "total": total, "page": page, "per_page": per_page, "total_pages": total_pages}
 
 
+def _is_canonical(row: dict[str, str]) -> bool:
+    return _canonical_rank(row) == 0
+
+
+def _product_node_label(row: dict[str, str]) -> str:
+    """Label with source identifier and canonical tag."""
+    primary_id = row.get("primary_id", "")
+    label = primary_id or row.get("symbol", "") or row.get("target_id", "")
+    if _is_canonical(row):
+        label = f"{label}\n\u2605 canonical"
+    return label
+
+
+def _build_product_element(
+    data: TargetGraphData,
+    product_id: str,
+    parent_id: str,
+    edge_row: dict[str, str],
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Build a (node, edge) pair for one relation product."""
+    product = data.nodes_by_id.get(product_id)
+    if not product:
+        return None
+    product_type = product.get("target_type", "")
+    canonical = _is_canonical(product)
+    classes = f"target {product_type}"
+    if canonical:
+        classes += " canonical"
+    node = {
+        "data": {
+            "id": product_id,
+            "label": _product_node_label(product),
+            **_target_to_row(product),
+        },
+        "classes": classes,
+    }
+    predicate = edge_row.get("predicate", "") or "biolink:related_to"
+    evidence_key = edge_row.get("evidence_identifier", "")
+    edge_id = f"{parent_id}->{product_id}:{predicate}:{evidence_key}"
+    edge = {
+        "data": {
+            "id": edge_id,
+            "source": parent_id,
+            "target": product_id,
+            "label": predicate,
+            "kind": "target_relation_edge",
+            "predicate": predicate,
+            "relation_kind": edge_row.get("relation_kind", ""),
+            "evidence_identifier": evidence_key,
+            "evidence_namespace": edge_row.get("evidence_namespace", ""),
+            "evidence_source": edge_row.get("evidence_source", ""),
+            "support_tier": edge_row.get("support_tier", ""),
+            "support_ratio": edge_row.get("support_ratio", ""),
+            "support_score": edge_row.get("support_score", ""),
+        },
+        "classes": _edge_classes(predicate),
+    }
+    return node, edge
+
+
+def _collect_products_by_type(
+    data: TargetGraphData,
+    parent_id: str,
+    max_expandable: int = 5,
+) -> tuple[list[dict], dict[str, list[dict]], dict[str, int]]:
+    """Collect products split into initial (canonical) and expandable.
+
+    Shows the proper hierarchy: gene → transcript → protein.
+    The initial view connects the canonical protein to its translating
+    transcript via ``biolink:translates_to`` (not gene→protein).
+
+    Returns (initial_elements, expandable_by_type, total_counts).
+    """
+    # Step 1: Collect gene→transcript and gene→protein edges
+    transcript_info: list[tuple[str, dict[str, str], dict[str, str]]] = []
+    protein_info: list[tuple[str, dict[str, str], dict[str, str]]] = []
+    seen: set[str] = set()
+
+    for edge_row in data.relation_edges_by_target.get(parent_id, []):
+        predicate = edge_row.get("predicate", "")
+        if predicate not in ("biolink:transcribed_to", "biolink:has_gene_product"):
+            continue
+        source_id = edge_row.get("source_id", "")
+        target_id = edge_row.get("target_id", "")
+        product_id = target_id if source_id == parent_id else source_id
+        if product_id == parent_id or product_id in seen:
+            continue
+        seen.add(product_id)
+        product = data.nodes_by_id.get(product_id)
+        if not product:
+            continue
+        product_type = product.get("target_type", "")
+        if product_type == "transcript":
+            transcript_info.append((product_id, product, edge_row))
+        elif product_type == "protein":
+            protein_info.append((product_id, product, edge_row))
+
+    # Sort: canonical first
+    transcript_info.sort(key=lambda x: _canonical_rank(x[1]))
+    protein_info.sort(key=lambda x: _canonical_rank(x[1]))
+
+    total_counts: dict[str, int] = {}
+    if transcript_info:
+        total_counts["transcript"] = len(transcript_info)
+    if protein_info:
+        total_counts["protein"] = len(protein_info)
+    if not transcript_info and not protein_info:
+        return [], {}, total_counts
+
+    # Step 2: Build translates_to index (protein → (transcript, edge))
+    transcript_id_set = {t[0] for t in transcript_info}
+    translates_to: dict[str, tuple[str, dict[str, str]]] = {}
+    for pid, _prow, _pedge in protein_info:
+        for edge_row in data.relation_edges_by_target.get(pid, []):
+            if edge_row.get("predicate") != "biolink:translates_to":
+                continue
+            src = edge_row.get("source_id", "")
+            tgt = edge_row.get("target_id", "")
+            tid = src if tgt == pid else tgt
+            if tid in transcript_id_set:
+                translates_to[pid] = (tid, edge_row)
+                break
+
+    # Step 3: Build initial elements — gene → transcript → protein
+    initial: list[dict] = []
+    initial_transcript_id: str | None = None
+    initial_protein_id: str | None = None
+
+    if protein_info:
+        initial_protein_id = protein_info[0][0]
+
+        if initial_protein_id in translates_to:
+            # Use the transcript that translates to the canonical protein
+            initial_transcript_id, tt_edge = translates_to[initial_protein_id]
+            for tid, _trow, tedge in transcript_info:
+                if tid == initial_transcript_id:
+                    result = _build_product_element(data, tid, parent_id, tedge)
+                    if result:
+                        initial.extend(result)
+                    break
+            # Connect protein to transcript via translates_to
+            result = _build_product_element(data, initial_protein_id, initial_transcript_id, tt_edge)
+            if result:
+                initial.extend(result)
+        else:
+            # Fallback: no translates_to found
+            if transcript_info:
+                initial_transcript_id = transcript_info[0][0]
+                result = _build_product_element(data, initial_transcript_id, parent_id, transcript_info[0][2])
+                if result:
+                    initial.extend(result)
+            result = _build_product_element(data, initial_protein_id, parent_id, protein_info[0][2])
+            if result:
+                initial.extend(result)
+    elif transcript_info:
+        initial_transcript_id = transcript_info[0][0]
+        result = _build_product_element(data, initial_transcript_id, parent_id, transcript_info[0][2])
+        if result:
+            initial.extend(result)
+
+    # Step 4: Expandable products
+    expandable_by_type: dict[str, list[dict]] = {}
+
+    remaining_transcripts = [
+        (tid, trow, tedge) for tid, trow, tedge in transcript_info
+        if tid != initial_transcript_id
+    ][:max_expandable]
+    if remaining_transcripts:
+        exp_t: list[dict] = []
+        for tid, _trow, tedge in remaining_transcripts:
+            result = _build_product_element(data, tid, parent_id, tedge)
+            if result:
+                exp_t.extend(result)
+        if exp_t:
+            expandable_by_type["transcript"] = exp_t
+
+    remaining_proteins = [
+        (pid, prow, pedge) for pid, prow, pedge in protein_info
+        if pid != initial_protein_id
+    ][:max_expandable]
+    if remaining_proteins:
+        exp_p: list[dict] = []
+        for pid, _prow, pedge in remaining_proteins:
+            # Use translates_to if the translating transcript is visible
+            if pid in translates_to:
+                tt_tid, tt_edge = translates_to[pid]
+                # Safe to use: transcript is either initial or gene is always there
+                if tt_tid == initial_transcript_id or any(
+                    t[0] == tt_tid for t in remaining_transcripts
+                ):
+                    result = _build_product_element(data, pid, tt_tid, tt_edge)
+                else:
+                    result = _build_product_element(data, pid, parent_id, pedge)
+            else:
+                result = _build_product_element(data, pid, parent_id, pedge)
+            if result:
+                exp_p.extend(result)
+        if exp_p:
+            expandable_by_type["protein"] = exp_p
+
+    return initial, expandable_by_type, total_counts
+
+
 def build_target_graph_payload(
     data: TargetGraphData,
     ids: str,
-    max_identifier_nodes: int = 120,
-    max_relation_edges: int = 450,
 ) -> dict[str, Any]:
     selected: list[str] = []
     for token in re.split(r"[\s,|]+", ids or ""):
@@ -403,90 +604,49 @@ def build_target_graph_payload(
             "classes": classes,
         })
 
-    def add_target_node(target_id: str, classes: str = "") -> None:
-        target = data.nodes_by_id.get(target_id)
-        if not target:
-            return
-        base_classes = f"target {target.get('target_type', '')}"
-        if classes:
-            base_classes = f"{base_classes} {classes}"
-        add_node(
-            target_id,
-            target.get("symbol") or target.get("name") or target_id,
-            base_classes,
-            _target_to_row(target),
-        )
-
+    # Build selected nodes + xref identifiers
     for target_id in selected:
         row = data.nodes_by_id[target_id]
-        add_target_node(target_id)
-        for xref in _split_pipe(row.get("ids", ""))[:max_identifier_nodes]:
-            xid = f"xref:{xref}"
-            add_node(xid, xref, "xref", {"xref_id": xref, "namespace": xref.split(":", 1)[0]})
-            add_edge(
-                target_id,
-                xid,
-                "biolink:same_as",
-                "identifier-edge",
-                {
-                    "kind": "identifier_edge",
-                    "predicate": "biolink:same_as",
-                    "evidence_identifier": xref,
-                    "evidence_namespace": xref.split(":", 1)[0] if ":" in xref else "",
-                },
-            )
+        target_type = row.get("target_type", "")
+        canonical = _is_canonical(row)
+        classes = f"target {target_type}"
+        if canonical:
+            classes += " canonical"
+        label = _product_node_label(row) if canonical else (
+            row.get("symbol") or row.get("name") or target_id
+        )
+        add_node(target_id, label, classes, _target_to_row(row))
 
-    expanded: set[str] = set()
-    frontier: set[str] = set(selected)
-    relation_edge_count = 0
-    for _depth in range(2):
-        next_frontier: set[str] = set()
-        for target_id in sorted(frontier, key=lambda tid: _target_id_rank(data, tid)):
-            if target_id in expanded:
-                continue
-            expanded.add(target_id)
-            relation_edges = sorted(
-                data.relation_edges_by_target.get(target_id, []),
-                key=lambda edge: (
-                    edge.get("predicate", ""),
-                    _target_id_rank(data, edge.get("target_id", "")),
-                    edge.get("evidence_identifier", ""),
-                ),
-            )
-            for edge in relation_edges:
-                if relation_edge_count >= max_relation_edges:
-                    break
-                source_id = edge.get("source_id", "")
-                target_id2 = edge.get("target_id", "")
-                if source_id not in data.nodes_by_id or target_id2 not in data.nodes_by_id:
-                    continue
-                add_target_node(source_id, "neighbor" if source_id not in selected else "")
-                add_target_node(target_id2, "neighbor" if target_id2 not in selected else "")
-                predicate = edge.get("predicate", "") or "biolink:related_to"
-                add_edge(
-                    source_id,
-                    target_id2,
-                    predicate,
-                    _edge_classes(predicate),
-                    {
-                        "kind": "target_relation_edge",
-                        "predicate": predicate,
-                        "relation_kind": edge.get("relation_kind", ""),
-                        "evidence_identifier": edge.get("evidence_identifier", ""),
-                        "evidence_namespace": edge.get("evidence_namespace", ""),
-                        "evidence_source": edge.get("evidence_source", ""),
-                        "support_tier": edge.get("support_tier", ""),
-                        "support_ratio": edge.get("support_ratio", ""),
-                        "support_score": edge.get("support_score", ""),
-                    },
-                )
-                relation_edge_count += 1
-                if source_id not in expanded:
-                    next_frontier.add(source_id)
-                if target_id2 not in expanded:
-                    next_frontier.add(target_id2)
-        frontier = next_frontier
-    return {"elements": elements, "selected": selected}
+    # Add initial canonical products and collect expandable products
+    expandable_transcripts: dict[str, list[dict]] = {}
+    expandable_proteins: dict[str, list[dict]] = {}
+    product_counts: dict[str, dict[str, int]] = {}
+    for target_id in selected:
+        initial, expandable_by_type, counts = _collect_products_by_type(data, target_id)
+        # Add canonical transcript + protein to initial elements
+        elements.extend(initial)
+        if expandable_by_type.get("transcript"):
+            expandable_transcripts[target_id] = expandable_by_type["transcript"]
+        if expandable_by_type.get("protein"):
+            expandable_proteins[target_id] = expandable_by_type["protein"]
+        if counts:
+            product_counts[target_id] = counts
+        # Annotate gene node with total and expandable counts
+        for el in elements:
+            if el.get("data", {}).get("id") == target_id:
+                for ptype, count in counts.items():
+                    el["data"][f"total_{ptype}_count"] = str(count)
+                    el["data"][f"expandable_{ptype}_count"] = str(max(0, count - 1))
+                break
+
+    result: dict[str, Any] = {"elements": elements, "selected": selected}
+    if expandable_transcripts:
+        result["expandableTranscripts"] = expandable_transcripts
+    if expandable_proteins:
+        result["expandableProteins"] = expandable_proteins
+    if product_counts:
+        result["productCounts"] = product_counts
+    return result
 
 
 def export_targets(
