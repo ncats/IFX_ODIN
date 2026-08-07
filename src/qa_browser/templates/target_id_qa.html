@@ -1,0 +1,500 @@
+{% extends "base.html" %}
+{% block title %}Target Harmonizer Explorer{% endblock %}
+{% block breadcrumb %}<a href="{{ root_path }}/target-id-qa">Target Harmonizer Explorer</a>{% endblock %}
+
+{% block content %}
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+
+<div class="target-explorer-shell">
+    <section class="target-explorer-header">
+        <div>
+            <h1>Target Harmonizer Explorer</h1>
+            <div class="target-explorer-subtitle">Genes, proteins, and transcripts harmonized from HGNC, NCBI, Ensembl, UniProt, RefSeq, and NodeNorm.</div>
+        </div>
+        <div class="target-open-box">
+            <textarea id="targetOpenIds" rows="3" spellcheck="false">{{ selected_ids }}</textarea>
+            <button class="btn btn-primary" id="targetOpenGraph" type="button">Open graph</button>
+        </div>
+    </section>
+
+    <nav class="target-tabs">
+        <button class="target-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
+        <button class="target-tab-btn" data-tab="concepts" type="button">Concepts</button>
+        <button class="target-tab-btn" data-tab="graph" type="button">Graph</button>
+        <button class="target-tab-btn" data-tab="download" type="button">Download</button>
+    </nav>
+
+    <section class="target-tab-panel" data-panel="dashboard">
+        <div class="target-stat-grid" id="targetStats"></div>
+        <div class="target-dashboard-grid">
+            <section class="target-panel">
+                <h2>Target Type Distribution</h2>
+                <div class="target-bars" id="targetTypeBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Identifier Coverage</h2>
+                <div class="target-bars" id="targetNamespaceBars"></div>
+            </section>
+        </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="concepts">
+        <div class="target-filter-row">
+            <input id="targetSearch" type="search" placeholder="Search symbol, name, IFX ID, or external ID...">
+            <select id="targetTypeFilter">
+                <option value="">All types</option>
+                <option value="gene">Genes</option>
+                <option value="protein">Proteins</option>
+                <option value="transcript">Transcripts</option>
+            </select>
+            <select id="targetNamespaceFilter">
+                <option value="">All identifiers</option>
+            </select>
+            <button class="btn btn-primary" id="targetSearchBtn" type="button">Search</button>
+        </div>
+        <div class="target-table-wrap">
+            <table class="target-table">
+                <thead>
+                    <tr>
+                        <th>Target ID</th>
+                        <th>Type</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Primary ID</th>
+                        <th>Identifiers</th>
+                    </tr>
+                </thead>
+                <tbody id="targetRows"></tbody>
+            </table>
+        </div>
+        <div class="target-pager">
+            <button class="btn" id="targetPrevPage" type="button">Prev</button>
+            <span id="targetPageLabel"></span>
+            <button class="btn" id="targetNextPage" type="button">Next</button>
+        </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="graph">
+        <div class="target-graph-toolbar" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <span id="targetGraphLabel">Enter a target ID, symbol, or external identifier.</span>
+            <div id="targetProductFilters" style="display:none;margin-left:auto;gap:1rem;align-items:center;">
+                <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <input type="checkbox" id="targetShowTranscripts">
+                    <span>Additional transcripts (<span id="targetTranscriptCount">0</span>)</span>
+                </label>
+                <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <input type="checkbox" id="targetShowProteins">
+                    <span>Additional proteins (<span id="targetProteinCount">0</span>)</span>
+                </label>
+            </div>
+        </div>
+        <div class="target-graph-legend" aria-label="Target graph legend">
+            <span><i class="target-legend-node target-legend-gene"></i> Gene</span>
+            <span><i class="target-legend-node target-legend-transcript"></i> Transcript</span>
+            <span><i class="target-legend-node target-legend-protein"></i> Protein</span>
+            <span><i class="target-legend-node target-legend-canonical"></i> Canonical protein</span>
+            <span><i class="target-legend-line target-legend-transcribed"></i> biolink:transcribed_to</span>
+            <span><i class="target-legend-line target-legend-translates"></i> biolink:translates_to</span>
+            <span><i class="target-legend-line target-legend-product"></i> biolink:has_gene_product</span>
+        </div>
+        <div class="target-graph-layout">
+            <div id="targetGraph" class="target-graph"></div>
+            <aside class="target-graph-detail" id="targetGraphDetail">
+                <h2>No Selection</h2>
+            </aside>
+        </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="download">
+        <div class="target-panel">
+            <div class="target-filter-row">
+                <input id="targetDownloadSearch" type="search" placeholder="Filter download by search text...">
+                <select id="targetDownloadType">
+                    <option value="">All types</option>
+                    <option value="gene">Genes</option>
+                    <option value="protein">Proteins</option>
+                    <option value="transcript">Transcripts</option>
+                </select>
+                <select id="targetDownloadNamespace">
+                    <option value="">All identifiers</option>
+                </select>
+                <select id="targetDownloadFormat">
+                    <option value="tsv">TSV</option>
+                    <option value="csv">CSV</option>
+                </select>
+                <button class="btn btn-primary" id="targetDownloadBtn" type="button">Download</button>
+            </div>
+            <div class="target-download-actions">
+                <button class="btn btn-sm" id="targetSelectDefaultColumns" type="button">Default columns</button>
+                <button class="btn btn-sm" id="targetSelectAllColumns" type="button">Select all</button>
+                <button class="btn btn-sm" id="targetClearColumns" type="button">Clear</button>
+            </div>
+            <div class="target-column-picker" id="targetColumnPicker"></div>
+        </div>
+    </section>
+</div>
+
+<script>
+(function () {
+    const rootPath = "{{ root_path }}";
+    const activeTab = "{{ active_tab }}";
+    let currentPage = 1;
+    let totalPages = 1;
+    let cy = null;
+
+    const panels = Array.from(document.querySelectorAll(".target-tab-panel"));
+    const buttons = Array.from(document.querySelectorAll(".target-tab-btn"));
+    const rowsEl = document.getElementById("targetRows");
+    const pageLabel = document.getElementById("targetPageLabel");
+    const graphDetail = document.getElementById("targetGraphDetail");
+    const defaultDownloadColumns = new Set([
+        "target_id", "target_type", "primary_id", "symbol", "name", "description", "category",
+        "ids", "id_namespaces", "source_namespaces", "mapping_ratio", "quality_note",
+        "canonical_status", "canonical_ifx_id",
+    ]);
+
+    function escapeHtml(value) {
+        return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function setTab(tab) {
+        buttons.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+        panels.forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
+        if (tab === "graph") loadGraph();
+    }
+
+    function paramsFromFilters(prefix) {
+        const q = document.getElementById(`${prefix}Search`)?.value || "";
+        const targetType = document.getElementById(`${prefix}Type`)?.value || document.getElementById(`${prefix}TypeFilter`)?.value || "";
+        const namespace = document.getElementById(`${prefix}Namespace`)?.value || document.getElementById(`${prefix}NamespaceFilter`)?.value || "";
+        return {q, target_type: targetType, namespace};
+    }
+
+    function renderBars(container, values) {
+        const entries = Object.entries(values || {}).slice(0, 12);
+        const max = Math.max(1, ...entries.map(([, v]) => Number(v) || 0));
+        container.innerHTML = entries.map(([label, value]) => {
+            const pct = Math.max(2, ((Number(value) || 0) / max) * 100);
+            return `<div class="target-bar-row"><span>${escapeHtml(label)}</span><div><i style="width:${pct}%"></i></div><code>${Number(value || 0).toLocaleString()}</code></div>`;
+        }).join("");
+    }
+
+    function populateNamespaceSelects(values) {
+        const namespaces = Object.keys(values || {});
+        for (const id of ["targetNamespaceFilter", "targetDownloadNamespace"]) {
+            const select = document.getElementById(id);
+            const current = select.value;
+            select.innerHTML = '<option value="">All identifiers</option>' + namespaces.map(ns => `<option value="${escapeHtml(ns)}">${escapeHtml(ns)}</option>`).join("");
+            select.value = current;
+        }
+    }
+
+    function renderColumnPicker(groups) {
+        const picker = document.getElementById("targetColumnPicker");
+        picker.innerHTML = (groups || []).map(group => `
+            <fieldset>
+                <legend>${escapeHtml(group.label)}</legend>
+                ${(group.columns || []).map(column => `
+                    <label>
+                        <input type="checkbox" value="${escapeHtml(column)}" ${defaultDownloadColumns.has(column) ? "checked" : ""}>
+                        <span>${escapeHtml(column)}</span>
+                    </label>
+                `).join("")}
+            </fieldset>
+        `).join("");
+    }
+
+    function setDownloadColumns(mode) {
+        document.querySelectorAll("#targetColumnPicker input[type='checkbox']").forEach(input => {
+            if (mode === "all") input.checked = true;
+            else if (mode === "clear") input.checked = false;
+            else input.checked = defaultDownloadColumns.has(input.value);
+        });
+    }
+
+    function parseJsonObject(value) {
+        if (!value) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch (_err) {
+            return {};
+        }
+    }
+
+    function detailRows(rows) {
+        return rows
+            .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+            .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value)).replaceAll("|", " · ")}</dd></div>`)
+            .join("");
+    }
+
+    function renderElementDetail(ele) {
+        const d = ele.data();
+        if (ele.isEdge && ele.isEdge()) {
+            graphDetail.innerHTML = `
+                <h2>${escapeHtml(d.predicate || d.label || "Edge")}</h2>
+                <dl class="target-detail-list">
+                    ${detailRows([
+                        ["Biolink predicate", d.predicate || d.label],
+                        ["Relation", d.relation_kind],
+                        ["Evidence identifier", d.evidence_identifier],
+                        ["Evidence namespace", d.evidence_namespace],
+                        ["Evidence source", d.evidence_source],
+                        ["Support tier", d.support_tier],
+                        ["Support ratio", d.support_ratio],
+                        ["Support score", d.support_score],
+                        ["Source node", d.source],
+                        ["Target node", d.target],
+                    ])}
+                </dl>
+            `;
+            return;
+        }
+
+        const annotations = parseJsonObject(d.source_annotations);
+        const isIdentifier = Boolean(d.xref_id);
+        const title = d.symbol || d.name || d.xref_id || d.label || d.id;
+
+        // Extract key annotation fields into core details
+        const promotedKeys = [
+            ["consolidated_location", "Location"],
+            ["ensembl_strand", "Strand"],
+            ["hgnc_ccds_id", "CCDS ID"],
+            ["hgnc_pubmed_id", "PubMed"],
+            ["hgnc_vega_id", "Vega ID"],
+            ["hgnc_orphanet_id", "Orphanet ID"],
+        ];
+        const promotedRows = [];
+        const remainingAnnotations = {...annotations};
+        for (const [key, label] of promotedKeys) {
+            if (annotations[key]) {
+                promotedRows.push([label, annotations[key]]);
+                delete remainingAnnotations[key];
+            }
+        }
+
+        const coreRows = isIdentifier
+            ? [
+                ["Identifier", d.xref_id],
+                ["Namespace", d.namespace],
+            ]
+            : [
+                ["Target ID", d.target_id || d.id],
+                ["Type", d.target_type],
+                ["Primary ID", d.primary_id],
+                ["Symbol", d.symbol],
+                ["Name", d.name],
+                ["Description", d.description],
+                ["Category", d.category],
+                ...promotedRows,
+                ["Mapping ratio", d.mapping_ratio],
+                ["Quality note", d.quality_note],
+                ["Canonical status", d.canonical_status],
+                ["Canonical IFX ID", d.canonical_ifx_id],
+                ["Identifier namespaces", d.id_namespaces],
+                ["Source namespaces", d.source_namespaces],
+                ["Identifiers", d.ids],
+            ];
+        const remainingKeys = Object.keys(remainingAnnotations);
+        const annotationHtml = remainingKeys.length
+            ? `<h3>Provenance Tracking</h3><dl class="target-detail-list target-detail-annotations">${detailRows(Object.entries(remainingAnnotations))}</dl>`
+            : "";
+
+        graphDetail.innerHTML = `
+            <h2>${escapeHtml(title)}</h2>
+            <dl class="target-detail-list">${detailRows(coreRows)}</dl>
+            ${annotationHtml}
+        `;
+    }
+
+    async function loadStats() {
+        const response = await fetch(`${rootPath}/target-id-qa/api/stats`);
+        const stats = await response.json();
+        const typeCounts = stats.type_counts || {};
+        const namespaces = stats.identifier_namespace_counts || {};
+        document.getElementById("targetStats").innerHTML = `
+            <div><strong>${Number(stats.total_targets || 0).toLocaleString()}</strong><span>Total targets</span></div>
+            <div><strong>${Number(typeCounts.gene || 0).toLocaleString()}</strong><span>Genes</span></div>
+            <div><strong>${Number(typeCounts.protein || 0).toLocaleString()}</strong><span>Proteins</span></div>
+            <div><strong>${Number(typeCounts.transcript || 0).toLocaleString()}</strong><span>Transcripts</span></div>
+        `;
+        renderBars(document.getElementById("targetTypeBars"), typeCounts);
+        renderBars(document.getElementById("targetNamespaceBars"), namespaces);
+        populateNamespaceSelects(namespaces);
+        renderColumnPicker(stats.download_column_groups || []);
+    }
+
+    async function search(page) {
+        currentPage = page || currentPage;
+        const params = new URLSearchParams(paramsFromFilters("target"));
+        params.set("page", String(currentPage));
+        params.set("per_page", "50");
+        const response = await fetch(`${rootPath}/target-id-qa/api/search?${params}`);
+        const payload = await response.json();
+        totalPages = payload.total_pages || 1;
+        currentPage = payload.page || 1;
+        rowsEl.innerHTML = (payload.rows || []).map(row => `
+            <tr>
+                <td><button class="target-link" data-id="${escapeHtml(row.target_id)}" type="button">${escapeHtml(row.target_id)}</button></td>
+                <td>${escapeHtml(row.target_type)}</td>
+                <td>${escapeHtml(row.symbol)}</td>
+                <td>${escapeHtml(row.name)}</td>
+                <td><code>${escapeHtml(row.primary_id)}</code></td>
+                <td>${escapeHtml((row.id_namespaces || "").replaceAll("|", " · "))}</td>
+            </tr>
+        `).join("");
+        pageLabel.textContent = `Page ${currentPage.toLocaleString()} of ${totalPages.toLocaleString()} (${Number(payload.total || 0).toLocaleString()} targets)`;
+    }
+
+    let targetPayload = null;
+    const productFilters = document.getElementById("targetProductFilters");
+    const showTranscriptsBox = document.getElementById("targetShowTranscripts");
+    const showProteinsBox = document.getElementById("targetShowProteins");
+    const transcriptCountSpan = document.getElementById("targetTranscriptCount");
+    const proteinCountSpan = document.getElementById("targetProteinCount");
+
+    function toggleExpandableProducts(type, show) {
+        if (!cy || !targetPayload) return;
+        const source = type === "transcript"
+            ? targetPayload.expandableTranscripts
+            : targetPayload.expandableProteins;
+        if (!source) return;
+        if (show) {
+            for (const [parentId, productElements] of Object.entries(source)) {
+                const parentNode = cy.getElementById(parentId);
+                if (!parentNode.length) continue;
+                const parentPos = parentNode.position();
+                const toAdd = productElements.filter(el => !cy.getElementById(el.data.id).length);
+                if (!toAdd.length) continue;
+                const added = cy.add(toAdd);
+                const newNodes = added.nodes();
+                const radius = 120;
+                const offset = type === "transcript" ? 0 : Math.PI;
+                newNodes.forEach((node, i) => {
+                    const angle = offset + (Math.PI * i) / Math.max(1, newNodes.length);
+                    node.position({
+                        x: parentPos.x + radius * Math.cos(angle),
+                        y: parentPos.y + radius * Math.sin(angle),
+                    });
+                });
+            }
+        } else {
+            for (const productElements of Object.values(source)) {
+                const ids = new Set(productElements.map(el => el.data.id));
+                cy.elements().filter(el => ids.has(el.data("id"))).remove();
+            }
+        }
+    }
+
+    showTranscriptsBox.addEventListener("change", () => {
+        toggleExpandableProducts("transcript", showTranscriptsBox.checked);
+    });
+    showProteinsBox.addEventListener("change", () => {
+        toggleExpandableProducts("protein", showProteinsBox.checked);
+    });
+
+    async function loadGraph() {
+        const ids = document.getElementById("targetOpenIds").value.trim();
+        if (!ids) return;
+        const response = await fetch(`${rootPath}/target-id-qa/api/graph?ids=${encodeURIComponent(ids)}`);
+        targetPayload = await response.json();
+        const elements = targetPayload.elements || [];
+        const nodeCount = elements.filter(ele => !(ele.data || {}).source).length;
+        const edgeCount = elements.length - nodeCount;
+        document.getElementById("targetGraphLabel").textContent =
+            `${nodeCount.toLocaleString()} nodes · ${edgeCount.toLocaleString()} edges`;
+
+        // Update product filter checkboxes
+        const hasTranscripts = Object.keys(targetPayload.expandableTranscripts || {}).length > 0;
+        const hasProteins = Object.keys(targetPayload.expandableProteins || {}).length > 0;
+        if (hasTranscripts || hasProteins) {
+            const counts = targetPayload.productCounts || {};
+            let totalExpandTranscripts = 0, totalExpandProteins = 0;
+            for (const tid of Object.keys(counts)) {
+                totalExpandTranscripts += Math.max(0, (counts[tid].transcript || 0) - 1);
+                totalExpandProteins += Math.max(0, (counts[tid].protein || 0) - 1);
+            }
+            transcriptCountSpan.textContent = String(totalExpandTranscripts);
+            proteinCountSpan.textContent = String(totalExpandProteins);
+            showTranscriptsBox.checked = false;
+            showProteinsBox.checked = false;
+            showTranscriptsBox.closest("label").style.display = hasTranscripts ? "" : "none";
+            showProteinsBox.closest("label").style.display = hasProteins ? "" : "none";
+            productFilters.style.display = "flex";
+        } else {
+            productFilters.style.display = "none";
+        }
+
+        if (!cy) {
+            cy = cytoscape({
+                container: document.getElementById("targetGraph"),
+                elements,
+                style: [
+                    {selector: "node", style: {"label": "data(label)", "font-size": 10, "text-wrap": "wrap", "text-max-width": 140, "background-color": "#64748b", "color": "#111827", "width": 30, "height": 30, "border-width": 1, "border-color": "#ffffff"}},
+                    {selector: ".gene", style: {"background-color": "#2563eb", "width": 38, "height": 38, "font-weight": "bold"}},
+                    {selector: ".protein", style: {"background-color": "#059669"}},
+                    {selector: ".transcript", style: {"background-color": "#d97706"}},
+                    {selector: ".canonical", style: {"border-width": 4, "border-color": "#facc15", "width": 40, "height": 40, "font-weight": "bold", "font-size": 9}},
+                    {selector: ".neighbor", style: {"opacity": 0.72}},
+                    {selector: "edge", style: {"curve-style": "bezier", "target-arrow-shape": "triangle", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8, "text-background-color": "#ffffff", "text-background-opacity": 0.85, "text-background-padding": 2}},
+                    {selector: ".target-relation-edge", style: {"width": 2.4}},
+                    {selector: ".transcription-edge", style: {"line-color": "#d97706", "target-arrow-color": "#d97706"}},
+                    {selector: ".translation-edge", style: {"line-color": "#7c3aed", "target-arrow-color": "#7c3aed"}},
+                    {selector: ".gene-product-edge", style: {"line-color": "#059669", "target-arrow-color": "#059669"}},
+                    {selector: ".related-edge", style: {"line-color": "#64748b", "target-arrow-color": "#64748b", "line-style": "dotted", "width": 1.4}},
+                    {selector: "node.selected-element", style: {"border-width": 4, "border-color": "#111827"}},
+                    {selector: "edge.selected-element", style: {"width": 4}}
+                ],
+                layout: {name: "cose", animate: false}
+            });
+            cy.on("tap", "node, edge", event => {
+                cy.elements().removeClass("selected-element");
+                event.target.addClass("selected-element");
+                renderElementDetail(event.target);
+            });
+        } else {
+            cy.elements().remove();
+            cy.add(elements);
+            cy.layout({name: "cose", animate: false}).run();
+        }
+        graphDetail.innerHTML = `<h2>No Selection</h2>`;
+    }
+
+    function download() {
+        const params = new URLSearchParams(paramsFromFilters("targetDownload"));
+        params.set("format", document.getElementById("targetDownloadFormat").value || "tsv");
+        const columns = Array.from(document.querySelectorAll("#targetColumnPicker input[type='checkbox']:checked")).map(input => input.value);
+        if (columns.length) params.set("columns", columns.join(","));
+        window.location.href = `${rootPath}/target-id-qa/download-filtered?${params}`;
+    }
+
+    document.getElementById("targetOpenGraph").addEventListener("click", () => setTab("graph"));
+    document.getElementById("targetSearchBtn").addEventListener("click", () => search(1));
+    document.getElementById("targetSearch").addEventListener("keydown", event => {
+        if (event.key === "Enter") search(1);
+    });
+    document.getElementById("targetPrevPage").addEventListener("click", () => search(Math.max(1, currentPage - 1)));
+    document.getElementById("targetNextPage").addEventListener("click", () => search(Math.min(totalPages, currentPage + 1)));
+    document.getElementById("targetDownloadBtn").addEventListener("click", download);
+    document.getElementById("targetSelectDefaultColumns").addEventListener("click", () => setDownloadColumns("default"));
+    document.getElementById("targetSelectAllColumns").addEventListener("click", () => setDownloadColumns("all"));
+    document.getElementById("targetClearColumns").addEventListener("click", () => setDownloadColumns("clear"));
+    rowsEl.addEventListener("click", event => {
+        const btn = event.target.closest(".target-link");
+        if (!btn) return;
+        document.getElementById("targetOpenIds").value = btn.dataset.id;
+        setTab("graph");
+    });
+    buttons.forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
+
+    loadStats().then(() => search(1));
+    setTab(activeTab || "dashboard");
+})();
+</script>
+{% endblock %}
