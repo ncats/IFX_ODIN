@@ -4830,6 +4830,52 @@ details summary:hover { color: var(--accent); }
     margin: 0 0.1rem;
 }
 
+/* ── Help bubble (?) next to filter checkboxes ─────────────────────────── */
+.filter-help {
+    display: inline-block;
+    position: relative;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: help;
+    margin-left: 2px;
+    vertical-align: middle;
+}
+.filter-help:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+.filter-help .filter-help-text {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    text-align: left;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    z-index: 1000;
+    white-space: normal;
+    pointer-events: none;
+}
+.filter-help:hover .filter-help-text {
+    display: block;
+}
+
 .disease-id-cy {
     background: #fbfcfe;
     flex: 1;
