@@ -1,12 +1,12 @@
 {
   "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-06T17:01:32.450194+00:00",
-  "git_commit": "7ffd39f",
-  "duration_seconds": 26.06,
+  "generated_at": "2026-08-12T19:59:39.033992+00:00",
+  "git_commit": "54dc6be",
+  "duration_seconds": 35.73,
   "files": {
     "disease_concepts.tsv": {
-      "rows": 113089,
+      "rows": 112278,
       "key": "ncats_disease_id",
       "alternate_key": "primary_xref",
       "columns": [
@@ -49,7 +49,7 @@
       ]
     },
     "disease_xref_edges.tsv": {
-      "rows": 179362,
+      "rows": 319486,
       "key": [
         "primary_xref",
         "xref_id",
@@ -104,7 +104,7 @@
       ]
     },
     "xref_labels.tsv": {
-      "rows": 172265,
+      "rows": 294258,
       "key": "xref_id",
       "columns": [
         "xref_id",
@@ -122,7 +122,7 @@
       ]
     },
     "review_decisions.tsv": {
-      "rows": 10869,
+      "rows": 11619,
       "key": "decision_id",
       "fk": {
         "primary_xref": "disease_concepts.primary_xref"
@@ -157,7 +157,7 @@
       ]
     },
     "disease_gene_associations.tsv": {
-      "rows": 15114,
+      "rows": 15428,
       "key": [
         "ncats_disease_id",
         "ncats_gene_id"
@@ -169,6 +169,7 @@
         "ncats_disease_id",
         "primary_xref",
         "ncats_gene_id",
+        "gene_public_id",
         "subject_symbol",
         "supporting_sources",
         "n_supporting_sources",
@@ -178,7 +179,12 @@
         "predicates",
         "evidence_types",
         "evidence_labels",
-        "publications"
+        "publications",
+        "source_subject_ids",
+        "source_disease_ids",
+        "primary_knowledge_sources",
+        "aggregator_knowledge_sources",
+        "provided_bys"
       ]
     }
   },

@@ -242,6 +242,9 @@
                     <label><input type="checkbox" id="filterHideHierarchy"> Hide hierarchy</label>
                     <label><input type="checkbox" id="filterHidePhenotypes"> Hide phenotypic features</label>
                     <label><input type="checkbox" id="filterHideGeneAssoc" checked> Hide gene associations</label>
+                    <span class="disease-id-filter-sep">|</span>
+                    <label><input type="checkbox" id="filterExpandHierarchy"> Expand hierarchy</label><span class="filter-help">?<span class="filter-help-text">Loads MONDO is_a parent/child relationships for all queried concepts. Shows where each concept sits in the MONDO ontology tree — parents above, children below. This is specifically MONDO hierarchy, not ICD10CM or other sources.</span></span>
+                    <label><input type="checkbox" id="filterExpandNeighbors"> Expand neighbors</label><span class="filter-help">?<span class="filter-help-text">Finds other disease concepts that share at least one cross-reference ID with the queried concepts. Useful for spotting potential merges or split concerns — concepts that are "close" in cross-reference space because they claim the same OMIM, DOID, or other xref.</span></span>
                     <label id="filterShowTranscriptsLabel" style="display:none"><input type="checkbox" id="filterShowTranscripts"> Transcripts (<span id="diseaseTranscriptCount">0</span>)</label>
                     <label id="filterShowProteinsLabel" style="display:none"><input type="checkbox" id="filterShowProteins"> Proteins (<span id="diseaseProteinCount">0</span>)</label>
                     <span class="disease-id-filter-sep">|</span>
@@ -370,11 +373,6 @@
                 <p id="diseaseIdDetailSub">Loading {{ selected_ids }}</p>
                 <dl id="diseaseIdStats" class="disease-id-stats"></dl>
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
-                <div id="diseaseIdConceptActions" style="display:none;margin-top:0.75rem;">
-                    <button id="expandNeighborsBtn" class="graph-action-btn">Expand neighbors</button>
-                    <button id="expandHierarchyBtn" class="graph-action-btn">Expand hierarchy</button>
-                    <button id="showProvenanceBtn" class="graph-action-btn">Show provenance</button>
-                </div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
                     <button id="diseaseIdExportJson" class="btn btn-sm">Export graph JSON</button>
                     <button id="diseaseIdExportFiltered" class="btn btn-sm">Download filtered view</button>
@@ -1252,10 +1250,10 @@ C4707237</textarea>
         const exportBtn = document.getElementById("diseaseIdExportJson");
         const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
         const layoutSelect = document.getElementById("graphLayoutSelect");
-        const conceptActions = document.getElementById("diseaseIdConceptActions");
-        const expandBtn = document.getElementById("expandNeighborsBtn");
-        const hierarchyBtn = document.getElementById("expandHierarchyBtn");
-        const provBtn = document.getElementById("showProvenanceBtn");
+        const filterExpandHierarchy = document.getElementById("filterExpandHierarchy");
+        const filterExpandNeighbors = document.getElementById("filterExpandNeighbors");
+        let expandedHierarchyIds = new Set();
+        let expandedNeighborIds = new Set();
 
         const filterExact = document.getElementById("filterExact");
         const filterBroad = document.getElementById("filterBroad");
@@ -1273,8 +1271,6 @@ C4707237</textarea>
         const proteinsLabel = document.getElementById("filterShowProteinsLabel");
         const transcriptCountSpan = document.getElementById("diseaseTranscriptCount");
         const proteinCountSpan = document.getElementById("diseaseProteinCount");
-
-        let selectedConceptPxref = null;
 
         function renderStats(stats) {
             const rows = [
@@ -1376,15 +1372,6 @@ C4707237</textarea>
                     return `<div><strong>${escapeHtml(displayLabels[key] || key)}</strong><span>${escapeHtml(val)}</span></div>`;
                 })
                 .join("");
-
-            // Show concept-specific actions
-            if (data.kind === "concept") {
-                selectedConceptPxref = data.id.replace("concept::", "");
-                conceptActions.style.display = "flex";
-            } else {
-                selectedConceptPxref = null;
-                conceptActions.style.display = "none";
-            }
 
         }
 
@@ -1566,58 +1553,72 @@ C4707237</textarea>
             }
         }
 
-        // Expand neighbors button
-        expandBtn.addEventListener("click", () => {
-            if (!selectedConceptPxref || !cyInstance) return;
-            expandBtn.disabled = true;
-            expandBtn.textContent = "Loading...";
-            fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(selectedConceptPxref)}`)
-                .then(r => r.json())
-                .then(payload => {
-                    addGraphPayloadElements(payload);
-                    expandBtn.disabled = false;
-                    expandBtn.textContent = "Expand neighbors";
-                })
-                .catch(() => {
-                    expandBtn.disabled = false;
-                    expandBtn.textContent = "Expand neighbors";
+        // Expand hierarchy checkbox — loads MONDO parent/child for all queried concepts
+        filterExpandHierarchy.addEventListener("change", () => {
+            if (!cyInstance || !fullPayload) return;
+            if (filterExpandHierarchy.checked) {
+                const pxrefs = (fullPayload.queryIds || []).map(id =>
+                    id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
+                );
+                let pending = pxrefs.length;
+                if (!pending) return;
+                pxrefs.forEach(pxref => {
+                    fetch(`${rootPath}/disease-id-qa/api/graph/hierarchy?pxref=${encodeURIComponent(pxref)}`)
+                        .then(r => r.json())
+                        .then(payload => {
+                            if (payload.elements) {
+                                const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                                const newEls = payload.elements.filter(e => !existingIds.has(e.data.id));
+                                if (newEls.length) {
+                                    newEls.forEach(e => expandedHierarchyIds.add(e.data.id));
+                                    cyInstance.add(newEls);
+                                    cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                                }
+                            }
+                        })
+                        .catch(() => {})
+                        .finally(() => { if (--pending === 0) applyGraphFilters(); });
                 });
+            } else {
+                if (expandedHierarchyIds.size) {
+                    cyInstance.elements().filter(el => expandedHierarchyIds.has(el.data("id"))).remove();
+                    expandedHierarchyIds.clear();
+                }
+            }
         });
 
-        // Expand hierarchy button
-        hierarchyBtn.addEventListener("click", () => {
-            if (!selectedConceptPxref || !cyInstance) return;
-            hierarchyBtn.disabled = true;
-            hierarchyBtn.textContent = "Loading...";
-            fetch(`${rootPath}/disease-id-qa/api/graph/hierarchy?pxref=${encodeURIComponent(selectedConceptPxref)}`)
-                .then(r => r.json())
-                .then(payload => {
-                    addGraphPayloadElements(payload);
-                    hierarchyBtn.disabled = false;
-                    hierarchyBtn.textContent = "Expand hierarchy";
-                })
-                .catch(() => {
-                    hierarchyBtn.disabled = false;
-                    hierarchyBtn.textContent = "Expand hierarchy";
+        // Expand neighbors checkbox — loads concepts sharing xrefs with queried concepts
+        filterExpandNeighbors.addEventListener("change", () => {
+            if (!cyInstance || !fullPayload) return;
+            if (filterExpandNeighbors.checked) {
+                const pxrefs = (fullPayload.queryIds || []).map(id =>
+                    id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
+                );
+                let pending = pxrefs.length;
+                if (!pending) return;
+                pxrefs.forEach(pxref => {
+                    fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(pxref)}`)
+                        .then(r => r.json())
+                        .then(payload => {
+                            if (payload.elements) {
+                                const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                                const newEls = payload.elements.filter(e => !existingIds.has(e.data.id));
+                                if (newEls.length) {
+                                    newEls.forEach(e => expandedNeighborIds.add(e.data.id));
+                                    cyInstance.add(newEls);
+                                    cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                                }
+                            }
+                        })
+                        .catch(() => {})
+                        .finally(() => { if (--pending === 0) applyGraphFilters(); });
                 });
-        });
-
-        // Show provenance button
-        provBtn.addEventListener("click", () => {
-            if (!selectedConceptPxref) return;
-            provBtn.disabled = true;
-            provBtn.textContent = "Loading...";
-            fetch(`${rootPath}/disease-id-qa/api/provenance/${encodeURIComponent(selectedConceptPxref)}`)
-                .then(r => r.json())
-                .then(data => {
-                    showProvenanceModal(data.primary_xref, data.steps);
-                    provBtn.disabled = false;
-                    provBtn.textContent = "Show provenance";
-                })
-                .catch(() => {
-                    provBtn.disabled = false;
-                    provBtn.textContent = "Show provenance";
-                });
+            } else {
+                if (expandedNeighborIds.size) {
+                    cyInstance.elements().filter(el => expandedNeighborIds.has(el.data("id"))).remove();
+                    expandedNeighborIds.clear();
+                }
+            }
         });
 
         fetch(`${rootPath}/disease-id-qa/api/graph?ids=${encodeURIComponent(graphEl.dataset.ids)}`)
@@ -1943,7 +1944,10 @@ C4707237</textarea>
                 });
                 cyInstance.on("mouseout", "node, edge", () => { tooltipEl.style.display = "none"; });
 
-                cyInstance.ready(() => cyInstance.fit(undefined, 42));
+                cyInstance.ready(() => {
+                    cyInstance.fit(undefined, 42);
+                    applyGraphFilters();
+                });
             })
             .catch((error) => {
                 detailTitle.textContent = "Could not load graph";
