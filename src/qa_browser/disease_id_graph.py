@@ -6,7 +6,7 @@ import re
 import io
 import json
 from difflib import SequenceMatcher
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -58,6 +58,57 @@ def _read_tsv(path: Path) -> list[dict[str, str]]:
 
 
 _RESOLVED_DECISION_STATUSES = {"resolved", "acknowledged", "wontfix"}
+
+REVIEW_DECISION_OPTIONS = [
+    {"value": "Accept as-is", "label": "Accept as-is"},
+    {"value": "Accept consensus", "label": "Accept consensus"},
+    {"value": "Accept source", "label": "Accept source"},
+    {"value": "Remove obsolete xref", "label": "Remove obsolete xref"},
+    {"value": "Omit xref", "label": "Omit xref"},
+    {"value": "Demote from exact", "label": "Demote from exact"},
+    {"value": "Use replacement", "label": "Use replacement"},
+    {"value": "Do not merge / split concern", "label": "Do not merge / split concern"},
+    {"value": "needs_expert_review", "label": "needs_expert_review"},
+    {"value": "Needs upstream ticket", "label": "Needs upstream ticket"},
+]
+
+REVIEW_INTAKE_COLUMNS = [
+    "Registry ID",
+    "Review decision",
+    "Corrected xref / replacement",
+    "Reviewer notes",
+    "Primary Xref",
+    "Disease Name",
+    "NCATS Disease ID",
+    "Review category",
+    "Xref ID",
+    "Xref Namespace",
+    "Decision type",
+    "Scenario ID",
+    "Source value",
+    "Consensus value",
+    "Evidence note",
+    "Reviewed by",
+    "Reviewed at",
+    "App review ID",
+]
+
+_OPEN_REVIEW_STATUSES = {"", "open", "stale"}
+
+
+def normalize_review_text(value: Any) -> str:
+    """Normalize old user-facing review vocabulary for app display."""
+    text = str(value or "")
+    legacy_program = "R" + "DIP"
+    replacements = {
+        f"Needs {legacy_program}/domain review": "needs_expert_review",
+        f"{legacy_program}/domain review": "needs_expert_review",
+        f"{legacy_program}/GARD review": "needs_expert_review",
+        f"domain/{legacy_program} review": "needs_expert_review",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
 
 
 def _join_unique(values: list[str] | tuple[str, ...]) -> str:
@@ -1129,6 +1180,273 @@ def export_flagged_tsv(data: DiseaseGraphData, limit: int = 5000) -> str:
     return buf.getvalue()
 
 
+def _review_category(decision: dict, concept: dict) -> str:
+    """Bucket a review decision into a compact UI category."""
+    text = " ".join([
+        decision.get("decision_type", ""),
+        decision.get("scenario_id", ""),
+        decision.get("auto_decision", ""),
+        decision.get("auto_rationale", ""),
+        decision.get("resolution", ""),
+        concept.get("needs_review_triage_bucket", ""),
+        concept.get("needs_review_triage_action", ""),
+        concept.get("evidence_note", ""),
+    ]).lower()
+    tier = concept.get("confidence_tier", "").lower()
+    namespace = decision.get("xref_namespace", "").upper()
+    if "obsolete" in text or tier == "review_obsolete_xref":
+        return "obsolete_xref"
+    if "validator" in text or tier == "review_validator_disagreement":
+        return "validator_disagreement"
+    if "broad" in text or "narrow" in text or "split" in text:
+        return "broad_narrow_or_split"
+    if "phenotype" in text or concept.get("disease_type", "") == "biolink:PhenotypicFeature":
+        return "phenotype_vs_disease"
+    if "cardinality" in text or _safe_int(concept.get("cardinality_issue_count")) > 0:
+        return "cardinality_issue"
+    if namespace:
+        return f"{namespace.lower()}_conflict"
+    if "conflict" in text or "dissent" in text:
+        return "source_conflict"
+    return "needs_review"
+
+
+def _review_category_label(category: str) -> str:
+    labels = {
+        "obsolete_xref": "Obsolete xref",
+        "validator_disagreement": "Validator disagreement",
+        "broad_narrow_or_split": "Broad/narrow or split concern",
+        "phenotype_vs_disease": "Phenotype vs disease",
+        "cardinality_issue": "Cardinality issue",
+        "source_conflict": "Source conflict",
+        "needs_review": "Needs review",
+    }
+    if category.endswith("_conflict"):
+        return f"{category[:-9].upper()} conflict"
+    return labels.get(category, category.replace("_", " "))
+
+
+def _review_status_filter(status: str) -> set[str] | None:
+    status = (status or "open").strip().lower()
+    if status in {"all", "any"}:
+        return None
+    if status in {"open", "unresolved", "needs_action"}:
+        return _OPEN_REVIEW_STATUSES
+    if status in {"resolved", "closed"}:
+        return _RESOLVED_DECISION_STATUSES
+    return {status}
+
+
+def _review_item_from_decision(
+    pxref: str,
+    concept: dict,
+    decision: dict,
+) -> dict[str, Any]:
+    category = _review_category(decision, concept)
+    rationale = (
+        decision.get("auto_rationale", "")
+        or decision.get("resolution", "")
+        or concept.get("evidence_note", "")
+    )
+    registry_id = decision.get("decision_id", "")
+    return {
+        "review_id": registry_id or f"concept::{pxref}",
+        "registry_id": registry_id,
+        "saveable": bool(registry_id and decision.get("decision_source") == "divergence_registry"),
+        "decision_source": decision.get("decision_source", ""),
+        "primary_xref": pxref,
+        "ncats_disease_id": concept.get("ncats_disease_id", ""),
+        "standard_name": concept.get("standard_name", ""),
+        "category": category,
+        "category_label": _review_category_label(category),
+        "xref_id": decision.get("xref_id", ""),
+        "xref_namespace": _normalize_ns(decision.get("xref_namespace", "")),
+        "decision_type": decision.get("decision_type", ""),
+        "scenario_id": decision.get("scenario_id", ""),
+        "status": decision.get("status", ""),
+        "auto_decision": decision.get("auto_decision", ""),
+        "auto_confidence": decision.get("auto_confidence", ""),
+        "source_value": decision.get("source_value", ""),
+        "consensus_value": decision.get("consensus_value", ""),
+        "n_sources_agree": decision.get("n_sources_agree", ""),
+        "n_sources_total": decision.get("n_sources_total", ""),
+        "evidence_note": normalize_review_text(rationale),
+        "reviewed_by": decision.get("reviewed_by", ""),
+        "date_found": decision.get("date_found", ""),
+        "date_resolved": decision.get("date_resolved", ""),
+        "graph_href": f"/disease-id-qa?ids={pxref}&tab=graph",
+        "provenance_href": f"/disease-id-qa/api/provenance/{pxref}",
+    }
+
+
+def _review_item_from_concept(pxref: str, concept: dict) -> dict[str, Any]:
+    decision = {
+        "decision_id": "",
+        "decision_source": "concept_triage",
+        "primary_xref": pxref,
+        "ncats_disease_id": concept.get("ncats_disease_id", ""),
+        "standard_name": concept.get("standard_name", ""),
+        "xref_id": "",
+        "xref_namespace": concept.get("needs_review_problem_namespaces", ""),
+        "decision_type": concept.get("needs_review_triage_bucket", ""),
+        "scenario_id": "",
+        "status": "open",
+        "auto_decision": concept.get("needs_review_triage_action", ""),
+        "auto_confidence": "",
+        "auto_rationale": concept.get("evidence_note", ""),
+        "source_value": "",
+        "consensus_value": concept.get("authority_consensus", ""),
+        "n_sources_agree": "",
+        "n_sources_total": concept.get("n_sources", ""),
+    }
+    return _review_item_from_decision(pxref, concept, decision)
+
+
+def _iter_review_items(data: DiseaseGraphData) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for pxref, concept in data.concepts_by_pxref.items():
+        decisions = data.decisions_by_pxref.get(pxref, [])
+        actionable_decisions = [
+            decision for decision in decisions
+            if decision.get("status", "").strip().lower() not in _RESOLVED_DECISION_STATUSES
+        ]
+        for decision in actionable_decisions:
+            items.append(_review_item_from_decision(pxref, concept, decision))
+        if not actionable_decisions and _is_flagged(concept, decisions):
+            items.append(_review_item_from_concept(pxref, concept))
+    return items
+
+
+def build_review_queue(
+    data: DiseaseGraphData,
+    *,
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+) -> dict[str, Any]:
+    """Return clustered review items with pagination for the app Review tab."""
+    all_items = _iter_review_items(data)
+    category_counts: Counter[str] = Counter(item["category"] for item in all_items)
+    source_counts: Counter[str] = Counter(
+        item["xref_namespace"] for item in all_items if item["xref_namespace"]
+    )
+    status_counts: Counter[str] = Counter(
+        item["status"] if item["status"] else "open" for item in all_items
+    )
+
+    q_lower = q.strip().lower()
+    wanted_status = _review_status_filter(status)
+    source_upper = source.strip().upper()
+
+    filtered: list[dict[str, Any]] = []
+    for item in all_items:
+        item_status = (item.get("status") or "open").strip().lower()
+        if wanted_status is not None and item_status not in wanted_status:
+            continue
+        if category and item.get("category") != category:
+            continue
+        if source_upper and item.get("xref_namespace", "").upper() != source_upper:
+            continue
+        if q_lower:
+            haystack = " ".join([
+                item.get("primary_xref", ""),
+                item.get("ncats_disease_id", ""),
+                item.get("standard_name", ""),
+                item.get("xref_id", ""),
+                item.get("xref_namespace", ""),
+                item.get("decision_type", ""),
+                item.get("evidence_note", ""),
+            ]).lower()
+            if q_lower not in haystack:
+                continue
+        filtered.append(item)
+
+    filtered.sort(
+        key=lambda row: (
+            row.get("category_label", ""),
+            row.get("xref_namespace", ""),
+            row.get("standard_name", "").lower(),
+            row.get("primary_xref", ""),
+        )
+    )
+    total = len(filtered)
+    per_page = max(1, min(per_page, 200))
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    rows = filtered[start:start + per_page]
+
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "category": category,
+        "source": source,
+        "status": status,
+        "query": q,
+        "category_counts": [
+            {"category": key, "label": _review_category_label(key), "count": count}
+            for key, count in category_counts.most_common()
+        ],
+        "source_counts": dict(source_counts.most_common()),
+        "status_counts": dict(status_counts.most_common()),
+        "decision_options": REVIEW_DECISION_OPTIONS,
+    }
+
+
+def export_review_intake_template(
+    data: DiseaseGraphData,
+    *,
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    limit: int = 5000,
+) -> str:
+    """Export a TargetGraph-compatible review intake TSV template."""
+    queue = build_review_queue(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+        page=1,
+        per_page=min(max(1, limit), 5000),
+    )
+    rows = []
+    for item in queue["rows"]:
+        rows.append({
+            "Registry ID": item.get("registry_id", ""),
+            "Review decision": "",
+            "Corrected xref / replacement": "",
+            "Reviewer notes": "",
+            "Primary Xref": item.get("primary_xref", ""),
+            "Disease Name": item.get("standard_name", ""),
+            "NCATS Disease ID": item.get("ncats_disease_id", ""),
+            "Review category": item.get("category", ""),
+            "Xref ID": item.get("xref_id", ""),
+            "Xref Namespace": item.get("xref_namespace", ""),
+            "Decision type": item.get("decision_type", ""),
+            "Scenario ID": item.get("scenario_id", ""),
+            "Source value": item.get("source_value", ""),
+            "Consensus value": item.get("consensus_value", ""),
+            "Evidence note": item.get("evidence_note", ""),
+            "Reviewed by": "",
+            "Reviewed at": "",
+            "App review ID": item.get("review_id", ""),
+        })
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=REVIEW_INTAKE_COLUMNS, delimiter="\t")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
 def _is_flagged(concept: dict, decisions: list[dict]) -> bool:
     """Return True if a concept still needs review/action.
 
@@ -1718,6 +2036,16 @@ def _match_filters(
     return True
 
 
+_SORT_KEYS: dict[str, str] = {
+    "primary_xref": "primary_xref",
+    "name": "standard_name",
+    "tier": "confidence_tier",
+    "quality": "overall_quality",
+    "sources": "n_sources",
+    "xrefs": "xref_count",
+}
+
+
 def search_concepts(
     data: DiseaseGraphData,
     q: str = "",
@@ -1729,8 +2057,10 @@ def search_concepts(
     source: str = "",
     quality: str = "",
     disease_type: str = "",
+    sort: str = "",
+    sort_dir: str = "asc",
 ) -> dict[str, Any]:
-    """Search concepts with pagination and optional filters."""
+    """Search concepts with pagination, optional filters, and sorting."""
     q_lower = q.strip().lower()
     matches: list[tuple[str, dict]] = []
 
@@ -1744,6 +2074,24 @@ def search_concepts(
         ):
             continue
         matches.append((pxref, concept))
+
+    # Sort if requested
+    sort_field = _SORT_KEYS.get(sort, "")
+    if sort_field:
+        reverse = sort_dir.lower() == "desc"
+
+        def _sort_val(pair: tuple[str, dict]):
+            pxref, concept = pair
+            if sort_field == "primary_xref":
+                return pxref.lower()
+            val = concept.get(sort_field, "")
+            # Try numeric sort for quality/sources/xrefs
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return str(val).lower()
+
+        matches.sort(key=_sort_val, reverse=reverse)
 
     total = len(matches)
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -2260,7 +2608,8 @@ def compute_source_flow_data(data: DiseaseGraphData) -> dict[str, Any]:
 # Version Diff
 # ---------------------------------------------------------------------------
 
-_version_graph_cache: dict[str, DiseaseGraphData] = {}
+_VERSION_CACHE_MAX = 4
+_version_graph_cache: OrderedDict[str, DiseaseGraphData] = OrderedDict()
 
 
 def load_version_data(data_dir: str | Path) -> DiseaseGraphData:
@@ -2268,9 +2617,12 @@ def load_version_data(data_dir: str | Path) -> DiseaseGraphData:
     data_dir = Path(data_dir)
     cache_key = str(data_dir.resolve())
     if cache_key in _version_graph_cache:
+        _version_graph_cache.move_to_end(cache_key)
         return _version_graph_cache[cache_key]
     data = _load_app_graph_data(data_dir)
     _version_graph_cache[cache_key] = data
+    while len(_version_graph_cache) > _VERSION_CACHE_MAX:
+        _version_graph_cache.popitem(last=False)
     _print_graph_load(f"Disease version {data_dir.name}", data)
     return data
 
@@ -2331,22 +2683,61 @@ def compute_version_diff(
     current_pxrefs = set(current.concepts_by_pxref.keys())
     baseline_pxrefs = set(baseline.concepts_by_pxref.keys())
 
-    added_pxrefs = current_pxrefs - baseline_pxrefs
-    removed_pxrefs = baseline_pxrefs - current_pxrefs
-    shared_pxrefs = current_pxrefs & baseline_pxrefs
+    # Build ncats_disease_id → primary_xref maps for stable identity matching
+    baseline_ncats_to_pxref: dict[str, str] = {}
+    for pxref, concept in baseline.concepts_by_pxref.items():
+        nid = concept.get("ncats_disease_id", "").strip()
+        if nid:
+            baseline_ncats_to_pxref[nid] = pxref
 
-    # Tier changes
+    current_ncats_to_pxref: dict[str, str] = {}
+    for pxref, concept in current.concepts_by_pxref.items():
+        nid = concept.get("ncats_disease_id", "").strip()
+        if nid:
+            current_ncats_to_pxref[nid] = pxref
+
+    shared_ncats_ids = set(baseline_ncats_to_pxref) & set(current_ncats_to_pxref)
+
+    # Concepts matched by stable ncats_disease_id (even if primary_xref changed)
+    matched_baseline_pxrefs: set[str] = set()
+    matched_current_pxrefs: set[str] = set()
+    identity_matched_pairs: list[tuple[str, str]] = []  # (baseline_pxref, current_pxref)
+    rekeyed_concepts: list[dict[str, str]] = []
+
+    for nid in shared_ncats_ids:
+        b_pxref = baseline_ncats_to_pxref[nid]
+        c_pxref = current_ncats_to_pxref[nid]
+        matched_baseline_pxrefs.add(b_pxref)
+        matched_current_pxrefs.add(c_pxref)
+        identity_matched_pairs.append((b_pxref, c_pxref))
+        if b_pxref != c_pxref:
+            rekeyed_concepts.append({
+                "ncats_disease_id": nid,
+                "old_primary_xref": b_pxref,
+                "new_primary_xref": c_pxref,
+                "standard_name": current.concepts_by_pxref[c_pxref].get("standard_name", ""),
+            })
+
+    # Truly new/removed = not matched by ncats_id AND not in the other version by pxref
+    added_pxrefs = current_pxrefs - matched_current_pxrefs - baseline_pxrefs
+    removed_pxrefs = baseline_pxrefs - matched_baseline_pxrefs - current_pxrefs
+
+    # Concepts matched by pxref that weren't already matched by ncats_id
+    shared_pxrefs = (current_pxrefs & baseline_pxrefs) - matched_current_pxrefs
+
+    # Tier / quality / category changes across identity-matched pairs
     tier_changes: list[dict[str, str]] = []
     quality_changes: list[dict[str, str]] = []
     disease_type_changes: list[dict[str, str]] = []
-    for pxref in shared_pxrefs:
-        cur = current.concepts_by_pxref[pxref]
-        base = baseline.concepts_by_pxref[pxref]
+
+    def _compare_pair(b_pxref: str, c_pxref: str) -> None:
+        cur = current.concepts_by_pxref[c_pxref]
+        base = baseline.concepts_by_pxref[b_pxref]
         cur_tier = cur.get("confidence_tier", "")
         base_tier = base.get("confidence_tier", "")
         if cur_tier != base_tier:
             tier_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_tier": base_tier,
                 "new_tier": cur_tier,
@@ -2355,7 +2746,7 @@ def compute_version_diff(
         base_q = base.get("overall_quality", "")
         if cur_q != base_q:
             quality_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_quality": base_q,
                 "new_quality": cur_q,
@@ -2364,11 +2755,19 @@ def compute_version_diff(
         base_type = _concept_biolink_category(base)
         if cur_type != base_type:
             disease_type_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_category": base_type,
                 "new_category": cur_type,
             })
+
+    # Compare ncats_id-matched pairs
+    for b_pxref, c_pxref in identity_matched_pairs:
+        _compare_pair(b_pxref, c_pxref)
+
+    # Compare pxref-matched concepts not already covered by ncats_id matching
+    for pxref in shared_pxrefs:
+        _compare_pair(pxref, pxref)
 
     # Edge diffs
     current_edge_keys: set[tuple[str, str, str]] = set()
@@ -2412,14 +2811,15 @@ def compute_version_diff(
     )
     decisions_resolved = cur_resolved - base_resolved
 
-    added_concepts = [
+    all_added_concepts = [
         {
             "primary_xref": p,
             "standard_name": current.concepts_by_pxref[p].get("standard_name", ""),
             "disease_type": _concept_biolink_category(current.concepts_by_pxref[p]),
         }
-        for p in sorted(added_pxrefs)[:500]
+        for p in sorted(added_pxrefs)
     ]
+    added_concepts = all_added_concepts[:500]
     # Build reverse index: xref_id → set of current primary_xrefs
     current_xref_owners: dict[str, set[str]] = defaultdict(set)
     for px, edges in current.edges_by_pxref.items():
@@ -2526,10 +2926,13 @@ def compute_version_diff(
     baseline_version = baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("pipeline_version", "unknown")
 
+    sorted_rekeyed = sorted(rekeyed_concepts, key=lambda x: x["old_primary_xref"])
+
     return {
         "summary": {
             "concepts_added": len(added_pxrefs),
             "concepts_removed": len(removed_concepts),
+            "concepts_rekeyed": len(rekeyed_concepts),
             "raw_primary_rows_absent": len(removed_pxrefs),
             "legacy_source_only_removed": len(legacy_source_only_rows),
             "other_removed_rows": len(other_removed_rows),
@@ -2544,11 +2947,22 @@ def compute_version_diff(
         },
         "added_concepts": added_concepts,
         "removed_concepts": removed_concepts[:500],
+        "rekeyed_concepts": sorted_rekeyed[:500],
         "legacy_source_only_rows": legacy_source_only_rows[:200],
         "other_removed_rows": other_removed_rows[:200],
         "tier_changes": tier_changes[:500],
         "quality_changes": quality_changes[:500],
         "disease_type_changes": disease_type_changes[:500],
+        "truncation": {
+            "added_concepts": {"total": len(all_added_concepts), "shown": len(added_concepts)},
+            "removed_concepts": {"total": len(removed_concepts), "shown": min(len(removed_concepts), 500)},
+            "rekeyed_concepts": {"total": len(rekeyed_concepts), "shown": min(len(rekeyed_concepts), 500)},
+            "legacy_source_only_rows": {"total": len(legacy_source_only_rows), "shown": min(len(legacy_source_only_rows), 200)},
+            "other_removed_rows": {"total": len(other_removed_rows), "shown": min(len(other_removed_rows), 200)},
+            "tier_changes": {"total": len(tier_changes), "shown": min(len(tier_changes), 500)},
+            "quality_changes": {"total": len(quality_changes), "shown": min(len(quality_changes), 500)},
+            "disease_type_changes": {"total": len(disease_type_changes), "shown": min(len(disease_type_changes), 500)},
+        },
         "biolink_category_distribution": {
             "baseline": dict(baseline_type_dist.most_common()),
             "current": dict(current_type_dist.most_common()),
