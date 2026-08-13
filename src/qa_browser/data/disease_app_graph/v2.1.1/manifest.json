@@ -1,12 +1,12 @@
 {
   "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-12T19:59:39.033992+00:00",
-  "git_commit": "54dc6be",
-  "duration_seconds": 35.73,
+  "generated_at": "2026-08-13T17:03:26.689303+00:00",
+  "git_commit": "b8d682a",
+  "duration_seconds": 30.32,
   "files": {
     "disease_concepts.tsv": {
-      "rows": 112278,
+      "rows": 111714,
       "key": "ncats_disease_id",
       "alternate_key": "primary_xref",
       "columns": [
@@ -49,7 +49,7 @@
       ]
     },
     "disease_xref_edges.tsv": {
-      "rows": 319486,
+      "rows": 319436,
       "key": [
         "primary_xref",
         "xref_id",
@@ -104,7 +104,7 @@
       ]
     },
     "xref_labels.tsv": {
-      "rows": 294258,
+      "rows": 294079,
       "key": "xref_id",
       "columns": [
         "xref_id",
@@ -122,7 +122,7 @@
       ]
     },
     "review_decisions.tsv": {
-      "rows": 11619,
+      "rows": 11630,
       "key": "decision_id",
       "fk": {
         "primary_xref": "disease_concepts.primary_xref"
