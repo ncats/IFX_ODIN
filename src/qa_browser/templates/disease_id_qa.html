@@ -15,7 +15,7 @@
             <textarea name="ids" spellcheck="false"
                 placeholder="MONDO:0005148&#10;IFXDisease:CLN0VF6">{{ ids }}</textarea>
             <input type="hidden" name="tab" value="graph">
-            <button type="submit" class="btn btn-primary">Open graph</button>
+            <button type="submit" class="btn btn-primary"><i class="lucide-arrow-right"></i> Open graph</button>
         </form>
     </section>
 
@@ -24,17 +24,18 @@
     {% endif %}
 
     <!-- Tab navigation -->
-    <div class="disease-tabs">
-        <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard">Dashboard</button>
-        <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts">Concepts</button>
-        <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph">Graph</button>
-        <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download">Download</button>
-        <button class="disease-tab-btn{% if active_tab == 'changes' %} active{% endif %}" data-tab="changes">Changes</button>
-        <button class="disease-tab-btn{% if active_tab == 'api' %} active{% endif %}" data-tab="api">API</button>
+    <div class="disease-tabs" role="tablist" aria-label="Disease explorer sections">
+        <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard" role="tab" aria-selected="{% if active_tab == 'dashboard' %}true{% else %}false{% endif %}" aria-controls="tab-dashboard"><i class="lucide-gauge"></i> Dashboard</button>
+        <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts" role="tab" aria-selected="{% if active_tab == 'concepts' %}true{% else %}false{% endif %}" aria-controls="tab-concepts"><i class="lucide-table-2"></i> Concepts</button>
+        <button class="disease-tab-btn{% if active_tab == 'review' %} active{% endif %}" data-tab="review" role="tab" aria-selected="{% if active_tab == 'review' %}true{% else %}false{% endif %}" aria-controls="tab-review"><i class="lucide-list-checks"></i> Review</button>
+        <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph" role="tab" aria-selected="{% if active_tab == 'graph' %}true{% else %}false{% endif %}" aria-controls="tab-graph"><i class="lucide-network"></i> Graph</button>
+        <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download" role="tab" aria-selected="{% if active_tab == 'download' %}true{% else %}false{% endif %}" aria-controls="tab-download"><i class="lucide-download"></i> Download</button>
+        <button class="disease-tab-btn{% if active_tab == 'changes' %} active{% endif %}" data-tab="changes" role="tab" aria-selected="{% if active_tab == 'changes' %}true{% else %}false{% endif %}" aria-controls="tab-changes"><i class="lucide-git-compare-arrows"></i> Changes</button>
+        <button class="disease-tab-btn{% if active_tab == 'api' %} active{% endif %}" data-tab="api" role="tab" aria-selected="{% if active_tab == 'api' %}true{% else %}false{% endif %}" aria-controls="tab-api"><i class="lucide-code-2"></i> API</button>
     </div>
 
     <!-- Tab 1: Dashboard -->
-    <div class="disease-tab-panel{% if active_tab == 'dashboard' %} active{% endif %}" id="tab-dashboard">
+    <div class="disease-tab-panel{% if active_tab == 'dashboard' %} active{% endif %}" id="tab-dashboard" role="tabpanel" aria-labelledby="tab-dashboard-btn">
         <div class="dash-hero">
             <div class="dash-card">
                 <div class="dash-stat" id="dashTotalConcepts">-</div>
@@ -61,6 +62,29 @@
                 <div class="chart-legend" id="geneAssocHelp">
                     <p>Disease-gene association pairs aggregated from ClinGen, OMIM, Orphanet, Monarch, MedGen, and Jensen. Each row represents one disease-gene pair with a support tier and score.</p>
                 </div>
+            </div>
+        </div>
+
+        <!-- Pipeline & Source Versions -->
+        <div class="dash-version-bar" id="dashVersionBar">
+            <div class="dash-version-meta">
+                <span class="dash-version-label">Pipeline</span>
+                <span class="dash-version-value mono">v{{ manifest.get("pipeline_version", "\u2014") }}</span>
+                <span class="dash-version-sep">&middot;</span>
+                <span class="dash-version-label">Contract</span>
+                <span class="dash-version-value mono">{{ manifest.get("contract_version", "\u2014") }}</span>
+                <span class="dash-version-sep">&middot;</span>
+                <span class="dash-version-label">Built</span>
+                <span class="dash-version-value">{{ manifest.get("generated_at", "\u2014")[:10] }}</span>
+                {% if manifest.get("git_commit") %}
+                <span class="dash-version-sep">&middot;</span>
+                <span class="dash-version-label">Commit</span>
+                <span class="dash-version-value mono">{{ manifest.get("git_commit", "")[:7] }}</span>
+                {% endif %}
+            </div>
+            <div class="dash-source-tags" id="dashSourceTags">
+                <span class="dash-version-label">Source Versions:</span>
+                <!-- populated by JS from source-versions API -->
             </div>
         </div>
 
@@ -108,7 +132,7 @@
             <div class="dash-chart-panel">
                 <h3>Source Namespace Coverage <button class="chart-legend-toggle" type="button" aria-label="Explain source namespace coverage" aria-expanded="false" aria-controls="sourceNamespaceHelp">?</button></h3>
                 <div class="chart-legend" id="sourceNamespaceHelp">
-                    <p>Count of concepts with at least one xref edge in each source namespace.</p>
+                    <p>Count of concepts with at least one xref edge in each source namespace. <strong>Note:</strong> MONDO appears low because it serves as the <em>primary identifier</em> anchor, not as a cross-reference source. Most concepts use a MONDO ID as their primary key, so MONDO rarely appears as an xref namespace.</p>
                 </div>
                 <div id="dashSourceChart" class="bar-chart"></div>
             </div>
@@ -143,7 +167,7 @@
                     <p>Pairwise source overlap is computed as Jaccard similarity: concepts with xrefs from both sources divided by concepts with xrefs from either source. Darker cells indicate that two namespaces tend to cover the same concepts.</p>
                 </div>
                 <div class="heatmap-container">
-                    <canvas id="dashAgreementHeatmap" width="500" height="500"></canvas>
+                    <canvas id="dashAgreementHeatmap" width="500" height="500" role="img" aria-label="Source co-occurrence heatmap showing pairwise Jaccard overlap between source namespaces"></canvas>
                     <div class="heatmap-tooltip" id="heatmapTooltip"></div>
                 </div>
             </div>
@@ -157,7 +181,7 @@
                     <p>Each band counts concepts that have at least one xref edge in a source namespace and belong to a pipeline confidence tier. A concept can contribute to multiple source namespaces when it has xrefs from multiple systems.</p>
                 </div>
                 <div class="sankey-container">
-                    <canvas id="dashSankeyChart" width="700" height="400"></canvas>
+                    <canvas id="dashSankeyChart" width="700" height="400" role="img" aria-label="Sankey diagram showing source namespace to confidence tier flow"></canvas>
                 </div>
             </div>
         </div>
@@ -167,14 +191,14 @@
     </div>
 
     <!-- Tab 2: Concepts -->
-    <div class="disease-tab-panel{% if active_tab == 'concepts' %} active{% endif %}" id="tab-concepts">
+    <div class="disease-tab-panel{% if active_tab == 'concepts' %} active{% endif %}" id="tab-concepts" role="tabpanel" aria-labelledby="tab-concepts-btn">
         <section class="disease-id-table-section">
             <div class="disease-id-section-header">
                 <h2>Disease Concepts</h2>
                 <p id="diseaseIdTableStatus">Loading...</p>
             </div>
             <div class="disease-id-search-bar">
-                <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input">
+                <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input" aria-label="Search disease concepts by name or ID">
                 <select id="filterConfidenceTier" class="filter-select">
                     <option value="">All tiers</option>
                     <option value="single_authoritative_source">Single authoritative source</option>
@@ -194,23 +218,29 @@
                 <select id="filterSource" class="filter-select">
                     <option value="">All sources</option>
                 </select>
+                <select id="filterDiseaseType" class="filter-select">
+                    <option value="">All types</option>
+                    <option value="biolink:Disease">Disease</option>
+                    <option value="biolink:PhenotypicFeature">Phenotypic Feature</option>
+                    <option value="biolink:DiseaseOrPhenotypicFeature">Disease or Phenotypic</option>
+                </select>
                 <div class="disease-id-filter-toggle">
                     <button id="diseaseIdFilterAll" class="btn btn-sm disease-id-toggle-btn active">All</button>
                     <button id="diseaseIdFilterFlagged" class="btn btn-sm disease-id-toggle-btn">Needs action</button>
                 </div>
-                <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn">Download filtered TSV</a>
+                <a id="diseaseIdDownloadSearch" href="#" class="btn btn-sm disease-id-dl-btn"><i class="lucide-download"></i> Download filtered TSV</a>
             </div>
             <div class="disease-id-table-wrap">
                 <table class="disease-id-table">
                     <thead>
                         <tr>
-                            <th></th>
-                            <th>Primary Xref</th>
-                            <th>Name</th>
-                            <th>Tier</th>
-                            <th>Quality</th>
-                            <th>Sources</th>
-                            <th>Xrefs</th>
+                            <th><span class="sr-only">Expand details</span></th>
+                            <th class="sortable-col" data-sort="primary_xref">Primary Xref <span class="sort-arrow"></span></th>
+                            <th class="sortable-col" data-sort="name">Name <span class="sort-arrow"></span></th>
+                            <th class="sortable-col" data-sort="tier">Tier <span class="sort-arrow"></span></th>
+                            <th class="sortable-col" data-sort="quality">Quality <span class="sort-arrow"></span></th>
+                            <th class="sortable-col" data-sort="sources">Sources <span class="sort-arrow"></span></th>
+                            <th class="sortable-col" data-sort="xrefs">Xrefs <span class="sort-arrow"></span></th>
                             <th>Flags</th>
                             <th>Source Labels</th>
                         </tr>
@@ -224,8 +254,55 @@
         </section>
     </div>
 
-    <!-- Tab 3: Graph -->
-    <div class="disease-tab-panel{% if active_tab == 'graph' %} active{% endif %}" id="tab-graph">
+    <!-- Tab 3: Review -->
+    <div class="disease-tab-panel{% if active_tab == 'review' %} active{% endif %}" id="tab-review" role="tabpanel" aria-labelledby="tab-review-btn">
+        <section class="review-panel">
+            <div class="disease-id-section-header">
+                <h2>Review Queue</h2>
+                <p id="reviewQueueStatus">Loading...</p>
+            </div>
+            <div class="review-note">
+                Decisions saved here are written to a TargetGraph-compatible intake TSV. TargetGraph applies them through <code>disease_review_intake</code> so the same obsolete, stale, conflict, or expert-review decision can be replayed on future source updates.
+            </div>
+            <div class="review-category-strip" id="reviewCategoryStrip"></div>
+            <div class="review-controls">
+                <input type="text" id="reviewSearchInput" class="disease-id-search-input" placeholder="Search review items by disease, xref, source, or issue...">
+                <select id="reviewStatusFilter" class="filter-select">
+                    <option value="open">Open / unresolved</option>
+                    <option value="all">All statuses</option>
+                    <option value="resolved">Resolved / acknowledged</option>
+                </select>
+                <select id="reviewSourceFilter" class="filter-select">
+                    <option value="">All sources</option>
+                </select>
+                <button id="reviewClearFilters" class="btn btn-sm"><i class="lucide-x"></i> Clear</button>
+                <a id="reviewTemplateDownload" class="btn btn-sm disease-id-dl-btn" href="#"><i class="lucide-download"></i> Intake template</a>
+            </div>
+            <div class="review-table-wrap">
+                <table class="disease-id-table review-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Disease</th>
+                            <th>Xref / Source</th>
+                            <th>Issue</th>
+                            <th>Decision</th>
+                            <th>Replacement</th>
+                            <th>Notes</th>
+                            <th>Save</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reviewTableBody">
+                        <tr><td colspan="8">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="disease-id-pagination" id="reviewPagination"></div>
+        </section>
+    </div>
+
+    <!-- Tab 4: Graph -->
+    <div class="disease-tab-panel{% if active_tab == 'graph' %} active{% endif %}" id="tab-graph" role="tabpanel" aria-labelledby="tab-graph-btn">
         {% if selected_ids and not error_message %}
         <section class="disease-id-graph-panel">
             <div class="disease-id-graph-col">
@@ -374,20 +451,25 @@
                 <dl id="diseaseIdStats" class="disease-id-stats"></dl>
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
-                    <button id="diseaseIdExportJson" class="btn btn-sm">Export graph JSON</button>
-                    <button id="diseaseIdExportFiltered" class="btn btn-sm">Download filtered view</button>
+                    <button id="diseaseIdExportJson" class="btn btn-sm"><i class="lucide-file-json"></i> Export graph JSON</button>
+                    <button id="diseaseIdExportFiltered" class="btn btn-sm"><i class="lucide-download"></i> Download filtered view</button>
                 </div>
             </aside>
         </section>
         {% else %}
         <div class="disease-id-graph-empty">
             <p>Enter one or more disease IDs above and click <strong>Open graph</strong> to visualize cross-reference relationships.</p>
+            <p style="margin-top:0.75rem;color:var(--text-muted)">
+                Try an example:
+                <a href="{{ root_path }}/disease-id-qa?ids=MONDO:0005148&tab=graph">MONDO:0005148 (Type 2 Diabetes)</a> &middot;
+                <a href="{{ root_path }}/disease-id-qa?ids=MONDO:0007739&tab=graph">MONDO:0007739 (Huntington Disease)</a>
+            </p>
         </div>
         {% endif %}
     </div>
 
-    <!-- Tab 4: Download -->
-    <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download">
+    <!-- Tab 5: Download -->
+    <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download" role="tabpanel" aria-labelledby="tab-download-btn">
         <section class="download-panel">
             <div class="download-controls">
                 <h2>Filtered Download</h2>
@@ -528,30 +610,30 @@
                             <option value="csv">CSV</option>
                         </select>
                     </label>
-                    <button id="dlDownloadBtn" class="btn btn-primary">Download</button>
+                    <button id="dlDownloadBtn" class="btn btn-primary"><i class="lucide-download"></i> Download</button>
                 </div>
             </div>
 
             <div class="download-raw">
                 <h3>Raw Files</h3>
                 <div class="disease-id-download-links">
-                    <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn">disease_concepts.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_xref_edges.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn">disease_hierarchy_edges.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn">xref_labels.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn">review_decisions.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/disease_gene_associations.tsv" class="btn btn-sm disease-id-dl-btn">disease_gene_associations.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn">manifest.json</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_xref_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_hierarchy_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> xref_labels.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> review_decisions.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_gene_associations.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_gene_associations.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/manifest.json" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-json"></i> manifest.json</a>
                     <span class="disease-id-dl-sep">|</span>
-                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn">needs_action_concepts.tsv</a>
-                    <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn">SSSOM mappings</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-flagged" class="btn btn-sm disease-id-dl-btn"><i class="lucide-alert-triangle"></i> needs_action_concepts.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download-sssom" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> SSSOM mappings</a>
                 </div>
             </div>
         </section>
     </div>
 
-    <!-- Tab 5: Changes -->
-    <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes">
+    <!-- Tab 6: Changes -->
+    <div class="disease-tab-panel{% if active_tab == 'changes' %} active{% endif %}" id="tab-changes" role="tabpanel" aria-labelledby="tab-changes-btn">
         <div class="changes-controls">
             <label>From
                 <select id="changesFromVersion" class="filter-select-sm"></select>
@@ -559,13 +641,13 @@
             <label>To
                 <select id="changesToVersion" class="filter-select-sm"></select>
             </label>
-            <button type="button" class="btn btn-sm" id="changesCompareBtn">Compare versions</button>
+            <button type="button" class="btn btn-sm" id="changesCompareBtn"><i class="lucide-git-compare-arrows"></i> Compare versions</button>
         </div>
         <div id="changesContent" class="changes-loading">Loading version diff...</div>
     </div>
 
-    <!-- Tab 6: API -->
-    <div class="disease-tab-panel{% if active_tab == 'api' %} active{% endif %}" id="tab-api">
+    <!-- Tab 7: API -->
+    <div class="disease-tab-panel{% if active_tab == 'api' %} active{% endif %}" id="tab-api" role="tabpanel" aria-labelledby="tab-api-btn">
         <div class="api-tab-content">
             <h2>Public REST API</h2>
             <p style="color:var(--text-muted);font-size:0.86rem;margin:0 0 1rem;">
@@ -587,7 +669,7 @@
                             <input type="checkbox" id="apiResolverObsolete">
                             Include obsolete
                         </label>
-                        <button id="apiResolverRun" class="btn btn-primary">Resolve</button>
+                        <button id="apiResolverRun" class="btn btn-primary"><i class="lucide-zap"></i> Resolve</button>
                     </div>
                 </div>
                 <textarea id="apiResolverInput" class="api-resolver-input" rows="5">striate palmoplantar keratoderma
@@ -647,6 +729,17 @@ C4707237</textarea>
 (function () {
     const rootPath = {{ root_path | tojson }};
 
+    /* == Tier label mapping == */
+    const TIER_LABELS = {
+        "single_authoritative_source": "Single Source",
+        "multi_source_supported": "Multi-Source Confirmed",
+        "needs_review": "Needs Review",
+        "review_validator_disagreement": "Validator Disagreement",
+        "review_obsolete_xref": "Obsolete Xref Review",
+        "unknown": "Unknown",
+    };
+    function tierLabel(raw) { return TIER_LABELS[raw] || raw; }
+
     /* == Helpers == */
     function escapeHtml(value) {
         return String(value ?? "")
@@ -672,17 +765,43 @@ C4707237</textarea>
     const tabBtns = document.querySelectorAll(".disease-tab-btn");
     const tabPanels = document.querySelectorAll(".disease-tab-panel");
     let changesLoaded = false;
+    let conceptsLoaded = false;
+    let reviewLoaded = false;
+    function activateTab(btn) {
+        tabBtns.forEach(b => { b.classList.remove("active"); b.setAttribute("aria-selected", "false"); });
+        tabPanels.forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        btn.setAttribute("aria-selected", "true");
+        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+        if (btn.dataset.tab === "changes" && !changesLoaded) {
+            changesLoaded = true;
+            loadChangesTab();
+        }
+        if (btn.dataset.tab === "concepts" && !conceptsLoaded) {
+            conceptsLoaded = true;
+            loadTable(1);
+        }
+        if (btn.dataset.tab === "review" && !reviewLoaded) {
+            reviewLoaded = true;
+            loadReviewQueue(1);
+        }
+    }
     tabBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            tabBtns.forEach(b => b.classList.remove("active"));
-            tabPanels.forEach(p => p.classList.remove("active"));
-            btn.classList.add("active");
-            document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
-            if (btn.dataset.tab === "changes" && !changesLoaded) {
-                changesLoaded = true;
-                loadChangesTab();
-            }
-        });
+        btn.addEventListener("click", () => activateTab(btn));
+    });
+    // Arrow key navigation between tabs
+    document.querySelector(".disease-tabs").addEventListener("keydown", (e) => {
+        const tabs = [...tabBtns];
+        const idx = tabs.indexOf(document.activeElement);
+        if (idx < 0) return;
+        let next = -1;
+        if (e.key === "ArrowRight") next = (idx + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") next = (idx - 1 + tabs.length) % tabs.length;
+        if (next >= 0) {
+            e.preventDefault();
+            tabs[next].focus();
+            activateTab(tabs[next]);
+        }
     });
 
     document.querySelectorAll(".chart-legend-toggle").forEach(btn => {
@@ -698,7 +817,7 @@ C4707237</textarea>
 
     /* == Dashboard == */
     const NS_COLORS = {
-        "MONDO": "#0d9488", "DOID": "#2563eb", "OMIM": "#7c3aed",
+        "MONDO": "#0d9488", "DOID": "#4f46e5", "OMIM": "#7c3aed",
         "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
     };
 
@@ -789,7 +908,7 @@ C4707237</textarea>
 
         // Row labels
         for (let i = 0; i < n; i++) {
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1e293b";
             ctx.fillText(sources[i], ox - 6, oy + i * cellSize + cellSize / 2);
         }
 
@@ -800,7 +919,7 @@ C4707237</textarea>
             ctx.save();
             ctx.translate(ox + j * cellSize + cellSize / 2, oy - 6);
             ctx.rotate(-Math.PI / 4);
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1e293b";
             ctx.fillText(sources[j], 0, 0);
             ctx.restore();
         }
@@ -822,14 +941,14 @@ C4707237</textarea>
                     const t = (rate - 0.5) / 0.5;
                     r = Math.round(220 - 180 * t); g = Math.round(230 - 30 * t); b = Math.round(60 + 40 * t);
                 }
-                if (i === j) { r = 200; g = 200; b = 200; }
+                if (i === j) { r = 226; g = 229; b = 235; }
 
                 ctx.fillStyle = `rgb(${r},${g},${b})`;
                 ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
 
                 // Value text
                 if (cellSize >= 28 && i !== j) {
-                    ctx.fillStyle = rate > 0.6 ? "#1a1a2e" : "#ffffff";
+                    ctx.fillStyle = rate > 0.6 ? "#ffffff" : "#1e293b";
                     ctx.font = "10px monospace";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
@@ -953,7 +1072,7 @@ C4707237</textarea>
             ctx.fillRect(p.x, p.y, p.w, p.h);
 
             // Labels
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1a1a2e";
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text") || "#1e293b";
             ctx.font = "11px -apple-system, sans-serif";
             ctx.textBaseline = "middle";
             if (node && node.type === "source") {
@@ -968,11 +1087,39 @@ C4707237</textarea>
     }
 
     function loadDashboard() {
+        const dashHero = document.querySelector(".dash-hero");
+        if (dashHero) dashHero.classList.add("loading");
         fetch(`${rootPath}/disease-id-qa/api/dashboard`)
             .then(r => r.json())
             .then(stats => {
+                if (dashHero) dashHero.classList.remove("loading");
                 document.getElementById("dashTotalConcepts").textContent = stats.total_concepts.toLocaleString();
                 document.getElementById("dashSourcesCovered").textContent = Object.keys(stats.source_coverage).length;
+
+                // Populate source version tags from pipeline metadata
+                const tagContainer = document.getElementById("dashSourceTags");
+                if (tagContainer) {
+                    fetch(`${rootPath}/disease-id-qa/api/source-versions`)
+                        .then(r => r.json())
+                        .then(vdata => {
+                            if (!vdata.sources || !vdata.sources.length) return;
+                            vdata.sources.forEach(src => {
+                                const tag = document.createElement("span");
+                                tag.className = "dash-source-tag";
+                                const color = NS_COLORS[src.name] || "var(--accent)";
+                                tag.style.borderColor = color;
+                                tag.style.color = color;
+                                const ver = src.version !== "unknown" ? src.version : "";
+                                const date = src.release_date ? src.release_date.slice(0, 10) : src.download_date;
+                                const detail = ver || date || "unknown";
+                                tag.innerHTML = `${escapeHtml(src.name)} <small>${escapeHtml(detail)}</small>`;
+                                tag.title = `Version: ${src.version}\nRelease: ${src.release_date || "—"}\nDownloaded: ${src.download_date || "—"}`;
+                                tagContainer.appendChild(tag);
+                            });
+                        })
+                        .catch(() => {});
+                }
+
                 document.getElementById("dashMultiSourceConcepts").textContent =
                     `${Number(stats.multi_source_percent || 0).toFixed(1)}%`;
                 document.getElementById("dashMultiSourceConcepts").title =
@@ -990,20 +1137,28 @@ C4707237</textarea>
 
                 const tierColors = {
                     "single_authoritative_source": "#059669",
-                    "multi_source_supported": "#2563eb",
-                    "needs_review": "#f59e0b",
-                    "review_validator_disagreement": "#f97316",
+                    "multi_source_supported": "#4f46e5",
+                    "needs_review": "#d97706",
+                    "review_validator_disagreement": "#ea580c",
                     "review_obsolete_xref": "#dc2626",
                     "unknown": "#94a3b8",
                 };
-                renderBarChart(document.getElementById("dashConfidenceChart"), stats.confidence_distribution, stats.total_concepts, tierColors);
+                // Transform keys to human-readable labels for the chart
+                const tierDistLabeled = {};
+                const tierColorsLabeled = {};
+                Object.entries(stats.confidence_distribution).forEach(([key, count]) => {
+                    const label = tierLabel(key);
+                    tierDistLabeled[label] = count;
+                    tierColorsLabeled[label] = tierColors[key] || "var(--accent)";
+                });
+                renderBarChart(document.getElementById("dashConfidenceChart"), tierDistLabeled, stats.total_concepts, tierColorsLabeled);
 
                 // Bucket raw quality scores into ranges so the chart is compact
                 const qualBuckets = [
                     { label: "1.0 \u2013 1.5 (best)", min: 0, max: 1.5, color: "#059669" },
-                    { label: "1.5 \u2013 2.0",        min: 1.5, max: 2.0, color: "#2563eb" },
-                    { label: "2.0 \u2013 2.5",        min: 2.0, max: 2.5, color: "#f59e0b" },
-                    { label: "2.5 \u2013 3.0",        min: 2.5, max: 3.0, color: "#f97316" },
+                    { label: "1.5 \u2013 2.0",        min: 1.5, max: 2.0, color: "#4f46e5" },
+                    { label: "2.0 \u2013 2.5",        min: 2.0, max: 2.5, color: "#d97706" },
+                    { label: "2.5 \u2013 3.0",        min: 2.5, max: 3.0, color: "#ea580c" },
                     { label: "3.0+ (worst)",           min: 3.0, max: Infinity, color: "#dc2626" },
                 ];
                 const qualBucketed = {};
@@ -1020,14 +1175,14 @@ C4707237</textarea>
 
                 renderBarChart(document.getElementById("dashSourceChart"), stats.source_coverage, stats.total_concepts, NS_COLORS);
 
-                const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#64748b" };
+                const nnColors = { "validated": "#059669", "unvalidated": "#94a3b8", "disagreed": "#dc2626", "unknown": "#cbd5e1" };
                 renderBarChart(document.getElementById("dashNodenormChart"), stats.nodenorm_distribution, stats.total_concepts, nnColors);
 
                 const diseaseTypeColors = {
-                    "biolink:Disease": "#2563eb",
-                    "biolink:PhenotypicFeature": "#f59e0b",
+                    "biolink:Disease": "#4f46e5",
+                    "biolink:PhenotypicFeature": "#d97706",
                     "biolink:DiseaseOrPhenotypicFeature": "#7c3aed",
-                    "unknown": "#94a3b8",
+                    "unknown": "#cbd5e1",
                 };
                 renderBarChart(document.getElementById("dashDiseaseTypeChart"), stats.disease_type_distribution || {}, stats.total_concepts, diseaseTypeColors);
 
@@ -1046,13 +1201,17 @@ C4707237</textarea>
                     `</div>` +
                     `<button class="btn btn-sm" style="margin-top:0.5rem" onclick="document.querySelector('[data-tab=concepts]').click();` +
                     `setTimeout(function(){document.getElementById('diseaseIdFilterFlagged').click()},100)">` +
-                    `View concepts needing action</button>` +
+                    `<i class="lucide-alert-triangle"></i> View concepts needing action</button>` +
                     `</div>`;
 
                 populateFilterDropdowns(stats);
             })
             .catch(err => {
+                if (dashHero) dashHero.classList.remove("loading");
                 document.getElementById("dashTotalConcepts").textContent = "Error";
+                document.querySelectorAll(".dash-stat").forEach(el => {
+                    if (el.textContent === "-") el.textContent = "N/A";
+                });
             });
 
         // Load heatmap data
@@ -1061,7 +1220,10 @@ C4707237</textarea>
             .then(matrixData => {
                 renderHeatmap(document.getElementById("dashAgreementHeatmap"), matrixData);
             })
-            .catch(() => {});
+            .catch(() => {
+                const el = document.getElementById("dashAgreementHeatmap");
+                if (el) el.parentElement.insertAdjacentHTML("beforeend", '<p style="color:var(--text-muted);font-size:0.85rem">Unable to load heatmap.</p>');
+            });
 
         // Load sankey data
         fetch(`${rootPath}/disease-id-qa/api/source-flows`)
@@ -1069,7 +1231,10 @@ C4707237</textarea>
             .then(flowData => {
                 renderSankey(document.getElementById("dashSankeyChart"), flowData);
             })
-            .catch(() => {});
+            .catch(() => {
+                const el = document.getElementById("dashSankeyChart");
+                if (el) el.parentElement.insertAdjacentHTML("beforeend", '<p style="color:var(--text-muted);font-size:0.85rem">Unable to load flow chart.</p>');
+            });
     }
     loadDashboard();
 
@@ -1085,10 +1250,13 @@ C4707237</textarea>
     const filterQuality = document.getElementById("filterQuality");
     const filterIsRare = document.getElementById("filterIsRare");
     const filterSource = document.getElementById("filterSource");
+    const filterDiseaseType = document.getElementById("filterDiseaseType");
 
     let currentQuery = "";
     let currentFilter = "all";
     let currentPage = 1;
+    let currentSort = "";
+    let currentSortDir = "asc";
 
     function getFilterParams() {
         return {
@@ -1096,6 +1264,7 @@ C4707237</textarea>
             quality: filterQuality.value,
             is_rare: filterIsRare.value,
             source: filterSource.value,
+            disease_type: filterDiseaseType.value,
         };
     }
 
@@ -1107,6 +1276,8 @@ C4707237</textarea>
             filter: currentFilter,
             page: currentPage,
             per_page: 50,
+            sort: currentSort,
+            sort_dir: currentSortDir,
             ...fp,
         });
         // Remove empty params
@@ -1147,12 +1318,13 @@ C4707237</textarea>
                             (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
                             (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
                             `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
+                            `<div style="margin-top:0.5rem"><button class="btn btn-sm prov-trigger" data-pxref="${escapeHtml(r.primary_xref)}"><i class="lucide-eye"></i> View provenance</button></div>` +
                             `</div></td></tr>`;
-                        return `<tr class="row-expandable">
-                            <td class="row-expand-toggle">&#9654;</td>
+                        return `<tr class="row-expandable" tabindex="0" role="button" aria-expanded="false">
+                            <td class="row-expand-toggle" aria-hidden="true">&#9654;</td>
                             <td class="mono"><a href="${rootPath}${escapeHtml(r.href)}&tab=graph">${escapeHtml(r.primary_xref)}</a></td>
                             <td>${escapeHtml(r.standard_name) || "(unnamed)"}</td>
-                            <td>${escapeHtml(r.confidence_tier)}</td>
+                            <td>${escapeHtml(tierLabel(r.confidence_tier))}</td>
                             <td>${escapeHtml(r.overall_quality)}</td>
                             <td>${escapeHtml(r.n_sources)}</td>
                             <td>${escapeHtml(r.xref_count)}</td>
@@ -1162,25 +1334,46 @@ C4707237</textarea>
                     }).join("");
 
                     // Attach expand/collapse handlers
+                    function toggleRow(row) {
+                        const detail = row.nextElementSibling;
+                        const toggle = row.querySelector(".row-expand-toggle");
+                        if (detail && detail.classList.contains("row-detail")) {
+                            const showing = detail.style.display !== "none";
+                            detail.style.display = showing ? "none" : "table-row";
+                            toggle.innerHTML = showing ? "&#9654;" : "&#9660;";
+                            row.classList.toggle("expanded", !showing);
+                            row.setAttribute("aria-expanded", showing ? "false" : "true");
+                        }
+                    }
                     tableBody.querySelectorAll(".row-expandable").forEach(row => {
                         row.addEventListener("click", (e) => {
                             if (e.target.tagName === "A") return;
-                            const detail = row.nextElementSibling;
-                            const toggle = row.querySelector(".row-expand-toggle");
-                            if (detail && detail.classList.contains("row-detail")) {
-                                const showing = detail.style.display !== "none";
-                                detail.style.display = showing ? "none" : "table-row";
-                                toggle.innerHTML = showing ? "&#9654;" : "&#9660;";
-                                row.classList.toggle("expanded", !showing);
+                            toggleRow(row);
+                        });
+                        row.addEventListener("keydown", (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleRow(row);
                             }
+                        });
+                    });
+                    // Attach provenance button handlers
+                    tableBody.querySelectorAll(".prov-trigger").forEach(btn => {
+                        btn.addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            fetchAndShowProvenance(btn.dataset.pxref);
                         });
                     });
                 }
 
                 renderPagination(data.page, data.total_pages);
+                const tableWrap = document.querySelector(".disease-id-table-wrap");
+                if (tableWrap) tableWrap.scrollTop = 0;
 
+                const fp = getFilterParams();
                 const dlParams = new URLSearchParams({ q: currentQuery, filter: currentFilter });
-                downloadSearchBtn.href = `${rootPath}/disease-id-qa/download-search?${dlParams}`;
+                Object.entries(fp).forEach(([k, v]) => { if (v) dlParams.set(k, v); });
+                downloadSearchBtn.href = `${rootPath}/disease-id-qa/download-filtered?${dlParams}`;
             })
             .catch(err => {
                 tableBody.innerHTML = `<tr><td colspan="9">Error: ${escapeHtml(err.message)}</td></tr>`;
@@ -1195,9 +1388,9 @@ C4707237</textarea>
         const prevDisabled = page <= 1 ? "disabled" : "";
         const nextDisabled = page >= totalPages ? "disabled" : "";
         paginationEl.innerHTML = `
-            <button class="btn btn-sm" ${prevDisabled} data-page="${page - 1}">Prev</button>
+            <button class="btn btn-sm" ${prevDisabled} data-page="${page - 1}"><i class="lucide-chevron-left"></i> Prev</button>
             <span class="disease-id-page-indicator">Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}</span>
-            <button class="btn btn-sm" ${nextDisabled} data-page="${page + 1}">Next</button>
+            <button class="btn btn-sm" ${nextDisabled} data-page="${page + 1}">Next <i class="lucide-chevron-right"></i></button>
         `;
         paginationEl.querySelectorAll("button[data-page]").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -1232,12 +1425,272 @@ C4707237</textarea>
     });
 
     // Dropdown filters
-    [filterConfidence, filterQuality, filterIsRare, filterSource].forEach(sel => {
+    [filterConfidence, filterQuality, filterIsRare, filterSource, filterDiseaseType].forEach(sel => {
         sel.addEventListener("change", () => loadTable(1));
     });
 
-    // Initial load
-    loadTable(1);
+    // Sortable column headers
+    document.querySelectorAll(".sortable-col").forEach(th => {
+        th.style.cursor = "pointer";
+        th.addEventListener("click", () => {
+            const col = th.dataset.sort;
+            if (currentSort === col) {
+                currentSortDir = currentSortDir === "asc" ? "desc" : "asc";
+            } else {
+                currentSort = col;
+                currentSortDir = "asc";
+            }
+            // Update sort arrows
+            document.querySelectorAll(".sortable-col .sort-arrow").forEach(s => { s.textContent = ""; });
+            th.querySelector(".sort-arrow").textContent = currentSortDir === "asc" ? " \u25B2" : " \u25BC";
+            loadTable(1);
+        });
+    });
+
+    // Initial load — only if concepts tab is already active
+    if (document.getElementById("tab-concepts").classList.contains("active")) {
+        conceptsLoaded = true;
+        loadTable(1);
+    }
+
+    /* == Review tab == */
+    const reviewSearchInput = document.getElementById("reviewSearchInput");
+    const reviewStatusFilter = document.getElementById("reviewStatusFilter");
+    const reviewSourceFilter = document.getElementById("reviewSourceFilter");
+    const reviewClearFilters = document.getElementById("reviewClearFilters");
+    const reviewTemplateDownload = document.getElementById("reviewTemplateDownload");
+    const reviewQueueStatus = document.getElementById("reviewQueueStatus");
+    const reviewCategoryStrip = document.getElementById("reviewCategoryStrip");
+    const reviewTableBody = document.getElementById("reviewTableBody");
+    const reviewPagination = document.getElementById("reviewPagination");
+    let currentReviewCategory = "";
+    let currentReviewPage = 1;
+    let reviewDecisionOptions = [];
+
+    function reviewFilterParams() {
+        const params = new URLSearchParams({
+            category: currentReviewCategory,
+            source: reviewSourceFilter ? reviewSourceFilter.value : "",
+            status: reviewStatusFilter ? reviewStatusFilter.value : "open",
+            q: reviewSearchInput ? reviewSearchInput.value.trim() : "",
+            page: currentReviewPage,
+            per_page: 50,
+        });
+        for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
+        return params;
+    }
+
+    function renderReviewCategories(categoryCounts) {
+        if (!reviewCategoryStrip) return;
+        const total = categoryCounts.reduce((sum, row) => sum + Number(row.count || 0), 0);
+        let html = `<button class="review-category-chip${!currentReviewCategory ? " active" : ""}" data-category="">All <span>${total.toLocaleString()}</span></button>`;
+        categoryCounts.forEach(row => {
+            const active = row.category === currentReviewCategory ? " active" : "";
+            html += `<button class="review-category-chip${active}" data-category="${escapeHtml(row.category)}">${escapeHtml(row.label)} <span>${Number(row.count || 0).toLocaleString()}</span></button>`;
+        });
+        reviewCategoryStrip.innerHTML = html;
+        reviewCategoryStrip.querySelectorAll(".review-category-chip").forEach(btn => {
+            btn.addEventListener("click", () => {
+                currentReviewCategory = btn.dataset.category || "";
+                loadReviewQueue(1);
+            });
+        });
+    }
+
+    function populateReviewSources(sourceCounts) {
+        if (!reviewSourceFilter) return;
+        const selected = reviewSourceFilter.value;
+        reviewSourceFilter.innerHTML = '<option value="">All sources</option>';
+        Object.keys(sourceCounts || {}).sort().forEach(ns => {
+            const opt = document.createElement("option");
+            opt.value = ns;
+            opt.textContent = `${ns} (${Number(sourceCounts[ns] || 0).toLocaleString()})`;
+            reviewSourceFilter.appendChild(opt);
+        });
+        reviewSourceFilter.value = selected;
+    }
+
+    function reviewDecisionSelectHtml(row) {
+        let html = `<select class="filter-select-sm review-decision-select" ${row.saveable ? "" : "disabled"}>`;
+        html += `<option value="">Choose decision...</option>`;
+        reviewDecisionOptions.forEach(opt => {
+            html += `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`;
+        });
+        html += `</select>`;
+        return html;
+    }
+
+    function renderReviewRows(rows) {
+        if (!reviewTableBody) return;
+        if (!rows.length) {
+            reviewTableBody.innerHTML = '<tr><td colspan="8">No review items found.</td></tr>';
+            return;
+        }
+        window.currentReviewRowsById = {};
+        rows.forEach(row => { window.currentReviewRowsById[row.review_id] = row; });
+        reviewTableBody.innerHTML = rows.map(row => {
+            const saveDisabled = row.saveable ? "" : "disabled";
+            const saveTitle = row.saveable ? "Save review decision" : "Only divergence registry rows can be saved through this intake file.";
+            const xrefText = row.xref_id
+                ? `<div class="mono">${escapeHtml(row.xref_id)}</div><div>${escapeHtml(row.xref_namespace)}</div>`
+                : `<span class="muted">Concept-level</span>`;
+            const issueText =
+                `<div><strong>${escapeHtml(row.decision_type || row.auto_decision || "review")}</strong>` +
+                (row.scenario_id ? ` <span class="mono">${escapeHtml(row.scenario_id)}</span>` : "") +
+                `</div>` +
+                (row.evidence_note ? `<div class="review-evidence">${escapeHtml(row.evidence_note)}</div>` : "") +
+                (row.consensus_value ? `<div class="review-consensus"><strong>Consensus:</strong> ${escapeHtml(row.consensus_value)}</div>` : "");
+            return `<tr class="review-row" data-review-id="${escapeHtml(row.review_id)}">
+                <td><span class="review-category-badge">${escapeHtml(row.category_label)}</span><div class="review-status">${escapeHtml(row.status || "open")}</div></td>
+                <td>
+                    <div><a class="mono" href="${rootPath}${escapeHtml(row.graph_href)}">${escapeHtml(row.primary_xref)}</a></div>
+                    <div>${escapeHtml(row.standard_name)}</div>
+                    <div class="review-row-actions"><button class="btn btn-sm prov-trigger" data-pxref="${escapeHtml(row.primary_xref)}"><i class="lucide-eye"></i> Provenance</button></div>
+                </td>
+                <td>${xrefText}</td>
+                <td>${issueText}</td>
+                <td>${reviewDecisionSelectHtml(row)}</td>
+                <td><input class="review-replacement-input" type="text" placeholder="replacement xref" ${row.saveable ? "" : "disabled"}></td>
+                <td><textarea class="review-notes-input" rows="2" placeholder="review notes" ${row.saveable ? "" : "disabled"}></textarea></td>
+                <td><button class="btn btn-sm review-save-btn" title="${escapeHtml(saveTitle)}" ${saveDisabled}>Save</button></td>
+            </tr>`;
+        }).join("");
+
+        reviewTableBody.querySelectorAll(".prov-trigger").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                fetchAndShowProvenance(btn.dataset.pxref);
+            });
+        });
+        reviewTableBody.querySelectorAll(".review-save-btn").forEach(btn => {
+            btn.addEventListener("click", () => saveReviewRow(btn.closest(".review-row")));
+        });
+    }
+
+    function renderReviewPagination(page, totalPages) {
+        if (!reviewPagination) return;
+        if (totalPages <= 1) {
+            reviewPagination.innerHTML = "";
+            return;
+        }
+        const prevDisabled = page <= 1 ? "disabled" : "";
+        const nextDisabled = page >= totalPages ? "disabled" : "";
+        reviewPagination.innerHTML = `
+            <button class="btn btn-sm" ${prevDisabled} data-page="${page - 1}"><i class="lucide-chevron-left"></i> Prev</button>
+            <span class="disease-id-page-indicator">Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+            <button class="btn btn-sm" ${nextDisabled} data-page="${page + 1}">Next <i class="lucide-chevron-right"></i></button>
+        `;
+        reviewPagination.querySelectorAll("button[data-page]").forEach(btn => {
+            btn.addEventListener("click", () => loadReviewQueue(parseInt(btn.dataset.page, 10)));
+        });
+    }
+
+    function loadReviewQueue(page) {
+        currentReviewPage = page || 1;
+        if (!reviewTableBody) return;
+        reviewTableBody.innerHTML = '<tr><td colspan="8">Loading...</td></tr>';
+        const params = reviewFilterParams();
+        fetch(`${rootPath}/disease-id-qa/api/review-queue?${params}`)
+            .then(r => r.json())
+            .then(payload => {
+                reviewDecisionOptions = payload.decision_options || [];
+                populateReviewSources(payload.source_counts || {});
+                renderReviewCategories(payload.category_counts || []);
+                renderReviewRows(payload.rows || []);
+                renderReviewPagination(payload.page || 1, payload.total_pages || 1);
+                if (reviewQueueStatus) {
+                    reviewQueueStatus.textContent = `${Number(payload.total || 0).toLocaleString()} review items`;
+                }
+                if (reviewTemplateDownload) {
+                    const dlParams = reviewFilterParams();
+                    dlParams.delete("page");
+                    dlParams.delete("per_page");
+                    reviewTemplateDownload.href = `${rootPath}/disease-id-qa/download-review-template?${dlParams}`;
+                }
+            })
+            .catch(err => {
+                reviewTableBody.innerHTML = `<tr><td colspan="8">Error: ${escapeHtml(err.message)}</td></tr>`;
+            });
+    }
+
+    function saveReviewRow(rowEl) {
+        if (!rowEl) return;
+        const select = rowEl.querySelector(".review-decision-select");
+        const decision = select ? select.value : "";
+        if (!decision) {
+            alert("Choose a review decision before saving.");
+            return;
+        }
+        const btn = rowEl.querySelector(".review-save-btn");
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+
+        const rowId = rowEl.dataset.reviewId;
+        const rowData = window.currentReviewRowsById && window.currentReviewRowsById[rowId] ? window.currentReviewRowsById[rowId] : {};
+        const payload = {
+            decisions: [{
+                registry_id: rowData.registry_id,
+                review_decision: decision,
+                replacement: rowEl.querySelector(".review-replacement-input").value.trim(),
+                notes: rowEl.querySelector(".review-notes-input").value.trim(),
+                primary_xref: rowData.primary_xref,
+                standard_name: rowData.standard_name,
+                ncats_disease_id: rowData.ncats_disease_id,
+                category: rowData.category,
+                xref_id: rowData.xref_id,
+                xref_namespace: rowData.xref_namespace,
+                decision_type: rowData.decision_type,
+                scenario_id: rowData.scenario_id,
+                source_value: rowData.source_value,
+                consensus_value: rowData.consensus_value,
+                evidence_note: rowData.evidence_note,
+            }]
+        };
+        fetch(`${rootPath}/disease-id-qa/api/review-decisions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        })
+            .then(r => {
+                if (!r.ok) return r.json().then(e => { throw new Error(e.detail || "Save failed"); });
+                return r.json();
+            })
+            .then(payload => {
+                rowEl.classList.add("review-saved");
+                btn.textContent = "Saved";
+                btn.title = payload.review_file || "Saved";
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                alert(err.message);
+            });
+    }
+
+    if (reviewSearchInput) {
+        let reviewSearchTimer = null;
+        reviewSearchInput.addEventListener("input", () => {
+            clearTimeout(reviewSearchTimer);
+            reviewSearchTimer = setTimeout(() => loadReviewQueue(1), 300);
+        });
+    }
+    [reviewStatusFilter, reviewSourceFilter].forEach(sel => {
+        if (sel) sel.addEventListener("change", () => loadReviewQueue(1));
+    });
+    if (reviewClearFilters) {
+        reviewClearFilters.addEventListener("click", () => {
+            currentReviewCategory = "";
+            if (reviewSearchInput) reviewSearchInput.value = "";
+            if (reviewStatusFilter) reviewStatusFilter.value = "open";
+            if (reviewSourceFilter) reviewSourceFilter.value = "";
+            loadReviewQueue(1);
+        });
+    }
+    if (document.getElementById("tab-review").classList.contains("active")) {
+        reviewLoaded = true;
+        loadReviewQueue(1);
+    }
 
     /* == Graph panel == */
     const graphEl = document.getElementById("diseaseIdCy");
@@ -1373,6 +1826,17 @@ C4707237</textarea>
                 })
                 .join("");
 
+            // Add provenance button for concept nodes
+            if (data.kind === "concept" && data.id) {
+                const pxref = data.id.replace("concept::", "");
+                const provBtn = document.createElement("button");
+                provBtn.className = "btn btn-sm";
+                provBtn.style.marginTop = "0.5rem";
+                provBtn.textContent = "View provenance";
+                provBtn.addEventListener("click", () => fetchAndShowProvenance(pxref));
+                detailBox.appendChild(provBtn);
+            }
+
         }
 
         let cyInstance = null;
@@ -1380,6 +1844,7 @@ C4707237</textarea>
 
         function applyGraphFilters() {
             if (!cyInstance) return;
+            cyInstance.startBatch();
             cyInstance.elements().show();
             if (!filterExact.checked) cyInstance.elements(".match-exact").hide();
             if (!filterBroad.checked) cyInstance.elements(".match-broad").hide();
@@ -1406,6 +1871,7 @@ C4707237</textarea>
             cyInstance.nodes(".target-product").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".hierarchy-context").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".gene").filter(n => n.connectedEdges(":visible").length === 0).hide();
+            cyInstance.endBatch();
         }
 
         [filterExact, filterBroad, filterNarrow, filterRelated, filterUnclassified,
@@ -1560,24 +2026,30 @@ C4707237</textarea>
                 const pxrefs = (fullPayload.queryIds || []).map(id =>
                     id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
                 );
-                let pending = pxrefs.length;
-                if (!pending) return;
-                pxrefs.forEach(pxref => {
+                if (!pxrefs.length) return;
+                filterExpandHierarchy.disabled = true;
+                Promise.all(pxrefs.map(pxref =>
                     fetch(`${rootPath}/disease-id-qa/api/graph/hierarchy?pxref=${encodeURIComponent(pxref)}`)
                         .then(r => r.json())
-                        .then(payload => {
-                            if (payload.elements) {
-                                const existingIds = new Set(cyInstance.elements().map(e => e.id()));
-                                const newEls = payload.elements.filter(e => !existingIds.has(e.data.id));
-                                if (newEls.length) {
-                                    newEls.forEach(e => expandedHierarchyIds.add(e.data.id));
-                                    cyInstance.add(newEls);
-                                    cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
-                                }
+                        .catch(() => ({ elements: [] }))
+                )).then(results => {
+                    const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                    const allNew = [];
+                    results.forEach(payload => {
+                        (payload.elements || []).forEach(e => {
+                            if (!existingIds.has(e.data.id)) {
+                                existingIds.add(e.data.id);
+                                expandedHierarchyIds.add(e.data.id);
+                                allNew.push(e);
                             }
-                        })
-                        .catch(() => {})
-                        .finally(() => { if (--pending === 0) applyGraphFilters(); });
+                        });
+                    });
+                    if (allNew.length) {
+                        cyInstance.add(allNew);
+                        cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                    }
+                    applyGraphFilters();
+                    filterExpandHierarchy.disabled = false;
                 });
             } else {
                 if (expandedHierarchyIds.size) {
@@ -1594,24 +2066,30 @@ C4707237</textarea>
                 const pxrefs = (fullPayload.queryIds || []).map(id =>
                     id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
                 );
-                let pending = pxrefs.length;
-                if (!pending) return;
-                pxrefs.forEach(pxref => {
+                if (!pxrefs.length) return;
+                filterExpandNeighbors.disabled = true;
+                Promise.all(pxrefs.map(pxref =>
                     fetch(`${rootPath}/disease-id-qa/api/graph/neighbors?pxref=${encodeURIComponent(pxref)}`)
                         .then(r => r.json())
-                        .then(payload => {
-                            if (payload.elements) {
-                                const existingIds = new Set(cyInstance.elements().map(e => e.id()));
-                                const newEls = payload.elements.filter(e => !existingIds.has(e.data.id));
-                                if (newEls.length) {
-                                    newEls.forEach(e => expandedNeighborIds.add(e.data.id));
-                                    cyInstance.add(newEls);
-                                    cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
-                                }
+                        .catch(() => ({ elements: [] }))
+                )).then(results => {
+                    const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                    const allNew = [];
+                    results.forEach(payload => {
+                        (payload.elements || []).forEach(e => {
+                            if (!existingIds.has(e.data.id)) {
+                                existingIds.add(e.data.id);
+                                expandedNeighborIds.add(e.data.id);
+                                allNew.push(e);
                             }
-                        })
-                        .catch(() => {})
-                        .finally(() => { if (--pending === 0) applyGraphFilters(); });
+                        });
+                    });
+                    if (allNew.length) {
+                        cyInstance.add(allNew);
+                        cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                    }
+                    applyGraphFilters();
+                    filterExpandNeighbors.disabled = false;
                 });
             } else {
                 if (expandedNeighborIds.size) {
@@ -1671,12 +2149,12 @@ C4707237</textarea>
 
                 // Namespace color mapping for xref nodes
                 const nsStyleMap = {
-                    mondo:    "#0d9488",
-                    doid:     "#2563eb",
-                    omim:     "#7c3aed",
-                    orphanet: "#ea580c",
-                    medgen:   "#059669",
-                    gard:     "#dc2626",
+                    mondo:    "#2dd4bf",
+                    doid:     "#818cf8",
+                    omim:     "#c084fc",
+                    orphanet: "#fb923c",
+                    medgen:   "#34d399",
+                    gard:     "#f87171",
                 };
                 const nsStyles = Object.entries(nsStyleMap).map(([ns, color]) => ({
                     selector: `.xref.${ns}`,
@@ -1691,24 +2169,28 @@ C4707237</textarea>
                         { selector: "node", style: {
                             "label": "data(label)",
                             "font-size": 7,
+                            "color": "#1e293b",
+                            "text-outline-color": "#ffffff",
+                            "text-outline-width": 1,
                             "text-wrap": "wrap",
                             "text-max-width": 90,
-                            "background-color": "#64748b",
+                            "background-color": "#94a3b8",
+                            "background-opacity": 0.9,
                             "border-width": 1,
-                            "border-color": "#334155",
+                            "border-color": "#cbd5e1",
                             "width": 32,
                             "height": 32,
                         }},
                         { selector: ".concept", style: {
-                            "background-color": "#176c8c",
+                            "background-color": "#2563eb",
                             "width": 46,
                             "height": 46,
                             "font-size": 8,
                             "font-weight": "bold",
                         }},
                         { selector: ".phenotype-concept", style: {
-                            "background-color": "#be5a38",
-                            "border-color": "#fed7aa",
+                            "background-color": "#ea580c",
+                            "border-color": "#fdba74",
                             "shape": "round-rectangle",
                         }},
                         { selector: ".mixed-disease-phenotype-concept", style: {
@@ -1719,7 +2201,7 @@ C4707237</textarea>
                         { selector: ".hierarchy-context", style: {
                             "background-color": "#0284c7",
                             "border-width": 2,
-                            "border-color": "#bae6fd",
+                            "border-color": "#7dd3fc",
                             "width": 40,
                             "height": 40,
                         }},
@@ -1737,7 +2219,7 @@ C4707237</textarea>
                         }},
                         ...nsStyles,
                         { selector: ".decision", style: {
-                            "background-color": "#f59e0b",
+                            "background-color": "#d97706",
                             "shape": "diamond",
                             "width": 30,
                             "height": 30,
@@ -1749,7 +2231,7 @@ C4707237</textarea>
                             "background-color": "#059669",
                         }},
                         { selector: ".decision-acknowledged", style: {
-                            "background-color": "#2563eb",
+                            "background-color": "#4f46e5",
                         }},
                         { selector: "edge", style: {
                             "curve-style": "bezier",
@@ -1759,6 +2241,9 @@ C4707237</textarea>
                             "width": 1.5,
                             "label": "data(label)",
                             "font-size": 8,
+                            "color": "#64748b",
+                            "text-outline-color": "#ffffff",
+                            "text-outline-width": 1,
                             "text-rotation": "autorotate",
                         }},
                         { selector: ".match-exact", style: {
@@ -1767,13 +2252,13 @@ C4707237</textarea>
                             "line-style": "solid",
                         }},
                         { selector: ".match-broad", style: {
-                            "line-color": "#f59e0b",
-                            "target-arrow-color": "#f59e0b",
+                            "line-color": "#d97706",
+                            "target-arrow-color": "#d97706",
                             "line-style": "dashed",
                         }},
                         { selector: ".match-narrow", style: {
-                            "line-color": "#f97316",
-                            "target-arrow-color": "#f97316",
+                            "line-color": "#ea580c",
+                            "target-arrow-color": "#ea580c",
                             "line-style": "dashed",
                         }},
                         { selector: ".match-related", style: {
@@ -1782,13 +2267,13 @@ C4707237</textarea>
                             "line-style": "dotted",
                         }},
                         { selector: ".match-unclassified", style: {
-                            "line-color": "#d1d5db",
-                            "target-arrow-color": "#d1d5db",
+                            "line-color": "#cbd5e1",
+                            "target-arrow-color": "#cbd5e1",
                             "line-style": "dotted",
                         }},
                         { selector: ".decision-edge", style: {
-                            "line-color": "#f59e0b",
-                            "target-arrow-color": "#f59e0b",
+                            "line-color": "#d97706",
+                            "target-arrow-color": "#d97706",
                             "target-arrow-shape": "diamond",
                             "line-style": "dashed",
                             "width": 1,
@@ -1884,18 +2369,18 @@ C4707237</textarea>
                         { selector: ".has-conflict", style: {
                             "width": 2.5,
                             "text-outline-width": 2,
-                            "text-outline-color": "#fef3c7",
+                            "text-outline-color": "#ffffff",
                         }},
                         { selector: ".conflict-resolved", style: {
                             "width": 2,
                             "line-opacity": 0.75,
                         }},
                         { selector: ":selected", style: {
-                            "border-width": 5,
-                            "border-color": "#f59e0b",
-                            "shadow-blur": 12,
-                            "shadow-color": "#f59e0b",
-                            "shadow-opacity": 0.5,
+                            "border-width": 4,
+                            "border-color": "#4f46e5",
+                            "shadow-blur": 20,
+                            "shadow-color": "#6366f1",
+                            "shadow-opacity": 0.6,
                             "shadow-offset-x": 0,
                             "shadow-offset-y": 0,
                         }},
@@ -1961,10 +2446,30 @@ C4707237</textarea>
     const provTimeline = document.getElementById("provTimeline");
     const provConceptName = document.getElementById("provConceptName");
 
+    function fetchAndShowProvenance(pxref) {
+        fetch(`${rootPath}/disease-id-qa/api/provenance/${encodeURIComponent(pxref)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.steps && data.steps.length) {
+                    showProvenanceModal(pxref, data.steps);
+                } else {
+                    showProvenanceModal(pxref, [{ step: "info", detail: "No provenance data available for this concept." }]);
+                }
+            })
+            .catch(() => {
+                showProvenanceModal(pxref, [{ step: "error", detail: "Failed to load provenance data." }]);
+            });
+    }
+
     if (provClose) {
         provClose.addEventListener("click", () => { provModal.style.display = "none"; });
         provModal.addEventListener("click", (e) => {
             if (e.target === provModal) provModal.style.display = "none";
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && provModal.style.display !== "none") {
+                provModal.style.display = "none";
+            }
         });
     }
 
@@ -2048,8 +2553,14 @@ C4707237</textarea>
         return html;
     }
 
+    function truncationNote(trunc) {
+        if (!trunc || trunc.total <= trunc.shown) return "";
+        return ` <small style="color:var(--text-muted)">(showing ${trunc.shown.toLocaleString()} of ${trunc.total.toLocaleString()})</small>`;
+    }
+
     function renderVersionDiff(diff) {
         const s = diff.summary;
+        const t = diff.truncation || {};
         let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
         html += `<div class="changes-version-label">Biolink category deltas use the exported <code>disease_type</code> field; older releases without populated categories appear as <code>unknown</code>.</div>`;
         html += `<div class="changes-version-label">Retired concepts are limited to concepts merged into another concept, absorbed as an xref, obsolete, or removed by QC. Older single-source rows from previous exports are counted separately because they were not harmonized concepts.</div>`;
@@ -2059,6 +2570,9 @@ C4707237</textarea>
         html += `<div class="changes-summary">`;
         html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
         html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired / Merged Concepts</div></div>`;
+        if (Number(s.concepts_rekeyed || 0) > 0) {
+            html += `<div class="dash-card"><div class="dash-stat">${s.concepts_rekeyed.toLocaleString()}</div><div class="dash-label">Re-keyed Concepts</div></div>`;
+        }
         html += `<div class="dash-card"><div class="dash-stat">${s.tier_changes.toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
         html += `<div class="dash-card"><div class="dash-stat">${s.disease_type_changes.toLocaleString()}</div><div class="dash-label">Biolink Category Changes</div></div>`;
         html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
@@ -2081,7 +2595,7 @@ C4707237</textarea>
 
         if (diff.added_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Added Concepts (${diff.added_concepts.length})</h3>`;
+            html += `<h3>Added Concepts (${s.concepts_added.toLocaleString()})${truncationNote(t.added_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Biolink Category</th></tr></thead><tbody>`;
             diff.added_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td></tr>`;
@@ -2089,9 +2603,19 @@ C4707237</textarea>
             html += `</tbody></table></div></div>`;
         }
 
+        if (diff.rekeyed_concepts && diff.rekeyed_concepts.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Re-keyed Concepts (${s.concepts_rekeyed.toLocaleString()})${truncationNote(t.rekeyed_concepts)}</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Old Primary ID</th><th>New Primary ID</th><th>Name</th></tr></thead><tbody>`;
+            diff.rekeyed_concepts.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.old_primary_xref)}</td><td class="mono">${escapeHtml(c.new_primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
         if (diff.removed_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Retired / Merged Concepts (${diff.removed_concepts.length})</h3>`;
+            html += `<h3>Retired / Merged Concepts (${s.concepts_removed.toLocaleString()})${truncationNote(t.removed_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Name</th><th>Biolink Category</th><th>What happened</th></tr></thead><tbody>`;
             diff.removed_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
@@ -2101,7 +2625,7 @@ C4707237</textarea>
 
         if (diff.disease_type_changes.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Biolink Category Changes (${diff.disease_type_changes.length})</h3>`;
+            html += `<h3>Biolink Category Changes (${s.disease_type_changes.toLocaleString()})${truncationNote(t.disease_type_changes)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Category</th><th>New Category</th></tr></thead><tbody>`;
             diff.disease_type_changes.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
@@ -2112,11 +2636,11 @@ C4707237</textarea>
 
         if (diff.tier_changes.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Tier Changes (${diff.tier_changes.length})</h3>`;
+            html += `<h3>Tier Changes (${s.tier_changes.toLocaleString()})${truncationNote(t.tier_changes)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Old Tier</th><th>New Tier</th></tr></thead><tbody>`;
             diff.tier_changes.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td>`;
-                html += `<td>${escapeHtml(c.old_tier)}</td><td>${escapeHtml(c.new_tier)}</td></tr>`;
+                html += `<td>${escapeHtml(tierLabel(c.old_tier))}</td><td>${escapeHtml(tierLabel(c.new_tier))}</td></tr>`;
             });
             html += `</tbody></table></div></div>`;
         }
@@ -2269,6 +2793,12 @@ C4707237</textarea>
     }
 
     apiResolverRun.addEventListener("click", runApiResolver);
+    apiResolverInput.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            runApiResolver();
+        }
+    });
 
     /* == Download tab == */
     const dlSearchInput = document.getElementById("dlSearchInput");
@@ -2300,6 +2830,9 @@ C4707237</textarea>
             .then(r => r.json())
             .then(data => {
                 dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> concepts match your filters`;
+            })
+            .catch(() => {
+                dlPreview.innerHTML = `<span style="color:var(--text-muted)">Unable to estimate count.</span>`;
             });
     }
 

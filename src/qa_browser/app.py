@@ -38,6 +38,9 @@ from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
+    REVIEW_DECISION_OPTIONS,
+    REVIEW_INTAKE_COLUMNS,
+    build_review_queue,
     build_disease_graph_payload,
     build_hierarchy_graph_payload,
     build_provenance_chain,
@@ -48,6 +51,7 @@ from src.qa_browser.disease_id_graph import (
     compute_version_diff,
     export_filtered_download,
     export_flagged_tsv,
+    export_review_intake_template,
     export_search_tsv,
     export_sssom,
     find_concept_neighbors,
@@ -117,6 +121,8 @@ _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
 _target_graph_dir: str = ""
+_disease_review_file: str = ""
+_disease_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -5792,6 +5798,151 @@ def disease_id_qa_download_flagged():
     )
 
 
+def _default_disease_review_file() -> str:
+    if not _disease_graph_dir:
+        return ""
+    graph_dir = Path(_disease_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "qc" / "review" / "app_completed" / "disease_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "disease_app_review_decisions.tsv")
+
+
+def _resolved_disease_review_file() -> str:
+    return _disease_review_file or _default_disease_review_file()
+
+
+def _review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        registry_id = str(raw.get("registry_id") or raw.get("Registry ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Review decision") or "").strip()
+        if not registry_id:
+            raise HTTPException(status_code=400, detail="Each review decision needs registry_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each review decision needs review_decision.")
+        if decision not in {opt["value"] for opt in REVIEW_DECISION_OPTIONS}:
+            raise HTTPException(status_code=400, detail=f"Unsupported review_decision: {decision}")
+
+        rows.append({
+            "Registry ID": registry_id,
+            "Review decision": decision,
+            "Corrected xref / replacement": str(raw.get("replacement") or raw.get("Corrected xref / replacement") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Primary Xref": str(raw.get("primary_xref") or raw.get("Primary Xref") or "").strip(),
+            "Disease Name": str(raw.get("standard_name") or raw.get("Disease Name") or "").strip(),
+            "NCATS Disease ID": str(raw.get("ncats_disease_id") or raw.get("NCATS Disease ID") or "").strip(),
+            "Review category": str(raw.get("category") or raw.get("Review category") or "").strip(),
+            "Xref ID": str(raw.get("xref_id") or raw.get("Xref ID") or "").strip(),
+            "Xref Namespace": str(raw.get("xref_namespace") or raw.get("Xref Namespace") or "").strip(),
+            "Decision type": str(raw.get("decision_type") or raw.get("Decision type") or "").strip(),
+            "Scenario ID": str(raw.get("scenario_id") or raw.get("Scenario ID") or "").strip(),
+            "Source value": str(raw.get("source_value") or raw.get("Source value") or "").strip(),
+            "Consensus value": str(raw.get("consensus_value") or raw.get("Consensus value") or "").strip(),
+            "Evidence note": str(raw.get("evidence_note") or raw.get("Evidence note") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No review decisions provided.")
+    return rows
+
+
+def _append_disease_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_disease_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No disease review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _disease_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/disease-id-qa/api/review-queue")
+def disease_id_qa_review_queue(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Return clustered disease review items for the Review tab."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_review_queue(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/disease-id-qa/download-review-template")
+def disease_id_qa_download_review_template(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    """Download a TargetGraph-compatible review intake template for the current queue."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    tsv_content = export_review_intake_template(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="disease_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/disease-id-qa/api/review-decisions")
+async def disease_id_qa_save_review_decisions(request: Request):
+    """Append app-entered review decisions to a TargetGraph intake TSV."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = _review_payload_rows(payload)
+    path = _append_disease_review_rows(rows)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph disease_review_intake.",
+    }
+
+
 @app.get("/disease-id-qa/api/search")
 def disease_id_qa_search(
     q: str = "",
@@ -5803,6 +5954,8 @@ def disease_id_qa_search(
     source: str = "",
     quality: str = "",
     disease_type: str = "",
+    sort: str = "",
+    sort_dir: str = "asc",
 ):
     """Paginated search across all disease concepts."""
     if not _disease_graph_dir:
@@ -5812,7 +5965,7 @@ def disease_id_qa_search(
     return search_concepts(
         data, q=q, filter_mode=filter, page=page, per_page=per_page,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
+        disease_type=disease_type, sort=sort, sort_dir=sort_dir,
     )
 
 
@@ -6034,6 +6187,46 @@ def api_disease_sources():
 
 
 # ---------------------------------------------------------------------------
+# Disease Explorer — Source Versions (from pipeline metadata)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/disease-id-qa/api/source-versions")
+def disease_id_qa_source_versions():
+    """Return source database versions from the pipeline metadata catalog."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    graph_dir = Path(_disease_graph_dir)
+    # metadata lives at ../metadata/ relative to app_graph/
+    if graph_dir.name == "app_graph":
+        metadata_dir = graph_dir.parent / "metadata"
+    else:
+        metadata_dir = graph_dir / "metadata"
+    catalog_path = metadata_dir / "disease_source_catalog.tsv"
+    if not catalog_path.exists():
+        return {"sources": [], "catalog_found": False}
+    sources = []
+    try:
+        import csv
+        with open(catalog_path, "r") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for row in reader:
+                name = row.get("source_name", "").strip()
+                if not name:
+                    continue
+                sources.append({
+                    "name": name,
+                    "version": row.get("source_version", "").strip() or "unknown",
+                    "release_date": row.get("release_date", "").strip() or "",
+                    "download_date": (row.get("download_start", "") or "")[:10],
+                })
+    except Exception as exc:
+        logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)
+        return {"sources": [], "catalog_found": False, "error": str(exc)}
+    return {"sources": sources, "catalog_found": True}
+
+
+# ---------------------------------------------------------------------------
 # Disease Explorer — Agreement Matrix & Source Flows
 # ---------------------------------------------------------------------------
 
@@ -6107,7 +6300,11 @@ def _discover_disease_versions() -> list[dict]:
             if not child.is_dir() or not (child / "manifest.json").exists():
                 continue
             with open(child / "manifest.json", encoding="utf-8") as fh:
-                manifest = json.load(fh)
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    continue
             version = _normalize_disease_version(
                 manifest.get("pipeline_version", "") or child.name
             )
@@ -6128,6 +6325,20 @@ def _discover_disease_versions() -> list[dict]:
             existing = version_by_key.get(version)
             if existing is None or entry["current"] or entry["baseline"]:
                 version_by_key[version] = entry
+
+    # Fallback: if nothing matched by resolved path, match by directory name
+    if _disease_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_disease_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+    if _baseline_graph_dir and not any(v.get("baseline") for v in version_by_key.values()):
+        baseline_dir_name = Path(_baseline_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == baseline_dir_name:
+                entry["baseline"] = True
+                break
 
     return sorted(
         version_by_key.values(),
@@ -9131,6 +9342,9 @@ def main():
     parser.add_argument("--disease-graph-dir",
                         default="",
                         help="Path to disease app_graph/ directory (TSV files + manifest.json)")
+    parser.add_argument("--disease-review-file",
+                        default="",
+                        help="Path to TargetGraph-compatible disease review intake TSV written by the Review tab")
     parser.add_argument("--baseline-graph-dir",
                         default="",
                         help="Path to baseline disease app_graph/ directory for version diff")
@@ -9139,7 +9353,7 @@ def main():
                         help="Path to target app_graph/ directory (target_nodes.tsv + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir, _target_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -9212,6 +9426,9 @@ def main():
                 print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
+    _disease_review_file = args.disease_review_file
+    if _resolved_disease_review_file():
+        print(f"Disease review intake file: {_resolved_disease_review_file()}")
 
     _baseline_graph_dir = args.baseline_graph_dir
     if not _baseline_graph_dir:
