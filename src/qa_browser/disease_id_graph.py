@@ -328,6 +328,9 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
 
     confidence_dist: Counter[str] = Counter()
     quality_dist: Counter[str] = Counter()
+    edge_evidence_tier_dist: Counter[str] = Counter()
+    edge_review_tier_dist: Counter[str] = Counter()
+    edge_relation_type_dist: Counter[str] = Counter()
     source_coverage: Counter[str] = Counter()
     nodenorm_dist: Counter[str] = Counter()
     triage_dist: Counter[str] = Counter()
@@ -353,6 +356,15 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     clinical_descendant_distance_dist: Counter[str] = Counter()
     clinical_descendant_warning_dist: Counter[str] = Counter()
     clinical_descendant_review_dist: Counter[str] = Counter()
+
+    for edges in data.edges_by_pxref.values():
+        for edge in edges:
+            relation_type = (edge.get("relation_type") or edge.get("match_type") or "unclassified").strip()
+            evidence_tier = (edge.get("evidence_tier") or "unknown").strip()
+            review_tier = (edge.get("review_tier") or "unknown").strip()
+            edge_relation_type_dist[relation_type or "unknown"] += 1
+            edge_evidence_tier_dist[evidence_tier or "unknown"] += 1
+            edge_review_tier_dist[review_tier or "unknown"] += 1
 
     for pxref, concept in data.concepts_by_pxref.items():
         tier = concept.get("confidence_tier", "").strip()
@@ -488,6 +500,9 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "total_decisions": total_decisions,
         "confidence_distribution": dict(confidence_dist.most_common()),
         "quality_distribution": dict(quality_dist.most_common()),
+        "edge_evidence_tier_distribution": dict(edge_evidence_tier_dist.most_common()),
+        "edge_review_tier_distribution": dict(edge_review_tier_dist.most_common()),
+        "edge_relation_type_distribution": dict(edge_relation_type_dist.most_common()),
         "source_coverage": dict(source_coverage.most_common()),
         "nodenorm_distribution": dict(nodenorm_dist.most_common()),
         "disease_type_distribution": dict(disease_type_dist.most_common()),
@@ -746,14 +761,21 @@ def build_disease_graph_payload(
             })
 
             match_type = edge_row.get("match_type", "unclassified")
+            relation_type = edge_row.get("relation_type", "") or match_type
             label_sim = edge_row.get("label_similarity", "")
             xref_conf = edge_row.get("xref_confidence", "")
-            if xref_conf and xref_conf != "0.0":
-                edge_label = f"{match_type} [{xref_conf}]"
+            equiv_conf = edge_row.get("equivalence_confidence", "")
+            rel_conf = edge_row.get("relation_confidence", "")
+            evidence_tier = edge_row.get("evidence_tier", "")
+            label_score = equiv_conf or rel_conf or xref_conf
+            if label_score and label_score != "0.0":
+                edge_label = f"{relation_type} [eq={label_score}]"
             elif label_sim and label_sim != "0.0":
-                edge_label = f"{match_type} ({label_sim})"
+                edge_label = f"{relation_type} ({label_sim})"
             else:
-                edge_label = match_type
+                edge_label = relation_type
+            if evidence_tier:
+                edge_label += f" {evidence_tier}"
 
             # --- enrich edge with conflict/resolution data ---
             edge_decs = _dec_by_xref.get(xref_id, [])
@@ -809,6 +831,7 @@ def build_disease_graph_payload(
                     "label": edge_label,
                     "kind": "xref_edge",
                     "match_type": match_type,
+                    "relation_type": relation_type,
                     "match_type_source": edge_row.get("match_type_source", ""),
                     "source_asserted": edge_row.get("source_asserted", ""),
                     "agreement_level": edge_row.get("agreement_level", ""),
@@ -817,9 +840,18 @@ def build_disease_graph_payload(
                     "mapping_confidence": edge_row.get("mapping_confidence", ""),
                     "label_confidence": edge_row.get("label_confidence", ""),
                     "source_support": edge_row.get("source_support", ""),
+                    "validation_support": edge_row.get("validation_support", ""),
+                    "corroboration_score": edge_row.get("corroboration_score", ""),
                     "asserting_sources": edge_row.get("asserting_sources", ""),
+                    "validation_sources": edge_row.get("validation_sources", ""),
+                    "evidence_streams": edge_row.get("evidence_streams", ""),
                     "structural_confidence": edge_row.get("structural_confidence", ""),
                     "xref_confidence": xref_conf,
+                    "relation_confidence": rel_conf,
+                    "equivalence_confidence": equiv_conf,
+                    "evidence_tier": evidence_tier,
+                    "review_tier": edge_row.get("review_tier", ""),
+                    "score_rationale": edge_row.get("score_rationale", ""),
                     "xref_is_obsolete": edge_row.get("xref_is_obsolete", ""),
                     "override_status": edge_row.get("override_status", ""),
                     "override_reason": edge_row.get("override_reason", ""),
@@ -2101,6 +2133,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
         xref_id: str = "",
         match_type: str = "",
         xref_confidence: str = "",
+        equivalence_confidence: str = "",
         obsolete: bool = False,
     ) -> None:
         raw_term = str(raw_term or "").strip()
@@ -2120,6 +2153,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
             "xref_id": xref_id,
             "match_type": match_type,
             "xref_confidence": xref_confidence,
+            "equivalence_confidence": equivalence_confidence or xref_confidence,
             "obsolete": obsolete,
         })
 
@@ -2143,6 +2177,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             add_term(
@@ -2153,6 +2188,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -2164,6 +2200,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             for synonym in _split_pipe(label_row.get("synonyms", "")):
@@ -2175,6 +2212,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                     xref_id=xref_id,
                     match_type=edge.get("match_type", ""),
                     xref_confidence=edge.get("xref_confidence", ""),
+                    equivalence_confidence=edge.get("equivalence_confidence", ""),
                     obsolete=is_obsolete,
                 )
 
@@ -2213,6 +2251,7 @@ def resolve_name_candidates(
             "xref_id": "",
             "match_type": "exact",
             "xref_confidence": "1.0",
+            "equivalence_confidence": "1.0",
             "obsolete": False,
         }, 1.0)
 
@@ -2239,7 +2278,10 @@ def resolve_name_candidates(
         concept = data.concepts_by_pxref.get(pxref, {})
         source_count = int(_safe_float(concept.get("n_sources", 0)))
         source_score = min(1.0, 0.55 + source_count * 0.09)
-        xref_score = _safe_float(term.get("xref_confidence", ""), 0.0)
+        xref_score = _safe_float(
+            term.get("equivalence_confidence", "") or term.get("xref_confidence", ""),
+            0.0,
+        )
         harmonizer_score = max(_tier_score(concept.get("confidence_tier", "")), xref_score)
         prior = _field_prior(term.get("field", ""))
 
@@ -2286,6 +2328,7 @@ def resolve_name_candidates(
             "matched_source": term.get("source", ""),
             "matched_xref_id": term.get("xref_id", ""),
             "matched_xref_match_type": term.get("match_type", ""),
+            "equivalence_confidence": term.get("equivalence_confidence", ""),
             "xref_confidence": term.get("xref_confidence", ""),
             "confidence_tier": concept.get("confidence_tier", ""),
             "overall_quality": concept.get("overall_quality", ""),
@@ -2516,10 +2559,13 @@ def export_search_tsv(
 
 
 _XREF_EDGE_COLUMNS = {
-    "xref_id", "xref_namespace", "match_type", "match_type_source",
-    "agreement_level", "xref_confidence", "mapping_confidence",
-    "label_confidence", "source_support", "asserting_sources",
-    "structural_confidence",
+    "xref_id", "xref_namespace", "match_type", "relation_type",
+    "match_type_source", "agreement_level", "xref_confidence",
+    "relation_confidence", "equivalence_confidence",
+    "mapping_confidence", "label_confidence", "source_support",
+    "validation_support", "corroboration_score", "asserting_sources",
+    "validation_sources", "evidence_streams", "structural_confidence",
+    "evidence_tier", "review_tier", "score_rationale",
     "confidence_score", "label_similarity", "xref_label",
     "xref_is_obsolete", "source_asserted",
 }
@@ -2548,8 +2594,10 @@ _CONCEPT_DOWNLOAD_DEFAULT_COLUMNS = [
 _XREF_EDGE_DOWNLOAD_DEFAULT_COLUMNS = [
     *_CORE_DOWNLOAD_COLUMNS,
     "xref_id", "xref_namespace", "xref_label", "match_type",
-    "match_type_source", "xref_confidence", "agreement_level",
-    "xref_is_obsolete", "asserting_sources",
+    "relation_type", "match_type_source", "equivalence_confidence",
+    "relation_confidence", "evidence_tier", "review_tier",
+    "xref_confidence", "agreement_level", "xref_is_obsolete",
+    "asserting_sources", "validation_sources", "evidence_streams",
 ]
 _CLINICAL_DESCENDANT_DOWNLOAD_DEFAULT_COLUMNS = [
     *_CORE_DOWNLOAD_COLUMNS,
@@ -2681,14 +2729,24 @@ def _filtered_download_rows(
                     row["xref_id"] = edge.get("xref_id", "")
                     row["xref_namespace"] = ns
                     row["match_type"] = edge.get("match_type", "")
+                    row["relation_type"] = edge.get("relation_type", "") or edge.get("match_type", "")
                     row["match_type_source"] = edge.get("match_type_source", "")
                     row["agreement_level"] = edge.get("agreement_level", "")
                     row["xref_confidence"] = edge.get("xref_confidence", "")
+                    row["relation_confidence"] = edge.get("relation_confidence", "")
+                    row["equivalence_confidence"] = edge.get("equivalence_confidence", "")
                     row["mapping_confidence"] = edge.get("mapping_confidence", "")
                     row["label_confidence"] = edge.get("label_confidence", "")
                     row["source_support"] = edge.get("source_support", "")
+                    row["validation_support"] = edge.get("validation_support", "")
+                    row["corroboration_score"] = edge.get("corroboration_score", "")
                     row["asserting_sources"] = edge.get("asserting_sources", "")
+                    row["validation_sources"] = edge.get("validation_sources", "")
+                    row["evidence_streams"] = edge.get("evidence_streams", "")
                     row["structural_confidence"] = edge.get("structural_confidence", "")
+                    row["evidence_tier"] = edge.get("evidence_tier", "")
+                    row["review_tier"] = edge.get("review_tier", "")
+                    row["score_rationale"] = edge.get("score_rationale", "")
                     row["confidence_score"] = edge.get("confidence_score", "")
                     row["label_similarity"] = edge.get("label_similarity", "")
                     row["xref_label"] = edge.get("xref_label", "")
@@ -3015,7 +3073,7 @@ def export_sssom(
             object_label = edge.get("xref_label", "") or label_row.get("preferred_label", "")
             if object_label in ("nan", "NaN"):
                 object_label = ""
-            confidence = edge.get("xref_confidence", "")
+            confidence = edge.get("equivalence_confidence", "") or edge.get("xref_confidence", "")
             row = [
                 pxref,
                 concept.get("standard_name", ""),
@@ -3026,7 +3084,7 @@ def export_sssom(
                 confidence,
                 concept.get("primary_xref_source", ""),
                 ns,
-                edge.get("agreement_level", ""),
+                edge.get("score_rationale", "") or edge.get("evidence_tier", "") or edge.get("agreement_level", ""),
             ]
             lines.append("\t".join(row))
 
@@ -3052,7 +3110,12 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "xref_id": edge.get("xref_id", ""),
             "namespace": _normalize_ns(edge.get("xref_namespace", "")),
             "match_type": edge.get("match_type", ""),
-            "confidence": edge.get("xref_confidence", ""),
+            "relation_type": edge.get("relation_type", "") or edge.get("match_type", ""),
+            "confidence": edge.get("equivalence_confidence", "") or edge.get("xref_confidence", ""),
+            "equivalence_confidence": edge.get("equivalence_confidence", ""),
+            "relation_confidence": edge.get("relation_confidence", ""),
+            "evidence_tier": edge.get("evidence_tier", ""),
+            "review_tier": edge.get("review_tier", ""),
             "agreement_level": edge.get("agreement_level", ""),
             "match_type_source": edge.get("match_type_source", ""),
             "xref_label": edge.get("xref_label", ""),
@@ -3060,8 +3123,13 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "mapping_confidence": edge.get("mapping_confidence", ""),
             "label_confidence": edge.get("label_confidence", ""),
             "source_support": edge.get("source_support", ""),
+            "validation_support": edge.get("validation_support", ""),
+            "corroboration_score": edge.get("corroboration_score", ""),
             "asserting_sources": edge.get("asserting_sources", ""),
+            "validation_sources": edge.get("validation_sources", ""),
+            "evidence_streams": edge.get("evidence_streams", ""),
             "structural_confidence": edge.get("structural_confidence", ""),
+            "score_rationale": edge.get("score_rationale", ""),
         })
 
     decision_list = []
@@ -3820,19 +3888,28 @@ def build_provenance_chain(
     scored_xrefs: set[str] = set()
     for edge in data.edges_by_pxref.get(pxref, []):
         xid = edge.get("xref_id", "")
-        conf = edge.get("xref_confidence", "")
+        conf = edge.get("equivalence_confidence", "") or edge.get("xref_confidence", "")
+        legacy_conf = edge.get("xref_confidence", "")
         if xid and conf and xid not in scored_xrefs:
             scored_xrefs.add(xid)
             steps.append({
                 "step": "confidence_scoring",
                 "xref": xid,
                 "scores": {
-                    "xref_confidence": conf,
+                    "recommended_confidence": conf,
+                    "equivalence_confidence": edge.get("equivalence_confidence", ""),
+                    "relation_confidence": edge.get("relation_confidence", ""),
+                    "xref_confidence": legacy_conf,
                     "mapping_confidence": edge.get("mapping_confidence", ""),
                     "label_confidence": edge.get("label_confidence", ""),
                     "source_support": edge.get("source_support", ""),
+                    "validation_support": edge.get("validation_support", ""),
+                    "corroboration_score": edge.get("corroboration_score", ""),
                     "structural_confidence": edge.get("structural_confidence", ""),
                 },
+                "evidence_tier": edge.get("evidence_tier", ""),
+                "review_tier": edge.get("review_tier", ""),
+                "score_rationale": edge.get("score_rationale", ""),
             })
 
     # Step 3: NodeNorm validation

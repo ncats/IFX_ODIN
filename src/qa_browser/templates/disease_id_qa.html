@@ -123,6 +123,25 @@
                 </div>
                 <div id="dashQualityChart" class="bar-chart"></div>
             </div>
+            <div class="dash-chart-panel">
+                <h3>Xref Evidence Tier Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain xref evidence tiers" aria-expanded="false" aria-controls="xrefEvidenceTierHelp">?</button></h3>
+                <div class="chart-legend" id="xrefEvidenceTierHelp">
+                    <p>Edge-level tiers from the xref confidence model. This distinguishes exact/equivalent xrefs from broad/narrow relationship edges and obsolete xrefs that were deterministically omitted.</p>
+                    <dl>
+                        <dt>accepted_exact</dt>
+                        <dd>Source-asserted exact relationship with strong label/support evidence.</dd>
+                        <dt>probable_exact</dt>
+                        <dd>Likely equivalent based on labels and corroboration, even if the source did not provide a match type.</dd>
+                        <dt>broad_or_narrow</dt>
+                        <dd>Useful relationship context, but not an equivalent identifier.</dd>
+                        <dt>omit_obsolete_xref</dt>
+                        <dd>Obsolete identifier retained only as QC/provenance evidence.</dd>
+                        <dt>needs_expert_review</dt>
+                        <dd>Insufficient or conflicting evidence for automated resolution.</dd>
+                    </dl>
+                </div>
+                <div id="dashEdgeEvidenceChart" class="bar-chart"></div>
+            </div>
         </div>
         <div class="dash-charts">
             <div class="dash-chart-panel">
@@ -149,7 +168,15 @@
             <div class="dash-chart-panel">
                 <h3>Biolink Category Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain Biolink category distribution" aria-expanded="false" aria-controls="biolinkCategoryHelp">?</button></h3>
                 <div class="chart-legend" id="biolinkCategoryHelp">
-                    <p>Concept-level Biolink category assigned during TargetGraph disease ID generation. This separates disease concepts from phenotype-labeled concepts now that phenotype mappings are included again.</p>
+                    <p>Concept-level Biolink class used to separate true disease concepts from phenotype-like findings that enter through disease vocabularies. This is assigned during TargetGraph disease ID generation, not by NodeNorm.</p>
+                    <dl>
+                        <dt>Primary signal: MedGen/UMLS semantic type</dt>
+                        <dd><code>Disease or Syndrome</code>, <code>Neoplastic Process</code>, <code>Mental or Behavioral Dysfunction</code>, <code>Congenital Abnormality</code>, <code>Acquired Abnormality</code>, and <code>Injury or Poisoning</code> map to <code>biolink:Disease</code>. <code>Finding</code>, <code>Sign or Symptom</code>, <code>Laboratory or Test Result</code>, <code>Pathologic Function</code>, <code>Anatomical Abnormality</code>, and <code>Cell or Molecular Dysfunction</code> map to <code>biolink:PhenotypicFeature</code>.</dd>
+                        <dt>Fallback signals</dt>
+                        <dd>If semantic type is unavailable, MedGen concept category can classify disease/finding/phenotype. MONDO subsets such as ORDO morphological, clinical situation, or biological anomaly subsets also mark phenotype-like concepts; MONDO predisposition marks <code>biolink:DiseaseOrPhenotypicFeature</code>.</dd>
+                        <dt>Default</dt>
+                        <dd>If no phenotype signal is found, the concept defaults to <code>biolink:Disease</code>. Remaining OMIM-primary concepts can inherit a non-disease category from harmonized counterpart concepts that reference the same OMIM identifier.</dd>
+                    </dl>
                 </div>
                 <div id="dashDiseaseTypeChart" class="bar-chart"></div>
             </div>
@@ -357,7 +384,7 @@
                 <div id="graphLegend" class="graph-legend expanded">
                     <div class="graph-legend-columns">
                         <div class="graph-legend-col">
-                            <h4>Edge types (match_type)</h4>
+                            <h4>Edge types (relation_type)</h4>
                             <div class="graph-legend-edge-list">
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#059669"></span> <strong>Exact</strong> &mdash; source asserts equivalent meaning (skos:exactMatch)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Broad</strong> &mdash; xref has broader scope than the concept (skos:broadMatch)</span>
@@ -382,14 +409,17 @@
                         <div class="graph-legend-col">
                             <h4>Score components</h4>
                             <table class="graph-legend-score-table">
-                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Weighted composite of the three active sub-scores (0&ndash;1)</td></tr>
-                                <tr><td class="graph-legend-score-name">mapping_confidence</td><td>Match type strength from source-asserted relationship type</td></tr>
+                                <tr><td class="graph-legend-score-name">equivalence_confidence</td><td>Recommended score for exact/equivalent identifier use (0&ndash;1)</td></tr>
+                                <tr><td class="graph-legend-score-name">relation_confidence</td><td>Confidence that the relationship itself is valid, including broad/narrow/related links</td></tr>
+                                <tr><td class="graph-legend-score-name">evidence_tier</td><td>Operational category: accepted exact, probable exact, broad/narrow, omit obsolete, or needs expert review</td></tr>
                                 <tr><td class="graph-legend-score-name">label_confidence</td><td>Synonym-aware label similarity between standard name and xref label</td></tr>
-                                <tr><td class="graph-legend-score-name">source_support</td><td>Normalized count of independent sources asserting this xref</td></tr>
+                                <tr><td class="graph-legend-score-name">source_support</td><td>Independent asserting-source support; NodeNorm is validation, not an asserting source</td></tr>
+                                <tr><td class="graph-legend-score-name">validation_support</td><td>Validator support from NodeNorm-style corroboration streams</td></tr>
+                                <tr><td class="graph-legend-score-name">corroboration_score</td><td>Combined evidence stream support from assertions plus validators</td></tr>
                                 <tr><td class="graph-legend-score-name">structural_confidence</td><td>Cardinality &amp; proxy sharing heuristics (displayed only, not in composite)</td></tr>
-                                <tr><td class="graph-legend-score-name">asserting_sources</td><td>Which sources (e.g. mondo|medgen|nodenorm) assert this mapping</td></tr>
+                                <tr><td class="graph-legend-score-name">xref_confidence</td><td>Legacy composite retained for backwards compatibility</td></tr>
                             </table>
-                            <p class="graph-legend-formula">xref_confidence = 40% mapping + 25% label + 35% source</p>
+                            <p class="graph-legend-formula">Use <code>equivalence_confidence</code> for exact xref downloads. Use <code>relation_confidence</code> for relationship/context layers.</p>
                             <button class="graph-legend-detail-toggle" onclick="document.getElementById('graphLegendDetail').classList.toggle('expanded')">More details</button>
                         </div>
                     </div>
@@ -416,16 +446,18 @@
                                     <li><strong>OMIM / OMIMPS</strong> &mdash; deferred to "unclassified" by default</li>
                                 </ul>
 
-                                <h4>mapping_confidence scores</h4>
+                                <h4>Two-score model</h4>
+                                <p>The pipeline now separates relationship validity from disease-identifier equivalence.
+                                   A source-asserted broad or narrow mapping can have strong <code>relation_confidence</code>
+                                   while still receiving low <code>equivalence_confidence</code>, because it should not be
+                                   treated as an exact replacement identifier.</p>
                                 <table class="graph-legend-score-table">
-                                    <tr><td class="graph-legend-score-name">exact</td><td>1.0</td></tr>
-                                    <tr><td class="graph-legend-score-name">broad</td><td>0.4</td></tr>
-                                    <tr><td class="graph-legend-score-name">narrow</td><td>0.4</td></tr>
-                                    <tr><td class="graph-legend-score-name">unclassified</td><td>0.3</td></tr>
-                                    <tr><td class="graph-legend-score-name">related</td><td>0.2</td></tr>
+                                    <tr><td class="graph-legend-score-name">exact</td><td>High relation and high equivalence when labels/support agree</td></tr>
+                                    <tr><td class="graph-legend-score-name">broad/narrow</td><td>Relationship may be strong; equivalence remains low</td></tr>
+                                    <tr><td class="graph-legend-score-name">related</td><td>Contextual relationship, not a synonym</td></tr>
+                                    <tr><td class="graph-legend-score-name">unclassified</td><td>Can be probable exact only when label/support/corroboration are strong</td></tr>
+                                    <tr><td class="graph-legend-score-name">obsolete</td><td>Tiered as omit unless retained for review evidence</td></tr>
                                 </table>
-                                <p>Penalty: &minus;0.2 if sources disagree (contested), &minus;0.1 if match type
-                                   was structurally inferred rather than source-asserted.</p>
                             </div>
                             <div class="graph-legend-col">
                                 <h4>label_confidence</h4>
@@ -440,9 +472,11 @@
                                    NodeNorm pre-computed labels (UMLS, MESH, SNOMEDCT, NCIT, ICD10, etc.),
                                    public OBO downloads (EFO, NCIT, HP), and UMLS REST API lookups.</p>
 
-                                <h4>source_support</h4>
-                                <p>Counts how many independent sources (mondo, doid, medgen, orphanet, omim, gard, nodenorm)
-                                   assert this specific xref ID in the harmonization file. Normalized to 0&ndash;1:</p>
+                                <h4>source and validation support</h4>
+                                <p><code>source_support</code> counts independent asserting sources such as MONDO, DOID,
+                                   MedGen, Orphanet, OMIM, GARD, EFO, ICD10CM, and SNOMEDCT. <code>validation_support</code>
+                                   captures validator corroboration such as NodeNorm. <code>corroboration_score</code>
+                                   combines both evidence streams without treating NodeNorm as a source.</p>
                                 <table class="graph-legend-score-table">
                                     <tr><td class="graph-legend-score-name">0 sources</td><td>0.00</td></tr>
                                     <tr><td class="graph-legend-score-name">1 source</td><td>0.50</td></tr>
@@ -452,8 +486,8 @@
                                 </table>
 
                                 <h4>structural_confidence</h4>
-                                <p>Minimum of two graph-level heuristics. <strong>Not included</strong> in the composite
-                                   <code>xref_confidence</code> score (weight = 0), but still computed and displayed for reference.</p>
+                                <p>Minimum of two graph-level heuristics. This is retained as QC context and shown
+                                   to reviewers, but it no longer drives the recommended equivalence score by itself.</p>
                                 <ul>
                                     <li><strong>Cardinality score</strong> &mdash; one-to-one = 1.0, one-to-many = 0.6,
                                         many-to-one = 0.5, complex = 0.3</li>
@@ -599,9 +633,14 @@
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_namespace" checked> xref_namespace</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_label" checked> xref_label</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type" checked> match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="relation_type" checked> relation_type</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type_source" checked> match_type_source</label>
-                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_confidence" checked> xref_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="agreement_level" checked> agreement_level</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="equivalence_confidence" checked> equivalence_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="relation_confidence" checked> relation_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="evidence_tier" checked> evidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="review_tier" checked> review_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_confidence"> xref_confidence_legacy</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="agreement_level"> agreement_level_legacy</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_is_obsolete" checked> xref_is_obsolete</label>
                         </div>
                         <div class="column-picker-group dl-mode-group" data-modes="xref_edges">
@@ -610,10 +649,15 @@
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_confidence"> label_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_similarity"> label_similarity</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="validation_support"> validation_support</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="corroboration_score"> corroboration_score</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="asserting_sources" checked> asserting_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="validation_sources" checked> validation_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="evidence_streams" checked> evidence_streams</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="structural_confidence"> structural_confidence</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="confidence_score"> confidence_score</label>
                             <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_asserted"> source_asserted</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="score_rationale"> score_rationale</label>
                         </div>
                         <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Hierarchy</h4>
@@ -1280,6 +1324,23 @@ C4707237</textarea>
                     }
                 });
                 renderBarChart(document.getElementById("dashQualityChart"), qualBucketed, stats.total_concepts, qualColors);
+
+                const edgeEvidenceColors = {
+                    "accepted_exact": "#059669",
+                    "probable_exact": "#0d9488",
+                    "candidate_exact": "#4f46e5",
+                    "broad_or_narrow": "#d97706",
+                    "related_non_equivalent": "#ea580c",
+                    "needs_expert_review": "#dc2626",
+                    "omit_obsolete_xref": "#6b7280",
+                    "unknown": "#cbd5e1",
+                };
+                renderBarChart(
+                    document.getElementById("dashEdgeEvidenceChart"),
+                    stats.edge_evidence_tier_distribution || {},
+                    stats.total_edges || 0,
+                    edgeEvidenceColors
+                );
 
                 renderBarChart(document.getElementById("dashSourceChart"), stats.source_coverage, stats.total_concepts, NS_COLORS);
 
@@ -2186,10 +2247,13 @@ C4707237</textarea>
                 "id", "kind", "standard_name", "ncats_disease_id",
                 "xref_namespace", "xref_label", "is_obsolete", "obsolete_detail",
                 "label_source", "lookup_status",
-                "match_type", "match_type_source", "source_asserted",
+                "match_type", "relation_type", "match_type_source", "source_asserted",
                 "agreement_level", "confidence_score", "label_similarity",
                 "mapping_confidence", "label_confidence", "source_support",
-                "asserting_sources", "structural_confidence", "xref_confidence",
+                "validation_support", "corroboration_score", "asserting_sources",
+                "validation_sources", "evidence_streams", "structural_confidence",
+                "relation_confidence", "equivalence_confidence", "evidence_tier",
+                "review_tier", "score_rationale", "xref_confidence",
                 "xref_is_obsolete", "override_status", "override_reason",
                 "has_conflict", "conflict_status", "conflict_type",
                 "raw_conflict_type", "conflict_resolution", "conflict_detail",
@@ -2963,9 +3027,15 @@ C4707237</textarea>
                         } else if (d.kind === "target_relation_edge") {
                             text = `${(d.predicate || "").replace("biolink:", "")}`;
                         } else {
-                            text = d.match_type || "";
+                            text = d.relation_type || d.match_type || "";
                         }
-                        if (d.xref_confidence) text += ` [${d.xref_confidence}]`;
+                        if (d.equivalence_confidence) text += ` [eq=${d.equivalence_confidence}]`;
+                        if (d.relation_confidence && d.relation_confidence !== d.equivalence_confidence) {
+                            text += ` [rel=${d.relation_confidence}]`;
+                        } else if (!d.equivalence_confidence && d.xref_confidence) {
+                            text += ` [legacy=${d.xref_confidence}]`;
+                        }
+                        if (d.evidence_tier) text += ` ${d.evidence_tier}`;
                         if (d.has_conflict === "true") {
                             text += ` \u26a0 ${d.conflict_type || "conflict"}`;
                             if (d.conflict_status === "resolved") {
@@ -3046,8 +3116,13 @@ C4707237</textarea>
             } else if (s.step === "confidence_scoring") {
                 html += `<strong>Xref:</strong> ${escapeHtml(s.xref)}`;
                 if (s.scores) {
-                    html += ` <strong>Confidence:</strong> ${escapeHtml(s.scores.xref_confidence)}`;
+                    html += ` <strong>Equivalence:</strong> ${escapeHtml(s.scores.equivalence_confidence || s.scores.recommended_confidence || "")}`;
+                    if (s.scores.relation_confidence) html += ` <strong>Relation:</strong> ${escapeHtml(s.scores.relation_confidence)}`;
+                    if (s.scores.xref_confidence) html += ` <strong>Legacy:</strong> ${escapeHtml(s.scores.xref_confidence)}`;
                 }
+                if (s.evidence_tier) html += `<br><strong>Evidence tier:</strong> ${escapeHtml(s.evidence_tier)}`;
+                if (s.review_tier) html += ` <strong>Review tier:</strong> ${escapeHtml(s.review_tier)}`;
+                if (s.score_rationale) html += `<br><strong>Rationale:</strong> ${escapeHtml(s.score_rationale)}`;
             } else if (s.step === "nodenorm_validation") {
                 html += `<strong>Status:</strong> ${escapeHtml(s.status)} <strong>Canonical:</strong> ${escapeHtml(s.canonical)}`;
             } else if (s.step === "conflict_detected") {
