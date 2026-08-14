@@ -46,6 +46,19 @@ def disease_data():
     return load_disease_graph_data(data_dir)
 
 
+@pytest.fixture(scope="module")
+def disease_data_v211():
+    """Load bundled v2.1.1 disease data when available."""
+    from src.qa_browser.disease_id_graph import load_disease_graph_data
+
+    data_dir = Path(__file__).parent.parent / "src" / "qa_browser" / "data" / "disease_app_graph" / "v2.1.1"
+    if not data_dir.is_dir():
+        pytest.skip("Bundled v2.1.1 disease data not available")
+    import src.qa_browser.disease_id_graph as mod
+    mod._singleton = None
+    return load_disease_graph_data(data_dir)
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for helper functions (no data needed)
 # ---------------------------------------------------------------------------
@@ -643,6 +656,21 @@ def test_dashboard_stats_cached(disease_data):
     stats1 = compute_dashboard_stats(disease_data)
     stats2 = compute_dashboard_stats(disease_data)
     assert stats1 is stats2
+
+
+def test_v211_xref_scoring_contract(disease_data_v211):
+    """v2.1.1 xref edges should expose relationship/equivalence scoring fields."""
+    stats = compute_dashboard_stats(disease_data_v211)
+    assert sum(stats["edge_evidence_tier_distribution"].values()) == stats["total_edges"]
+    assert "accepted_exact" in stats["edge_evidence_tier_distribution"]
+    assert "broad_or_narrow" in stats["edge_evidence_tier_distribution"]
+
+    result = resolve_concept(disease_data_v211, "MONDO:0018865")
+    assert result is not None
+    umls = next(x for x in result["xrefs"] if x["xref_id"] == "UMLS:C4707237")
+    assert umls["equivalence_confidence"] == "1.0"
+    assert umls["evidence_tier"] == "accepted_exact"
+    assert umls["review_tier"] == "auto_accept"
 
 
 # ---------------------------------------------------------------------------
