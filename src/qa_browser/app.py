@@ -61,6 +61,7 @@ from src.qa_browser.disease_id_graph import (
     load_disease_graph_data,
     load_version_data,
     load_flagged_concepts,
+    _normalize_download_mode,
     parse_disease_ids,
     resolve_concept,
     resolve_name_candidates,
@@ -6088,11 +6089,12 @@ def disease_id_qa_download_filtered(
     quality: str = "",
     disease_type: str = "",
     columns: str = "",
+    mode: str = "concepts",
     format: str = "tsv",
     include_sources: str = "",
     exclude_obsolete: str = "",
 ):
-    """Download filtered concepts with selectable columns."""
+    """Download filtered disease harmonizer tables with selectable columns."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
@@ -6102,19 +6104,39 @@ def disease_id_qa_download_filtered(
         if include_sources else None
     )
     excl_obs = exclude_obsolete.lower() == "true"
+    mode_key = _normalize_download_mode(mode)
+    version = str(data.manifest.get("pipeline_version", "") or "unknown").strip()
+    version_tag = f"ODINv{version}" if version and not version.startswith("v") else f"ODIN{version}"
+    table_name = {
+        "xref_edges": "disease_xref_edges",
+        "clinical_descendants": "disease_clinical_descendants",
+    }.get(mode_key, "diseases")
+    row_filters_active = any([
+        q.strip(),
+        filter not in ("", "all"),
+        confidence_tier.strip(),
+        is_rare.strip(),
+        source.strip(),
+        quality.strip(),
+        disease_type.strip(),
+        mode_key != "concepts" and bool(src_set),
+        mode_key != "concepts" and excl_obs,
+    ])
+    suffix = "_filtered" if row_filters_active else ""
 
     if format == "xlsx":
         content = export_filtered_xlsx(
             data, q=q, filter_mode=filter,
             confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
             disease_type=disease_type,
-            columns=col_list, include_sources=src_set,
+            columns=col_list, mode=mode_key, include_sources=src_set,
             exclude_obsolete=excl_obs,
         )
+        filename = f"{version_tag}_{table_name}{suffix}.xlsx"
         return StreamingResponse(
             io.BytesIO(content),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": 'attachment; filename="disease_filtered.xlsx"'},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     def _stream():
@@ -6122,7 +6144,7 @@ def disease_id_qa_download_filtered(
             data, q=q, filter_mode=filter,
             confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
             disease_type=disease_type,
-            columns=col_list, fmt=format, include_sources=src_set,
+            columns=col_list, mode=mode_key, fmt=format, include_sources=src_set,
             exclude_obsolete=excl_obs,
         ):
             yield line.encode("utf-8")
@@ -6133,10 +6155,11 @@ def disease_id_qa_download_filtered(
     else:
         media = "text/tab-separated-values"
         ext = "tsv"
+    filename = f"{version_tag}_{table_name}{suffix}.{ext}"
     return StreamingResponse(
         _stream(),
         media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -478,9 +478,16 @@
     <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download" role="tabpanel" aria-labelledby="tab-download-btn">
         <section class="download-panel">
             <div class="download-controls">
-                <h2>Filtered Download</h2>
+                <h2>Download Disease Harmonizer Data</h2>
                 <div class="download-filters">
                     <div class="download-filter-row">
+                        <label>Table:
+                            <select id="dlMode" class="filter-select">
+                                <option value="concepts">Harmonized concepts</option>
+                                <option value="xref_edges">Xref edges</option>
+                                <option value="clinical_descendants">Clinical descendants</option>
+                            </select>
+                        </label>
                         <label>Search:
                             <input type="text" id="dlSearchInput" placeholder="Name or ID..." class="disease-id-search-input">
                         </label>
@@ -532,7 +539,7 @@
                 </div>
 
                 <div class="column-picker" id="dlSourcePicker">
-                    <h3>Source namespaces to include</h3>
+                    <h3 id="dlSourcePickerTitle">Source namespace columns</h3>
                     <div class="column-picker-grid" id="dlSourceGrid">
                         <!-- Populated dynamically, all checked by default -->
                     </div>
@@ -547,78 +554,86 @@
                             <label><input type="checkbox" value="primary_xref" checked disabled> primary_xref</label>
                             <label><input type="checkbox" value="standard_name" checked disabled> standard_name</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Enrichment</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="definition"> definition</label>
-                            <label><input type="checkbox" class="dl-col-check" value="synonyms"> synonyms</label>
-                            <label><input type="checkbox" class="dl-col-check" value="disease_type"> disease_type</label>
-                            <label><input type="checkbox" class="dl-col-check" value="is_rare"> is_rare</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="definition" checked> definition</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="synonyms" checked> synonyms</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="disease_type" checked> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="is_rare" checked> is_rare</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Quality</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier_original" checked> confidence_tier_original</label>
-                            <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
-                            <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="confidence_tier"> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="confidence_tier_original"> confidence_tier_original</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="overall_quality" checked> overall_quality</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="n_sources" checked> n_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="xref_count" checked> xref_count</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Review Decision</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_auto_cleared" checked> needs_review_auto_cleared</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_bucket" checked> needs_review_triage_bucket</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_action"> needs_review_triage_action</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_problem_namespaces" checked> needs_review_problem_namespaces</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_decision" checked> needs_review_decision</label>
-                            <label><input type="checkbox" class="dl-col-check" value="evidence_note"> evidence_note</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_auto_cleared"> needs_review_auto_cleared</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_triage_bucket"> needs_review_triage_bucket</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_triage_action"> needs_review_triage_action</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_problem_namespaces"> needs_review_problem_namespaces</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_decision"> needs_review_decision</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="evidence_note"> evidence_note</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="xref_edges">
                             <h4>Xref Edges</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_id" checked> xref_id</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_namespace" checked> xref_namespace</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_label" checked> xref_label</label>
-                            <label><input type="checkbox" class="dl-col-check" value="match_type" checked> match_type</label>
-                            <label><input type="checkbox" class="dl-col-check" value="match_type_source"> match_type_source</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_confidence" checked> xref_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="agreement_level"> agreement_level</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_is_obsolete"> xref_is_obsolete</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_id" checked> xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_namespace" checked> xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_label" checked> xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type" checked> match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type_source" checked> match_type_source</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_confidence" checked> xref_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="agreement_level" checked> agreement_level</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_is_obsolete" checked> xref_is_obsolete</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="xref_edges">
                             <h4>Scoring Detail</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="mapping_confidence"> mapping_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="label_confidence"> label_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="label_similarity"> label_similarity</label>
-                            <label><input type="checkbox" class="dl-col-check" value="source_support"> source_support</label>
-                            <label><input type="checkbox" class="dl-col-check" value="asserting_sources"> asserting_sources</label>
-                            <label><input type="checkbox" class="dl-col-check" value="structural_confidence"> structural_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_score"> confidence_score</label>
-                            <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="mapping_confidence"> mapping_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_confidence"> label_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_similarity"> label_similarity</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="asserting_sources" checked> asserting_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="structural_confidence"> structural_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="confidence_score"> confidence_score</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_asserted"> source_asserted</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Hierarchy</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parent_count"> hierarchy_parent_count</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_child_count"> hierarchy_child_count</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parents"> hierarchy_parents</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_children"> hierarchy_children</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_parent_count"> hierarchy_parent_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_child_count"> hierarchy_child_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_parents" checked> hierarchy_parents</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_children" checked> hierarchy_children</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="clinical_descendants">
                             <h4>Clinical Descendants</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="anchor_xref_id"> anchor_xref_id</label>
-                            <label><input type="checkbox" class="dl-col-check" value="descendant_xref_id"> descendant_xref_id</label>
-                            <label><input type="checkbox" class="dl-col-check" value="descendant_xref_label"> descendant_xref_label</label>
-                            <label><input type="checkbox" class="dl-col-check" value="relationship_to_disease"> relationship_to_disease</label>
-                            <label><input type="checkbox" class="dl-col-check" value="predicate"> predicate</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_source"> hierarchy_source</label>
-                            <label><input type="checkbox" class="dl-col-check" value="distance_from_anchor"> distance_from_anchor</label>
-                            <label><input type="checkbox" class="dl-col-check" value="descendant_source_status"> descendant_source_status</label>
-                            <label><input type="checkbox" class="dl-col-check" value="may_not_be_rare_warning"> may_not_be_rare_warning</label>
-                            <label><input type="checkbox" class="dl-col-check" value="warning_reason"> warning_reason</label>
-                            <label><input type="checkbox" class="dl-col-check" value="review_status"> review_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="disease_type" checked> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="is_rare" checked> is_rare</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_id" checked> anchor_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_namespace" checked> anchor_xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_label" checked> anchor_xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_match_type" checked> anchor_match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_asserting_sources" checked> anchor_asserting_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_id" checked> descendant_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_namespace" checked> descendant_xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_label" checked> descendant_xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="relationship_to_disease" checked> relationship_to_disease</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="predicate" checked> predicate</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="hierarchy_source" checked> hierarchy_source</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="distance_from_anchor" checked> distance_from_anchor</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="distance_status" checked> distance_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_source_status" checked> descendant_source_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="may_not_be_rare_warning" checked> may_not_be_rare_warning</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="warning_reason" checked> warning_reason</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="review_status" checked> review_status</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>NodeNorm</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_validation_status"> nodenorm_validation_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_canonical_curie" checked> nodenorm_canonical_curie</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_canonical_label" checked> nodenorm_canonical_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_validation_status"> nodenorm_validation_status</label>
                         </div>
                     </div>
                 </div>
@@ -860,6 +875,11 @@ C4707237</textarea>
         "MONDO": "#0d9488", "DOID": "#4f46e5", "OMIM": "#7c3aed",
         "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
     };
+    const DOWNLOAD_SOURCE_ORDER = [
+        "DOID", "EFO", "GARD", "HP", "ICD10", "ICD11", "ICD11f",
+        "ICD9", "ICDO", "KEGG", "MEDDRA", "MEDGEN", "MESH",
+        "MONDO", "NCIT", "OMIM", "OMIMPS", "Orphanet", "SNOMEDCT", "UMLS",
+    ];
 
     function renderBarChart(container, data, total, colorMap) {
         container.innerHTML = "";
@@ -882,7 +902,13 @@ C4707237</textarea>
 
     function populateFilterDropdowns(stats) {
         // Source namespace dropdown (Concepts tab)
-        const sources = Object.keys(stats.source_coverage).sort();
+        const rawSources = Object.keys(stats.source_coverage);
+        const sourceRank = new Map(DOWNLOAD_SOURCE_ORDER.map((ns, idx) => [ns.toUpperCase(), idx]));
+        const sources = rawSources.sort((a, b) => {
+            const ar = sourceRank.has(a.toUpperCase()) ? sourceRank.get(a.toUpperCase()) : 999;
+            const br = sourceRank.has(b.toUpperCase()) ? sourceRank.get(b.toUpperCase()) : 999;
+            return ar === br ? a.localeCompare(b) : ar - br;
+        });
         sources.forEach(ns => {
             const opt = document.createElement("option");
             opt.value = ns;
@@ -894,7 +920,7 @@ C4707237</textarea>
         const sourceGrid = document.getElementById("dlSourceGrid");
         const group = document.createElement("div");
         group.className = "column-picker-group";
-        group.innerHTML = "<h4>Sources (uncheck to exclude from xref labels)</h4>";
+        group.innerHTML = "<h4>Sources</h4>";
         sources.forEach(ns => {
             const label = document.createElement("label");
             label.innerHTML = `<input type="checkbox" class="dl-source-check" value="${ns}" checked> ${ns}`;
@@ -3235,6 +3261,7 @@ C4707237</textarea>
     });
 
     /* == Download tab == */
+    const dlMode = document.getElementById("dlMode");
     const dlSearchInput = document.getElementById("dlSearchInput");
     const dlFilterMode = document.getElementById("dlFilterMode");
     const dlConfidence = document.getElementById("dlConfidence");
@@ -3245,8 +3272,30 @@ C4707237</textarea>
     const dlExcludeObsolete = document.getElementById("dlExcludeObsolete");
     const dlPreview = document.getElementById("dlPreview");
     const dlDownloadBtn = document.getElementById("dlDownloadBtn");
+    const dlSourcePickerTitle = document.getElementById("dlSourcePickerTitle");
 
     let dlTimer = null;
+    function currentDownloadMode() {
+        return dlMode ? dlMode.value : "concepts";
+    }
+
+    function updateDownloadModeUI() {
+        const mode = currentDownloadMode();
+        document.querySelectorAll(".dl-mode-group").forEach(group => {
+            const modes = String(group.dataset.modes || "").split(",").map(v => v.trim());
+            const active = modes.includes(mode);
+            group.hidden = !active;
+            group.querySelectorAll(".dl-col-check").forEach(input => {
+                input.disabled = !active;
+            });
+        });
+        if (dlSourcePickerTitle) {
+            dlSourcePickerTitle.textContent = mode === "concepts"
+                ? "Source namespace columns"
+                : "Source namespace row filter";
+        }
+    }
+
     function updateDlPreview() {
         const params = new URLSearchParams({
             q: dlSearchInput.value.trim(),
@@ -3260,29 +3309,45 @@ C4707237</textarea>
         });
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
 
+        const mode = currentDownloadMode();
         fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
             .then(r => r.json())
             .then(data => {
-                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> concepts match your filters`;
+                const suffix = mode === "xref_edges"
+                    ? "concepts match; xref download is one row per xref edge"
+                    : mode === "clinical_descendants"
+                        ? "concepts match; clinical download is one row per descendant relationship"
+                        : "concepts match your filters";
+                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> ${suffix}`;
             })
             .catch(() => {
                 dlPreview.innerHTML = `<span style="color:var(--text-muted)">Unable to estimate count.</span>`;
             });
     }
 
-    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
+    [dlMode, dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
         el.addEventListener("change", updateDlPreview);
     });
+    if (dlMode) {
+        dlMode.addEventListener("change", updateDownloadModeUI);
+    }
     dlSearchInput.addEventListener("input", () => {
         clearTimeout(dlTimer);
         dlTimer = setTimeout(updateDlPreview, 300);
     });
+    updateDownloadModeUI();
     updateDlPreview();
 
     dlDownloadBtn.addEventListener("click", () => {
+        const mode = currentDownloadMode();
         const coreCols = ["ncats_disease_id", "primary_xref", "standard_name"];
-        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")].map(c => c.value);
-        const allCols = [...coreCols, ...extraCols];
+        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")]
+            .filter(c => !c.disabled && (c.dataset.mode || mode) === mode)
+            .map(c => c.value);
+        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        const allCols = mode === "concepts"
+            ? [...coreCols, ...extraCols, ...checkedSources]
+            : [...coreCols, ...extraCols];
 
         const params = new URLSearchParams({
             q: dlSearchInput.value.trim(),
@@ -3291,13 +3356,14 @@ C4707237</textarea>
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
             disease_type: dlDiseaseType.value,
+            mode,
             format: dlFormat.value,
             columns: allCols.join(","),
         });
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
 
-        // Source namespace filter — only send if not all are checked
-        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        // Source namespace selection: concept mode uses these as wide columns;
+        // relationship modes use them as row filters.
         const allSourceChecks = document.querySelectorAll(".dl-source-check");
         if (checkedSources.length < allSourceChecks.length) {
             params.set("include_sources", checkedSources.join(","));

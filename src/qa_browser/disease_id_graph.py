@@ -1790,6 +1790,39 @@ def _format_hierarchy_refs(rows: list[dict], role: str, limit: int = 12) -> str:
     return " | ".join(values)
 
 
+_DISEASE_SOURCE_NAMESPACE_COLUMNS = [
+    "DOID", "EFO", "GARD", "HP", "ICD10", "ICD11", "ICD11f",
+    "ICD9", "ICDO", "KEGG", "MEDDRA", "MEDGEN", "MESH",
+    "MONDO", "NCIT", "OMIM", "OMIMPS", "Orphanet", "SNOMEDCT", "UMLS",
+]
+_DISEASE_SOURCE_NAMESPACE_BY_UPPER = {
+    ns.upper(): ns for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+}
+_DISEASE_SOURCE_NAMESPACE_ALIASES = {
+    "ICD10CM": "ICD10",
+    "ORPHA": "Orphanet",
+    "ORDO": "Orphanet",
+}
+
+
+def _curie_namespace(curie: str) -> str:
+    return curie.split(":", 1)[0].strip() if ":" in curie else ""
+
+
+def _canonical_source_column(ns: str) -> str:
+    normalized = _normalize_ns((ns or "").strip())
+    key = normalized.upper()
+    if key in _DISEASE_SOURCE_NAMESPACE_ALIASES:
+        return _DISEASE_SOURCE_NAMESPACE_ALIASES[key]
+    return _DISEASE_SOURCE_NAMESPACE_BY_UPPER.get(key, normalized)
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    value = (value or "").strip()
+    if value and value not in values:
+        values.append(value)
+
+
 def _concept_to_row(
     pxref: str,
     concept: dict,
@@ -1822,6 +1855,19 @@ def _concept_to_row(
 
     parents = data.hierarchy_by_child.get(pxref, [])
     children = data.hierarchy_by_parent.get(pxref, [])
+    source_xrefs: dict[str, list[str]] = {
+        ns: [] for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+    }
+
+    def add_source_xref(xref_id: str, namespace: str = "") -> None:
+        column = _canonical_source_column(namespace or _curie_namespace(xref_id))
+        if column not in source_xrefs:
+            return
+        if include_sources and column.upper() not in include_sources:
+            return
+        _append_unique(source_xrefs[column], xref_id)
+
+    add_source_xref(pxref)
 
     # Build compact source labels: "MONDO: Diabetes | OMIM: Type 2 diabetes"
     source_labels: list[str] = []
@@ -1832,6 +1878,7 @@ def _concept_to_row(
             continue
         if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
             continue
+        add_source_xref(xref_id, ns)
         label = edge.get("xref_label", "")
         if not label:
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -1839,7 +1886,7 @@ def _concept_to_row(
         if ns and label:
             source_labels.append(f"{ns}: {label}")
 
-    return {
+    row = {
         "primary_xref": pxref,
         "ncats_disease_id": concept.get("ncats_disease_id", ""),
         "standard_name": concept.get("standard_name", ""),
@@ -1878,6 +1925,11 @@ def _concept_to_row(
         "hierarchy_children": _format_hierarchy_refs(children, "child"),
         "href": f"/disease-id-qa?ids={pxref}",
     }
+    row.update({
+        ns: " | ".join(source_xrefs[ns])
+        for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+    })
+    return row
 
 
 def _split_pipe(value: Any) -> list[str]:
@@ -2438,20 +2490,82 @@ _CLINICAL_DESCENDANT_COLUMNS = {
     "warning_reason", "evidence_sources", "review_status",
 }
 
+_CORE_DOWNLOAD_COLUMNS = ["ncats_disease_id", "primary_xref", "standard_name"]
+_CONCEPT_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "definition", "synonyms", "disease_type", "is_rare",
+    "overall_quality", "n_sources", "xref_count",
+    "nodenorm_canonical_curie", "nodenorm_canonical_label",
+    "hierarchy_parents", "hierarchy_children",
+    *_DISEASE_SOURCE_NAMESPACE_COLUMNS,
+]
+_XREF_EDGE_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "xref_id", "xref_namespace", "xref_label", "match_type",
+    "match_type_source", "xref_confidence", "agreement_level",
+    "xref_is_obsolete", "asserting_sources",
+]
+_CLINICAL_DESCENDANT_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "disease_type", "is_rare",
+    "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+    "anchor_match_type", "anchor_asserting_sources",
+    "descendant_xref_id", "descendant_xref_namespace",
+    "descendant_xref_label", "relationship_to_disease", "predicate",
+    "hierarchy_source", "distance_from_anchor", "distance_status",
+    "descendant_source_status", "may_not_be_rare_warning",
+    "warning_reason", "review_status",
+]
+
+
+def _dedupe_columns(columns: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for col in columns:
+        if col and col not in seen:
+            seen.add(col)
+            deduped.append(col)
+    return deduped
+
+
+def _normalize_download_mode(mode: str = "concepts") -> str:
+    mode = (mode or "concepts").strip().lower()
+    aliases = {
+        "concept": "concepts",
+        "diseases": "concepts",
+        "disease": "concepts",
+        "edges": "xref_edges",
+        "xref": "xref_edges",
+        "xrefs": "xref_edges",
+        "clinical": "clinical_descendants",
+        "clinical_descendant": "clinical_descendants",
+    }
+    return aliases.get(mode, mode if mode in {"concepts", "xref_edges", "clinical_descendants"} else "concepts")
+
 
 def _filtered_download_columns(
     columns: list[str] | None = None,
+    mode: str = "concepts",
 ) -> tuple[list[str], bool, bool]:
     """Return (use_columns, xref_edge_mode, clinical_descendant_mode)."""
-    default_columns = [
-        "ncats_disease_id", "primary_xref", "standard_name",
-        "confidence_tier", "confidence_tier_original",
-        "needs_review_auto_cleared", "needs_review_triage_bucket",
-        "needs_review_decision", "overall_quality", "n_sources", "xref_count",
-    ]
-    use_columns = columns if columns else default_columns
-    clinical_descendant_mode = any(c in _CLINICAL_DESCENDANT_COLUMNS for c in use_columns)
-    edge_mode = any(c in _XREF_EDGE_COLUMNS for c in use_columns) and not clinical_descendant_mode
+    mode = _normalize_download_mode(mode)
+    if columns:
+        use_columns = _dedupe_columns([*_CORE_DOWNLOAD_COLUMNS, *columns])
+    elif mode == "xref_edges":
+        use_columns = list(_XREF_EDGE_DOWNLOAD_DEFAULT_COLUMNS)
+    elif mode == "clinical_descendants":
+        use_columns = list(_CLINICAL_DESCENDANT_DOWNLOAD_DEFAULT_COLUMNS)
+    else:
+        use_columns = list(_CONCEPT_DOWNLOAD_DEFAULT_COLUMNS)
+    if mode == "concepts":
+        relationship_columns = _XREF_EDGE_COLUMNS | _CLINICAL_DESCENDANT_COLUMNS
+        use_columns = [col for col in use_columns if col not in relationship_columns]
+    elif mode == "xref_edges":
+        use_columns = [col for col in use_columns if col not in _CLINICAL_DESCENDANT_COLUMNS]
+    elif mode == "clinical_descendants":
+        use_columns = [col for col in use_columns if col not in _XREF_EDGE_COLUMNS]
+    clinical_descendant_mode = mode == "clinical_descendants"
+    edge_mode = mode == "xref_edges"
     return use_columns, edge_mode, clinical_descendant_mode
 
 
@@ -2465,12 +2579,13 @@ def _filtered_download_rows(
     quality: str = "",
     disease_type: str = "",
     columns: list[str] | None = None,
+    mode: str = "concepts",
     limit: int = 200_000,
     include_sources: set[str] | None = None,
     exclude_obsolete: bool = False,
 ) -> tuple[list[str], bool, Any]:
     """Return (use_columns, edge_mode, row_iterator) for filtered downloads."""
-    use_columns, edge_mode, clinical_descendant_mode = _filtered_download_columns(columns)
+    use_columns, edge_mode, clinical_descendant_mode = _filtered_download_columns(columns, mode)
     q_lower = q.strip().lower()
 
     def _iter_rows():
@@ -2493,7 +2608,6 @@ def _filtered_download_rows(
 
             if clinical_descendant_mode:
                 descendant_rows = data.clinical_descendants_by_pxref.get(pxref, [])
-                wrote_any = False
                 for descendant in descendant_rows:
                     ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
                     anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
@@ -2504,18 +2618,13 @@ def _filtered_download_rows(
                         row[col] = descendant.get(col, "")
                     yield row
                     count += 1
-                    wrote_any = True
                     if count >= limit:
                         return
-                if not wrote_any:
-                    yield concept_row
-                    count += 1
             elif not edge_mode:
                 yield concept_row
                 count += 1
             else:
                 edges = data.edges_by_pxref.get(pxref, [])
-                wrote_any = False
                 for edge in edges:
                     ns = _normalize_ns(edge.get("xref_namespace", ""))
                     if include_sources and ns.upper() not in include_sources:
@@ -2541,12 +2650,8 @@ def _filtered_download_rows(
                     row["source_asserted"] = edge.get("source_asserted", "")
                     yield row
                     count += 1
-                    wrote_any = True
                     if count >= limit:
                         return
-                if not wrote_any:
-                    yield concept_row
-                    count += 1
 
             if count >= limit:
                 return
@@ -2564,6 +2669,7 @@ def export_filtered_download(
     quality: str = "",
     disease_type: str = "",
     columns: list[str] | None = None,
+    mode: str = "concepts",
     fmt: str = "tsv",
     limit: int = 200_000,
     include_sources: set[str] | None = None,
@@ -2591,6 +2697,7 @@ def export_filtered_download(
         data, q=q, filter_mode=filter_mode,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source,
         quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
         limit=limit, include_sources=include_sources,
         exclude_obsolete=exclude_obsolete,
     )
@@ -2613,6 +2720,7 @@ def stream_filtered_download(
     quality: str = "",
     disease_type: str = "",
     columns: list[str] | None = None,
+    mode: str = "concepts",
     fmt: str = "tsv",
     limit: int = 200_000,
     include_sources: set[str] | None = None,
@@ -2623,6 +2731,7 @@ def stream_filtered_download(
         data, q=q, filter_mode=filter_mode,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source,
         quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
         limit=limit, include_sources=include_sources,
         exclude_obsolete=exclude_obsolete,
     )
@@ -2652,6 +2761,7 @@ def export_filtered_xlsx(
     quality: str = "",
     disease_type: str = "",
     columns: list[str] | None = None,
+    mode: str = "concepts",
     limit: int = 200_000,
     include_sources: set[str] | None = None,
     exclude_obsolete: bool = False,
@@ -2664,13 +2774,17 @@ def export_filtered_xlsx(
         data, q=q, filter_mode=filter_mode,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source,
         quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
         limit=limit, include_sources=include_sources,
         exclude_obsolete=exclude_obsolete,
     )
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Disease Concepts"
+    ws.title = {
+        "xref_edges": "Disease Xref Edges",
+        "clinical_descendants": "Clinical Descendants",
+    }.get(_normalize_download_mode(mode), "Disease Concepts")
 
     # Header
     ws.append(use_columns)
@@ -2902,14 +3016,35 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
 # ---------------------------------------------------------------------------
 
 _NS_CASE_NORMALIZE: dict[str, str] = {
+    "doid": "DOID",
+    "efo": "EFO",
+    "gard": "GARD",
+    "hp": "HP",
+    "icd10": "ICD10",
+    "icd10cm": "ICD10CM",
+    "icd11": "ICD11",
+    "icd11f": "ICD11f",
+    "icd9": "ICD9",
+    "icdo": "ICDO",
+    "kegg": "KEGG",
+    "meddra": "MEDDRA",
     "snomedct": "SNOMEDCT",
     "medgen": "MEDGEN",
+    "mesh": "MESH",
+    "mondo": "MONDO",
+    "ncit": "NCIT",
+    "omim": "OMIM",
+    "omimps": "OMIMPS",
+    "ordo": "ORDO",
+    "orphanet": "Orphanet",
+    "umls": "UMLS",
 }
 
 
 def _normalize_ns(ns: str) -> str:
     """Normalize namespace casing (e.g. snomedct → SNOMEDCT)."""
-    return _NS_CASE_NORMALIZE.get(ns, ns)
+    ns = (ns or "").strip()
+    return _NS_CASE_NORMALIZE.get(ns.lower(), ns)
 
 
 def compute_source_agreement_matrix(data: DiseaseGraphData) -> dict[str, Any]:
