@@ -1,9 +1,9 @@
 {
   "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-13T17:03:26.689303+00:00",
-  "git_commit": "b8d682a",
-  "duration_seconds": 30.32,
+  "generated_at": "2026-08-14T15:07:50.335245+00:00",
+  "git_commit": "d5eb7e7",
+  "duration_seconds": 50.34,
   "files": {
     "disease_concepts.tsv": {
       "rows": 111714,
@@ -103,6 +103,52 @@
         "source"
       ]
     },
+    "disease_clinical_descendant_edges.tsv": {
+      "rows": 42321,
+      "key": [
+        "ncats_disease_id",
+        "anchor_xref_id",
+        "descendant_xref_id",
+        "hierarchy_source"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "disease_label",
+        "disease_type",
+        "is_rare",
+        "anchor_xref_id",
+        "anchor_xref_namespace",
+        "anchor_xref_label",
+        "anchor_match_type",
+        "anchor_asserting_sources",
+        "descendant_xref_id",
+        "descendant_xref_namespace",
+        "descendant_xref_label",
+        "relationship_to_anchor",
+        "relationship_to_disease",
+        "predicate",
+        "hierarchy_source",
+        "distance_from_anchor",
+        "distance_status",
+        "path",
+        "descendant_source_status",
+        "existing_odin_match_types",
+        "existing_odin_primary_xrefs",
+        "in_mondo_xrefs",
+        "in_yadaw_s2",
+        "in_yadaw_s3",
+        "rare_anchor",
+        "may_not_be_rare_warning",
+        "warning_reason",
+        "evidence_sources",
+        "review_status"
+      ],
+      "note": "Inferred clinical-code hierarchy candidates. These are not direct exact xrefs and should be displayed/downloaded as a separate broad/narrow relationship layer."
+    },
     "xref_labels.tsv": {
       "rows": 294079,
       "key": "xref_id",
@@ -198,6 +244,9 @@
     "auto_blocklist_file": "src/data/publicdata/disease_data/v2.1.1/overrides/disease_blocklist_auto.tsv",
     "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml",
     "hierarchy_child_to_parents_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/sources/child_to_parents.json",
+    "clinical_descendant_arjun_supplement_file": "src/data/publicdata/disease_data/v2.1.1/qc/arjun_comparison/41598_2026_43020_MOESM1_ESM.xlsx",
+    "clinical_descendant_icd10cm_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/sources/icd10cm_codes.csv",
+    "clinical_descendant_snomedct_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/sources/snomedct_diseases.csv",
     "gene_support_file": "src/data/publicdata/disease_data/v2.1.1/cleaned/final/harmonized_disease_gene_support.tsv"
   }
 }

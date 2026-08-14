@@ -271,9 +271,10 @@
             <div class="review-controls">
                 <input type="text" id="reviewSearchInput" class="disease-id-search-input" placeholder="Search review items by disease, xref, source, or issue...">
                 <select id="reviewStatusFilter" class="filter-select">
-                    <option value="open">Open / unresolved</option>
-                    <option value="all">All statuses</option>
-                    <option value="resolved">Resolved / acknowledged</option>
+                    <option value="open">Still needs decision</option>
+                    <option value="stale">Stale / not currently observed</option>
+                    <option value="resolved">Reviewed / resolved</option>
+                    <option value="all">All records</option>
                 </select>
                 <select id="reviewSourceFilter" class="filter-select">
                     <option value="">All sources</option>
@@ -324,6 +325,7 @@
                     <label><input type="checkbox" id="filterHideGeneAssoc" checked> Hide gene associations</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label><input type="checkbox" id="filterExpandHierarchy"> Expand hierarchy</label><span class="filter-help">?<span class="filter-help-text">Loads MONDO is_a parent/child relationships for all queried concepts. Shows where each concept sits in the MONDO ontology tree — parents above, children below. This is specifically MONDO hierarchy, not ICD10CM or other sources.</span></span>
+                    <label><input type="checkbox" id="filterExpandClinicalDescendants"> Clinical descendants</label><span class="filter-help">?<span class="filter-help-text">Loads inferred SNOMEDCT/ICD10CM descendant code candidates as a separate narrow-match layer. These are not direct exact xrefs and may need expert review, especially when marked as not rare-safe.</span></span>
                     <label><input type="checkbox" id="filterExpandNeighbors"> Expand neighbors</label><span class="filter-help">?<span class="filter-help-text">Finds other disease concepts that share at least one cross-reference ID with the queried concepts. Useful for spotting potential merges or split concerns — concepts that are "close" in cross-reference space because they claim the same OMIM, DOID, or other xref.</span></span>
                     <label id="filterShowTranscriptsLabel" style="display:none"><input type="checkbox" id="filterShowTranscripts"> Transcripts (<span id="diseaseTranscriptCount">0</span>)</label>
                     <label id="filterShowProteinsLabel" style="display:none"><input type="checkbox" id="filterShowProteins"> Proteins (<span id="diseaseProteinCount">0</span>)</label>
@@ -349,6 +351,7 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> <strong>Clinical descendant</strong> &mdash; inferred SNOMEDCT/ICD10CM narrow-match candidate, not a direct exact xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#be5a38"></span> <strong>Phenotypic feature</strong> &mdash; concept typed as biolink:PhenotypicFeature</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0d9488"></span> <strong>Gene association</strong> &mdash; disease-gene link with support tier; purple border = target harmonizer linked</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#7c3aed"></span> <strong>Protein</strong> &mdash; gene product from target harmonizer (biolink:has_gene_product)</span>
@@ -475,9 +478,16 @@
     <div class="disease-tab-panel{% if active_tab == 'download' %} active{% endif %}" id="tab-download" role="tabpanel" aria-labelledby="tab-download-btn">
         <section class="download-panel">
             <div class="download-controls">
-                <h2>Filtered Download</h2>
+                <h2>Download Disease Harmonizer Data</h2>
                 <div class="download-filters">
                     <div class="download-filter-row">
+                        <label>Table:
+                            <select id="dlMode" class="filter-select">
+                                <option value="concepts">Harmonized concepts</option>
+                                <option value="xref_edges">Xref edges</option>
+                                <option value="clinical_descendants">Clinical descendants</option>
+                            </select>
+                        </label>
                         <label>Search:
                             <input type="text" id="dlSearchInput" placeholder="Name or ID..." class="disease-id-search-input">
                         </label>
@@ -529,7 +539,7 @@
                 </div>
 
                 <div class="column-picker" id="dlSourcePicker">
-                    <h3>Source namespaces to include</h3>
+                    <h3 id="dlSourcePickerTitle">Source namespace columns</h3>
                     <div class="column-picker-grid" id="dlSourceGrid">
                         <!-- Populated dynamically, all checked by default -->
                     </div>
@@ -544,64 +554,86 @@
                             <label><input type="checkbox" value="primary_xref" checked disabled> primary_xref</label>
                             <label><input type="checkbox" value="standard_name" checked disabled> standard_name</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Enrichment</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="definition"> definition</label>
-                            <label><input type="checkbox" class="dl-col-check" value="synonyms"> synonyms</label>
-                            <label><input type="checkbox" class="dl-col-check" value="disease_type"> disease_type</label>
-                            <label><input type="checkbox" class="dl-col-check" value="is_rare"> is_rare</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="definition" checked> definition</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="synonyms" checked> synonyms</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="disease_type" checked> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="is_rare" checked> is_rare</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Quality</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier" checked> confidence_tier</label>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_tier_original" checked> confidence_tier_original</label>
-                            <label><input type="checkbox" class="dl-col-check" value="overall_quality" checked> overall_quality</label>
-                            <label><input type="checkbox" class="dl-col-check" value="n_sources" checked> n_sources</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_count" checked> xref_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="confidence_tier"> confidence_tier</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="confidence_tier_original"> confidence_tier_original</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="overall_quality" checked> overall_quality</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="n_sources" checked> n_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="xref_count" checked> xref_count</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Review Decision</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_auto_cleared" checked> needs_review_auto_cleared</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_bucket" checked> needs_review_triage_bucket</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_triage_action"> needs_review_triage_action</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_problem_namespaces" checked> needs_review_problem_namespaces</label>
-                            <label><input type="checkbox" class="dl-col-check" value="needs_review_decision" checked> needs_review_decision</label>
-                            <label><input type="checkbox" class="dl-col-check" value="evidence_note"> evidence_note</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_auto_cleared"> needs_review_auto_cleared</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_triage_bucket"> needs_review_triage_bucket</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_triage_action"> needs_review_triage_action</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_problem_namespaces"> needs_review_problem_namespaces</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="needs_review_decision"> needs_review_decision</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="evidence_note"> evidence_note</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="xref_edges">
                             <h4>Xref Edges</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_id" checked> xref_id</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_namespace" checked> xref_namespace</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_label" checked> xref_label</label>
-                            <label><input type="checkbox" class="dl-col-check" value="match_type" checked> match_type</label>
-                            <label><input type="checkbox" class="dl-col-check" value="match_type_source"> match_type_source</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_confidence" checked> xref_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="agreement_level"> agreement_level</label>
-                            <label><input type="checkbox" class="dl-col-check" value="xref_is_obsolete"> xref_is_obsolete</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_id" checked> xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_namespace" checked> xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_label" checked> xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type" checked> match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="match_type_source" checked> match_type_source</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_confidence" checked> xref_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="agreement_level" checked> agreement_level</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="xref_is_obsolete" checked> xref_is_obsolete</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="xref_edges">
                             <h4>Scoring Detail</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="mapping_confidence"> mapping_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="label_confidence"> label_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="label_similarity"> label_similarity</label>
-                            <label><input type="checkbox" class="dl-col-check" value="source_support"> source_support</label>
-                            <label><input type="checkbox" class="dl-col-check" value="asserting_sources"> asserting_sources</label>
-                            <label><input type="checkbox" class="dl-col-check" value="structural_confidence"> structural_confidence</label>
-                            <label><input type="checkbox" class="dl-col-check" value="confidence_score"> confidence_score</label>
-                            <label><input type="checkbox" class="dl-col-check" value="source_asserted"> source_asserted</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="mapping_confidence"> mapping_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_confidence"> label_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="label_similarity"> label_similarity</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_support"> source_support</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="asserting_sources" checked> asserting_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="structural_confidence"> structural_confidence</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="confidence_score"> confidence_score</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="xref_edges" value="source_asserted"> source_asserted</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>Hierarchy</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parent_count"> hierarchy_parent_count</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_child_count"> hierarchy_child_count</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_parents"> hierarchy_parents</label>
-                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_children"> hierarchy_children</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_parent_count"> hierarchy_parent_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_child_count"> hierarchy_child_count</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_parents" checked> hierarchy_parents</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="hierarchy_children" checked> hierarchy_children</label>
                         </div>
-                        <div class="column-picker-group">
+                        <div class="column-picker-group dl-mode-group" data-modes="clinical_descendants">
+                            <h4>Clinical Descendants</h4>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="disease_type" checked> disease_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="is_rare" checked> is_rare</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_id" checked> anchor_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_namespace" checked> anchor_xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_xref_label" checked> anchor_xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_match_type" checked> anchor_match_type</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="anchor_asserting_sources" checked> anchor_asserting_sources</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_id" checked> descendant_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_namespace" checked> descendant_xref_namespace</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_xref_label" checked> descendant_xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="relationship_to_disease" checked> relationship_to_disease</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="predicate" checked> predicate</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="hierarchy_source" checked> hierarchy_source</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="distance_from_anchor" checked> distance_from_anchor</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="distance_status" checked> distance_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="descendant_source_status" checked> descendant_source_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="may_not_be_rare_warning" checked> may_not_be_rare_warning</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="warning_reason" checked> warning_reason</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="clinical_descendants" value="review_status" checked> review_status</label>
+                        </div>
+                        <div class="column-picker-group dl-mode-group" data-modes="concepts">
                             <h4>NodeNorm</h4>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
-                            <label><input type="checkbox" class="dl-col-check" value="nodenorm_validation_status"> nodenorm_validation_status</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_canonical_curie" checked> nodenorm_canonical_curie</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_canonical_label" checked> nodenorm_canonical_label</label>
+                            <label><input type="checkbox" class="dl-col-check" data-mode="concepts" value="nodenorm_validation_status"> nodenorm_validation_status</label>
                         </div>
                     </div>
                 </div>
@@ -624,6 +656,7 @@
                     <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_xref_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_hierarchy_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_clinical_descendant_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_clinical_descendant_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> xref_labels.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> review_decisions.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_gene_associations.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_gene_associations.tsv</a>
@@ -842,6 +875,11 @@ C4707237</textarea>
         "MONDO": "#0d9488", "DOID": "#4f46e5", "OMIM": "#7c3aed",
         "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
     };
+    const DOWNLOAD_SOURCE_ORDER = [
+        "DOID", "EFO", "GARD", "HP", "ICD10", "ICD11", "ICD11f",
+        "ICD9", "ICDO", "KEGG", "MEDDRA", "MEDGEN", "MESH",
+        "MONDO", "NCIT", "OMIM", "OMIMPS", "Orphanet", "SNOMEDCT", "UMLS",
+    ];
 
     function renderBarChart(container, data, total, colorMap) {
         container.innerHTML = "";
@@ -864,7 +902,13 @@ C4707237</textarea>
 
     function populateFilterDropdowns(stats) {
         // Source namespace dropdown (Concepts tab)
-        const sources = Object.keys(stats.source_coverage).sort();
+        const rawSources = Object.keys(stats.source_coverage);
+        const sourceRank = new Map(DOWNLOAD_SOURCE_ORDER.map((ns, idx) => [ns.toUpperCase(), idx]));
+        const sources = rawSources.sort((a, b) => {
+            const ar = sourceRank.has(a.toUpperCase()) ? sourceRank.get(a.toUpperCase()) : 999;
+            const br = sourceRank.has(b.toUpperCase()) ? sourceRank.get(b.toUpperCase()) : 999;
+            return ar === br ? a.localeCompare(b) : ar - br;
+        });
         sources.forEach(ns => {
             const opt = document.createElement("option");
             opt.value = ns;
@@ -876,7 +920,7 @@ C4707237</textarea>
         const sourceGrid = document.getElementById("dlSourceGrid");
         const group = document.createElement("div");
         group.className = "column-picker-group";
-        group.innerHTML = "<h4>Sources (uncheck to exclude from xref labels)</h4>";
+        group.innerHTML = "<h4>Sources</h4>";
         sources.forEach(ns => {
             const label = document.createElement("label");
             label.innerHTML = `<input type="checkbox" class="dl-source-check" value="${ns}" checked> ${ns}`;
@@ -1815,6 +1859,7 @@ C4707237</textarea>
                 `<div><strong>${escapeHtml(row.decision_type || row.auto_decision || "review")}</strong>` +
                 (row.scenario_id ? ` <span class="mono">${escapeHtml(row.scenario_id)}</span>` : "") +
                 `</div>` +
+                (row.stale_reason ? `<div class="review-evidence"><strong>Stale reason:</strong> ${escapeHtml(row.stale_reason)}</div>` : "") +
                 (row.evidence_note ? `<div class="review-evidence">${escapeHtml(row.evidence_note)}</div>` : "") +
                 (row.consensus_value ? `<div class="review-consensus"><strong>Consensus:</strong> ${escapeHtml(row.consensus_value)}</div>` : "");
             return `<tr class="review-row" data-review-id="${escapeHtml(row.review_id)}">
@@ -1862,6 +1907,52 @@ C4707237</textarea>
         });
     }
 
+    function renderReviewQueueStatus(payload) {
+        if (!reviewQueueStatus) return;
+        const summary = payload.review_summary || {};
+        const visible = Number(payload.total || 0);
+        const stillNeeds = Number(summary.still_needs_decision || 0);
+        const reviewed = Number(summary.reviewed_or_resolved || 0);
+        const stale = Number(summary.stale_or_inactive || 0);
+        const obsoleteOmitted = Number(summary.obsolete_omitted || 0);
+        const status = (payload.status || "open").toLowerCase();
+        let lead;
+        if (status === "resolved" || status === "closed") {
+            lead = `${visible.toLocaleString()} reviewed/resolved records shown`;
+        } else if (status === "stale" || status === "inactive") {
+            lead = `${visible.toLocaleString()} stale records shown`;
+        } else if (status === "all" || status === "any") {
+            lead = `${visible.toLocaleString()} review records shown`;
+        } else {
+            lead = `${visible.toLocaleString()} still need decision`;
+        }
+        const parts = [
+            `${reviewed.toLocaleString()} reviewed/resolved`,
+            `${stale.toLocaleString()} stale/not currently observed`,
+        ];
+        if (status !== "open" && status !== "unresolved" && status !== "needs_action") {
+            parts.unshift(`${stillNeeds.toLocaleString()} still need decision`);
+        }
+        if (obsoleteOmitted) {
+            parts.push(`${obsoleteOmitted.toLocaleString()} obsolete xrefs already omitted`);
+        }
+        if (status === "stale" || status === "inactive") {
+            const staleReasons = (summary.stale_reasons || [])
+                .slice(0, 3)
+                .map(item => `${item.label}: ${Number(item.count || 0).toLocaleString()}`);
+            if (staleReasons.length) {
+                parts.push(`Top stale reasons: ${staleReasons.join("; ")}`);
+            }
+            const staleSources = Object.entries(payload.source_counts || {})
+                .slice(0, 5)
+                .map(([sourceName, count]) => `${sourceName}: ${Number(count || 0).toLocaleString()}`);
+            if (staleSources.length) {
+                parts.push(`Top stale sources: ${staleSources.join(", ")}`);
+            }
+        }
+        reviewQueueStatus.textContent = `${lead} · ${parts.join(" · ")}`;
+    }
+
     function loadReviewQueue(page) {
         currentReviewPage = page || 1;
         if (!reviewTableBody) return;
@@ -1875,9 +1966,7 @@ C4707237</textarea>
                 renderReviewCategories(payload.category_counts || []);
                 renderReviewRows(payload.rows || []);
                 renderReviewPagination(payload.page || 1, payload.total_pages || 1);
-                if (reviewQueueStatus) {
-                    reviewQueueStatus.textContent = `${Number(payload.total || 0).toLocaleString()} review items`;
-                }
+                renderReviewQueueStatus(payload);
                 if (reviewTemplateDownload) {
                     const dlParams = reviewFilterParams();
                     dlParams.delete("page");
@@ -1981,8 +2070,10 @@ C4707237</textarea>
         const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
         const layoutSelect = document.getElementById("graphLayoutSelect");
         const filterExpandHierarchy = document.getElementById("filterExpandHierarchy");
+        const filterExpandClinicalDescendants = document.getElementById("filterExpandClinicalDescendants");
         const filterExpandNeighbors = document.getElementById("filterExpandNeighbors");
         let expandedHierarchyIds = new Set();
+        let expandedClinicalDescendantIds = new Set();
         let expandedNeighborIds = new Set();
 
         const filterExact = document.getElementById("filterExact");
@@ -2012,6 +2103,9 @@ C4707237</textarea>
             ];
             if (stats.hierarchyEdgeCount !== undefined) {
                 rows.push(["Hierarchy", stats.hierarchyEdgeCount]);
+            }
+            if (stats.clinicalDescendantCount !== undefined) {
+                rows.push(["Clinical descendants", stats.clinicalDescendantCount]);
             }
             if (stats.geneCount !== undefined && stats.geneCount > 0) {
                 rows.push(["Genes", stats.geneCount]);
@@ -2052,6 +2146,16 @@ C4707237</textarea>
                 "relationship_type", "predicate", "hierarchy_source",
                 "parent_primary_xref", "parent_label",
                 "child_primary_xref", "child_label",
+                "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+                "anchor_match_type", "anchor_asserting_sources",
+                "descendant_xref_id", "descendant_xref_namespace", "descendant_xref_label",
+                "relationship_to_anchor", "relationship_to_disease",
+                "distance_from_anchor", "distance_status", "path",
+                "descendant_source_status", "existing_odin_match_types",
+                "existing_odin_primary_xrefs", "in_mondo_xrefs",
+                "in_yadaw_s2", "in_yadaw_s3", "rare_anchor",
+                "may_not_be_rare_warning", "warning_reason",
+                "evidence_sources", "review_status",
                 "decision_type", "raw_decision_type", "source_decision_ids",
                 "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
@@ -2336,6 +2440,46 @@ C4707237</textarea>
             }
         });
 
+        // Clinical descendants checkbox - loads inferred SNOMEDCT/ICD10CM narrow candidates
+        filterExpandClinicalDescendants.addEventListener("change", () => {
+            if (!cyInstance || !fullPayload) return;
+            if (filterExpandClinicalDescendants.checked) {
+                const pxrefs = (fullPayload.queryIds || []).map(id =>
+                    id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
+                );
+                if (!pxrefs.length) return;
+                filterExpandClinicalDescendants.disabled = true;
+                Promise.all(pxrefs.map(pxref =>
+                    fetch(`${rootPath}/disease-id-qa/api/graph/clinical-descendants?pxref=${encodeURIComponent(pxref)}`)
+                        .then(r => r.json())
+                        .catch(() => ({ elements: [] }))
+                )).then(results => {
+                    const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                    const allNew = [];
+                    results.forEach(payload => {
+                        (payload.elements || []).forEach(e => {
+                            if (!existingIds.has(e.data.id)) {
+                                existingIds.add(e.data.id);
+                                expandedClinicalDescendantIds.add(e.data.id);
+                                allNew.push(e);
+                            }
+                        });
+                    });
+                    if (allNew.length) {
+                        cyInstance.add(allNew);
+                        cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                    }
+                    applyGraphFilters();
+                    filterExpandClinicalDescendants.disabled = false;
+                });
+            } else {
+                if (expandedClinicalDescendantIds.size) {
+                    cyInstance.elements().filter(el => expandedClinicalDescendantIds.has(el.data("id"))).remove();
+                    expandedClinicalDescendantIds.clear();
+                }
+            }
+        });
+
         // Expand neighbors checkbox — loads concepts sharing xrefs with queried concepts
         filterExpandNeighbors.addEventListener("change", () => {
             if (!cyInstance || !fullPayload) return;
@@ -2488,6 +2632,11 @@ C4707237</textarea>
                         { selector: ".hierarchy-child", style: {
                             "shape": "ellipse",
                         }},
+                        { selector: ".clinical-descendant-xref", style: {
+                            "border-width": 3,
+                            "border-color": "#f97316",
+                            "shape": "round-rectangle",
+                        }},
                         { selector: ".xref", style: {
                             "background-color": "#7c3aed",
                             "shape": "round-rectangle",
@@ -2561,6 +2710,14 @@ C4707237</textarea>
                             "target-arrow-color": "#0284c7",
                             "target-arrow-shape": "triangle",
                             "line-style": "solid",
+                            "width": 2,
+                            "font-size": 7,
+                        }},
+                        { selector: ".clinical-descendant-edge", style: {
+                            "line-color": "#f97316",
+                            "target-arrow-color": "#f97316",
+                            "target-arrow-shape": "triangle",
+                            "line-style": "dashed",
                             "width": 2,
                             "font-size": 7,
                         }},
@@ -2677,6 +2834,10 @@ C4707237</textarea>
                             const child = d.child_label || d.child_primary_xref || "";
                             const parent = d.parent_label || d.parent_primary_xref || "";
                             text = `${child} subclass_of ${parent}`;
+                        } else if (d.kind === "clinical_descendant_edge") {
+                            const distance = d.distance_from_anchor ? ` d=${d.distance_from_anchor}` : "";
+                            const warning = d.may_not_be_rare_warning === "true" ? " warning" : "";
+                            text = `${d.descendant_xref_id || ""} narrow candidate from ${d.anchor_xref_id || ""}${distance}${warning}`;
                         } else if (d.kind === "association_edge") {
                             const pred = (d.primary_predicate || "").replace("biolink:", "");
                             const srcList = (d.supporting_sources || "").replace(/\|/g, ", ");
@@ -2840,13 +3001,19 @@ C4707237</textarea>
         const t = diff.truncation || {};
         let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
         html += `<div class="changes-version-label">Biolink category deltas use the exported <code>disease_type</code> field; older releases without populated categories appear as <code>unknown</code>.</div>`;
-        html += `<div class="changes-version-label">Retired concepts are limited to concepts merged into another concept, absorbed as an xref, obsolete, or removed by QC. Older single-source rows from previous exports are counted separately because they were not harmonized concepts.</div>`;
+        html += `<div class="changes-version-label">Added and retired concepts are counted after accounting for primary-grounding changes. Raw primary IDs that are now represented as xrefs are reported separately.</div>`;
+        if (Number(s.primary_grounding_changes || 0) > 0) {
+            html += `<div class="changes-version-label">${Number(s.previous_primary_ids_now_xrefs || 0).toLocaleString()} previous primary IDs are now represented as xrefs under current concepts; ${Number(s.current_primary_rows_explained_by_previous_xrefs || 0).toLocaleString()} current primary rows are explained by those previous IDs.</div>`;
+        }
         if (Number(s.legacy_source_only_removed || 0) > 0) {
             html += `<div class="changes-version-label">Excluded from the retired-concepts table: ${Number(s.legacy_source_only_removed || 0).toLocaleString()} older single-source rows from the previous export.</div>`;
         }
         html += `<div class="changes-summary">`;
-        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
-        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired / Merged Concepts</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">New Concept Candidates</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired Concepts</div></div>`;
+        if (Number(s.primary_grounding_changes || 0) > 0) {
+            html += `<div class="dash-card"><div class="dash-stat">${Number(s.primary_grounding_changes || 0).toLocaleString()}</div><div class="dash-label">Primary Grounding Changes</div></div>`;
+        }
         if (Number(s.concepts_rekeyed || 0) > 0) {
             html += `<div class="dash-card"><div class="dash-stat">${s.concepts_rekeyed.toLocaleString()}</div><div class="dash-label">Re-keyed Concepts</div></div>`;
         }
@@ -2857,6 +3024,12 @@ C4707237</textarea>
         html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
         html += `</div>`;
 
+        html += renderDeltaTable(
+            "Data Layers Changed",
+            diff.data_layer_changes,
+            "layer",
+            "Layer"
+        );
         html += renderDeltaTable(
             "Biolink Category Distribution",
             diff.biolink_category_distribution && diff.biolink_category_distribution.delta,
@@ -2872,10 +3045,20 @@ C4707237</textarea>
 
         if (diff.added_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Added Concepts (${s.concepts_added.toLocaleString()})${truncationNote(t.added_concepts)}</h3>`;
+            html += `<h3>New Concept Candidates (${s.concepts_added.toLocaleString()})${truncationNote(t.added_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Biolink Category</th></tr></thead><tbody>`;
             diff.added_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.primary_grounding_changes && diff.primary_grounding_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Primary Grounding Changes (${Number(s.primary_grounding_changes || 0).toLocaleString()})${truncationNote(t.primary_grounding_changes)}</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Current Primary ID(s)</th><th>Previous Name</th><th>Current Name(s)</th><th>What happened</th></tr></thead><tbody>`;
+            diff.primary_grounding_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.old_primary_xref)}</td><td class="mono">${escapeHtml(c.new_primary_xref)}</td><td>${escapeHtml(c.old_standard_name)}</td><td>${escapeHtml(c.new_standard_name)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
             });
             html += `</tbody></table></div></div>`;
         }
@@ -2892,7 +3075,7 @@ C4707237</textarea>
 
         if (diff.removed_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Retired / Merged Concepts (${s.concepts_removed.toLocaleString()})${truncationNote(t.removed_concepts)}</h3>`;
+            html += `<h3>Retired Concepts (${s.concepts_removed.toLocaleString()})${truncationNote(t.removed_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Name</th><th>Biolink Category</th><th>What happened</th></tr></thead><tbody>`;
             diff.removed_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
@@ -3078,6 +3261,7 @@ C4707237</textarea>
     });
 
     /* == Download tab == */
+    const dlMode = document.getElementById("dlMode");
     const dlSearchInput = document.getElementById("dlSearchInput");
     const dlFilterMode = document.getElementById("dlFilterMode");
     const dlConfidence = document.getElementById("dlConfidence");
@@ -3088,8 +3272,30 @@ C4707237</textarea>
     const dlExcludeObsolete = document.getElementById("dlExcludeObsolete");
     const dlPreview = document.getElementById("dlPreview");
     const dlDownloadBtn = document.getElementById("dlDownloadBtn");
+    const dlSourcePickerTitle = document.getElementById("dlSourcePickerTitle");
 
     let dlTimer = null;
+    function currentDownloadMode() {
+        return dlMode ? dlMode.value : "concepts";
+    }
+
+    function updateDownloadModeUI() {
+        const mode = currentDownloadMode();
+        document.querySelectorAll(".dl-mode-group").forEach(group => {
+            const modes = String(group.dataset.modes || "").split(",").map(v => v.trim());
+            const active = modes.includes(mode);
+            group.hidden = !active;
+            group.querySelectorAll(".dl-col-check").forEach(input => {
+                input.disabled = !active;
+            });
+        });
+        if (dlSourcePickerTitle) {
+            dlSourcePickerTitle.textContent = mode === "concepts"
+                ? "Source namespace columns"
+                : "Source namespace row filter";
+        }
+    }
+
     function updateDlPreview() {
         const params = new URLSearchParams({
             q: dlSearchInput.value.trim(),
@@ -3103,29 +3309,45 @@ C4707237</textarea>
         });
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
 
+        const mode = currentDownloadMode();
         fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
             .then(r => r.json())
             .then(data => {
-                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> concepts match your filters`;
+                const suffix = mode === "xref_edges"
+                    ? "concepts match; xref download is one row per xref edge"
+                    : mode === "clinical_descendants"
+                        ? "concepts match; clinical download is one row per descendant relationship"
+                        : "concepts match your filters";
+                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> ${suffix}`;
             })
             .catch(() => {
                 dlPreview.innerHTML = `<span style="color:var(--text-muted)">Unable to estimate count.</span>`;
             });
     }
 
-    [dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
+    [dlMode, dlFilterMode, dlConfidence, dlQuality, dlIsRare, dlDiseaseType].forEach(el => {
         el.addEventListener("change", updateDlPreview);
     });
+    if (dlMode) {
+        dlMode.addEventListener("change", updateDownloadModeUI);
+    }
     dlSearchInput.addEventListener("input", () => {
         clearTimeout(dlTimer);
         dlTimer = setTimeout(updateDlPreview, 300);
     });
+    updateDownloadModeUI();
     updateDlPreview();
 
     dlDownloadBtn.addEventListener("click", () => {
+        const mode = currentDownloadMode();
         const coreCols = ["ncats_disease_id", "primary_xref", "standard_name"];
-        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")].map(c => c.value);
-        const allCols = [...coreCols, ...extraCols];
+        const extraCols = [...document.querySelectorAll(".dl-col-check:checked")]
+            .filter(c => !c.disabled && (c.dataset.mode || mode) === mode)
+            .map(c => c.value);
+        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        const allCols = mode === "concepts"
+            ? [...coreCols, ...extraCols, ...checkedSources]
+            : [...coreCols, ...extraCols];
 
         const params = new URLSearchParams({
             q: dlSearchInput.value.trim(),
@@ -3134,13 +3356,14 @@ C4707237</textarea>
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
             disease_type: dlDiseaseType.value,
+            mode,
             format: dlFormat.value,
             columns: allCols.join(","),
         });
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
 
-        // Source namespace filter — only send if not all are checked
-        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        // Source namespace selection: concept mode uses these as wide columns;
+        // relationship modes use them as row filters.
         const allSourceChecks = document.querySelectorAll(".dl-source-check");
         if (checkedSources.length < allSourceChecks.length) {
             params.set("include_sources", checkedSources.join(","));
