@@ -25,6 +25,7 @@ class DiseaseGraphData:
         "edges_by_pxref",
         "hierarchy_by_child",
         "hierarchy_by_parent",
+        "clinical_descendants_by_pxref",
         "labels_by_xref_id",
         "decisions_by_pxref",
         "associations_by_ncats_id",
@@ -40,6 +41,7 @@ class DiseaseGraphData:
         self.edges_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.hierarchy_by_child: dict[str, list[dict]] = defaultdict(list)
         self.hierarchy_by_parent: dict[str, list[dict]] = defaultdict(list)
+        self.clinical_descendants_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.labels_by_xref_id: dict[str, dict] = {}
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.associations_by_ncats_id: dict[str, list[dict]] = defaultdict(list)
@@ -263,6 +265,13 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
             if parent:
                 data.hierarchy_by_parent[parent].append(row)
 
+    clinical_descendants_path = data_dir / "disease_clinical_descendant_edges.tsv"
+    if clinical_descendants_path.exists():
+        for row in _read_tsv(clinical_descendants_path):
+            pxref = row.get("primary_xref", "")
+            if pxref:
+                data.clinical_descendants_by_pxref[pxref].append(row)
+
     gene_assoc_path = data_dir / "disease_gene_associations.tsv"
     if gene_assoc_path.exists():
         for row in _read_tsv(gene_assoc_path):
@@ -277,12 +286,14 @@ def _print_graph_load(label: str, data: DiseaseGraphData) -> None:
     n_concepts = len(data.concepts_by_pxref)
     n_edges = sum(len(v) for v in data.edges_by_pxref.values())
     n_hierarchy = sum(len(v) for v in data.hierarchy_by_child.values())
+    n_clinical_descendants = sum(len(v) for v in data.clinical_descendants_by_pxref.values())
     n_labels = len(data.labels_by_xref_id)
     n_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
     n_gene_assoc = sum(len(v) for v in data.associations_by_ncats_id.values())
     print(
         f"{label} loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
         f"{n_hierarchy:,} hierarchy edges, "
+        f"{n_clinical_descendants:,} clinical descendant edges, "
         f"{n_labels:,} labels, {n_decisions:,} decisions, "
         f"{n_gene_assoc:,} gene associations"
     )
@@ -309,6 +320,9 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     total_concepts = len(data.concepts_by_pxref)
     total_edges = sum(len(v) for v in data.edges_by_pxref.values())
     total_hierarchy_edges = sum(len(v) for v in data.hierarchy_by_child.values())
+    total_clinical_descendant_edges = sum(
+        len(v) for v in data.clinical_descendants_by_pxref.values()
+    )
     total_labels = len(data.labels_by_xref_id)
     total_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
 
@@ -435,6 +449,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "total_concepts": total_concepts,
         "total_edges": total_edges,
         "total_hierarchy_edges": total_hierarchy_edges,
+        "total_clinical_descendant_edges": total_clinical_descendant_edges,
         "total_labels": total_labels,
         "total_decisions": total_decisions,
         "confidence_distribution": dict(confidence_dist.most_common()),
@@ -1148,6 +1163,106 @@ def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict
             "hierarchyEdgeCount": len(edges),
             "parentCount": len(data.hierarchy_by_child.get(pxref, [])),
             "childCount": len(data.hierarchy_by_parent.get(pxref, [])),
+        },
+        "manifest": data.manifest,
+        "elements": elements,
+    }
+
+
+def build_clinical_descendant_graph_payload(
+    data: DiseaseGraphData,
+    query_id: str,
+    limit: int = 80,
+) -> dict[str, Any]:
+    """Build clinical-code descendant candidate context for one concept."""
+    pxref = _resolve_to_pxref(data, query_id)
+    if pxref is None:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {query_id}")
+
+    concept = data.concepts_by_pxref.get(pxref)
+    concept_node = _concept_graph_node(data, pxref, "concept clinical-descendant-focus")
+    elements: list[dict[str, Any]] = []
+    if concept_node:
+        elements.append(concept_node)
+
+    rows = data.clinical_descendants_by_pxref.get(pxref, [])[:limit]
+    for row in rows:
+        descendant_xref = row.get("descendant_xref_id", "")
+        if not descendant_xref:
+            continue
+        ns = _normalize_ns(row.get("descendant_xref_namespace", ""))
+        ns_class = ns.lower()
+        xref_node_id = f"clinical-descendant::{descendant_xref}"
+        desc_label = row.get("descendant_xref_label", "")
+        display_label = f"{descendant_xref}\n{desc_label}" if desc_label else descendant_xref
+        elements.append({
+            "data": {
+                "id": xref_node_id,
+                "label": display_label,
+                "kind": "clinical_descendant_xref",
+                "xref_namespace": ns,
+                "xref_label": desc_label,
+                "relationship_to_disease": row.get("relationship_to_disease", ""),
+                "descendant_source_status": row.get("descendant_source_status", ""),
+                "may_not_be_rare_warning": row.get("may_not_be_rare_warning", ""),
+                "warning_reason": row.get("warning_reason", ""),
+            },
+            "classes": f"xref clinical-descendant-xref {ns_class}",
+        })
+
+        edge_id = "::".join([
+            "clinical-descendant-edge",
+            pxref,
+            row.get("anchor_xref_id", ""),
+            descendant_xref,
+        ])
+        distance = row.get("distance_from_anchor", "")
+        label = "narrow candidate"
+        if distance:
+            label = f"{label} d={distance}"
+        elements.append({
+            "data": {
+                "id": edge_id,
+                "source": f"concept::{pxref}",
+                "target": xref_node_id,
+                "label": label,
+                "kind": "clinical_descendant_edge",
+                "match_type": "narrow",
+                "predicate": row.get("predicate", ""),
+                "relationship_to_anchor": row.get("relationship_to_anchor", ""),
+                "relationship_to_disease": row.get("relationship_to_disease", ""),
+                "hierarchy_source": row.get("hierarchy_source", ""),
+                "distance_from_anchor": distance,
+                "distance_status": row.get("distance_status", ""),
+                "path": row.get("path", ""),
+                "anchor_xref_id": row.get("anchor_xref_id", ""),
+                "anchor_xref_namespace": row.get("anchor_xref_namespace", ""),
+                "anchor_xref_label": row.get("anchor_xref_label", ""),
+                "anchor_match_type": row.get("anchor_match_type", ""),
+                "anchor_asserting_sources": row.get("anchor_asserting_sources", ""),
+                "descendant_xref_id": descendant_xref,
+                "descendant_xref_namespace": ns,
+                "descendant_xref_label": desc_label,
+                "descendant_source_status": row.get("descendant_source_status", ""),
+                "existing_odin_match_types": row.get("existing_odin_match_types", ""),
+                "existing_odin_primary_xrefs": row.get("existing_odin_primary_xrefs", ""),
+                "in_mondo_xrefs": row.get("in_mondo_xrefs", ""),
+                "in_yadaw_s2": row.get("in_yadaw_s2", ""),
+                "in_yadaw_s3": row.get("in_yadaw_s3", ""),
+                "may_not_be_rare_warning": row.get("may_not_be_rare_warning", ""),
+                "warning_reason": row.get("warning_reason", ""),
+                "evidence_sources": row.get("evidence_sources", ""),
+                "review_status": row.get("review_status", ""),
+            },
+            "classes": "clinical-descendant-edge match-narrow",
+        })
+
+    return {
+        "queryIds": [query_id],
+        "missingIds": [],
+        "stats": {
+            "conceptCount": 1 if concept else 0,
+            "clinicalDescendantCount": len(rows),
         },
         "manifest": data.manifest,
         "elements": elements,
@@ -2193,11 +2308,23 @@ _XREF_EDGE_COLUMNS = {
     "xref_is_obsolete", "source_asserted",
 }
 
+_CLINICAL_DESCENDANT_COLUMNS = {
+    "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+    "anchor_match_type", "anchor_asserting_sources",
+    "descendant_xref_id", "descendant_xref_namespace", "descendant_xref_label",
+    "relationship_to_anchor", "relationship_to_disease", "predicate",
+    "hierarchy_source", "distance_from_anchor", "distance_status", "path",
+    "descendant_source_status", "existing_odin_match_types",
+    "existing_odin_primary_xrefs", "in_mondo_xrefs", "in_yadaw_s2",
+    "in_yadaw_s3", "rare_anchor", "may_not_be_rare_warning",
+    "warning_reason", "evidence_sources", "review_status",
+}
+
 
 def _filtered_download_columns(
     columns: list[str] | None = None,
-) -> tuple[list[str], bool]:
-    """Return (use_columns, edge_mode) for filtered downloads."""
+) -> tuple[list[str], bool, bool]:
+    """Return (use_columns, xref_edge_mode, clinical_descendant_mode)."""
     default_columns = [
         "ncats_disease_id", "primary_xref", "standard_name",
         "confidence_tier", "confidence_tier_original",
@@ -2205,8 +2332,9 @@ def _filtered_download_columns(
         "needs_review_decision", "overall_quality", "n_sources", "xref_count",
     ]
     use_columns = columns if columns else default_columns
-    edge_mode = any(c in _XREF_EDGE_COLUMNS for c in use_columns)
-    return use_columns, edge_mode
+    clinical_descendant_mode = any(c in _CLINICAL_DESCENDANT_COLUMNS for c in use_columns)
+    edge_mode = any(c in _XREF_EDGE_COLUMNS for c in use_columns) and not clinical_descendant_mode
+    return use_columns, edge_mode, clinical_descendant_mode
 
 
 def _filtered_download_rows(
@@ -2224,7 +2352,7 @@ def _filtered_download_rows(
     exclude_obsolete: bool = False,
 ) -> tuple[list[str], bool, Any]:
     """Return (use_columns, edge_mode, row_iterator) for filtered downloads."""
-    use_columns, edge_mode = _filtered_download_columns(columns)
+    use_columns, edge_mode, clinical_descendant_mode = _filtered_download_columns(columns)
     q_lower = q.strip().lower()
 
     def _iter_rows():
@@ -2245,7 +2373,26 @@ def _filtered_download_rows(
                 exclude_obsolete=exclude_obsolete,
             )
 
-            if not edge_mode:
+            if clinical_descendant_mode:
+                descendant_rows = data.clinical_descendants_by_pxref.get(pxref, [])
+                wrote_any = False
+                for descendant in descendant_rows:
+                    ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
+                    anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
+                    if include_sources and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
+                        continue
+                    row = dict(concept_row)
+                    for col in _CLINICAL_DESCENDANT_COLUMNS:
+                        row[col] = descendant.get(col, "")
+                    yield row
+                    count += 1
+                    wrote_any = True
+                    if count >= limit:
+                        return
+                if not wrote_any:
+                    yield concept_row
+                    count += 1
+            elif not edge_mode:
                 yield concept_row
                 count += 1
             else:
@@ -3268,6 +3415,7 @@ DOWNLOADABLE_FILES = frozenset({
     "disease_concepts.tsv",
     "disease_xref_edges.tsv",
     "disease_hierarchy_edges.tsv",
+    "disease_clinical_descendant_edges.tsv",
     "xref_labels.tsv",
     "review_decisions.tsv",
     "disease_gene_associations.tsv",

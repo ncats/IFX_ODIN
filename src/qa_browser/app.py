@@ -41,6 +41,7 @@ from src.qa_browser.disease_id_graph import (
     REVIEW_DECISION_OPTIONS,
     REVIEW_INTAKE_COLUMNS,
     build_review_queue,
+    build_clinical_descendant_graph_payload,
     build_disease_graph_payload,
     build_hierarchy_graph_payload,
     build_provenance_chain,
@@ -6257,6 +6258,8 @@ def api_disease_stats():
     return {
         "total_concepts": stats["total_concepts"],
         "total_edges": stats["total_edges"],
+        "total_hierarchy_edges": stats.get("total_hierarchy_edges", 0),
+        "total_clinical_descendant_edges": stats.get("total_clinical_descendant_edges", 0),
         "sources_covered": len(stats["source_coverage"]),
         "avg_xrefs_per_concept": stats["avg_xrefs_per_concept"],
         "multi_source_count": stats.get("multi_source_count", 0),
@@ -6668,6 +6671,17 @@ def disease_id_qa_graph_hierarchy(pxref: str = ""):
         raise HTTPException(status_code=400, detail="pxref parameter required.")
     data = load_disease_graph_data(_disease_graph_dir)
     return build_hierarchy_graph_payload(data, pxref)
+
+
+@app.get("/disease-id-qa/api/graph/clinical-descendants")
+def disease_id_qa_graph_clinical_descendants(pxref: str = "", limit: int = 80):
+    """Return Cytoscape elements for SNOMED/ICD descendant candidate mappings."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not pxref:
+        raise HTTPException(status_code=400, detail="pxref parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_clinical_descendant_graph_payload(data, pxref, limit=limit)
 
 
 @app.get("/disease-id-qa/api/provenance/{pxref:path}")

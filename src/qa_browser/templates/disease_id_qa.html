@@ -324,6 +324,7 @@
                     <label><input type="checkbox" id="filterHideGeneAssoc" checked> Hide gene associations</label>
                     <span class="disease-id-filter-sep">|</span>
                     <label><input type="checkbox" id="filterExpandHierarchy"> Expand hierarchy</label><span class="filter-help">?<span class="filter-help-text">Loads MONDO is_a parent/child relationships for all queried concepts. Shows where each concept sits in the MONDO ontology tree — parents above, children below. This is specifically MONDO hierarchy, not ICD10CM or other sources.</span></span>
+                    <label><input type="checkbox" id="filterExpandClinicalDescendants"> Clinical descendants</label><span class="filter-help">?<span class="filter-help-text">Loads inferred SNOMEDCT/ICD10CM descendant code candidates as a separate narrow-match layer. These are not direct exact xrefs and may need expert review, especially when marked as not rare-safe.</span></span>
                     <label><input type="checkbox" id="filterExpandNeighbors"> Expand neighbors</label><span class="filter-help">?<span class="filter-help-text">Finds other disease concepts that share at least one cross-reference ID with the queried concepts. Useful for spotting potential merges or split concerns — concepts that are "close" in cross-reference space because they claim the same OMIM, DOID, or other xref.</span></span>
                     <label id="filterShowTranscriptsLabel" style="display:none"><input type="checkbox" id="filterShowTranscripts"> Transcripts (<span id="diseaseTranscriptCount">0</span>)</label>
                     <label id="filterShowProteinsLabel" style="display:none"><input type="checkbox" id="filterShowProteins"> Proteins (<span id="diseaseProteinCount">0</span>)</label>
@@ -349,6 +350,7 @@
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dotted" style="border-color:#d1d5db"></span> <strong>Unclassified</strong> &mdash; no source provided a match type qualifier (see details below)</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f59e0b"></span> <strong>Decision</strong> &mdash; QC review action linked to an xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0284c7"></span> <strong>Hierarchy</strong> &mdash; MONDO subclass parent/child context</span>
+                                <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-dashed" style="border-color:#f97316"></span> <strong>Clinical descendant</strong> &mdash; inferred SNOMEDCT/ICD10CM narrow-match candidate, not a direct exact xref</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#be5a38"></span> <strong>Phenotypic feature</strong> &mdash; concept typed as biolink:PhenotypicFeature</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#0d9488"></span> <strong>Gene association</strong> &mdash; disease-gene link with support tier; purple border = target harmonizer linked</span>
                                 <span class="graph-legend-item"><span class="graph-legend-swatch graph-legend-swatch-solid" style="background:#7c3aed"></span> <strong>Protein</strong> &mdash; gene product from target harmonizer (biolink:has_gene_product)</span>
@@ -598,6 +600,20 @@
                             <label><input type="checkbox" class="dl-col-check" value="hierarchy_children"> hierarchy_children</label>
                         </div>
                         <div class="column-picker-group">
+                            <h4>Clinical Descendants</h4>
+                            <label><input type="checkbox" class="dl-col-check" value="anchor_xref_id"> anchor_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" value="descendant_xref_id"> descendant_xref_id</label>
+                            <label><input type="checkbox" class="dl-col-check" value="descendant_xref_label"> descendant_xref_label</label>
+                            <label><input type="checkbox" class="dl-col-check" value="relationship_to_disease"> relationship_to_disease</label>
+                            <label><input type="checkbox" class="dl-col-check" value="predicate"> predicate</label>
+                            <label><input type="checkbox" class="dl-col-check" value="hierarchy_source"> hierarchy_source</label>
+                            <label><input type="checkbox" class="dl-col-check" value="distance_from_anchor"> distance_from_anchor</label>
+                            <label><input type="checkbox" class="dl-col-check" value="descendant_source_status"> descendant_source_status</label>
+                            <label><input type="checkbox" class="dl-col-check" value="may_not_be_rare_warning"> may_not_be_rare_warning</label>
+                            <label><input type="checkbox" class="dl-col-check" value="warning_reason"> warning_reason</label>
+                            <label><input type="checkbox" class="dl-col-check" value="review_status"> review_status</label>
+                        </div>
+                        <div class="column-picker-group">
                             <h4>NodeNorm</h4>
                             <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_curie"> nodenorm_canonical_curie</label>
                             <label><input type="checkbox" class="dl-col-check" value="nodenorm_canonical_label"> nodenorm_canonical_label</label>
@@ -624,6 +640,7 @@
                     <a href="{{ root_path }}/disease-id-qa/download/disease_concepts.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_concepts.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_xref_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_xref_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_hierarchy_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_hierarchy_edges.tsv</a>
+                    <a href="{{ root_path }}/disease-id-qa/download/disease_clinical_descendant_edges.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_clinical_descendant_edges.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/xref_labels.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> xref_labels.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/review_decisions.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> review_decisions.tsv</a>
                     <a href="{{ root_path }}/disease-id-qa/download/disease_gene_associations.tsv" class="btn btn-sm disease-id-dl-btn"><i class="lucide-file-spreadsheet"></i> disease_gene_associations.tsv</a>
@@ -1981,8 +1998,10 @@ C4707237</textarea>
         const exportFilteredBtn = document.getElementById("diseaseIdExportFiltered");
         const layoutSelect = document.getElementById("graphLayoutSelect");
         const filterExpandHierarchy = document.getElementById("filterExpandHierarchy");
+        const filterExpandClinicalDescendants = document.getElementById("filterExpandClinicalDescendants");
         const filterExpandNeighbors = document.getElementById("filterExpandNeighbors");
         let expandedHierarchyIds = new Set();
+        let expandedClinicalDescendantIds = new Set();
         let expandedNeighborIds = new Set();
 
         const filterExact = document.getElementById("filterExact");
@@ -2012,6 +2031,9 @@ C4707237</textarea>
             ];
             if (stats.hierarchyEdgeCount !== undefined) {
                 rows.push(["Hierarchy", stats.hierarchyEdgeCount]);
+            }
+            if (stats.clinicalDescendantCount !== undefined) {
+                rows.push(["Clinical descendants", stats.clinicalDescendantCount]);
             }
             if (stats.geneCount !== undefined && stats.geneCount > 0) {
                 rows.push(["Genes", stats.geneCount]);
@@ -2052,6 +2074,16 @@ C4707237</textarea>
                 "relationship_type", "predicate", "hierarchy_source",
                 "parent_primary_xref", "parent_label",
                 "child_primary_xref", "child_label",
+                "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+                "anchor_match_type", "anchor_asserting_sources",
+                "descendant_xref_id", "descendant_xref_namespace", "descendant_xref_label",
+                "relationship_to_anchor", "relationship_to_disease",
+                "distance_from_anchor", "distance_status", "path",
+                "descendant_source_status", "existing_odin_match_types",
+                "existing_odin_primary_xrefs", "in_mondo_xrefs",
+                "in_yadaw_s2", "in_yadaw_s3", "rare_anchor",
+                "may_not_be_rare_warning", "warning_reason",
+                "evidence_sources", "review_status",
                 "decision_type", "raw_decision_type", "source_decision_ids",
                 "decision_source", "scenario_id",
                 "status", "auto_decision", "auto_confidence", "auto_rationale",
@@ -2336,6 +2368,46 @@ C4707237</textarea>
             }
         });
 
+        // Clinical descendants checkbox - loads inferred SNOMEDCT/ICD10CM narrow candidates
+        filterExpandClinicalDescendants.addEventListener("change", () => {
+            if (!cyInstance || !fullPayload) return;
+            if (filterExpandClinicalDescendants.checked) {
+                const pxrefs = (fullPayload.queryIds || []).map(id =>
+                    id.startsWith("IFXDisease:") ? fullPayload.elements.find(e => e.data && e.data.ncats_disease_id === id)?.data?.id?.replace("concept::", "") || id : id
+                );
+                if (!pxrefs.length) return;
+                filterExpandClinicalDescendants.disabled = true;
+                Promise.all(pxrefs.map(pxref =>
+                    fetch(`${rootPath}/disease-id-qa/api/graph/clinical-descendants?pxref=${encodeURIComponent(pxref)}`)
+                        .then(r => r.json())
+                        .catch(() => ({ elements: [] }))
+                )).then(results => {
+                    const existingIds = new Set(cyInstance.elements().map(e => e.id()));
+                    const allNew = [];
+                    results.forEach(payload => {
+                        (payload.elements || []).forEach(e => {
+                            if (!existingIds.has(e.data.id)) {
+                                existingIds.add(e.data.id);
+                                expandedClinicalDescendantIds.add(e.data.id);
+                                allNew.push(e);
+                            }
+                        });
+                    });
+                    if (allNew.length) {
+                        cyInstance.add(allNew);
+                        cyInstance.layout({ name: "cose", animate: true, animationDuration: 400, fit: true, padding: 42 }).run();
+                    }
+                    applyGraphFilters();
+                    filterExpandClinicalDescendants.disabled = false;
+                });
+            } else {
+                if (expandedClinicalDescendantIds.size) {
+                    cyInstance.elements().filter(el => expandedClinicalDescendantIds.has(el.data("id"))).remove();
+                    expandedClinicalDescendantIds.clear();
+                }
+            }
+        });
+
         // Expand neighbors checkbox — loads concepts sharing xrefs with queried concepts
         filterExpandNeighbors.addEventListener("change", () => {
             if (!cyInstance || !fullPayload) return;
@@ -2488,6 +2560,11 @@ C4707237</textarea>
                         { selector: ".hierarchy-child", style: {
                             "shape": "ellipse",
                         }},
+                        { selector: ".clinical-descendant-xref", style: {
+                            "border-width": 3,
+                            "border-color": "#f97316",
+                            "shape": "round-rectangle",
+                        }},
                         { selector: ".xref", style: {
                             "background-color": "#7c3aed",
                             "shape": "round-rectangle",
@@ -2561,6 +2638,14 @@ C4707237</textarea>
                             "target-arrow-color": "#0284c7",
                             "target-arrow-shape": "triangle",
                             "line-style": "solid",
+                            "width": 2,
+                            "font-size": 7,
+                        }},
+                        { selector: ".clinical-descendant-edge", style: {
+                            "line-color": "#f97316",
+                            "target-arrow-color": "#f97316",
+                            "target-arrow-shape": "triangle",
+                            "line-style": "dashed",
                             "width": 2,
                             "font-size": 7,
                         }},
@@ -2677,6 +2762,10 @@ C4707237</textarea>
                             const child = d.child_label || d.child_primary_xref || "";
                             const parent = d.parent_label || d.parent_primary_xref || "";
                             text = `${child} subclass_of ${parent}`;
+                        } else if (d.kind === "clinical_descendant_edge") {
+                            const distance = d.distance_from_anchor ? ` d=${d.distance_from_anchor}` : "";
+                            const warning = d.may_not_be_rare_warning === "true" ? " warning" : "";
+                            text = `${d.descendant_xref_id || ""} narrow candidate from ${d.anchor_xref_id || ""}${distance}${warning}`;
                         } else if (d.kind === "association_edge") {
                             const pred = (d.primary_predicate || "").replace("biolink:", "");
                             const srcList = (d.supporting_sources || "").replace(/\|/g, ", ");
