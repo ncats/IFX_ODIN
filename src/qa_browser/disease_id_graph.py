@@ -3075,6 +3075,16 @@ def _edge_namespace_distribution(data: DiseaseGraphData) -> Counter[str]:
     return counts
 
 
+def _xref_owner_index(data: DiseaseGraphData) -> dict[str, set[str]]:
+    owners: dict[str, set[str]] = defaultdict(set)
+    for pxref, edges in data.edges_by_pxref.items():
+        for edge in edges:
+            xid = edge.get("xref_id", "")
+            if xid:
+                owners[xid].add(pxref)
+    return owners
+
+
 def _distribution_delta(
     baseline: Counter[str],
     current: Counter[str],
@@ -3144,9 +3154,41 @@ def compute_version_diff(
                 "standard_name": current.concepts_by_pxref[c_pxref].get("standard_name", ""),
             })
 
-    # Truly new/removed = not matched by ncats_id AND not in the other version by pxref
-    added_pxrefs = current_pxrefs - matched_current_pxrefs - baseline_pxrefs
-    removed_pxrefs = baseline_pxrefs - matched_baseline_pxrefs - current_pxrefs
+    current_xref_owners = _xref_owner_index(current)
+    baseline_xref_owners = _xref_owner_index(baseline)
+
+    # Raw primary-row churn can be large when the preferred primary grounding
+    # changes between releases. Treat previous primary IDs that are now current
+    # xrefs as grounding changes before counting true concept additions/removals.
+    raw_added_pxrefs = current_pxrefs - matched_current_pxrefs - baseline_pxrefs
+    raw_removed_pxrefs = baseline_pxrefs - matched_baseline_pxrefs - current_pxrefs
+    primary_grounding_changes: list[dict[str, Any]] = []
+    previous_primary_represented_as_xref: set[str] = set()
+    current_primary_explained_by_previous_xref: set[str] = set()
+    for old_pxref in sorted(raw_removed_pxrefs):
+        owners = sorted(current_xref_owners.get(old_pxref, set()) - {old_pxref})
+        if not owners:
+            continue
+        previous_primary_represented_as_xref.add(old_pxref)
+        current_primary_explained_by_previous_xref.update(owners)
+        owner_labels = [
+            current.concepts_by_pxref[owner].get("standard_name", "")
+            for owner in owners[:3]
+            if owner in current.concepts_by_pxref
+        ]
+        owner_suffix = "" if len(owners) <= 3 else f" +{len(owners) - 3} more"
+        primary_grounding_changes.append({
+            "old_primary_xref": old_pxref,
+            "old_standard_name": baseline.concepts_by_pxref[old_pxref].get("standard_name", ""),
+            "new_primary_xref": ", ".join(owners[:3]) + owner_suffix,
+            "new_standard_name": " | ".join(owner_labels),
+            "n_current_primary_concepts": len(owners),
+            "reason": "Previous primary identifier is now represented as a current xref",
+        })
+
+    # Concept additions/removals after primary-grounding changes are accounted for.
+    added_pxrefs = raw_added_pxrefs - current_primary_explained_by_previous_xref
+    removed_pxrefs = raw_removed_pxrefs - previous_primary_represented_as_xref
 
     # Concepts matched by pxref that weren't already matched by ncats_id
     shared_pxrefs = (current_pxrefs & baseline_pxrefs) - matched_current_pxrefs
@@ -3246,19 +3288,6 @@ def compute_version_diff(
         for p in sorted(added_pxrefs)
     ]
     added_concepts = all_added_concepts[:500]
-    # Build reverse index: xref_id → set of current primary_xrefs
-    current_xref_owners: dict[str, set[str]] = defaultdict(set)
-    for px, edges in current.edges_by_pxref.items():
-        for e in edges:
-            xid = e.get("xref_id", "")
-            if xid:
-                current_xref_owners[xid].add(px)
-    baseline_xref_owners: dict[str, set[str]] = defaultdict(set)
-    for px, edges in baseline.edges_by_pxref.items():
-        for e in edges:
-            xid = e.get("xref_id", "")
-            if xid:
-                baseline_xref_owners[xid].add(px)
 
     removed_concepts: list[dict[str, str]] = []
     legacy_source_only_rows: list[dict[str, str]] = []
@@ -3353,13 +3382,74 @@ def compute_version_diff(
     current_version = current.manifest.get("pipeline_version", "unknown")
 
     sorted_rekeyed = sorted(rekeyed_concepts, key=lambda x: x["old_primary_xref"])
+    sorted_primary_grounding_changes = sorted(
+        primary_grounding_changes,
+        key=lambda x: x["old_primary_xref"],
+    )
+    hierarchy_edges_baseline = sum(len(v) for v in baseline.hierarchy_by_child.values())
+    hierarchy_edges_current = sum(len(v) for v in current.hierarchy_by_child.values())
+    clinical_descendant_edges_baseline = sum(
+        len(v) for v in baseline.clinical_descendants_by_pxref.values()
+    )
+    clinical_descendant_edges_current = sum(
+        len(v) for v in current.clinical_descendants_by_pxref.values()
+    )
+    gene_associations_baseline = sum(len(v) for v in baseline.associations_by_ncats_id.values())
+    gene_associations_current = sum(len(v) for v in current.associations_by_ncats_id.values())
+    review_records_baseline = sum(len(v) for v in baseline.decisions_by_pxref.values())
+    review_records_current = sum(len(v) for v in current.decisions_by_pxref.values())
+    data_layer_changes = [
+        {
+            "layer": "Concepts",
+            "old_count": len(baseline.concepts_by_pxref),
+            "new_count": len(current.concepts_by_pxref),
+        },
+        {
+            "layer": "Exact xref edges",
+            "old_count": len(baseline_edge_keys),
+            "new_count": len(current_edge_keys),
+        },
+        {
+            "layer": "Ontology hierarchy edges",
+            "old_count": hierarchy_edges_baseline,
+            "new_count": hierarchy_edges_current,
+        },
+        {
+            "layer": "Clinical descendant edges",
+            "old_count": clinical_descendant_edges_baseline,
+            "new_count": clinical_descendant_edges_current,
+        },
+        {
+            "layer": "Disease-gene associations",
+            "old_count": gene_associations_baseline,
+            "new_count": gene_associations_current,
+        },
+        {
+            "layer": "Xref labels",
+            "old_count": len(baseline.labels_by_xref_id),
+            "new_count": len(current.labels_by_xref_id),
+        },
+        {
+            "layer": "Review registry records",
+            "old_count": review_records_baseline,
+            "new_count": review_records_current,
+        },
+    ]
+    for row in data_layer_changes:
+        row["delta"] = row["new_count"] - row["old_count"]
 
     return {
         "summary": {
             "concepts_added": len(added_pxrefs),
             "concepts_removed": len(removed_concepts),
             "concepts_rekeyed": len(rekeyed_concepts),
-            "raw_primary_rows_absent": len(removed_pxrefs),
+            "primary_grounding_changes": len(primary_grounding_changes),
+            "raw_primary_rows_added": len(raw_added_pxrefs),
+            "raw_primary_rows_absent": len(raw_removed_pxrefs),
+            "previous_primary_ids_now_xrefs": len(previous_primary_represented_as_xref),
+            "current_primary_rows_explained_by_previous_xrefs": len(
+                current_primary_explained_by_previous_xref & raw_added_pxrefs
+            ),
             "legacy_source_only_removed": len(legacy_source_only_rows),
             "other_removed_rows": len(other_removed_rows),
             "tier_changes": len(tier_changes),
@@ -3367,13 +3457,21 @@ def compute_version_diff(
             "disease_type_changes": len(disease_type_changes),
             "edges_added": edges_added,
             "edges_removed": edges_removed,
+            "hierarchy_edges_delta": hierarchy_edges_current - hierarchy_edges_baseline,
+            "clinical_descendant_edges_added": max(
+                0,
+                clinical_descendant_edges_current - clinical_descendant_edges_baseline,
+            ),
+            "gene_associations_added": max(0, gene_associations_current - gene_associations_baseline),
             "decisions_resolved": max(0, decisions_resolved),
             "source_namespaces_added": sum(1 for ns, count in current_ns_dist.items() if count and not baseline_ns_dist.get(ns)),
             "source_namespaces_removed": sum(1 for ns, count in baseline_ns_dist.items() if count and not current_ns_dist.get(ns)),
         },
+        "data_layer_changes": data_layer_changes,
         "added_concepts": added_concepts,
         "removed_concepts": removed_concepts[:500],
         "rekeyed_concepts": sorted_rekeyed[:500],
+        "primary_grounding_changes": sorted_primary_grounding_changes[:500],
         "legacy_source_only_rows": legacy_source_only_rows[:200],
         "other_removed_rows": other_removed_rows[:200],
         "tier_changes": tier_changes[:500],
@@ -3383,6 +3481,10 @@ def compute_version_diff(
             "added_concepts": {"total": len(all_added_concepts), "shown": len(added_concepts)},
             "removed_concepts": {"total": len(removed_concepts), "shown": min(len(removed_concepts), 500)},
             "rekeyed_concepts": {"total": len(rekeyed_concepts), "shown": min(len(rekeyed_concepts), 500)},
+            "primary_grounding_changes": {
+                "total": len(primary_grounding_changes),
+                "shown": min(len(primary_grounding_changes), 500),
+            },
             "legacy_source_only_rows": {"total": len(legacy_source_only_rows), "shown": min(len(legacy_source_only_rows), 200)},
             "other_removed_rows": {"total": len(other_removed_rows), "shown": min(len(other_removed_rows), 200)},
             "tier_changes": {"total": len(tier_changes), "shown": min(len(tier_changes), 500)},

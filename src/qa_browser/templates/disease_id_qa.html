@@ -2975,13 +2975,19 @@ C4707237</textarea>
         const t = diff.truncation || {};
         let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
         html += `<div class="changes-version-label">Biolink category deltas use the exported <code>disease_type</code> field; older releases without populated categories appear as <code>unknown</code>.</div>`;
-        html += `<div class="changes-version-label">Retired concepts are limited to concepts merged into another concept, absorbed as an xref, obsolete, or removed by QC. Older single-source rows from previous exports are counted separately because they were not harmonized concepts.</div>`;
+        html += `<div class="changes-version-label">Added and retired concepts are counted after accounting for primary-grounding changes. Raw primary IDs that are now represented as xrefs are reported separately.</div>`;
+        if (Number(s.primary_grounding_changes || 0) > 0) {
+            html += `<div class="changes-version-label">${Number(s.previous_primary_ids_now_xrefs || 0).toLocaleString()} previous primary IDs are now represented as xrefs under current concepts; ${Number(s.current_primary_rows_explained_by_previous_xrefs || 0).toLocaleString()} current primary rows are explained by those previous IDs.</div>`;
+        }
         if (Number(s.legacy_source_only_removed || 0) > 0) {
             html += `<div class="changes-version-label">Excluded from the retired-concepts table: ${Number(s.legacy_source_only_removed || 0).toLocaleString()} older single-source rows from the previous export.</div>`;
         }
         html += `<div class="changes-summary">`;
-        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">Concepts Added</div></div>`;
-        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired / Merged Concepts</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_added.toLocaleString()}</div><div class="dash-label">New Concept Candidates</div></div>`;
+        html += `<div class="dash-card"><div class="dash-stat">${s.concepts_removed.toLocaleString()}</div><div class="dash-label">Retired Concepts</div></div>`;
+        if (Number(s.primary_grounding_changes || 0) > 0) {
+            html += `<div class="dash-card"><div class="dash-stat">${Number(s.primary_grounding_changes || 0).toLocaleString()}</div><div class="dash-label">Primary Grounding Changes</div></div>`;
+        }
         if (Number(s.concepts_rekeyed || 0) > 0) {
             html += `<div class="dash-card"><div class="dash-stat">${s.concepts_rekeyed.toLocaleString()}</div><div class="dash-label">Re-keyed Concepts</div></div>`;
         }
@@ -2992,6 +2998,12 @@ C4707237</textarea>
         html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
         html += `</div>`;
 
+        html += renderDeltaTable(
+            "Data Layers Changed",
+            diff.data_layer_changes,
+            "layer",
+            "Layer"
+        );
         html += renderDeltaTable(
             "Biolink Category Distribution",
             diff.biolink_category_distribution && diff.biolink_category_distribution.delta,
@@ -3007,10 +3019,20 @@ C4707237</textarea>
 
         if (diff.added_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Added Concepts (${s.concepts_added.toLocaleString()})${truncationNote(t.added_concepts)}</h3>`;
+            html += `<h3>New Concept Candidates (${s.concepts_added.toLocaleString()})${truncationNote(t.added_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Primary Xref</th><th>Name</th><th>Biolink Category</th></tr></thead><tbody>`;
             diff.added_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td></tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        }
+
+        if (diff.primary_grounding_changes && diff.primary_grounding_changes.length > 0) {
+            html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+            html += `<h3>Primary Grounding Changes (${Number(s.primary_grounding_changes || 0).toLocaleString()})${truncationNote(t.primary_grounding_changes)}</h3>`;
+            html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Current Primary ID(s)</th><th>Previous Name</th><th>Current Name(s)</th><th>What happened</th></tr></thead><tbody>`;
+            diff.primary_grounding_changes.forEach(c => {
+                html += `<tr><td class="mono">${escapeHtml(c.old_primary_xref)}</td><td class="mono">${escapeHtml(c.new_primary_xref)}</td><td>${escapeHtml(c.old_standard_name)}</td><td>${escapeHtml(c.new_standard_name)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
             });
             html += `</tbody></table></div></div>`;
         }
@@ -3027,7 +3049,7 @@ C4707237</textarea>
 
         if (diff.removed_concepts.length > 0) {
             html += `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-            html += `<h3>Retired / Merged Concepts (${s.concepts_removed.toLocaleString()})${truncationNote(t.removed_concepts)}</h3>`;
+            html += `<h3>Retired Concepts (${s.concepts_removed.toLocaleString()})${truncationNote(t.removed_concepts)}</h3>`;
             html += `<div class="changes-section-body"><table class="changes-table"><thead><tr><th>Previous Primary ID</th><th>Name</th><th>Biolink Category</th><th>What happened</th></tr></thead><tbody>`;
             diff.removed_concepts.forEach(c => {
                 html += `<tr><td class="mono">${escapeHtml(c.primary_xref)}</td><td>${escapeHtml(c.standard_name)}</td><td>${escapeHtml(c.disease_type)}</td><td class="changes-reason-cell">${escapeHtml(c.reason)}</td></tr>`;
