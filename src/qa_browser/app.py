@@ -47,6 +47,7 @@ from src.qa_browser.disease_id_graph import (
     build_provenance_chain,
     bulk_resolve_names,
     compute_dashboard_stats,
+    compute_download_preview_counts,
     compute_source_agreement_matrix,
     compute_source_flow_data,
     compute_version_diff,
@@ -5996,6 +5997,45 @@ def disease_id_qa_dashboard():
     return compute_dashboard_stats(data)
 
 
+@app.get("/disease-id-qa/api/download-preview")
+def disease_id_qa_download_preview(
+    q: str = "",
+    filter: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    mode: str = "concepts",
+    include_sources: str = "",
+    exclude_obsolete: str = "",
+):
+    """Return exact row counts for the selected download table mode."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
+    return compute_download_preview_counts(
+        data,
+        q=q,
+        filter_mode=filter,
+        confidence_tier=confidence_tier,
+        is_rare=is_rare,
+        source=source,
+        quality=quality,
+        disease_type=disease_type,
+        mode=mode,
+        include_sources=src_set,
+        exclude_obsolete=exclude_obsolete.lower() == "true",
+    )
+
+
 @app.get("/disease-id-qa/api/suggest")
 def disease_id_qa_suggest(q: str = "", limit: int = 8):
     """Return autocomplete suggestions for the search input."""
@@ -6099,10 +6139,13 @@ def disease_id_qa_download_filtered(
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
-    src_set = (
-        {s.strip().upper() for s in include_sources.split(",") if s.strip()}
-        if include_sources else None
-    )
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
     excl_obs = exclude_obsolete.lower() == "true"
     mode_key = _normalize_download_mode(mode)
     version = str(data.manifest.get("pipeline_version", "") or "unknown").strip()
@@ -6288,6 +6331,9 @@ def api_disease_stats():
         "multi_source_count": stats.get("multi_source_count", 0),
         "multi_source_percent": stats.get("multi_source_percent", 0),
         "source_only_count": stats.get("source_only_count", 0),
+        "concepts_with_clinical_codes": stats.get("concepts_with_clinical_codes", 0),
+        "concepts_with_clinical_descendants": stats.get("concepts_with_clinical_descendants", 0),
+        "clinical_descendant_summary": stats.get("clinical_descendant_summary", {}),
         "rare_count": stats["rare_count"],
         "flagged_count": stats["flagged_count"],
         "needs_action_count": stats.get("needs_action_count", stats["flagged_count"]),
@@ -6461,6 +6507,17 @@ def disease_id_qa_source_versions():
                     or _nested(meta, "download_start", "timestamp_start")
                 )
                 download_date = _date_only(download_start)
+                tf_output_rows = _clean(row.get("tf_output_rows"))
+                tf_input_rows = _clean(row.get("tf_input_rows"))
+                status = _clean(row.get("status"))
+                changed = _clean(row.get("changed"))
+                note = ""
+                if name.upper() == "SNOMEDCT":
+                    note = "UMLS SNOMEDCT subset; source version is the UMLS release."
+                elif name.upper() == "UMLS":
+                    note = "UMLS-derived labels/xrefs; access depends on local UMLS credentials."
+                elif version == "unknown":
+                    note = "Source-native version was not captured by the download metadata."
                 sources.append({
                     "name": name,
                     "version": version,
@@ -6468,6 +6525,11 @@ def disease_id_qa_source_versions():
                     "source_release_date": release_date,
                     "download_date": download_date,
                     "odin_download_date": download_date,
+                    "transform_input_rows": tf_input_rows,
+                    "transform_output_rows": tf_output_rows,
+                    "status": status,
+                    "changed": changed,
+                    "note": note,
                 })
     except Exception as exc:
         logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)

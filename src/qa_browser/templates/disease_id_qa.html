@@ -53,6 +53,13 @@
                 </div>
             </div>
             <div class="dash-card">
+                <div class="dash-stat" id="dashClinicalCodeConcepts">-</div>
+                <div class="dash-label">Clinical-code Concepts <button class="chart-legend-toggle" type="button" aria-label="Explain clinical-code concepts" aria-expanded="false" aria-controls="clinicalCodeHelp">?</button></div>
+                <div class="chart-legend" id="clinicalCodeHelp">
+                    <p>Concepts with at least one ICD or SNOMEDCT direct xref. This is a better clinical-annotation coverage signal than average xrefs per concept.</p>
+                </div>
+            </div>
+            <div class="dash-card">
                 <div class="dash-stat" id="dashRareCount">-</div>
                 <div class="dash-label">Rare Diseases</div>
             </div>
@@ -145,6 +152,13 @@
                     <p>Concept-level Biolink category assigned during TargetGraph disease ID generation. This separates disease concepts from phenotype-labeled concepts now that phenotype mappings are included again.</p>
                 </div>
                 <div id="dashDiseaseTypeChart" class="bar-chart"></div>
+            </div>
+            <div class="dash-chart-panel">
+                <h3>Clinical Descendant Layer <button class="chart-legend-toggle" type="button" aria-label="Explain clinical descendants" aria-expanded="false" aria-controls="clinicalDescendantHelp">?</button></h3>
+                <div class="chart-legend" id="clinicalDescendantHelp">
+                    <p>Inferred ICD/SNOMED descendant candidates are kept separate from exact xrefs. These rows support broad/narrow clinical-code exploration and may require expert review when warning flags are present.</p>
+                </div>
+                <div id="dashClinicalDescendantSummary" class="clinical-descendant-summary"></div>
             </div>
         </div>
 
@@ -337,9 +351,10 @@
                         <option value="breadthfirst">Breadthfirst</option>
                     </select>
                     <span class="disease-id-filter-sep">|</span>
-                    <button id="graphLegendToggle" class="graph-legend-toggle">Legend</button>
+                    <button id="graphLegendToggle" class="graph-legend-toggle active">Legend</button>
                 </div>
-                <div id="graphLegend" class="graph-legend">
+                <div id="graphNamespaceFilters" class="graph-namespace-filters" aria-label="Graph namespace filters"></div>
+                <div id="graphLegend" class="graph-legend expanded">
                     <div class="graph-legend-columns">
                         <div class="graph-legend-col">
                             <h4>Edge types (match_type)</h4>
@@ -452,8 +467,8 @@
                 <div id="diseaseIdCy" class="disease-id-cy" data-ids="{{ selected_ids }}"></div>
             </div>
             <aside class="disease-id-detail">
-                <h2 id="diseaseIdDetailTitle">Graph</h2>
-                <p id="diseaseIdDetailSub">Loading {{ selected_ids }}</p>
+                <h2 id="diseaseIdDetailTitle">Selection Inspector</h2>
+                <p id="diseaseIdDetailSub">Select any node or edge to inspect provenance, identifiers, scores, and review state.</p>
                 <dl id="diseaseIdStats" class="disease-id-stats"></dl>
                 <div id="diseaseIdDetails" class="disease-id-details"></div>
                 <div class="disease-id-graph-actions" style="margin-top:1rem;display:none;" id="diseaseIdGraphActions">
@@ -873,7 +888,13 @@ C4707237</textarea>
     /* == Dashboard == */
     const NS_COLORS = {
         "MONDO": "#0d9488", "DOID": "#4f46e5", "OMIM": "#7c3aed",
-        "Orphanet": "#ea580c", "MedGen": "#059669", "GARD": "#dc2626",
+        "Orphanet": "#ea580c", "ORPHANET": "#ea580c",
+        "MedGen": "#059669", "MEDGEN": "#059669",
+        "GARD": "#dc2626", "SNOMEDCT": "#0891b2",
+        "ICD10": "#f97316", "ICD10CM": "#f97316",
+        "ICD11": "#f59e0b", "ICD11f": "#f59e0b",
+        "EFO": "#14b8a6", "HP": "#be5a38", "MESH": "#2563eb",
+        "NCIT": "#9333ea", "UMLS": "#64748b",
     };
     const DOWNLOAD_SOURCE_ORDER = [
         "DOID", "EFO", "GARD", "HP", "ICD10", "ICD11", "ICD11f",
@@ -1165,6 +1186,7 @@ C4707237</textarea>
                 // Populate source version tags from pipeline metadata
                 const tagContainer = document.getElementById("dashSourceTags");
                 if (tagContainer) {
+                    tagContainer.querySelectorAll(".dash-source-tag").forEach(el => el.remove());
                     fetch(`${rootPath}/disease-id-qa/api/source-versions`)
                         .then(r => r.json())
                         .then(vdata => {
@@ -1178,12 +1200,21 @@ C4707237</textarea>
                                 const version = src.version && src.version !== "unknown" ? src.version : "not captured";
                                 const sourceDate = (src.source_release_date || src.release_date || "").slice(0, 10) || "not captured";
                                 const odinDate = (src.odin_download_date || src.download_date || "").slice(0, 10) || "not captured";
+                                const outRows = src.transform_output_rows ? Number(src.transform_output_rows).toLocaleString() : "not captured";
+                                const note = src.note ? `<span class="dash-source-tag-note">${escapeHtml(src.note)}</span>` : "";
                                 tag.innerHTML =
                                     `<span class="dash-source-tag-name">${escapeHtml(src.name)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
-                                    `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>`;
-                                tag.title = `Source version: ${version}\nSource release/date: ${sourceDate}\nODIN downloaded raw data: ${odinDate}`;
+                                    `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>` +
+                                    `<span class="dash-source-tag-detail"><b>Transformed rows</b> ${escapeHtml(outRows)}</span>` +
+                                    note;
+                                tag.title =
+                                    `Source version: ${version}\n` +
+                                    `Source release/date: ${sourceDate}\n` +
+                                    `ODIN downloaded raw data: ${odinDate}\n` +
+                                    `Transformed rows: ${outRows}` +
+                                    (src.note ? `\n${src.note}` : "");
                                 tagContainer.appendChild(tag);
                             });
                         })
@@ -1195,7 +1226,14 @@ C4707237</textarea>
                 document.getElementById("dashMultiSourceConcepts").title =
                     `${Number(stats.multi_source_count || 0).toLocaleString()} concepts with n_sources > 1; ` +
                     `${Number(stats.source_only_count || 0).toLocaleString()} source-only concepts; ` +
-                    `avg xrefs/concept ${stats.avg_xrefs_per_concept}`;
+                    `xref density ${stats.avg_xrefs_per_concept} average direct xrefs per concept`;
+                const clinicalCodeConcepts = Number(stats.concepts_with_clinical_codes || 0);
+                const clinicalCodePct = stats.total_concepts
+                    ? (clinicalCodeConcepts / stats.total_concepts * 100).toFixed(1)
+                    : "0.0";
+                document.getElementById("dashClinicalCodeConcepts").textContent = `${clinicalCodePct}%`;
+                document.getElementById("dashClinicalCodeConcepts").title =
+                    `${clinicalCodeConcepts.toLocaleString()} concepts with at least one ICD/SNOMEDCT direct xref`;
                 document.getElementById("dashRareCount").textContent = stats.rare_count.toLocaleString();
 
                 const geneAssocEl = document.getElementById("dashGeneAssocCount");
@@ -1255,6 +1293,26 @@ C4707237</textarea>
                     "unknown": "#cbd5e1",
                 };
                 renderBarChart(document.getElementById("dashDiseaseTypeChart"), stats.disease_type_distribution || {}, stats.total_concepts, diseaseTypeColors);
+
+                const clinicalSummaryEl = document.getElementById("dashClinicalDescendantSummary");
+                const clinicalSummary = stats.clinical_descendant_summary || {};
+                if (clinicalSummaryEl) {
+                    const totalClinical = Number(clinicalSummary.total || 0);
+                    const clinicalConcepts = Number(clinicalSummary.concepts || 0);
+                    const warningCounts = clinicalSummary.by_warning || {};
+                    const mayNotRare = Number(warningCounts.may_not_be_rare || 0);
+                    const topSources = Object.entries(clinicalSummary.by_hierarchy_source || {})
+                        .slice(0, 4)
+                        .map(([label, count]) => `<span>${escapeHtml(label)} <strong>${Number(count || 0).toLocaleString()}</strong></span>`)
+                        .join("");
+                    clinicalSummaryEl.innerHTML =
+                        `<div class="clinical-descendant-kpis">` +
+                        `<div><strong>${totalClinical.toLocaleString()}</strong><span>descendant rows</span></div>` +
+                        `<div><strong>${clinicalConcepts.toLocaleString()}</strong><span>concepts with descendants</span></div>` +
+                        `<div><strong>${mayNotRare.toLocaleString()}</strong><span>may not be rare</span></div>` +
+                        `</div>` +
+                        `<div class="clinical-descendant-source-list">${topSources || "<span>No descendant sources</span>"}</div>`;
+                }
 
                 const summary = document.getElementById("dashFlaggedSummary");
                 const needsAction = Number(stats.needs_action_count || stats.flagged_count || 0);
@@ -2092,6 +2150,7 @@ C4707237</textarea>
         const proteinsLabel = document.getElementById("filterShowProteinsLabel");
         const transcriptCountSpan = document.getElementById("diseaseTranscriptCount");
         const proteinCountSpan = document.getElementById("diseaseProteinCount");
+        const graphNamespaceFilters = document.getElementById("graphNamespaceFilters");
 
         function renderStats(stats) {
             const rows = [
@@ -2223,6 +2282,35 @@ C4707237</textarea>
         let cyInstance = null;
         let fullPayload = null;
 
+        function selectedGraphNamespaces() {
+            const checks = graphNamespaceFilters
+                ? [...graphNamespaceFilters.querySelectorAll(".graph-ns-check")]
+                : [];
+            if (!checks.length) return null;
+            return new Set(checks.filter(c => c.checked).map(c => c.value.toUpperCase()));
+        }
+
+        function renderGraphNamespaceFilters(namespaces) {
+            if (!graphNamespaceFilters) return;
+            const nsList = [...new Set((namespaces || []).map(ns => String(ns || "").toUpperCase()).filter(Boolean))].sort();
+            if (!nsList.length) {
+                graphNamespaceFilters.innerHTML = "";
+                return;
+            }
+            graphNamespaceFilters.innerHTML =
+                `<span class="graph-namespace-title">Xref namespaces</span>` +
+                nsList.map(ns => {
+                    const color = NS_COLORS[ns] || "var(--accent)";
+                    return `<label class="graph-namespace-chip" style="--ns-color:${escapeHtml(color)}">` +
+                        `<input type="checkbox" class="graph-ns-check" value="${escapeHtml(ns)}" checked>` +
+                        `<span>${escapeHtml(ns)}</span>` +
+                        `</label>`;
+                }).join("");
+            graphNamespaceFilters.querySelectorAll(".graph-ns-check").forEach(input => {
+                input.addEventListener("change", applyGraphFilters);
+            });
+        }
+
         function applyGraphFilters() {
             if (!cyInstance) return;
             cyInstance.startBatch();
@@ -2247,6 +2335,25 @@ C4707237</textarea>
             }
             if (filterHideGeneAssoc.checked) {
                 cyInstance.elements(".gene, .association-edge, .target-product, .target-relation-edge, .translation-edge, .gene-product-edge, .transcription-edge").hide();
+            }
+            const selectedNs = selectedGraphNamespaces();
+            if (selectedNs) {
+                cyInstance.nodes(".xref").filter(n => {
+                    const ns = String(n.data("xref_namespace") || "").toUpperCase();
+                    return ns && !selectedNs.has(ns);
+                }).hide();
+                cyInstance.edges().filter(e => {
+                    const kind = e.data("kind");
+                    if (kind !== "xref_edge" && kind !== "clinical_descendant_edge") return false;
+                    const targetNode = e.target();
+                    const ns = String(
+                        e.data("xref_namespace") ||
+                        e.data("descendant_xref_namespace") ||
+                        targetNode.data("xref_namespace") ||
+                        ""
+                    ).toUpperCase();
+                    return ns && !selectedNs.has(ns);
+                }).hide();
             }
             cyInstance.nodes(".xref").filter(n => n.connectedEdges(":visible").length === 0).hide();
             cyInstance.nodes(".target-product").filter(n => n.connectedEdges(":visible").length === 0).hide();
@@ -2531,6 +2638,7 @@ C4707237</textarea>
             })
             .then((payload) => {
                 fullPayload = payload;
+                renderGraphNamespaceFilters(payload.namespaces || []);
                 renderStats(payload.stats);
                 detailSub.textContent = `${payload.elements.length} graph elements`;
 
@@ -2576,6 +2684,16 @@ C4707237</textarea>
                     orphanet: "#fb923c",
                     medgen:   "#34d399",
                     gard:     "#f87171",
+                    efo:      "#14b8a6",
+                    hp:       "#be5a38",
+                    icd10:    "#f97316",
+                    icd10cm:  "#f97316",
+                    icd11:    "#f59e0b",
+                    icd11f:   "#f59e0b",
+                    mesh:     "#60a5fa",
+                    ncit:     "#a855f7",
+                    snomedct: "#22d3ee",
+                    umls:     "#94a3b8",
                 };
                 const nsStyles = Object.entries(nsStyleMap).map(([ns, color]) => ({
                     selector: `.xref.${ns}`,
@@ -3273,6 +3391,7 @@ C4707237</textarea>
     const dlPreview = document.getElementById("dlPreview");
     const dlDownloadBtn = document.getElementById("dlDownloadBtn");
     const dlSourcePickerTitle = document.getElementById("dlSourcePickerTitle");
+    const dlSourceGrid = document.getElementById("dlSourceGrid");
 
     let dlTimer = null;
     function currentDownloadMode() {
@@ -3297,6 +3416,9 @@ C4707237</textarea>
     }
 
     function updateDlPreview() {
+        const mode = currentDownloadMode();
+        const checkedSources = [...document.querySelectorAll(".dl-source-check:checked")].map(c => c.value);
+        const allSourceChecks = document.querySelectorAll(".dl-source-check");
         const params = new URLSearchParams({
             q: dlSearchInput.value.trim(),
             filter: dlFilterMode.value,
@@ -3304,21 +3426,27 @@ C4707237</textarea>
             quality: dlQuality.value,
             is_rare: dlIsRare.value,
             disease_type: dlDiseaseType.value,
-            per_page: 1,
-            page: 1,
+            mode,
         });
+        if (allSourceChecks.length && checkedSources.length < allSourceChecks.length) {
+            params.set("include_sources", checkedSources.length ? checkedSources.join(",") : "__none__");
+        }
+        if (dlExcludeObsolete.checked) {
+            params.set("exclude_obsolete", "true");
+        }
         for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
 
-        const mode = currentDownloadMode();
-        fetch(`${rootPath}/disease-id-qa/api/search?${params}`)
+        fetch(`${rootPath}/disease-id-qa/api/download-preview?${params}`)
             .then(r => r.json())
             .then(data => {
-                const suffix = mode === "xref_edges"
-                    ? "concepts match; xref download is one row per xref edge"
-                    : mode === "clinical_descendants"
-                        ? "concepts match; clinical download is one row per descendant relationship"
-                        : "concepts match your filters";
-                dlPreview.innerHTML = `<strong>${data.total.toLocaleString()}</strong> ${suffix}`;
+                const rowLabel = data.row_label || "rows";
+                const conceptCount = Number(data.concept_count || 0).toLocaleString();
+                const context = data.mode === "concepts"
+                    ? "matching harmonized concepts"
+                    : `${conceptCount} concepts match the concept filters`;
+                dlPreview.innerHTML =
+                    `<strong>${Number(data.row_count || 0).toLocaleString()}</strong> ${escapeHtml(rowLabel)} ` +
+                    `<span class="download-preview-context">${escapeHtml(context)}</span>`;
             })
             .catch(() => {
                 dlPreview.innerHTML = `<span style="color:var(--text-muted)">Unable to estimate count.</span>`;
@@ -3330,6 +3458,16 @@ C4707237</textarea>
     });
     if (dlMode) {
         dlMode.addEventListener("change", updateDownloadModeUI);
+    }
+    if (dlExcludeObsolete) {
+        dlExcludeObsolete.addEventListener("change", updateDlPreview);
+    }
+    if (dlSourceGrid) {
+        dlSourceGrid.addEventListener("change", (event) => {
+            if (event.target && event.target.classList.contains("dl-source-check")) {
+                updateDlPreview();
+            }
+        });
     }
     dlSearchInput.addEventListener("input", () => {
         clearTimeout(dlTimer);
@@ -3366,7 +3504,7 @@ C4707237</textarea>
         // relationship modes use them as row filters.
         const allSourceChecks = document.querySelectorAll(".dl-source-check");
         if (checkedSources.length < allSourceChecks.length) {
-            params.set("include_sources", checkedSources.join(","));
+            params.set("include_sources", checkedSources.length ? checkedSources.join(",") : "__none__");
         }
 
         if (dlExcludeObsolete.checked) {

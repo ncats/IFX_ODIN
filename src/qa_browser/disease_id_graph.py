@@ -339,6 +339,8 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     multi_source_count = 0
     source_only_count = 0
     total_xrefs = 0
+    concepts_with_clinical_codes = 0
+    concepts_with_clinical_descendants = 0
 
     # Per-source-namespace quality breakdown
     _sqb_tier: dict[str, Counter[str]] = {}
@@ -346,6 +348,11 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     _sqb_quality_n: Counter[str] = Counter()
     _sqb_needs_action: Counter[str] = Counter()
     _sqb_total: Counter[str] = Counter()
+
+    clinical_descendant_source_dist: Counter[str] = Counter()
+    clinical_descendant_distance_dist: Counter[str] = Counter()
+    clinical_descendant_warning_dist: Counter[str] = Counter()
+    clinical_descendant_review_dist: Counter[str] = Counter()
 
     for pxref, concept in data.concepts_by_pxref.items():
         tier = concept.get("confidence_tier", "").strip()
@@ -395,10 +402,15 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         except (ValueError, TypeError):
             pass
         seen_ns: set[str] = set()
+        has_clinical_code_xref = False
         for edge in data.edges_by_pxref.get(pxref, []):
             ns = _normalize_ns(edge.get("xref_namespace", "").strip())
             if ns:
                 seen_ns.add(ns)
+                if ns in {"ICD10", "ICD10CM", "ICD11", "ICD11f", "SNOMEDCT"}:
+                    has_clinical_code_xref = True
+        if has_clinical_code_xref:
+            concepts_with_clinical_codes += 1
         for ns in seen_ns:
             source_coverage[ns] += 1
             _sqb_total[ns] += 1
@@ -409,6 +421,28 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
             _sqb_quality_n[ns] += 1
             if is_flagged:
                 _sqb_needs_action[ns] += 1
+
+        clinical_rows = data.clinical_descendants_by_pxref.get(pxref, [])
+        if clinical_rows:
+            concepts_with_clinical_descendants += 1
+        for descendant in clinical_rows:
+            clinical_descendant_source_dist[
+                descendant.get("hierarchy_source", "").strip() or "unknown"
+            ] += 1
+            clinical_descendant_distance_dist[
+                descendant.get("distance_from_anchor", "").strip()
+                or descendant.get("distance_status", "").strip()
+                or "unknown"
+            ] += 1
+            warning_key = (
+                "may_not_be_rare"
+                if descendant.get("may_not_be_rare_warning", "").lower() == "true"
+                else "no_warning"
+            )
+            clinical_descendant_warning_dist[warning_key] += 1
+            clinical_descendant_review_dist[
+                descendant.get("review_status", "").strip() or "unreviewed"
+            ] += 1
 
     avg_xrefs = round(total_xrefs / total_concepts, 1) if total_concepts else 0
     multi_source_percent = round((multi_source_count / total_concepts) * 100, 1) if total_concepts else 0
@@ -468,6 +502,17 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "multi_source_percent": multi_source_percent,
         "source_only_count": source_only_count,
         "avg_xrefs_per_concept": avg_xrefs,
+        "xref_density_label": "Average direct xrefs per concept; coverage context only, not confidence.",
+        "concepts_with_clinical_codes": concepts_with_clinical_codes,
+        "concepts_with_clinical_descendants": concepts_with_clinical_descendants,
+        "clinical_descendant_summary": {
+            "total": total_clinical_descendant_edges,
+            "concepts": concepts_with_clinical_descendants,
+            "by_hierarchy_source": dict(clinical_descendant_source_dist.most_common()),
+            "by_distance": dict(clinical_descendant_distance_dist.most_common()),
+            "by_warning": dict(clinical_descendant_warning_dist.most_common()),
+            "by_review_status": dict(clinical_descendant_review_dist.most_common()),
+        },
         "source_quality_breakdown": source_quality_breakdown,
         "total_gene_associations": total_gene_associations,
         "unique_genes": len(unique_genes),
@@ -1060,6 +1105,7 @@ def build_disease_graph_payload(
     result: dict[str, Any] = {
         "queryIds": query_ids,
         "missingIds": missing,
+        "namespaces": sorted(namespaces),
         "stats": {
             "conceptCount": len(concept_nodes),
             "xrefCount": len(xref_nodes),
@@ -1863,7 +1909,7 @@ def _concept_to_row(
         column = _canonical_source_column(namespace or _curie_namespace(xref_id))
         if column not in source_xrefs:
             return
-        if include_sources and column.upper() not in include_sources:
+        if include_sources is not None and column.upper() not in include_sources:
             return
         _append_unique(source_xrefs[column], xref_id)
 
@@ -1874,7 +1920,7 @@ def _concept_to_row(
     for edge in data.edges_by_pxref.get(pxref, []):
         xref_id = edge.get("xref_id", "")
         ns = _normalize_ns(edge.get("xref_namespace", ""))
-        if include_sources and ns.upper() not in include_sources:
+        if include_sources is not None and ns.upper() not in include_sources:
             continue
         if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
             continue
@@ -2611,7 +2657,7 @@ def _filtered_download_rows(
                 for descendant in descendant_rows:
                     ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
                     anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
-                    if include_sources and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
+                    if include_sources is not None and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
                         continue
                     row = dict(concept_row)
                     for col in _CLINICAL_DESCENDANT_COLUMNS:
@@ -2627,7 +2673,7 @@ def _filtered_download_rows(
                 edges = data.edges_by_pxref.get(pxref, [])
                 for edge in edges:
                     ns = _normalize_ns(edge.get("xref_namespace", ""))
-                    if include_sources and ns.upper() not in include_sources:
+                    if include_sources is not None and ns.upper() not in include_sources:
                         continue
                     if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
                         continue
@@ -2657,6 +2703,71 @@ def _filtered_download_rows(
                 return
 
     return use_columns, edge_mode, _iter_rows()
+
+
+def compute_download_preview_counts(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    mode: str = "concepts",
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> dict[str, Any]:
+    """Return exact concept and row counts for the selected download mode."""
+    mode_key = _normalize_download_mode(mode)
+    q_lower = q.strip().lower()
+    concept_count = 0
+    xref_edge_count = 0
+    clinical_descendant_count = 0
+
+    for pxref, concept in data.concepts_by_pxref.items():
+        if not _match_filters(
+            pxref, concept, data,
+            q_lower=q_lower, filter_mode=filter_mode,
+            confidence_tier=confidence_tier, is_rare=is_rare,
+            source=source, quality=quality,
+            disease_type=disease_type,
+        ):
+            continue
+        concept_count += 1
+
+        for edge in data.edges_by_pxref.get(pxref, []):
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
+            if include_sources is not None and ns.upper() not in include_sources:
+                continue
+            if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
+                continue
+            xref_edge_count += 1
+
+        for descendant in data.clinical_descendants_by_pxref.get(pxref, []):
+            ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
+            anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
+            if include_sources is not None and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
+                continue
+            clinical_descendant_count += 1
+
+    row_count = {
+        "xref_edges": xref_edge_count,
+        "clinical_descendants": clinical_descendant_count,
+    }.get(mode_key, concept_count)
+    row_label = {
+        "xref_edges": "xref edge rows",
+        "clinical_descendants": "clinical descendant rows",
+    }.get(mode_key, "concept rows")
+
+    return {
+        "mode": mode_key,
+        "row_count": row_count,
+        "row_label": row_label,
+        "concept_count": concept_count,
+        "xref_edge_count": xref_edge_count,
+        "clinical_descendant_count": clinical_descendant_count,
+    }
 
 
 def export_filtered_download(
