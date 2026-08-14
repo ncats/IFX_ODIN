@@ -95,7 +95,7 @@ REVIEW_INTAKE_COLUMNS = [
     "App review ID",
 ]
 
-_OPEN_REVIEW_STATUSES = {"", "open", "stale"}
+_OPEN_REVIEW_STATUSES = {"", "open"}
 
 
 def normalize_review_text(value: Any) -> str:
@@ -1381,9 +1381,70 @@ def _review_status_filter(status: str) -> set[str] | None:
         return None
     if status in {"open", "unresolved", "needs_action"}:
         return _OPEN_REVIEW_STATUSES
+    if status in {"stale", "inactive"}:
+        return {"stale"}
     if status in {"resolved", "closed"}:
         return _RESOLVED_DECISION_STATUSES
     return {status}
+
+
+def _review_item_status(item: dict[str, Any]) -> str:
+    return (item.get("status", "") or "open").strip().lower()
+
+
+def _review_xref_tokens(value: str) -> list[str]:
+    return [token.strip() for token in (value or "").split("|") if token.strip()]
+
+
+def _build_review_edge_indexes(
+    data: DiseaseGraphData,
+) -> tuple[set[tuple[str, str, str]], dict[str, set[str]]]:
+    edge_keys: set[tuple[str, str, str]] = set()
+    xref_to_pxrefs: dict[str, set[str]] = defaultdict(set)
+    for pxref, edges in data.edges_by_pxref.items():
+        for edge in edges:
+            xref_id = edge.get("xref_id", "")
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
+            if not xref_id:
+                continue
+            edge_keys.add((pxref, xref_id, ns))
+            xref_to_pxrefs[xref_id].add(pxref)
+    return edge_keys, xref_to_pxrefs
+
+
+_STALE_REASON_LABELS = {
+    "edge_still_present": "Edge still present; old QC conflict no longer reproduced",
+    "edge_split_or_changed": "Old combined xref assertion is now split or changed",
+    "xref_attached_elsewhere": "Xref now attached to a different primary concept",
+    "xref_edge_absent": "Xref edge no longer present in current graph",
+    "primary_concept_absent": "Primary concept no longer present in current graph",
+}
+
+
+def _stale_review_reason(
+    data: DiseaseGraphData,
+    item: dict[str, Any],
+    edge_keys: set[tuple[str, str, str]],
+    xref_to_pxrefs: dict[str, set[str]],
+) -> tuple[str, str]:
+    pxref = item.get("primary_xref", "")
+    ns = _normalize_ns(item.get("xref_namespace", ""))
+    xref_tokens = _review_xref_tokens(item.get("xref_id", ""))
+    if pxref not in data.concepts_by_pxref:
+        key = "primary_concept_absent"
+    elif any((pxref, xref_id, ns) in edge_keys for xref_id in xref_tokens):
+        key = "edge_still_present"
+    elif len(xref_tokens) > 1 and any(
+        any((pxref, xref_id, edge_ns) in edge_keys for edge_ns in ("", ns))
+        or any(candidate_px == pxref for candidate_px in xref_to_pxrefs.get(xref_id, set()))
+        for xref_id in xref_tokens
+    ):
+        key = "edge_split_or_changed"
+    elif any(xref_id in xref_to_pxrefs for xref_id in xref_tokens):
+        key = "xref_attached_elsewhere"
+    else:
+        key = "xref_edge_absent"
+    return key, _STALE_REASON_LABELS[key]
 
 
 def _review_item_from_decision(
@@ -1451,17 +1512,22 @@ def _review_item_from_concept(pxref: str, concept: dict) -> dict[str, Any]:
     return _review_item_from_decision(pxref, concept, decision)
 
 
-def _iter_review_items(data: DiseaseGraphData) -> list[dict[str, Any]]:
+def _iter_review_items(
+    data: DiseaseGraphData,
+    *,
+    include_resolved: bool = False,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for pxref, concept in data.concepts_by_pxref.items():
         decisions = data.decisions_by_pxref.get(pxref, [])
-        actionable_decisions = [
+        active_decisions = [
             decision for decision in decisions
             if decision.get("status", "").strip().lower() not in _RESOLVED_DECISION_STATUSES
         ]
-        for decision in actionable_decisions:
+        row_decisions = decisions if include_resolved else active_decisions
+        for decision in row_decisions:
             items.append(_review_item_from_decision(pxref, concept, decision))
-        if not actionable_decisions and _is_flagged(concept, decisions):
+        if not active_decisions and _is_flagged(concept, decisions):
             items.append(_review_item_from_concept(pxref, concept))
     return items
 
@@ -1477,24 +1543,75 @@ def build_review_queue(
     per_page: int = 50,
 ) -> dict[str, Any]:
     """Return clustered review items with pagination for the app Review tab."""
-    all_items = _iter_review_items(data)
-    category_counts: Counter[str] = Counter(item["category"] for item in all_items)
-    source_counts: Counter[str] = Counter(
-        item["xref_namespace"] for item in all_items if item["xref_namespace"]
-    )
-    status_counts: Counter[str] = Counter(
-        item["status"] if item["status"] else "open" for item in all_items
-    )
-
     q_lower = q.strip().lower()
     wanted_status = _review_status_filter(status)
     source_upper = source.strip().upper()
 
-    filtered: list[dict[str, Any]] = []
+    all_items = _iter_review_items(data, include_resolved=True)
+    status_counts: Counter[str] = Counter(_review_item_status(item) for item in all_items)
+    edge_keys, xref_to_pxrefs = _build_review_edge_indexes(data)
+    stale_reason_source_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    stale_reason_key_counts: Counter[str] = Counter()
+    obsolete_omitted_count = 0
     for item in all_items:
-        item_status = (item.get("status") or "open").strip().lower()
-        if wanted_status is not None and item_status not in wanted_status:
-            continue
+        if _review_item_status(item) == "stale":
+            reason_key, reason_label = _stale_review_reason(
+                data,
+                item,
+                edge_keys,
+                xref_to_pxrefs,
+            )
+            item["stale_reason"] = reason_label
+            item["stale_reason_key"] = reason_key
+            stale_reason_key_counts[reason_key] += 1
+            ns = item.get("xref_namespace", "")
+            if ns:
+                stale_reason_source_counts[reason_key][ns] += 1
+        action = (
+            item.get("auto_decision", "")
+            or item.get("resolution", "")
+            or ""
+        ).lower().replace(" ", "_")
+        if (
+            _review_item_status(item) in _RESOLVED_DECISION_STATUSES
+            and action in {"omit_obsolete_xref", "remove_obsolete_xref"}
+        ):
+            obsolete_omitted_count += 1
+
+    review_summary = {
+        "still_needs_decision": sum(status_counts.get(s, 0) for s in _OPEN_REVIEW_STATUSES),
+        "stale_or_inactive": status_counts.get("stale", 0),
+        "reviewed_or_resolved": sum(status_counts.get(s, 0) for s in _RESOLVED_DECISION_STATUSES),
+        "obsolete_omitted": obsolete_omitted_count,
+        "all_review_records": len(all_items),
+        "stale_reasons": [
+            {
+                "reason": key,
+                "label": _STALE_REASON_LABELS.get(key, key),
+                "count": count,
+            }
+            for key, count in stale_reason_key_counts.most_common()
+        ],
+        "stale_reason_counts": dict(stale_reason_key_counts.most_common()),
+        "stale_sources_by_reason": {
+            key: dict(counts.most_common())
+            for key, counts in stale_reason_source_counts.items()
+        },
+    }
+
+    status_scoped_items = [
+        item for item in all_items
+        if wanted_status is None or _review_item_status(item) in wanted_status
+    ]
+    category_counts: Counter[str] = Counter(
+        item["category"] for item in status_scoped_items
+    )
+    source_counts: Counter[str] = Counter(
+        item["xref_namespace"] for item in status_scoped_items if item["xref_namespace"]
+    )
+
+    filtered: list[dict[str, Any]] = []
+    for item in status_scoped_items:
         if category and item.get("category") != category:
             continue
         if source_upper and item.get("xref_namespace", "").upper() != source_upper:
@@ -1544,6 +1661,7 @@ def build_review_queue(
         ],
         "source_counts": dict(source_counts.most_common()),
         "status_counts": dict(status_counts.most_common()),
+        "review_summary": review_summary,
         "decision_options": REVIEW_DECISION_OPTIONS,
     }
 

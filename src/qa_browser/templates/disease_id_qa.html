@@ -271,9 +271,10 @@
             <div class="review-controls">
                 <input type="text" id="reviewSearchInput" class="disease-id-search-input" placeholder="Search review items by disease, xref, source, or issue...">
                 <select id="reviewStatusFilter" class="filter-select">
-                    <option value="open">Open / unresolved</option>
-                    <option value="all">All statuses</option>
-                    <option value="resolved">Resolved / acknowledged</option>
+                    <option value="open">Still needs decision</option>
+                    <option value="stale">Stale / not currently observed</option>
+                    <option value="resolved">Reviewed / resolved</option>
+                    <option value="all">All records</option>
                 </select>
                 <select id="reviewSourceFilter" class="filter-select">
                     <option value="">All sources</option>
@@ -1832,6 +1833,7 @@ C4707237</textarea>
                 `<div><strong>${escapeHtml(row.decision_type || row.auto_decision || "review")}</strong>` +
                 (row.scenario_id ? ` <span class="mono">${escapeHtml(row.scenario_id)}</span>` : "") +
                 `</div>` +
+                (row.stale_reason ? `<div class="review-evidence"><strong>Stale reason:</strong> ${escapeHtml(row.stale_reason)}</div>` : "") +
                 (row.evidence_note ? `<div class="review-evidence">${escapeHtml(row.evidence_note)}</div>` : "") +
                 (row.consensus_value ? `<div class="review-consensus"><strong>Consensus:</strong> ${escapeHtml(row.consensus_value)}</div>` : "");
             return `<tr class="review-row" data-review-id="${escapeHtml(row.review_id)}">
@@ -1879,6 +1881,52 @@ C4707237</textarea>
         });
     }
 
+    function renderReviewQueueStatus(payload) {
+        if (!reviewQueueStatus) return;
+        const summary = payload.review_summary || {};
+        const visible = Number(payload.total || 0);
+        const stillNeeds = Number(summary.still_needs_decision || 0);
+        const reviewed = Number(summary.reviewed_or_resolved || 0);
+        const stale = Number(summary.stale_or_inactive || 0);
+        const obsoleteOmitted = Number(summary.obsolete_omitted || 0);
+        const status = (payload.status || "open").toLowerCase();
+        let lead;
+        if (status === "resolved" || status === "closed") {
+            lead = `${visible.toLocaleString()} reviewed/resolved records shown`;
+        } else if (status === "stale" || status === "inactive") {
+            lead = `${visible.toLocaleString()} stale records shown`;
+        } else if (status === "all" || status === "any") {
+            lead = `${visible.toLocaleString()} review records shown`;
+        } else {
+            lead = `${visible.toLocaleString()} still need decision`;
+        }
+        const parts = [
+            `${reviewed.toLocaleString()} reviewed/resolved`,
+            `${stale.toLocaleString()} stale/not currently observed`,
+        ];
+        if (status !== "open" && status !== "unresolved" && status !== "needs_action") {
+            parts.unshift(`${stillNeeds.toLocaleString()} still need decision`);
+        }
+        if (obsoleteOmitted) {
+            parts.push(`${obsoleteOmitted.toLocaleString()} obsolete xrefs already omitted`);
+        }
+        if (status === "stale" || status === "inactive") {
+            const staleReasons = (summary.stale_reasons || [])
+                .slice(0, 3)
+                .map(item => `${item.label}: ${Number(item.count || 0).toLocaleString()}`);
+            if (staleReasons.length) {
+                parts.push(`Top stale reasons: ${staleReasons.join("; ")}`);
+            }
+            const staleSources = Object.entries(payload.source_counts || {})
+                .slice(0, 5)
+                .map(([sourceName, count]) => `${sourceName}: ${Number(count || 0).toLocaleString()}`);
+            if (staleSources.length) {
+                parts.push(`Top stale sources: ${staleSources.join(", ")}`);
+            }
+        }
+        reviewQueueStatus.textContent = `${lead} · ${parts.join(" · ")}`;
+    }
+
     function loadReviewQueue(page) {
         currentReviewPage = page || 1;
         if (!reviewTableBody) return;
@@ -1892,9 +1940,7 @@ C4707237</textarea>
                 renderReviewCategories(payload.category_counts || []);
                 renderReviewRows(payload.rows || []);
                 renderReviewPagination(payload.page || 1, payload.total_pages || 1);
-                if (reviewQueueStatus) {
-                    reviewQueueStatus.textContent = `${Number(payload.total || 0).toLocaleString()} review items`;
-                }
+                renderReviewQueueStatus(payload);
                 if (reviewTemplateDownload) {
                     const dlParams = reviewFilterParams();
                     dlParams.delete("page");
