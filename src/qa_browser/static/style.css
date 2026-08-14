@@ -5353,25 +5353,41 @@ details summary:hover { color: var(--accent); }
 .dash-source-tags {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem;
+    align-items: stretch;
+    gap: 0.5rem;
     flex: 1;
 }
 
 .dash-source-tag {
     background: transparent;
     border: 1px solid;
-    border-radius: var(--radius-full);
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.15rem 0.55rem;
-    white-space: nowrap;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    min-width: 10.5rem;
+    padding: 0.35rem 0.55rem;
+    white-space: normal;
 }
 
-.dash-source-tag small {
-    opacity: 0.6;
-    margin-left: 0.2rem;
+.dash-source-tag-name {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.dash-source-tag-detail {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    line-height: 1.25;
+}
+
+.dash-source-tag-detail b {
+    color: var(--text-bright);
+    font-family: inherit;
+    font-weight: 700;
+    margin-right: 0.15rem;
 }
 
 @media (max-width: 720px) {
@@ -7366,4 +7382,296 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
 .review-note {
     background: rgba(180, 83, 9, 0.075);
     border-color: rgba(180, 83, 9, 0.18);
+}
+
+/* ── Search autocomplete suggestions ─────────────────────────────────── */
+
+.search-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-suggestions {
+    background: #ffffff;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    display: none;
+    left: 0;
+    max-height: 320px;
+    overflow-y: auto;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 200;
+}
+
+.search-suggestions.visible {
+    display: block;
+}
+
+.search-suggestion-item {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.search-suggestion-item:hover,
+.search-suggestion-item.active {
+    background: var(--bg);
+}
+
+.search-suggestion-pxref {
+    color: var(--accent);
+    font-family: monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.search-suggestion-name {
+    color: var(--text);
+    flex: 1;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-suggestion-badge {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    padding: 0.1rem 0.4rem;
+    white-space: nowrap;
+}
+
+/* ── Compare bar & modal ─────────────────────────────────────────────── */
+
+.compare-bar {
+    align-items: center;
+    background: var(--glass-bg);
+    border-top: 1px solid var(--glass-border);
+    bottom: 0;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08);
+    display: none;
+    gap: 0.75rem;
+    left: 0;
+    padding: 0.75rem 1.5rem;
+    position: fixed;
+    right: 0;
+    z-index: 100;
+}
+
+.compare-bar.visible {
+    display: flex;
+}
+
+.compare-bar-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.compare-bar-concept {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: monospace;
+    font-size: 0.82rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.compare-bar-clear {
+    margin-left: auto;
+}
+
+.compare-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.35rem;
+}
+
+.compare-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.compare-btn.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.compare-modal-content {
+    max-width: 900px;
+}
+
+.compare-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr 1fr;
+}
+
+.compare-col {
+    font-size: 0.82rem;
+}
+
+.compare-col h3 {
+    border-bottom: 2px solid var(--border);
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.3rem;
+}
+
+.compare-field {
+    margin-bottom: 0.35rem;
+}
+
+.compare-field-label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.compare-diff-better {
+    color: var(--success);
+}
+
+.compare-diff-worse {
+    color: var(--danger);
+}
+
+.compare-xref-section {
+    grid-column: 1 / -1;
+    margin-top: 0.5rem;
+}
+
+.compare-xref-section h4 {
+    font-size: 0.82rem;
+    margin: 0 0 0.25rem;
+}
+
+.compare-xref-list {
+    column-count: 2;
+    font-family: monospace;
+    font-size: 0.78rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.compare-xref-list li {
+    padding: 0.1rem 0;
+}
+
+/* ── Chart table fallback toggle ─────────────────────────────────────── */
+
+.chart-table-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.72rem;
+    margin-left: 0.5rem;
+    padding: 0.15rem 0.4rem;
+    vertical-align: middle;
+}
+
+.chart-table-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.chart-fallback-table {
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    margin-top: 0.5rem;
+    width: 100%;
+}
+
+.chart-fallback-table th,
+.chart-fallback-table td {
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.5rem;
+    text-align: left;
+}
+
+.chart-fallback-table th {
+    background: var(--bg);
+    cursor: pointer;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.chart-fallback-table td.cell-heat {
+    font-family: monospace;
+    text-align: center;
+}
+
+/* ── Quality by Source table ─────────────────────────────────────────── */
+
+.quality-by-source-table {
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 0.75rem;
+    width: 100%;
+}
+
+.quality-by-source-table th,
+.quality-by-source-table td {
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+}
+
+.quality-by-source-table th {
+    background: var(--bg);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.quality-by-source-table td.qbs-good {
+    background: rgba(5, 150, 105, 0.08);
+    color: var(--success);
+}
+
+.quality-by-source-table td.qbs-warn {
+    background: rgba(217, 119, 6, 0.08);
+    color: #b45309;
+}
+
+.quality-by-source-table td.qbs-bad {
+    background: rgba(220, 38, 38, 0.08);
+    color: var(--danger);
+}
+
+/* ── Review history in detail rows ───────────────────────────────────── */
+
+.review-history-section {
+    border-top: 1px solid var(--border);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+}
+
+.review-history-section h4 {
+    font-size: 0.78rem;
+    margin: 0 0 0.35rem;
+}
+
+.review-history-empty {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: italic;
 }

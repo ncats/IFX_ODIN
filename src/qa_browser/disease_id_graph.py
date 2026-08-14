@@ -326,9 +326,17 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     source_only_count = 0
     total_xrefs = 0
 
+    # Per-source-namespace quality breakdown
+    _sqb_tier: dict[str, Counter[str]] = {}
+    _sqb_quality_sum: Counter[str] = Counter()
+    _sqb_quality_n: Counter[str] = Counter()
+    _sqb_needs_action: Counter[str] = Counter()
+    _sqb_total: Counter[str] = Counter()
+
     for pxref, concept in data.concepts_by_pxref.items():
         tier = concept.get("confidence_tier", "").strip()
-        confidence_dist[tier if tier else "unknown"] += 1
+        tier_key = tier if tier else "unknown"
+        confidence_dist[tier_key] += 1
 
         quality = concept.get("overall_quality", "").strip()
         quality_dist[quality if quality else "unknown"] += 1
@@ -362,10 +370,16 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         # Action-needed concepts only. Historical QC decisions remain visible
         # separately through needs_review_decision/evidence_note.
         decisions = data.decisions_by_pxref.get(pxref, [])
-        if _is_flagged(concept, decisions):
+        is_flagged = _is_flagged(concept, decisions)
+        if is_flagged:
             flagged_count += 1
 
-        # Source namespace coverage from edges
+        # Source namespace coverage from edges + per-source quality tracking
+        quality_val = 0.0
+        try:
+            quality_val = float(quality) if quality else 0.0
+        except (ValueError, TypeError):
+            pass
         seen_ns: set[str] = set()
         for edge in data.edges_by_pxref.get(pxref, []):
             ns = _normalize_ns(edge.get("xref_namespace", "").strip())
@@ -373,6 +387,14 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
                 seen_ns.add(ns)
         for ns in seen_ns:
             source_coverage[ns] += 1
+            _sqb_total[ns] += 1
+            if ns not in _sqb_tier:
+                _sqb_tier[ns] = Counter()
+            _sqb_tier[ns][tier_key] += 1
+            _sqb_quality_sum[ns] += quality_val
+            _sqb_quality_n[ns] += 1
+            if is_flagged:
+                _sqb_needs_action[ns] += 1
 
     avg_xrefs = round(total_xrefs / total_concepts, 1) if total_concepts else 0
     multi_source_percent = round((multi_source_count / total_concepts) * 100, 1) if total_concepts else 0
@@ -398,6 +420,17 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
                 if src:
                     gene_source_coverage[src] += 1
 
+    # Build per-source quality breakdown
+    source_quality_breakdown: dict[str, dict[str, Any]] = {}
+    for ns in sorted(_sqb_total):
+        avg_q = round(_sqb_quality_sum[ns] / _sqb_quality_n[ns], 2) if _sqb_quality_n[ns] else 0.0
+        source_quality_breakdown[ns] = {
+            "tier_counts": dict(_sqb_tier.get(ns, Counter()).most_common()),
+            "avg_quality": avg_q,
+            "needs_action": _sqb_needs_action.get(ns, 0),
+            "total": _sqb_total[ns],
+        }
+
     stats = {
         "total_concepts": total_concepts,
         "total_edges": total_edges,
@@ -420,6 +453,7 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "multi_source_percent": multi_source_percent,
         "source_only_count": source_only_count,
         "avg_xrefs_per_concept": avg_xrefs,
+        "source_quality_breakdown": source_quality_breakdown,
         "total_gene_associations": total_gene_associations,
         "unique_genes": len(unique_genes),
         "concepts_with_genes": concepts_with_genes,
@@ -2160,6 +2194,101 @@ _XREF_EDGE_COLUMNS = {
 }
 
 
+def _filtered_download_columns(
+    columns: list[str] | None = None,
+) -> tuple[list[str], bool]:
+    """Return (use_columns, edge_mode) for filtered downloads."""
+    default_columns = [
+        "ncats_disease_id", "primary_xref", "standard_name",
+        "confidence_tier", "confidence_tier_original",
+        "needs_review_auto_cleared", "needs_review_triage_bucket",
+        "needs_review_decision", "overall_quality", "n_sources", "xref_count",
+    ]
+    use_columns = columns if columns else default_columns
+    edge_mode = any(c in _XREF_EDGE_COLUMNS for c in use_columns)
+    return use_columns, edge_mode
+
+
+def _filtered_download_rows(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> tuple[list[str], bool, Any]:
+    """Return (use_columns, edge_mode, row_iterator) for filtered downloads."""
+    use_columns, edge_mode = _filtered_download_columns(columns)
+    q_lower = q.strip().lower()
+
+    def _iter_rows():
+        count = 0
+        for pxref, concept in data.concepts_by_pxref.items():
+            if not _match_filters(
+                pxref, concept, data,
+                q_lower=q_lower, filter_mode=filter_mode,
+                confidence_tier=confidence_tier, is_rare=is_rare,
+                source=source, quality=quality,
+                disease_type=disease_type,
+            ):
+                continue
+
+            concept_row = _concept_to_row(
+                pxref, concept, data,
+                include_sources=include_sources,
+                exclude_obsolete=exclude_obsolete,
+            )
+
+            if not edge_mode:
+                yield concept_row
+                count += 1
+            else:
+                edges = data.edges_by_pxref.get(pxref, [])
+                wrote_any = False
+                for edge in edges:
+                    ns = _normalize_ns(edge.get("xref_namespace", ""))
+                    if include_sources and ns.upper() not in include_sources:
+                        continue
+                    if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
+                        continue
+                    row = dict(concept_row)
+                    row["xref_id"] = edge.get("xref_id", "")
+                    row["xref_namespace"] = ns
+                    row["match_type"] = edge.get("match_type", "")
+                    row["match_type_source"] = edge.get("match_type_source", "")
+                    row["agreement_level"] = edge.get("agreement_level", "")
+                    row["xref_confidence"] = edge.get("xref_confidence", "")
+                    row["mapping_confidence"] = edge.get("mapping_confidence", "")
+                    row["label_confidence"] = edge.get("label_confidence", "")
+                    row["source_support"] = edge.get("source_support", "")
+                    row["asserting_sources"] = edge.get("asserting_sources", "")
+                    row["structural_confidence"] = edge.get("structural_confidence", "")
+                    row["confidence_score"] = edge.get("confidence_score", "")
+                    row["label_similarity"] = edge.get("label_similarity", "")
+                    row["xref_label"] = edge.get("xref_label", "")
+                    row["xref_is_obsolete"] = edge.get("xref_is_obsolete", "")
+                    row["source_asserted"] = edge.get("source_asserted", "")
+                    yield row
+                    count += 1
+                    wrote_any = True
+                    if count >= limit:
+                        return
+                if not wrote_any:
+                    yield concept_row
+                    count += 1
+
+            if count >= limit:
+                return
+
+    return use_columns, edge_mode, _iter_rows()
+
+
 def export_filtered_download(
     data: DiseaseGraphData,
     q: str = "",
@@ -2193,83 +2322,115 @@ def export_filtered_download(
     exclude_obsolete : bool
         When True, omit xref edges where ``xref_is_obsolete`` is true.
     """
-    default_columns = [
-        "ncats_disease_id", "primary_xref", "standard_name",
-        "confidence_tier", "confidence_tier_original",
-        "needs_review_auto_cleared", "needs_review_triage_bucket",
-        "needs_review_decision", "overall_quality", "n_sources", "xref_count",
-    ]
-    use_columns = columns if columns else default_columns
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
     delimiter = "," if fmt == "csv" else "\t"
-
-    # Determine whether any xref edge columns were requested
-    requested_edge_cols = [c for c in use_columns if c in _XREF_EDGE_COLUMNS]
-    edge_mode = len(requested_edge_cols) > 0
-
-    q_lower = q.strip().lower()
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
     writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
 
-    count = 0
-    for pxref, concept in data.concepts_by_pxref.items():
-        if not _match_filters(
-            pxref, concept, data,
-            q_lower=q_lower, filter_mode=filter_mode,
-            confidence_tier=confidence_tier, is_rare=is_rare,
-            source=source, quality=quality,
-            disease_type=disease_type,
-        ):
-            continue
 
-        concept_row = _concept_to_row(
-            pxref, concept, data,
-            include_sources=include_sources,
-            exclude_obsolete=exclude_obsolete,
-        )
+def stream_filtered_download(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    fmt: str = "tsv",
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+):
+    """Yield lines for streaming TSV/CSV download."""
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
+    delimiter = "," if fmt == "csv" else "\t"
 
-        if not edge_mode:
-            writer.writerow(concept_row)
-            count += 1
-        else:
-            edges = data.edges_by_pxref.get(pxref, [])
-            wrote_any = False
-            for edge in edges:
-                ns = _normalize_ns(edge.get("xref_namespace", ""))
-                if include_sources and ns.upper() not in include_sources:
-                    continue
-                if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
-                    continue
-                row = dict(concept_row)
-                row["xref_id"] = edge.get("xref_id", "")
-                row["xref_namespace"] = ns
-                row["match_type"] = edge.get("match_type", "")
-                row["match_type_source"] = edge.get("match_type_source", "")
-                row["agreement_level"] = edge.get("agreement_level", "")
-                row["xref_confidence"] = edge.get("xref_confidence", "")
-                row["mapping_confidence"] = edge.get("mapping_confidence", "")
-                row["label_confidence"] = edge.get("label_confidence", "")
-                row["source_support"] = edge.get("source_support", "")
-                row["asserting_sources"] = edge.get("asserting_sources", "")
-                row["structural_confidence"] = edge.get("structural_confidence", "")
-                row["confidence_score"] = edge.get("confidence_score", "")
-                row["label_similarity"] = edge.get("label_similarity", "")
-                row["xref_label"] = edge.get("xref_label", "")
-                row["xref_is_obsolete"] = edge.get("xref_is_obsolete", "")
-                row["source_asserted"] = edge.get("source_asserted", "")
-                writer.writerow(row)
-                count += 1
-                wrote_any = True
-                if count >= limit:
-                    break
-            # Concepts with no matching edges still get a row
-            if not wrote_any:
-                writer.writerow(concept_row)
-                count += 1
+    # Header line
+    line_buf = io.StringIO()
+    writer = csv.DictWriter(line_buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
+    writer.writeheader()
+    yield line_buf.getvalue()
 
-        if count >= limit:
-            break
+    # Data rows
+    for row in rows:
+        line_buf = io.StringIO()
+        writer = csv.DictWriter(line_buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
+        writer.writerow(row)
+        yield line_buf.getvalue()
 
+
+def export_filtered_xlsx(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> bytes:
+    """Export filtered concepts as an Excel (.xlsx) file returned as bytes."""
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Disease Concepts"
+
+    # Header
+    ws.append(use_columns)
+
+    # Data
+    for row in rows:
+        ws.append([row.get(col, "") for col in use_columns])
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+    # Auto-filter
+    ws.auto_filter.ref = ws.dimensions
+
+    # Auto-width columns (capped at 40)
+    for col_idx, col_name in enumerate(use_columns, 1):
+        max_len = len(col_name)
+        for row_cells in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx, max_row=min(100, ws.max_row)):
+            for cell in row_cells:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
     return buf.getvalue()
 
 

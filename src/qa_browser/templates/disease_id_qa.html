@@ -70,17 +70,6 @@
             <div class="dash-version-meta">
                 <span class="dash-version-label">Pipeline</span>
                 <span class="dash-version-value mono">v{{ manifest.get("pipeline_version", "\u2014") }}</span>
-                <span class="dash-version-sep">&middot;</span>
-                <span class="dash-version-label">Contract</span>
-                <span class="dash-version-value mono">{{ manifest.get("contract_version", "\u2014") }}</span>
-                <span class="dash-version-sep">&middot;</span>
-                <span class="dash-version-label">Built</span>
-                <span class="dash-version-value">{{ manifest.get("generated_at", "\u2014")[:10] }}</span>
-                {% if manifest.get("git_commit") %}
-                <span class="dash-version-sep">&middot;</span>
-                <span class="dash-version-label">Commit</span>
-                <span class="dash-version-value mono">{{ manifest.get("git_commit", "")[:7] }}</span>
-                {% endif %}
             </div>
             <div class="dash-source-tags" id="dashSourceTags">
                 <span class="dash-version-label">Source Versions:</span>
@@ -162,27 +151,37 @@
         <!-- Agreement Heatmap -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source Co-occurrence Overlap (Jaccard) <button class="chart-legend-toggle" type="button" aria-label="Explain source co-occurrence overlap" aria-expanded="false" aria-controls="sourceOverlapHelp">?</button></h3>
+                <h3>Source Co-occurrence Overlap (Jaccard) <button class="chart-legend-toggle" type="button" aria-label="Explain source co-occurrence overlap" aria-expanded="false" aria-controls="sourceOverlapHelp">?</button> <button class="chart-table-toggle" id="heatmapToggle" type="button" title="Toggle table view">Table</button></h3>
                 <div class="chart-legend" id="sourceOverlapHelp">
                     <p>Pairwise source overlap is computed as Jaccard similarity: concepts with xrefs from both sources divided by concepts with xrefs from either source. Darker cells indicate that two namespaces tend to cover the same concepts.</p>
                 </div>
-                <div class="heatmap-container">
+                <div class="heatmap-container" id="heatmapChartContainer">
                     <canvas id="dashAgreementHeatmap" width="500" height="500" role="img" aria-label="Source co-occurrence heatmap showing pairwise Jaccard overlap between source namespaces"></canvas>
                     <div class="heatmap-tooltip" id="heatmapTooltip"></div>
                 </div>
+                <div id="heatmapTableContainer" style="display:none"></div>
             </div>
         </div>
 
         <!-- Sankey Diagram -->
         <div class="dash-charts">
             <div class="dash-chart-panel dash-chart-wide">
-                <h3>Source &rarr; Confidence Tier Flow <button class="chart-legend-toggle" type="button" aria-label="Explain source to tier flow" aria-expanded="false" aria-controls="sourceTierFlowHelp">?</button></h3>
+                <h3>Source &rarr; Confidence Tier Flow <button class="chart-legend-toggle" type="button" aria-label="Explain source to tier flow" aria-expanded="false" aria-controls="sourceTierFlowHelp">?</button> <button class="chart-table-toggle" id="sankeyToggle" type="button" title="Toggle table view">Table</button></h3>
                 <div class="chart-legend" id="sourceTierFlowHelp">
                     <p>Each band counts concepts that have at least one xref edge in a source namespace and belong to a pipeline confidence tier. A concept can contribute to multiple source namespaces when it has xrefs from multiple systems.</p>
                 </div>
-                <div class="sankey-container">
+                <div class="sankey-container" id="sankeyChartContainer">
                     <canvas id="dashSankeyChart" width="700" height="400" role="img" aria-label="Sankey diagram showing source namespace to confidence tier flow"></canvas>
                 </div>
+                <div id="sankeyTableContainer" style="display:none"></div>
+            </div>
+        </div>
+
+        <!-- Quality by Source -->
+        <div class="dash-charts">
+            <div class="dash-chart-panel dash-chart-wide">
+                <h3>Quality by Source</h3>
+                <div id="dashQualityBySource"></div>
             </div>
         </div>
 
@@ -198,7 +197,10 @@
                 <p id="diseaseIdTableStatus">Loading...</p>
             </div>
             <div class="disease-id-search-bar">
-                <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input" aria-label="Search disease concepts by name or ID">
+                <div class="search-input-wrap">
+                    <input type="text" id="diseaseIdSearchInput" placeholder="Search by name or ID..." class="disease-id-search-input" aria-label="Search disease concepts by name or ID" autocomplete="off">
+                    <div class="search-suggestions" id="searchSuggestions"></div>
+                </div>
                 <select id="filterConfidenceTier" class="filter-select">
                     <option value="">All tiers</option>
                     <option value="single_authoritative_source">Single authoritative source</option>
@@ -243,10 +245,11 @@
                             <th class="sortable-col" data-sort="xrefs">Xrefs <span class="sort-arrow"></span></th>
                             <th>Flags</th>
                             <th>Source Labels</th>
+                            <th><span class="sr-only">Compare</span></th>
                         </tr>
                     </thead>
                     <tbody id="diseaseIdTableBody">
-                        <tr><td colspan="9">Loading...</td></tr>
+                        <tr><td colspan="10">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -608,6 +611,7 @@
                         <select id="dlFormat" class="filter-select">
                             <option value="tsv">TSV</option>
                             <option value="csv">CSV</option>
+                            <option value="xlsx">Excel (.xlsx)</option>
                         </select>
                     </label>
                     <button id="dlDownloadBtn" class="btn btn-primary"><i class="lucide-download"></i> Download</button>
@@ -721,6 +725,24 @@ C4707237</textarea>
         <button class="modal-close" id="provModalClose">&times;</button>
         <h2>Provenance: <span id="provConceptName"></span></h2>
         <div id="provTimeline" class="prov-timeline"></div>
+    </div>
+</div>
+
+<!-- Compare bar -->
+<div class="compare-bar" id="compareBar">
+    <span class="compare-bar-label">Compare:</span>
+    <span class="compare-bar-concept" id="compareBarA">-</span>
+    <span class="compare-bar-label" id="compareBarPrompt">Select another concept to compare</span>
+    <span class="compare-bar-concept" id="compareBarB" style="display:none">-</span>
+    <button class="btn btn-sm compare-bar-clear" id="compareBarClear">Clear</button>
+</div>
+
+<!-- Compare modal -->
+<div id="compareModal" class="modal-overlay" style="display:none">
+    <div class="modal-content compare-modal-content">
+        <button class="modal-close" id="compareModalClose">&times;</button>
+        <h2>Concept Comparison</h2>
+        <div id="compareModalBody"></div>
     </div>
 </div>
 
@@ -1109,11 +1131,15 @@ C4707237</textarea>
                                 const color = NS_COLORS[src.name] || "var(--accent)";
                                 tag.style.borderColor = color;
                                 tag.style.color = color;
-                                const ver = src.version !== "unknown" ? src.version : "";
-                                const date = src.release_date ? src.release_date.slice(0, 10) : src.download_date;
-                                const detail = ver || date || "unknown";
-                                tag.innerHTML = `${escapeHtml(src.name)} <small>${escapeHtml(detail)}</small>`;
-                                tag.title = `Version: ${src.version}\nRelease: ${src.release_date || "—"}\nDownloaded: ${src.download_date || "—"}`;
+                                const version = src.version && src.version !== "unknown" ? src.version : "not captured";
+                                const sourceDate = (src.source_release_date || src.release_date || "").slice(0, 10) || "not captured";
+                                const odinDate = (src.odin_download_date || src.download_date || "").slice(0, 10) || "not captured";
+                                tag.innerHTML =
+                                    `<span class="dash-source-tag-name">${escapeHtml(src.name)}</span>` +
+                                    `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
+                                    `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
+                                    `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>`;
+                                tag.title = `Source version: ${version}\nSource release/date: ${sourceDate}\nODIN downloaded raw data: ${odinDate}`;
                                 tagContainer.appendChild(tag);
                             });
                         })
@@ -1205,6 +1231,32 @@ C4707237</textarea>
                     `</div>`;
 
                 populateFilterDropdowns(stats);
+
+                // Quality by Source table
+                const sqb = stats.source_quality_breakdown;
+                if (sqb && Object.keys(sqb).length) {
+                    const qbsEl = document.getElementById("dashQualityBySource");
+                    let html = '<table class="quality-by-source-table"><thead><tr>' +
+                        '<th>Source</th><th>Concepts</th><th>Single Auth.</th><th>Multi-Source</th><th>Needs Review</th><th>Needs Action</th><th>Avg Quality</th>' +
+                        '</tr></thead><tbody>';
+                    Object.entries(sqb).forEach(([ns, info]) => {
+                        const tc = info.tier_counts || {};
+                        const avgQ = Number(info.avg_quality || 0);
+                        const qClass = avgQ <= 1.5 ? "qbs-good" : avgQ <= 2.5 ? "qbs-warn" : "qbs-bad";
+                        const naClass = info.needs_action > 0 ? "qbs-bad" : "";
+                        html += `<tr>` +
+                            `<td><strong>${escapeHtml(ns)}</strong></td>` +
+                            `<td>${(info.total || 0).toLocaleString()}</td>` +
+                            `<td>${(tc.single_authoritative_source || 0).toLocaleString()}</td>` +
+                            `<td>${(tc.multi_source_supported || 0).toLocaleString()}</td>` +
+                            `<td>${(tc.needs_review || 0).toLocaleString()}</td>` +
+                            `<td class="${naClass}">${(info.needs_action || 0).toLocaleString()}</td>` +
+                            `<td class="${qClass}">${avgQ.toFixed(2)}</td>` +
+                            `</tr>`;
+                    });
+                    html += '</tbody></table>';
+                    qbsEl.innerHTML = html;
+                }
             })
             .catch(err => {
                 if (dashHero) dashHero.classList.remove("loading");
@@ -1215,9 +1267,11 @@ C4707237</textarea>
             });
 
         // Load heatmap data
+        let storedHeatmapData = null;
         fetch(`${rootPath}/disease-id-qa/api/agreement-matrix`)
             .then(r => r.json())
             .then(matrixData => {
+                storedHeatmapData = matrixData;
                 renderHeatmap(document.getElementById("dashAgreementHeatmap"), matrixData);
             })
             .catch(() => {
@@ -1226,15 +1280,101 @@ C4707237</textarea>
             });
 
         // Load sankey data
+        let storedSankeyData = null;
         fetch(`${rootPath}/disease-id-qa/api/source-flows`)
             .then(r => r.json())
             .then(flowData => {
+                storedSankeyData = flowData;
                 renderSankey(document.getElementById("dashSankeyChart"), flowData);
             })
             .catch(() => {
                 const el = document.getElementById("dashSankeyChart");
                 if (el) el.parentElement.insertAdjacentHTML("beforeend", '<p style="color:var(--text-muted);font-size:0.85rem">Unable to load flow chart.</p>');
             });
+
+        // Chart <-> Table toggles
+        let heatmapShowTable = false;
+        document.getElementById("heatmapToggle").addEventListener("click", () => {
+            heatmapShowTable = !heatmapShowTable;
+            const chartEl = document.getElementById("heatmapChartContainer");
+            const tableEl = document.getElementById("heatmapTableContainer");
+            const btn = document.getElementById("heatmapToggle");
+            if (heatmapShowTable && storedHeatmapData) {
+                chartEl.style.display = "none";
+                const sources = storedHeatmapData.sources;
+                const matrix = storedHeatmapData.matrix;
+                let html = '<table class="chart-fallback-table"><thead><tr><th></th>';
+                sources.forEach(s => { html += `<th>${escapeHtml(s)}</th>`; });
+                html += '</tr></thead><tbody>';
+                for (let i = 0; i < sources.length; i++) {
+                    html += `<tr><th>${escapeHtml(sources[i])}</th>`;
+                    for (let j = 0; j < sources.length; j++) {
+                        if (i === j) {
+                            html += '<td class="cell-heat" style="background:#e2e8f0">-</td>';
+                        } else {
+                            const pct = (matrix[i][j] * 100).toFixed(1);
+                            const v = matrix[i][j];
+                            let r, g, b;
+                            if (v < 0.5) { const t = v / 0.5; r = 220; g = Math.round(80 + 150 * t); b = 60; }
+                            else { const t = (v - 0.5) / 0.5; r = Math.round(220 - 180 * t); g = Math.round(230 - 30 * t); b = Math.round(60 + 40 * t); }
+                            const fg = v > 0.6 ? "#fff" : "#1e293b";
+                            html += `<td class="cell-heat" style="background:rgb(${r},${g},${b});color:${fg}">${pct}%</td>`;
+                        }
+                    }
+                    html += '</tr>';
+                }
+                html += '</tbody></table>';
+                tableEl.innerHTML = html;
+                tableEl.style.display = "block";
+                btn.textContent = "Chart";
+            } else {
+                chartEl.style.display = "";
+                tableEl.style.display = "none";
+                btn.textContent = "Table";
+            }
+        });
+
+        let sankeyShowTable = false;
+        document.getElementById("sankeyToggle").addEventListener("click", () => {
+            sankeyShowTable = !sankeyShowTable;
+            const chartEl = document.getElementById("sankeyChartContainer");
+            const tableEl = document.getElementById("sankeyTableContainer");
+            const btn = document.getElementById("sankeyToggle");
+            if (sankeyShowTable && storedSankeyData) {
+                chartEl.style.display = "none";
+                const nodes = storedSankeyData.nodes;
+                const links = storedSankeyData.links;
+                const nodeMap = {};
+                nodes.forEach(n => { nodeMap[n.id] = n; });
+                // Build flat table: Source | Tier | Count | % of Source
+                const srcTotals = {};
+                links.forEach(l => {
+                    const src = nodeMap[l.source];
+                    if (src) srcTotals[src.label] = (srcTotals[src.label] || 0) + l.value;
+                });
+                const rows = links.map(l => {
+                    const src = nodeMap[l.source];
+                    const tgt = nodeMap[l.target];
+                    const srcLabel = src ? src.label : l.source;
+                    const tgtLabel = tgt ? tgt.label : l.target;
+                    const pct = srcTotals[srcLabel] > 0 ? ((l.value / srcTotals[srcLabel]) * 100).toFixed(1) : "0";
+                    return { source: srcLabel, tier: tgtLabel, count: l.value, pct };
+                });
+                rows.sort((a, b) => a.source.localeCompare(b.source) || b.count - a.count);
+                let html = '<table class="chart-fallback-table"><thead><tr><th>Source</th><th>Tier</th><th>Concepts</th><th>% of Source</th></tr></thead><tbody>';
+                rows.forEach(r => {
+                    html += `<tr><td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.tier)}</td><td>${r.count.toLocaleString()}</td><td>${r.pct}%</td></tr>`;
+                });
+                html += '</tbody></table>';
+                tableEl.innerHTML = html;
+                tableEl.style.display = "block";
+                btn.textContent = "Chart";
+            } else {
+                chartEl.style.display = "";
+                tableEl.style.display = "none";
+                btn.textContent = "Table";
+            }
+        });
     }
     loadDashboard();
 
@@ -1305,7 +1445,7 @@ C4707237</textarea>
                               (r.hierarchy_children ? `<div><strong>Children:</strong> ${escapeHtml(r.hierarchy_children)}</div>` : "")
                             : "";
                         const detailHtml =
-                            `<tr class="row-detail" style="display:none"><td colspan="9"><div class="row-detail-inner">` +
+                            `<tr class="row-detail" style="display:none"><td colspan="10"><div class="row-detail-inner">` +
                             (r.definition ? `<div><strong>Definition:</strong> ${escapeHtml(r.definition)}</div>` : "") +
                             (r.synonyms ? `<div><strong>Synonyms:</strong> ${escapeHtml(r.synonyms)}</div>` : "") +
                             (r.disease_type ? `<div><strong>Type:</strong> ${escapeHtml(r.disease_type)}</div>` : "") +
@@ -1318,6 +1458,7 @@ C4707237</textarea>
                             (r.nodenorm_canonical_curie ? `<div><strong>NodeNorm CURIE:</strong> ${escapeHtml(r.nodenorm_canonical_curie)}</div>` : "") +
                             (r.nodenorm_validation_status ? `<div><strong>NodeNorm status:</strong> ${escapeHtml(r.nodenorm_validation_status)}</div>` : "") +
                             `<div><strong>Xref sources:</strong> ${escapeHtml(r.source_labels) || "(none)"}</div>` +
+                            `<div class="review-history-section" id="revhist-${escapeHtml(r.primary_xref)}"><h4>Review History</h4><span class="review-history-empty">Click to load...</span></div>` +
                             `<div style="margin-top:0.5rem"><button class="btn btn-sm prov-trigger" data-pxref="${escapeHtml(r.primary_xref)}"><i class="lucide-eye"></i> View provenance</button></div>` +
                             `</div></td></tr>`;
                         return `<tr class="row-expandable" tabindex="0" role="button" aria-expanded="false">
@@ -1330,6 +1471,7 @@ C4707237</textarea>
                             <td>${escapeHtml(r.xref_count)}</td>
                             <td>${escapeHtml(r.flags)}</td>
                             <td class="disease-id-source-labels">${escapeHtml(r.source_labels)}</td>
+                            <td><button class="compare-btn" data-pxref="${escapeHtml(r.primary_xref)}" data-name="${escapeHtml(r.standard_name)}" title="Compare this concept">Cmp</button></td>
                         </tr>${detailHtml}`;
                     }).join("");
 
@@ -1364,6 +1506,27 @@ C4707237</textarea>
                             fetchAndShowProvenance(btn.dataset.pxref);
                         });
                     });
+                    // Attach compare button handlers
+                    tableBody.querySelectorAll(".compare-btn").forEach(btn => {
+                        btn.addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            handleCompareClick(btn.dataset.pxref, btn.dataset.name);
+                        });
+                    });
+                    // Attach review history load on expand
+                    tableBody.querySelectorAll(".row-expandable").forEach(row => {
+                        row.addEventListener("click", () => {
+                            const detail = row.nextElementSibling;
+                            if (detail && detail.classList.contains("row-detail") && detail.style.display !== "none") {
+                                const revSection = detail.querySelector(".review-history-section");
+                                if (revSection && !revSection.dataset.loaded) {
+                                    revSection.dataset.loaded = "1";
+                                    const pxref = revSection.id.replace("revhist-", "");
+                                    loadReviewHistory(pxref, revSection);
+                                }
+                            }
+                        });
+                    });
                 }
 
                 renderPagination(data.page, data.total_pages);
@@ -1374,6 +1537,26 @@ C4707237</textarea>
                 const dlParams = new URLSearchParams({ q: currentQuery, filter: currentFilter });
                 Object.entries(fp).forEach(([k, v]) => { if (v) dlParams.set(k, v); });
                 downloadSearchBtn.href = `${rootPath}/disease-id-qa/download-filtered?${dlParams}`;
+
+                // Bookmarkable URL (Feature #7)
+                const url = new URL(window.location);
+                url.searchParams.set("tab", "concepts");
+                const urlMap = {
+                    q: currentQuery, filter: currentFilter, page: currentPage,
+                    confidence_tier: fp.confidence_tier, quality: fp.quality,
+                    is_rare: fp.is_rare, source: fp.source, disease_type: fp.disease_type,
+                    sort: currentSort, sort_dir: currentSortDir,
+                };
+                Object.entries(urlMap).forEach(([k, v]) => {
+                    if (v && v !== "all" && v !== "asc" && !(k === "page" && v === 1)) {
+                        url.searchParams.set(k, v);
+                    } else {
+                        url.searchParams.delete(k);
+                    }
+                });
+                // Always keep tab=concepts
+                url.searchParams.set("tab", "concepts");
+                history.replaceState(null, "", url);
             })
             .catch(err => {
                 tableBody.innerHTML = `<tr><td colspan="9">Error: ${escapeHtml(err.message)}</td></tr>`;
@@ -1400,14 +1583,85 @@ C4707237</textarea>
         });
     }
 
-    // Debounced search
+    // Debounced search + autocomplete
+    const suggestionsEl = document.getElementById("searchSuggestions");
     let searchTimer = null;
+    let suggestTimer = null;
+    let suggestIdx = -1;
+
+    function closeSuggestions() {
+        suggestionsEl.classList.remove("visible");
+        suggestionsEl.innerHTML = "";
+        suggestIdx = -1;
+    }
+
+    function selectSuggestion(pxref) {
+        searchInput.value = pxref;
+        currentQuery = pxref;
+        closeSuggestions();
+        loadTable(1);
+    }
+
     searchInput.addEventListener("input", () => {
         clearTimeout(searchTimer);
+        clearTimeout(suggestTimer);
+        const q = searchInput.value.trim();
+        // Autocomplete suggestions
+        if (q.length >= 2) {
+            suggestTimer = setTimeout(() => {
+                fetch(`${rootPath}/disease-id-qa/api/suggest?q=${encodeURIComponent(q)}&limit=8`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (searchInput.value.trim() !== q) return; // stale
+                        if (!data.suggestions || !data.suggestions.length) { closeSuggestions(); return; }
+                        suggestIdx = -1;
+                        suggestionsEl.innerHTML = data.suggestions.map((s, i) =>
+                            `<div class="search-suggestion-item" data-idx="${i}" data-pxref="${escapeHtml(s.primary_xref)}">` +
+                            `<span class="search-suggestion-pxref">${escapeHtml(s.primary_xref)}</span>` +
+                            `<span class="search-suggestion-name">${escapeHtml(s.standard_name)}</span>` +
+                            `<span class="search-suggestion-badge">${escapeHtml(tierLabel(s.confidence_tier))}</span>` +
+                            `</div>`
+                        ).join("");
+                        suggestionsEl.classList.add("visible");
+                        suggestionsEl.querySelectorAll(".search-suggestion-item").forEach(item => {
+                            item.addEventListener("click", () => selectSuggestion(item.dataset.pxref));
+                        });
+                    })
+                    .catch(() => closeSuggestions());
+            }, 200);
+        } else {
+            closeSuggestions();
+        }
+        // Regular search
         searchTimer = setTimeout(() => {
             currentQuery = searchInput.value.trim();
             loadTable(1);
         }, 300);
+    });
+
+    searchInput.addEventListener("keydown", (e) => {
+        const items = suggestionsEl.querySelectorAll(".search-suggestion-item");
+        if (!items.length || !suggestionsEl.classList.contains("visible")) return;
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            suggestIdx = Math.min(suggestIdx + 1, items.length - 1);
+            items.forEach((it, i) => it.classList.toggle("active", i === suggestIdx));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            suggestIdx = Math.max(suggestIdx - 1, 0);
+            items.forEach((it, i) => it.classList.toggle("active", i === suggestIdx));
+        } else if (e.key === "Enter" && suggestIdx >= 0) {
+            e.preventDefault();
+            selectSuggestion(items[suggestIdx].dataset.pxref);
+        } else if (e.key === "Escape") {
+            closeSuggestions();
+        }
+    });
+
+    document.addEventListener("click", (e) => {
+        if (!searchInput.contains(e.target) && !suggestionsEl.contains(e.target)) {
+            closeSuggestions();
+        }
     });
 
     // Filter toggle
@@ -1447,10 +1701,33 @@ C4707237</textarea>
         });
     });
 
+    // Bookmarkable URL restore (Feature #7)
+    function restoreFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("tab") !== "concepts") return false;
+        let restored = false;
+        if (params.has("q")) { currentQuery = params.get("q"); searchInput.value = currentQuery; restored = true; }
+        if (params.has("filter")) { currentFilter = params.get("filter"); }
+        if (params.has("confidence_tier")) { filterConfidence.value = params.get("confidence_tier"); }
+        if (params.has("quality")) { filterQuality.value = params.get("quality"); }
+        if (params.has("is_rare")) { filterIsRare.value = params.get("is_rare"); }
+        if (params.has("source")) { filterSource.value = params.get("source"); }
+        if (params.has("disease_type")) { filterDiseaseType.value = params.get("disease_type"); }
+        if (params.has("sort")) { currentSort = params.get("sort"); }
+        if (params.has("sort_dir")) { currentSortDir = params.get("sort_dir"); }
+        if (currentFilter === "flagged") {
+            filterFlaggedBtn.classList.add("active");
+            filterAllBtn.classList.remove("active");
+        }
+        const page = parseInt(params.get("page") || "1", 10);
+        return page;
+    }
+
     // Initial load — only if concepts tab is already active
     if (document.getElementById("tab-concepts").classList.contains("active")) {
         conceptsLoaded = true;
-        loadTable(1);
+        const restoredPage = restoreFromUrl();
+        loadTable(restoredPage || 1);
     }
 
     /* == Review tab == */
@@ -2875,6 +3152,162 @@ C4707237</textarea>
 
         window.location.href = `${rootPath}/disease-id-qa/download-filtered?${params}`;
     });
+
+    /* == Concept Comparison (Feature #8) == */
+    let compareA = null;
+    let compareB = null;
+    const compareBar = document.getElementById("compareBar");
+    const compareBarA = document.getElementById("compareBarA");
+    const compareBarB = document.getElementById("compareBarB");
+    const compareBarPrompt = document.getElementById("compareBarPrompt");
+    const compareBarClear = document.getElementById("compareBarClear");
+    const compareModal = document.getElementById("compareModal");
+    const compareModalBody = document.getElementById("compareModalBody");
+    const compareModalClose = document.getElementById("compareModalClose");
+
+    function handleCompareClick(pxref, name) {
+        if (!compareA) {
+            compareA = pxref;
+            compareBarA.textContent = pxref;
+            compareBarPrompt.textContent = "Select another concept to compare";
+            compareBarB.style.display = "none";
+            compareBar.classList.add("visible");
+            // Highlight selected button
+            tableBody.querySelectorAll(".compare-btn").forEach(btn => {
+                btn.classList.toggle("selected", btn.dataset.pxref === pxref);
+            });
+        } else if (pxref === compareA) {
+            // Deselect
+            clearCompare();
+        } else {
+            compareB = pxref;
+            compareBarB.textContent = pxref;
+            compareBarB.style.display = "";
+            compareBarPrompt.textContent = "vs";
+            fetchComparison(compareA, compareB);
+        }
+    }
+
+    function clearCompare() {
+        compareA = null;
+        compareB = null;
+        compareBar.classList.remove("visible");
+        tableBody.querySelectorAll(".compare-btn").forEach(btn => btn.classList.remove("selected"));
+    }
+
+    compareBarClear.addEventListener("click", clearCompare);
+
+    function fetchComparison(a, b) {
+        compareModalBody.innerHTML = '<p>Loading comparison...</p>';
+        compareModal.style.display = "flex";
+        fetch(`${rootPath}/disease-id-qa/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`)
+            .then(r => r.json())
+            .then(data => {
+                const ca = data.concept_a;
+                const cb = data.concept_b;
+                function fieldRow(label, valA, valB) {
+                    const diff = valA !== valB;
+                    return `<div class="compare-field"><span class="compare-field-label">${label}</span><br>` +
+                        `<span${diff ? ' class="compare-diff-worse"' : ""}>${escapeHtml(valA)}</span></div>`;
+                }
+                function fieldRowB(label, valA, valB) {
+                    const diff = valA !== valB;
+                    return `<div class="compare-field"><span class="compare-field-label">${label}</span><br>` +
+                        `<span${diff ? ' class="compare-diff-worse"' : ""}>${escapeHtml(valB)}</span></div>`;
+                }
+                let html = '<div class="compare-grid">';
+                // Left column
+                html += '<div class="compare-col">';
+                html += `<h3>${escapeHtml(ca.primary_xref)}</h3>`;
+                html += `<div class="compare-field"><span class="compare-field-label">Name</span><br>${escapeHtml(ca.standard_name)}</div>`;
+                html += fieldRow("Tier", ca.confidence_tier, cb.confidence_tier);
+                html += fieldRow("Quality", ca.overall_quality, cb.overall_quality);
+                html += fieldRow("Sources", ca.n_sources, cb.n_sources);
+                html += fieldRow("Type", ca.disease_type, cb.disease_type);
+                html += fieldRow("Rare", ca.is_rare, cb.is_rare);
+                html += `<div class="compare-field"><span class="compare-field-label">Xrefs</span><br>${(ca.xrefs || []).length}</div>`;
+                html += '</div>';
+                // Right column
+                html += '<div class="compare-col">';
+                html += `<h3>${escapeHtml(cb.primary_xref)}</h3>`;
+                html += `<div class="compare-field"><span class="compare-field-label">Name</span><br>${escapeHtml(cb.standard_name)}</div>`;
+                html += fieldRowB("Tier", ca.confidence_tier, cb.confidence_tier);
+                html += fieldRowB("Quality", ca.overall_quality, cb.overall_quality);
+                html += fieldRowB("Sources", ca.n_sources, cb.n_sources);
+                html += fieldRowB("Type", ca.disease_type, cb.disease_type);
+                html += fieldRowB("Rare", ca.is_rare, cb.is_rare);
+                html += `<div class="compare-field"><span class="compare-field-label">Xrefs</span><br>${(cb.xrefs || []).length}</div>`;
+                html += '</div>';
+                // Shared xrefs
+                html += '<div class="compare-xref-section">';
+                html += `<h4>Shared Xrefs (${data.shared_xrefs.length})</h4>`;
+                if (data.shared_xrefs.length) {
+                    html += '<ul class="compare-xref-list">' + data.shared_xrefs.map(x => `<li>${escapeHtml(x)}</li>`).join("") + '</ul>';
+                } else {
+                    html += '<p style="color:var(--text-muted);font-size:0.82rem">No shared cross-references</p>';
+                }
+                html += `<h4>Unique to ${escapeHtml(ca.primary_xref)} (${data.unique_a.length})</h4>`;
+                if (data.unique_a.length) {
+                    html += '<ul class="compare-xref-list">' + data.unique_a.map(x => `<li>${escapeHtml(x)}</li>`).join("") + '</ul>';
+                }
+                html += `<h4>Unique to ${escapeHtml(cb.primary_xref)} (${data.unique_b.length})</h4>`;
+                if (data.unique_b.length) {
+                    html += '<ul class="compare-xref-list">' + data.unique_b.map(x => `<li>${escapeHtml(x)}</li>`).join("") + '</ul>';
+                }
+                html += '</div></div>';
+                compareModalBody.innerHTML = html;
+            })
+            .catch(err => {
+                compareModalBody.innerHTML = `<p style="color:var(--danger)">Error: ${escapeHtml(err.message)}</p>`;
+            });
+    }
+
+    compareModalClose.addEventListener("click", () => {
+        compareModal.style.display = "none";
+        clearCompare();
+    });
+    compareModal.addEventListener("click", (e) => {
+        if (e.target === compareModal) {
+            compareModal.style.display = "none";
+            clearCompare();
+        }
+    });
+
+    /* == Review History in detail rows (Feature #10) == */
+    function loadReviewHistory(pxref, container) {
+        container.innerHTML = '<h4>Review History</h4><span class="review-history-empty">Loading...</span>';
+        fetch(`${rootPath}/disease-id-qa/api/review-history?primary_xref=${encodeURIComponent(pxref)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.decisions || !data.decisions.length) {
+                    container.innerHTML = '<h4>Review History</h4><span class="review-history-empty">No review decisions recorded.</span>';
+                    return;
+                }
+                let html = '<h4>Review History</h4><div class="prov-timeline">';
+                data.decisions.forEach(d => {
+                    const stepClass = d.review_decision === "Accept as-is" ? "resolved" : "";
+                    html += `<div class="prov-step ${stepClass}">` +
+                        `<div class="prov-step-type">${escapeHtml(d.review_decision)}</div>` +
+                        `<div class="prov-step-detail">` +
+                        (d.reviewed_at ? `<strong>Date:</strong> ${escapeHtml(d.reviewed_at.slice(0, 10))} ` : "") +
+                        (d.reviewed_by ? `<strong>By:</strong> ${escapeHtml(d.reviewed_by)} ` : "") +
+                        `</div>` +
+                        (d.notes ? `<div class="prov-step-detail"><strong>Notes:</strong> ${escapeHtml(d.notes)}</div>` : "") +
+                        (d.xref_id ? `<div class="prov-step-detail"><strong>Xref:</strong> ${escapeHtml(d.xref_id)}</div>` : "") +
+                        (d.replacement ? `<div class="prov-step-detail"><strong>Replacement:</strong> ${escapeHtml(d.replacement)}</div>` : "") +
+                        `</div>`;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            })
+            .catch(() => {
+                container.innerHTML = '<h4>Review History</h4><span class="review-history-empty">Unable to load review history.</span>';
+            });
+    }
+
+    // TODO: Batch review UI — the POST /disease-id-qa/api/review-decisions endpoint
+    // already accepts an array of decisions. Batch UI is deferred to the Review tab
+    // agent that owns the Review tab rendering.
 })();
 </script>
 {% endblock %}

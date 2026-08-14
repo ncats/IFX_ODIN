@@ -50,6 +50,7 @@ from src.qa_browser.disease_id_graph import (
     compute_source_flow_data,
     compute_version_diff,
     export_filtered_download,
+    export_filtered_xlsx,
     export_flagged_tsv,
     export_review_intake_template,
     export_search_tsv,
@@ -63,6 +64,7 @@ from src.qa_browser.disease_id_graph import (
     resolve_concept,
     resolve_name_candidates,
     search_concepts,
+    stream_filtered_download,
 )
 from src.qa_browser.cure_entity_resolver import build_cure_entity_resolver_index
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
@@ -5992,6 +5994,89 @@ def disease_id_qa_dashboard():
     return compute_dashboard_stats(data)
 
 
+@app.get("/disease-id-qa/api/suggest")
+def disease_id_qa_suggest(q: str = "", limit: int = 8):
+    """Return autocomplete suggestions for the search input."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if len(q.strip()) < 2:
+        return {"suggestions": []}
+    data = load_disease_graph_data(_disease_graph_dir)
+    result = resolve_name_candidates(data, q, limit=max(1, min(limit, 20)))
+    suggestions = []
+    seen_pxrefs: set = set()
+    for cand in result.get("candidates", []):
+        pxref = cand.get("pxref", "")
+        if pxref in seen_pxrefs:
+            continue
+        seen_pxrefs.add(pxref)
+        concept = data.concepts_by_pxref.get(pxref, {})
+        suggestions.append({
+            "primary_xref": pxref,
+            "standard_name": concept.get("standard_name", ""),
+            "confidence_tier": concept.get("confidence_tier", ""),
+            "n_sources": concept.get("n_sources", ""),
+            "disease_type": concept.get("disease_type", ""),
+        })
+        if len(suggestions) >= limit:
+            break
+    return {"suggestions": suggestions}
+
+
+@app.get("/disease-id-qa/api/review-history")
+def disease_id_qa_review_history(primary_xref: str = ""):
+    """Return review decision history for a concept from the intake TSV."""
+    review_file = _resolved_disease_review_file()
+    if not review_file or not Path(review_file).is_file():
+        return {"decisions": []}
+    decisions = []
+    with open(review_file, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            if primary_xref and row.get("Primary Xref", "") != primary_xref:
+                continue
+            decisions.append({
+                "review_decision": row.get("Review decision", ""),
+                "reviewed_by": row.get("Reviewed by", ""),
+                "reviewed_at": row.get("Reviewed at", ""),
+                "notes": row.get("Reviewer notes", ""),
+                "replacement": row.get("Corrected xref / replacement", ""),
+                "category": row.get("Review category", ""),
+                "xref_id": row.get("Xref ID", ""),
+                "xref_namespace": row.get("Xref Namespace", ""),
+                "decision_type": row.get("Decision type", ""),
+                "evidence_note": row.get("Evidence note", ""),
+                "disease_name": row.get("Disease Name", ""),
+            })
+    decisions.sort(key=lambda d: d.get("reviewed_at", ""), reverse=True)
+    return {"decisions": decisions}
+
+
+@app.get("/disease-id-qa/api/compare")
+def disease_id_qa_compare(a: str = "", b: str = ""):
+    """Compare two disease concepts side by side."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not a or not b:
+        raise HTTPException(status_code=400, detail="Both 'a' and 'b' parameters are required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    concept_a = resolve_concept(data, a)
+    concept_b = resolve_concept(data, b)
+    if not concept_a:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {a}")
+    if not concept_b:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {b}")
+    xrefs_a = {x["xref_id"] for x in concept_a.get("xrefs", []) if x.get("xref_id")}
+    xrefs_b = {x["xref_id"] for x in concept_b.get("xrefs", []) if x.get("xref_id")}
+    return {
+        "concept_a": concept_a,
+        "concept_b": concept_b,
+        "shared_xrefs": sorted(xrefs_a & xrefs_b),
+        "unique_a": sorted(xrefs_a - xrefs_b),
+        "unique_b": sorted(xrefs_b - xrefs_a),
+    }
+
+
 @app.get("/disease-id-qa/download-filtered")
 def disease_id_qa_download_filtered(
     q: str = "",
@@ -6015,13 +6100,32 @@ def disease_id_qa_download_filtered(
         {s.strip().upper() for s in include_sources.split(",") if s.strip()}
         if include_sources else None
     )
-    content = export_filtered_download(
-        data, q=q, filter_mode=filter,
-        confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
-        columns=col_list, fmt=format, include_sources=src_set,
-        exclude_obsolete=exclude_obsolete.lower() == "true",
-    )
+    excl_obs = exclude_obsolete.lower() == "true"
+
+    if format == "xlsx":
+        content = export_filtered_xlsx(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        )
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="disease_filtered.xlsx"'},
+        )
+
+    def _stream():
+        for line in stream_filtered_download(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, fmt=format, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        ):
+            yield line.encode("utf-8")
+
     if format == "csv":
         media = "text/csv"
         ext = "csv"
@@ -6029,7 +6133,7 @@ def disease_id_qa_download_filtered(
         media = "text/tab-separated-values"
         ext = "tsv"
     return StreamingResponse(
-        io.BytesIO(content.encode("utf-8")),
+        _stream(),
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
     )
@@ -6206,6 +6310,92 @@ def disease_id_qa_source_versions():
     if not catalog_path.exists():
         return {"sources": [], "catalog_found": False}
     sources = []
+
+    def _clean(value: object) -> str:
+        text = str(value or "").strip()
+        return "" if text.lower() == "unknown" else text
+
+    def _nested(dct: dict, *keys: str) -> str:
+        if not isinstance(dct, dict):
+            return ""
+        for key in keys:
+            value = _clean(dct.get(key))
+            if value:
+                return value
+        return ""
+
+    def _load_row_metadata(row: dict) -> dict:
+        meta_name = row.get("metadata_file", "").strip()
+        if not meta_name:
+            return {}
+        meta_path = Path(meta_name)
+        if not meta_path.is_absolute():
+            meta_path = metadata_dir / "source" / meta_name
+        if not meta_path.exists():
+            return {}
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception as exc:
+            logger.warning("Failed to read source metadata %s: %s", meta_path, exc)
+            return {}
+
+    def _resolve_metadata_path(path_text: str) -> Optional[Path]:
+        path_text = _clean(path_text)
+        if not path_text:
+            return None
+        raw_path = Path(path_text)
+        if raw_path.is_absolute() and raw_path.exists():
+            return raw_path
+        for base in [Path.cwd(), *metadata_dir.parents]:
+            candidate = base / raw_path
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _raw_obo_version(raw_file: str) -> str:
+        raw_path = _resolve_metadata_path(raw_file)
+        if not raw_path:
+            return ""
+        try:
+            with open(raw_path, "r", encoding="utf-8", errors="replace") as fh:
+                for line_no, line in enumerate(fh, start=1):
+                    if line_no > 200 or line.startswith("[Term]"):
+                        break
+                    line = line.strip()
+                    if line.startswith("property_value: owl:versionInfo"):
+                        match = re.search(r'"([^"]+)"', line)
+                        if match:
+                            return match.group(1)
+                    if line.startswith("data-version:"):
+                        match = re.search(r"\d{4}-\d{2}-\d{2}", line)
+                        return match.group(0) if match else line.split(":", 1)[1].strip()
+                    if line.startswith("date:"):
+                        match = re.search(r"(\d{2}):(\d{2}):(\d{4})", line)
+                        if match:
+                            day, month, year = match.groups()
+                            return f"{year}-{month}-{day}"
+        except Exception as exc:
+            logger.warning("Failed to read source OBO version from %s: %s", raw_path, exc)
+        return ""
+
+    def _freshest_file_date(meta: dict) -> str:
+        files = meta.get("files", []) if isinstance(meta, dict) else []
+        if not isinstance(files, list):
+            return ""
+        dates = []
+        for file_meta in files:
+            if not isinstance(file_meta, dict):
+                continue
+            date_value = _nested(file_meta, "last_modified_iso", "last_modified")
+            if date_value:
+                dates.append(date_value)
+        return max(dates) if dates else ""
+
+    def _date_only(value: str) -> str:
+        value = _clean(value)
+        return value[:10] if value else ""
+
     try:
         import csv
         with open(catalog_path, "r") as fh:
@@ -6214,11 +6404,44 @@ def disease_id_qa_source_versions():
                 name = row.get("source_name", "").strip()
                 if not name:
                     continue
+                meta = _load_row_metadata(row)
+                source_meta = meta.get("source", {}) if isinstance(meta.get("source"), dict) else {}
+                release_info = (
+                    meta.get("release_info", {})
+                    if isinstance(meta.get("release_info"), dict)
+                    else {}
+                )
+                file_release_date = _freshest_file_date(meta)
+                raw_obo_version = _raw_obo_version(meta.get("raw_file", ""))
+                version = (
+                    _clean(row.get("source_version"))
+                    or _nested(meta, "source_version")
+                    or _nested(source_meta, "version")
+                    or _nested(release_info, "releaseVersion", "version", "releaseDate")
+                    or raw_obo_version
+                    or _date_only(file_release_date)
+                    or "unknown"
+                )
+                release_date = (
+                    _clean(row.get("release_date"))
+                    or _nested(meta, "release_date", "last_modified_iso")
+                    or _nested(source_meta, "last_modified_iso", "last_modified")
+                    or _nested(release_info, "releaseDate", "last_modified_iso", "last_modified")
+                    or raw_obo_version
+                    or file_release_date
+                )
+                download_start = (
+                    _clean(row.get("download_start"))
+                    or _nested(meta, "download_start", "timestamp_start")
+                )
+                download_date = _date_only(download_start)
                 sources.append({
                     "name": name,
-                    "version": row.get("source_version", "").strip() or "unknown",
-                    "release_date": row.get("release_date", "").strip() or "",
-                    "download_date": (row.get("download_start", "") or "")[:10],
+                    "version": version,
+                    "release_date": release_date,
+                    "source_release_date": release_date,
+                    "download_date": download_date,
+                    "odin_download_date": download_date,
                 })
     except Exception as exc:
         logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)
