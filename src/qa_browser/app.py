@@ -17,7 +17,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Iterable, List
+from typing import Any, Optional, Dict, Iterable, List
 from urllib.parse import quote as url_quote, urlencode
 
 import urllib3
@@ -81,11 +81,18 @@ from src.qa_browser.registry_usage import (
     with_graph_usages,
 )
 from src.qa_browser.target_id_graph import (
+    TARGET_REVIEW_INTAKE_COLUMNS as TARGET_REVIEW_INTAKE_COLUMNS,
+    append_target_review_rows,
+    build_batch_review_payload,
     build_target_graph_payload,
+    build_target_review_queue,
     compute_target_stats,
     export_targets,
     load_target_graph_data,
+    mark_rows_resolved_by_registry_ids,
+    mark_rows_resolved_by_triage,
     search_targets,
+    validate_and_build_target_review_rows,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -5669,20 +5676,64 @@ async def cure_entity_resolver_resolve(request: Request):
 # ---------------------------------------------------------------------------
 
 
+_target_qc_dir: str = ""
+
+
 def _load_target_graph():
     if not _target_graph_dir:
         raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
-    return load_target_graph_data(_target_graph_dir)
+    return load_target_graph_data(_target_graph_dir, qc_dir=_target_qc_dir)
+
+
+def _target_manifest_snapshot() -> dict[str, Any]:
+    if not _target_graph_dir:
+        return {}
+    manifest_path = Path(_target_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _target_version_display(manifest: dict[str, Any]) -> str:
+    raw = (
+        manifest.get("target_release_version")
+        or manifest.get("release_version")
+        or manifest.get("pipeline_version")
+        or "—"
+    )
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v."):
+        return text
+    if text.startswith("v"):
+        return f"v.{text[1:]}"
+    return f"v.{text}"
+
+
+def _target_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
 
 
 @app.get("/target-id-qa", response_class=HTMLResponse)
 def target_id_qa(request: Request, ids: str = "", tab: str = ""):
     selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
     default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _target_manifest_snapshot()
     return templates.TemplateResponse(request, "target_id_qa.html", {
         "request": request,
         "selected_ids": selected_ids,
         "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "target_version_display": _target_version_display(manifest),
+        "target_updated_last": _target_updated_last(manifest),
     })
 
 
@@ -5723,11 +5774,140 @@ def target_id_qa_download_filtered(
     selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
     content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt, columns=selected_columns)
     media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
-    filename = f"target_harmonizer_filtered.{fmt}"
+    release = data.manifest.get("target_release_version") or data.manifest.get("release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_targets.{fmt}"
     return StreamingResponse(
         io.StringIO(content),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/target-id-qa/api/review-queue")
+def target_id_qa_review_queue(
+    entity_type: str = "",
+    divergence_type: str = "",
+    source: str = "",
+    status: str = "open",
+    auto_decision: str = "",
+    triage_category: str = "",
+    review_group: str = "",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_target_graph()
+    return build_target_review_queue(
+        data,
+        entity_type=entity_type,
+        divergence_type=divergence_type,
+        source=source,
+        status=status,
+        auto_decision=auto_decision,
+        triage_category=triage_category,
+        review_group=review_group,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+def _default_target_review_file() -> str:
+    # Use the loaded data's qc_dir if available
+    try:
+        data = _load_target_graph()
+        if data.qc_dir:
+            return str(Path(data.qc_dir) / "review" / "app_completed" / "target_app_review_decisions.tsv")
+    except Exception:
+        pass
+    if not _target_graph_dir:
+        return ""
+    graph_dir = Path(_target_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "qc" / "review" / "app_completed" / "target_app_review_decisions.tsv")
+    return str(graph_dir / "qc" / "review" / "app_completed" / "target_app_review_decisions.tsv")
+
+
+@app.post("/target-id-qa/api/review-decisions")
+async def target_id_qa_save_review_decisions(request: Request):
+    """Append app-entered target review decisions to a TargetGraph intake TSV."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = validate_and_build_target_review_rows(payload)
+    review_path = _default_target_review_file()
+    if not review_path:
+        raise HTTPException(status_code=500, detail="No target graph dir configured.")
+    path = append_target_review_rows(rows, review_path)
+    # Mark resolved in memory so they disappear from the "open" view
+    data = _load_target_graph()
+    resolved_ids = {r["Registry ID"] for r in rows if r.get("Registry ID")}
+    mark_rows_resolved_by_registry_ids(data, resolved_ids)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph target_review_intake.",
+    }
+
+
+@app.post("/target-id-qa/api/batch-review")
+async def target_id_qa_batch_review(request: Request):
+    """Batch-apply a review decision to all items matching a triage category."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    triage_cat = str(payload.get("triage_category") or "").strip()
+    review_group = str(payload.get("review_group") or "").strip()
+    decision = str(payload.get("review_decision") or "").strip()
+    if not triage_cat and not review_group:
+        raise HTTPException(status_code=400, detail="triage_category or review_group is required.")
+    if not decision:
+        raise HTTPException(status_code=400, detail="review_decision is required.")
+
+    data = _load_target_graph()
+    rows = build_batch_review_payload(
+        data,
+        triage_category=triage_cat,
+        review_decision=decision,
+        entity_type=str(payload.get("entity_type") or ""),
+        source=str(payload.get("source") or ""),
+        status=str(payload.get("status") or "open"),
+        review_group=review_group,
+        reviewed_by=str(payload.get("reviewed_by") or ""),
+    )
+    if not rows:
+        return {"saved": 0, "message": "No matching items found."}
+    review_path = _default_target_review_file()
+    if not review_path:
+        raise HTTPException(status_code=500, detail="No target graph dir configured.")
+    path = append_target_review_rows(rows, review_path)
+    # Mark resolved in memory so they disappear from "open" view
+    mark_rows_resolved_by_triage(
+        data,
+        triage_category=triage_cat,
+        entity_type=str(payload.get("entity_type") or ""),
+        source=str(payload.get("source") or ""),
+        status=str(payload.get("status") or "open"),
+        review_group=review_group,
+    )
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": f"Batch-applied '{decision}' to {len(rows):,} {review_group or triage_cat} items.",
+    }
+
+
+@app.get("/target-id-qa/api/review-template")
+def target_id_qa_review_template():
+    """Return a TSV with just the header row of target review intake columns."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=TARGET_REVIEW_INTAKE_COLUMNS, delimiter="\t")
+    writer.writeheader()
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="target_review_intake_template.tsv"'},
     )
 
 
@@ -6576,6 +6756,21 @@ def _normalize_disease_version(version: str) -> str:
 def _disease_version_sort_key(version: str) -> tuple[int, ...]:
     parts = [int(part) for part in re.findall(r"\d+", _normalize_disease_version(version))]
     return tuple(parts or [0])
+
+
+def _versioned_app_graph_dirs(root: Path, required_file: str) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return sorted(
+        [
+            d for d in root.iterdir()
+            if d.is_dir()
+            and d.name.startswith("v")
+            and (d / "manifest.json").exists()
+            and (d / required_file).exists()
+        ],
+        key=lambda path: _disease_version_sort_key(path.name),
+    )
 
 
 def _candidate_disease_version_roots() -> list[Path]:
@@ -9673,9 +9868,12 @@ def main():
     parser.add_argument("--target-graph-dir",
                         default="",
                         help="Path to target app_graph/ directory (target_nodes.tsv + manifest.json)")
+    parser.add_argument("--target-qc-dir",
+                        default="",
+                        help="Path to target pipeline qc/ directory (divergence registries + provenance CSVs)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -9770,12 +9968,19 @@ def main():
     _target_graph_dir = args.target_graph_dir
     if not _target_graph_dir:
         bundled_dir = TARGET_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "target_nodes.tsv")
         current_dir = bundled_dir / "current"
-        if current_dir.is_dir():
+        if versions:
+            _target_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled target data: {_target_graph_dir}")
+        elif current_dir.is_dir():
             _target_graph_dir = str(current_dir)
             print(f"Auto-detected bundled target data: {_target_graph_dir}")
     if _target_graph_dir:
         print(f"Target graph dir: {_target_graph_dir}")
+    _target_qc_dir = args.target_qc_dir
+    if _target_qc_dir:
+        print(f"Target QC dir: {_target_qc_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
