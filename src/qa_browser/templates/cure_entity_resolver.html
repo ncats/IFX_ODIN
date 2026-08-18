@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}CURE-ID Entity Resolver{% endblock %}
+{% block breadcrumb %}<a href="{{ root_path }}/cure-entity-resolver">CURE-ID Entity Resolver</a>{% endblock %}
+
+{% block content %}
+<div class="cure-resolver-shell">
+    <section class="cure-resolver-header">
+        <div>
+            <h1>CURE-ID Entity Resolver</h1>
+            <div class="cure-resolver-subtitle">free text → ranked local candidates</div>
+        </div>
+        <div class="cure-resolver-stats" id="cureResolverStats">
+            <span>Loading index...</span>
+        </div>
+    </section>
+
+    <section class="cure-resolver-panel">
+        <div class="cure-resolver-controls">
+            <label>
+                <span>Entity Type</span>
+                <select id="cureEntityType">
+                    <option value="auto">Auto</option>
+                    <option value="all">All entity types</option>
+                    <option value="drug">Drug</option>
+                    <option value="clinical">Disease / phenotype / adverse event</option>
+                    <option value="phenotype">Phenotype</option>
+                    <option value="adverse_event">Adverse event</option>
+                    <option value="gene">Gene</option>
+                    <option value="protein">Protein</option>
+                    <option value="sequence_variant">Sequence variant</option>
+                </select>
+            </label>
+            <label>
+                <span>Top Candidates</span>
+                <select id="cureTopK">
+                    <option value="5">5</option>
+                    <option value="3">3</option>
+                    <option value="10">10</option>
+                </select>
+            </label>
+            <button class="btn btn-primary" id="cureResolveBtn" type="button">Resolve</button>
+        </div>
+        <textarea id="cureResolverInput" class="cure-resolver-input" rows="9">Cardiofaciocutaneous Syndrome
+Clobetasol
+BRAF
+Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
+    </section>
+
+    <section class="cure-resolver-results" id="cureResolverResults">
+        <div class="cure-resolver-empty">No results yet.</div>
+    </section>
+</div>
+
+<script>
+(function () {
+    const rootPath = "{{ root_path }}";
+    const input = document.getElementById("cureResolverInput");
+    const entityType = document.getElementById("cureEntityType");
+    const topK = document.getElementById("cureTopK");
+    const button = document.getElementById("cureResolveBtn");
+    const results = document.getElementById("cureResolverResults");
+    const stats = document.getElementById("cureResolverStats");
+
+    function escapeHtml(value) {
+        return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function renderPills(values) {
+        const items = (values || []).filter(Boolean).slice(0, 8);
+        if (!items.length) return "";
+        return `<div class="cure-resolver-pills">${items.map(v => `<span>${escapeHtml(v)}</span>`).join("")}</div>`;
+    }
+
+    function evidenceValue(evidence, keys) {
+        for (const key of keys) {
+            if (evidence && evidence[key]) return evidence[key];
+        }
+        return "";
+    }
+
+    function renderCandidate(candidate, rank) {
+        const evidence = candidate.evidence || {};
+        const sub = [
+            candidate.entity_type,
+            candidate.biolink_category,
+            candidate.source,
+            candidate.term_kind
+        ].filter(Boolean).join(" · ");
+        const fields = [
+            ["Matched", candidate.matched_term],
+            ["Score", candidate.resolver_score],
+            ["Status", candidate.match_status],
+            ["Final ID", evidenceValue(evidence, ["final_curie_id", "standard_id", "rxnorm_identifiers"])],
+            ["Final Label", evidenceValue(evidence, ["final_curie_label", "standard_name"])],
+            ["Identifier Source", evidenceValue(evidence, ["identifier_source"])],
+            ["Manual QC", evidenceValue(evidence, ["human_decision", "llm_decision"])],
+            ["Node Type", evidenceValue(evidence, ["node_type"])],
+            ["Target ID", evidenceValue(evidence, ["target_id"])],
+            ["Target Primary", evidenceValue(evidence, ["primary_id"])],
+            ["CURE Drug ID", evidenceValue(evidence, ["cure_drug_identifier", "cure_drug_id"])],
+            ["Ingredients", evidenceValue(evidence, ["active_ingredients"])],
+            ["Brand/Product", evidenceValue(evidence, ["brand_product_candidates"])],
+            ["Dose", evidenceValue(evidence, ["dose_strength"])],
+            ["Route/Form", evidenceValue(evidence, ["formulation_route"])],
+            ["Xref", evidenceValue(evidence, ["xref_id", "primary_xref"])],
+            ["Confidence", evidenceValue(evidence, ["phase1b_confidence", "confidence_tier"])],
+        ].filter(row => row[1] !== "" && row[1] != null);
+        return `
+            <article class="cure-candidate">
+                <div class="cure-candidate-rank">${rank}</div>
+                <div class="cure-candidate-body">
+                    <div class="cure-candidate-title">
+                        <span>${escapeHtml(candidate.label || candidate.concept_id)}</span>
+                        <code>${escapeHtml(candidate.concept_id || "")}</code>
+                    </div>
+                    <div class="cure-candidate-sub">${escapeHtml(sub)}</div>
+                    ${renderPills(candidate.identifiers)}
+                    <dl class="cure-evidence-grid">
+                        ${fields.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}
+                    </dl>
+                </div>
+            </article>
+        `;
+    }
+
+    function renderResult(row) {
+        const warnings = (row.warnings || []).map(w => `<span>${escapeHtml(w.replaceAll("_", " "))}</span>`).join("");
+        const candidates = row.candidates || [];
+        return `
+            <section class="cure-result">
+                <header class="cure-result-header">
+                    <div>
+                        <h2>${escapeHtml(row.query)}</h2>
+                        <div class="cure-result-meta">
+                            ${escapeHtml(row.detected_entity_type || "unknown")}
+                            ${warnings ? `<span class="cure-warning-row">${warnings}</span>` : ""}
+                        </div>
+                    </div>
+                    <div class="cure-result-count">${candidates.length}</div>
+                </header>
+                <div class="cure-candidate-list">
+                    ${candidates.length ? candidates.map((candidate, idx) => renderCandidate(candidate, idx + 1)).join("") : '<div class="cure-resolver-empty">No local candidates.</div>'}
+                </div>
+            </section>
+        `;
+    }
+
+    function renderStats(payload) {
+        const types = payload.entity_types || {};
+        const sources = payload.sources || {};
+        const clinical = Number(types.disease || 0) + Number(types.phenotype || 0) + Number(types.adverse_event || 0);
+        stats.innerHTML = `
+            <span>${Number(payload.term_count || 0).toLocaleString()} terms</span>
+            <span>${Number(types.drug || 0).toLocaleString()} drug</span>
+            <span>${clinical.toLocaleString()} clinical</span>
+            <span>${Number(types.gene || 0).toLocaleString()} gene</span>
+            <span>${Number(types.protein || 0).toLocaleString()} protein</span>
+            <span>${Object.keys(sources).length} sources</span>
+        `;
+    }
+
+    async function loadStats() {
+        try {
+            const response = await fetch(`${rootPath}/cure-entity-resolver/api/stats`);
+            const payload = await response.json();
+            renderStats(payload);
+        } catch (error) {
+            stats.innerHTML = `<span>${escapeHtml(String(error))}</span>`;
+        }
+    }
+
+    async function resolve() {
+        const text = input.value.trim();
+        if (!text) return;
+        button.disabled = true;
+        results.innerHTML = '<div class="cure-resolver-empty">Resolving...</div>';
+        try {
+            const response = await fetch(`${rootPath}/cure-entity-resolver/api/resolve`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    text,
+                    entity_type: entityType.value,
+                    top_k: Number(topK.value || 5)
+                })
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.detail || "Resolver failed");
+            const sections = (payload.results || []).map(renderResult).join("");
+            results.innerHTML = sections || '<div class="cure-resolver-empty">No results.</div>';
+        } catch (error) {
+            results.innerHTML = `<div class="registry-update-error">${escapeHtml(String(error))}</div>`;
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    button.addEventListener("click", resolve);
+    input.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            resolve();
+        }
+    });
+    loadStats();
+})();
+</script>
+{% endblock %}

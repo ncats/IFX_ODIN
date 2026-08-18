@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.qa_browser.disease_id_graph import (
     DiseaseGraphData,
+    REVIEW_INTAKE_COLUMNS,
     _concept_to_row,
     _is_flagged,
     _match_type_to_skos,
@@ -17,7 +18,9 @@ from src.qa_browser.disease_id_graph import (
     export_sssom,
     find_concept_neighbors,
     build_provenance_chain,
+    build_review_queue,
     build_disease_graph_payload,
+    export_review_intake_template,
     resolve_concept,
     resolve_name_candidates,
     search_concepts,
@@ -38,6 +41,19 @@ def disease_data():
     if not data_dir.is_dir():
         pytest.skip("Bundled disease data not available")
     # Reset singleton to allow re-loading in tests
+    import src.qa_browser.disease_id_graph as mod
+    mod._singleton = None
+    return load_disease_graph_data(data_dir)
+
+
+@pytest.fixture(scope="module")
+def disease_data_v211():
+    """Load bundled v2.1.1 disease data when available."""
+    from src.qa_browser.disease_id_graph import load_disease_graph_data
+
+    data_dir = Path(__file__).parent.parent / "src" / "qa_browser" / "data" / "disease_app_graph" / "v2.1.1"
+    if not data_dir.is_dir():
+        pytest.skip("Bundled v2.1.1 disease data not available")
     import src.qa_browser.disease_id_graph as mod
     mod._singleton = None
     return load_disease_graph_data(data_dir)
@@ -136,6 +152,71 @@ class TestNeedsReviewDecisionFlags:
         assert "needs_review" in row["flags"]
         assert "review_retained(review_gard_grouping_or_conflict)" in row["flags"]
         assert row["needs_review_decision"].startswith("review-retained:")
+
+
+class TestReviewQueue:
+    """Verify app review queue clustering and TargetGraph intake export."""
+
+    def test_review_queue_groups_open_registry_decisions(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:REVIEW"] = {
+            "primary_xref": "MONDO:REVIEW",
+            "ncats_disease_id": "IFXDisease:REVIEW",
+            "standard_name": "example review disease",
+            "confidence_tier": "needs_review",
+            "cardinality_issue_count": "0",
+            "obsolete_xref_count": "0",
+            "has_obsolete": "false",
+        }
+        data.decisions_by_pxref["MONDO:REVIEW"].append({
+            "decision_id": "doid_GARD_MONDO:REVIEW_conflict",
+            "decision_source": "divergence_registry",
+            "primary_xref": "MONDO:REVIEW",
+            "ncats_disease_id": "IFXDisease:REVIEW",
+            "standard_name": "example review disease",
+            "xref_id": "GARD:123",
+            "xref_namespace": "GARD",
+            "decision_type": "conflict",
+            "scenario_id": "S20",
+            "status": "open",
+            "auto_decision": "needs_expert_review",
+            "auto_rationale": "Requires needs_expert_review.",
+            "source_value": "GARD:123",
+            "consensus_value": "GARD:456",
+        })
+
+        queue = build_review_queue(data)
+
+        assert queue["total"] == 1
+        row = queue["rows"][0]
+        assert row["category"] == "gard_conflict"
+        assert row["registry_id"] == "doid_GARD_MONDO:REVIEW_conflict"
+        assert row["saveable"] is True
+
+    def test_review_intake_template_has_targetgraph_columns(self):
+        data = DiseaseGraphData()
+        data.concepts_by_pxref["MONDO:REVIEW"] = {
+            "primary_xref": "MONDO:REVIEW",
+            "ncats_disease_id": "IFXDisease:REVIEW",
+            "standard_name": "example review disease",
+            "confidence_tier": "needs_review",
+        }
+        data.decisions_by_pxref["MONDO:REVIEW"].append({
+            "decision_id": "registry-row-1",
+            "decision_source": "divergence_registry",
+            "xref_id": "EFO:1",
+            "xref_namespace": "EFO",
+            "decision_type": "obsolete_ref",
+            "status": "open",
+            "auto_rationale": "Obsolete xref.",
+        })
+
+        template = export_review_intake_template(data)
+        header = template.splitlines()[0].split("\t")
+
+        assert header == REVIEW_INTAKE_COLUMNS
+        assert "registry-row-1" in template
+        assert "Obsolete xref." in template
 
 
 class TestDiseaseResolver:
@@ -400,6 +481,139 @@ class TestVersionDiff:
         assert diff["summary"]["concepts_removed"] == 1
         assert diff["removed_concepts"][0]["reason"] == "Merged into MONDO:0018853"
 
+    def test_rekeyed_concept_detected_by_ncats_id(self):
+        """A concept with the same ncats_disease_id but different primary_xref
+        should appear as rekeyed, not as added+removed."""
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "2.0.1"}
+        current.manifest = {"pipeline_version": "2.1.1"}
+
+        # Same concept, different primary_xref, same ncats_disease_id
+        baseline.concepts_by_pxref["OMIM:612110"] = {
+            "primary_xref": "OMIM:612110",
+            "ncats_disease_id": "IFXDisease:00001",
+            "standard_name": "Epilepsy example",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+        current.concepts_by_pxref["MEDGEN:393757"] = {
+            "primary_xref": "MEDGEN:393757",
+            "ncats_disease_id": "IFXDisease:00001",
+            "standard_name": "Epilepsy example",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+        # An actually new concept
+        current.concepts_by_pxref["MONDO:NEW1"] = {
+            "primary_xref": "MONDO:NEW1",
+            "ncats_disease_id": "IFXDisease:NEW1",
+            "standard_name": "Truly new disease",
+            "confidence_tier": "single_authoritative_source",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+        # An actually removed concept (no ncats_disease_id match)
+        baseline.concepts_by_pxref["ORPHANET:OLD1"] = {
+            "primary_xref": "ORPHANET:OLD1",
+            "ncats_disease_id": "IFXDisease:OLD1",
+            "standard_name": "Truly removed disease",
+            "confidence_tier": "single_authoritative_source",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+
+        diff = compute_version_diff(current, baseline)
+
+        # The rekeyed concept should NOT be in added or removed
+        assert diff["summary"]["concepts_added"] == 1
+        added_pxrefs = {c["primary_xref"] for c in diff["added_concepts"]}
+        assert "MEDGEN:393757" not in added_pxrefs
+        assert "MONDO:NEW1" in added_pxrefs
+
+        # removed_pxrefs won't include OMIM:612110 since it was matched by ncats_id
+        # ORPHANET:OLD1 should still be in removed (as other_removed or legacy)
+        all_removed_pxrefs = (
+            {c["primary_xref"] for c in diff["removed_concepts"]}
+            | {c["primary_xref"] for c in diff["legacy_source_only_rows"]}
+            | {c["primary_xref"] for c in diff["other_removed_rows"]}
+        )
+        assert "OMIM:612110" not in all_removed_pxrefs
+        assert "ORPHANET:OLD1" in all_removed_pxrefs
+
+        # The rekeyed concept should appear in rekeyed_concepts
+        assert diff["summary"]["concepts_rekeyed"] == 1
+        assert len(diff["rekeyed_concepts"]) == 1
+        rekeyed = diff["rekeyed_concepts"][0]
+        assert rekeyed["ncats_disease_id"] == "IFXDisease:00001"
+        assert rekeyed["old_primary_xref"] == "OMIM:612110"
+        assert rekeyed["new_primary_xref"] == "MEDGEN:393757"
+        assert rekeyed["standard_name"] == "Epilepsy example"
+
+    def test_rekeyed_concept_tier_change_detected(self):
+        """A rekeyed concept with a tier change should appear in both
+        rekeyed_concepts and tier_changes."""
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "2.0.1"}
+        current.manifest = {"pipeline_version": "2.1.1"}
+
+        baseline.concepts_by_pxref["OMIM:100"] = {
+            "primary_xref": "OMIM:100",
+            "ncats_disease_id": "IFXDisease:TIER",
+            "standard_name": "Tier change disease",
+            "confidence_tier": "needs_review",
+            "overall_quality": "0.5",
+            "disease_type": "biolink:Disease",
+        }
+        current.concepts_by_pxref["MEDGEN:100"] = {
+            "primary_xref": "MEDGEN:100",
+            "ncats_disease_id": "IFXDisease:TIER",
+            "standard_name": "Tier change disease",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+            "disease_type": "biolink:Disease",
+        }
+
+        diff = compute_version_diff(current, baseline)
+
+        assert diff["summary"]["concepts_rekeyed"] == 1
+        assert diff["summary"]["tier_changes"] == 1
+        assert diff["tier_changes"][0]["primary_xref"] == "MEDGEN:100"
+        assert diff["tier_changes"][0]["old_tier"] == "needs_review"
+        assert diff["tier_changes"][0]["new_tier"] == "multi_source_supported"
+
+    def test_truncation_metadata_present(self):
+        """The diff response should include truncation metadata."""
+        baseline = DiseaseGraphData()
+        current = DiseaseGraphData()
+        baseline.manifest = {"pipeline_version": "1.0.1"}
+        current.manifest = {"pipeline_version": "2.0.1"}
+
+        current.concepts_by_pxref["MONDO:1"] = {
+            "primary_xref": "MONDO:1",
+            "standard_name": "test",
+            "confidence_tier": "multi_source_supported",
+            "overall_quality": "1.0",
+        }
+
+        diff = compute_version_diff(current, baseline)
+
+        assert "truncation" in diff
+        t = diff["truncation"]
+        assert "added_concepts" in t
+        assert t["added_concepts"]["total"] == 1
+        assert t["added_concepts"]["shown"] == 1
+        assert "removed_concepts" in t
+        assert "rekeyed_concepts" in t
+        assert "tier_changes" in t
+        assert "quality_changes" in t
+        assert "disease_type_changes" in t
+        assert "legacy_source_only_rows" in t
+        assert "other_removed_rows" in t
+
 
 # ---------------------------------------------------------------------------
 # Regression tests against known data (require v2.0.1 dataset)
@@ -442,6 +656,21 @@ def test_dashboard_stats_cached(disease_data):
     stats1 = compute_dashboard_stats(disease_data)
     stats2 = compute_dashboard_stats(disease_data)
     assert stats1 is stats2
+
+
+def test_v211_xref_scoring_contract(disease_data_v211):
+    """v2.1.1 xref edges should expose relationship/equivalence scoring fields."""
+    stats = compute_dashboard_stats(disease_data_v211)
+    assert sum(stats["edge_evidence_tier_distribution"].values()) == stats["total_edges"]
+    assert "accepted_exact" in stats["edge_evidence_tier_distribution"]
+    assert "broad_or_narrow" in stats["edge_evidence_tier_distribution"]
+
+    result = resolve_concept(disease_data_v211, "MONDO:0018865")
+    assert result is not None
+    umls = next(x for x in result["xrefs"] if x["xref_id"] == "UMLS:C4707237")
+    assert umls["equivalence_confidence"] == "1.0"
+    assert umls["evidence_tier"] == "accepted_exact"
+    assert umls["review_tier"] == "auto_accept"
 
 
 # ---------------------------------------------------------------------------

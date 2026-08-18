@@ -38,16 +38,23 @@ from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
+    REVIEW_DECISION_OPTIONS,
+    REVIEW_INTAKE_COLUMNS,
+    build_review_queue,
+    build_clinical_descendant_graph_payload,
     build_disease_graph_payload,
     build_hierarchy_graph_payload,
     build_provenance_chain,
     bulk_resolve_names,
     compute_dashboard_stats,
+    compute_download_preview_counts,
     compute_source_agreement_matrix,
     compute_source_flow_data,
     compute_version_diff,
     export_filtered_download,
+    export_filtered_xlsx,
     export_flagged_tsv,
+    export_review_intake_template,
     export_search_tsv,
     export_sssom,
     find_concept_neighbors,
@@ -55,11 +62,14 @@ from src.qa_browser.disease_id_graph import (
     load_disease_graph_data,
     load_version_data,
     load_flagged_concepts,
+    _normalize_download_mode,
     parse_disease_ids,
     resolve_concept,
     resolve_name_candidates,
     search_concepts,
+    stream_filtered_download,
 )
+from src.qa_browser.cure_entity_resolver import build_cure_entity_resolver_index
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -70,6 +80,13 @@ from src.qa_browser.registry_usage import (
     load_graph_registry_usage_cached,
     with_graph_usages,
 )
+from src.qa_browser.target_id_graph import (
+    build_target_graph_payload,
+    compute_target_stats,
+    export_targets,
+    load_target_graph_data,
+    search_targets,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -78,6 +95,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
+TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
 
 
 @asynccontextmanager
@@ -107,6 +125,9 @@ _minio_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
+_target_graph_dir: str = ""
+_disease_review_file: str = ""
+_disease_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -147,6 +168,12 @@ _resolver_warmup_status: dict = {
     "warmed": 0,
     "errors": [],
 }
+_cure_entity_resolver_cache: dict = {
+    "graph_dir": None,
+    "index": None,
+    "loaded_at": None,
+}
+_cure_entity_resolver_lock = threading.Lock()
 _REGISTRY_USAGE_TTL_SECONDS = 60
 _REGISTRY_CATALOG_TTL_SECONDS = int(os.getenv("QA_BROWSER_REGISTRY_CATALOG_TTL_SECONDS", "300"))
 _RESOLVER_API_MAX_IDS = 1000
@@ -5540,6 +5567,170 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
     return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
 
 
+def _load_cure_entity_resolver():
+    graph_dir = _disease_graph_dir or ""
+    target_graph_dir = _target_graph_dir or ""
+    cache_key = (graph_dir, target_graph_dir)
+    with _cure_entity_resolver_lock:
+        if (
+            _cure_entity_resolver_cache.get("index") is not None
+            and _cure_entity_resolver_cache.get("graph_dir") == cache_key
+        ):
+            return _cure_entity_resolver_cache["index"]
+        index = build_cure_entity_resolver_index(graph_dir, target_graph_dir)
+        _cure_entity_resolver_cache.update({
+            "graph_dir": cache_key,
+            "index": index,
+            "loaded_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return index
+
+
+def _parse_cure_resolver_queries(value) -> list[str]:
+    if isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = re.split(r"[\r\n]+", str(value or ""))
+    queries = []
+    for raw in raw_values:
+        text = str(raw or "").strip()
+        if text:
+            queries.append(text)
+    return queries
+
+
+@app.get("/cure-entity-resolver", response_class=HTMLResponse)
+def cure_entity_resolver(request: Request):
+    return templates.TemplateResponse(request, "cure_entity_resolver.html", {
+        "request": request,
+    })
+
+
+@app.get("/cure-entity-resolver/api/stats")
+def cure_entity_resolver_stats():
+    index = _load_cure_entity_resolver()
+    stats = index.stats()
+    stats["loaded_at"] = _cure_entity_resolver_cache.get("loaded_at")
+    stats["disease_graph_dir"] = _disease_graph_dir
+    stats["target_graph_dir"] = _target_graph_dir
+    return stats
+
+
+@app.post("/cure-entity-resolver/api/resolve")
+async def cure_entity_resolver_resolve(request: Request):
+    payload = await request.json()
+    queries = _parse_cure_resolver_queries(
+        payload.get("queries") if "queries" in payload else payload.get("text", "")
+    )
+    if not queries:
+        raise HTTPException(status_code=400, detail="Provide at least one query.")
+    if len(queries) > 1000:
+        raise HTTPException(status_code=400, detail="At most 1000 queries are allowed per request.")
+    entity_type = str(payload.get("entity_type") or "auto").strip().lower()
+    allowed_entity_types = {
+        "auto",
+        "all",
+        "clinical",
+        "drug",
+        "disease",
+        "phenotype",
+        "adverse_event",
+        "gene",
+        "protein",
+        "sequence_variant",
+    }
+    if entity_type not in allowed_entity_types:
+        allowed = ", ".join(sorted(allowed_entity_types))
+        raise HTTPException(status_code=400, detail=f"entity_type must be one of: {allowed}.")
+    try:
+        top_k = int(payload.get("top_k", 5))
+    except Exception:
+        top_k = 5
+    top_k = max(1, min(top_k, 10))
+
+    index = _load_cure_entity_resolver()
+    results = await run_in_threadpool(
+        index.resolve_many,
+        queries,
+        entity_type=entity_type,
+        top_k=top_k,
+    )
+    return {
+        "query_count": len(queries),
+        "entity_type": entity_type,
+        "top_k": top_k,
+        "index": index.stats(),
+        "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Target Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+def _load_target_graph():
+    if not _target_graph_dir:
+        raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
+    return load_target_graph_data(_target_graph_dir)
+
+
+@app.get("/target-id-qa", response_class=HTMLResponse)
+def target_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    return templates.TemplateResponse(request, "target_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+    })
+
+
+@app.get("/target-id-qa/api/stats")
+def target_id_qa_stats():
+    data = _load_target_graph()
+    return compute_target_stats(data)
+
+
+@app.get("/target-id-qa/api/search")
+def target_id_qa_search(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_target_graph()
+    return search_targets(data, q=q, target_type=target_type, namespace=namespace, page=page, per_page=per_page)
+
+
+@app.get("/target-id-qa/api/graph")
+def target_id_qa_graph(ids: str = ""):
+    data = _load_target_graph()
+    return build_target_graph_payload(data, ids)
+
+
+@app.get("/target-id-qa/download-filtered")
+def target_id_qa_download_filtered(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_target_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt, columns=selected_columns)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    filename = f"target_harmonizer_filtered.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/disease-id-qa", response_class=HTMLResponse)
 def disease_id_qa(request: Request, ids: str = "", tab: str = ""):
     selected_ids = " | ".join(parse_disease_ids(ids))
@@ -5571,7 +5762,13 @@ def disease_id_qa_graph(ids: str = ""):
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
-    return build_disease_graph_payload(data, parse_disease_ids(ids))
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, parse_disease_ids(ids), target_data=target_data)
 
 
 @app.get("/disease-id-qa/download/{filename}")
@@ -5606,6 +5803,151 @@ def disease_id_qa_download_flagged():
     )
 
 
+def _default_disease_review_file() -> str:
+    if not _disease_graph_dir:
+        return ""
+    graph_dir = Path(_disease_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "qc" / "review" / "app_completed" / "disease_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "disease_app_review_decisions.tsv")
+
+
+def _resolved_disease_review_file() -> str:
+    return _disease_review_file or _default_disease_review_file()
+
+
+def _review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        registry_id = str(raw.get("registry_id") or raw.get("Registry ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Review decision") or "").strip()
+        if not registry_id:
+            raise HTTPException(status_code=400, detail="Each review decision needs registry_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each review decision needs review_decision.")
+        if decision not in {opt["value"] for opt in REVIEW_DECISION_OPTIONS}:
+            raise HTTPException(status_code=400, detail=f"Unsupported review_decision: {decision}")
+
+        rows.append({
+            "Registry ID": registry_id,
+            "Review decision": decision,
+            "Corrected xref / replacement": str(raw.get("replacement") or raw.get("Corrected xref / replacement") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Primary Xref": str(raw.get("primary_xref") or raw.get("Primary Xref") or "").strip(),
+            "Disease Name": str(raw.get("standard_name") or raw.get("Disease Name") or "").strip(),
+            "NCATS Disease ID": str(raw.get("ncats_disease_id") or raw.get("NCATS Disease ID") or "").strip(),
+            "Review category": str(raw.get("category") or raw.get("Review category") or "").strip(),
+            "Xref ID": str(raw.get("xref_id") or raw.get("Xref ID") or "").strip(),
+            "Xref Namespace": str(raw.get("xref_namespace") or raw.get("Xref Namespace") or "").strip(),
+            "Decision type": str(raw.get("decision_type") or raw.get("Decision type") or "").strip(),
+            "Scenario ID": str(raw.get("scenario_id") or raw.get("Scenario ID") or "").strip(),
+            "Source value": str(raw.get("source_value") or raw.get("Source value") or "").strip(),
+            "Consensus value": str(raw.get("consensus_value") or raw.get("Consensus value") or "").strip(),
+            "Evidence note": str(raw.get("evidence_note") or raw.get("Evidence note") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No review decisions provided.")
+    return rows
+
+
+def _append_disease_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_disease_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No disease review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _disease_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/disease-id-qa/api/review-queue")
+def disease_id_qa_review_queue(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Return clustered disease review items for the Review tab."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_review_queue(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/disease-id-qa/download-review-template")
+def disease_id_qa_download_review_template(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    """Download a TargetGraph-compatible review intake template for the current queue."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    tsv_content = export_review_intake_template(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="disease_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/disease-id-qa/api/review-decisions")
+async def disease_id_qa_save_review_decisions(request: Request):
+    """Append app-entered review decisions to a TargetGraph intake TSV."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = _review_payload_rows(payload)
+    path = _append_disease_review_rows(rows)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph disease_review_intake.",
+    }
+
+
 @app.get("/disease-id-qa/api/search")
 def disease_id_qa_search(
     q: str = "",
@@ -5617,6 +5959,8 @@ def disease_id_qa_search(
     source: str = "",
     quality: str = "",
     disease_type: str = "",
+    sort: str = "",
+    sort_dir: str = "asc",
 ):
     """Paginated search across all disease concepts."""
     if not _disease_graph_dir:
@@ -5626,7 +5970,7 @@ def disease_id_qa_search(
     return search_concepts(
         data, q=q, filter_mode=filter, page=page, per_page=per_page,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
+        disease_type=disease_type, sort=sort, sort_dir=sort_dir,
     )
 
 
@@ -5653,6 +5997,128 @@ def disease_id_qa_dashboard():
     return compute_dashboard_stats(data)
 
 
+@app.get("/disease-id-qa/api/download-preview")
+def disease_id_qa_download_preview(
+    q: str = "",
+    filter: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    mode: str = "concepts",
+    include_sources: str = "",
+    exclude_obsolete: str = "",
+):
+    """Return exact row counts for the selected download table mode."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
+    return compute_download_preview_counts(
+        data,
+        q=q,
+        filter_mode=filter,
+        confidence_tier=confidence_tier,
+        is_rare=is_rare,
+        source=source,
+        quality=quality,
+        disease_type=disease_type,
+        mode=mode,
+        include_sources=src_set,
+        exclude_obsolete=exclude_obsolete.lower() == "true",
+    )
+
+
+@app.get("/disease-id-qa/api/suggest")
+def disease_id_qa_suggest(q: str = "", limit: int = 8):
+    """Return autocomplete suggestions for the search input."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if len(q.strip()) < 2:
+        return {"suggestions": []}
+    data = load_disease_graph_data(_disease_graph_dir)
+    result = resolve_name_candidates(data, q, limit=max(1, min(limit, 20)))
+    suggestions = []
+    seen_pxrefs: set = set()
+    for cand in result.get("candidates", []):
+        pxref = cand.get("pxref", "")
+        if pxref in seen_pxrefs:
+            continue
+        seen_pxrefs.add(pxref)
+        concept = data.concepts_by_pxref.get(pxref, {})
+        suggestions.append({
+            "primary_xref": pxref,
+            "standard_name": concept.get("standard_name", ""),
+            "confidence_tier": concept.get("confidence_tier", ""),
+            "n_sources": concept.get("n_sources", ""),
+            "disease_type": concept.get("disease_type", ""),
+        })
+        if len(suggestions) >= limit:
+            break
+    return {"suggestions": suggestions}
+
+
+@app.get("/disease-id-qa/api/review-history")
+def disease_id_qa_review_history(primary_xref: str = ""):
+    """Return review decision history for a concept from the intake TSV."""
+    review_file = _resolved_disease_review_file()
+    if not review_file or not Path(review_file).is_file():
+        return {"decisions": []}
+    decisions = []
+    with open(review_file, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            if primary_xref and row.get("Primary Xref", "") != primary_xref:
+                continue
+            decisions.append({
+                "review_decision": row.get("Review decision", ""),
+                "reviewed_by": row.get("Reviewed by", ""),
+                "reviewed_at": row.get("Reviewed at", ""),
+                "notes": row.get("Reviewer notes", ""),
+                "replacement": row.get("Corrected xref / replacement", ""),
+                "category": row.get("Review category", ""),
+                "xref_id": row.get("Xref ID", ""),
+                "xref_namespace": row.get("Xref Namespace", ""),
+                "decision_type": row.get("Decision type", ""),
+                "evidence_note": row.get("Evidence note", ""),
+                "disease_name": row.get("Disease Name", ""),
+            })
+    decisions.sort(key=lambda d: d.get("reviewed_at", ""), reverse=True)
+    return {"decisions": decisions}
+
+
+@app.get("/disease-id-qa/api/compare")
+def disease_id_qa_compare(a: str = "", b: str = ""):
+    """Compare two disease concepts side by side."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not a or not b:
+        raise HTTPException(status_code=400, detail="Both 'a' and 'b' parameters are required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    concept_a = resolve_concept(data, a)
+    concept_b = resolve_concept(data, b)
+    if not concept_a:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {a}")
+    if not concept_b:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {b}")
+    xrefs_a = {x["xref_id"] for x in concept_a.get("xrefs", []) if x.get("xref_id")}
+    xrefs_b = {x["xref_id"] for x in concept_b.get("xrefs", []) if x.get("xref_id")}
+    return {
+        "concept_a": concept_a,
+        "concept_b": concept_b,
+        "shared_xrefs": sorted(xrefs_a & xrefs_b),
+        "unique_a": sorted(xrefs_a - xrefs_b),
+        "unique_b": sorted(xrefs_b - xrefs_a),
+    }
+
+
 @app.get("/disease-id-qa/download-filtered")
 def disease_id_qa_download_filtered(
     q: str = "",
@@ -5663,36 +6129,80 @@ def disease_id_qa_download_filtered(
     quality: str = "",
     disease_type: str = "",
     columns: str = "",
+    mode: str = "concepts",
     format: str = "tsv",
     include_sources: str = "",
     exclude_obsolete: str = "",
 ):
-    """Download filtered concepts with selectable columns."""
+    """Download filtered disease harmonizer tables with selectable columns."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
-    src_set = (
-        {s.strip().upper() for s in include_sources.split(",") if s.strip()}
-        if include_sources else None
-    )
-    content = export_filtered_download(
-        data, q=q, filter_mode=filter,
-        confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
-        columns=col_list, fmt=format, include_sources=src_set,
-        exclude_obsolete=exclude_obsolete.lower() == "true",
-    )
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
+    excl_obs = exclude_obsolete.lower() == "true"
+    mode_key = _normalize_download_mode(mode)
+    version = str(data.manifest.get("pipeline_version", "") or "unknown").strip()
+    version_tag = f"ODINv{version}" if version and not version.startswith("v") else f"ODIN{version}"
+    table_name = {
+        "xref_edges": "disease_xref_edges",
+        "clinical_descendants": "disease_clinical_descendants",
+    }.get(mode_key, "diseases")
+    row_filters_active = any([
+        q.strip(),
+        filter not in ("", "all"),
+        confidence_tier.strip(),
+        is_rare.strip(),
+        source.strip(),
+        quality.strip(),
+        disease_type.strip(),
+        mode_key != "concepts" and bool(src_set),
+        mode_key != "concepts" and excl_obs,
+    ])
+    suffix = "_filtered" if row_filters_active else ""
+
+    if format == "xlsx":
+        content = export_filtered_xlsx(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, mode=mode_key, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        )
+        filename = f"{version_tag}_{table_name}{suffix}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    def _stream():
+        for line in stream_filtered_download(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, mode=mode_key, fmt=format, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        ):
+            yield line.encode("utf-8")
+
     if format == "csv":
         media = "text/csv"
         ext = "csv"
     else:
         media = "text/tab-separated-values"
         ext = "tsv"
+    filename = f"{version_tag}_{table_name}{suffix}.{ext}"
     return StreamingResponse(
-        io.BytesIO(content.encode("utf-8")),
+        _stream(),
         media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -5814,11 +6324,16 @@ def api_disease_stats():
     return {
         "total_concepts": stats["total_concepts"],
         "total_edges": stats["total_edges"],
+        "total_hierarchy_edges": stats.get("total_hierarchy_edges", 0),
+        "total_clinical_descendant_edges": stats.get("total_clinical_descendant_edges", 0),
         "sources_covered": len(stats["source_coverage"]),
         "avg_xrefs_per_concept": stats["avg_xrefs_per_concept"],
         "multi_source_count": stats.get("multi_source_count", 0),
         "multi_source_percent": stats.get("multi_source_percent", 0),
         "source_only_count": stats.get("source_only_count", 0),
+        "concepts_with_clinical_codes": stats.get("concepts_with_clinical_codes", 0),
+        "concepts_with_clinical_descendants": stats.get("concepts_with_clinical_descendants", 0),
+        "clinical_descendant_summary": stats.get("clinical_descendant_summary", {}),
         "rare_count": stats["rare_count"],
         "flagged_count": stats["flagged_count"],
         "needs_action_count": stats.get("needs_action_count", stats["flagged_count"]),
@@ -5845,6 +6360,181 @@ def api_disease_sources():
             for ns, count in sorted(stats["source_coverage"].items(), key=lambda x: -x[1])
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Source Versions (from pipeline metadata)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/disease-id-qa/api/source-versions")
+def disease_id_qa_source_versions():
+    """Return source database versions from the pipeline metadata catalog."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    graph_dir = Path(_disease_graph_dir)
+    # metadata lives at ../metadata/ relative to app_graph/
+    if graph_dir.name == "app_graph":
+        metadata_dir = graph_dir.parent / "metadata"
+    else:
+        metadata_dir = graph_dir / "metadata"
+    catalog_path = metadata_dir / "disease_source_catalog.tsv"
+    if not catalog_path.exists():
+        return {"sources": [], "catalog_found": False}
+    sources = []
+
+    def _clean(value: object) -> str:
+        text = str(value or "").strip()
+        return "" if text.lower() == "unknown" else text
+
+    def _nested(dct: dict, *keys: str) -> str:
+        if not isinstance(dct, dict):
+            return ""
+        for key in keys:
+            value = _clean(dct.get(key))
+            if value:
+                return value
+        return ""
+
+    def _load_row_metadata(row: dict) -> dict:
+        meta_name = row.get("metadata_file", "").strip()
+        if not meta_name:
+            return {}
+        meta_path = Path(meta_name)
+        if not meta_path.is_absolute():
+            meta_path = metadata_dir / "source" / meta_name
+        if not meta_path.exists():
+            return {}
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception as exc:
+            logger.warning("Failed to read source metadata %s: %s", meta_path, exc)
+            return {}
+
+    def _resolve_metadata_path(path_text: str) -> Optional[Path]:
+        path_text = _clean(path_text)
+        if not path_text:
+            return None
+        raw_path = Path(path_text)
+        if raw_path.is_absolute() and raw_path.exists():
+            return raw_path
+        for base in [Path.cwd(), *metadata_dir.parents]:
+            candidate = base / raw_path
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _raw_obo_version(raw_file: str) -> str:
+        raw_path = _resolve_metadata_path(raw_file)
+        if not raw_path:
+            return ""
+        try:
+            with open(raw_path, "r", encoding="utf-8", errors="replace") as fh:
+                for line_no, line in enumerate(fh, start=1):
+                    if line_no > 200 or line.startswith("[Term]"):
+                        break
+                    line = line.strip()
+                    if line.startswith("property_value: owl:versionInfo"):
+                        match = re.search(r'"([^"]+)"', line)
+                        if match:
+                            return match.group(1)
+                    if line.startswith("data-version:"):
+                        match = re.search(r"\d{4}-\d{2}-\d{2}", line)
+                        return match.group(0) if match else line.split(":", 1)[1].strip()
+                    if line.startswith("date:"):
+                        match = re.search(r"(\d{2}):(\d{2}):(\d{4})", line)
+                        if match:
+                            day, month, year = match.groups()
+                            return f"{year}-{month}-{day}"
+        except Exception as exc:
+            logger.warning("Failed to read source OBO version from %s: %s", raw_path, exc)
+        return ""
+
+    def _freshest_file_date(meta: dict) -> str:
+        files = meta.get("files", []) if isinstance(meta, dict) else []
+        if not isinstance(files, list):
+            return ""
+        dates = []
+        for file_meta in files:
+            if not isinstance(file_meta, dict):
+                continue
+            date_value = _nested(file_meta, "last_modified_iso", "last_modified")
+            if date_value:
+                dates.append(date_value)
+        return max(dates) if dates else ""
+
+    def _date_only(value: str) -> str:
+        value = _clean(value)
+        return value[:10] if value else ""
+
+    try:
+        import csv
+        with open(catalog_path, "r") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for row in reader:
+                name = row.get("source_name", "").strip()
+                if not name:
+                    continue
+                meta = _load_row_metadata(row)
+                source_meta = meta.get("source", {}) if isinstance(meta.get("source"), dict) else {}
+                release_info = (
+                    meta.get("release_info", {})
+                    if isinstance(meta.get("release_info"), dict)
+                    else {}
+                )
+                file_release_date = _freshest_file_date(meta)
+                raw_obo_version = _raw_obo_version(meta.get("raw_file", ""))
+                version = (
+                    _clean(row.get("source_version"))
+                    or _nested(meta, "source_version")
+                    or _nested(source_meta, "version")
+                    or _nested(release_info, "releaseVersion", "version", "releaseDate")
+                    or raw_obo_version
+                    or _date_only(file_release_date)
+                    or "unknown"
+                )
+                release_date = (
+                    _clean(row.get("release_date"))
+                    or _nested(meta, "release_date", "last_modified_iso")
+                    or _nested(source_meta, "last_modified_iso", "last_modified")
+                    or _nested(release_info, "releaseDate", "last_modified_iso", "last_modified")
+                    or raw_obo_version
+                    or file_release_date
+                )
+                download_start = (
+                    _clean(row.get("download_start"))
+                    or _nested(meta, "download_start", "timestamp_start")
+                )
+                download_date = _date_only(download_start)
+                tf_output_rows = _clean(row.get("tf_output_rows"))
+                tf_input_rows = _clean(row.get("tf_input_rows"))
+                status = _clean(row.get("status"))
+                changed = _clean(row.get("changed"))
+                note = ""
+                if name.upper() == "SNOMEDCT":
+                    note = "UMLS SNOMEDCT subset; source version is the UMLS release."
+                elif name.upper() == "UMLS":
+                    note = "UMLS-derived labels/xrefs; access depends on local UMLS credentials."
+                elif version == "unknown":
+                    note = "Source-native version was not captured by the download metadata."
+                sources.append({
+                    "name": name,
+                    "version": version,
+                    "release_date": release_date,
+                    "source_release_date": release_date,
+                    "download_date": download_date,
+                    "odin_download_date": download_date,
+                    "transform_input_rows": tf_input_rows,
+                    "transform_output_rows": tf_output_rows,
+                    "status": status,
+                    "changed": changed,
+                    "note": note,
+                })
+    except Exception as exc:
+        logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)
+        return {"sources": [], "catalog_found": False, "error": str(exc)}
+    return {"sources": sources, "catalog_found": True}
 
 
 # ---------------------------------------------------------------------------
@@ -5921,7 +6611,11 @@ def _discover_disease_versions() -> list[dict]:
             if not child.is_dir() or not (child / "manifest.json").exists():
                 continue
             with open(child / "manifest.json", encoding="utf-8") as fh:
-                manifest = json.load(fh)
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    continue
             version = _normalize_disease_version(
                 manifest.get("pipeline_version", "") or child.name
             )
@@ -5942,6 +6636,20 @@ def _discover_disease_versions() -> list[dict]:
             existing = version_by_key.get(version)
             if existing is None or entry["current"] or entry["baseline"]:
                 version_by_key[version] = entry
+
+    # Fallback: if nothing matched by resolved path, match by directory name
+    if _disease_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_disease_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+    if _baseline_graph_dir and not any(v.get("baseline") for v in version_by_key.values()):
+        baseline_dir_name = Path(_baseline_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == baseline_dir_name:
+                entry["baseline"] = True
+                break
 
     return sorted(
         version_by_key.values(),
@@ -6030,7 +6738,13 @@ def disease_id_qa_graph_neighbors(pxref: str = ""):
         return {"elements": []}
     # Build graph payload for the neighbors (include the original concept too)
     all_ids = [pxref] + neighbors
-    return build_disease_graph_payload(data, all_ids)
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, all_ids, target_data=target_data)
 
 
 @app.get("/disease-id-qa/api/graph/hierarchy")
@@ -6042,6 +6756,17 @@ def disease_id_qa_graph_hierarchy(pxref: str = ""):
         raise HTTPException(status_code=400, detail="pxref parameter required.")
     data = load_disease_graph_data(_disease_graph_dir)
     return build_hierarchy_graph_payload(data, pxref)
+
+
+@app.get("/disease-id-qa/api/graph/clinical-descendants")
+def disease_id_qa_graph_clinical_descendants(pxref: str = "", limit: int = 80):
+    """Return Cytoscape elements for SNOMED/ICD descendant candidate mappings."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not pxref:
+        raise HTTPException(status_code=400, detail="pxref parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_clinical_descendant_graph_payload(data, pxref, limit=limit)
 
 
 @app.get("/disease-id-qa/api/provenance/{pxref:path}")
@@ -8939,12 +9664,18 @@ def main():
     parser.add_argument("--disease-graph-dir",
                         default="",
                         help="Path to disease app_graph/ directory (TSV files + manifest.json)")
+    parser.add_argument("--disease-review-file",
+                        default="",
+                        help="Path to TargetGraph-compatible disease review intake TSV written by the Review tab")
     parser.add_argument("--baseline-graph-dir",
                         default="",
                         help="Path to baseline disease app_graph/ directory for version diff")
+    parser.add_argument("--target-graph-dir",
+                        default="",
+                        help="Path to target app_graph/ directory (target_nodes.tsv + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -9017,6 +9748,9 @@ def main():
                 print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
+    _disease_review_file = args.disease_review_file
+    if _resolved_disease_review_file():
+        print(f"Disease review intake file: {_resolved_disease_review_file()}")
 
     _baseline_graph_dir = args.baseline_graph_dir
     if not _baseline_graph_dir:
@@ -9032,6 +9766,16 @@ def main():
                 print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
     if _baseline_graph_dir:
         print(f"Baseline graph dir: {_baseline_graph_dir}")
+
+    _target_graph_dir = args.target_graph_dir
+    if not _target_graph_dir:
+        bundled_dir = TARGET_APP_GRAPH_BUNDLED_DIR
+        current_dir = bundled_dir / "current"
+        if current_dir.is_dir():
+            _target_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled target data: {_target_graph_dir}")
+    if _target_graph_dir:
+        print(f"Target graph dir: {_target_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
