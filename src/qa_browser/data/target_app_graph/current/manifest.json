@@ -1,12 +1,72 @@
 {
   "contract_version": "1.0.0",
+  "target_release_version": "v1.0.0",
   "pipeline": "TargetGraph target harmonizer",
   "generated_at": "2026-08-06T19:15:58.949727+00:00",
+  "updated_last": "2026-08-06T19:15:58.949727+00:00",
   "source_files": {
     "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.tsv",
     "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids_2026-06-15.tsv",
     "transcript_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.tsv"
   },
+  "source_versions": [
+    {
+      "source": "Ensembl BioMart",
+      "version": "115",
+      "download_start": "2026-05-06T13:26:42.517935",
+      "download_end": "2026-05-06T13:26:42.548103",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json"
+    },
+    {
+      "source": "NCBI Gene Info",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:42.821033",
+      "download_end": "2026-05-06T13:26:42.821047",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ncbi_metadata.json"
+    },
+    {
+      "source": "GeneRIF",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:43.183606",
+      "download_end": "2026-05-06T13:26:43.183614",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_generif_metadata.json"
+    },
+    {
+      "source": "HGNC",
+      "version": "2026-05-05",
+      "download_start": "2026-05-06T13:26:44.246072",
+      "download_end": "2026-05-06T13:26:44.246085",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_hgnc_metadata.json"
+    },
+    {
+      "source": "RefSeq (NCBI)",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:44.253923",
+      "download_end": "2026-05-06T13:26:44.817541",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json"
+    },
+    {
+      "source": "UniProt",
+      "version": "2026_01",
+      "download_start": "2026-05-06T13:27:15.794626",
+      "download_end": "2026-05-06T13:27:15.794629",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_uniprot_metadata.json"
+    },
+    {
+      "source": "NodeNorm Gene",
+      "version": "2025nov4",
+      "download_start": "2026-05-06T13:27:15.809343",
+      "download_end": "2026-05-06T13:27:16.222880",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_genes_metadata.json"
+    },
+    {
+      "source": "NodeNorm Protein",
+      "version": "2025nov4",
+      "download_start": "2026-05-06T13:27:16.252263",
+      "download_end": "2026-05-06T13:27:16.554916",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_proteins_metadata.json"
+    }
+  ],
   "files": {
     "target_nodes.tsv": {
       "rows": 893967,

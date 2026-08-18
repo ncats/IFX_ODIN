@@ -6797,7 +6797,8 @@ details summary:hover { color: var(--accent); }
     margin: 0;
 }
 
-.target-explorer-subtitle {
+.target-explorer-subtitle,
+.target-explorer-release {
     color: var(--text-muted);
     font-size: 0.9rem;
     margin-top: 0.3rem;
@@ -6861,6 +6862,7 @@ details summary:hover { color: var(--accent); }
     display: grid;
     gap: 0.75rem;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* supports 8 cards: 4 per row on wide, 2 on narrow */
 }
 
 .target-stat-grid div,
@@ -7189,6 +7191,429 @@ details summary:hover { color: var(--accent); }
     overflow-wrap: anywhere;
 }
 
+/* ── Target divergence table ─────────────────────────────────────────────── */
+.target-divergence-table {
+    min-width: 40rem;
+}
+
+.target-divergence-table .conflict-cell {
+    background: rgba(239, 68, 68, 0.08);
+    color: #b91c1c;
+    font-weight: 600;
+}
+
+.target-divergence-table .expert-cell {
+    background: rgba(245, 158, 11, 0.08);
+    color: #92400e;
+    font-weight: 600;
+}
+
+/* ── Target version bar ──────────────────────────────────────────────────── */
+.target-version-bar {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    padding: 0.55rem 0.85rem;
+}
+
+/* ── Target entity & auto-decision badges ────────────────────────────────── */
+.target-entity-badge {
+    border-radius: 999px;
+    color: #fff;
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.2rem 0.5rem;
+    text-transform: uppercase;
+}
+
+.target-entity-badge.target-entity-gene {
+    background: #2563eb;
+}
+
+.target-entity-badge.target-entity-protein {
+    background: #059669;
+}
+
+.target-entity-badge.target-entity-transcript {
+    background: #d97706;
+}
+
+.target-auto-decision-badge {
+    background: color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 30%, transparent);
+    border-radius: 999px;
+    color: var(--text);
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.42rem;
+}
+
+.target-confidence-score {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    margin-left: 0.3rem;
+}
+
+.review-decision-select {
+    background: var(--surface, #fff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    min-width: 10rem;
+    padding: 0.35rem 0.4rem;
+}
+
+/* ── Target triage strip & chips ─────────────────────────────────────────── */
+.target-triage-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.target-triage-chip {
+    align-items: center;
+    background: var(--surface-raised, #f8fafc);
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    transition: all 0.15s;
+}
+
+.target-triage-chip span {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.1rem 0.4rem;
+}
+
+.target-triage-chip:hover {
+    border-color: var(--accent, #4f46e5);
+}
+
+.target-triage-chip.active {
+    background: color-mix(in srgb, var(--accent, #4f46e5) 10%, transparent);
+    border-color: var(--accent, #4f46e5);
+    color: var(--accent, #4f46e5);
+}
+
+.target-triage-chip.triage-coverage-gap { border-left: 3px solid #22c55e; }
+.target-triage-chip.triage-low-mapping { border-left: 3px solid #eab308; }
+.target-triage-chip.triage-cosmetic { border-left: 3px solid #94a3b8; }
+.target-triage-chip.triage-source-conflict { border-left: 3px solid #ef4444; }
+
+/* ── Triage badges in review table ───────────────────────────────────────── */
+.target-triage-badge {
+    border-radius: 999px;
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.18rem 0.45rem;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.target-triage-badge.triage-coverage-gap {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.target-triage-badge.triage-low-mapping {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
+.target-triage-badge.triage-cosmetic {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+/* ── Conflict detail display in review rows ──────────────────────────────── */
+.conflict-heading {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+}
+
+.conflict-provenance {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.2rem;
+}
+
+.conflict-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.4rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
+}
+
+.conflict-src {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    min-width: 4.5rem;
+    padding: 0.08rem 0.3rem;
+    text-transform: lowercase;
+}
+
+.conflict-line code {
+    font-size: 0.76rem;
+    word-break: break-all;
+}
+
+.conflict-src.conflict-authority {
+    background: color-mix(in srgb, #2563eb 15%, transparent);
+    border: 1px solid color-mix(in srgb, #2563eb 30%, transparent);
+    color: #1e40af;
+    font-weight: 700;
+}
+
+.conflict-missing {
+    color: #dc2626;
+    font-size: 0.74rem;
+    font-style: italic;
+}
+
+.conflict-agree {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-style: italic;
+    margin-top: 0.1rem;
+}
+
+.conflict-summary {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    margin-top: 0.15rem;
+    overflow-wrap: anywhere;
+}
+
+/* Cross-reference lookup badges */
+.xref-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 0.25rem;
+    font-weight: 500;
+    cursor: help;
+}
+.xref-found {
+    background: #dbeafe;
+    color: #1e40af;
+}
+.xref-canonical {
+    background: #dcfce7;
+    color: #166534;
+}
+.xref-missing {
+    background: #fee2e2;
+    color: #991b1b;
+    font-style: italic;
+}
+.conflict-same-gene {
+    font-size: 0.72rem;
+    color: #0369a1;
+    background: #f0f9ff;
+    border-left: 2px solid #0ea5e9;
+    padding: 0.15rem 0.4rem;
+    margin-top: 0.2rem;
+    border-radius: 2px;
+}
+
+.target-triage-badge.triage-source-conflict {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* ── Batch action bar ────────────────────────────────────────────────────── */
+.target-batch-bar {
+    align-items: center;
+    background: color-mix(in srgb, var(--accent, #4f46e5) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 20%, transparent);
+    border-radius: var(--radius);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+    padding: 0.6rem 0.9rem;
+}
+
+.target-batch-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.target-batch-status {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.target-batch-success {
+    color: #16a34a;
+}
+
+.target-batch-error {
+    color: #dc2626;
+}
+
+/* ── Target visual alignment with harmonizer explorers ──────────────────── */
+.target-explorer-header {
+    background: linear-gradient(135deg, rgba(240, 253, 250, 0.92), rgba(239, 246, 255, 0.88));
+    border: 1px solid var(--glass-border, var(--border));
+    border-radius: var(--radius-lg, var(--radius));
+    box-shadow: 0 10px 28px rgba(15, 47, 61, 0.06);
+    padding: 1rem;
+}
+
+.target-explorer-header h1 {
+    color: var(--text-bright, var(--text));
+}
+
+.target-explorer-subtitle,
+.target-explorer-release {
+    color: #526b70;
+    max-width: 58rem;
+}
+
+.target-explorer-release {
+    line-height: 1.45;
+    margin-bottom: 0;
+}
+
+.target-tabs {
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px solid rgba(198, 216, 219, 0.86);
+    border-radius: var(--radius-lg, var(--radius));
+    box-shadow: 0 8px 22px rgba(15, 47, 61, 0.05);
+    overflow-x: auto;
+    padding: 0.35rem;
+}
+
+.target-tab-btn {
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    border-bottom: 1px solid transparent;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.target-tab-btn:hover {
+    background: rgba(13, 148, 136, 0.08);
+    color: #0f514c;
+}
+
+.target-tab-btn.active {
+    background: #ffffff;
+    border-color: rgba(13, 148, 136, 0.24);
+    color: #0d9488;
+    box-shadow: 0 6px 16px rgba(15, 47, 61, 0.08);
+}
+
+.target-stat-grid div,
+.target-panel,
+.target-graph,
+.target-graph-detail,
+.target-table-wrap,
+.target-graph-legend {
+    background: var(--glass-bg, #fff);
+    border-color: var(--glass-border, var(--border));
+    box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.06));
+}
+
+.target-stat-grid div {
+    border-radius: var(--radius-lg, var(--radius));
+    padding: 1rem;
+    text-align: center;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.target-stat-grid div:hover,
+.target-panel:hover {
+    border-color: rgba(13, 148, 136, 0.28);
+    box-shadow: var(--shadow-md, 0 12px 30px rgba(15, 23, 42, 0.1));
+}
+
+.target-stat-grid strong {
+    color: var(--text-bright, var(--text));
+    font-size: 1.55rem;
+    letter-spacing: 0;
+}
+
+.target-stat-grid span {
+    font-weight: 650;
+    text-transform: none;
+}
+
+.target-panel {
+    border-radius: var(--radius-lg, var(--radius));
+}
+
+.target-panel h2 {
+    color: var(--text-bright, var(--text));
+    font-size: 0.98rem;
+}
+
+.target-bar-row i {
+    background: linear-gradient(90deg, #0d9488, #2563eb);
+}
+
+.target-version-bar {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.target-version-label {
+    color: var(--text-muted);
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 800;
+    margin-right: 0.45rem;
+    text-transform: uppercase;
+}
+
+.target-source-tags {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.target-source-tags span:not(.target-version-label) {
+    background: rgba(13, 148, 136, 0.08);
+    border: 1px solid rgba(13, 148, 136, 0.18);
+    border-radius: 999px;
+    color: #315b61;
+    font-size: 0.72rem;
+    padding: 0.2rem 0.5rem;
+}
+
 @media (max-width: 900px) {
     .target-explorer-header,
     .target-dashboard-grid,
@@ -7196,6 +7621,9 @@ details summary:hover { color: var(--accent); }
     .target-filter-row,
     .target-stat-grid {
         grid-template-columns: 1fr;
+    }
+    .target-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -7266,6 +7694,10 @@ details summary:hover { color: var(--accent); }
 
 .review-table td {
     vertical-align: top;
+}
+
+.review-table td:nth-child(4) {
+    min-width: 30rem;
 }
 
 .review-category-badge {
@@ -7772,4 +8204,89 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     color: var(--text-muted);
     font-size: 0.78rem;
     font-style: italic;
+}
+
+/* ── Target review summary bar ──────────────────────────────────────────── */
+.target-review-summary {
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    line-height: 1.4;
+    margin-bottom: 0.2rem;
+}
+
+/* ── Triage resolved badge ──────────────────────────────────────────────── */
+.triage-resolved-badge {
+    background: #dcfce7;
+    border-radius: 999px;
+    color: #166534;
+    font-size: 0.66rem;
+    font-weight: 700;
+    margin-left: 0.2rem;
+    padding: 0.1rem 0.35rem;
+}
+.triage-open-total {
+    color: var(--text-muted);
+    font-size: 0.66rem;
+    font-weight: 400;
+    margin-left: 0.15rem;
+}
+
+/* ── Filter-help z-index inside triage chips ────────────────────────────── */
+.target-triage-chip .filter-help {
+    z-index: 2;
+}
+.target-triage-chip .filter-help .filter-help-text {
+    width: 260px;
+}
+
+/* ── Suggestion rationale & confidence badges ───────────────────────────── */
+.suggestion-rationale {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    margin-top: 0.3rem;
+    max-width: 16rem;
+}
+.suggestion-confidence {
+    border-radius: 999px;
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 0.08rem 0.35rem;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.suggestion-high {
+    background: #dcfce7;
+    color: #166534;
+}
+.suggestion-medium {
+    background: #fef3c7;
+    color: #92400e;
+}
+.suggestion-low {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* ── Apply Suggestions button ───────────────────────────────────────────── */
+.target-apply-suggestions-bar {
+    align-items: center;
+    background: color-mix(in srgb, var(--accent, #4f46e5) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 20%, transparent);
+    border-radius: var(--radius);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.85rem;
+}
+.target-apply-suggestions-bar .apply-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.target-apply-suggestions-bar .apply-status {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-left: auto;
 }

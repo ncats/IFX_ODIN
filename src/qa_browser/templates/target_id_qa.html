@@ -9,7 +9,10 @@
     <section class="target-explorer-header">
         <div>
             <h1>Target Harmonizer Explorer</h1>
-            <div class="target-explorer-subtitle">Genes, proteins, and transcripts harmonized from HGNC, NCBI, Ensembl, UniProt, RefSeq, and NodeNorm.</div>
+            <p class="target-explorer-release"><span class="mono">{{ target_version_display }}</span>
+               &mdash; Gene, transcript, and protein harmonization from HGNC, NCBI,
+               Ensembl, UniProt, and RefSeq, with NodeNorm validation.
+               Updated last: {{ target_updated_last }}.</p>
         </div>
         <div class="target-open-box">
             <textarea id="targetOpenIds" rows="3" spellcheck="false">{{ selected_ids }}</textarea>
@@ -21,6 +24,7 @@
         <button class="target-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
         <button class="target-tab-btn" data-tab="concepts" type="button">Concepts</button>
         <button class="target-tab-btn" data-tab="graph" type="button">Graph</button>
+        <button class="target-tab-btn" data-tab="review" type="button">Review</button>
         <button class="target-tab-btn" data-tab="download" type="button">Download</button>
     </nav>
 
@@ -28,14 +32,68 @@
         <div class="target-stat-grid" id="targetStats"></div>
         <div class="target-dashboard-grid">
             <section class="target-panel">
-                <h2>Target Type Distribution</h2>
-                <div class="target-bars" id="targetTypeBars"></div>
-            </section>
-            <section class="target-panel">
                 <h2>Identifier Coverage</h2>
                 <div class="target-bars" id="targetNamespaceBars"></div>
             </section>
+            <section class="target-panel">
+                <h2>Biolink Relationship Edges</h2>
+                <div class="target-bars" id="targetPredicateBars"></div>
+            </section>
         </div>
+        <div class="target-dashboard-grid">
+            <section class="target-panel" id="targetBiotypePanel" style="display:none;">
+                <h2>Gene Biotype</h2>
+                <div class="target-bars" id="targetBiotypeBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Gene Sources</h2>
+                <div class="target-bars" id="targetGeneSourceBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Protein Sources</h2>
+                <div class="target-bars" id="targetProteinSourceBars"></div>
+            </section>
+        </div>
+        <div class="target-dashboard-grid">
+            <section class="target-panel">
+                <h2>Transcript Sources</h2>
+                <div class="target-bars" id="targetTranscriptSourceBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Protein Canonical Status</h2>
+                <div class="target-bars" id="targetCanonicalBars"></div>
+            </section>
+        </div>
+        <div class="target-dashboard-grid" id="targetDivergenceCharts" style="display:none;">
+            <section class="target-panel">
+                <h2>Divergence by Type</h2>
+                <div class="target-bars" id="targetDivTypeBars"></div>
+            </section>
+            <section class="target-panel">
+                <h2>Triage Categories</h2>
+                <div class="target-bars" id="targetTriageBars"></div>
+            </section>
+        </div>
+        <section class="target-panel" id="targetDivergenceTablePanel" style="display:none;">
+            <h2>Divergence by Source</h2>
+            <div class="target-table-wrap">
+                <table class="target-table target-divergence-table">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Total</th>
+                            <th>Conflicts</th>
+                            <th>Sole Source</th>
+                            <th>Low Score</th>
+                            <th>Avg Confidence</th>
+                            <th>Needs Expert</th>
+                        </tr>
+                    </thead>
+                    <tbody id="targetDivergenceTableBody"></tbody>
+                </table>
+            </div>
+        </section>
+        <div class="target-version-bar" id="targetVersionBar" style="display:none;"></div>
     </section>
 
     <section class="target-tab-panel" data-panel="concepts">
@@ -105,6 +163,73 @@
         </div>
     </section>
 
+    <section class="target-tab-panel" data-panel="review">
+        <div class="review-note">
+            Divergence items from the TargetGraph QC pipeline. Items are triaged into categories &mdash;
+            start with <strong>Coverage Gap</strong> and <strong>Low Mapping Support</strong> (easy batch decisions),
+            then work through <strong>Source Conflict</strong> items that need human judgment.
+            <p class="target-review-summary" id="targetReviewSummary" style="display:none;margin:0.4rem 0 0;"></p>
+        </div>
+        <div class="target-triage-strip" id="targetTriageStrip"></div>
+        <div class="review-category-strip" id="targetReviewEntityStrip"></div>
+        <div class="review-controls">
+            <input id="targetReviewSearch" type="search" placeholder="Search name, ID, source value, rationale...">
+            <select id="targetReviewDivType">
+                <option value="">All divergence types</option>
+                <option value="conflict">Conflict</option>
+                <option value="sole_source">Sole source</option>
+                <option value="low_score">Low score</option>
+            </select>
+            <select id="targetReviewStatus">
+                <option value="open">Open</option>
+                <option value="resolved">Resolved</option>
+                <option value="">All statuses</option>
+            </select>
+            <select id="targetReviewSource">
+                <option value="">All sources</option>
+            </select>
+            <select id="targetReviewAutoDecision">
+                <option value="">All auto-decisions</option>
+            </select>
+            <button class="btn btn-sm" id="targetReviewClear" type="button">Clear</button>
+            <a class="btn btn-sm" id="targetReviewTemplateLink" href="#" download>Intake template</a>
+        </div>
+        <div class="target-batch-bar" id="targetBatchBar" style="display:none;">
+            <span class="target-batch-label" id="targetBatchLabel"></span>
+            <select class="review-decision-select" id="targetBatchDecision"></select>
+            <button class="btn btn-sm btn-primary" id="targetBatchApply" type="button">Apply to all</button>
+            <span class="target-batch-status" id="targetBatchStatus"></span>
+        </div>
+        <div class="target-apply-suggestions-bar" id="targetApplySuggestionsBar" style="display:none;">
+            <span class="apply-label" id="targetApplySuggestionsLabel"></span>
+            <button class="btn btn-sm btn-primary" id="targetApplySuggestions" type="button">Apply Suggestions</button>
+            <span class="apply-status" id="targetApplySuggestionsStatus"></span>
+        </div>
+        <div class="review-table-wrap">
+            <table class="review-table target-table">
+                <thead>
+                    <tr>
+                        <th>Triage</th>
+                        <th>Entity</th>
+                        <th>Target</th>
+                        <th>Conflict</th>
+                        <th>Auto</th>
+                        <th>Decision</th>
+                        <th>Replacement</th>
+                        <th>Notes</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="targetReviewRows"></tbody>
+            </table>
+        </div>
+        <div class="target-pager">
+            <button class="btn" id="targetReviewPrevPage" type="button">Prev</button>
+            <span id="targetReviewPageLabel"></span>
+            <button class="btn" id="targetReviewNextPage" type="button">Next</button>
+        </div>
+    </section>
+
     <section class="target-tab-panel" data-panel="download">
         <div class="target-panel">
             <div class="target-filter-row">
@@ -142,6 +267,15 @@
     let totalPages = 1;
     let cy = null;
 
+    /* ── Review state ── */
+    let reviewPage = 1;
+    let reviewTotalPages = 1;
+    let reviewEntityFilter = "";
+    let reviewTriageFilter = "";
+    let reviewDecisionOptions = [];
+    let reviewTriageCategories = [];
+    let reviewTriageCounts = {};
+
     const panels = Array.from(document.querySelectorAll(".target-tab-panel"));
     const buttons = Array.from(document.querySelectorAll(".target-tab-btn"));
     const rowsEl = document.getElementById("targetRows");
@@ -162,10 +296,19 @@
             .replace(/'/g, "&#039;");
     }
 
+    function formatVersion(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        if (text.startsWith("v.")) return text;
+        if (text.startsWith("v")) return `v.${text.slice(1)}`;
+        return `v.${text}`;
+    }
+
     function setTab(tab) {
         buttons.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
         panels.forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
         if (tab === "graph") loadGraph();
+        if (tab === "review") loadReviewQueue(1);
     }
 
     function paramsFromFilters(prefix) {
@@ -313,30 +456,118 @@
         `;
     }
 
+    /* ── Dashboard ── */
     async function loadStats() {
-        const response = await fetch(`${rootPath}/target-id-qa/api/stats`);
-        const stats = await response.json();
+        let stats;
+        try {
+            const response = await fetch(`${rootPath}/target-id-qa/api/stats`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            stats = await response.json();
+        } catch (err) {
+            document.getElementById("targetStats").innerHTML =
+                `<div style="grid-column:1/-1;color:#dc2626;padding:1rem;">Failed to load stats: ${escapeHtml(err.message)}</div>`;
+            return;
+        }
         const typeCounts = stats.type_counts || {};
         const namespaces = stats.identifier_namespace_counts || {};
+        const div = stats.divergence || {};
+
+        /* 8 stat cards */
         document.getElementById("targetStats").innerHTML = `
             <div><strong>${Number(stats.total_targets || 0).toLocaleString()}</strong><span>Total targets</span></div>
             <div><strong>${Number(typeCounts.gene || 0).toLocaleString()}</strong><span>Genes</span></div>
             <div><strong>${Number(typeCounts.protein || 0).toLocaleString()}</strong><span>Proteins</span></div>
             <div><strong>${Number(typeCounts.transcript || 0).toLocaleString()}</strong><span>Transcripts</span></div>
+            <div><strong>${Number(stats.sources_covered || 0).toLocaleString()}</strong><span>Data Sources</span></div>
+            <div><strong>${Number(stats.canonical_count || 0).toLocaleString()}</strong><span>Canonical Targets</span></div>
+            <div><strong>${Number(div.total_divergences || 0).toLocaleString()}</strong><span>Divergences</span></div>
+            <div><strong>${Number(div.open_conflicts || 0).toLocaleString()}</strong><span>Open Conflicts</span></div>
         `;
-        renderBars(document.getElementById("targetTypeBars"), typeCounts);
+
+        /* Charts */
         renderBars(document.getElementById("targetNamespaceBars"), namespaces);
+        renderBars(document.getElementById("targetPredicateBars"), stats.edge_predicate_counts || {});
+        renderBars(document.getElementById("targetGeneSourceBars"), stats.gene_sources || {});
+        renderBars(document.getElementById("targetProteinSourceBars"), stats.protein_sources || {});
+        renderBars(document.getElementById("targetTranscriptSourceBars"), stats.transcript_sources || {});
+        renderBars(document.getElementById("targetCanonicalBars"), stats.canonical_status_counts || {});
+
+        /* Gene biotype chart (only if data loaded from provenance CSV) */
+        const biotypeCounts = stats.gene_biotype_counts || {};
+        if (Object.keys(biotypeCounts).length) {
+            document.getElementById("targetBiotypePanel").style.display = "";
+            renderBars(document.getElementById("targetBiotypeBars"), biotypeCounts);
+        }
+
+        /* Divergence charts (only if data exists) */
+        if (div.total_divergences > 0) {
+            document.getElementById("targetDivergenceCharts").style.display = "";
+            renderBars(document.getElementById("targetDivTypeBars"), div.divergence_type_counts || {});
+            /* Triage categories with readable labels */
+            const triageLabelMap = {coverage_gap: "Coverage Gap", low_mapping: "Low Mapping Support", cosmetic: "Cosmetic", source_conflict: "Source Conflict"};
+            const triageRaw = div.triage_category_counts || {};
+            const triageDisplay = {};
+            for (const [k, v] of Object.entries(triageRaw)) triageDisplay[triageLabelMap[k] || k] = v;
+            renderBars(document.getElementById("targetTriageBars"), triageDisplay);
+
+            /* Source divergence breakdown table */
+            const breakdown = div.source_divergence_breakdown || {};
+            if (Object.keys(breakdown).length) {
+                document.getElementById("targetDivergenceTablePanel").style.display = "";
+                document.getElementById("targetDivergenceTableBody").innerHTML = Object.entries(breakdown).map(([src, bd]) => `
+                    <tr>
+                        <td>${escapeHtml(src)}</td>
+                        <td>${Number(bd.total || 0).toLocaleString()}</td>
+                        <td class="${bd.conflict_count ? 'conflict-cell' : ''}">${Number(bd.conflict_count || 0).toLocaleString()}</td>
+                        <td>${Number(bd.sole_source_count || 0).toLocaleString()}</td>
+                        <td>${Number(bd.low_score_count || 0).toLocaleString()}</td>
+                        <td>${bd.avg_confidence != null ? bd.avg_confidence.toFixed(3) : '-'}</td>
+                        <td class="${bd.needs_expert_count ? 'expert-cell' : ''}">${Number(bd.needs_expert_count || 0).toLocaleString()}</td>
+                    </tr>
+                `).join("");
+            }
+        }
+
+        /* Version/manifest info bar */
+        const manifest = stats.manifest || {};
+        if (manifest.pipeline || manifest.generated_at || manifest.target_release_version) {
+            const versionBar = document.getElementById("targetVersionBar");
+            versionBar.style.display = "";
+            const metaParts = [];
+            if (manifest.target_release_version) metaParts.push(`Release ${escapeHtml(formatVersion(manifest.target_release_version))}`);
+            if (manifest.pipeline) metaParts.push(escapeHtml(manifest.pipeline));
+            const updatedLast = manifest.updated_last || manifest.generated_at;
+            if (updatedLast) metaParts.push(`Updated last: ${escapeHtml(updatedLast.split('T')[0])}`);
+            const sourceTags = (manifest.source_versions || [])
+                .filter(row => row && (row.source || row.version))
+                .slice(0, 10)
+                .map(row => `<span><strong>${escapeHtml(row.source || "Source")}</strong> ${escapeHtml(row.version || "unknown")}</span>`)
+                .join("");
+            versionBar.innerHTML = `
+                <div><span class="target-version-label">Pipeline</span> ${metaParts.join(' &middot; ')}</div>
+                ${sourceTags ? `<div class="target-source-tags"><span class="target-version-label">Source Versions</span>${sourceTags}</div>` : ""}
+            `;
+        }
+
         populateNamespaceSelects(namespaces);
         renderColumnPicker(stats.download_column_groups || []);
     }
 
+    /* ── Concepts search ── */
     async function search(page) {
         currentPage = page || currentPage;
         const params = new URLSearchParams(paramsFromFilters("target"));
         params.set("page", String(currentPage));
         params.set("per_page", "50");
-        const response = await fetch(`${rootPath}/target-id-qa/api/search?${params}`);
-        const payload = await response.json();
+        let payload;
+        try {
+            const response = await fetch(`${rootPath}/target-id-qa/api/search?${params}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            payload = await response.json();
+        } catch (err) {
+            rowsEl.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:1rem;">Failed to load: ${escapeHtml(err.message)}</td></tr>`;
+            return;
+        }
         totalPages = payload.total_pages || 1;
         currentPage = payload.page || 1;
         rowsEl.innerHTML = (payload.rows || []).map(row => `
@@ -352,6 +583,7 @@
         pageLabel.textContent = `Page ${currentPage.toLocaleString()} of ${totalPages.toLocaleString()} (${Number(payload.total || 0).toLocaleString()} targets)`;
     }
 
+    /* ── Graph ── */
     let targetPayload = null;
     const productFilters = document.getElementById("targetProductFilters");
     const showTranscriptsBox = document.getElementById("targetShowTranscripts");
@@ -402,8 +634,14 @@
     async function loadGraph() {
         const ids = document.getElementById("targetOpenIds").value.trim();
         if (!ids) return;
-        const response = await fetch(`${rootPath}/target-id-qa/api/graph?ids=${encodeURIComponent(ids)}`);
-        targetPayload = await response.json();
+        try {
+            const response = await fetch(`${rootPath}/target-id-qa/api/graph?ids=${encodeURIComponent(ids)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            targetPayload = await response.json();
+        } catch (err) {
+            document.getElementById("targetGraphLabel").textContent = `Error: ${err.message}`;
+            return;
+        }
         const elements = targetPayload.elements || [];
         const nodeCount = elements.filter(ele => !(ele.data || {}).source).length;
         const edgeCount = elements.length - nodeCount;
@@ -466,6 +704,372 @@
         graphDetail.innerHTML = `<h2>No Selection</h2>`;
     }
 
+    /* ── Review tab ── */
+    function reviewFilterParams() {
+        const params = new URLSearchParams();
+        const q = document.getElementById("targetReviewSearch").value.trim();
+        if (q) params.set("q", q);
+        const divType = document.getElementById("targetReviewDivType").value;
+        if (divType) params.set("divergence_type", divType);
+        const status = document.getElementById("targetReviewStatus").value;
+        if (status) params.set("status", status);
+        const src = document.getElementById("targetReviewSource").value;
+        if (src) params.set("source", src);
+        const autoDec = document.getElementById("targetReviewAutoDecision").value;
+        if (autoDec) params.set("auto_decision", autoDec);
+        if (reviewEntityFilter) params.set("entity_type", reviewEntityFilter);
+        if (reviewTriageFilter) params.set("triage_category", reviewTriageFilter);
+        return params;
+    }
+
+    function renderReviewEntityChips(counts) {
+        const strip = document.getElementById("targetReviewEntityStrip");
+        const all = Object.values(counts).reduce((a, b) => a + b, 0);
+        const chips = [
+            {key: "", label: "All", count: all},
+            {key: "gene", label: "Gene", count: counts.gene || 0},
+            {key: "protein", label: "Protein", count: counts.protein || 0},
+            {key: "transcript", label: "Transcript", count: counts.transcript || 0},
+        ];
+        strip.innerHTML = chips.map(c =>
+            `<button class="review-category-chip${reviewEntityFilter === c.key ? ' active' : ''}" data-entity="${escapeHtml(c.key)}" type="button">${escapeHtml(c.label)} <span>${c.count.toLocaleString()}</span></button>`
+        ).join("");
+    }
+
+    const _triageLabels = {
+        coverage_gap: "Coverage Gap",
+        low_mapping: "Low Mapping",
+        cosmetic: "Cosmetic",
+        source_conflict: "Conflict",
+    };
+    const _triageColors = {
+        coverage_gap: "triage-coverage-gap",
+        low_mapping: "triage-low-mapping",
+        cosmetic: "triage-cosmetic",
+        source_conflict: "triage-source-conflict",
+    };
+
+    function renderTriageChips(counts, categories, totals) {
+        const strip = document.getElementById("targetTriageStrip");
+        const all = Object.values(counts).reduce((a, b) => a + b, 0);
+        let html = `<button class="target-triage-chip${reviewTriageFilter === '' ? ' active' : ''}" data-triage="" type="button">All <span>${all.toLocaleString()}</span></button>`;
+        for (const cat of categories) {
+            const count = counts[cat.key] || 0;
+            const total = (totals && totals[cat.key]) || 0;
+            const colorClass = _triageColors[cat.key] || "";
+            const active = reviewTriageFilter === cat.key ? " active" : "";
+            const helpBubble = `<span class="filter-help">?<span class="filter-help-text">${escapeHtml(cat.description)}</span></span>`;
+            let badge = "";
+            if (total > 0 && count === 0) {
+                // Fully resolved
+                badge = `<span class="triage-resolved-badge">\u2713 ${total.toLocaleString()}</span>`;
+            } else if (total > 0 && total > count) {
+                // Partially resolved — show open / total
+                badge = `<span>${count.toLocaleString()}</span><span class="triage-open-total">/ ${total.toLocaleString()}</span>`;
+            } else {
+                badge = `<span>${count.toLocaleString()}</span>`;
+            }
+            html += `<button class="target-triage-chip ${colorClass}${active}" data-triage="${escapeHtml(cat.key)}" type="button">${escapeHtml(cat.label)} ${badge} ${helpBubble}</button>`;
+        }
+        strip.innerHTML = html;
+    }
+
+    function updateBatchBar(counts) {
+        const bar = document.getElementById("targetBatchBar");
+        const label = document.getElementById("targetBatchLabel");
+        const select = document.getElementById("targetBatchDecision");
+        const statusEl = document.getElementById("targetBatchStatus");
+        statusEl.textContent = "";
+
+        // Show batch bar only when a triage category is selected
+        if (!reviewTriageFilter) {
+            bar.style.display = "none";
+            return;
+        }
+        const count = counts[reviewTriageFilter] || 0;
+        if (!count) {
+            bar.style.display = "none";
+            return;
+        }
+        const catLabel = _triageLabels[reviewTriageFilter] || reviewTriageFilter;
+        label.textContent = `Batch-apply decision to all ${count.toLocaleString()} "${catLabel}" items:`;
+
+        // Build decision select with suggested decision pre-selected
+        const suggestedMap = {
+            coverage_gap: "accept_sole_source",
+            low_mapping: "accept_low_score",
+            cosmetic: "cosmetic_ignore",
+            source_conflict: "",
+        };
+        const suggested = suggestedMap[reviewTriageFilter] || "";
+        select.innerHTML = reviewDecisionOptions.map(opt =>
+            `<option value="${escapeHtml(opt.value)}"${opt.value === suggested ? " selected" : ""}>${escapeHtml(opt.label)}</option>`
+        ).join("");
+        bar.style.display = "";
+    }
+
+    function populateSelectFromCounts(selectId, counts, allLabel) {
+        const select = document.getElementById(selectId);
+        const current = select.value;
+        const entries = Object.entries(counts || {});
+        select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` +
+            entries.map(([k, v]) => `<option value="${escapeHtml(k)}">${escapeHtml(k)} (${v})</option>`).join("");
+        select.value = current;
+    }
+
+    function _humanizeNamespace(ns) {
+        return (ns || "").replace(/_/g, " ").replace(/\bID\b/g, "ID");
+    }
+
+    function _parseOtherSources(raw) {
+        /* Parse "uniprot: ENSP00000455744, ensembl: ENSP00000399901" into [{source, value}] */
+        if (!raw) return [];
+        return raw.split(/[,;]\s*/).map(part => {
+            const m = part.match(/^\s*(\w+)\s*:\s*(.+?)\s*$/);
+            return m ? {source: m[1], value: m[2]} : null;
+        }).filter(Boolean);
+    }
+
+    /* Map namespace → the source that owns/defines it */
+    const _authorityMap = {
+        "Ensembl_ID": "ensembl",
+        "Ensembl_Protein_ID": "ensembl",
+        "Ensembl_Transcript_ID": "ensembl",
+        "NCBI_ID": "ncbi",
+        "RefSeq_Protein_ID": "refseq",
+        "RefSeq_Transcript_ID": "refseq",
+        "UniProt_ID": "uniprot",
+        "HGNC_ID": "hgnc",
+        "Symbol": "hgnc",
+        "OMIM_ID": "ncbi",
+    };
+
+    function _xrefBadge(lookup) {
+        /* Build a small badge showing whether an ID was found in the target graph */
+        if (!lookup) return "";
+        if (!lookup.exists) {
+            return `<span class="xref-badge xref-missing" title="Not found in target graph — likely obsolete">obsolete?</span>`;
+        }
+        const t = (lookup.targets || [])[0];
+        if (!t) return `<span class="xref-badge xref-found">in graph</span>`;
+        const canon = (t.canonical_status || "").toLowerCase();
+        const isCanon = canon.includes("canonical") && !canon.includes("alternate");
+        const label = t.primary_id || t.target_id || "";
+        const sym = t.symbol ? ` (${t.symbol})` : "";
+        const cls = isCanon ? "xref-badge xref-canonical" : "xref-badge xref-found";
+        const tag = isCanon ? " \u2605" : "";
+        const title = `Maps to ${label}${sym} — ${t.canonical_status || "unknown status"}`;
+        return `<span class="${cls}" title="${escapeHtml(title)}">→ ${escapeHtml(label)}${tag}</span>`;
+    }
+
+    function buildConflictHtml(row) {
+        const ns = row.namespace || "";
+        const nsLabel = _humanizeNamespace(ns);
+        const src = (row.source || "").toLowerCase();
+        const srcVal = row.source_value || "";
+        const consVal = row.consensus_value || "";
+        const otherRaw = row.other_sources || "";
+        const nAgree = row.n_sources_agree;
+        const nTotal = row.n_sources_total;
+        const summary = row.finding_summary || "";
+        const authority = _authorityMap[ns] || "";
+        const xref = row.xref_context || {};
+        const lookups = xref.lookups || {};
+
+        let html = `<div class="conflict-heading">${escapeHtml(nsLabel)} conflict</div>`;
+
+        /* Collect all source values into a map */
+        const sourceValues = new Map();
+        sourceValues.set(src, srcVal);
+        const others = _parseOtherSources(otherRaw);
+        for (const o of others) sourceValues.set(o.source.toLowerCase(), o.value);
+        if (consVal && !sourceValues.has("consensus")) sourceValues.set("consensus", consVal);
+
+        /* Build provenance lines — authority first if known */
+        html += `<div class="conflict-provenance">`;
+        const renderLine = (name, value, isAuthority) => {
+            const cls = isAuthority ? "conflict-src conflict-authority" : "conflict-src";
+            const tag = isAuthority ? " (authority)" : "";
+            const badge = _xrefBadge(lookups[name]);
+            return `<div class="conflict-line"><span class="${cls}">${escapeHtml(name)}${tag}</span> <code>${escapeHtml(value)}</code> ${badge}</div>`;
+        };
+
+        /* Show authority source first */
+        if (authority && !sourceValues.has(authority)) {
+            html += `<div class="conflict-line"><span class="conflict-src conflict-authority">${escapeHtml(authority)} (authority)</span> <em class="conflict-missing">not mapped</em></div>`;
+        }
+
+        /* Render all sources, authority first */
+        const orderedSources = [...sourceValues.keys()].sort((a, b) => {
+            if (a === authority) return -1;
+            if (b === authority) return 1;
+            return 0;
+        });
+        for (const name of orderedSources) {
+            html += renderLine(name, sourceValues.get(name), name === authority);
+        }
+        html += `</div>`;
+
+        /* Same-gene note */
+        if (xref.same_gene && xref.shared_gene_symbol) {
+            html += `<div class="conflict-same-gene">Both map to gene <strong>${escapeHtml(xref.shared_gene_symbol)}</strong> — isoform-level conflict</div>`;
+        }
+
+        /* Agreement count */
+        if (nAgree != null && nTotal != null && nTotal !== "" && nTotal !== "0") {
+            html += `<div class="conflict-agree">${escapeHtml(String(nAgree))} of ${escapeHtml(String(nTotal))} sources agree</div>`;
+        }
+
+        /* Finding summary if available */
+        if (summary) {
+            html += `<div class="conflict-summary">${escapeHtml(summary)}</div>`;
+        }
+
+        return html;
+    }
+
+    function renderReviewRows(rows, decisionOptions) {
+        const tbody = document.getElementById("targetReviewRows");
+        const entityColors = {gene: "target-entity-gene", protein: "target-entity-protein", transcript: "target-entity-transcript"};
+        tbody.innerHTML = rows.map((row, idx) => {
+            const entityClass = entityColors[row.entity_type] || "";
+            const regId = escapeHtml(row.registry_id || "");
+            const triage = row.triage_category || "";
+            const triageLabel = _triageLabels[triage] || triage;
+            const triageColor = _triageColors[triage] || "";
+            const suggested = row.suggested_decision || "";
+            const optionsHtml = decisionOptions.map(opt =>
+                `<option value="${escapeHtml(opt.value)}"${opt.value === suggested ? " selected" : ""}>${escapeHtml(opt.label)}</option>`
+            ).join("");
+            const conf = row.auto_confidence || "";
+            const rationale = row.suggestion_rationale || "";
+            const sugConf = row.suggestion_confidence || "";
+            const sugConfClass = sugConf ? `suggestion-confidence suggestion-${escapeHtml(sugConf)}` : "";
+            const rationaleHtml = rationale
+                ? `<div class="suggestion-rationale">${escapeHtml(rationale)} ${sugConf ? `<span class="${sugConfClass}">${escapeHtml(sugConf)}</span>` : ""}</div>`
+                : "";
+            return `<tr class="review-row" data-idx="${idx}" data-registry-id="${regId}">
+                <td><span class="target-triage-badge ${triageColor}">${escapeHtml(triageLabel)}</span></td>
+                <td><span class="target-entity-badge ${entityClass}">${escapeHtml(row.entity_type || "")}</span></td>
+                <td>
+                    <strong>${escapeHtml(row.standard_name || row.row_id || "")}</strong>
+                    ${row.standard_name && row.row_id ? `<div class="review-evidence"><code>${escapeHtml(row.row_id)}</code></div>` : ""}
+                </td>
+                <td>${buildConflictHtml(row)}</td>
+                <td>
+                    <span class="target-auto-decision-badge">${escapeHtml(row.auto_decision || "")}</span>
+                    ${conf ? `<span class="target-confidence-score">${escapeHtml(conf)}</span>` : ""}
+                </td>
+                <td><select class="review-decision-select">${optionsHtml}</select>${rationaleHtml}</td>
+                <td><input class="review-replacement-input" value="${escapeHtml(row.source_value || "")}" placeholder="Replacement value"></td>
+                <td><textarea class="review-notes-input" rows="1" placeholder="Notes"></textarea></td>
+                <td><button class="btn btn-sm btn-primary review-save-btn" type="button">Save</button></td>
+            </tr>`;
+        }).join("");
+
+        // Show/hide Apply Suggestions bar
+        _updateApplySuggestionsBar(rows);
+    }
+
+    function _updateApplySuggestionsBar(rows) {
+        const bar = document.getElementById("targetApplySuggestionsBar");
+        const label = document.getElementById("targetApplySuggestionsLabel");
+        const statusEl = document.getElementById("targetApplySuggestionsStatus");
+        statusEl.textContent = "";
+        const suggestedRows = rows.filter(r => r.suggestion_rationale && r.suggested_decision);
+        if (!suggestedRows.length || reviewTriageFilter !== "source_conflict") {
+            bar.style.display = "none";
+            return;
+        }
+        label.textContent = `${suggestedRows.length} row${suggestedRows.length !== 1 ? "s" : ""} with automated suggestions`;
+        bar.style.display = "";
+    }
+
+    async function loadReviewQueue(page) {
+        reviewPage = page || 1;
+        const params = reviewFilterParams();
+        params.set("page", String(reviewPage));
+        params.set("per_page", "50");
+        let data;
+        try {
+            const response = await fetch(`${rootPath}/target-id-qa/api/review-queue?${params}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            data = await response.json();
+        } catch (err) {
+            document.getElementById("targetReviewRows").innerHTML =
+                `<tr><td colspan="9" style="color:#dc2626;padding:1rem;">Failed to load review queue: ${escapeHtml(err.message)}</td></tr>`;
+            return;
+        }
+        reviewTotalPages = data.total_pages || 1;
+        reviewPage = data.page || 1;
+        reviewDecisionOptions = data.decision_options || [];
+        reviewTriageCategories = data.triage_categories || [];
+        reviewTriageCounts = data.triage_category_counts || {};
+
+        renderTriageChips(reviewTriageCounts, reviewTriageCategories, data.triage_category_totals || {});
+        renderReviewEntityChips(data.entity_type_counts || {});
+        populateSelectFromCounts("targetReviewSource", data.source_counts || {}, "All sources");
+        populateSelectFromCounts("targetReviewAutoDecision", data.auto_decision_counts || {}, "All auto-decisions");
+        renderReviewRows(data.rows || [], reviewDecisionOptions);
+        updateBatchBar(reviewTriageCounts);
+
+        // Summary bar (matches disease harmonizer pattern)
+        const summaryEl = document.getElementById("targetReviewSummary");
+        const totalAll = data.total_all || 0;
+        const totalResolved = data.total_resolved || 0;
+        const totalOpen = totalAll - totalResolved;
+        if (totalAll > 0) {
+            const parts = [];
+            if (totalOpen > 0) parts.push(`${totalOpen.toLocaleString()} still need decision`);
+            if (totalResolved > 0) parts.push(`${totalResolved.toLocaleString()} reviewed/resolved`);
+            summaryEl.textContent = parts.join(" \u00b7 ");
+            summaryEl.style.display = "";
+        } else {
+            summaryEl.style.display = "none";
+        }
+        document.getElementById("targetReviewPageLabel").textContent =
+            `Page ${reviewPage.toLocaleString()} of ${reviewTotalPages.toLocaleString()} (${Number(data.total || 0).toLocaleString()} items)`;
+    }
+
+    async function saveTargetReview(rowEl) {
+        const registryId = rowEl.dataset.registryId;
+        const decision = rowEl.querySelector(".review-decision-select").value;
+        const replacement = rowEl.querySelector(".review-replacement-input").value;
+        const notes = rowEl.querySelector(".review-notes-input").value;
+        if (!decision) return;
+
+        const btn = rowEl.querySelector(".review-save-btn");
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/review-decisions`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({decisions: [{
+                    registry_id: registryId,
+                    review_decision: decision,
+                    replacement: replacement,
+                    notes: notes,
+                }]}),
+            });
+            if (resp.ok) {
+                rowEl.classList.add("review-saved");
+                btn.textContent = "Saved";
+                // Disable all controls in saved row to prevent double-saves
+                rowEl.querySelectorAll("select, input, textarea").forEach(el => el.disabled = true);
+            } else {
+                const err = await resp.json().catch(() => ({}));
+                btn.textContent = "Error";
+                alert(err.detail || "Save failed");
+                btn.disabled = false;
+            }
+        } catch (e) {
+            btn.textContent = "Error";
+            btn.disabled = false;
+        }
+    }
+
+    /* ── Download ── */
     function download() {
         const params = new URLSearchParams(paramsFromFilters("targetDownload"));
         params.set("format", document.getElementById("targetDownloadFormat").value || "tsv");
@@ -474,6 +1078,7 @@
         window.location.href = `${rootPath}/target-id-qa/download-filtered?${params}`;
     }
 
+    /* ── Event listeners ── */
     document.getElementById("targetOpenGraph").addEventListener("click", () => setTab("graph"));
     document.getElementById("targetSearchBtn").addEventListener("click", () => search(1));
     document.getElementById("targetSearch").addEventListener("keydown", event => {
@@ -492,6 +1097,135 @@
         setTab("graph");
     });
     buttons.forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
+
+    /* Review event listeners */
+    document.getElementById("targetTriageStrip").addEventListener("click", event => {
+        if (event.target.closest(".filter-help")) return;
+        const chip = event.target.closest(".target-triage-chip");
+        if (!chip) return;
+        reviewTriageFilter = chip.dataset.triage || "";
+        loadReviewQueue(1);
+    });
+    document.getElementById("targetReviewEntityStrip").addEventListener("click", event => {
+        const chip = event.target.closest(".review-category-chip");
+        if (!chip) return;
+        reviewEntityFilter = chip.dataset.entity || "";
+        loadReviewQueue(1);
+    });
+    document.getElementById("targetReviewDivType").addEventListener("change", () => loadReviewQueue(1));
+    document.getElementById("targetReviewStatus").addEventListener("change", () => loadReviewQueue(1));
+    document.getElementById("targetReviewSource").addEventListener("change", () => loadReviewQueue(1));
+    document.getElementById("targetReviewAutoDecision").addEventListener("change", () => loadReviewQueue(1));
+    document.getElementById("targetReviewSearch").addEventListener("keydown", event => {
+        if (event.key === "Enter") loadReviewQueue(1);
+    });
+    document.getElementById("targetReviewClear").addEventListener("click", () => {
+        document.getElementById("targetReviewSearch").value = "";
+        document.getElementById("targetReviewDivType").value = "";
+        document.getElementById("targetReviewStatus").value = "open";
+        document.getElementById("targetReviewSource").value = "";
+        document.getElementById("targetReviewAutoDecision").value = "";
+        reviewEntityFilter = "";
+        reviewTriageFilter = "";
+        loadReviewQueue(1);
+    });
+    document.getElementById("targetBatchApply").addEventListener("click", async () => {
+        const decision = document.getElementById("targetBatchDecision").value;
+        if (!decision || !reviewTriageFilter) return;
+        const catLabel = _triageLabels[reviewTriageFilter] || reviewTriageFilter;
+        const count = reviewTriageCounts[reviewTriageFilter] || 0;
+        if (!confirm(`Apply "${decision}" to all ${count.toLocaleString()} "${catLabel}" items?\n\nThis will write ${count.toLocaleString()} rows to the review intake TSV.`)) return;
+
+        const btn = document.getElementById("targetBatchApply");
+        const statusEl = document.getElementById("targetBatchStatus");
+        btn.disabled = true;
+        btn.textContent = "Applying...";
+        statusEl.textContent = "";
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/batch-review`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    triage_category: reviewTriageFilter,
+                    review_decision: decision,
+                    entity_type: reviewEntityFilter,
+                    source: document.getElementById("targetReviewSource").value,
+                    status: document.getElementById("targetReviewStatus").value,
+                }),
+            });
+            const result = await resp.json();
+            if (resp.ok) {
+                statusEl.textContent = result.message || `Saved ${result.saved} items.`;
+                statusEl.className = "target-batch-status target-batch-success";
+                // Refresh the review queue and dashboard to reflect resolved rows
+                loadReviewQueue(1);
+                loadStats();
+            } else {
+                statusEl.textContent = result.detail || "Batch apply failed.";
+                statusEl.className = "target-batch-status target-batch-error";
+            }
+        } catch (e) {
+            statusEl.textContent = "Network error.";
+            statusEl.className = "target-batch-status target-batch-error";
+        }
+        btn.disabled = false;
+        btn.textContent = "Apply to all";
+    });
+    document.getElementById("targetApplySuggestions").addEventListener("click", async () => {
+        const tbody = document.getElementById("targetReviewRows");
+        const rows = tbody.querySelectorAll(".review-row");
+        const decisions = [];
+        rows.forEach(rowEl => {
+            const select = rowEl.querySelector(".review-decision-select");
+            const regId = rowEl.dataset.registryId;
+            if (select && select.value && regId) {
+                decisions.push({
+                    registry_id: regId,
+                    review_decision: select.value,
+                    replacement: rowEl.querySelector(".review-replacement-input")?.value || "",
+                    notes: rowEl.querySelector(".review-notes-input")?.value || "",
+                });
+            }
+        });
+        if (!decisions.length) return;
+        if (!confirm(`Apply pre-selected decisions to ${decisions.length} visible row${decisions.length !== 1 ? "s" : ""}?`)) return;
+
+        const btn = document.getElementById("targetApplySuggestions");
+        const statusEl = document.getElementById("targetApplySuggestionsStatus");
+        btn.disabled = true;
+        btn.textContent = "Applying...";
+        statusEl.textContent = "";
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/review-decisions`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({decisions}),
+            });
+            const result = await resp.json();
+            if (resp.ok) {
+                statusEl.textContent = result.message || `Saved ${result.saved} decisions.`;
+                statusEl.className = "apply-status target-batch-success";
+                loadReviewQueue(reviewPage);
+            } else {
+                statusEl.textContent = result.detail || "Apply failed.";
+                statusEl.className = "apply-status target-batch-error";
+            }
+        } catch (e) {
+            statusEl.textContent = "Network error.";
+            statusEl.className = "apply-status target-batch-error";
+        }
+        btn.disabled = false;
+        btn.textContent = "Apply Suggestions";
+    });
+    document.getElementById("targetReviewPrevPage").addEventListener("click", () => loadReviewQueue(Math.max(1, reviewPage - 1)));
+    document.getElementById("targetReviewNextPage").addEventListener("click", () => loadReviewQueue(Math.min(reviewTotalPages, reviewPage + 1)));
+    document.getElementById("targetReviewRows").addEventListener("click", event => {
+        const btn = event.target.closest(".review-save-btn");
+        if (!btn) return;
+        const row = btn.closest(".review-row");
+        if (row) saveTargetReview(row);
+    });
+    document.getElementById("targetReviewTemplateLink").href = `${rootPath}/target-id-qa/api/review-template`;
 
     loadStats().then(() => search(1));
     setTab(activeTab || "dashboard");
