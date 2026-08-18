@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Metabolite Harmonization Workbench{% endblock %}
+{% block title %}Metabolite Harmonization Studio{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
 {% if query_id %}
-<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Studio</a>
 <span class="sep">/</span>
 <span>{{ query_id }}</span>
 {% else %}
-<span>Metabolite Harmonization Workbench</span>
+<span>Metabolite Harmonization Studio</span>
 {% endif %}
 {% endblock %}
 
@@ -16,13 +16,13 @@
 <div class="ramp-id-page metabolite-id-qa-page">
     <section class="ramp-id-header">
         <div>
-            <h1>Metabolite Harmonization Workbench</h1>
+            <h1>Metabolite Harmonization Studio</h1>
             <p>Graph: <span class="mono">metabolite_harmonization</span></p>
             <div class="ramp-id-header-links">
                 <a class="btn workbench-guide-link" href="{{ root_path }}/ramp-id-qa/about/" target="_blank" rel="noopener noreferrer">
                     <span class="workbench-guide-icon" aria-hidden="true">▶</span>
                     <span>
-                        <strong>See how the workbench works</strong>
+                        <strong>See how the Studio works</strong>
                         <small>A quick visual tour</small>
                     </span>
                     <span class="workbench-guide-arrow" aria-hidden="true">→</span>
@@ -143,7 +143,7 @@
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
-            <h2>Harmonization Workbench</h2>
+            <h2>Harmonization Studio</h2>
             <p>Name a pipeline, order its rules, then materialize a baseline stage plus one stage after each rule.</p>
         </div>
         {% if overview.error %}
