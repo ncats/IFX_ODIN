@@ -29,6 +29,7 @@
     </nav>
 
     <section class="target-tab-panel" data-panel="dashboard">
+        <div class="target-version-bar" id="targetVersionBar" style="display:none;"></div>
         <div class="target-stat-grid" id="targetStats"></div>
         <div class="target-dashboard-grid">
             <section class="target-panel">
@@ -46,54 +47,15 @@
                 <div class="target-bars" id="targetBiotypeBars"></div>
             </section>
             <section class="target-panel">
-                <h2>Gene Sources</h2>
-                <div class="target-bars" id="targetGeneSourceBars"></div>
-            </section>
-            <section class="target-panel">
-                <h2>Protein Sources</h2>
-                <div class="target-bars" id="targetProteinSourceBars"></div>
-            </section>
-        </div>
-        <div class="target-dashboard-grid">
-            <section class="target-panel">
-                <h2>Transcript Sources</h2>
-                <div class="target-bars" id="targetTranscriptSourceBars"></div>
-            </section>
-            <section class="target-panel">
                 <h2>Protein Canonical Status</h2>
                 <div class="target-bars" id="targetCanonicalBars"></div>
             </section>
         </div>
-        <div class="target-dashboard-grid" id="targetDivergenceCharts" style="display:none;">
-            <section class="target-panel">
-                <h2>Divergence by Type</h2>
-                <div class="target-bars" id="targetDivTypeBars"></div>
-            </section>
-            <section class="target-panel">
-                <h2>Triage Categories</h2>
-                <div class="target-bars" id="targetTriageBars"></div>
-            </section>
-        </div>
-        <section class="target-panel" id="targetDivergenceTablePanel" style="display:none;">
-            <h2>Divergence by Source</h2>
-            <div class="target-table-wrap">
-                <table class="target-table target-divergence-table">
-                    <thead>
-                        <tr>
-                            <th>Source</th>
-                            <th>Total</th>
-                            <th>Conflicts</th>
-                            <th>Sole Source</th>
-                            <th>Low Score</th>
-                            <th>Avg Confidence</th>
-                            <th>Needs Expert</th>
-                        </tr>
-                    </thead>
-                    <tbody id="targetDivergenceTableBody"></tbody>
-                </table>
-            </div>
+        <section class="target-panel" id="targetQcPanel" style="display:none;">
+            <h2>QC Review Status</h2>
+            <div class="target-qc-summary" id="targetQcSummary"></div>
+            <div class="target-bars target-qc-bars" id="targetReviewGroupBars"></div>
         </section>
-        <div class="target-version-bar" id="targetVersionBar" style="display:none;"></div>
     </section>
 
     <section class="target-tab-panel" data-panel="concepts">
@@ -135,7 +97,21 @@
     <section class="target-tab-panel" data-panel="graph">
         <div class="target-graph-toolbar" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;">
             <span id="targetGraphLabel">Enter a target ID, symbol, or external identifier.</span>
-            <div id="targetProductFilters" style="display:none;margin-left:auto;gap:1rem;align-items:center;">
+            <div id="targetRelationshipFilters" style="display:flex;margin-left:auto;gap:0.8rem;align-items:center;flex-wrap:wrap;">
+                <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <input type="checkbox" id="targetShowGeneTranscript" checked>
+                    <span>Gene -&gt; transcript</span>
+                </label>
+                <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <input type="checkbox" id="targetShowTranscriptProtein" checked>
+                    <span>Transcript -&gt; protein</span>
+                </label>
+                <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <input type="checkbox" id="targetShowGeneProtein" checked>
+                    <span>Gene -&gt; protein</span>
+                </label>
+            </div>
+            <div id="targetProductFilters" style="display:none;gap:1rem;align-items:center;">
                 <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
                     <input type="checkbox" id="targetShowTranscripts">
                     <span>Additional transcripts (<span id="targetTranscriptCount">0</span>)</span>
@@ -165,12 +141,14 @@
 
     <section class="target-tab-panel" data-panel="review">
         <div class="review-note">
-            Divergence items from the TargetGraph QC pipeline. Items are triaged into categories &mdash;
+            Internal ODIN review workbench for TargetGraph QC findings. Items are triaged into categories &mdash;
             start with <strong>Coverage Gap</strong> and <strong>Low Mapping Support</strong> (easy batch decisions),
-            then work through <strong>Source Conflict</strong> items that need human judgment.
+            then work through source conflicts by review group so only the true symbol, identifier, and isoform
+            ambiguities require expert review.
             <p class="target-review-summary" id="targetReviewSummary" style="display:none;margin:0.4rem 0 0;"></p>
         </div>
         <div class="target-triage-strip" id="targetTriageStrip"></div>
+        <div class="target-review-group-strip" id="targetReviewGroupStrip"></div>
         <div class="review-category-strip" id="targetReviewEntityStrip"></div>
         <div class="review-controls">
             <input id="targetReviewSearch" type="search" placeholder="Search name, ID, source value, rationale...">
@@ -209,7 +187,7 @@
             <table class="review-table target-table">
                 <thead>
                     <tr>
-                        <th>Triage</th>
+                        <th>Triage / Group</th>
                         <th>Entity</th>
                         <th>Target</th>
                         <th>Conflict</th>
@@ -272,9 +250,12 @@
     let reviewTotalPages = 1;
     let reviewEntityFilter = "";
     let reviewTriageFilter = "";
+    let reviewGroupFilter = "";
     let reviewDecisionOptions = [];
     let reviewTriageCategories = [];
     let reviewTriageCounts = {};
+    let reviewGroups = [];
+    let reviewGroupCounts = {};
 
     const panels = Array.from(document.querySelectorAll(".target-tab-panel"));
     const buttons = Array.from(document.querySelectorAll(".target-tab-btn"));
@@ -471,26 +452,29 @@
         const typeCounts = stats.type_counts || {};
         const namespaces = stats.identifier_namespace_counts || {};
         const div = stats.divergence || {};
+        const statusCounts = div.status_counts || {};
+        const reviewedQc = Number(statusCounts.resolved || 0);
+        const totalQc = Number(div.total_divergences || 0);
+        const remainingQc = Math.max(0, totalQc - reviewedQc);
+        const canonicalStatusCounts = stats.canonical_status_counts || {};
+        const canonicalProteins = Object.entries(canonicalStatusCounts)
+            .filter(([label]) => String(label).toLowerCase().includes("canonical"))
+            .reduce((a, [, count]) => a + Number(count || 0), 0);
 
-        /* 8 stat cards */
+        /* Public-facing summary cards */
         document.getElementById("targetStats").innerHTML = `
             <div><strong>${Number(stats.total_targets || 0).toLocaleString()}</strong><span>Total targets</span></div>
             <div><strong>${Number(typeCounts.gene || 0).toLocaleString()}</strong><span>Genes</span></div>
             <div><strong>${Number(typeCounts.protein || 0).toLocaleString()}</strong><span>Proteins</span></div>
             <div><strong>${Number(typeCounts.transcript || 0).toLocaleString()}</strong><span>Transcripts</span></div>
-            <div><strong>${Number(stats.sources_covered || 0).toLocaleString()}</strong><span>Data Sources</span></div>
-            <div><strong>${Number(stats.canonical_count || 0).toLocaleString()}</strong><span>Canonical Targets</span></div>
-            <div><strong>${Number(div.total_divergences || 0).toLocaleString()}</strong><span>Divergences</span></div>
-            <div><strong>${Number(div.open_conflicts || 0).toLocaleString()}</strong><span>Open Conflicts</span></div>
+            <div><strong>${canonicalProteins.toLocaleString()}</strong><span>Canonical Proteins</span></div>
+            <div><strong>${reviewedQc.toLocaleString()}</strong><span>QC Reviewed / Resolved</span></div>
         `;
 
         /* Charts */
         renderBars(document.getElementById("targetNamespaceBars"), namespaces);
         renderBars(document.getElementById("targetPredicateBars"), stats.edge_predicate_counts || {});
-        renderBars(document.getElementById("targetGeneSourceBars"), stats.gene_sources || {});
-        renderBars(document.getElementById("targetProteinSourceBars"), stats.protein_sources || {});
-        renderBars(document.getElementById("targetTranscriptSourceBars"), stats.transcript_sources || {});
-        renderBars(document.getElementById("targetCanonicalBars"), stats.canonical_status_counts || {});
+        renderBars(document.getElementById("targetCanonicalBars"), canonicalStatusCounts);
 
         /* Gene biotype chart (only if data loaded from provenance CSV) */
         const biotypeCounts = stats.gene_biotype_counts || {};
@@ -499,33 +483,20 @@
             renderBars(document.getElementById("targetBiotypeBars"), biotypeCounts);
         }
 
-        /* Divergence charts (only if data exists) */
+        /* QC review status (only if data exists) */
         if (div.total_divergences > 0) {
-            document.getElementById("targetDivergenceCharts").style.display = "";
-            renderBars(document.getElementById("targetDivTypeBars"), div.divergence_type_counts || {});
-            /* Triage categories with readable labels */
-            const triageLabelMap = {coverage_gap: "Coverage Gap", low_mapping: "Low Mapping Support", cosmetic: "Cosmetic", source_conflict: "Source Conflict"};
-            const triageRaw = div.triage_category_counts || {};
-            const triageDisplay = {};
-            for (const [k, v] of Object.entries(triageRaw)) triageDisplay[triageLabelMap[k] || k] = v;
-            renderBars(document.getElementById("targetTriageBars"), triageDisplay);
-
-            /* Source divergence breakdown table */
-            const breakdown = div.source_divergence_breakdown || {};
-            if (Object.keys(breakdown).length) {
-                document.getElementById("targetDivergenceTablePanel").style.display = "";
-                document.getElementById("targetDivergenceTableBody").innerHTML = Object.entries(breakdown).map(([src, bd]) => `
-                    <tr>
-                        <td>${escapeHtml(src)}</td>
-                        <td>${Number(bd.total || 0).toLocaleString()}</td>
-                        <td class="${bd.conflict_count ? 'conflict-cell' : ''}">${Number(bd.conflict_count || 0).toLocaleString()}</td>
-                        <td>${Number(bd.sole_source_count || 0).toLocaleString()}</td>
-                        <td>${Number(bd.low_score_count || 0).toLocaleString()}</td>
-                        <td>${bd.avg_confidence != null ? bd.avg_confidence.toFixed(3) : '-'}</td>
-                        <td class="${bd.needs_expert_count ? 'expert-cell' : ''}">${Number(bd.needs_expert_count || 0).toLocaleString()}</td>
-                    </tr>
-                `).join("");
+            document.getElementById("targetQcPanel").style.display = "";
+            document.getElementById("targetQcSummary").innerHTML = `
+                <div><strong>${reviewedQc.toLocaleString()}</strong><span>reviewed or policy-resolved QC findings</span></div>
+                <div><strong>${remainingQc.toLocaleString()}</strong><span>remaining internal ODIN review decisions</span></div>
+            `;
+            const groupMeta = {};
+            for (const group of div.review_groups || []) groupMeta[group.key] = group.label || group.key;
+            const groupDisplay = {};
+            for (const [k, v] of Object.entries(div.review_group_open_counts || div.review_group_counts || {})) {
+                groupDisplay[groupMeta[k] || k] = v;
             }
+            renderBars(document.getElementById("targetReviewGroupBars"), groupDisplay);
         }
 
         /* Version/manifest info bar */
@@ -588,8 +559,25 @@
     const productFilters = document.getElementById("targetProductFilters");
     const showTranscriptsBox = document.getElementById("targetShowTranscripts");
     const showProteinsBox = document.getElementById("targetShowProteins");
+    const showGeneTranscriptBox = document.getElementById("targetShowGeneTranscript");
+    const showTranscriptProteinBox = document.getElementById("targetShowTranscriptProtein");
+    const showGeneProteinBox = document.getElementById("targetShowGeneProtein");
     const transcriptCountSpan = document.getElementById("targetTranscriptCount");
     const proteinCountSpan = document.getElementById("targetProteinCount");
+
+    function syncRelationshipVisibility() {
+        if (!cy) return;
+        const settings = [
+            [".transcription-edge", showGeneTranscriptBox.checked],
+            [".translation-edge", showTranscriptProteinBox.checked],
+            [".gene-product-edge", showGeneProteinBox.checked],
+        ];
+        for (const [selector, visible] of settings) {
+            const edges = cy.edges(selector);
+            if (visible) edges.show();
+            else edges.hide();
+        }
+    }
 
     function toggleExpandableProducts(type, show) {
         if (!cy || !targetPayload) return;
@@ -604,7 +592,15 @@
                 const parentPos = parentNode.position();
                 const toAdd = productElements.filter(el => !cy.getElementById(el.data.id).length);
                 if (!toAdd.length) continue;
-                const added = cy.add(toAdd);
+                const nodeElements = toAdd.filter(el => !(el.data || {}).source);
+                const edgeElements = toAdd.filter(el => (el.data || {}).source);
+                const added = cy.add(nodeElements);
+                const edgeElementsReady = edgeElements.filter(el =>
+                    cy.getElementById(el.data.source).length &&
+                    cy.getElementById(el.data.target).length &&
+                    !cy.getElementById(el.data.id).length
+                );
+                if (edgeElementsReady.length) cy.add(edgeElementsReady);
                 const newNodes = added.nodes();
                 const radius = 120;
                 const offset = type === "transcript" ? 0 : Math.PI;
@@ -616,6 +612,7 @@
                     });
                 });
             }
+            syncRelationshipVisibility();
         } else {
             for (const productElements of Object.values(source)) {
                 const ids = new Set(productElements.map(el => el.data.id));
@@ -630,6 +627,9 @@
     showProteinsBox.addEventListener("change", () => {
         toggleExpandableProducts("protein", showProteinsBox.checked);
     });
+    showGeneTranscriptBox.addEventListener("change", syncRelationshipVisibility);
+    showTranscriptProteinBox.addEventListener("change", syncRelationshipVisibility);
+    showGeneProteinBox.addEventListener("change", syncRelationshipVisibility);
 
     async function loadGraph() {
         const ids = document.getElementById("targetOpenIds").value.trim();
@@ -701,6 +701,7 @@
             cy.add(elements);
             cy.layout({name: "cose", animate: false}).run();
         }
+        syncRelationshipVisibility();
         graphDetail.innerHTML = `<h2>No Selection</h2>`;
     }
 
@@ -719,6 +720,7 @@
         if (autoDec) params.set("auto_decision", autoDec);
         if (reviewEntityFilter) params.set("entity_type", reviewEntityFilter);
         if (reviewTriageFilter) params.set("triage_category", reviewTriageFilter);
+        if (reviewGroupFilter) params.set("review_group", reviewGroupFilter);
         return params;
     }
 
@@ -774,6 +776,60 @@
         strip.innerHTML = html;
     }
 
+    const _reviewGroupColors = {
+        protein_refseq_authority: "review-group-authority",
+        protein_uniprot_authority: "review-group-authority",
+        protein_ensembl_authority: "review-group-authority",
+        gene_ncbi_authority: "review-group-authority",
+        gene_hgnc_authority: "review-group-authority",
+        protein_isoform_context: "review-group-context",
+        gene_symbol_conflict: "review-group-conflict",
+        gene_hgnc_identifier_conflict: "review-group-conflict",
+        gene_omim_identifier_conflict: "review-group-conflict",
+        gene_ensembl_identifier_conflict: "review-group-conflict",
+        coverage_gap: "review-group-cleared",
+        low_mapping_support: "review-group-cleared",
+        cosmetic_metadata: "review-group-cleared",
+        other_conflict: "review-group-other",
+    };
+
+    function reviewGroupMeta(key) {
+        return (reviewGroups || []).find(group => group.key === key) || {key, label: key, description: "", recommended_decision: ""};
+    }
+
+    function renderReviewGroupChips(counts, groups, totals) {
+        const strip = document.getElementById("targetReviewGroupStrip");
+        const visibleGroups = (groups || []).filter(group =>
+            (counts && counts[group.key]) || reviewGroupFilter === group.key || (totals && totals[group.key])
+        );
+        if (!visibleGroups.length) {
+            strip.innerHTML = "";
+            strip.style.display = "none";
+            return;
+        }
+        strip.style.display = "flex";
+        const all = Object.values(counts || {}).reduce((a, b) => a + b, 0);
+        let html = `<button class="target-review-group-chip${reviewGroupFilter === '' ? ' active' : ''}" data-group="" type="button">All review groups <span>${all.toLocaleString()}</span></button>`;
+        for (const group of visibleGroups) {
+            const count = (counts && counts[group.key]) || 0;
+            const total = (totals && totals[group.key]) || 0;
+            if (!count && reviewGroupFilter !== group.key) continue;
+            const colorClass = _reviewGroupColors[group.key] || "review-group-other";
+            const active = reviewGroupFilter === group.key ? " active" : "";
+            const helpBubble = group.description
+                ? `<span class="filter-help">?<span class="filter-help-text">${escapeHtml(group.description)}</span></span>`
+                : "";
+            let badge = "";
+            if (total > 0 && total > count) {
+                badge = `<span>${count.toLocaleString()}</span><span class="triage-open-total">/ ${total.toLocaleString()}</span>`;
+            } else {
+                badge = `<span>${count.toLocaleString()}</span>`;
+            }
+            html += `<button class="target-review-group-chip ${colorClass}${active}" data-group="${escapeHtml(group.key)}" type="button">${escapeHtml(group.label || group.key)} ${badge} ${helpBubble}</button>`;
+        }
+        strip.innerHTML = html;
+    }
+
     function updateBatchBar(counts) {
         const bar = document.getElementById("targetBatchBar");
         const label = document.getElementById("targetBatchLabel");
@@ -781,17 +837,20 @@
         const statusEl = document.getElementById("targetBatchStatus");
         statusEl.textContent = "";
 
-        // Show batch bar only when a triage category is selected
-        if (!reviewTriageFilter) {
+        // Show batch bar only when a triage category or a specific review group is selected.
+        if (!reviewTriageFilter && !reviewGroupFilter) {
             bar.style.display = "none";
             return;
         }
-        const count = counts[reviewTriageFilter] || 0;
+        const count = reviewGroupFilter
+            ? (reviewGroupCounts[reviewGroupFilter] || 0)
+            : (counts[reviewTriageFilter] || 0);
         if (!count) {
             bar.style.display = "none";
             return;
         }
-        const catLabel = _triageLabels[reviewTriageFilter] || reviewTriageFilter;
+        const group = reviewGroupFilter ? reviewGroupMeta(reviewGroupFilter) : null;
+        const catLabel = group ? (group.label || reviewGroupFilter) : (_triageLabels[reviewTriageFilter] || reviewTriageFilter);
         label.textContent = `Batch-apply decision to all ${count.toLocaleString()} "${catLabel}" items:`;
 
         // Build decision select with suggested decision pre-selected
@@ -801,7 +860,7 @@
             cosmetic: "cosmetic_ignore",
             source_conflict: "",
         };
-        const suggested = suggestedMap[reviewTriageFilter] || "";
+        const suggested = (group && group.recommended_decision) || suggestedMap[reviewTriageFilter] || "";
         select.innerHTML = reviewDecisionOptions.map(opt =>
             `<option value="${escapeHtml(opt.value)}"${opt.value === suggested ? " selected" : ""}>${escapeHtml(opt.label)}</option>`
         ).join("");
@@ -937,6 +996,9 @@
             const triage = row.triage_category || "";
             const triageLabel = _triageLabels[triage] || triage;
             const triageColor = _triageColors[triage] || "";
+            const groupKey = row.review_group || "";
+            const groupLabel = row.review_group_label || groupKey;
+            const groupColor = _reviewGroupColors[groupKey] || "review-group-other";
             const suggested = row.suggested_decision || "";
             const optionsHtml = decisionOptions.map(opt =>
                 `<option value="${escapeHtml(opt.value)}"${opt.value === suggested ? " selected" : ""}>${escapeHtml(opt.label)}</option>`
@@ -949,7 +1011,10 @@
                 ? `<div class="suggestion-rationale">${escapeHtml(rationale)} ${sugConf ? `<span class="${sugConfClass}">${escapeHtml(sugConf)}</span>` : ""}</div>`
                 : "";
             return `<tr class="review-row" data-idx="${idx}" data-registry-id="${regId}">
-                <td><span class="target-triage-badge ${triageColor}">${escapeHtml(triageLabel)}</span></td>
+                <td>
+                    <span class="target-triage-badge ${triageColor}">${escapeHtml(triageLabel)}</span>
+                    ${groupLabel ? `<span class="target-review-group-badge ${groupColor}">${escapeHtml(groupLabel)}</span>` : ""}
+                </td>
                 <td><span class="target-entity-badge ${entityClass}">${escapeHtml(row.entity_type || "")}</span></td>
                 <td>
                     <strong>${escapeHtml(row.standard_name || row.row_id || "")}</strong>
@@ -977,7 +1042,7 @@
         const statusEl = document.getElementById("targetApplySuggestionsStatus");
         statusEl.textContent = "";
         const suggestedRows = rows.filter(r => r.suggestion_rationale && r.suggested_decision);
-        if (!suggestedRows.length || reviewTriageFilter !== "source_conflict") {
+        if (!suggestedRows.length || (reviewTriageFilter && reviewTriageFilter !== "source_conflict")) {
             bar.style.display = "none";
             return;
         }
@@ -1005,8 +1070,11 @@
         reviewDecisionOptions = data.decision_options || [];
         reviewTriageCategories = data.triage_categories || [];
         reviewTriageCounts = data.triage_category_counts || {};
+        reviewGroups = data.review_groups || [];
+        reviewGroupCounts = data.review_group_counts || {};
 
         renderTriageChips(reviewTriageCounts, reviewTriageCategories, data.triage_category_totals || {});
+        renderReviewGroupChips(reviewGroupCounts, reviewGroups, data.review_group_totals || {});
         renderReviewEntityChips(data.entity_type_counts || {});
         populateSelectFromCounts("targetReviewSource", data.source_counts || {}, "All sources");
         populateSelectFromCounts("targetReviewAutoDecision", data.auto_decision_counts || {}, "All auto-decisions");
@@ -1104,12 +1172,20 @@
         const chip = event.target.closest(".target-triage-chip");
         if (!chip) return;
         reviewTriageFilter = chip.dataset.triage || "";
+        reviewGroupFilter = "";
         loadReviewQueue(1);
     });
     document.getElementById("targetReviewEntityStrip").addEventListener("click", event => {
         const chip = event.target.closest(".review-category-chip");
         if (!chip) return;
         reviewEntityFilter = chip.dataset.entity || "";
+        loadReviewQueue(1);
+    });
+    document.getElementById("targetReviewGroupStrip").addEventListener("click", event => {
+        if (event.target.closest(".filter-help")) return;
+        const chip = event.target.closest(".target-review-group-chip");
+        if (!chip) return;
+        reviewGroupFilter = chip.dataset.group || "";
         loadReviewQueue(1);
     });
     document.getElementById("targetReviewDivType").addEventListener("change", () => loadReviewQueue(1));
@@ -1127,13 +1203,17 @@
         document.getElementById("targetReviewAutoDecision").value = "";
         reviewEntityFilter = "";
         reviewTriageFilter = "";
+        reviewGroupFilter = "";
         loadReviewQueue(1);
     });
     document.getElementById("targetBatchApply").addEventListener("click", async () => {
         const decision = document.getElementById("targetBatchDecision").value;
-        if (!decision || !reviewTriageFilter) return;
-        const catLabel = _triageLabels[reviewTriageFilter] || reviewTriageFilter;
-        const count = reviewTriageCounts[reviewTriageFilter] || 0;
+        if (!decision || (!reviewTriageFilter && !reviewGroupFilter)) return;
+        const group = reviewGroupFilter ? reviewGroupMeta(reviewGroupFilter) : null;
+        const catLabel = group ? (group.label || reviewGroupFilter) : (_triageLabels[reviewTriageFilter] || reviewTriageFilter);
+        const count = reviewGroupFilter
+            ? (reviewGroupCounts[reviewGroupFilter] || 0)
+            : (reviewTriageCounts[reviewTriageFilter] || 0);
         if (!confirm(`Apply "${decision}" to all ${count.toLocaleString()} "${catLabel}" items?\n\nThis will write ${count.toLocaleString()} rows to the review intake TSV.`)) return;
 
         const btn = document.getElementById("targetBatchApply");
@@ -1151,6 +1231,7 @@
                     entity_type: reviewEntityFilter,
                     source: document.getElementById("targetReviewSource").value,
                     status: document.getElementById("targetReviewStatus").value,
+                    review_group: reviewGroupFilter,
                 }),
             });
             const result = await resp.json();

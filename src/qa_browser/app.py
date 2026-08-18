@@ -5792,6 +5792,7 @@ def target_id_qa_review_queue(
     status: str = "open",
     auto_decision: str = "",
     triage_category: str = "",
+    review_group: str = "",
     q: str = "",
     page: int = 1,
     per_page: int = 50,
@@ -5805,6 +5806,7 @@ def target_id_qa_review_queue(
         status=status,
         auto_decision=auto_decision,
         triage_category=triage_category,
+        review_group=review_group,
         q=q,
         page=page,
         per_page=per_page,
@@ -5856,9 +5858,10 @@ async def target_id_qa_batch_review(request: Request):
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
     triage_cat = str(payload.get("triage_category") or "").strip()
+    review_group = str(payload.get("review_group") or "").strip()
     decision = str(payload.get("review_decision") or "").strip()
-    if not triage_cat:
-        raise HTTPException(status_code=400, detail="triage_category is required.")
+    if not triage_cat and not review_group:
+        raise HTTPException(status_code=400, detail="triage_category or review_group is required.")
     if not decision:
         raise HTTPException(status_code=400, detail="review_decision is required.")
 
@@ -5870,6 +5873,7 @@ async def target_id_qa_batch_review(request: Request):
         entity_type=str(payload.get("entity_type") or ""),
         source=str(payload.get("source") or ""),
         status=str(payload.get("status") or "open"),
+        review_group=review_group,
         reviewed_by=str(payload.get("reviewed_by") or ""),
     )
     if not rows:
@@ -5885,11 +5889,12 @@ async def target_id_qa_batch_review(request: Request):
         entity_type=str(payload.get("entity_type") or ""),
         source=str(payload.get("source") or ""),
         status=str(payload.get("status") or "open"),
+        review_group=review_group,
     )
     return {
         "saved": len(rows),
         "review_file": path,
-        "message": f"Batch-applied '{decision}' to {len(rows):,} {triage_cat} items.",
+        "message": f"Batch-applied '{decision}' to {len(rows):,} {review_group or triage_cat} items.",
     }
 
 

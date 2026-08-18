@@ -101,6 +101,96 @@ _TRIAGE_SUGGESTED_DECISION: dict[str, str] = {
 }
 
 
+REVIEW_GROUPS = [
+    {
+        "key": "protein_refseq_authority",
+        "label": "Protein RefSeq Authority",
+        "description": "RefSeq protein-accession disagreements where the QC policy already prefers RefSeq for RefSeq IDs.",
+        "recommended_decision": "trust_refseq",
+    },
+    {
+        "key": "protein_uniprot_authority",
+        "label": "Protein UniProt Authority",
+        "description": "UniProt accession disagreements where the QC policy already prefers UniProt for UniProt IDs.",
+        "recommended_decision": "trust_uniprot",
+    },
+    {
+        "key": "protein_ensembl_authority",
+        "label": "Protein Ensembl Authority",
+        "description": "Ensembl protein-ID disagreements where the QC policy already prefers Ensembl for Ensembl IDs.",
+        "recommended_decision": "trust_ensembl",
+    },
+    {
+        "key": "protein_isoform_context",
+        "label": "Protein Isoform Context",
+        "description": "Protein identifier conflicts needing isoform/canonical-product context before accepting one source.",
+        "recommended_decision": "needs_expert_review",
+    },
+    {
+        "key": "gene_ncbi_authority",
+        "label": "Gene NCBI Authority",
+        "description": "NCBI Gene identifier conflicts where the QC policy already prefers NCBI for NCBI Gene IDs.",
+        "recommended_decision": "trust_ncbi",
+    },
+    {
+        "key": "gene_hgnc_authority",
+        "label": "Gene HGNC Authority",
+        "description": "HGNC identifier or symbol conflicts where the QC policy already prefers HGNC.",
+        "recommended_decision": "trust_hgnc",
+    },
+    {
+        "key": "gene_symbol_conflict",
+        "label": "Gene Symbol Conflict",
+        "description": "Gene symbol disagreements, including aliases and changed symbols, that need symbol-history review.",
+        "recommended_decision": "needs_expert_review",
+    },
+    {
+        "key": "gene_hgnc_identifier_conflict",
+        "label": "Gene HGNC ID Conflict",
+        "description": "HGNC identifier disagreements without a current high-confidence authority decision.",
+        "recommended_decision": "needs_expert_review",
+    },
+    {
+        "key": "gene_omim_identifier_conflict",
+        "label": "Gene OMIM ID Conflict",
+        "description": "OMIM identifier disagreements that should be checked against gene/disease inheritance context.",
+        "recommended_decision": "needs_expert_review",
+    },
+    {
+        "key": "gene_ensembl_identifier_conflict",
+        "label": "Gene Ensembl ID Conflict",
+        "description": "Ensembl gene identifier disagreements without a current high-confidence authority decision.",
+        "recommended_decision": "needs_expert_review",
+    },
+    {
+        "key": "coverage_gap",
+        "label": "Coverage Gap",
+        "description": "Only one source provides the field. This is usually expected coverage difference.",
+        "recommended_decision": "accept_sole_source",
+    },
+    {
+        "key": "low_mapping_support",
+        "label": "Low Mapping Support",
+        "description": "Identifier mapping support is below threshold but the row can often be accepted as low-confidence evidence.",
+        "recommended_decision": "accept_low_score",
+    },
+    {
+        "key": "cosmetic_metadata",
+        "label": "Cosmetic Metadata",
+        "description": "Formatting, punctuation, or metadata-only differences that do not change the identifier mapping.",
+        "recommended_decision": "cosmetic_ignore",
+    },
+    {
+        "key": "other_conflict",
+        "label": "Other Conflict",
+        "description": "Conflict pattern not yet assigned to a more specific review group.",
+        "recommended_decision": "needs_expert_review",
+    },
+]
+_REVIEW_GROUP_BY_KEY = {group["key"]: group for group in REVIEW_GROUPS}
+_REVIEW_GROUP_ORDER = {group["key"]: i for i, group in enumerate(REVIEW_GROUPS)}
+
+
 def classify_triage_category(row: dict[str, str]) -> str:
     """Assign a triage category to a divergence row.
 
@@ -129,6 +219,57 @@ def classify_triage_category(row: dict[str, str]) -> str:
     if auto_dec == "cosmetic_ignore" or scenario in ("G06", "G07"):
         return "cosmetic"
     return "source_conflict"
+
+
+def classify_review_group(entity_type: str, row: dict[str, str]) -> str:
+    """Assign a specific review group within the broader triage category.
+
+    The group is deliberately policy-facing: it tells a reviewer what kind of
+    decision can be made in bulk and which conflicts still need scientific
+    inspection.
+    """
+    cached = row.get("_review_group")
+    if cached:
+        return cached
+
+    etype = (entity_type or "").strip().lower()
+    div_type = (row.get("divergence_type", "") or "").lower()
+    auto_dec = (row.get("auto_decision", "") or "").lower()
+    scenario = (row.get("scenario_id", "") or "").upper()
+    namespace = row.get("namespace", "") or ""
+
+    if div_type == "sole_source":
+        return "coverage_gap"
+    if div_type == "low_score":
+        return "low_mapping_support"
+    if auto_dec == "cosmetic_ignore" or scenario in ("G06", "G07"):
+        return "cosmetic_metadata"
+
+    if etype == "protein":
+        if auto_dec == "trust_refseq":
+            return "protein_refseq_authority"
+        if auto_dec == "trust_uniprot":
+            return "protein_uniprot_authority"
+        if auto_dec == "trust_ensembl":
+            return "protein_ensembl_authority"
+        if namespace in {"Ensembl_Protein_ID", "RefSeq_Protein_ID", "UniProt_ID"}:
+            return "protein_isoform_context"
+
+    if etype == "gene":
+        if auto_dec == "trust_ncbi":
+            return "gene_ncbi_authority"
+        if auto_dec == "trust_hgnc":
+            return "gene_hgnc_authority"
+        if namespace == "Symbol":
+            return "gene_symbol_conflict"
+        if namespace == "HGNC_ID":
+            return "gene_hgnc_identifier_conflict"
+        if namespace == "OMIM_ID":
+            return "gene_omim_identifier_conflict"
+        if namespace == "Ensembl_ID":
+            return "gene_ensembl_identifier_conflict"
+
+    return "other_conflict"
 
 
 # ── Cross-reference enrichment ──
@@ -558,11 +699,16 @@ def load_target_graph_data(
                     if rows:
                         print(f"  Loaded {len(rows):,} {attr.replace('divergence_', '')} divergence rows")
 
-            # Pre-compute triage category on every divergence row (avoids
+            # Pre-compute triage and review groups on every divergence row (avoids
             # recomputing on each API request across 847K rows).
-            for rows in (data.divergence_gene, data.divergence_protein, data.divergence_transcript):
+            for etype, rows in [
+                ("gene", data.divergence_gene),
+                ("protein", data.divergence_protein),
+                ("transcript", data.divergence_transcript),
+            ]:
                 for row in rows:
                     row["_triage_category"] = classify_triage_category(row)
+                    row["_review_group"] = classify_review_group(etype, row)
 
             # Reconcile previously-saved review decisions so resolved rows
             # don't reappear as "open" after a server restart.
@@ -649,6 +795,9 @@ def compute_divergence_stats(data: TargetGraphData) -> dict[str, Any]:
     source_counts: Counter[str] = Counter()
     namespace_counts: Counter[str] = Counter()
     triage_counts: Counter[str] = Counter()
+    review_group_counts: Counter[str] = Counter()
+    review_group_open_counts: Counter[str] = Counter()
+    review_group_resolved_counts: Counter[str] = Counter()
     confidence_values: list[float] = []
     source_breakdown: dict[str, dict[str, Any]] = {}
     open_conflicts = 0
@@ -686,6 +835,12 @@ def compute_divergence_stats(data: TargetGraphData) -> dict[str, Any]:
                 pass
 
             triage_counts[classify_triage_category(row)] += 1
+            review_group = classify_review_group(entity_type, row)
+            review_group_counts[review_group] += 1
+            if status == "resolved":
+                review_group_resolved_counts[review_group] += 1
+            else:
+                review_group_open_counts[review_group] += 1
 
             if div_type == "conflict" and status == "open":
                 open_conflicts += 1
@@ -745,6 +900,16 @@ def compute_divergence_stats(data: TargetGraphData) -> dict[str, Any]:
         "triage_category_counts": dict(
             sorted(triage_counts.items(), key=lambda kv: _TRIAGE_ORDER.get(kv[0], 9))
         ),
+        "review_group_counts": dict(
+            sorted(review_group_counts.items(), key=lambda kv: _REVIEW_GROUP_ORDER.get(kv[0], 99))
+        ),
+        "review_group_open_counts": dict(
+            sorted(review_group_open_counts.items(), key=lambda kv: _REVIEW_GROUP_ORDER.get(kv[0], 99))
+        ),
+        "review_group_resolved_counts": dict(
+            sorted(review_group_resolved_counts.items(), key=lambda kv: _REVIEW_GROUP_ORDER.get(kv[0], 99))
+        ),
+        "review_groups": REVIEW_GROUPS,
     }
     data._divergence_stats = result
     return result
@@ -905,6 +1070,34 @@ def _edge_classes(predicate: str) -> str:
     return "target-relation-edge related-edge"
 
 
+def _build_edge_element(
+    source_id: str,
+    target_id: str,
+    edge_row: dict[str, str],
+) -> dict[str, Any]:
+    predicate = edge_row.get("predicate", "") or "biolink:related_to"
+    evidence_key = edge_row.get("evidence_identifier", "")
+    edge_id = f"{source_id}->{target_id}:{predicate}:{evidence_key}"
+    return {
+        "data": {
+            "id": edge_id,
+            "source": source_id,
+            "target": target_id,
+            "label": predicate,
+            "kind": "target_relation_edge",
+            "predicate": predicate,
+            "relation_kind": edge_row.get("relation_kind", ""),
+            "evidence_identifier": evidence_key,
+            "evidence_namespace": edge_row.get("evidence_namespace", ""),
+            "evidence_source": edge_row.get("evidence_source", ""),
+            "support_tier": edge_row.get("support_tier", ""),
+            "support_ratio": edge_row.get("support_ratio", ""),
+            "support_score": edge_row.get("support_score", ""),
+        },
+        "classes": _edge_classes(predicate),
+    }
+
+
 def _annotation_group(field: str) -> str:
     lower = field.lower()
     if lower.startswith("hgnc_") or lower.startswith("ncbi_") or lower in {"consolidated_location", "ensembl_strand"}:
@@ -1035,27 +1228,7 @@ def _build_product_element(
         },
         "classes": classes,
     }
-    predicate = edge_row.get("predicate", "") or "biolink:related_to"
-    evidence_key = edge_row.get("evidence_identifier", "")
-    edge_id = f"{parent_id}->{product_id}:{predicate}:{evidence_key}"
-    edge = {
-        "data": {
-            "id": edge_id,
-            "source": parent_id,
-            "target": product_id,
-            "label": predicate,
-            "kind": "target_relation_edge",
-            "predicate": predicate,
-            "relation_kind": edge_row.get("relation_kind", ""),
-            "evidence_identifier": evidence_key,
-            "evidence_namespace": edge_row.get("evidence_namespace", ""),
-            "evidence_source": edge_row.get("evidence_source", ""),
-            "support_tier": edge_row.get("support_tier", ""),
-            "support_ratio": edge_row.get("support_ratio", ""),
-            "support_score": edge_row.get("support_score", ""),
-        },
-        "classes": _edge_classes(predicate),
-    }
+    edge = _build_edge_element(parent_id, product_id, edge_row)
     return node, edge
 
 
@@ -1133,6 +1306,7 @@ def _collect_products_by_type(
         if initial_protein_id in translates_to:
             # Use the transcript that translates to the canonical protein
             initial_transcript_id, tt_edge = translates_to[initial_protein_id]
+            gene_product_edge = protein_info[0][2]
             for tid, _trow, tedge in transcript_info:
                 if tid == initial_transcript_id:
                     result = _build_product_element(data, tid, parent_id, tedge)
@@ -1143,6 +1317,7 @@ def _collect_products_by_type(
             result = _build_product_element(data, initial_protein_id, initial_transcript_id, tt_edge)
             if result:
                 initial.extend(result)
+            initial.append(_build_edge_element(parent_id, initial_protein_id, gene_product_edge))
         else:
             # Fallback: no translates_to found
             if transcript_info:
@@ -1182,6 +1357,7 @@ def _collect_products_by_type(
     if remaining_proteins:
         exp_p: list[dict] = []
         for pid, _prow, pedge in remaining_proteins:
+            used_translation_edge = False
             # Use translates_to if the translating transcript is visible
             if pid in translates_to:
                 tt_tid, tt_edge = translates_to[pid]
@@ -1190,12 +1366,15 @@ def _collect_products_by_type(
                     t[0] == tt_tid for t in remaining_transcripts
                 ):
                     result = _build_product_element(data, pid, tt_tid, tt_edge)
+                    used_translation_edge = True
                 else:
                     result = _build_product_element(data, pid, parent_id, pedge)
             else:
                 result = _build_product_element(data, pid, parent_id, pedge)
             if result:
                 exp_p.extend(result)
+                if used_translation_edge:
+                    exp_p.append(_build_edge_element(parent_id, pid, pedge))
         if exp_p:
             expandable_by_type["protein"] = exp_p
 
@@ -1236,8 +1415,21 @@ def build_target_graph_payload(
             "classes": classes,
         })
 
-    # Build selected nodes + xref identifiers
-    for target_id in selected:
+    def add_element(element: dict[str, Any]) -> None:
+        payload = element.get("data", {})
+        element_id = payload.get("id", "")
+        if payload.get("source") and payload.get("target"):
+            if element_id in seen_edges:
+                return
+            seen_edges.add(element_id)
+            elements.append(element)
+            return
+        if element_id in seen_nodes:
+            return
+        seen_nodes.add(element_id)
+        elements.append(element)
+
+    def add_target_node(target_id: str) -> None:
         row = data.nodes_by_id[target_id]
         target_type = row.get("target_type", "")
         canonical = _is_canonical(row)
@@ -1249,14 +1441,47 @@ def build_target_graph_payload(
         )
         add_node(target_id, label, classes, _target_to_row(row))
 
-    # Add initial canonical products and collect expandable products
+    # Build selected nodes and keep gene anchors for product expansion.
+    context_genes: list[str] = []
+
+    def add_context_gene(gene_id: str) -> None:
+        if gene_id and gene_id not in context_genes:
+            context_genes.append(gene_id)
+
+    for target_id in selected:
+        add_target_node(target_id)
+        row = data.nodes_by_id[target_id]
+        if row.get("target_type") == "gene":
+            add_context_gene(target_id)
+            continue
+        for edge_row in data.relation_edges_by_target.get(target_id, []):
+            predicate = edge_row.get("predicate", "")
+            if predicate not in {
+                "biolink:transcribed_to",
+                "biolink:translates_to",
+                "biolink:has_gene_product",
+            }:
+                continue
+            source_id = edge_row.get("source_id", "")
+            edge_target_id = edge_row.get("target_id", "")
+            if not source_id or not edge_target_id:
+                continue
+            for node_id in (source_id, edge_target_id):
+                if node_id in data.nodes_by_id:
+                    add_target_node(node_id)
+                    if data.nodes_by_id[node_id].get("target_type") == "gene":
+                        add_context_gene(node_id)
+            add_element(_build_edge_element(source_id, edge_target_id, edge_row))
+
+    # Add initial canonical products and collect expandable products from gene anchors.
     expandable_transcripts: dict[str, list[dict]] = {}
     expandable_proteins: dict[str, list[dict]] = {}
     product_counts: dict[str, dict[str, int]] = {}
-    for target_id in selected:
+    for target_id in context_genes:
         initial, expandable_by_type, counts = _collect_products_by_type(data, target_id)
         # Add canonical transcript + protein to initial elements
-        elements.extend(initial)
+        for element in initial:
+            add_element(element)
         if expandable_by_type.get("transcript"):
             expandable_transcripts[target_id] = expandable_by_type["transcript"]
         if expandable_by_type.get("protein"):
@@ -1317,6 +1542,7 @@ def build_target_review_queue(
     status: str = "open",
     auto_decision: str = "",
     triage_category: str = "",
+    review_group: str = "",
     q: str = "",
     page: int = 1,
     per_page: int = 50,
@@ -1328,10 +1554,12 @@ def build_target_review_queue(
     status_filter = (status or "").strip().lower()
     auto_decision_filter = (auto_decision or "").strip().lower()
     triage_filter = (triage_category or "").strip().lower()
+    review_group_filter = (review_group or "").strip().lower()
     q_lower = (q or "").strip().lower()
 
     # ── Pre-pass: total counts across ALL divergences (regardless of filters) ──
     triage_category_totals: Counter[str] = Counter()
+    review_group_totals: Counter[str] = Counter()
     total_all = 0
     total_resolved = 0
     for etype, rows in [
@@ -1342,22 +1570,24 @@ def build_target_review_queue(
         for row in rows:
             total_all += 1
             row_triage = classify_triage_category(row)
+            row_group = classify_review_group(etype, row)
             triage_category_totals[row_triage] += 1
+            review_group_totals[row_group] += 1
             if (row.get("status", "") or "open").lower() == "resolved":
                 total_resolved += 1
 
     # Combine all divergence lists with entity_type annotation
-    combined: list[tuple[str, dict[str, str], str]] = []
+    combined: list[tuple[str, dict[str, str], str, str]] = []
     for etype, rows in [
         ("gene", data.divergence_gene),
         ("protein", data.divergence_protein),
         ("transcript", data.divergence_transcript),
     ]:
         for row in rows:
-            combined.append((etype, row, classify_triage_category(row)))
+            combined.append((etype, row, classify_triage_category(row), classify_review_group(etype, row)))
 
-    # ── Shared-filter pass: apply all filters EXCEPT entity_type and triage ──
-    def _passes_shared(etype: str, row: dict[str, str], row_triage: str) -> bool:
+    # ── Shared-filter pass: apply all filters EXCEPT entity_type, triage, and review group ──
+    def _passes_shared(etype: str, row: dict[str, str], row_triage: str, row_group: str) -> bool:
         row_div_type = (row.get("divergence_type", "") or "").lower()
         row_status = (row.get("status", "") or "open").lower()
         row_source = (row.get("source", "") or "").lower()
@@ -1388,32 +1618,45 @@ def build_target_review_queue(
     # - triage_counts: from base_pool filtered by entity_type (but NOT triage)
     entity_type_counts: Counter[str] = Counter()
     triage_counts: Counter[str] = Counter()
+    review_group_counts: Counter[str] = Counter()
     divergence_type_counts: Counter[str] = Counter()
     source_counts: Counter[str] = Counter()
     status_counts: Counter[str] = Counter()
     auto_decision_counts: Counter[str] = Counter()
-    filtered: list[tuple[str, dict[str, str], str]] = []
+    filtered: list[tuple[str, dict[str, str], str, str]] = []
 
-    for etype, row, row_triage in combined:
-        if not _passes_shared(etype, row, row_triage):
+    for etype, row, row_triage, row_group in combined:
+        if not _passes_shared(etype, row, row_triage, row_group):
             continue
         row_div_type = (row.get("divergence_type", "") or "").lower()
         row_status = (row.get("status", "") or "open").lower()
         row_source = (row.get("source", "") or "").lower()
         row_auto_dec = (row.get("auto_decision", "") or "").lower()
 
-        # Entity counts: apply triage filter but NOT entity_type
-        if not triage_filter or row_triage == triage_filter:
+        # Entity counts: apply triage + review group filters but NOT entity_type
+        if (not triage_filter or row_triage == triage_filter) and (
+            not review_group_filter or row_group == review_group_filter
+        ):
             entity_type_counts[etype] += 1
 
-        # Triage counts: apply entity_type filter but NOT triage
-        if not entity_type or etype == entity_type:
+        # Triage counts: apply entity_type + review group filters but NOT triage
+        if (not entity_type or etype == entity_type) and (
+            not review_group_filter or row_group == review_group_filter
+        ):
             triage_counts[row_triage] += 1
 
-        # Both filters for final list and remaining facets
+        # Review group counts: apply entity_type + triage filters but NOT review group
+        if (not entity_type or etype == entity_type) and (
+            not triage_filter or row_triage == triage_filter
+        ):
+            review_group_counts[row_group] += 1
+
+        # All filters for final list and remaining facets
         if entity_type and etype != entity_type:
             continue
         if triage_filter and row_triage != triage_filter:
+            continue
+        if review_group_filter and row_group != review_group_filter:
             continue
 
         divergence_type_counts[row_div_type] += 1
@@ -1422,17 +1665,22 @@ def build_target_review_queue(
         status_counts[row_status] += 1
         if row_auto_dec:
             auto_decision_counts[row_auto_dec] += 1
-        filtered.append((etype, row, row_triage))
+        filtered.append((etype, row, row_triage, row_group))
 
     # Sort: source_conflict first, then cosmetic, low_mapping, coverage_gap.
     # Within each category, lowest confidence first.
-    def _sort_key(item: tuple[str, dict[str, str], str]) -> tuple:
-        etype, row, triage = item
+    def _sort_key(item: tuple[str, dict[str, str], str, str]) -> tuple:
+        etype, row, triage, group = item
         try:
             conf = float(row.get("auto_confidence", "1.0"))
         except (ValueError, TypeError):
             conf = 1.0
-        return (_TRIAGE_ORDER.get(triage, 9), conf, row.get("standard_name", "").lower())
+        return (
+            _TRIAGE_ORDER.get(triage, 9),
+            _REVIEW_GROUP_ORDER.get(group, 99),
+            conf,
+            row.get("standard_name", "").lower(),
+        )
 
     filtered.sort(key=_sort_key)
 
@@ -1443,11 +1691,19 @@ def build_target_review_queue(
     page = max(1, min(page, total_pages))
     start = (page - 1) * per_page
     rows_out: list[dict[str, Any]] = []
-    for etype, row, triage in filtered[start:start + per_page]:
+    for etype, row, triage, group in filtered[start:start + per_page]:
+        group_info = _REVIEW_GROUP_BY_KEY.get(group, {})
         out = dict(row)
         out["entity_type"] = etype
         out["triage_category"] = triage
-        out["suggested_decision"] = _TRIAGE_SUGGESTED_DECISION.get(triage, "")
+        out["review_group"] = group
+        out["review_group_label"] = group_info.get("label", group)
+        out["review_group_description"] = group_info.get("description", "")
+        out["review_group_recommended_decision"] = group_info.get("recommended_decision", "")
+        out["suggested_decision"] = (
+            group_info.get("recommended_decision")
+            or _TRIAGE_SUGGESTED_DECISION.get(triage, "")
+        )
         # Enrich conflict rows with cross-reference lookups (only for page)
         if triage == "source_conflict":
             xref_ctx = _enrich_conflict_xrefs(data, row)
@@ -1474,8 +1730,15 @@ def build_target_review_queue(
         "triage_category_counts": dict(
             sorted(triage_counts.items(), key=lambda kv: _TRIAGE_ORDER.get(kv[0], 9))
         ),
+        "review_group_counts": dict(
+            sorted(review_group_counts.items(), key=lambda kv: _REVIEW_GROUP_ORDER.get(kv[0], 99))
+        ),
         "triage_categories": TRIAGE_CATEGORIES,
+        "review_groups": REVIEW_GROUPS,
         "triage_category_totals": dict(triage_category_totals.most_common()),
+        "review_group_totals": dict(
+            sorted(review_group_totals.items(), key=lambda kv: _REVIEW_GROUP_ORDER.get(kv[0], 99))
+        ),
         "total_all": total_all,
         "total_resolved": total_resolved,
         "decision_options": TARGET_REVIEW_DECISION_OPTIONS,
@@ -1489,6 +1752,7 @@ def build_batch_review_payload(
     entity_type: str = "",
     source: str = "",
     status: str = "open",
+    review_group: str = "",
     reviewed_by: str = "",
 ) -> list[dict[str, str]]:
     """Build review rows for all items matching a triage category.
@@ -1498,6 +1762,7 @@ def build_batch_review_payload(
     entity_type = (entity_type or "").strip().lower()
     source_filter = (source or "").strip().lower()
     status_filter = (status or "").strip().lower()
+    review_group_filter = (review_group or "").strip().lower()
     reviewed_by = (reviewed_by or os.getenv("USER") or "app_batch_review").strip()
     reviewed_at = datetime.now(timezone.utc).isoformat()
 
@@ -1520,14 +1785,16 @@ def build_batch_review_payload(
                 continue
             if source_filter and row_source != source_filter:
                 continue
-            if classify_triage_category(row) != triage_category:
+            if triage_category and classify_triage_category(row) != triage_category:
+                continue
+            if review_group_filter and classify_review_group(etype, row) != review_group_filter:
                 continue
             rows.append({
                 "Registry ID": row.get("registry_id", ""),
                 "Entity Type": etype,
                 "Review decision": review_decision,
                 "Replacement value": "",
-                "Reviewer notes": f"Batch: {triage_category}",
+                "Reviewer notes": f"Batch: {review_group_filter or triage_category}",
                 "Standard Name": row.get("standard_name", ""),
                 "Row ID": row.get("row_id", ""),
                 "Source": row.get("source", ""),
@@ -1573,11 +1840,13 @@ def mark_rows_resolved_by_triage(
     entity_type: str = "",
     source: str = "",
     status: str = "open",
+    review_group: str = "",
 ) -> int:
     """Mark all divergence rows matching a triage category as resolved in memory."""
     entity_type = (entity_type or "").strip().lower()
     source_filter = (source or "").strip().lower()
     status_filter = (status or "").strip().lower()
+    review_group_filter = (review_group or "").strip().lower()
     count = 0
     for etype, rows in [
         ("gene", data.divergence_gene),
@@ -1593,7 +1862,9 @@ def mark_rows_resolved_by_triage(
                 continue
             if source_filter and row_source != source_filter:
                 continue
-            if classify_triage_category(row) != triage_category:
+            if triage_category and classify_triage_category(row) != triage_category:
+                continue
+            if review_group_filter and classify_review_group(etype, row) != review_group_filter:
                 continue
             row["status"] = "resolved"
             count += 1
