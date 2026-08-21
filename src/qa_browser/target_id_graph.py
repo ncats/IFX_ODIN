@@ -2520,6 +2520,124 @@ def _format_signed_delta(value: int, label: str) -> str:
     return f"{label} {sign}{value:,}"
 
 
+_CHANGE_OWNER_EXCLUDED_NAMESPACES = {"NodeNorm", "UMLS", "UniRef100"}
+
+
+def _target_identifier_values(row: dict[str, str], *, identity_only: bool = False) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for field in ("primary_id", "ids"):
+        for value in _split_pipe(row.get(field, "")):
+            namespace = value.split(":", 1)[0] if ":" in value else ""
+            if identity_only and namespace in _CHANGE_OWNER_EXCLUDED_NAMESPACES:
+                continue
+            if value not in seen:
+                seen.add(value)
+                values.append(value)
+    return values
+
+
+def _target_identifier_owner_index(data: TargetGraphData) -> dict[str, set[str]]:
+    owners: dict[str, set[str]] = defaultdict(set)
+    for target_id, row in data.nodes_by_id.items():
+        for value in _target_identifier_values(row, identity_only=True):
+            owners[value].add(target_id)
+    return owners
+
+
+def _target_change_where(row: dict[str, str]) -> str:
+    sources = _split_pipe(str(row.get("source_namespaces", "")).replace(",", "|"))
+    namespaces = _split_pipe(row.get("id_namespaces", ""))
+    parts: list[str] = []
+    if sources:
+        parts.append("source streams: " + ", ".join(sources))
+    if namespaces:
+        parts.append("identifier namespaces: " + ", ".join(namespaces))
+    return "; ".join(parts) or "not captured in app graph"
+
+
+def _target_related_owner_text(
+    row: dict[str, str],
+    owner_index: dict[str, set[str]],
+    owner_rows: dict[str, dict[str, str]],
+    current_target_id: str,
+) -> str:
+    target_type = row.get("target_type", "")
+    related_same_type: list[str] = []
+    related_other_type: list[str] = []
+    seen: set[str] = set()
+    for value in _target_identifier_values(row, identity_only=True):
+        for owner in sorted(owner_index.get(value, set())):
+            if owner == current_target_id or owner in seen:
+                continue
+            seen.add(owner)
+            owner_type = owner_rows.get(owner, {}).get("target_type", "")
+            if owner_type == target_type:
+                related_same_type.append(owner)
+            else:
+                related_other_type.append(owner)
+    related = related_same_type or related_other_type
+    if not related:
+        return ""
+    shown = related[:3]
+    suffix = "" if len(related) <= 3 else f" +{len(related) - 3} more"
+    return ", ".join(shown) + suffix
+
+
+def _target_added_reason(
+    row: dict[str, str],
+    baseline_owner_index: dict[str, set[str]],
+    baseline_nodes_by_id: dict[str, dict[str, str]],
+) -> str:
+    target_id = row.get("target_id", "")
+    previous_owner_text = _target_related_owner_text(row, baseline_owner_index, baseline_nodes_by_id, target_id)
+    if previous_owner_text:
+        return (
+            "Identifier evidence existed in the baseline under "
+            f"{previous_owner_text}; current harmonization re-keyed or split the target node."
+        )
+
+    target_type = row.get("target_type", "")
+    sources = {s.lower() for s in _split_pipe(str(row.get("source_namespaces", "")).replace(",", "|"))}
+    namespaces = set(_split_pipe(row.get("id_namespaces", "")))
+    if target_type == "transcript":
+        return "New transcript node from the current Ensembl/RefSeq transcript snapshot or transcript-to-protein expansion."
+    if target_type == "protein":
+        if "UniRef100" in namespaces:
+            return "New protein/isoform node from current UniProt plus UniRef100 grouping evidence."
+        return "New protein node from current UniProt, RefSeq, Ensembl, or NodeNorm-backed protein harmonization."
+    if target_type == "gene":
+        if {"hgnc", "ncbi", "ensembl"} & sources:
+            return "New gene node from current HGNC/NCBI/Ensembl source harmonization."
+        return "New gene node in the current target harmonizer output."
+    return "New target node in the current harmonized app graph."
+
+
+def _target_removed_reason(
+    row: dict[str, str],
+    current_owner_index: dict[str, set[str]],
+    current_nodes_by_id: dict[str, dict[str, str]],
+) -> str:
+    target_id = row.get("target_id", "")
+    current_owner_text = _target_related_owner_text(row, current_owner_index, current_nodes_by_id, target_id)
+    if current_owner_text:
+        return (
+            "Identifier evidence is now represented under current target node(s) "
+            f"{current_owner_text}; likely re-keyed, merged, or regrouped during harmonization."
+        )
+
+    target_type = row.get("target_type", "")
+    sources = _split_pipe(str(row.get("source_namespaces", "")).replace(",", "|"))
+    source_text = ", ".join(sources) if sources else "previous source"
+    if target_type == "transcript":
+        return f"Baseline transcript was not reproduced by the current Ensembl/RefSeq snapshot ({source_text})."
+    if target_type == "protein":
+        return f"Baseline protein/isoform was not reproduced by the current UniProt/RefSeq/Ensembl harmonization ({source_text})."
+    if target_type == "gene":
+        return f"Baseline gene was not reproduced by the current HGNC/NCBI/Ensembl harmonization ({source_text})."
+    return f"Baseline target was not reproduced by the current source refresh ({source_text})."
+
+
 def _target_change_drivers(
     source_version_rows: list[dict[str, Any]],
     type_delta: list[dict[str, Any]],
@@ -2719,30 +2837,33 @@ def compute_target_version_diff(
         row["delta"] = row["new_count"] - row["old_count"]
 
     # Added/removed target listings (truncated)
-    added_targets = sorted(
-        [
-            {
-                "target_id": tid,
-                "target_type": current.nodes_by_id[tid].get("target_type", ""),
-                "symbol": current.nodes_by_id[tid].get("symbol", ""),
-                "name": current.nodes_by_id[tid].get("name", ""),
-            }
-            for tid in added_ids
-        ],
-        key=lambda r: r["target_id"],
-    )
-    removed_targets = sorted(
-        [
-            {
-                "target_id": tid,
-                "target_type": baseline.nodes_by_id[tid].get("target_type", ""),
-                "symbol": baseline.nodes_by_id[tid].get("symbol", ""),
-                "name": baseline.nodes_by_id[tid].get("name", ""),
-            }
-            for tid in removed_ids
-        ],
-        key=lambda r: r["target_id"],
-    )
+    baseline_owner_index = _target_identifier_owner_index(baseline)
+    current_owner_index = _target_identifier_owner_index(current)
+    added_targets: list[dict[str, str]] = []
+    for tid in added_ids:
+        row = current.nodes_by_id[tid]
+        added_targets.append({
+            "target_id": tid,
+            "target_type": row.get("target_type", ""),
+            "symbol": row.get("symbol", ""),
+            "name": row.get("name", ""),
+            "where": _target_change_where(row),
+            "reason": _target_added_reason(row, baseline_owner_index, baseline.nodes_by_id),
+        })
+    added_targets = sorted(added_targets, key=lambda r: r["target_id"])
+
+    removed_targets: list[dict[str, str]] = []
+    for tid in removed_ids:
+        row = baseline.nodes_by_id[tid]
+        removed_targets.append({
+            "target_id": tid,
+            "target_type": row.get("target_type", ""),
+            "symbol": row.get("symbol", ""),
+            "name": row.get("name", ""),
+            "where": _target_change_where(row),
+            "reason": _target_removed_reason(row, current_owner_index, current.nodes_by_id),
+        })
+    removed_targets = sorted(removed_targets, key=lambda r: r["target_id"])
 
     baseline_version = baseline.manifest.get("target_release_version", "") or baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("target_release_version", "") or current.manifest.get("pipeline_version", "unknown")

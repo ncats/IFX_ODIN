@@ -1,12 +1,12 @@
 {
   "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-14T19:16:03.388975+00:00",
-  "git_commit": "e942e4c",
-  "duration_seconds": 59.74,
+  "generated_at": "2026-08-21T21:19:44.967093+00:00",
+  "git_commit": "76cb567",
+  "duration_seconds": 59.22,
   "files": {
     "disease_concepts.tsv": {
-      "rows": 111714,
+      "rows": 111728,
       "key": "ncats_disease_id",
       "alternate_key": "primary_xref",
       "columns": [
@@ -49,7 +49,7 @@
       ]
     },
     "disease_xref_edges.tsv": {
-      "rows": 319436,
+      "rows": 319452,
       "key": [
         "primary_xref",
         "xref_id",
@@ -160,7 +160,7 @@
       "note": "Inferred clinical-code hierarchy candidates. These are not direct exact xrefs and should be displayed/downloaded as a separate broad/narrow relationship layer."
     },
     "xref_labels.tsv": {
-      "rows": 294079,
+      "rows": 294094,
       "key": "xref_id",
       "columns": [
         "xref_id",
@@ -213,7 +213,7 @@
       ]
     },
     "disease_gene_associations.tsv": {
-      "rows": 15428,
+      "rows": 15434,
       "key": [
         "ncats_disease_id",
         "ncats_gene_id"
