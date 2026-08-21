@@ -2537,6 +2537,16 @@ def _target_change_drivers(
         new = row.get("new_version") or "not present"
         return f"{old} -> {new}"
 
+    nodenorm_changed = any(
+        source_rows.get(source, {}).get("status") != "unchanged"
+        for source in ("NodeNorm Gene", "NodeNorm Protein")
+    )
+    nodenorm_interpretation = (
+        "NodeNorm advanced in this release; the NodeNorm namespace delta reflects expanded validator coverage, not a new primary source authority."
+        if nodenorm_changed
+        else "NodeNorm stayed version-stable here, so it is validator context rather than the main driver of the large added/removed counts."
+    )
+
     drivers = [
         {
             "source": "Ensembl BioMart",
@@ -2582,7 +2592,7 @@ def _target_change_drivers(
                 _format_signed_delta(ns_counts.get("NodeNorm", 0), "NodeNorm-backed identifiers"),
                 _format_signed_delta(ns_counts.get("UMLS", 0), "UMLS identifiers"),
             ]),
-            "interpretation": "NodeNorm stayed version-stable here, so it is validator context rather than the main driver of the large added/removed counts.",
+            "interpretation": nodenorm_interpretation,
         },
     ]
     return drivers
