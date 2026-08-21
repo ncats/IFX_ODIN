@@ -1916,7 +1916,7 @@ ABCA5</textarea>
         html += `<th>Source</th><th>From</th><th>To</th><th>Status</th><th>Downloaded</th></tr></thead><tbody>`;
         rows.forEach(row => {
             const status = String(row.status || "").replace(/_/g, " ");
-            const cls = row.status === "unchanged" ? "" : " class="change-emphasis"";
+            const cls = row.status === "unchanged" ? "" : ' class="change-emphasis"';
             html += `<tr${cls}>`;
             html += `<td>${escapeHtml(row.source || "")}</td>`;
             html += `<td>${escapeHtml(row.old_version || "")}</td>`;
