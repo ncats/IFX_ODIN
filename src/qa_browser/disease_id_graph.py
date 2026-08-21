@@ -30,6 +30,7 @@ class DiseaseGraphData:
         "decisions_by_pxref",
         "associations_by_ncats_id",
         "manifest",
+        "source_catalog",
         "_dashboard_stats",
         "_xref_to_pxrefs",
         "_resolver_terms",
@@ -46,6 +47,7 @@ class DiseaseGraphData:
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.associations_by_ncats_id: dict[str, list[dict]] = defaultdict(list)
         self.manifest: dict = {}
+        self.source_catalog: list[dict[str, str]] = []
         self._dashboard_stats: dict | None = None
         self._xref_to_pxrefs: dict[str, set[str]] | None = None
         self._resolver_terms: list[dict[str, Any]] | None = None
@@ -57,6 +59,29 @@ _singleton: DiseaseGraphData | None = None
 def _read_tsv(path: Path) -> list[dict[str, str]]:
     with open(path, newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def _source_catalog_candidates(data_dir: Path) -> list[Path]:
+    candidates = [data_dir / "disease_source_catalog.tsv"]
+    if data_dir.name == "app_graph":
+        candidates.append(data_dir.parent / "metadata" / "disease_source_catalog.tsv")
+    else:
+        candidates.append(data_dir / "metadata" / "disease_source_catalog.tsv")
+        candidates.append(data_dir.parent / "metadata" / "disease_source_catalog.tsv")
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def _load_source_catalog(data_dir: Path) -> list[dict[str, str]]:
+    for path in _source_catalog_candidates(data_dir):
+        if path.exists():
+            return _read_tsv(path)
+    return []
 
 
 _RESOLVED_DECISION_STATUSES = {"resolved", "acknowledged", "wontfix"}
@@ -227,6 +252,7 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
     if manifest_path.exists():
         with open(manifest_path, encoding="utf-8") as fh:
             data.manifest = json.load(fh)
+    data.source_catalog = _load_source_catalog(data_dir)
 
     for row in _read_tsv(data_dir / "disease_concepts.tsv"):
         pxref = row.get("primary_xref", "")
@@ -3417,6 +3443,152 @@ def _distribution_delta(
     return sorted(rows, key=lambda r: (-abs(r["delta"]), r[key_name]))
 
 
+def _clean_source_version_value(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() in {"", "unknown", "none", "nan", "null"} else text
+
+
+def _disease_source_version_map(data: DiseaseGraphData) -> dict[str, dict[str, str]]:
+    rows = data.source_catalog or data.manifest.get("source_versions") or []
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(rows, list):
+        return out
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        source = _clean_source_version_value(
+            raw.get("source_name") or raw.get("source") or raw.get("name")
+        )
+        if not source:
+            continue
+        out[source] = {
+            "source": source,
+            "version": _clean_source_version_value(raw.get("source_version") or raw.get("version")),
+            "release_date": _clean_source_version_value(raw.get("release_date") or raw.get("source_release_date")),
+            "download_start": _clean_source_version_value(raw.get("download_start") or raw.get("odin_download_date")),
+            "metadata_file": _clean_source_version_value(raw.get("metadata_file")),
+        }
+    return out
+
+
+def _disease_source_version_changes(
+    baseline: DiseaseGraphData,
+    current: DiseaseGraphData,
+) -> list[dict[str, Any]]:
+    baseline_versions = _disease_source_version_map(baseline)
+    current_versions = _disease_source_version_map(current)
+    ordered_sources: list[str] = []
+    for source in list(current_versions) + list(baseline_versions):
+        if source not in ordered_sources:
+            ordered_sources.append(source)
+
+    rows: list[dict[str, Any]] = []
+    for source in ordered_sources:
+        old = baseline_versions.get(source, {})
+        new = current_versions.get(source, {})
+        old_version = old.get("version", "")
+        new_version = new.get("version", "")
+        if old and not new:
+            status = "removed"
+        elif new and not old:
+            status = "added"
+        elif old_version != new_version:
+            status = "version_changed"
+        else:
+            status = "unchanged"
+        rows.append({
+            "source": source,
+            "old_version": old_version,
+            "new_version": new_version,
+            "status": status,
+            "old_download_date": (old.get("download_start", "") or old.get("release_date", ""))[:10],
+            "new_download_date": (new.get("download_start", "") or new.get("release_date", ""))[:10],
+        })
+    return rows
+
+
+def _format_signed_delta(value: int, label: str) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{label} {sign}{value:,}"
+
+
+def _disease_change_drivers(
+    source_version_rows: list[dict[str, Any]],
+    category_delta: list[dict[str, Any]],
+    namespace_delta: list[dict[str, Any]],
+    data_layer_changes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_rows = {row["source"]: row for row in source_version_rows}
+    category_counts = {row["category"]: int(row.get("delta") or 0) for row in category_delta}
+    ns_counts = {row["namespace"]: int(row.get("delta") or 0) for row in namespace_delta}
+    layer_counts = {row["layer"]: int(row.get("delta") or 0) for row in data_layer_changes}
+
+    def version_text(source: str) -> str:
+        row = source_rows.get(source, {})
+        old = row.get("old_version") or "not captured"
+        new = row.get("new_version") or "not captured"
+        return f"{old} -> {new}"
+
+    nodenorm_changed = source_rows.get("NodeNorm", {}).get("status") != "unchanged"
+    nodenorm_interpretation = (
+        "NodeNorm advanced in this release; this affects preferred CURIE validation and label/canonicalization context, not primary source authority."
+        if nodenorm_changed
+        else "NodeNorm stayed version-stable; it should be interpreted as validator context rather than an asserting xref source."
+    )
+
+    return [
+        {
+            "source": "NodeNorm",
+            "version_change": version_text("NodeNorm"),
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("UMLS", 0), "UMLS xref edges"),
+                _format_signed_delta(layer_counts.get("Xref labels", 0), "xref label rows"),
+            ]),
+            "interpretation": nodenorm_interpretation,
+        },
+        {
+            "source": "SNOMEDCT / ICD-10-CM",
+            "version_change": f"SNOMEDCT {version_text('SNOMEDCT')}; ICD-10-CM {version_text('ICD-10-CM')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("SNOMEDCT", 0), "SNOMEDCT xref edges"),
+                _format_signed_delta(ns_counts.get("ICD10", 0) + ns_counts.get("ICD10CM", 0), "ICD-10 xref edges"),
+                _format_signed_delta(layer_counts.get("Clinical descendant edges", 0), "clinical descendant edges"),
+            ]),
+            "interpretation": "Clinical-code movement should be interpreted separately from exact disease xrefs, especially when descendant-only SNOMEDCT/ICD codes are included as context.",
+        },
+        {
+            "source": "MONDO / DOID / EFO",
+            "version_change": f"MONDO {version_text('MONDO')}; DOID {version_text('DOID')}; EFO {version_text('EFO')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("MONDO", 0), "MONDO xref edges"),
+                _format_signed_delta(ns_counts.get("DOID", 0), "DOID xref edges"),
+                _format_signed_delta(ns_counts.get("EFO", 0), "EFO xref edges"),
+                _format_signed_delta(layer_counts.get("Ontology hierarchy edges", 0), "hierarchy edges"),
+            ]),
+            "interpretation": "Ontology-source changes drive concept grounding, hierarchy context, and curated exact/broad/narrow match evidence.",
+        },
+        {
+            "source": "MedGen / OMIM / Orphanet",
+            "version_change": f"MedGen {version_text('MedGen')}; OMIM {version_text('OMIM')}; Orphanet {version_text('Orphanet')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("MEDGEN", 0), "MedGen xref edges"),
+                _format_signed_delta(ns_counts.get("OMIM", 0) + ns_counts.get("OMIMPS", 0), "OMIM xref edges"),
+                _format_signed_delta(ns_counts.get("Orphanet", 0), "Orphanet xref edges"),
+            ]),
+            "interpretation": "Disease-source refreshes change the cross-reference evidence used by ODIN; downstream QC determines whether conflicts remain open or are resolved.",
+        },
+        {
+            "source": "Gene association sources",
+            "version_change": f"ClinGen {version_text('ClinGen')}; Monarch {version_text('Monarch')}; Jensen {version_text('Jensen')}; MedGen associations {version_text('MedGen Gene Associations')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(layer_counts.get("Disease-gene associations", 0), "disease-gene associations"),
+                _format_signed_delta(category_counts.get("biolink:PhenotypicFeature", 0), "phenotype-labeled concepts"),
+            ]),
+            "interpretation": "Association-source changes affect the disease-gene context layer and should not be confused with disease xref equivalence changes.",
+        },
+    ]
+
+
 def _xref_edge_key(pxref: str, edge: dict) -> tuple[str, str, str]:
     return (
         pxref,
@@ -3752,6 +3924,10 @@ def compute_version_diff(
     for row in data_layer_changes:
         row["delta"] = row["new_count"] - row["old_count"]
 
+    category_delta = _distribution_delta(baseline_type_dist, current_type_dist, "category")
+    namespace_delta = _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace")
+    source_version_changes = _disease_source_version_changes(baseline, current)
+
     return {
         "summary": {
             "concepts_added": len(added_pxrefs),
@@ -3808,17 +3984,25 @@ def compute_version_diff(
         "biolink_category_distribution": {
             "baseline": dict(baseline_type_dist.most_common()),
             "current": dict(current_type_dist.most_common()),
-            "delta": _distribution_delta(baseline_type_dist, current_type_dist, "category"),
+            "delta": category_delta,
             "added": dict(added_by_category.most_common()),
             "removed": dict(removed_by_category.most_common()),
         },
         "source_namespace_distribution": {
             "baseline": dict(baseline_ns_dist.most_common()),
             "current": dict(current_ns_dist.most_common()),
-            "delta": _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace"),
+            "delta": namespace_delta,
             "edges_added": dict(edges_added_by_namespace.most_common()),
             "edges_removed": dict(edges_removed_by_namespace.most_common()),
         },
+        "source_version_changes": source_version_changes,
+        "change_drivers": _disease_change_drivers(
+            source_version_changes,
+            category_delta,
+            namespace_delta,
+            data_layer_changes,
+        ),
+        "change_driver_note": "Source attribution is inferred from source-version changes plus app-graph namespace and layer deltas. NodeNorm is shown as validator/canonicalization context, not as an asserting disease source.",
         "baseline_version": baseline_version,
         "current_version": current_version,
     }

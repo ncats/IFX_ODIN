@@ -2016,10 +2016,12 @@ ABCA5</textarea>
 
         html += renderTargetListTable("Added Targets", diff.added_targets, [
             ["target_id", "Target ID"], ["target_type", "Type"], ["symbol", "Symbol"], ["name", "Name"],
+            ["where", "Where"], ["reason", "Likely why"],
         ], t.added_targets);
 
         html += renderTargetListTable("Removed Targets", diff.removed_targets, [
             ["target_id", "Target ID"], ["target_type", "Type"], ["symbol", "Symbol"], ["name", "Name"],
+            ["where", "Where"], ["reason", "Likely why"],
         ], t.removed_targets);
 
         html += renderTargetListTable("Symbol Changes", diff.symbol_changes, [

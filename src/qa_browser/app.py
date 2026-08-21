@@ -6766,8 +6766,12 @@ def disease_id_qa_source_versions():
         metadata_dir = graph_dir.parent / "metadata"
     else:
         metadata_dir = graph_dir / "metadata"
-    catalog_path = metadata_dir / "disease_source_catalog.tsv"
-    if not catalog_path.exists():
+    catalog_candidates = [
+        graph_dir / "disease_source_catalog.tsv",
+        metadata_dir / "disease_source_catalog.tsv",
+    ]
+    catalog_path = next((path for path in catalog_candidates if path.exists()), None)
+    if catalog_path is None:
         return {"sources": [], "catalog_found": False}
     sources = []
 
