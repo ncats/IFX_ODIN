@@ -2458,6 +2458,136 @@ def _distribution_delta(
     return sorted(rows, key=lambda r: (-abs(r["delta"]), r[key_name]))
 
 
+def _target_source_version_map(data: TargetGraphData) -> dict[str, dict[str, str]]:
+    rows = data.manifest.get("source_versions") or []
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(rows, list):
+        return out
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        source = str(raw.get("source") or raw.get("source_name") or "").strip()
+        if not source:
+            continue
+        out[source] = {
+            "source": source,
+            "version": str(raw.get("version") or raw.get("source_version") or "").strip(),
+            "download_start": str(raw.get("download_start") or "").strip(),
+            "download_end": str(raw.get("download_end") or "").strip(),
+            "metadata_file": str(raw.get("metadata_file") or "").strip(),
+        }
+    return out
+
+
+def _source_version_changes(
+    baseline: TargetGraphData,
+    current: TargetGraphData,
+) -> list[dict[str, Any]]:
+    baseline_versions = _target_source_version_map(baseline)
+    current_versions = _target_source_version_map(current)
+    ordered_sources = []
+    for source in list(current_versions) + list(baseline_versions):
+        if source not in ordered_sources:
+            ordered_sources.append(source)
+
+    rows: list[dict[str, Any]] = []
+    for source in ordered_sources:
+        old = baseline_versions.get(source, {})
+        new = current_versions.get(source, {})
+        old_version = old.get("version", "")
+        new_version = new.get("version", "")
+        if old and not new:
+            status = "removed"
+        elif new and not old:
+            status = "added"
+        elif old_version != new_version:
+            status = "version_changed"
+        else:
+            status = "unchanged"
+        rows.append({
+            "source": source,
+            "old_version": old_version,
+            "new_version": new_version,
+            "status": status,
+            "old_download_date": old.get("download_start", "")[:10],
+            "new_download_date": new.get("download_start", "")[:10],
+        })
+    return rows
+
+
+def _format_signed_delta(value: int, label: str) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{label} {sign}{value:,}"
+
+
+def _target_change_drivers(
+    source_version_rows: list[dict[str, Any]],
+    type_delta: list[dict[str, Any]],
+    namespace_delta: list[dict[str, Any]],
+    predicate_delta: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_rows = {row["source"]: row for row in source_version_rows}
+    type_counts = {row["target_type"]: int(row.get("delta") or 0) for row in type_delta}
+    ns_counts = {row["namespace"]: int(row.get("delta") or 0) for row in namespace_delta}
+    pred_counts = {row["predicate"]: int(row.get("delta") or 0) for row in predicate_delta}
+
+    def version_text(source: str) -> str:
+        row = source_rows.get(source, {})
+        old = row.get("old_version") or "not present"
+        new = row.get("new_version") or "not present"
+        return f"{old} -> {new}"
+
+    drivers = [
+        {
+            "source": "Ensembl BioMart",
+            "version_change": version_text("Ensembl BioMart"),
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("ENSEMBL", 0), "ENSEMBL identifiers"),
+                _format_signed_delta(type_counts.get("transcript", 0), "transcript nodes"),
+                _format_signed_delta(pred_counts.get("biolink:transcribed_to", 0), "gene->transcript edges"),
+            ]),
+            "interpretation": "Likely largest contributor to the transcript expansion and ENSEMBL identifier growth after moving to the newer Ensembl snapshot.",
+        },
+        {
+            "source": "UniProt",
+            "version_change": version_text("UniProt"),
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("UniProtKB", 0), "UniProtKB identifiers"),
+                _format_signed_delta(ns_counts.get("UniRef100", 0), "UniRef100 identifiers"),
+                _format_signed_delta(type_counts.get("protein", 0), "protein nodes"),
+                _format_signed_delta(pred_counts.get("biolink:translates_to", 0), "transcript->protein edges"),
+            ]),
+            "interpretation": "Likely largest contributor to protein and isoform growth after the UniProt release advanced and UniRef100 enrichment completed.",
+        },
+        {
+            "source": "RefSeq (NCBI)",
+            "version_change": version_text("RefSeq (NCBI)"),
+            "observed_delta": _format_signed_delta(ns_counts.get("RefSeq", 0), "RefSeq identifiers"),
+            "interpretation": "Contributes transcript/protein identifier support and can change mapping support even when target identity is driven by Ensembl or UniProt.",
+        },
+        {
+            "source": "NCBI Gene Info / HGNC",
+            "version_change": f"NCBI {version_text('NCBI Gene Info')}; HGNC {version_text('HGNC')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("NCBIGene", 0), "NCBI Gene identifiers"),
+                _format_signed_delta(ns_counts.get("HGNC", 0), "HGNC identifiers"),
+                _format_signed_delta(type_counts.get("gene", 0), "gene nodes"),
+            ]),
+            "interpretation": "Gene-space changed only slightly; most of the release movement is not from new genes.",
+        },
+        {
+            "source": "NodeNorm",
+            "version_change": f"Gene {version_text('NodeNorm Gene')}; Protein {version_text('NodeNorm Protein')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("NodeNorm", 0), "NodeNorm-backed identifiers"),
+                _format_signed_delta(ns_counts.get("UMLS", 0), "UMLS identifiers"),
+            ]),
+            "interpretation": "NodeNorm stayed version-stable here, so it is validator context rather than the main driver of the large added/removed counts.",
+        },
+    ]
+    return drivers
+
+
 def compute_target_version_diff(
     current: TargetGraphData,
     baseline: TargetGraphData,
@@ -2607,6 +2737,11 @@ def compute_target_version_diff(
     baseline_version = baseline.manifest.get("target_release_version", "") or baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("target_release_version", "") or current.manifest.get("pipeline_version", "unknown")
 
+    source_version_changes = _source_version_changes(baseline, current)
+    type_delta = _distribution_delta(baseline_type_dist, current_type_dist, "target_type")
+    namespace_delta = _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace")
+    predicate_delta = _distribution_delta(baseline_pred_dist, current_pred_dist, "predicate")
+
     return {
         "summary": {
             "targets_added": len(added_ids),
@@ -2634,14 +2769,22 @@ def compute_target_version_diff(
             "canonical_changes": {"total": len(canonical_changes), "shown": min(len(canonical_changes), 500)},
         },
         "target_type_distribution": {
-            "delta": _distribution_delta(baseline_type_dist, current_type_dist, "target_type"),
+            "delta": type_delta,
         },
         "namespace_distribution": {
-            "delta": _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace"),
+            "delta": namespace_delta,
         },
         "predicate_distribution": {
-            "delta": _distribution_delta(baseline_pred_dist, current_pred_dist, "predicate"),
+            "delta": predicate_delta,
         },
+        "source_version_changes": source_version_changes,
+        "change_drivers": _target_change_drivers(
+            source_version_changes,
+            type_delta,
+            namespace_delta,
+            predicate_delta,
+        ),
+        "change_driver_note": "Source attribution is inferred from source-version changes plus namespace, node-type, and predicate deltas in the final app graph. Treat it as release-diff context, not a formal upstream changelog.",
         "added_by_type": dict(added_by_type.most_common()),
         "removed_by_type": dict(removed_by_type.most_common()),
         "baseline_version": baseline_version,

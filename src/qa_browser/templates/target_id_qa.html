@@ -1899,6 +1899,55 @@ ABCA5</textarea>
         });
     }
 
+    function displayVersion(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        if (text.startsWith("v.")) return text;
+        if (text.startsWith("v")) return text;
+        return `v${text}`;
+    }
+
+    function renderSourceVersionChanges(rows) {
+        if (!rows || rows.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>Source Version Changes</h3>`;
+        html += `<p class="changes-note">These are the source snapshots used by each release. Large target deltas should be interpreted alongside these source-version changes.</p>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>Source</th><th>From</th><th>To</th><th>Status</th><th>Downloaded</th></tr></thead><tbody>`;
+        rows.forEach(row => {
+            const status = String(row.status || "").replace(/_/g, " ");
+            const cls = row.status === "unchanged" ? "" : " class="change-emphasis"";
+            html += `<tr${cls}>`;
+            html += `<td>${escapeHtml(row.source || "")}</td>`;
+            html += `<td>${escapeHtml(row.old_version || "")}</td>`;
+            html += `<td>${escapeHtml(row.new_version || "")}</td>`;
+            html += `<td>${escapeHtml(status)}</td>`;
+            html += `<td>${escapeHtml(row.new_download_date || row.old_download_date || "")}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
+    function renderChangeDrivers(rows, note) {
+        if (!rows || rows.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>Likely Change Drivers</h3>`;
+        if (note) html += `<p class="changes-note">${escapeHtml(note)}</p>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>Source</th><th>Version Change</th><th>Observed Delta</th><th>Interpretation</th></tr></thead><tbody>`;
+        rows.forEach(row => {
+            html += `<tr>`;
+            html += `<td>${escapeHtml(row.source || "")}</td>`;
+            html += `<td>${escapeHtml(row.version_change || "")}</td>`;
+            html += `<td>${escapeHtml(row.observed_delta || "")}</td>`;
+            html += `<td>${escapeHtml(row.interpretation || "")}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
     function renderDeltaTable(title, rows, keyName, labelName) {
         if (!rows || rows.length === 0) return "";
         const shown = rows.filter(r => Number(r.delta || 0) !== 0).slice(0, 40);
@@ -1946,7 +1995,7 @@ ABCA5</textarea>
     function renderTargetVersionDiff(diff) {
         const s = diff.summary;
         const t = diff.truncation || {};
-        let html = `<div class="changes-version-label">Comparing v${escapeHtml(diff.baseline_version)} &rarr; v${escapeHtml(diff.current_version)}</div>`;
+        let html = `<div class="changes-version-label">Comparing ${escapeHtml(displayVersion(diff.baseline_version))} &rarr; ${escapeHtml(displayVersion(diff.current_version))}</div>`;
         html += `<div class="changes-summary">`;
         html += `<div class="dash-card"><div class="dash-stat">${s.targets_added.toLocaleString()}</div><div class="dash-label">Targets Added</div></div>`;
         html += `<div class="dash-card"><div class="dash-stat">${s.targets_removed.toLocaleString()}</div><div class="dash-label">Targets Removed</div></div>`;
@@ -1958,6 +2007,8 @@ ABCA5</textarea>
         html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
         html += `</div>`;
 
+        html += renderSourceVersionChanges(diff.source_version_changes);
+        html += renderChangeDrivers(diff.change_drivers, diff.change_driver_note);
         html += renderDeltaTable("Data Layers Changed", diff.data_layer_changes, "layer", "Layer");
         html += renderDeltaTable("Target Type Distribution", diff.target_type_distribution && diff.target_type_distribution.delta, "target_type", "Type");
         html += renderDeltaTable("Identifier Namespace Distribution", diff.namespace_distribution && diff.namespace_distribution.delta, "namespace", "Namespace");
