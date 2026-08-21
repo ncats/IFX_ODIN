@@ -87,8 +87,11 @@ from src.qa_browser.target_id_graph import (
     build_target_graph_payload,
     build_target_review_queue,
     compute_target_stats,
+    compute_target_version_diff,
+    export_divergences,
     export_targets,
     load_target_graph_data,
+    load_target_version_data,
     mark_rows_resolved_by_registry_ids,
     mark_rows_resolved_by_triage,
     search_targets,
@@ -5784,6 +5787,33 @@ def target_id_qa_download_filtered(
     )
 
 
+@app.get("/target-id-qa/download-divergences")
+def target_id_qa_download_divergences(
+    entity_type: str = "",
+    triage_category: str = "",
+    review_group: str = "",
+    status: str = "",
+    format: str = "tsv",
+):
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target QC export is disabled in public/read-only mode.")
+    fmt = "csv" if format == "csv" else "tsv"
+    content = export_divergences(
+        data, entity_type=entity_type, triage_category=triage_category,
+        review_group=review_group, status=status, fmt=fmt,
+    )
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("target_release_version") or data.manifest.get("release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_divergences.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/target-id-qa/api/review-queue")
 def target_id_qa_review_queue(
     entity_type: str = "",
@@ -5832,6 +5862,9 @@ def _default_target_review_file() -> str:
 @app.post("/target-id-qa/api/review-decisions")
 async def target_id_qa_save_review_decisions(request: Request):
     """Append app-entered target review decisions to a TargetGraph intake TSV."""
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target review decisions are disabled in public/read-only mode.")
     payload = await request.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
@@ -5841,7 +5874,6 @@ async def target_id_qa_save_review_decisions(request: Request):
         raise HTTPException(status_code=500, detail="No target graph dir configured.")
     path = append_target_review_rows(rows, review_path)
     # Mark resolved in memory so they disappear from the "open" view
-    data = _load_target_graph()
     resolved_ids = {r["Registry ID"] for r in rows if r.get("Registry ID")}
     mark_rows_resolved_by_registry_ids(data, resolved_ids)
     return {
@@ -5854,6 +5886,9 @@ async def target_id_qa_save_review_decisions(request: Request):
 @app.post("/target-id-qa/api/batch-review")
 async def target_id_qa_batch_review(request: Request):
     """Batch-apply a review decision to all items matching a triage category."""
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target batch review is disabled in public/read-only mode.")
     payload = await request.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
@@ -5865,7 +5900,6 @@ async def target_id_qa_batch_review(request: Request):
     if not decision:
         raise HTTPException(status_code=400, detail="review_decision is required.")
 
-    data = _load_target_graph()
     rows = build_batch_review_payload(
         data,
         triage_category=triage_cat,
@@ -5909,6 +5943,180 @@ def target_id_qa_review_template():
         media_type="text/tab-separated-values",
         headers={"Content-Disposition": 'attachment; filename="target_review_intake_template.tsv"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Target Harmonizer — Version Comparison
+# ---------------------------------------------------------------------------
+
+def _candidate_target_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _target_graph_dir:
+        graph_path = Path(_target_graph_dir)
+        if graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(TARGET_APP_GRAPH_BUNDLED_DIR)
+
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            key = str(root)
+        if key not in seen and root.is_dir():
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _normalize_target_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _target_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_target_version(version))]
+    return tuple(parts or [0])
+
+
+def _discover_target_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_target_graph_dir).resolve() if _target_graph_dir else None
+
+    for root in _candidate_target_version_roots():
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir() or not (child / "manifest.json").exists():
+                continue
+            if not (child / "target_nodes.tsv").exists():
+                continue
+            with open(child / "manifest.json", encoding="utf-8") as fh:
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    continue
+            version = _normalize_target_version(
+                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or child.name
+            )
+            if not version:
+                continue
+            resolved = child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": child.name,
+                "path": str(child),
+                "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
+                "node_rows": manifest.get("files", {}).get("target_nodes.tsv", {}).get("rows"),
+                "edge_rows": manifest.get("files", {}).get("target_edges.tsv", {}).get("rows"),
+                "current": bool(current_path and resolved == current_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"]:
+                version_by_key[version] = entry
+
+    # Fallback: match by directory name
+    if _target_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_target_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+
+    return sorted(
+        version_by_key.values(),
+        key=lambda row: _target_version_sort_key(row["version"]),
+    )
+
+
+def _default_target_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = ""
+    if len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _target_version_dir(version: str) -> Path | None:
+    wanted = _normalize_target_version(version)
+    for entry in _discover_target_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+def _target_precomputed_diff_path(from_version: str, to_version: str, to_dir: Path) -> Path | None:
+    from_token = f"v{_normalize_target_version(from_version)}"
+    to_token = f"v{_normalize_target_version(to_version)}"
+    candidates = [
+        to_dir / f"target_version_diff_{from_token}_to_{to_token}.json",
+        to_dir.parent / to_token / f"target_version_diff_{from_token}_to_{to_token}.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@app.get("/target-id-qa/api/versions")
+def target_id_qa_versions():
+    """List bundled/versioned target app_graph datasets available for diffs."""
+    versions = _discover_target_versions()
+    default_from, default_to = _default_target_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
+@app.get("/target-id-qa/api/version-diff")
+def target_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned target app_graph datasets."""
+    if not _target_graph_dir:
+        raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
+    versions = _discover_target_versions()
+    default_from, default_to = _default_target_version_pair(versions)
+    from_version = _normalize_target_version(from_version or default_from)
+    to_version = _normalize_target_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different target graph versions.")
+
+    from_dir = _target_version_dir(from_version)
+    to_dir = _target_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Target graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Target graph version not found: {to_version}")
+
+    precomputed = _target_precomputed_diff_path(from_version, to_version, to_dir)
+    if precomputed:
+        with open(precomputed, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    baseline = load_target_version_data(from_dir)
+    current = _load_target_graph() if to_dir.resolve() == Path(_target_graph_dir).resolve() else load_target_version_data(to_dir)
+    return compute_target_version_diff(current, baseline)
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)
