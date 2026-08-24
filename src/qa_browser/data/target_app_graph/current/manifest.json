@@ -2,75 +2,99 @@
   "contract_version": "1.0.0",
   "target_release_version": "v2.1.1",
   "pipeline": "TargetGraph target harmonizer",
-  "generated_at": "2026-08-21T18:30:13.486581+00:00",
-  "updated_last": "2026-08-21T18:30:13.486698+00:00",
-  "pipeline_git_commit": "2ae803b",
+  "generated_at": "2026-08-24T18:27:46.035413+00:00",
+  "updated_last": "2026-08-24T18:27:46.035423+00:00",
+  "pipeline_git_commit": "d2c3933",
   "source_files": {
-    "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids_2026-08-21.tsv",
-    "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids_2026-08-21.tsv",
-    "transcript_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids_2026-08-21.tsv"
+    "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids_2026-08-24.tsv",
+    "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids_2026-08-24.tsv",
+    "transcript_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids_2026-08-24.tsv"
   },
   "source_file_timestamps": {
-    "gene_ids": "2026-08-21T17:24:36.584084+00:00",
-    "protein_ids": "2026-08-21T18:28:47.032161+00:00",
-    "transcript_ids": "2026-08-21T17:25:42.367465+00:00"
+    "gene_ids": "2026-08-24T17:38:40.318357+00:00",
+    "protein_ids": "2026-08-24T17:50:01.376888+00:00",
+    "transcript_ids": "2026-08-24T17:40:03.565464+00:00"
   },
   "source_versions": [
     {
       "source": "Ensembl BioMart",
       "version": "116",
-      "download_start": "2026-08-21T10:00:46.680306",
-      "download_end": "2026-08-21T10:00:47.461701",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json"
+      "download_start": "2026-08-24T12:24:03.502525",
+      "download_end": "2026-08-24T12:24:04.542004",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json",
+      "url": "https://mart.ensembl.org/biomart/martservice?query=",
+      "release_date": "2026-06",
+      "records": 2562100
     },
     {
       "source": "NCBI Gene Info",
       "version": "2026-08-19",
-      "download_start": "2026-08-21T10:00:48.011236",
-      "download_end": "2026-08-21T10:00:48.011240",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ncbi_metadata.json"
+      "download_start": "2026-08-24T10:57:46.884366",
+      "download_end": "2026-08-24T10:57:46.884370",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ncbi_metadata.json",
+      "url": "https://ftp.ncbi.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
+      "release_date": "2026-08-19",
+      "records": 193885
     },
     {
       "source": "GeneRIF",
-      "version": "2026-08-21",
-      "download_start": "2026-08-21T10:00:57.670844",
-      "download_end": "2026-08-21T10:00:57.670854",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_generif_metadata.json"
+      "version": "2026-08-24",
+      "download_start": "2026-08-24T10:57:56.632036",
+      "download_end": "2026-08-24T10:57:56.632045",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_generif_metadata.json",
+      "url": "https://ftp.ncbi.nih.gov/gene/GeneRIF/generifs_basic.gz",
+      "release_date": "2026-08-24",
+      "records": 1050873
     },
     {
       "source": "HGNC",
       "version": "2026-08-21",
-      "download_start": "2026-08-21T10:01:01.331440",
-      "download_end": "2026-08-21T10:01:01.331446",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_hgnc_metadata.json"
+      "download_start": "2026-08-24T10:57:57.824504",
+      "download_end": "2026-08-24T10:57:57.824509",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_hgnc_metadata.json",
+      "url": "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt",
+      "release_date": "2026-08-21",
+      "records": 45044
     },
     {
       "source": "RefSeq (NCBI)",
       "version": "2026-08-20",
-      "download_start": "2026-08-21T10:01:01.344778",
-      "download_end": "2026-08-21T10:01:02.343546",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json"
+      "download_start": "2026-08-24T10:57:57.829809",
+      "download_end": "2026-08-24T10:57:58.865341",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json",
+      "url": "",
+      "release_date": "2026-08-20",
+      "records": 1366996
     },
     {
       "source": "UniProt",
       "version": "2026_02",
-      "download_start": "2026-08-21T10:02:51.247372",
-      "download_end": "2026-08-21T10:02:51.247375",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_uniprot_metadata.json"
+      "download_start": "2026-08-24T10:59:18.495553",
+      "download_end": "2026-08-24T10:59:18.495556",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_uniprot_metadata.json",
+      "url": "https://rest.uniprot.org/uniprotkb/stream?compressed=true&format=json&query=%28proteome%3AUP000005640%29",
+      "release_date": "2026-06-10",
+      "records": 147506
     },
     {
       "source": "NodeNorm Gene",
       "version": "2026jul22",
-      "download_start": "2026-08-21T10:02:51.657787",
-      "download_end": "2026-08-21T10:10:43.656291",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_genes_metadata.json"
+      "download_start": "2026-08-24T10:59:18.947378",
+      "download_end": "2026-08-24T10:59:19.224362",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_genes_metadata.json",
+      "url": "https://stars.renci.org/var/babel_outputs/2026jul22/compendia/Gene.txt",
+      "release_date": "2026-07-22",
+      "records": 63500
     },
     {
       "source": "NodeNorm Protein",
       "version": "2026jul22",
-      "download_start": "2026-08-21T10:36:53.999912",
-      "download_end": "2026-08-21T10:56:43.948840",
-      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_proteins_metadata.json"
+      "download_start": "2026-08-24T10:59:19.501495",
+      "download_end": "2026-08-24T10:59:19.771612",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_proteins_metadata.json",
+      "url": "https://stars.renci.org/var/babel_outputs/2026jul22/compendia/Protein.txt",
+      "release_date": "2026-07-22",
+      "records": 210709
     }
   ],
   "files": {

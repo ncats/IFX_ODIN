@@ -8676,3 +8676,370 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     color: #6d28d9;
     font-weight: 700;
 }
+
+
+/* Variant Harmonizer Explorer */
+.workflow-card-variant {
+    color: #ffffff;
+    background:
+        linear-gradient(90deg, rgba(2, 8, 23, 0.90) 0%, rgba(4, 36, 58, 0.62) 44%, rgba(8, 95, 104, 0.18) 100%),
+        url("images/variant-harmonizer.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-color: rgba(34, 211, 238, 0.34);
+}
+
+.workflow-card-variant .db-name,
+.workflow-card-variant .db-card-footer {
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.workflow-card-variant:hover {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.24);
+    text-decoration: none;
+}
+
+.variant-explorer-shell {
+    display: grid;
+    gap: 1rem;
+}
+
+.variant-explorer-header {
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 28rem);
+    padding-bottom: 0.9rem;
+}
+
+.variant-explorer-header h1 {
+    font-size: 1.7rem;
+    line-height: 1.15;
+    margin: 0;
+}
+
+.variant-explorer-release,
+.variant-muted {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+}
+
+.variant-open-box {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.variant-open-box textarea,
+.variant-filter-row input,
+.variant-filter-row select {
+    background: var(--input-bg, #fff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+}
+
+.variant-open-box textarea {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    min-height: 5.5rem;
+    padding: 0.6rem;
+    resize: vertical;
+}
+
+.variant-tabs {
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 0.4rem;
+}
+
+.variant-tab-btn {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 0.7rem 0.9rem;
+}
+
+.variant-tab-btn.active {
+    border-bottom-color: #7c3aed;
+    color: #7c3aed;
+}
+
+.variant-tab-panel {
+    display: none;
+}
+
+.variant-tab-panel.active {
+    display: grid;
+    gap: 1rem;
+}
+
+.variant-stat-grid,
+.variant-dashboard-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.variant-stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.variant-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.variant-stat-grid div,
+.variant-panel,
+.variant-empty {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.variant-stat-grid div,
+.variant-panel,
+.variant-empty {
+    padding: 0.9rem;
+}
+
+.variant-stat-grid strong {
+    font-family: var(--mono);
+    font-size: 1.3rem;
+}
+
+.variant-stat-grid span {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.variant-panel h2 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+}
+
+.variant-bars {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.variant-bar-row {
+    align-items: center;
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: minmax(8rem, 15rem) minmax(0, 1fr) 5.5rem;
+}
+
+.variant-bar-row span {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.variant-bar-row div {
+    background: var(--bg-alt);
+    border-radius: 999px;
+    height: 0.55rem;
+    overflow: hidden;
+}
+
+.variant-bar-row i {
+    background: #7c3aed;
+    display: block;
+    height: 100%;
+}
+
+.variant-bar-row code {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.variant-filter-row {
+    align-items: center;
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: minmax(18rem, 1fr) minmax(8rem, 12rem) minmax(8rem, 12rem) auto;
+}
+
+.variant-filter-row input,
+.variant-filter-row select {
+    min-height: 2.35rem;
+    padding: 0.35rem 0.5rem;
+}
+
+.variant-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: auto;
+}
+
+.variant-table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    min-width: 58rem;
+    width: 100%;
+}
+
+.variant-table th,
+.variant-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.55rem 0.65rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.variant-table th {
+    background: var(--bg-alt);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.variant-link {
+    background: transparent;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font-family: var(--mono);
+    padding: 0;
+}
+
+.variant-pager,
+.variant-graph-toolbar {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+}
+
+.variant-graph-toolbar {
+    justify-content: flex-start;
+}
+
+.variant-graph-legend {
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem 1rem;
+    padding: 0.65rem 0.8rem;
+}
+
+.variant-graph-legend span {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 0.78rem;
+    gap: 0.35rem;
+}
+
+.variant-legend-help {
+    border-top: 1px solid var(--border);
+    flex-basis: 100%;
+    line-height: 1.45;
+    padding-top: 0.45rem;
+}
+
+.variant-legend-node {
+    border: 1px solid #ffffff;
+    border-radius: 50%;
+    display: inline-block;
+    height: 0.8rem;
+    width: 0.8rem;
+}
+
+.variant-legend-variant { background: #7c3aed; }
+.variant-legend-disease { background: #f59e0b; }
+.variant-legend-gene { background: #0d9488; }
+
+.variant-legend-line {
+    background: #94a3b8;
+    display: inline-block;
+    height: 2px;
+    width: 1.6rem;
+}
+
+.variant-graph-layout {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem);
+}
+
+.variant-graph,
+.variant-graph-detail {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.variant-graph {
+    min-height: 640px;
+}
+
+.variant-graph-detail {
+    max-height: 640px;
+    overflow: auto;
+    padding: 0.9rem;
+}
+
+.variant-graph-detail h2 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+}
+
+.variant-graph-detail dl {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+}
+
+.variant-graph-detail dt {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+
+.variant-graph-detail dd {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    margin: 0 0 0.45rem;
+    overflow-wrap: anywhere;
+}
+
+.variant-column-grid {
+    display: grid;
+    gap: 0.45rem 0.8rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0.75rem 0;
+}
+
+.variant-column-grid label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+@media (max-width: 900px) {
+    .variant-explorer-header,
+    .variant-dashboard-grid,
+    .variant-graph-layout,
+    .variant-filter-row,
+    .variant-column-grid {
+        grid-template-columns: 1fr;
+    }
+    .variant-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
