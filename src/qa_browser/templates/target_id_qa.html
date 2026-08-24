@@ -788,7 +788,12 @@ ABCA5</textarea>
             const sourceTags = (manifest.source_versions || [])
                 .filter(row => row && (row.source || row.version))
                 .slice(0, 10)
-                .map(row => `<span><strong>${escapeHtml(row.source || "Source")}</strong> ${escapeHtml(row.version || "unknown")}</span>`)
+                .map(row => {
+                    const urlPart = row.url
+                        ? ` <a href="${escapeHtml(row.url)}" target="_blank" rel="noopener" title="${escapeHtml(row.url)}" style="opacity:0.7;font-size:0.85em;">&#x1f517;</a>`
+                        : "";
+                    return `<span><strong>${escapeHtml(row.source || "Source")}</strong> ${escapeHtml(row.version || "unknown")}${urlPart}</span>`;
+                })
                 .join("");
             versionBar.innerHTML = `
                 <div><span class="target-version-label">Pipeline</span> ${metaParts.join(' &middot; ')}</div>

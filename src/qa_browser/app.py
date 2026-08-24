@@ -6903,6 +6903,11 @@ def disease_id_qa_source_versions():
                 tf_input_rows = _clean(row.get("tf_input_rows"))
                 status = _clean(row.get("status"))
                 changed = _clean(row.get("changed"))
+                url = (
+                    _clean(row.get("url"))
+                    or _nested(meta, "url", "download_url")
+                )
+                source_release_url = _nested(meta, "source_release_url", "html_url")
                 note = ""
                 if name.upper() == "SNOMEDCT":
                     note = "UMLS SNOMEDCT subset; source version is the UMLS release."
@@ -6922,6 +6927,8 @@ def disease_id_qa_source_versions():
                     "status": status,
                     "changed": changed,
                     "note": note,
+                    "url": url,
+                    "source_release_url": source_release_url,
                 })
     except Exception as exc:
         logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)

@@ -1246,18 +1246,30 @@ C4707237</textarea>
                                 const odinDate = (src.odin_download_date || src.download_date || "").slice(0, 10) || "not captured";
                                 const outRows = src.transform_output_rows ? Number(src.transform_output_rows).toLocaleString() : "not captured";
                                 const note = src.note ? `<span class="dash-source-tag-note">${escapeHtml(src.note)}</span>` : "";
+                                const sourceUrl = src.url || src.source_release_url || "";
+                                let urlLine = "";
+                                if (sourceUrl) {
+                                    try {
+                                        const hostname = new URL(sourceUrl).hostname;
+                                        urlLine = `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> ${escapeHtml(hostname)}</a>`;
+                                    } catch (_) {
+                                        urlLine = `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> link</a>`;
+                                    }
+                                }
                                 tag.innerHTML =
                                     `<span class="dash-source-tag-name">${escapeHtml(src.name)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Transformed rows</b> ${escapeHtml(outRows)}</span>` +
+                                    urlLine +
                                     note;
                                 tag.title =
                                     `Source version: ${version}\n` +
                                     `Source release/date: ${sourceDate}\n` +
                                     `ODIN downloaded raw data: ${odinDate}\n` +
                                     `Transformed rows: ${outRows}` +
+                                    (sourceUrl ? `\nSource URL: ${sourceUrl}` : "") +
                                     (src.note ? `\n${src.note}` : "");
                                 tagContainer.appendChild(tag);
                             });

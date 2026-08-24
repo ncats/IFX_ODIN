@@ -1,9 +1,9 @@
 {
   "contract_version": "2.1.0",
   "pipeline_version": "2.1.1",
-  "generated_at": "2026-08-21T21:19:44.967093+00:00",
-  "git_commit": "76cb567",
-  "duration_seconds": 59.22,
+  "generated_at": "2026-08-24T16:17:47.509854+00:00",
+  "git_commit": "7cef6eb",
+  "duration_seconds": 59.38,
   "files": {
     "disease_concepts.tsv": {
       "rows": 111728,
@@ -213,7 +213,7 @@
       ]
     },
     "disease_gene_associations.tsv": {
-      "rows": 15434,
+      "rows": 15446,
       "key": [
         "ncats_disease_id",
         "ncats_gene_id"

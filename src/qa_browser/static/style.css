@@ -5435,6 +5435,23 @@ details summary:hover { color: var(--accent); }
     max-width: 16rem;
 }
 
+.dash-source-tag-link {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    line-height: 1.25;
+    text-decoration: none;
+}
+.dash-source-tag-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+.dash-source-tag-link b {
+    color: var(--text-bright);
+    font-weight: 700;
+    margin-right: 0.15rem;
+}
+
 .clinical-descendant-summary {
     display: grid;
     gap: 0.75rem;
