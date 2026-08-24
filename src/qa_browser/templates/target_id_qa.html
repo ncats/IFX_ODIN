@@ -785,14 +785,42 @@ ABCA5</textarea>
             if (manifest.pipeline) metaParts.push(escapeHtml(manifest.pipeline));
             const updatedLast = manifest.updated_last || manifest.generated_at;
             if (updatedLast) metaParts.push(`Updated last: ${escapeHtml(updatedLast.split('T')[0])}`);
-            const sourceTags = (manifest.source_versions || [])
+            const sourceRows = (manifest.source_versions || [])
                 .filter(row => row && (row.source || row.version))
-                .slice(0, 10)
-                .map(row => `<span><strong>${escapeHtml(row.source || "Source")}</strong> ${escapeHtml(row.version || "unknown")}</span>`)
-                .join("");
+                .slice(0, 10);
+            const sourceCards = sourceRows.map(row => {
+                const color = "#0d9488";
+                const version = row.version && row.version !== "unknown" ? row.version : "not captured";
+                const releaseDate = (row.release_date || "").slice(0, 10) || "not captured";
+                const odinDate = (row.download_start || "").slice(0, 10) || "not captured";
+                const outRows = row.records ? Number(row.records).toLocaleString() : "not captured";
+                let urlLine = "";
+                if (row.url) {
+                    try {
+                        const hostname = new URL(row.url).hostname;
+                        urlLine = `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> ${escapeHtml(hostname)}</a>`;
+                    } catch (_) {
+                        urlLine = `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> link</a>`;
+                    }
+                }
+                const tooltip =
+                    `Source version: ${version}\n` +
+                    `Source release/date: ${releaseDate}\n` +
+                    `ODIN downloaded raw data: ${odinDate}\n` +
+                    `Records: ${outRows}` +
+                    (row.url ? `\nSource URL: ${row.url}` : "");
+                return `<span class="dash-source-tag" style="border-color:${color};color:${color}" title="${escapeHtml(tooltip)}">` +
+                    `<span class="dash-source-tag-name">${escapeHtml(row.source || "Source")}</span>` +
+                    `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
+                    `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(releaseDate)}</span>` +
+                    `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>` +
+                    `<span class="dash-source-tag-detail"><b>Records</b> ${escapeHtml(outRows)}</span>` +
+                    urlLine +
+                    `</span>`;
+            }).join("");
             versionBar.innerHTML = `
                 <div><span class="target-version-label">Pipeline</span> ${metaParts.join(' &middot; ')}</div>
-                ${sourceTags ? `<div class="target-source-tags"><span class="target-version-label">Source Versions</span>${sourceTags}</div>` : ""}
+                ${sourceCards ? `<div class="dash-source-tags" style="margin-top:0.5rem"><span class="target-version-label" style="align-self:flex-start">Source Versions</span>${sourceCards}</div>` : ""}
             `;
         }
 

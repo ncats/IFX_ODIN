@@ -97,6 +97,13 @@ from src.qa_browser.target_id_graph import (
     search_targets,
     validate_and_build_target_review_rows,
 )
+from src.qa_browser.variant_id_graph import (
+    build_variant_graph_payload,
+    compute_variant_stats,
+    export_variants,
+    load_variant_graph_data,
+    search_variants,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -106,6 +113,7 @@ STATIC_DIR = BASE_DIR / "static"
 RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
 TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
+VARIANT_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "variant_app_graph"
 
 
 @asynccontextmanager
@@ -136,6 +144,7 @@ _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
 _target_graph_dir: str = ""
+_variant_graph_dir: str = ""
 _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
@@ -5725,6 +5734,44 @@ def _target_updated_last(manifest: dict[str, Any]) -> str:
     return text[:10] if text and text != "—" else "—"
 
 
+def _load_variant_graph():
+    if not _variant_graph_dir:
+        raise HTTPException(status_code=500, detail="No --variant-graph-dir configured.")
+    return load_variant_graph_data(_variant_graph_dir)
+
+
+def _variant_manifest_snapshot() -> dict[str, Any]:
+    if not _variant_graph_dir:
+        return {}
+    manifest_path = Path(_variant_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _variant_version_display(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("version") or manifest.get("variant_release_version") or "—"
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v."):
+        return text
+    if text.startswith("v"):
+        return f"v.{text[1:]}"
+    return f"v.{text}"
+
+
+def _variant_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("createdAt") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
+
+
 @app.get("/target-id-qa", response_class=HTMLResponse)
 def target_id_qa(request: Request, ids: str = "", tab: str = ""):
     selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
@@ -6117,6 +6164,81 @@ def target_id_qa_version_diff(
     baseline = load_target_version_data(from_dir)
     current = _load_target_graph() if to_dir.resolve() == Path(_target_graph_dir).resolve() else load_target_version_data(to_dir)
     return compute_target_version_diff(current, baseline)
+
+
+# ---------------------------------------------------------------------------
+# Variant Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+@app.get("/variant-id-qa", response_class=HTMLResponse)
+def variant_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _variant_manifest_snapshot()
+    return templates.TemplateResponse(request, "variant_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "variant_version_display": _variant_version_display(manifest),
+        "variant_updated_last": _variant_updated_last(manifest),
+    })
+
+
+@app.get("/variant-id-qa/api/stats")
+def variant_id_qa_stats():
+    data = _load_variant_graph()
+    return compute_variant_stats(data)
+
+
+@app.get("/variant-id-qa/api/search")
+def variant_id_qa_search(
+    q: str = "",
+    source: str = "",
+    gene: str = "",
+    significance: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_variant_graph()
+    return search_variants(
+        data, q=q, source=source, gene=gene,
+        significance=significance, page=page, per_page=per_page,
+    )
+
+
+@app.get("/variant-id-qa/api/graph")
+def variant_id_qa_graph(ids: str = ""):
+    data = _load_variant_graph()
+    return build_variant_graph_payload(data, ids)
+
+
+@app.get("/variant-id-qa/download-filtered")
+def variant_id_qa_download_filtered(
+    q: str = "",
+    source: str = "",
+    gene: str = "",
+    significance: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_variant_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_variants(
+        data, q=q, source=source, gene=gene, significance=significance,
+        fmt=fmt, columns=selected_columns,
+    )
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = (data.manifest.get("version") or data.manifest.get("variant_release_version") or "current")
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_variants.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)
@@ -6903,6 +7025,11 @@ def disease_id_qa_source_versions():
                 tf_input_rows = _clean(row.get("tf_input_rows"))
                 status = _clean(row.get("status"))
                 changed = _clean(row.get("changed"))
+                url = (
+                    _clean(row.get("url"))
+                    or _nested(meta, "url", "download_url")
+                )
+                source_release_url = _nested(meta, "source_release_url", "html_url")
                 note = ""
                 if name.upper() == "SNOMEDCT":
                     note = "UMLS SNOMEDCT subset; source version is the UMLS release."
@@ -6922,6 +7049,8 @@ def disease_id_qa_source_versions():
                     "status": status,
                     "changed": changed,
                     "note": note,
+                    "url": url,
+                    "source_release_url": source_release_url,
                 })
     except Exception as exc:
         logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)
@@ -10083,9 +10212,12 @@ def main():
     parser.add_argument("--target-qc-dir",
                         default="",
                         help="Path to target pipeline qc/ directory (divergence registries + provenance CSVs)")
+    parser.add_argument("--variant-graph-dir",
+                        default="",
+                        help="Path to variant app_graph/ directory (variant_nodes.tsv + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -10193,6 +10325,20 @@ def main():
     _target_qc_dir = args.target_qc_dir
     if _target_qc_dir:
         print(f"Target QC dir: {_target_qc_dir}")
+
+    _variant_graph_dir = args.variant_graph_dir
+    if not _variant_graph_dir:
+        bundled_dir = VARIANT_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "variant_nodes.tsv")
+        current_dir = bundled_dir / "current"
+        if versions:
+            _variant_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
+        elif current_dir.is_dir():
+            _variant_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
+    if _variant_graph_dir:
+        print(f"Variant graph dir: {_variant_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
