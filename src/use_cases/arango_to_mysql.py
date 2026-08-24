@@ -14,6 +14,8 @@ from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Bo
 from sqlalchemy.dialects.mysql import LONGBLOB
 
 from src.input_adapters.sql_adapter import MySqlAdapter
+from src.core.data_registry import DataRegistry
+from src.registry.storage import RegistryCredentials
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -58,11 +60,15 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
     def __init__(self, arango_credentials: DBCredentials, arango_db_name: str,
                  mysql_credentials: DBCredentials, mysql_db_name: str,
-                 minio_credentials: DBCredentials = None):
+                 object_storage_credentials: RegistryCredentials = None):
         super().__init__(credentials=arango_credentials, database_name=arango_db_name)
         self.mysql = MySqlAdapter(mysql_credentials)
         self.mysql_db_name = mysql_db_name
-        self.minio_credentials = minio_credentials
+        self.object_storage = (
+            DataRegistry.from_credentials(object_storage_credentials).storage
+            if object_storage_credentials
+            else None
+        )
         self.sa_metadata = MetaData()
         # enum_class_path -> (Table, enum_class) for LabeledIntEnum lookup tables
         self._enum_lookup_tables: dict = {}
@@ -727,36 +733,25 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
         print(f"  {collection_name}: {total} edges")
 
-    # --- MinIO / parquet helpers ---
+    # --- Object-storage / parquet helpers ---
 
     def _get_s3_buffer(self, file_ref: str):
-        """Fetch an S3-backed object from MinIO and return a BytesIO buffer."""
+        """Fetch an S3-backed object and return a BytesIO buffer."""
         import io
-        import boto3
-        from botocore.client import Config
 
         if not file_ref.startswith("s3://"):
             raise ValueError(f"Expected s3:// URI, got: {file_ref}")
-        if not self.minio_credentials:
-            raise RuntimeError("minio_credentials required to read parquet files")
+        if not self.object_storage:
+            raise RuntimeError("object_storage_credentials are required to read parquet files")
 
         without_prefix = file_ref[len("s3://"):]
         bucket, key = without_prefix.split("/", 1)
-        creds = self.minio_credentials
-        endpoint = creds.url
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=creds.user,
-            aws_secret_access_key=creds.password,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-            verify=False,
-        )
+        s3 = self.object_storage.client()
         response = s3.get_object(Bucket=bucket, Key=key)
         return io.BytesIO(response["Body"].read())
 
     def _get_parquet_buffer(self, file_ref: str):
-        """Fetch a parquet file from MinIO and return a BytesIO buffer."""
+        """Fetch a parquet file from object storage and return a BytesIO buffer."""
         return self._get_s3_buffer(file_ref)
 
     # --- Parquet data melting ---

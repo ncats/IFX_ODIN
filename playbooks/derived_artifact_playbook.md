@@ -11,7 +11,7 @@ Derived artifacts are adapter-facing or build-facing products. They should make 
 - A raw source is too large or expensive for every ETL run.
 - An adapter repeatedly performs the same deterministic preprocessing.
 - A build needs a stable curated file set, such as target graph TSVs.
-- A resolver SQLite, DuckDB, parquet, or cache file should be shared through MinIO.
+- A resolver SQLite, DuckDB, parquet, or cache file should be shared through AWS S3.
 - A source is external/database-backed and the build consumes a reproducible export.
 
 ## Principles
@@ -63,7 +63,7 @@ Use `sources/...` for raw source snapshots and `derived/...` for derived snapsho
 ## Workflow
 
 1. Identify the raw source snapshot or snapshots.
-   - Read their manifests from MinIO.
+   - Read their manifests from AWS S3.
    - Record exact `snapshot_id` and `manifest_uri`.
    - Confirm the input files exist and checksums are present.
 
@@ -88,7 +88,7 @@ Use `sources/...` for raw source snapshots and `derived/...` for derived snapsho
    - Verify local output checksums and sizes.
    - Record transform metadata and raw input dependencies in the manifest.
 
-6. Upload derived output to MinIO.
+6. Upload derived output to AWS S3.
    - Store under `derived/<source>/<dataset>/<version>/`.
    - Upload output files and `manifest.yaml`.
    - Do not overwrite an existing version unless the user explicitly approves replacement.
@@ -151,7 +151,7 @@ Check or build via `DataRegistry`:
 ```python
 from src.core.data_registry import DataRegistry
 
-registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
+registry = DataRegistry.from_registry_credentials("src/use_cases/secrets/aws_ifx_registry.yaml")
 plan = registry.sync_derived_artifacts(dry_run=True)
 results = registry.sync_derived_artifacts(dest="/tmp/ifx-registry-cache", dry_run=False)
 ```
@@ -184,4 +184,4 @@ Recommended fields:
 - transform code reference
 - row counts and namespace coverage stats
 
-These artifacts can later back a resolver API, but MinIO storage alone is enough for initial shared build reproducibility.
+These artifacts can later back a resolver API, but S3 storage alone is enough for initial shared build reproducibility.

@@ -1,0 +1,96 @@
+<section class="ramp-id-table-section" id="metaboliteIdMaterializedStageStats"
+         {% if stage_stats_oob %}hx-swap-oob="true"{% endif %}>
+    <div class="ramp-id-section-header">
+        <h2>Materialized Stage Stats</h2>
+        <p>{{ overview.pipeline_stage_stats|length }} pipeline{{ "" if overview.pipeline_stage_stats|length == 1 else "s" }} with materialized stages</p>
+    </div>
+    {% for pipeline_stats in overview.pipeline_stage_stats %}
+    <section class="metabolite-id-stage-stats-group">
+        <div class="metabolite-id-stage-stats-heading">
+            <div>
+                <h3>{{ pipeline_stats.pipeline_name }}</h3>
+                <span class="mono">{{ pipeline_stats.pipeline_key }}</span>
+            </div>
+            {% if pipeline_stats.run %}
+            <span>{{ pipeline_stats.run.created_at }}{% if pipeline_stats.run.elapsed_seconds %} · {{ pipeline_stats.run.elapsed_seconds }}s{% endif %}</span>
+            {% endif %}
+        </div>
+        <div class="metabolite-id-stage-stats-grid-wrap">
+            <div class="metabolite-id-stage-stats-grid">
+                <div class="metabolite-id-stage-stats-grid-header">Compare</div>
+                <div class="metabolite-id-stage-stats-grid-header">Stage</div>
+                <div class="metabolite-id-stage-stats-grid-header">Rules</div>
+                <div class="metabolite-id-stage-stats-grid-header">Active IDs</div>
+                <div class="metabolite-id-stage-stats-grid-header">Metabolites</div>
+                <div class="metabolite-id-stage-stats-grid-header">Cliques</div>
+                <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
+                <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
+                <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
+                <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
+                <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
+                <div class="metabolite-id-stage-stats-grid-header">Largest</div>
+                {% for stage in pipeline_stats.stages %}
+                {% set stage_summary = stage.overview_stats %}
+                {% set bins = stage_summary.bins %}
+                <div class="metabolite-id-stage-stats-grid-cell metabolite-id-stage-compare-cell">
+                    {% if not loop.first %}
+                    {% set previous_stage = pipeline_stats.stages[loop.index0 - 1] %}
+                    <a class="metabolite-id-stage-compare-button" href="{{ root_path }}/ramp-id-qa/stage-comparison?left_stage={{ previous_stage._key }}&right_stage={{ stage._key }}" target="_blank" rel="noopener noreferrer" title="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}" aria-label="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}">Compare</a>
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    <a href="{{ root_path }}/ramp-id-qa/stages/{{ stage._key }}" target="_blank" rel="noopener noreferrer">{{ stage.display_label }}</a>
+                    <div class="mono">{{ stage._key }}</div>
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ stage.rule_ids|length }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.active_identifier_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.clique_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.non_singleton_clique_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.singleton_identifier_count|default(0, true)) }}</div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    {{ "{:,}".format(stage_summary.active_edge_count|default(0, true)) }}
+                    {% if stage_summary.ignored_edge_count %}
+                    <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    {% if stage_summary.mw_validation_computed %}
+                    {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
+                    {% else %}
+                    <span title="This stage was materialized before MW validation was stored.">Not computed</span>
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    {% if not stage_summary.denylist_validation_computed %}
+                    <span title="This stage was materialized before denylist validation was stored.">Not computed</span>
+                    {% elif not stage_summary.denylist_rule_enabled %}
+                    <span title="The 'Ignore RaMP mapping denylist' rule is not enabled for this stage.">Rule not enabled</span>
+                    {% else %}
+                    {{ "{:,}".format(stage_summary.denylist_warning_count|default(0, true)) }}
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    <div class="metabolite-id-stage-size-bins">
+                        <span>2: {{ "{:,}".format(bins.size_2|default(0, true)) }}</span>
+                        <span>3-5: {{ "{:,}".format(bins.size_3_5|default(0, true)) }}</span>
+                        <span>6-10: {{ "{:,}".format(bins.size_6_10|default(0, true)) }}</span>
+                        <span>11-50: {{ "{:,}".format(bins.size_11_50|default(0, true)) }}</span>
+                        <span>51-100: {{ "{:,}".format(bins.size_51_100|default(0, true)) }}</span>
+                        <span>101+: {{ "{:,}".format(bins.size_101_plus|default(0, true)) }}</span>
+                    </div>
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    {% if stage_summary.largest_clique_sizes %}
+                    {{ stage_summary.largest_clique_sizes[:5]|join(", ") }}
+                    {% else %}
+                    {{ stage_summary.max_size|default(0, true) }}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+    {% else %}
+    <p>No materialized stages yet.</p>
+    {% endfor %}
+</section>

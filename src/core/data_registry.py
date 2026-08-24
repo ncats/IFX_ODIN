@@ -41,9 +41,8 @@ from src.registry.storage import (
     DEFAULT_REGISTRY_BUCKET,
     AwsAssumeRoleCredentials,
     AwsAssumeRoleStorage,
-    MinioStorage,
+    S3CompatibleStorage,
     RegistryCredentials,
-    load_minio_credentials,
     load_registry_credentials,
     s3_uri,
 )
@@ -144,7 +143,7 @@ class DataRegistry:
 
     def __init__(
         self,
-        storage: Optional[MinioStorage | AwsAssumeRoleStorage] = None,
+        storage: Optional[S3CompatibleStorage | AwsAssumeRoleStorage] = None,
         *,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
         resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
@@ -176,7 +175,7 @@ class DataRegistry:
         )
 
     @classmethod
-    def from_minio_credentials(
+    def from_s3_compatible_credentials(
         cls,
         credentials_path: str | Path,
         *,
@@ -186,8 +185,10 @@ class DataRegistry:
         read_timeout: int = 30,
     ) -> "DataRegistry":
         credentials_path = Path(credentials_path)
-        credentials = load_minio_credentials(credentials_path)
-        storage = MinioStorage(
+        credentials = load_registry_credentials(credentials_path)
+        if isinstance(credentials, AwsAssumeRoleCredentials):
+            raise ValueError("Expected direct S3-compatible credentials, not AWS assume-role credentials")
+        storage = S3CompatibleStorage(
             credentials=credentials,
             bucket=bucket,
             use_internal_url=use_internal_url,
@@ -233,7 +234,7 @@ class DataRegistry:
                 read_timeout=read_timeout,
             )
         else:
-            storage = MinioStorage(
+            storage = S3CompatibleStorage(
                 credentials=credentials,
                 bucket=bucket,
                 use_internal_url=use_internal_url,
@@ -717,7 +718,7 @@ class DataRegistry:
         Register missing or stale external source pointers.
 
         With dry_run=True, this returns the external registrations that would
-        be written/uploaded without mutating MinIO.
+        be written/uploaded without mutating object storage.
         """
         if not dry_run and dest is None:
             raise ValueError("dest is required when dry_run=False")
@@ -1738,7 +1739,7 @@ class DataRegistry:
 
     def _require_storage(self) -> None:
         if self.storage is None:
-            raise ValueError("This DataRegistry instance is not connected to MinIO storage")
+            raise ValueError("This DataRegistry instance is not connected to object storage")
 
     def _catalog_index(self) -> _RegistryIndex:
         if self._index is None:

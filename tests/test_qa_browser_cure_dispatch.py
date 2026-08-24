@@ -427,7 +427,7 @@ def test_registry_catalog_loader_caches_requested_categories(monkeypatch):
     def fake_with_registry_endpoint_fallback(operation, *, error_prefix):
         return operation(FakeRegistry())
 
-    monkeypatch.setattr(qa_app, "_minio_credentials", {"url": "example"})
+    monkeypatch.setattr(qa_app, "_registry_storage_credentials", {"url": "example"})
     monkeypatch.setattr(qa_app, "_with_registry_endpoint_fallback", fake_with_registry_endpoint_fallback)
     qa_app._registry_catalog_cache.update({
         "loaded_at": {},

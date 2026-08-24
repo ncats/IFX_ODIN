@@ -1,15 +1,450 @@
+import json
+
+import src.qa_browser.app as qa_app
 from src.qa_browser.app import (
     _build_harmonization_stage_denylist_validation,
     _build_harmonization_stage_mw_validation,
+    _build_harmonization_stage_cart_flags,
     _filter_identifier_support_for_rules,
+    _harmonization_denylist_review_from_stage,
+    _harmonization_stage_cart_warning_ranks,
+    _load_metabolite_edge_removal_curations,
+    _materialize_harmonization_stage,
+    _metabolite_edge_removal_pairs_from_curation_batch,
+    _annotate_harmonization_pipeline_curation_status,
+    _delete_previous_harmonization_pipeline_runs,
     _metabolite_mass_summary,
     _metabolite_member_mass_examples,
     _metabolite_member_mass_values,
+    _metabolite_identifier_source_linkout,
+    _metabolite_edge_decision_operation,
     _metabolite_mw_spread_percent,
+    _annotate_harmonization_pipeline_run_progress,
     _normalize_metabolite_rule_parameters,
     _remove_refmet_only_metabolites,
     _wikipathways_xref_only_ids_from_rows,
 )
+
+
+class _FakeCurationStorage:
+    bucket = "test-curations"
+
+    def __init__(self, objects):
+        self.objects = objects
+
+    def list_keys(self, prefix):
+        return [key for key in self.objects if key.startswith(prefix)]
+
+    def read_text(self, key):
+        return self.objects[key]
+
+
+def test_metabolite_curation_batch_extracts_symmetric_mapping_edge_removals():
+    pairs = _metabolite_edge_removal_pairs_from_curation_batch({
+        "format_version": 1,
+        "graph": "metabolite_harmonization",
+        "operations": [
+            {
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "hmdb:HMDB00001",
+                "end_id": "kegg:C00001",
+                "symmetric": True,
+            },
+            {
+                "action": "set_field",
+                "node_id": "HMDB:HMDB00001",
+                "field": "name",
+                "value": "ignored by this loader",
+            },
+        ],
+    })
+
+    assert pairs == {("HMDB:HMDB00001", "KEGG.COMPOUND:C00001")}
+
+
+def test_metabolite_edge_decision_operation_builds_normalized_retention():
+    assert _metabolite_edge_decision_operation(
+        "retain_edge",
+        "refmet:RM0039120",
+        "chebi:73585",
+        "Current records agree.",
+    ) == {
+        "action": "retain_edge",
+        "edge_type": "MetaboliteIdentifierMappingEdge",
+        "start_id": "CHEBI:73585",
+        "end_id": "REFMET:RM0039120",
+        "symmetric": True,
+        "note": "Current records agree.",
+    }
+
+
+def test_metabolite_identifier_source_linkouts_cover_common_databases():
+    assert _metabolite_identifier_source_linkout("HMDB:HMDB0000122") == {
+        "label": "HMDB",
+        "url": "https://hmdb.ca/metabolites/HMDB0000122",
+    }
+    assert _metabolite_identifier_source_linkout("KEGG.COMPOUND:C00031") == {
+        "label": "KEGG Compound",
+        "url": "https://www.kegg.jp/entry/C00031",
+    }
+    assert _metabolite_identifier_source_linkout("LIPIDMAPS:LMFA01010001") == {
+        "label": "LIPID MAPS",
+        "url": "https://www.lipidmaps.org/databases/lmsd/LMFA01010001",
+    }
+    assert _metabolite_identifier_source_linkout("REFMET:RM0108637") == {
+        "label": "RefMet",
+        "url": "https://www.metabolomicsworkbench.org/databases/refmet/refmet_details.php?REFMET_ID=RM0108637",
+    }
+    assert _metabolite_identifier_source_linkout("CHEBI:15956") == {
+        "label": "ChEBI",
+        "url": "https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI%3A15956",
+    }
+    assert _metabolite_identifier_source_linkout(
+        "InChIKey:BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
+    ) == {
+        "label": "PubChem InChIKey lookup",
+        "url": "https://pubchem.ncbi.nlm.nih.gov/compound/BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+    }
+    assert _metabolite_identifier_source_linkout("Unknown:123") is None
+
+
+def test_load_metabolite_curations_reads_json_batches_and_fingerprints_content():
+    prefix = "curations/v1/metabolite_harmonization/"
+    storage = _FakeCurationStorage({
+        f"{prefix}batch-a.json": json.dumps({
+            "format_version": 1,
+            "curation_batch_id": "batch-a",
+            "graph": "metabolite_harmonization",
+            "operations": [{
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "CHEBI:1",
+                "end_id": "HMDB:1",
+                "symmetric": True,
+            }],
+        }),
+        f"{prefix}README.txt": "not a batch",
+    })
+
+    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+
+    assert loaded["pairs"] == {("CHEBI:1", "HMDB:1")}
+    assert loaded["batch_ids"] == ["batch-a"]
+    assert len(loaded["fingerprint"]) == 64
+    assert loaded["prefix"] == f"s3://test-curations/{prefix}"
+
+
+def test_load_metabolite_curations_applies_edge_decisions_in_publication_order():
+    prefix = "curations/v1/metabolite_harmonization/"
+
+    def batch(batch_id, published_at, operations):
+        return json.dumps({
+            "format_version": 1,
+            "curation_batch_id": batch_id,
+            "graph": "metabolite_harmonization",
+            "published_at": published_at,
+            "operations": operations,
+        })
+
+    def decision(action, left, right):
+        return {
+            "action": action,
+            "edge_type": "MetaboliteIdentifierMappingEdge",
+            "start_id": left,
+            "end_id": right,
+            "symmetric": True,
+        }
+
+    storage = _FakeCurationStorage({
+        f"{prefix}z-base.json": batch("base", "2026-08-24T13:00:00Z", [
+            decision("remove_edge", "CHEBI:1", "HMDB:1"),
+            decision("remove_edge", "CHEBI:2", "HMDB:2"),
+        ]),
+        f"{prefix}a-retain.json": batch("retain", "2026-08-24T14:00:00Z", [
+            decision("retain_edge", "CHEBI:1", "HMDB:1"),
+            decision("retain_edge", "CHEBI:2", "HMDB:2"),
+        ]),
+        f"{prefix}m-remove-again.json": batch("remove-again", "2026-08-24T15:00:00Z", [
+            decision("remove_edge", "HMDB:2", "CHEBI:2"),
+        ]),
+    })
+
+    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+
+    assert loaded["pairs"] == {("CHEBI:2", "HMDB:2")}
+    assert loaded["pair_states"] == {
+        ("CHEBI:1", "HMDB:1"): "retain_edge",
+        ("CHEBI:2", "HMDB:2"): "remove_edge",
+    }
+    assert loaded["batch_ids"] == ["base", "retain", "remove-again"]
+
+
+def test_pipeline_curation_status_uses_three_run_button_states():
+    pipelines = [
+        {"_key": "new", "rule_ids": ["ignore_ramp_mapping_denylist"], "runs": []},
+        {
+            "_key": "stale",
+            "rule_ids": ["ignore_ramp_mapping_denylist"],
+            "runs": [{"_key": "old-run", "status": "complete", "curation_fingerprint": "old"}],
+        },
+        {
+            "_key": "current",
+            "rule_ids": ["ignore_ramp_mapping_denylist"],
+            "runs": [{"_key": "new-run", "status": "complete", "curation_fingerprint": "current"}],
+        },
+        {
+            "_key": "unaffected",
+            "rule_ids": ["remove_refmet_only_metabolites"],
+            "runs": [{"_key": "base-run", "status": "complete"}],
+        },
+    ]
+
+    _annotate_harmonization_pipeline_curation_status(pipelines, "current")
+
+    assert [pipeline["run_button_label"] for pipeline in pipelines] == [
+        "Run pipeline",
+        "Sync curations",
+        "Re-run pipeline",
+        "Re-run pipeline",
+    ]
+    assert pipelines[1]["needs_curation_sync"] is True
+    assert pipelines[2]["needs_curation_sync"] is False
+
+
+def test_pipeline_run_progress_marks_the_next_unfinished_step_and_active_job():
+    pipelines = [{
+        "_key": "pipeline-a",
+        "rules": [
+            {"id": "rule-1", "label": "First rule"},
+            {"id": "rule-2", "label": "Second rule"},
+            {"id": "rule-3", "label": "Third rule"},
+        ],
+        "runs": [{
+            "status": "running",
+            "stage_keys": ["baseline", "stage-1", "stage-2"],
+        }],
+    }]
+    jobs = [{
+        "action": "run_pipeline",
+        "pipeline_key": "pipeline-a",
+        "status": "running",
+    }]
+
+    _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
+
+    assert pipelines[0]["active_stage_index"] == 3
+    assert pipelines[0]["active_stage_text"] == "Step 3: Third rule"
+    assert jobs[0]["active_stage_text"] == "Step 3: Third rule"
+
+
+def test_pipeline_run_progress_distinguishes_baseline_and_finalization():
+    pipelines = [
+        {
+            "_key": "baseline",
+            "rules": [{"id": "rule-1", "label": "First rule"}],
+            "runs": [{"status": "running", "stage_keys": []}],
+        },
+        {
+            "_key": "finalizing",
+            "rules": [{"id": "rule-1", "label": "First rule"}],
+            "runs": [{"status": "running", "stage_keys": ["baseline", "stage-1"]}],
+        },
+    ]
+
+    _annotate_harmonization_pipeline_run_progress(pipelines, [])
+
+    assert pipelines[0]["active_stage_text"] == "Baseline"
+    assert pipelines[1]["active_stage_index"] is None
+    assert pipelines[1]["active_stage_text"] == "Finalizing snapshots and cleaning up"
+
+
+def test_interrupted_stage_materialization_is_not_marked_complete(monkeypatch):
+    class FakeCollection:
+        def __init__(self, fail_on_insert_many=False):
+            self.fail_on_insert_many = fail_on_insert_many
+            self.inserted = []
+            self.updates = []
+            self.insert_many_kwargs = []
+
+        def insert(self, document, **_kwargs):
+            self.inserted.append(dict(document))
+
+        def insert_many(self, documents, **kwargs):
+            self.insert_many_kwargs.append(kwargs)
+            if self.fail_on_insert_many:
+                raise ConnectionError("response interrupted")
+
+        def update(self, document):
+            self.updates.append(dict(document))
+
+    class FakeDb:
+        def __init__(self):
+            self.collections = {
+                qa_app._HARMONIZATION_STAGE_COLLECTION: FakeCollection(),
+                qa_app._HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION: FakeCollection(),
+                qa_app._HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION: FakeCollection(),
+                qa_app._HARMONIZED_METABOLITE_COLLECTION: FakeCollection(),
+                qa_app._HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION: FakeCollection(fail_on_insert_many=True),
+            }
+
+        def collection(self, name):
+            return self.collections[name]
+
+    db = FakeDb()
+    stage_doc = {
+        "_key": "stage-test",
+        "id": "HarmonizationStage:stage-test",
+        "name": "Test stage",
+        "status": "complete",
+    }
+    monkeypatch.setattr(qa_app, "_delete_harmonization_stage_artifacts", lambda *_args: None)
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_identifier_handles",
+        lambda _db, _ids: {"CHEBI:1": "MetaboliteIdentifier/chebi-1"},
+    )
+
+    try:
+        _materialize_harmonization_stage(
+            db,
+            "stage-test",
+            stage_doc,
+            {"CHEBI:1"},
+            [],
+            [["CHEBI:1"]],
+        )
+        assert False, "Expected the simulated interrupted response to propagate"
+    except ConnectionError as exc:
+        assert str(exc) == "response interrupted"
+
+    stage_collection = db.collection(qa_app._HARMONIZATION_STAGE_COLLECTION)
+    assert stage_collection.inserted[0]["status"] == "materializing"
+    assert stage_collection.updates[-1]["status"] == "failed"
+    assert stage_doc["status"] == "failed"
+    member_collection = db.collection(qa_app._HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
+    assert member_collection.insert_many_kwargs == [{"overwrite": True, "silent": True}]
+
+
+def test_successful_stage_materialization_marks_complete_only_after_writes(monkeypatch):
+    class FakeCollection:
+        def __init__(self):
+            self.inserted = []
+            self.updates = []
+
+        def insert(self, document, **_kwargs):
+            self.inserted.append(dict(document))
+
+        def insert_many(self, _documents, **_kwargs):
+            return None
+
+        def update(self, document):
+            self.updates.append(dict(document))
+
+    class FakeDb:
+        def __init__(self):
+            self.collections = {
+                name: FakeCollection()
+                for name in (
+                    qa_app._HARMONIZATION_STAGE_COLLECTION,
+                    qa_app._HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
+                    qa_app._HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
+                    qa_app._HARMONIZED_METABOLITE_COLLECTION,
+                    qa_app._HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
+                )
+            }
+
+        def collection(self, name):
+            return self.collections[name]
+
+    db = FakeDb()
+    stage_doc = {
+        "_key": "stage-test",
+        "id": "HarmonizationStage:stage-test",
+        "name": "Test stage",
+        "status": "complete",
+    }
+    monkeypatch.setattr(qa_app, "_delete_harmonization_stage_artifacts", lambda *_args: None)
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_identifier_handles",
+        lambda _db, _ids: {"CHEBI:1": "MetaboliteIdentifier/chebi-1"},
+    )
+
+    _materialize_harmonization_stage(
+        db,
+        "stage-test",
+        stage_doc,
+        {"CHEBI:1"},
+        [],
+        [["CHEBI:1"]],
+    )
+
+    stage_collection = db.collection(qa_app._HARMONIZATION_STAGE_COLLECTION)
+    assert stage_collection.inserted[0]["status"] == "materializing"
+    assert stage_collection.updates == [{
+        "_key": "stage-test",
+        "status": "complete",
+        "updated_at": stage_doc["updated_at"],
+        "materialization_completed_at": stage_doc["materialization_completed_at"],
+    }]
+    assert stage_doc["status"] == "complete"
+
+
+def test_replacing_pipeline_runs_deletes_only_unreferenced_stage_artifacts(monkeypatch):
+    class FakeAql:
+        def __init__(self):
+            self.deleted_run_keys = []
+
+        def execute(self, query, bind_vars=None, **_kwargs):
+            if "RETURN KEEP" in query:
+                return [
+                    {"_key": "old-run-a", "stage_keys": ["baseline", "old-curated"]},
+                    {"_key": "old-run-b", "stage_keys": ["baseline", "old-curated"]},
+                ]
+            self.deleted_run_keys = list((bind_vars or {}).get("run_keys") or [])
+            return []
+
+    class FakeStageCollection:
+        def __init__(self):
+            self.deleted = []
+
+        def has(self, _key):
+            return True
+
+        def delete(self, key):
+            self.deleted.append(key)
+
+    class FakeDb:
+        def __init__(self):
+            self.aql = FakeAql()
+            self.stages = FakeStageCollection()
+
+        def collection(self, _name):
+            return self.stages
+
+    db = FakeDb()
+    deleted_artifacts = []
+    monkeypatch.setattr(
+        qa_app,
+        "_stage_is_referenced_by_any_run",
+        lambda _db, stage_key: stage_key == "baseline",
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_delete_harmonization_stage_artifacts",
+        lambda _db, stage_key: deleted_artifacts.append(stage_key),
+    )
+
+    result = _delete_previous_harmonization_pipeline_runs(db, "pipeline", "current-run")
+
+    assert result == {
+        "deleted_run_keys": ["old-run-a", "old-run-b"],
+        "deleted_stage_keys": ["old-curated"],
+    }
+    assert db.aql.deleted_run_keys == ["old-run-a", "old-run-b"]
+    assert deleted_artifacts == ["old-curated"]
+    assert db.stages.deleted == ["old-curated"]
 
 
 def test_normalize_metabolite_rule_parameters_parses_default_and_submitted_textareas():
@@ -270,6 +705,86 @@ def test_build_harmonization_stage_mw_validation_flags_large_spreads():
     assert validation["warnings"][0]["comparison_ids"] == "CHEBI:1 HMDB:1"
 
 
+def test_build_harmonization_stage_cart_flags_marks_only_active_edges_in_mw_warning_cliques():
+    flags = _build_harmonization_stage_cart_flags(
+        operations=[
+            {
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "HMDB:1",
+                "end_id": "CHEBI:1",
+            },
+            {
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "CHEBI:2",
+                "end_id": "HMDB:2",
+            },
+            {
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "CHEBI:3",
+                "end_id": "HMDB:3",
+            },
+        ],
+        member_rank_by_id={
+            "CHEBI:1": 4,
+            "HMDB:1": 4,
+            "CHEBI:2": 7,
+            "HMDB:2": 7,
+            "CHEBI:3": 9,
+            "HMDB:3": 10,
+        },
+        active_edge_pairs={
+            ("CHEBI:1", "HMDB:1"),
+            ("CHEBI:3", "HMDB:3"),
+        },
+        warning_ranks={4, 7, 9},
+    )
+
+    assert flags == [{
+        "rank_by_size": 4,
+        "queued_edge_count": 1,
+        "edges": [{"action": "remove_edge", "start_id": "CHEBI:1", "end_id": "HMDB:1"}],
+    }]
+
+
+def test_build_harmonization_stage_cart_flags_marks_pending_denylist_retention():
+    flags = _build_harmonization_stage_cart_flags(
+        operations=[{
+            "action": "retain_edge",
+            "edge_type": "MetaboliteIdentifierMappingEdge",
+            "start_id": "REFMET:1",
+            "end_id": "CHEBI:1",
+        }],
+        member_rank_by_id={"CHEBI:1": 8, "REFMET:1": 8},
+        active_edge_pairs=set(),
+        warning_ranks={8},
+        denylist_warning_pairs={("CHEBI:1", "REFMET:1")},
+    )
+
+    assert flags == [{
+        "rank_by_size": 8,
+        "queued_edge_count": 1,
+        "edges": [{"action": "retain_edge", "start_id": "CHEBI:1", "end_id": "REFMET:1"}],
+    }]
+
+
+def test_harmonization_stage_cart_warning_ranks_include_mw_and_denylist_cliques():
+    stage = {
+        "validation": {
+            "mw_spread": {"computed": True, "warnings": [{"rank_by_size": 4}]},
+            "denylist_still_merged": {
+                "computed": True,
+                "rule_enabled": True,
+                "warnings": [{"rank_by_size": 9}, {"rank_by_size": 4}],
+            },
+        },
+    }
+
+    assert _harmonization_stage_cart_warning_ranks(stage) == {4, 9}
+
+
 def test_build_harmonization_stage_denylist_validation_flags_still_merged_pairs():
     validation = _build_harmonization_stage_denylist_validation(
         groups=[
@@ -322,6 +837,38 @@ def test_build_harmonization_stage_denylist_validation_groups_multiple_pairs_in_
     assert warning["size"] == 5
     warning_pairs = {(p["left_id"], p["right_id"]) for p in warning["pairs"]}
     assert warning_pairs == {("HMDB:1", "KEGG.COMPOUND:1"), ("HMDB:2", "KEGG.COMPOUND:1")}
+
+
+def test_denylist_review_selects_all_pairs_for_the_affected_clique():
+    stage = {
+        "_key": "stage-6",
+        "validation": {
+            "denylist_still_merged": {
+                "computed": True,
+                "warnings": [
+                    {
+                        "rank_by_size": 2,
+                        "pairs": [
+                            {"left_id": "HMDB:1", "right_id": "KEGG.COMPOUND:1"},
+                            {"left_id": "HMDB:2", "right_id": "KEGG.COMPOUND:1"},
+                        ],
+                    },
+                ],
+            },
+        },
+    }
+
+    review = _harmonization_denylist_review_from_stage(stage, 2)
+
+    assert review == {
+        "stage_key": "stage-6",
+        "rank_by_size": 2,
+        "pairs": [
+            {"left_id": "HMDB:1", "right_id": "KEGG.COMPOUND:1"},
+            {"left_id": "HMDB:2", "right_id": "KEGG.COMPOUND:1"},
+        ],
+    }
+    assert _harmonization_denylist_review_from_stage(stage, 3) is None
 
 
 def test_build_harmonization_stage_denylist_validation_ignores_separated_or_missing_pairs():

@@ -2785,7 +2785,7 @@ details summary:hover { color: var(--accent); }
 
 .metabolite-id-qa-page .ramp-id-header {
     background:
-        linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.9) 40%, rgba(255, 255, 255, 0.72) 68%, rgba(255, 255, 255, 0.5) 100%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.76) 40%, rgba(255, 255, 255, 0.32) 68%, rgba(255, 255, 255, 0.08) 100%),
         url("images/metabolite-harmonization-studio.png");
     background-position: center;
     background-repeat: no-repeat;
@@ -2986,6 +2986,266 @@ details summary:hover { color: var(--accent); }
     color: #b45309;
     font-size: 0.82em;
     margin-top: 0.2rem;
+}
+
+.metabolite-id-curation-sync-warning {
+    color: #b45309;
+    font-size: 0.82em;
+    margin-top: 0.35rem;
+    max-width: 32rem;
+}
+
+.metabolite-curation-cart {
+    --curation-cart-width: 360px;
+    height: 100vh;
+    position: fixed;
+    right: calc(-1 * var(--curation-cart-width));
+    top: 0;
+    transition: right 0.25s ease;
+    width: var(--curation-cart-width);
+    z-index: 310;
+}
+
+.metabolite-curation-cart.open {
+    right: 0;
+}
+
+.metabolite-curation-cart-drawer {
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.metabolite-curation-cart-header {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-shrink: 0;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+}
+
+.metabolite-curation-cart-header > div {
+    display: grid;
+}
+
+.metabolite-curation-cart-header span {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.metabolite-curation-cart-close {
+    background: none;
+    border: none;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0.1rem 0.3rem;
+}
+
+.metabolite-curation-cart-close:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+
+.metabolite-curation-cart-body {
+    display: grid;
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding: 0.85rem 1rem 1.25rem;
+}
+
+.metabolite-curation-cart-tab {
+    align-items: center;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px 0 0 6px;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 10px 4px;
+    position: absolute;
+    right: var(--curation-cart-width);
+    top: 34%;
+    transition: opacity 0.15s;
+    width: 28px;
+}
+
+.metabolite-curation-cart-tab:hover {
+    opacity: 0.85;
+}
+
+.metabolite-curation-cart-tab span {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    user-select: none;
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+}
+
+.metabolite-curation-cart-tab b {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    font-size: 10px;
+    min-width: 18px;
+    padding: 2px 4px;
+}
+
+.metabolite-curation-curator-field,
+.metabolite-curation-publish-form label {
+    display: grid;
+    font-size: 0.78rem;
+    gap: 0.2rem;
+}
+
+.metabolite-curation-curator-field input,
+.metabolite-curation-publish-form input,
+.metabolite-curation-publish-form textarea {
+    width: 100%;
+}
+
+.metabolite-curation-cart-status,
+.metabolite-curation-cart-empty {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    margin: 0;
+}
+
+.metabolite-curation-cart-items {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.metabolite-curation-cart-item {
+    align-items: center;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    padding: 0.65rem;
+}
+
+.metabolite-curation-cart-item > div {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.metabolite-curation-add.is-pending,
+.metabolite-curation-add.is-pending:disabled {
+    background: rgba(245, 158, 11, 0.16);
+    border-color: #f59e0b;
+    color: #d97706;
+    cursor: default;
+    opacity: 1;
+}
+
+.metabolite-id-graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.metabolite-id-graph-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.metabolite-id-graph-legend i {
+    display: inline-block;
+    width: 2rem;
+    border-top: 4px dashed currentColor;
+}
+
+.metabolite-id-graph-legend .is-denylisted {
+    color: #dc2626;
+}
+
+.metabolite-id-graph-legend .is-pending {
+    color: #f59e0b;
+}
+
+.metabolite-curation-action {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.65rem;
+}
+
+.metabolite-id-mw-cart-summary {
+    color: #fbbf24;
+    font-weight: 600;
+}
+
+.metabolite-id-mw-cart-summary[hidden],
+.metabolite-id-mw-cart-flag[hidden] {
+    display: none;
+}
+
+.metabolite-id-mw-cart-flag {
+    background: rgba(245, 158, 11, 0.16);
+    border: 1px solid #d97706;
+    border-radius: 999px;
+    color: #fbbf24;
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+}
+
+tr.has-cart-review > td {
+    background: rgba(245, 158, 11, 0.035);
+}
+
+.metabolite-id-mw-review-row[hidden],
+.metabolite-id-mw-review-row [data-mw-review-layout][hidden],
+.metabolite-id-mw-review-row [data-mw-review-loading][hidden] {
+    display: none;
+}
+
+.metabolite-id-mw-review-row > td {
+    background: var(--bg-card);
+    padding: 1rem;
+}
+
+.metabolite-id-mw-review-graph {
+    min-height: 34rem;
+}
+
+.metabolite-id-mw-review-loading {
+    color: var(--text-muted);
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.metabolite-id-mw-review-toggle {
+    margin-right: 0.45rem;
+}
+
+.metabolite-curation-publish-form {
+    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 0.65rem;
+    padding-top: 0.75rem;
+}
+
+@media (max-width: 800px) {
+    .metabolite-curation-cart {
+        --curation-cart-width: calc(100vw - 32px);
+    }
 }
 /* dark-first: metabolite warning uses dark palette */
 .metabolite-id-fingerprint-warning { color: #fbbf24; }

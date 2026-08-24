@@ -5,7 +5,7 @@
 Use Codex as the guided interface for registering source dataset snapshots.
 Codex should help with the judgment-heavy metadata questions, then use
 `DataRegistry` to download files, write `manifest.yaml`, verify checksums, and
-upload to MinIO.
+upload to AWS S3.
 
 ## Workflow
 
@@ -33,8 +33,8 @@ upload to MinIO.
    ```python
    from src.core.data_registry import DataRegistry
 
-   registry = DataRegistry.from_minio_credentials(
-       "src/use_cases/secrets/ifxdev_minio.yaml"
+   registry = DataRegistry.from_registry_credentials(
+       "src/use_cases/secrets/aws_ifx_registry.yaml"
    )
    registry.refresh_dataset(
        "ctd",
@@ -57,11 +57,11 @@ upload to MinIO.
    - local cache path
    - `snapshot_id`
    - manifest checksum
-   - MinIO prefix
+   - S3 prefix
    - any caveats about version/date inference
 
 7. Review uploaded snapshots and ask before cache cleanup.
-   - List the snapshots and MinIO prefixes that uploaded successfully.
+   - List the snapshots and S3 prefixes that uploaded successfully.
    - Ask the user before deleting temporary registry cache files.
    - Only purge temporary registry cache paths such as
      `/private/tmp/ifx-registry-cache/...`.
@@ -141,16 +141,16 @@ Registered source snapshots currently include:
 
 ```text
 snapshot_id: ctd:curated_genes_diseases:2026-05-28
-MinIO prefix: s3://ifx-registry/sources/ctd/curated_genes_diseases/2026-05-28/
+S3 prefix: s3://aws-ifx-registry/sources/ctd/curated_genes_diseases/2026-05-28/
 
 snapshot_id: hcop:human_all_sixteen_column:human_all_hcop_sixteen_column.txt.gz
-MinIO prefix: s3://ifx-registry/sources/hcop/human_all_sixteen_column/human_all_hcop_sixteen_column.txt.gz/
+S3 prefix: s3://aws-ifx-registry/sources/hcop/human_all_sixteen_column/human_all_hcop_sixteen_column.txt.gz/
 ```
 
 ## Boundaries
 
 Codex should not treat the local cache as authoritative. The cache is disposable
-and should be recreated from the MinIO snapshot when needed.
+and should be recreated from the S3 snapshot when needed.
 
 Do not create build manifests yet. This workflow only registers source dataset
 snapshots.
