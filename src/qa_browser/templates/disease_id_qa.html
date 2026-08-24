@@ -1246,18 +1246,30 @@ C4707237</textarea>
                                 const odinDate = (src.odin_download_date || src.download_date || "").slice(0, 10) || "not captured";
                                 const outRows = src.transform_output_rows ? Number(src.transform_output_rows).toLocaleString() : "not captured";
                                 const note = src.note ? `<span class="dash-source-tag-note">${escapeHtml(src.note)}</span>` : "";
+                                const sourceUrl = src.url || src.source_release_url || "";
+                                let urlLine = "";
+                                if (sourceUrl) {
+                                    try {
+                                        const hostname = new URL(sourceUrl).hostname;
+                                        urlLine = `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> ${escapeHtml(hostname)}</a>`;
+                                    } catch (_) {
+                                        urlLine = `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="dash-source-tag-link"><b>Source</b> link</a>`;
+                                    }
+                                }
                                 tag.innerHTML =
                                     `<span class="dash-source-tag-name">${escapeHtml(src.name)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(odinDate)}</span>` +
                                     `<span class="dash-source-tag-detail"><b>Transformed rows</b> ${escapeHtml(outRows)}</span>` +
+                                    urlLine +
                                     note;
                                 tag.title =
                                     `Source version: ${version}\n` +
                                     `Source release/date: ${sourceDate}\n` +
                                     `ODIN downloaded raw data: ${odinDate}\n` +
                                     `Transformed rows: ${outRows}` +
+                                    (sourceUrl ? `\nSource URL: ${sourceUrl}` : "") +
                                     (src.note ? `\n${src.note}` : "");
                                 tagContainer.appendChild(tag);
                             });
@@ -3164,6 +3176,47 @@ C4707237</textarea>
         });
     }
 
+    function renderSourceVersionChanges(rows) {
+        if (!rows || rows.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>Source Version Changes</h3>`;
+        html += `<p class="changes-note">These are the source snapshots captured by the disease pipeline catalog. NodeNorm is listed as validator/canonicalization context, not an asserting disease source.</p>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>Source</th><th>From</th><th>To</th><th>Status</th><th>Downloaded</th></tr></thead><tbody>`;
+        rows.forEach(row => {
+            const status = String(row.status || "").replace(/_/g, " ");
+            const cls = row.status === "unchanged" ? "" : ' class="change-emphasis"';
+            html += `<tr${cls}>`;
+            html += `<td>${escapeHtml(row.source || "")}</td>`;
+            html += `<td>${escapeHtml(row.old_version || "")}</td>`;
+            html += `<td>${escapeHtml(row.new_version || "")}</td>`;
+            html += `<td>${escapeHtml(status)}</td>`;
+            html += `<td>${escapeHtml(row.new_download_date || row.old_download_date || "")}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
+    function renderChangeDrivers(rows, note) {
+        if (!rows || rows.length === 0) return "";
+        let html = `<div class="changes-section expanded">`;
+        html += `<h3>Likely Change Drivers</h3>`;
+        if (note) html += `<p class="changes-note">${escapeHtml(note)}</p>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+        html += `<th>Source</th><th>Version Change</th><th>Observed Delta</th><th>Interpretation</th></tr></thead><tbody>`;
+        rows.forEach(row => {
+            html += `<tr>`;
+            html += `<td>${escapeHtml(row.source || "")}</td>`;
+            html += `<td>${escapeHtml(row.version_change || "")}</td>`;
+            html += `<td>${escapeHtml(row.observed_delta || "")}</td>`;
+            html += `<td>${escapeHtml(row.interpretation || "")}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+        return html;
+    }
+
     function renderDeltaTable(title, rows, keyName, labelName) {
         if (!rows || rows.length === 0) return "";
         const shown = rows.filter(r => Number(r.delta || 0) !== 0).slice(0, 40);
@@ -3217,6 +3270,8 @@ C4707237</textarea>
         html += `<div class="dash-card"><div class="dash-stat">${s.decisions_resolved.toLocaleString()}</div><div class="dash-label">Decisions Resolved</div></div>`;
         html += `</div>`;
 
+        html += renderSourceVersionChanges(diff.source_version_changes);
+        html += renderChangeDrivers(diff.change_drivers, diff.change_driver_note);
         html += renderDeltaTable(
             "Data Layers Changed",
             diff.data_layer_changes,
