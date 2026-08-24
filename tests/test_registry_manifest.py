@@ -26,7 +26,7 @@ from src.registry.storage import (
     DEFAULT_REGISTRY_BUCKET,
     AwsAssumeRoleCredentials,
     AwsAssumeRoleStorage,
-    MinioStorage,
+    S3CompatibleStorage,
     load_registry_credentials,
 )
 from src.registry.sources.ctd import extract_report_created
@@ -686,9 +686,9 @@ def test_verify_manifest_files_catches_modified_file(tmp_path: Path):
         verify_manifest_files(manifest_path)
 
 
-def test_minio_storage_defaults_to_registry_bucket():
-    credentials = DBCredentials(url="http://localhost:9000", user="user", password="password", schema="odin-data")
-    storage = MinioStorage(credentials)
+def test_s3_compatible_storage_defaults_to_registry_bucket():
+    credentials = DBCredentials(url="http://localhost:9000", user="user", password="password", schema="ifx-registry")
+    storage = S3CompatibleStorage(credentials)
 
     assert storage.bucket == DEFAULT_REGISTRY_BUCKET
 
@@ -2199,7 +2199,7 @@ def test_data_registry_local_instance_cannot_upload(tmp_path: Path):
     manifest_path.write_text("files: []\n", encoding="utf-8")
     registry = DataRegistry.local()
 
-    with pytest.raises(ValueError, match="not connected to MinIO"):
+    with pytest.raises(ValueError, match="not connected to object storage"):
         registry.upload_snapshot(manifest_path)
 
 

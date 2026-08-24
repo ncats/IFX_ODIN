@@ -26,6 +26,8 @@
     <div class="registry-update-error">{{ error }}</div>
     {% endif %}
 
+    {% include "metabolite_curation_cart.html" %}
+
     {% if stats %}
     <section class="ramp-id-overview metabolite-id-overview">
         <div>
@@ -59,6 +61,7 @@
             Flags harmonized metabolites where the available molecular weight or monoisotopic mass values differ by more
             than {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}%.
         </p>
+        <p class="metabolite-id-mw-cart-summary" data-mw-cart-summary hidden></p>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -68,12 +71,13 @@
                     <th>Representative</th>
                     <th>MW Range</th>
                     <th>Examples</th>
+                    <th>Cart Review</th>
                     <th>Review</th>
                 </tr>
                 </thead>
                 <tbody>
                 {% for warning in stats.mw_validation.warnings %}
-                <tr>
+                <tr data-mw-warning-rank="{{ warning.rank_by_size }}">
                     <td>{{ "%.1f"|format(warning.spread_percent) }}%</td>
                     <td>{{ "{:,}".format(warning.size) }}</td>
                     <td class="mono">{{ warning.representative_id }}</td>
@@ -85,15 +89,35 @@
                         {% endfor %}
                         </div>
                     </td>
+                    <td><span class="metabolite-id-mw-cart-flag" data-mw-cart-flag hidden></span></td>
                     <td>
+                        <button type="button" class="btn metabolite-id-mw-review-toggle"
+                                data-mw-review-toggle
+                                data-mw-review-rank="{{ warning.rank_by_size }}"
+                                data-mw-comparison-ids="{{ warning.comparison_ids }}">
+                            Review here
+                        </button>
                         <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
-                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&snapshots={{ stats.stage._key|urlencode }}">
-                            Open
+                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&stages={{ stats.stage._key|urlencode }}">
+                            Open full page
                         </a>
                     </td>
                 </tr>
+                <tr class="metabolite-id-mw-review-row" data-mw-review-panel-rank="{{ warning.rank_by_size }}" hidden>
+                    <td colspan="7">
+                        <div class="metabolite-id-mw-review-loading" data-mw-review-loading>Loading clique graph…</div>
+                        <div class="metabolite-id-component-layout" data-mw-review-layout hidden>
+                            <div class="metabolite-id-cy metabolite-id-mw-review-graph" data-mw-review-graph></div>
+                            <aside class="metabolite-id-graph-detail">
+                                <h3 data-mw-review-title>MW warning group</h3>
+                                <p data-mw-review-subtitle>Select an edge to curate</p>
+                                <div data-mw-review-details class="ramp-id-details"></div>
+                            </aside>
+                        </div>
+                    </td>
+                </tr>
                 {% else %}
-                <tr><td colspan="6">No MW spread warnings for this stage.</td></tr>
+                <tr><td colspan="7">No MW spread warnings for this stage.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -134,12 +158,13 @@
                     <th>Denylisted Pairs In This Clique</th>
                     <th>Size</th>
                     <th>Members</th>
+                    <th>Cart Review</th>
                     <th>Review</th>
                 </tr>
                 </thead>
                 <tbody>
                 {% for warning in stats.denylist_validation.warnings %}
-                <tr>
+                <tr data-denylist-warning-rank="{{ warning.rank_by_size }}">
                     <td>
                         <div class="metabolite-id-member-list">
                         {% for pair in warning.pairs %}
@@ -155,15 +180,21 @@
                         {% endfor %}
                         </div>
                     </td>
+                    <td><span class="metabolite-id-mw-cart-flag" data-denylist-cart-flag hidden></span></td>
                     <td>
+                        {% if warning.pairs %}
+                        {% set review_ids = warning.pairs[0].left_id ~ " " ~ warning.pairs[0].right_id %}
+                        {% else %}
+                        {% set review_ids = warning.sample_member_ids[0] %}
+                        {% endif %}
                         <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
-                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&snapshots={{ stats.stage._key|urlencode }}">
+                           href="{{ root_path }}/ramp-id-qa?id={{ review_ids|urlencode }}&stages={{ stats.stage._key|urlencode }}&denylist_rank={{ warning.rank_by_size }}">
                             Open
                         </a>
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="4">No denylisted pairs are still merged in this stage.</td></tr>
+                <tr><td colspan="5">No denylisted pairs are still merged in this stage.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -269,4 +300,360 @@
     </section>
     {% endif %}
 </div>
+
+<script src="{{ root_path }}/static/metabolite_curation_cart.js"></script>
+{% if stats and (stats.mw_validation.computed or stats.denylist_validation.computed) %}
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script>
+(function () {
+    const rootPath = {{ root_path|tojson }};
+    const stageKey = {{ stage_key|tojson }};
+    const graphCache = new Map();
+    let activePanel = null;
+    let activeButton = null;
+    let activeCy = null;
+    let pendingRemovalKeys = new Set();
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    }
+
+    function distinctValues(values) {
+        const seen = new Set();
+        return (values || []).filter((value) => {
+            const text = String(value ?? "").trim();
+            if (!text || seen.has(text)) return false;
+            seen.add(text);
+            return true;
+        });
+    }
+
+    function formatInlineList(values, maxItems = 6) {
+        const distinct = distinctValues(values);
+        if (!distinct.length) return "";
+        const shown = distinct.slice(0, maxItems)
+            .map((value) => `<code>${escapeHtml(value)}</code>`)
+            .join(", ");
+        return distinct.length > maxItems
+            ? `${shown} <span class="subtle">+${distinct.length - maxItems} more</span>`
+            : shown;
+    }
+
+    function detailRow(label, value, options = {}) {
+        if (value === undefined || value === null || value === "") return "";
+        return `<div><strong>${escapeHtml(label)}</strong><span>${options.html ? value : escapeHtml(value)}</span></div>`;
+    }
+
+    function renderableNodeStructure(data) {
+        const smiles = distinctValues(data.smiles || []);
+        return smiles[0] || data.chemical_entity?.smiles || "";
+    }
+
+    function graphElementsWithStructureImages(elements) {
+        return (elements || []).map((element) => {
+            if (!element.data || element.data.source || element.data.target) return element;
+            const structure = renderableNodeStructure(element.data);
+            if (!structure) return element;
+            return {
+                ...element,
+                classes: `${element.classes || ""} has-structure`.trim(),
+                data: {
+                    ...element.data,
+                    structure_image: `https://opendata.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(structure)}&size=220`,
+                },
+            };
+        });
+    }
+
+    function renderChemPropTable(records) {
+        if (!records || !records.length) return "";
+        const rows = records.map((prop) => `
+            <tr>
+                <td>${escapeHtml(prop.source || "")}</td>
+                <td><code>${escapeHtml(prop.source_id || "")}</code></td>
+                <td>${escapeHtml(prop.formula || "")}</td>
+                <td>${escapeHtml(prop.mw || "")}</td>
+                <td>${escapeHtml(prop.monoisotopic_mass || "")}</td>
+            </tr>
+        `).join("");
+        return `
+            <section class="metabolite-id-detail-section">
+                <h4>Chemical Property Records</h4>
+                <div class="metabolite-id-detail-table-wrap">
+                    <table class="ramp-id-table">
+                        <thead><tr><th>Source</th><th>Source ID</th><th>Formula</th><th>MW</th><th>Mono Mass</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </section>
+        `;
+    }
+
+    function renderStructureData(data) {
+        const entity = data.chemical_entity || {};
+        const structure = renderableNodeStructure(data);
+        const image = structure ? `
+            <div class="metabolite-id-structure-render">
+                <img src="https://opendata.ncats.nih.gov/renderer/render?structure=${encodeURIComponent(structure)}&size=320"
+                     alt="Chemical structure rendering">
+            </div>
+        ` : "";
+        const rows = [
+            detailRow("SMILES", formatInlineList(data.smiles || [], 3), {html: true}),
+            detailRow("InChIKey", formatInlineList(data.inchi_keys || [], 4), {html: true}),
+            detailRow("ChEBI SMILES", entity.smiles ? `<code>${escapeHtml(entity.smiles)}</code>` : "", {html: true}),
+            detailRow("ChEBI InChIKey", entity.inchi_key ? `<code>${escapeHtml(entity.inchi_key)}</code>` : "", {html: true}),
+        ].filter(Boolean).join("");
+        if (!image && !rows) return "";
+        return `<section class="metabolite-id-detail-section"><h4>Structure Data</h4>${image}<div class="ramp-id-details">${rows}</div></section>`;
+    }
+
+    function edgeKey(startId, endId) {
+        return [String(startId || ""), String(endId || "")].sort().join("\u0000");
+    }
+
+    function updatePendingRemovalVisuals() {
+        if (activeCy) {
+            activeCy.edges(".metabolite-equivalence-edge").forEach((edge) => {
+                edge.toggleClass("pending-curation-removal", pendingRemovalKeys.has(edgeKey(
+                    edge.data("start_id"), edge.data("end_id"),
+                )));
+            });
+        }
+        document.querySelectorAll(".metabolite-curation-add").forEach((button) => {
+            const pending = pendingRemovalKeys.has(edgeKey(
+                button.dataset.curationStartId, button.dataset.curationEndId,
+            ));
+            button.disabled = pending;
+            button.classList.toggle("is-pending", pending);
+            button.textContent = pending ? "Pending removal" : "Add curation: Remove this Edge";
+        });
+    }
+
+    function acceptCartOperations(operations) {
+        pendingRemovalKeys = new Set(
+            (operations || [])
+                .filter((operation) => operation.action === "remove_edge")
+                .map((operation) => edgeKey(operation.start_id, operation.end_id)),
+        );
+        updatePendingRemovalVisuals();
+    }
+
+    function cartFlagUrl() {
+        const curator = localStorage.getItem("metaboliteHarmonizationCurator") || "";
+        const params = new URLSearchParams();
+        if (curator) {
+            params.set("curator", curator);
+            params.set("curator_name", curator);
+        }
+        const suffix = params.toString() ? `?${params}` : "";
+        return `${rootPath}/ramp-id-qa/api/stages/${encodeURIComponent(stageKey)}/curation-cart-flags${suffix}`;
+    }
+
+    function loadCartFlags() {
+        document.querySelectorAll("[data-mw-warning-rank], [data-denylist-warning-rank]").forEach((row) => {
+            row.classList.remove("has-cart-review");
+            const badge = row.querySelector("[data-mw-cart-flag], [data-denylist-cart-flag]");
+            if (badge) badge.hidden = true;
+        });
+        const summary = document.querySelector("[data-mw-cart-summary]");
+        if (summary) summary.hidden = true;
+        return fetch(cartFlagUrl())
+        .then((response) => response.ok ? response.json() : null)
+        .then((payload) => {
+            if (!payload) return;
+            const flags = new Map((payload.flags || []).map((flag) => [String(flag.rank_by_size), flag]));
+            let displayedFlagCount = 0;
+            document.querySelectorAll("[data-mw-warning-rank]").forEach((row) => {
+                const flag = flags.get(row.dataset.mwWarningRank);
+                if (!flag) return;
+                displayedFlagCount += 1;
+                const badge = row.querySelector("[data-mw-cart-flag]");
+                const edgeCount = Number(flag.queued_edge_count || 0);
+                badge.textContent = `Reviewed: ${edgeCount} pending curation${edgeCount === 1 ? "" : "s"}`;
+                badge.title = (flag.edges || [])
+                    .map((edge) => `${edge.action === "retain_edge" ? "Retain" : "Remove"}: ${edge.start_id} ↔ ${edge.end_id}`)
+                    .join("\n");
+                badge.hidden = false;
+                row.classList.add("has-cart-review");
+            });
+            document.querySelectorAll("[data-denylist-warning-rank]").forEach((row) => {
+                const flag = flags.get(row.dataset.denylistWarningRank);
+                if (!flag) return;
+                const badge = row.querySelector("[data-denylist-cart-flag]");
+                const edgeCount = Number(flag.queued_edge_count || 0);
+                badge.textContent = `Reviewed: ${edgeCount} pending curation${edgeCount === 1 ? "" : "s"}`;
+                badge.title = (flag.edges || [])
+                    .map((edge) => `${edge.action === "retain_edge" ? "Retain" : "Remove"}: ${edge.start_id} ↔ ${edge.end_id}`)
+                    .join("\n");
+                badge.hidden = false;
+                row.classList.add("has-cart-review");
+            });
+            if (summary && displayedFlagCount) {
+                summary.textContent = `${displayedFlagCount} displayed MW warning${displayedFlagCount === 1 ? "" : "s"} have curation edges queued in your current cart.`;
+                summary.hidden = false;
+            }
+        })
+        .catch(() => {});
+    }
+
+    function closeReview() {
+        if (activeCy) activeCy.destroy();
+        if (activePanel) activePanel.hidden = true;
+        if (activeButton) activeButton.textContent = "Review here";
+        activeCy = null;
+        activePanel = null;
+        activeButton = null;
+    }
+
+    function renderDetails(panel, data, isEdge) {
+        const title = panel.querySelector("[data-mw-review-title]");
+        const subtitle = panel.querySelector("[data-mw-review-subtitle]");
+        const details = panel.querySelector("[data-mw-review-details]");
+        title.textContent = data.label || data.node_label || data.id || "Selection";
+        subtitle.textContent = isEdge ? `${data.start_id || data.source} → ${data.end_id || data.target}` : (data.kind || data.prefix || "Metabolite identifier");
+        if (isEdge) {
+            const values = ["kind", "source", "target", "label", "sources", "source_count", "detail_count", "snapshot", "snapshot_key"]
+                .map((key) => detailRow(key, data[key]))
+                .filter(Boolean)
+                .join("");
+            details.innerHTML = `
+                <section class="metabolite-curation-action"><button type="button" class="btn metabolite-curation-add"
+                    data-curation-start-id="${escapeHtml(data.start_id || data.source)}"
+                    data-curation-end-id="${escapeHtml(data.end_id || data.target)}">Add curation: Remove this Edge</button></section>
+                ${values}
+            `;
+            updatePendingRemovalVisuals();
+            return;
+        }
+        const entity = data.chemical_entity || {};
+        const sourceLink = data.source_url
+            ? `<a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(data.source_label || "source record")}</a>`
+            : "";
+        details.innerHTML = [
+            `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${[
+                detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, {html: true}),
+                detailRow("Source", sourceLink, {html: true}),
+                detailRow("Prefix", data.prefix),
+                detailRow("Names", formatInlineList(data.names || [], 6), {html: true}),
+                detailRow("Name count", data.name_count),
+                detailRow("Synonym count", data.synonym_count),
+            ].filter(Boolean).join("")}</div></section>`,
+            `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${[
+                detailRow("MW", data.mass_summary ? `min ${data.mass_summary.min} · median ${data.mass_summary.median} · max ${data.mass_summary.max} (${data.mass_summary.count})` : ""),
+                detailRow("Formula", formatInlineList(data.formulas || [], 6), {html: true}),
+                detailRow("Chem prop records", data.chem_prop_count),
+                detailRow("ChEBI entity", entity.id ? `<code>${escapeHtml(entity.id)}</code>${entity.name ? ` · ${escapeHtml(entity.name)}` : ""}` : "", {html: true}),
+                detailRow("ChEBI mass", entity.mass),
+                detailRow("ChEBI mono mass", entity.monoisotopic_mass),
+                detailRow("ChEBI formula", entity.formula ? `<code>${escapeHtml(entity.formula)}</code>` : "", {html: true}),
+            ].filter(Boolean).join("")}</div></section>`,
+            renderStructureData(data),
+            renderChemPropTable(data.chem_props || []),
+        ].filter(Boolean).join("");
+    }
+
+    function renderCliqueGraph(panel, clique) {
+        const loading = panel.querySelector("[data-mw-review-loading]");
+        const layout = panel.querySelector("[data-mw-review-layout]");
+        const graph = panel.querySelector("[data-mw-review-graph]");
+        loading.hidden = true;
+        layout.hidden = false;
+        activeCy = cytoscape({
+            container: graph,
+            elements: graphElementsWithStructureImages(clique.elements || []),
+            layout: {name: "cose", animate: false, fit: true, padding: 30},
+            style: [
+                {selector: "node", style: {
+                    "label": "data(node_label)", "font-size": 9, "font-weight": 700,
+                    "text-wrap": "wrap", "text-max-width": 62, "text-halign": "center", "text-valign": "bottom",
+                    "text-margin-y": -5, "text-background-color": "#ffffff", "text-background-opacity": 0.88,
+                    "text-background-padding": 2, "background-color": "#64748b", "border-color": "#334155",
+                    "border-width": 1, "shape": "ellipse", "width": 82, "height": 82,
+                }},
+                {selector: ".prefix-chebi", style: {"background-color": "#2563eb"}},
+                {selector: ".prefix-hmdb", style: {"background-color": "#059669"}},
+                {selector: ".prefix-pubchem-compound", style: {"background-color": "#9333ea"}},
+                {selector: ".prefix-kegg-compound", style: {"background-color": "#d97706"}},
+                {selector: ".prefix-refmet", style: {"background-color": "#dc2626"}},
+                {selector: ".has-structure", style: {
+                    "background-color": "#ffffff", "background-image": "data(structure_image)",
+                    "background-fit": "contain", "background-height": "76%", "background-width": "76%",
+                    "background-clip": "node", "background-image-opacity": 1,
+                    "background-image-crossorigin": "null",
+                }},
+                {selector: ".selected-query", style: {
+                    "border-color": "#f59e0b", "border-width": 5, "width": 82, "height": 82,
+                }},
+                {selector: "edge", style: {
+                    "curve-style": "bezier", "line-color": "#2563eb", "width": 2.5,
+                    "target-arrow-shape": "none", "label": "data(label)", "font-size": 8,
+                    "text-rotation": "autorotate", "opacity": 0.85,
+                }},
+                {selector: ".pending-curation-removal", style: {
+                    "line-color": "#f59e0b", "line-style": "dashed", "width": 6,
+                    "opacity": 1, "z-index": 20,
+                }},
+                {selector: ":selected", style: {"border-width": 5, "border-color": "#f59e0b"}},
+            ],
+        });
+        activeCy.on("tap", "node", (event) => renderDetails(panel, event.target.data(), false));
+        activeCy.on("tap", "edge", (event) => renderDetails(panel, event.target.data(), true));
+        activeCy.ready(() => {
+            activeCy.fit(undefined, 30);
+            updatePendingRemovalVisuals();
+        });
+    }
+
+    async function openReview(button) {
+        const rank = button.dataset.mwReviewRank;
+        const panel = document.querySelector(`[data-mw-review-panel-rank="${CSS.escape(rank)}"]`);
+        if (activePanel === panel) {
+            closeReview();
+            return;
+        }
+        closeReview();
+        activePanel = panel;
+        activeButton = button;
+        panel.hidden = false;
+        button.textContent = "Hide graph";
+        panel.querySelector("[data-mw-review-loading]").hidden = false;
+        panel.querySelector("[data-mw-review-layout]").hidden = true;
+        try {
+            let clique = graphCache.get(rank);
+            if (!clique) {
+                const params = new URLSearchParams({
+                    id: button.dataset.mwComparisonIds,
+                    stages: stageKey,
+                });
+                const response = await fetch(`${rootPath}/ramp-id-qa/api/metabolite?${params}`);
+                if (!response.ok) throw new Error(`Could not load clique graph (${response.status})`);
+                const payload = await response.json();
+                const section = (payload.snapshot_graphs || []).find((item) => item.snapshot_key === stageKey);
+                clique = (section?.cliques || []).find((item) => String(item.clique_rank_by_size) === rank);
+                if (!clique) throw new Error("Could not find this warning clique in the snapshot response.");
+                graphCache.set(rank, clique);
+            }
+            if (activePanel === panel) renderCliqueGraph(panel, clique);
+        } catch (error) {
+            panel.querySelector("[data-mw-review-loading]").textContent = error.message;
+        }
+    }
+
+    document.querySelectorAll("[data-mw-review-toggle]").forEach((button) => {
+        button.addEventListener("click", () => openReview(button));
+    });
+    document.addEventListener("metabolite-curation-cart:changed", (event) => {
+        acceptCartOperations(event.detail?.operations || []);
+        loadCartFlags();
+    });
+    acceptCartOperations(window.metaboliteCurationCartOperations || []);
+    loadCartFlags();
+})();
+</script>
+{% endif %}
 {% endblock %}

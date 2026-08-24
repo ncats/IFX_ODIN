@@ -10,7 +10,7 @@
 <div class="hero registry-hero">
     <div class="hero-text">
         <h1 class="hero-title">IFX Registry</h1>
-        <p class="hero-subtitle">Versioned data source manifests stored in MinIO for reproducible ETL inputs.</p>
+        <p class="hero-subtitle">Versioned data source manifests stored in S3 for reproducible ETL inputs.</p>
     </div>
 </div>
 
@@ -170,7 +170,7 @@
         {% endfor %}
     {% else %}
     <div class="card">
-        <p>No source snapshots found in MinIO.</p>
+        <p>No source snapshots found in object storage.</p>
     </div>
     {% endif %}
 
@@ -306,7 +306,7 @@
         {% endfor %}
     {% else %}
     <div class="card">
-        <p>No derived artifacts found in MinIO.</p>
+        <p>No derived artifacts found in object storage.</p>
     </div>
     {% endif %}
     {% endif %}
@@ -391,7 +391,7 @@
     </div>
     {% else %}
     <div class="card">
-        <p>No external source registrations found in MinIO.</p>
+        <p>No external source registrations found in object storage.</p>
     </div>
     {% endif %}
     {% endif %}

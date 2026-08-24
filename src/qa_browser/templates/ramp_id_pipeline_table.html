@@ -5,28 +5,6 @@
         <h2>Harmonization Pipelines</h2>
         <p>{{ overview.pipelines|length }} recent pipeline{{ "" if overview.pipelines|length == 1 else "s" }}{% if overview.active_job_count %} · {{ overview.active_job_count }} active job{{ "" if overview.active_job_count == 1 else "s" }}{% endif %}</p>
     </div>
-    {% if overview.active_jobs %}
-    <div class="metabolite-id-active-jobs" aria-live="polite">
-        {% for job in overview.active_jobs %}
-        <div class="metabolite-id-active-job metabolite-id-active-job-{{ job.action }}">
-            <span class="qa-loading-spinner" aria-hidden="true"></span>
-            <div>
-                <strong>
-                    {% if job.action == "delete_pipeline" %}
-                    Deleting pipeline
-                    {% elif job.action == "run_pipeline" %}
-                    Running pipeline
-                    {% else %}
-                    Harmonization job
-                    {% endif %}
-                </strong>
-                <span>{{ job.label }}</span>
-                {% if job.started_at %}<small>Started {{ job.started_at }}</small>{% else %}<small>Queued</small>{% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
     <div class="table-wrap">
         <table>
             <thead>
@@ -62,11 +40,22 @@
                         ⚠ Code version mismatch — stages should be recomputed
                     </div>
                     {% endif %}
+                    {% if pipeline.needs_curation_sync %}
+                    <div class="metabolite-id-curation-sync-warning">
+                        Curation batches changed. Sync to replace affected snapshots; earlier unaffected snapshots will be reused.
+                    </div>
+                    {% endif %}
                 </td>
                 <td>
                     {% if pipeline.rules %}
                     {% for rule in pipeline.rules %}
-                    <div>{{ loop.index }}. {{ rule.label }}</div>
+                    <div{% if pipeline.active_stage_index == loop.index %} aria-current="step"{% endif %}>
+                        {% if pipeline.active_stage_index == loop.index %}
+                        <strong>{{ loop.index }}. {{ rule.label }} — running</strong>
+                        {% else %}
+                        {{ loop.index }}. {{ rule.label }}
+                        {% endif %}
+                    </div>
                     {% endfor %}
                     {% else %}
                     <span>Baseline only</span>
@@ -88,6 +77,8 @@
                             <span>
                                 <strong>{{ job.status }}</strong>
                                 {{ job.label }}
+                                {% if job.active_stage_text %}<span>Working on {{ job.active_stage_text }}</span>{% endif %}
+                                {% if job.started_at and job.status in ["queued", "running"] %}<span>Started {{ job.started_at }}</span>{% endif %}
                                 {% if job.message %}<span>{{ job.message }}</span>{% endif %}
                                 {% if job.error %}<span>{{ job.error }}</span>{% endif %}
                             </span>
@@ -102,11 +93,9 @@
                         <button type="button" class="btn btn-secondary" disabled>Deleting...</button>
                         {% elif run_active %}
                         <button type="button" class="btn btn-primary" disabled>Running...</button>
-                        {% elif latest_run and latest_run.status == "complete" %}
-                        <span class="metabolite-id-pipeline-run-status">Run complete</span>
                         {% else %}
                         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/run">
-                            <button type="submit" class="btn btn-primary">Run</button>
+                            <button type="submit" class="btn btn-primary">{{ pipeline.run_button_label }}</button>
                         </form>
                         {% endif %}
                         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/delete" onsubmit="return window.confirm('Delete this pipeline and any stages no other pipeline uses?');">
@@ -122,3 +111,6 @@
         </table>
     </div>
 </section>
+{% if stage_stats_oob %}
+{% include "ramp_id_stage_stats_table.html" %}
+{% endif %}

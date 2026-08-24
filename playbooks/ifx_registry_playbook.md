@@ -2,11 +2,11 @@
 
 Use this workflow when adding, refreshing, browsing, or consuming datasets in the IFX Data Source Registry.
 
-The registry stores versioned source snapshots and manifests in MinIO. It is not just a GUI over a bucket: it is the shared contract for reproducible ETL inputs, local build caches, future derived artifacts, and resolver artifacts.
+The registry stores versioned source snapshots and manifests in AWS S3. It is not just a GUI over a bucket: it is the shared contract for reproducible ETL inputs, local build caches, future derived artifacts, and resolver artifacts.
 
 ## Core Ideas
 
-- MinIO stores immutable files and manifests.
+- AWS S3 stores immutable files and manifests.
 - Source snapshots live under `sources/<source>/<dataset>/<version>/`.
 - External source registrations live under `external/<source>/<dataset>/<version>/`.
 - Derived artifacts live under `derived/<source>/<dataset>/<version>/`.
@@ -113,7 +113,7 @@ Examples:
 6. Add the dataset and fetcher metadata to `src/registry/registry_sources.yaml`.
 7. Use `DataRegistry.fetch_dataset(...)` to download to a local cache under `/private/tmp/ifx-registry-cache` or another disposable cache.
 8. Use `DataRegistry.upload_snapshot(...)`, `DataRegistry.refresh_dataset(...)`, or `DataRegistry.sync_latest_snapshots(...)` to upload files and manifests to `s3://ifx-registry/sources/...`.
-9. Verify the MinIO catalog and QA Browser entry.
+9. Verify the S3-backed registry catalog and QA Browser entry.
 10. Ask the user before purging local cache files.
 
 Do not purge anything under `input_files` unless explicitly instructed.
@@ -144,7 +144,7 @@ TINX is the current example: the upstream TSVs are stored as `.tsv.gz`.
 
 ## Local Cache
 
-Registry workflows should download to a local cache first unless direct-to-MinIO streaming is explicitly implemented for that source.
+Registry workflows should download to a local cache first unless direct-to-S3 streaming is explicitly implemented for that source.
 
 Cache rules:
 
@@ -153,7 +153,7 @@ Cache rules:
 - It should preserve enough local files to inspect failures.
 - Ask the user before purging.
 
-For very large sources, a future direct-to-MinIO multipart mode is acceptable if it still computes size and checksum for the manifest.
+For very large sources, a future direct-to-S3 multipart mode is acceptable if it still computes size and checksum for the manifest.
 
 ## QA Browser
 
@@ -170,13 +170,13 @@ Current expected language:
   - dataset count
   - total size
 
-Avoid hard-coded snapshot lists in the UI. Snapshot data should come from MinIO manifests.
+Avoid hard-coded snapshot lists in the UI. Snapshot data should come from S3 manifests.
 
 ## External Database Sources
 
 Some sources are queried from external databases rather than downloaded files, for example ChEMBL or DrugCentral.
 
-For these, register metadata rather than pretending MinIO owns the raw source:
+For these, register metadata rather than pretending the registry owns the raw source:
 
 - source/database name
 - host/schema/table set, if appropriate
@@ -200,14 +200,14 @@ sources:
           credentials: src/use_cases/secrets/chembl_credentials.yaml
 ```
 
-The external source class probes source-specific version metadata and returns an `ExternalSourceRegistration`. `DataRegistry` writes the manifest and uploads it to MinIO.
+The external source class probes source-specific version metadata and returns an `ExternalSourceRegistration`. `DataRegistry` writes the manifest and uploads it to AWS S3.
 
 Check configured external sources:
 
 ```python
 from src.core.data_registry import DataRegistry
 
-registry = DataRegistry.from_minio_credentials("src/use_cases/secrets/ifxdev_minio.yaml")
+registry = DataRegistry.from_registry_credentials("src/use_cases/secrets/aws_ifx_registry.yaml")
 statuses = registry.check_external_registrations()
 ```
 
@@ -264,7 +264,7 @@ Derived artifacts must declare exact source snapshot dependencies.
 
 ## Resolver Artifacts
 
-Resolver SQLite artifacts can be stored in MinIO later.
+Resolver SQLite artifacts can be stored in the S3 registry.
 
 Treat them as resolver or derived snapshots with:
 
@@ -280,7 +280,7 @@ This lets ETL builds pin both source data and resolver state.
 
 Before considering a source snapshot registered:
 
-- Manifest exists in MinIO.
+- Manifest exists in AWS S3.
 - All listed files have `size_bytes`, `sha256`, and `storage_uri`.
 - Source/version/date metadata is present or explicitly documented as unavailable.
 - QA Browser shows the source, dataset, snapshot, file count, and size.
@@ -295,4 +295,4 @@ Before considering a source snapshot registered:
 
 As of the initial Pharos registry pass, every `download_*` rule in `workflows/pharos.Snakefile` has a corresponding source snapshot in `ifx-registry`.
 
-Keep this section high-level. Use the QA Browser or MinIO catalog as the source of truth for the live list.
+Keep this section high-level. Use the QA Browser or S3-backed registry catalog as the source of truth for the live list.

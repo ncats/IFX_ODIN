@@ -42,104 +42,12 @@
     <div class="registry-update-error">{{ error }}</div>
     {% endif %}
 
+    {% include "metabolite_curation_cart.html" %}
+
     {% if not query_id and overview %}
     {% include "ramp_id_pipeline_table.html" %}
 
-    <section class="ramp-id-table-section">
-        <div class="ramp-id-section-header">
-            <h2>Materialized Stage Stats</h2>
-            <p>{{ overview.pipeline_stage_stats|length }} pipeline{{ "" if overview.pipeline_stage_stats|length == 1 else "s" }} with materialized stages</p>
-        </div>
-        {% for pipeline_stats in overview.pipeline_stage_stats %}
-        <section class="metabolite-id-stage-stats-group">
-            <div class="metabolite-id-stage-stats-heading">
-                <div>
-                    <h3>{{ pipeline_stats.pipeline_name }}</h3>
-                    <span class="mono">{{ pipeline_stats.pipeline_key }}</span>
-                </div>
-                {% if pipeline_stats.run %}
-                <span>{{ pipeline_stats.run.created_at }}{% if pipeline_stats.run.elapsed_seconds %} · {{ pipeline_stats.run.elapsed_seconds }}s{% endif %}</span>
-                {% endif %}
-            </div>
-        <div class="metabolite-id-stage-stats-grid-wrap">
-            <div class="metabolite-id-stage-stats-grid">
-                <div class="metabolite-id-stage-stats-grid-header">Compare</div>
-                <div class="metabolite-id-stage-stats-grid-header">Stage</div>
-                <div class="metabolite-id-stage-stats-grid-header">Rules</div>
-                <div class="metabolite-id-stage-stats-grid-header">Active IDs</div>
-                <div class="metabolite-id-stage-stats-grid-header">Metabolites</div>
-                <div class="metabolite-id-stage-stats-grid-header">Cliques</div>
-                <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
-                <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
-                <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
-                <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
-                <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
-                <div class="metabolite-id-stage-stats-grid-header">Largest</div>
-                {% for stage in pipeline_stats.stages %}
-                {% set stage_summary = stage.overview_stats %}
-                {% set bins = stage_summary.bins %}
-                <div class="metabolite-id-stage-stats-grid-cell metabolite-id-stage-compare-cell">
-                    {% if not loop.first %}
-                    {% set previous_stage = pipeline_stats.stages[loop.index0 - 1] %}
-                        <a class="metabolite-id-stage-compare-button" href="{{ root_path }}/ramp-id-qa/stage-comparison?left_stage={{ previous_stage._key }}&right_stage={{ stage._key }}" target="_blank" rel="noopener noreferrer" title="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}" aria-label="Compare {{ previous_stage.display_label }} to {{ stage.display_label }}">Compare</a>
-                    {% endif %}
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        <a href="{{ root_path }}/ramp-id-qa/stages/{{ stage._key }}" target="_blank" rel="noopener noreferrer">{{ stage.display_label }}</a>
-                        <div class="mono">{{ stage._key }}</div>
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">{{ stage.rule_ids|length }}</div>
-                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.active_identifier_count|default(0, true)) }}</div>
-                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.clique_count|default(0, true)) }}</div>
-                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.non_singleton_clique_count|default(0, true)) }}</div>
-                <div class="metabolite-id-stage-stats-grid-cell">{{ "{:,}".format(stage_summary.singleton_identifier_count|default(0, true)) }}</div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        {{ "{:,}".format(stage_summary.active_edge_count|default(0, true)) }}
-                        {% if stage_summary.ignored_edge_count %}
-                        <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
-                        {% endif %}
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        {% if stage_summary.mw_validation_computed %}
-                        {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
-                        {% else %}
-                        <span title="This stage was materialized before MW validation was stored.">Not computed</span>
-                        {% endif %}
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        {% if not stage_summary.denylist_validation_computed %}
-                        <span title="This stage was materialized before denylist validation was stored.">Not computed</span>
-                        {% elif not stage_summary.denylist_rule_enabled %}
-                        <span title="The 'Ignore RaMP mapping denylist' rule is not enabled for this stage.">Rule not enabled</span>
-                        {% else %}
-                        {{ "{:,}".format(stage_summary.denylist_warning_count|default(0, true)) }}
-                        {% endif %}
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        <div class="metabolite-id-stage-size-bins">
-                            <span>2: {{ "{:,}".format(bins.size_2|default(0, true)) }}</span>
-                            <span>3-5: {{ "{:,}".format(bins.size_3_5|default(0, true)) }}</span>
-                            <span>6-10: {{ "{:,}".format(bins.size_6_10|default(0, true)) }}</span>
-                            <span>11-50: {{ "{:,}".format(bins.size_11_50|default(0, true)) }}</span>
-                            <span>51-100: {{ "{:,}".format(bins.size_51_100|default(0, true)) }}</span>
-                            <span>101+: {{ "{:,}".format(bins.size_101_plus|default(0, true)) }}</span>
-                        </div>
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                        {% if stage_summary.largest_clique_sizes %}
-                        {{ stage_summary.largest_clique_sizes[:5]|join(", ") }}
-                        {% else %}
-                        {{ stage_summary.max_size|default(0, true) }}
-                        {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        </section>
-        {% else %}
-        <p>No materialized stages yet.</p>
-        {% endfor %}
-    </section>
+    {% include "ramp_id_stage_stats_table.html" %}
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
@@ -292,7 +200,17 @@
     <section class="ramp-id-table-section metabolite-id-component-panel">
         <div class="ramp-id-section-header">
             <h2>Selected Stage Group</h2>
+            {% if result.snapshot_graphs|length == 1 and result.snapshot_graphs[0].cliques|length == 1 %}
+            <p>The only clique in this stage result is shown automatically.</p>
+            {% else %}
             <p>Select a bar in the Sankey plot to inspect that clique.</p>
+            {% endif %}
+            {% if denylist_review %}
+            <p class="metabolite-id-graph-legend">
+                <span class="is-denylisted"><i aria-hidden="true"></i>Published denylist pair</span>
+                <span class="is-pending"><i aria-hidden="true"></i>Pending cart removal</span>
+            </p>
+            {% endif %}
         </div>
         <div id="metaboliteIdSelectedCliqueEmpty" class="ramp-id-structure-empty">No Sankey bar selected.</div>
         <div id="metaboliteIdSelectedCliquePanel" hidden>
@@ -433,6 +351,7 @@
                         <th>Neighbor Names</th>
                         <th>Edge</th>
                         <th>Evidence</th>
+                        <th>Curation</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -453,9 +372,17 @@
                             <div><strong>{{ detail.source }}</strong> {{ detail.source_field }}{% if detail.source_id %} from <span class="mono">{{ detail.source_id }}</span>{% endif %}</div>
                             {% endfor %}
                         </td>
+                        <td>
+                            <button type="button"
+                                    class="btn metabolite-curation-add"
+                                    data-curation-start-id="{{ edge.start_id }}"
+                                    data-curation-end-id="{{ edge.end_id }}">
+                                Add curation: Remove this Edge
+                            </button>
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4">No equivalence edges for this identifier.</td></tr>
+                    <tr><td colspan="5">No equivalence edges for this identifier.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -481,6 +408,8 @@
     {% endif %}
 </div>
 
+<script src="{{ root_path }}/static/metabolite_curation_cart.js"></script>
+
 {% if result and result.found %}
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
@@ -489,7 +418,59 @@
 (function () {
     const snapshotGraphs = {{ result.snapshot_graphs|tojson }};
     const sankeyPlots = {{ result.snapshot_sankeys|tojson }};
+    const denylistReview = {{ (denylist_review or {})|tojson }};
     let selectedCliqueCy = null;
+    let pendingEdgeDecisionActions = new Map();
+
+    function edgeRemovalKey(startId, endId) {
+        return [String(startId || ""), String(endId || "")].sort().join("\u0000");
+    }
+
+    function updatePendingEdgeRemovalVisuals() {
+        if (selectedCliqueCy) {
+            selectedCliqueCy.edges(".metabolite-equivalence-edge").forEach((edge) => {
+                edge.toggleClass(
+                    "pending-curation-removal",
+                    pendingEdgeDecisionActions.get(edgeRemovalKey(edge.data("start_id"), edge.data("end_id"))) === "remove_edge",
+                );
+            });
+            selectedCliqueCy.edges(".denylist-review-edge").forEach((edge) => {
+                edge.toggleClass(
+                    "pending-curation-retain",
+                    pendingEdgeDecisionActions.get(edgeRemovalKey(edge.data("start_id"), edge.data("end_id"))) === "retain_edge",
+                );
+            });
+        }
+        document.querySelectorAll(".metabolite-curation-add").forEach((button) => {
+            const action = button.dataset.curationAction || "remove_edge";
+            const isPending = pendingEdgeDecisionActions.get(edgeRemovalKey(
+                button.dataset.curationStartId,
+                button.dataset.curationEndId,
+            )) === action;
+            if (!button.dataset.curationDefaultLabel) {
+                button.dataset.curationDefaultLabel = button.textContent.trim();
+            }
+            button.classList.toggle("is-pending", isPending);
+            button.disabled = isPending;
+            button.textContent = isPending
+                ? (action === "retain_edge" ? "Pending retention" : "Pending removal")
+                : button.dataset.curationDefaultLabel;
+        });
+    }
+
+    function setPendingEdgeRemovals(operations) {
+        pendingEdgeDecisionActions = new Map(
+            (operations || [])
+                .filter((operation) => ["remove_edge", "retain_edge"].includes(operation.action))
+                .map((operation) => [edgeRemovalKey(operation.start_id, operation.end_id), operation.action]),
+        );
+        updatePendingEdgeRemovalVisuals();
+    }
+
+    document.addEventListener("metabolite-curation-cart:changed", (event) => {
+        setPendingEdgeRemovals(event.detail?.operations || []);
+    });
+    setPendingEdgeRemovals(window.metaboliteCurationCartOperations || []);
 
     function setupSankeyPlot(plot, plotIndex) {
         const sankeyPayload = plot.sankey;
@@ -938,6 +919,48 @@
         });
     }
 
+    function graphElementsWithDenylistReview(snapshotSection, snapshotGraph) {
+        const elements = graphElementsWithStructureImages(snapshotGraph.elements).map((element) => ({
+            ...element,
+            data: {...(element.data || {})},
+        }));
+        if (
+            denylistReview.stage_key !== snapshotSection?.snapshot_key
+            || Number(denylistReview.rank_by_size || 0) !== Number(snapshotGraph.clique_rank_by_size || 0)
+        ) {
+            return elements;
+        }
+        const nodeElements = new Map(
+            elements
+                .filter((element) => !element.data.source && !element.data.target)
+                .map((element) => [element.data.id, element]),
+        );
+        (denylistReview.pairs || []).forEach((pair, index) => {
+            const left = nodeElements.get(pair.left_id);
+            const right = nodeElements.get(pair.right_id);
+            if (!left || !right) {
+                return;
+            }
+            left.classes = `${left.classes || ""} denylist-review-node`.trim();
+            right.classes = `${right.classes || ""} denylist-review-node`.trim();
+            elements.push({
+                data: {
+                    id: `denylist-review::${index}::${pair.left_id}::${pair.right_id}`,
+                    source: pair.left_id,
+                    target: pair.right_id,
+                    start_id: pair.left_id,
+                    end_id: pair.right_id,
+                    label: "denylisted pair",
+                    kind: "DenylistedPairStillMerged",
+                    snapshot: snapshotSection?.snapshot_name,
+                    snapshot_key: snapshotSection?.snapshot_key,
+                },
+                classes: "denylist-review-edge",
+            });
+        });
+        return elements;
+    }
+
     function renderDetails(container, data, isEdge) {
         const panel = container.closest(".metabolite-id-component-layout");
         const title = panel.querySelector("[data-snapshot-graph-title]");
@@ -947,17 +970,28 @@
         subtitle.textContent = isEdge ? `${data.source} -> ${data.target}` : (data.kind || data.prefix || "MetaboliteIdentifier");
         if (isEdge) {
             const keys = ["kind", "source", "target", "label", "sources", "source_count", "detail_count", "snapshot", "snapshot_key"];
-            details.innerHTML = keys
+            const values = keys
                 .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
                 .map((key) => detailRow(key, data[key]))
                 .join("");
+            const curationAction = data.kind === "MetaboliteIdentifierMappingEdge"
+                ? `<section class="metabolite-curation-action"><button type="button" class="btn metabolite-curation-add" data-curation-action="remove_edge" data-curation-start-id="${escapeHtml(data.start_id || data.source)}" data-curation-end-id="${escapeHtml(data.end_id || data.target)}">Add curation: Remove this Edge</button></section>`
+                : data.kind === "DenylistedPairStillMerged"
+                    ? `<section class="metabolite-curation-action"><button type="button" class="btn metabolite-curation-add" data-curation-action="retain_edge" data-curation-start-id="${escapeHtml(data.start_id || data.source)}" data-curation-end-id="${escapeHtml(data.end_id || data.target)}">Add curation: Retain this Edge</button></section>`
+                    : "";
+            details.innerHTML = `${curationAction}${values}`;
+            updatePendingEdgeRemovalVisuals();
             return;
         }
         const entity = data.chemical_entity || {};
+        const sourceLink = data.source_url
+            ? `<a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(data.source_label || "source record")}</a>`
+            : "";
         details.innerHTML = [
             `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${
                 [
                     detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, {html: true}),
+                    detailRow("Source", sourceLink, {html: true}),
                     detailRow("Prefix", data.prefix),
                     detailRow("Names", formatInlineList(data.names || [], 6), {html: true}),
                     detailRow("Name count", data.name_count),
@@ -1057,7 +1091,7 @@
         }
         selectedCliqueCy = cytoscape({
             container,
-            elements: graphElementsWithStructureImages(snapshotGraph.elements),
+            elements: graphElementsWithDenylistReview(snapshotSection, snapshotGraph),
             layout: { name: "cose", animate: false, fit: true, padding: 36 },
             style: [
                 { selector: "node", style: {
@@ -1118,12 +1152,45 @@
                     "width": 2.5,
                     "opacity": 0.85,
                 }},
+                { selector: ".pending-curation-removal", style: {
+                    "line-color": "#f59e0b",
+                    "target-arrow-color": "#f59e0b",
+                    "line-style": "dashed",
+                    "width": 6,
+                    "opacity": 1,
+                    "z-index": 20,
+                }},
+                { selector: ".denylist-review-node", style: {
+                    "border-color": "#dc2626",
+                    "border-width": 6,
+                }},
+                { selector: ".denylist-review-edge", style: {
+                    "line-color": "#dc2626",
+                    "target-arrow-shape": "none",
+                    "line-style": "dashed",
+                    "width": 5,
+                    "opacity": 1,
+                    "label": "data(label)",
+                    "color": "#991b1b",
+                    "font-weight": 700,
+                    "text-background-color": "#ffffff",
+                    "text-background-opacity": 0.9,
+                    "text-background-padding": 2,
+                    "z-index": 30,
+                }},
+                { selector: ".denylist-review-edge.pending-curation-retain", style: {
+                    "line-color": "#16a34a",
+                    "color": "#166534",
+                    "width": 7,
+                    "label": "pending retention",
+                }},
                 { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
             ],
         });
         selectedCliqueCy.on("tap", "node", (event) => renderDetails(container, event.target.data(), false));
         selectedCliqueCy.on("tap", "edge", (event) => renderDetails(container, event.target.data(), true));
         selectedCliqueCy.ready(() => {
+            updatePendingEdgeRemovalVisuals();
             selectedCliqueCy.fit(undefined, 36);
             const selected = selectedCliqueCy.nodes(".selected-query").first();
             if (selected.length) {
@@ -1137,6 +1204,15 @@
                 if (detailSubtitle) detailSubtitle.textContent = "Select a node or edge";
                 if (detailValues) detailValues.innerHTML = "";
             }
+        });
+    }
+
+    if (snapshotGraphs.length === 1 && (snapshotGraphs[0].cliques || []).length === 1) {
+        const onlyClique = snapshotGraphs[0].cliques[0];
+        renderSelectedSnapshotClique({
+            snapshot_key: snapshotGraphs[0].snapshot_key,
+            snapshot: snapshotGraphs[0].snapshot_name,
+            clique_key: onlyClique.clique_key,
         });
     }
 })();

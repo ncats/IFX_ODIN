@@ -11,11 +11,6 @@ DEFAULT_REGISTRY_BUCKET = "ifx-registry"
 DEFAULT_REGISTRY_CACHE_DIR = Path("/var/tmp/ifx-registry-cache")
 
 
-def load_minio_credentials(path: Path) -> DBCredentials:
-    with path.open("r", encoding="utf-8") as handle:
-        return DBCredentials.from_yaml(yaml.safe_load(handle))
-
-
 @dataclass
 class AwsAssumeRoleCredentials:
     access_key_id: str
@@ -56,7 +51,7 @@ def s3_uri(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{key}"
 
 
-class MinioStorage:
+class S3CompatibleStorage:
     def __init__(
         self,
         credentials: DBCredentials,
@@ -71,7 +66,7 @@ class MinioStorage:
         self.connect_timeout = connect_timeout
         self.read_timeout = read_timeout
         if not self._bucket:
-            raise ValueError("MinIO credentials must include schema as bucket name, or bucket must be provided")
+            raise ValueError("S3-compatible credentials must include schema as bucket name, or bucket must be provided")
 
     @property
     def bucket(self) -> str:
@@ -136,6 +131,16 @@ class MinioStorage:
     def read_text(self, key: str) -> str:
         response = self.client().get_object(Bucket=self.bucket, Key=key)
         return response["Body"].read().decode("utf-8")
+
+    def write_text(self, key: str, text: str, content_type: str = "text/plain; charset=utf-8") -> str:
+        self.ensure_bucket()
+        self.client().put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=text.encode("utf-8"),
+            ContentType=content_type,
+        )
+        return s3_uri(self.bucket, key)
 
 
 class AwsAssumeRoleStorage:
@@ -220,3 +225,13 @@ class AwsAssumeRoleStorage:
     def read_text(self, key: str) -> str:
         response = self.client().get_object(Bucket=self.bucket, Key=key)
         return response["Body"].read().decode("utf-8")
+
+    def write_text(self, key: str, text: str, content_type: str = "text/plain; charset=utf-8") -> str:
+        self.ensure_bucket()
+        self.client().put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=text.encode("utf-8"),
+            ContentType=content_type,
+        )
+        return s3_uri(self.bucket, key)

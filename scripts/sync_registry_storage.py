@@ -50,21 +50,21 @@ def find_local_file(key: str, source_size: int | None, local_roots: list[str]) -
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync IFX registry objects from MinIO to AWS S3.")
-    parser.add_argument("--source-credentials", default="src/use_cases/secrets/ifxdev_minio.yaml")
+    parser = argparse.ArgumentParser(description="Sync IFX registry objects between S3-compatible stores.")
+    parser.add_argument("--source-credentials", required=True)
     parser.add_argument("--target-credentials", default="src/use_cases/secrets/aws_ifx_registry.yaml")
     parser.add_argument("--prefix", action="append", default=[], help="Prefix to sync; repeatable.")
     parser.add_argument(
         "--local-root",
         action="append",
         default=None,
-        help="Local directory to check before downloading from MinIO; repeatable. Defaults to /var/tmp/ifx-registry-cache.",
+        help="Local directory to check before downloading from source storage; repeatable. Defaults to /var/tmp/ifx-registry-cache.",
     )
     parser.add_argument("--execute", action="store_true", help="Actually copy objects. Default is dry-run.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite target objects even when present.")
     args = parser.parse_args()
 
-    source = DataRegistry.from_minio_credentials(args.source_credentials).storage
+    source = DataRegistry.from_registry_credentials(args.source_credentials).storage
     target = DataRegistry.from_registry_credentials(args.target_credentials).storage
     prefixes = tuple(args.prefix or DEFAULT_PREFIXES)
     local_roots = list(args.local_root or DEFAULT_LOCAL_ROOTS)
@@ -114,9 +114,9 @@ def main() -> None:
     if unknown_count:
         print(f"unknown-size uploads: {unknown_count} object(s)")
     print(f"will upload from local roots: {len(local_keys)} object(s), {format_size(local_bytes)}")
-    print(f"will download from MinIO: {len(to_copy) - len(local_keys)} object(s), {format_size(download_bytes)}")
+    print(f"will download from source storage: {len(to_copy) - len(local_keys)} object(s), {format_size(download_bytes)}")
     if unknown_download_count:
-        print(f"unknown-size MinIO downloads: {unknown_download_count} object(s)")
+        print(f"unknown-size source-storage downloads: {unknown_download_count} object(s)")
     if local_roots:
         print(f"local roots: {', '.join(local_roots)}")
 
@@ -132,7 +132,7 @@ def main() -> None:
         for index, key in enumerate(to_copy, start=1):
             source_size = sizes_by_key.get(key)
             local_path = find_local_file(key, source_size, local_roots)
-            source_label = "local" if local_path is not None else "minio"
+            source_label = "local" if local_path is not None else "source-storage"
             if local_path is None:
                 local_path = tmp_root / key
                 source.download_file(key, local_path)

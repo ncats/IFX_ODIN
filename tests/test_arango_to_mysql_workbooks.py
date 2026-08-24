@@ -18,7 +18,7 @@ WORKBOOK_SCHEMA = {
 def _make_converter():
     converter = object.__new__(ArangoToMySqlConverter)
     converter.sa_metadata = MetaData()
-    converter.minio_credentials = object()
+    converter.object_storage = object()
     return converter
 
 
@@ -49,7 +49,7 @@ def test_copy_document_collection_materializes_workbook_blob():
             "id": "PROJ001",
             "name": "Project 1",
             "workbook": {
-                "file_reference": "s3://odin-data/test_pounce/workbooks/PROJ001/test.xlsx",
+                "file_reference": "s3://aws-ifx-registry/test_pounce/workbooks/PROJ001/test.xlsx",
                 "original_filename": "test.xlsx",
                 "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             },
