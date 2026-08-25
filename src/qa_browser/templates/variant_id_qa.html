@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Variant Harmonizer Explorer{% endblock %}
+{% block breadcrumb %}<a href="{{ root_path }}/variant-id-qa">Variant Harmonizer Explorer</a>{% endblock %}
+
+{% block content %}
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+
+<div class="variant-explorer-shell">
+    <section class="variant-explorer-header">
+        <div>
+            <h1>Variant Harmonizer Explorer</h1>
+            <p class="variant-explorer-release"><span class="mono">{{ variant_version_display }}</span>
+                &mdash; Sequence variant harmonization from ClinVar and GWAS Catalog with conservative disease/trait evidence modeling.
+                Updated last: {{ variant_updated_last }}.</p>
+        </div>
+        <div class="variant-open-box">
+            <textarea id="variantOpenIds" rows="3" spellcheck="false" placeholder="rs123 | ClinVarVariation:12345 | IFXVariant:...">{{ selected_ids }}</textarea>
+            <button class="btn btn-primary" id="variantOpenGraph" type="button">Open graph</button>
+        </div>
+    </section>
+
+    <nav class="variant-tabs">
+        <button class="variant-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
+        <button class="variant-tab-btn" data-tab="concepts" type="button">Concepts</button>
+        <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
+        <button class="variant-tab-btn" data-tab="download" type="button">Download</button>
+        <button class="variant-tab-btn" data-tab="api" type="button">API</button>
+    </nav>
+
+    <section class="variant-tab-panel" data-panel="dashboard">
+        <div class="variant-empty" id="variantNoData" style="display:none;"></div>
+        <div class="variant-stat-grid" id="variantStats"></div>
+        <div class="variant-dashboard-grid">
+            <section class="variant-panel">
+                <h2>Source Coverage</h2>
+                <div class="variant-bars" id="variantSourceBars"></div>
+            </section>
+            <section class="variant-panel">
+                <h2>Evidence Relation Types</h2>
+                <div class="variant-bars" id="variantRelationBars"></div>
+            </section>
+        </div>
+        <div class="variant-dashboard-grid">
+            <section class="variant-panel">
+                <h2>Equivalence Scope</h2>
+                <div class="variant-bars" id="variantScopeBars"></div>
+            </section>
+            <section class="variant-panel">
+                <h2>Disease / Trait Namespace</h2>
+                <div class="variant-bars" id="variantNamespaceBars"></div>
+            </section>
+        </div>
+        <section class="variant-panel">
+            <h2>Source Versions</h2>
+            <div class="variant-source-catalog" id="variantSourceCatalog"></div>
+        </section>
+    </section>
+
+    <section class="variant-tab-panel" data-panel="concepts">
+        <div class="variant-filter-row">
+            <input id="variantSearch" type="search" placeholder="Search rsID, IFX ID, ClinVar ID, gene, or label...">
+            <input id="variantGeneFilter" type="search" placeholder="Gene symbol">
+            <select id="variantSourceFilter"><option value="">All sources</option></select>
+            <button class="btn btn-primary" id="variantSearchBtn" type="button">Search</button>
+        </div>
+        <div class="variant-table-wrap">
+            <table class="variant-table">
+                <thead>
+                    <tr>
+                        <th>Variant ID</th>
+                        <th>Primary ID</th>
+                        <th>Name</th>
+                        <th>Gene</th>
+                        <th>Evidence</th>
+                        <th>Scope</th>
+                    </tr>
+                </thead>
+                <tbody id="variantRows"></tbody>
+            </table>
+        </div>
+        <div class="variant-pager">
+            <button class="btn" id="variantPrevPage" type="button">Prev</button>
+            <span id="variantPageLabel"></span>
+            <button class="btn" id="variantNextPage" type="button">Next</button>
+        </div>
+    </section>
+
+    <section class="variant-tab-panel" data-panel="graph">
+        <div class="variant-graph-toolbar">
+            <span id="variantGraphLabel">Enter an IFXVariant ID, rsID, ClinVar VariationID, or gene symbol.</span>
+            <button class="btn btn-sm" id="variantFitGraph" type="button">Fit graph</button>
+        </div>
+        <div class="variant-graph-legend">
+            <span><i class="variant-legend-node variant-legend-variant"></i> Sequence variant</span>
+            <span><i class="variant-legend-node variant-legend-disease"></i> Disease / trait</span>
+            <span><i class="variant-legend-node variant-legend-gene"></i> Gene context</span>
+            <span><i class="variant-legend-line"></i> biolink:associated_with / biolink:affects</span>
+            <span class="variant-legend-help"><strong>Guardrail:</strong> rsID, ClinVar VariationID, and GWAS risk allele evidence are preserved separately. Shared rsID is not automatically treated as exact variant equivalence.</span>
+        </div>
+        <div class="variant-graph-layout">
+            <div id="variantGraph" class="variant-graph"></div>
+            <aside class="variant-graph-detail" id="variantGraphDetail"><h2>No Selection</h2></aside>
+        </div>
+    </section>
+
+    <section class="variant-tab-panel" data-panel="download">
+        <div class="variant-panel">
+            <h2>Download Variant Harmonizer Data</h2>
+            <p class="variant-muted">Filtered downloads export one row per harmonized variant. Association-edge downloads will be added after the first full QC pass.</p>
+            <div class="variant-filter-row">
+                <input id="variantDownloadSearch" type="search" placeholder="Search variants...">
+                <input id="variantDownloadGene" type="search" placeholder="Gene symbol">
+                <select id="variantDownloadSource"><option value="">All sources</option></select>
+                <select id="variantDownloadFormat"><option value="tsv">TSV</option><option value="csv">CSV</option></select>
+            </div>
+            <div class="variant-column-grid" id="variantColumnGrid"></div>
+            <button class="btn btn-primary" id="variantDownloadBtn" type="button">Download variants</button>
+        </div>
+    </section>
+
+    <section class="variant-tab-panel" data-panel="api">
+        <div class="variant-panel">
+            <h2>Variant Harmonizer API</h2>
+            <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/variant-id-qa/api/stats</span><div class="api-endpoint-desc">Release stats, source counts, relation counts, and source catalog.</div></div>
+            <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/variant-id-qa/api/search?q=rs123&amp;gene=BRAF</span><div class="api-endpoint-desc">Search IFXVariant IDs, rsIDs, ClinVar IDs, gene symbols, and labels.</div></div>
+            <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/variant-id-qa/api/graph?ids=rs123</span><div class="api-endpoint-desc">Graph-ready variant, disease/trait, and gene-context neighborhood.</div></div>
+        </div>
+    </section>
+</div>
+
+<script>
+const rootPath = "{{ root_path }}";
+const initialTab = "{{ active_tab }}" || "dashboard";
+let variantPage = 1;
+let variantLastPage = 0;
+let variantCy = null;
+let variantStatsCache = null;
+const defaultColumns = ["variant_id", "primary_id", "name", "biolink_category", "variant_type", "dbsnp_id", "clinvar_variation_id", "clinvar_allele_id", "gene_symbol", "gene_curie", "assembly", "chromosome", "position", "risk_allele", "clinical_significance", "review_status", "source_namespaces", "equivalence_scope", "quality_note"];
+
+function setVariantTab(tab) {
+    document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+    document.querySelectorAll(".variant-tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
+}
+
+document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.addEventListener("click", () => setVariantTab(btn.dataset.tab)));
+setVariantTab(initialTab);
+
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+function escapeHtml(v) { return String(v || "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c])); }
+
+function renderBars(el, counts) {
+    const entries = Object.entries(counts || {}).slice(0, 14);
+    const max = Math.max(...entries.map(x => x[1]), 1);
+    el.innerHTML = entries.length ? entries.map(([label, count]) => `<div class="variant-bar-row"><span title="${escapeHtml(label)}">${escapeHtml(label || "unknown")}</span><div><i style="width:${Math.max(2, count / max * 100)}%"></i></div><code>${fmt(count)}</code></div>`).join("") : "<p class='variant-muted'>No data</p>";
+}
+
+async function loadVariantStats() {
+    try {
+        const resp = await fetch(`${rootPath}/variant-id-qa/api/stats`);
+        if (!resp.ok) throw new Error(await resp.text());
+        const stats = await resp.json();
+        variantStatsCache = stats;
+        document.getElementById("variantNoData").style.display = "none";
+        document.getElementById("variantStats").innerHTML = `
+            <div><strong>${fmt(stats.total_variants)}</strong><span>Variants</span></div>
+            <div><strong>${fmt(stats.total_edges)}</strong><span>Evidence edges</span></div>
+            <div><strong>${fmt(Object.keys(stats.source_counts || {}).length)}</strong><span>Sources</span></div>
+            <div><strong>${escapeHtml((stats.manifest || {}).version || "current")}</strong><span>Release</span></div>`;
+        renderBars(document.getElementById("variantSourceBars"), stats.source_counts);
+        renderBars(document.getElementById("variantRelationBars"), stats.relation_counts);
+        renderBars(document.getElementById("variantScopeBars"), stats.equivalence_scope_counts);
+        renderBars(document.getElementById("variantNamespaceBars"), stats.object_namespace_counts);
+        const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+        document.getElementById("variantSourceFilter").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
+        document.getElementById("variantDownloadSource").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
+        document.getElementById("variantSourceCatalog").innerHTML = renderSourceCatalog(stats.source_catalog || []);
+    } catch (err) {
+        document.getElementById("variantNoData").style.display = "block";
+        document.getElementById("variantNoData").innerHTML = "Variant app graph data is not configured yet. Run <code>python src/code/main.py VARIANTS --all</code>, then launch the QA Browser with <code>--variant-graph-dir .../variant_data/v0.1.0/app_graph</code>.";
+    }
+}
+
+function renderSourceCatalog(rows) {
+    if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
+    return `<table class="variant-table variant-source-table"><thead><tr><th>Source</th><th>Version</th><th>Status</th><th>Records</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.source_version)}</td><td>${escapeHtml(row.download_status)}</td><td>${escapeHtml(row.output_records || row.source_records || "")}</td></tr>`).join("")}</tbody></table>`;
+}
+
+async function runVariantSearch(page = 1) {
+    variantPage = page;
+    const params = new URLSearchParams({
+        q: document.getElementById("variantSearch").value,
+        gene: document.getElementById("variantGeneFilter").value,
+        source: document.getElementById("variantSourceFilter").value,
+        page,
+        per_page: 50,
+    });
+    const resp = await fetch(`${rootPath}/variant-id-qa/api/search?${params}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    variantLastPage = data.pages || 0;
+    document.getElementById("variantRows").innerHTML = data.rows.map(row => `<tr>
+        <td><button class="variant-link" data-id="${escapeHtml(row.variant_id)}">${escapeHtml(row.variant_id)}</button></td>
+        <td class="mono">${escapeHtml(row.primary_id)}</td>
+        <td>${escapeHtml(row.name)}</td>
+        <td>${escapeHtml(row.gene_symbol || row.gene_curie)}</td>
+        <td>${escapeHtml(row.source_namespaces)}</td>
+        <td>${escapeHtml(row.equivalence_scope)}</td>
+    </tr>`).join("") || `<tr><td colspan="6">No variants found.</td></tr>`;
+    document.getElementById("variantPageLabel").textContent = `Page ${data.page || 1} of ${data.pages || 0} · ${fmt(data.total)} variants`;
+    document.querySelectorAll(".variant-link").forEach(btn => btn.addEventListener("click", () => {
+        document.getElementById("variantOpenIds").value = btn.dataset.id;
+        setVariantTab("graph");
+        loadVariantGraph(btn.dataset.id);
+    }));
+}
+
+async function loadVariantGraph(ids) {
+    const query = ids || document.getElementById("variantOpenIds").value;
+    const resp = await fetch(`${rootPath}/variant-id-qa/api/graph?ids=${encodeURIComponent(query)}`);
+    if (!resp.ok) return;
+    const payload = await resp.json();
+    document.getElementById("variantGraphLabel").textContent = `${payload.node_count} nodes · ${payload.edge_count} edges` + (payload.not_found.length ? ` · not found: ${payload.not_found.join(", ")}` : "");
+    const elements = [...payload.elements.nodes, ...payload.elements.edges];
+    if (variantCy) variantCy.destroy();
+    variantCy = cytoscape({
+        container: document.getElementById("variantGraph"),
+        elements,
+        style: [
+            { selector: "node", style: { "label": "data(label)", "font-size": 11, "text-wrap": "wrap", "text-max-width": 120, "background-color": "#64748b", "color": "#111827", "width": 34, "height": 34 } },
+            { selector: ".sequencevariant", style: { "background-color": "#7c3aed", "color": "#111827" } },
+            { selector: ".gene", style: { "background-color": "#0d9488" } },
+            { selector: ".diseaseorphenotypicfeature, .phenotypicfeature", style: { "background-color": "#f59e0b" } },
+            { selector: "edge", style: { "curve-style": "bezier", "target-arrow-shape": "triangle", "width": 1.5, "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8, "text-rotation": "autorotate" } }
+        ],
+        layout: { name: "cose", fit: true, padding: 40, animate: false }
+    });
+    variantCy.on("tap", "node, edge", evt => renderVariantDetail(evt.target.data()));
+}
+
+function renderVariantDetail(data) {
+    const keys = ["id", "label", "node_type", "primary_id", "dbsnp_id", "clinvar_variation_id", "gene_symbol", "target_id", "target_label", "relation_kind", "evidence_source", "clinical_significance", "review_status", "study_accession", "pubmed_id", "p_value", "equivalence_scope", "quality_note"];
+    document.getElementById("variantGraphDetail").innerHTML = `<h2>${escapeHtml(data.label || data.id)}</h2><dl>${keys.filter(k => data[k]).map(k => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(data[k])}</dd>`).join("")}</dl>`;
+}
+
+function setupVariantColumns() {
+    document.getElementById("variantColumnGrid").innerHTML = defaultColumns.map(col => `<label><input type="checkbox" value="${col}" checked> ${col}</label>`).join("");
+}
+
+document.getElementById("variantSearchBtn").addEventListener("click", () => runVariantSearch(1));
+document.getElementById("variantPrevPage").addEventListener("click", () => { if (variantPage > 1) runVariantSearch(variantPage - 1); });
+document.getElementById("variantNextPage").addEventListener("click", () => { if (!variantLastPage || variantPage < variantLastPage) runVariantSearch(variantPage + 1); });
+document.getElementById("variantOpenGraph").addEventListener("click", () => loadVariantGraph());
+document.getElementById("variantFitGraph").addEventListener("click", () => { if (variantCy) variantCy.fit(null, 35); });
+document.getElementById("variantDownloadBtn").addEventListener("click", () => {
+    const cols = Array.from(document.querySelectorAll("#variantColumnGrid input:checked")).map(el => el.value).join(",");
+    const params = new URLSearchParams({ q: document.getElementById("variantDownloadSearch").value, gene: document.getElementById("variantDownloadGene").value, source: document.getElementById("variantDownloadSource").value, format: document.getElementById("variantDownloadFormat").value, columns: cols });
+    window.location.href = `${rootPath}/variant-id-qa/download-filtered?${params}`;
+});
+
+setupVariantColumns();
+loadVariantStats().then(() => runVariantSearch(1));
+if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
+</script>
+{% endblock %}

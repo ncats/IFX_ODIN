@@ -175,6 +175,19 @@ Rules should be independently configurable, ordered, and inspectable. A saved
 snapshot should record which rules ran, their order, parameters, and summary
 statistics.
 
+### Molecular-Weight Cutoff Policy
+
+The molecular-weight-sensitive InChIKey rule uses chemical properties from the
+current harmonization graph. With the default cutoff of 500, it uses the
+stereochemistry-sensitive InChIKey duplex below the cutoff and the
+connectivity-only InChIKey prefix at or above the cutoff.
+
+This policy intentionally does not reproduce decisions caused by missing
+molecular-weight values in a legacy RaMP SQLite build. When the current graph
+has a supported molecular weight that legacy SQLite lacked, the graph value
+controls the strategy. Resulting merges are expected harmonization outcomes,
+not compatibility defects merely because SQLite kept the identifiers separate.
+
 The WikiPathways prefix rule may also ignore configured BridgeDb source fields.
 If an identifier is introduced only as a WikiPathways xref through ignored
 fields, the rule removes its WikiPathways node support as well as its mapping

@@ -100,7 +100,7 @@ Wired into:
 
 `working.yaml` now:
 - writes to local ArangoDB
-- writes dataset artifacts to local MinIO
+- writes dataset artifacts to object storage
 - pulls DTO from `pharos_credentials.yaml`
 
 ## Recommendation

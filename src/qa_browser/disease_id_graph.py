@@ -6,11 +6,14 @@ import re
 import io
 import json
 from difflib import SequenceMatcher
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from fastapi import HTTPException
+
+if TYPE_CHECKING:
+    from src.qa_browser.target_id_graph import TargetGraphData
 
 
 class DiseaseGraphData:
@@ -22,9 +25,12 @@ class DiseaseGraphData:
         "edges_by_pxref",
         "hierarchy_by_child",
         "hierarchy_by_parent",
+        "clinical_descendants_by_pxref",
         "labels_by_xref_id",
         "decisions_by_pxref",
+        "associations_by_ncats_id",
         "manifest",
+        "source_catalog",
         "_dashboard_stats",
         "_xref_to_pxrefs",
         "_resolver_terms",
@@ -36,9 +42,12 @@ class DiseaseGraphData:
         self.edges_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.hierarchy_by_child: dict[str, list[dict]] = defaultdict(list)
         self.hierarchy_by_parent: dict[str, list[dict]] = defaultdict(list)
+        self.clinical_descendants_by_pxref: dict[str, list[dict]] = defaultdict(list)
         self.labels_by_xref_id: dict[str, dict] = {}
         self.decisions_by_pxref: dict[str, list[dict]] = defaultdict(list)
+        self.associations_by_ncats_id: dict[str, list[dict]] = defaultdict(list)
         self.manifest: dict = {}
+        self.source_catalog: list[dict[str, str]] = []
         self._dashboard_stats: dict | None = None
         self._xref_to_pxrefs: dict[str, set[str]] | None = None
         self._resolver_terms: list[dict[str, Any]] | None = None
@@ -52,7 +61,81 @@ def _read_tsv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh, delimiter="\t"))
 
 
+def _source_catalog_candidates(data_dir: Path) -> list[Path]:
+    candidates = [data_dir / "disease_source_catalog.tsv"]
+    if data_dir.name == "app_graph":
+        candidates.append(data_dir.parent / "metadata" / "disease_source_catalog.tsv")
+    else:
+        candidates.append(data_dir / "metadata" / "disease_source_catalog.tsv")
+        candidates.append(data_dir.parent / "metadata" / "disease_source_catalog.tsv")
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def _load_source_catalog(data_dir: Path) -> list[dict[str, str]]:
+    for path in _source_catalog_candidates(data_dir):
+        if path.exists():
+            return _read_tsv(path)
+    return []
+
+
 _RESOLVED_DECISION_STATUSES = {"resolved", "acknowledged", "wontfix"}
+
+REVIEW_DECISION_OPTIONS = [
+    {"value": "Accept as-is", "label": "Accept as-is"},
+    {"value": "Accept consensus", "label": "Accept consensus"},
+    {"value": "Accept source", "label": "Accept source"},
+    {"value": "Remove obsolete xref", "label": "Remove obsolete xref"},
+    {"value": "Omit xref", "label": "Omit xref"},
+    {"value": "Demote from exact", "label": "Demote from exact"},
+    {"value": "Use replacement", "label": "Use replacement"},
+    {"value": "Do not merge / split concern", "label": "Do not merge / split concern"},
+    {"value": "needs_expert_review", "label": "needs_expert_review"},
+    {"value": "Needs upstream ticket", "label": "Needs upstream ticket"},
+]
+
+REVIEW_INTAKE_COLUMNS = [
+    "Registry ID",
+    "Review decision",
+    "Corrected xref / replacement",
+    "Reviewer notes",
+    "Primary Xref",
+    "Disease Name",
+    "NCATS Disease ID",
+    "Review category",
+    "Xref ID",
+    "Xref Namespace",
+    "Decision type",
+    "Scenario ID",
+    "Source value",
+    "Consensus value",
+    "Evidence note",
+    "Reviewed by",
+    "Reviewed at",
+    "App review ID",
+]
+
+_OPEN_REVIEW_STATUSES = {"", "open"}
+
+
+def normalize_review_text(value: Any) -> str:
+    """Normalize old user-facing review vocabulary for app display."""
+    text = str(value or "")
+    legacy_program = "R" + "DIP"
+    replacements = {
+        f"Needs {legacy_program}/domain review": "needs_expert_review",
+        f"{legacy_program}/domain review": "needs_expert_review",
+        f"{legacy_program}/GARD review": "needs_expert_review",
+        f"domain/{legacy_program} review": "needs_expert_review",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
 
 
 def _join_unique(values: list[str] | tuple[str, ...]) -> str:
@@ -64,6 +147,14 @@ def _join_unique(values: list[str] | tuple[str, ...]) -> str:
             seen.add(text)
             unique.append(text)
     return "|".join(unique)
+
+
+def _nodenorm_status(concept: dict) -> str:
+    """Support both old app_graph and current TargetGraph NodeNorm column names."""
+    return (
+        concept.get("nodenorm_validation_status", "")
+        or concept.get("nodenorm_concordance", "")
+    )
 
 
 def _decision_action(decision: dict) -> str:
@@ -161,6 +252,7 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
     if manifest_path.exists():
         with open(manifest_path, encoding="utf-8") as fh:
             data.manifest = json.load(fh)
+    data.source_catalog = _load_source_catalog(data_dir)
 
     for row in _read_tsv(data_dir / "disease_concepts.tsv"):
         pxref = row.get("primary_xref", "")
@@ -199,6 +291,20 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
             if parent:
                 data.hierarchy_by_parent[parent].append(row)
 
+    clinical_descendants_path = data_dir / "disease_clinical_descendant_edges.tsv"
+    if clinical_descendants_path.exists():
+        for row in _read_tsv(clinical_descendants_path):
+            pxref = row.get("primary_xref", "")
+            if pxref:
+                data.clinical_descendants_by_pxref[pxref].append(row)
+
+    gene_assoc_path = data_dir / "disease_gene_associations.tsv"
+    if gene_assoc_path.exists():
+        for row in _read_tsv(gene_assoc_path):
+            ncats_id = row.get("ncats_disease_id", "")
+            if ncats_id:
+                data.associations_by_ncats_id[ncats_id].append(row)
+
     return data
 
 
@@ -206,12 +312,16 @@ def _print_graph_load(label: str, data: DiseaseGraphData) -> None:
     n_concepts = len(data.concepts_by_pxref)
     n_edges = sum(len(v) for v in data.edges_by_pxref.values())
     n_hierarchy = sum(len(v) for v in data.hierarchy_by_child.values())
+    n_clinical_descendants = sum(len(v) for v in data.clinical_descendants_by_pxref.values())
     n_labels = len(data.labels_by_xref_id)
     n_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
+    n_gene_assoc = sum(len(v) for v in data.associations_by_ncats_id.values())
     print(
         f"{label} loaded: {n_concepts:,} concepts, {n_edges:,} xref edges, "
         f"{n_hierarchy:,} hierarchy edges, "
-        f"{n_labels:,} labels, {n_decisions:,} decisions"
+        f"{n_clinical_descendants:,} clinical descendant edges, "
+        f"{n_labels:,} labels, {n_decisions:,} decisions, "
+        f"{n_gene_assoc:,} gene associations"
     )
 
 
@@ -236,11 +346,17 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     total_concepts = len(data.concepts_by_pxref)
     total_edges = sum(len(v) for v in data.edges_by_pxref.values())
     total_hierarchy_edges = sum(len(v) for v in data.hierarchy_by_child.values())
+    total_clinical_descendant_edges = sum(
+        len(v) for v in data.clinical_descendants_by_pxref.values()
+    )
     total_labels = len(data.labels_by_xref_id)
     total_decisions = sum(len(v) for v in data.decisions_by_pxref.values())
 
     confidence_dist: Counter[str] = Counter()
     quality_dist: Counter[str] = Counter()
+    edge_evidence_tier_dist: Counter[str] = Counter()
+    edge_review_tier_dist: Counter[str] = Counter()
+    edge_relation_type_dist: Counter[str] = Counter()
     source_coverage: Counter[str] = Counter()
     nodenorm_dist: Counter[str] = Counter()
     triage_dist: Counter[str] = Counter()
@@ -252,15 +368,39 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
     multi_source_count = 0
     source_only_count = 0
     total_xrefs = 0
+    concepts_with_clinical_codes = 0
+    concepts_with_clinical_descendants = 0
+
+    # Per-source-namespace quality breakdown
+    _sqb_tier: dict[str, Counter[str]] = {}
+    _sqb_quality_sum: Counter[str] = Counter()
+    _sqb_quality_n: Counter[str] = Counter()
+    _sqb_needs_action: Counter[str] = Counter()
+    _sqb_total: Counter[str] = Counter()
+
+    clinical_descendant_source_dist: Counter[str] = Counter()
+    clinical_descendant_distance_dist: Counter[str] = Counter()
+    clinical_descendant_warning_dist: Counter[str] = Counter()
+    clinical_descendant_review_dist: Counter[str] = Counter()
+
+    for edges in data.edges_by_pxref.values():
+        for edge in edges:
+            relation_type = (edge.get("relation_type") or edge.get("match_type") or "unclassified").strip()
+            evidence_tier = (edge.get("evidence_tier") or "unknown").strip()
+            review_tier = (edge.get("review_tier") or "unknown").strip()
+            edge_relation_type_dist[relation_type or "unknown"] += 1
+            edge_evidence_tier_dist[evidence_tier or "unknown"] += 1
+            edge_review_tier_dist[review_tier or "unknown"] += 1
 
     for pxref, concept in data.concepts_by_pxref.items():
         tier = concept.get("confidence_tier", "").strip()
-        confidence_dist[tier if tier else "unknown"] += 1
+        tier_key = tier if tier else "unknown"
+        confidence_dist[tier_key] += 1
 
         quality = concept.get("overall_quality", "").strip()
         quality_dist[quality if quality else "unknown"] += 1
 
-        nn_status = concept.get("nodenorm_validation_status", "").strip()
+        nn_status = _nodenorm_status(concept).strip()
         nodenorm_dist[nn_status if nn_status else "unknown"] += 1
 
         disease_type = concept.get("disease_type", "").strip()
@@ -289,29 +429,106 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         # Action-needed concepts only. Historical QC decisions remain visible
         # separately through needs_review_decision/evidence_note.
         decisions = data.decisions_by_pxref.get(pxref, [])
-        if _is_flagged(concept, decisions):
+        is_flagged = _is_flagged(concept, decisions)
+        if is_flagged:
             flagged_count += 1
 
-        # Source namespace coverage from edges
+        # Source namespace coverage from edges + per-source quality tracking
+        quality_val = 0.0
+        try:
+            quality_val = float(quality) if quality else 0.0
+        except (ValueError, TypeError):
+            pass
         seen_ns: set[str] = set()
+        has_clinical_code_xref = False
         for edge in data.edges_by_pxref.get(pxref, []):
             ns = _normalize_ns(edge.get("xref_namespace", "").strip())
             if ns:
                 seen_ns.add(ns)
+                if ns in {"ICD10", "ICD10CM", "ICD11", "ICD11f", "SNOMEDCT"}:
+                    has_clinical_code_xref = True
+        if has_clinical_code_xref:
+            concepts_with_clinical_codes += 1
         for ns in seen_ns:
             source_coverage[ns] += 1
+            _sqb_total[ns] += 1
+            if ns not in _sqb_tier:
+                _sqb_tier[ns] = Counter()
+            _sqb_tier[ns][tier_key] += 1
+            _sqb_quality_sum[ns] += quality_val
+            _sqb_quality_n[ns] += 1
+            if is_flagged:
+                _sqb_needs_action[ns] += 1
+
+        clinical_rows = data.clinical_descendants_by_pxref.get(pxref, [])
+        if clinical_rows:
+            concepts_with_clinical_descendants += 1
+        for descendant in clinical_rows:
+            clinical_descendant_source_dist[
+                descendant.get("hierarchy_source", "").strip() or "unknown"
+            ] += 1
+            clinical_descendant_distance_dist[
+                descendant.get("distance_from_anchor", "").strip()
+                or descendant.get("distance_status", "").strip()
+                or "unknown"
+            ] += 1
+            warning_key = (
+                "may_not_be_rare"
+                if descendant.get("may_not_be_rare_warning", "").lower() == "true"
+                else "no_warning"
+            )
+            clinical_descendant_warning_dist[warning_key] += 1
+            clinical_descendant_review_dist[
+                descendant.get("review_status", "").strip() or "unreviewed"
+            ] += 1
 
     avg_xrefs = round(total_xrefs / total_concepts, 1) if total_concepts else 0
     multi_source_percent = round((multi_source_count / total_concepts) * 100, 1) if total_concepts else 0
+
+    # Gene association stats
+    total_gene_associations = sum(len(v) for v in data.associations_by_ncats_id.values())
+    unique_genes: set[str] = set()
+    concepts_with_genes = 0
+    gene_tier_dist: Counter[str] = Counter()
+    gene_source_coverage: Counter[str] = Counter()
+    for ncats_id, assocs in data.associations_by_ncats_id.items():
+        if assocs:
+            concepts_with_genes += 1
+        for assoc in assocs:
+            symbol = assoc.get("subject_symbol", "").strip()
+            if symbol:
+                unique_genes.add(symbol)
+            tier = assoc.get("support_tier", "").strip()
+            if tier:
+                gene_tier_dist[tier] += 1
+            for src in assoc.get("supporting_sources", "").split("|"):
+                src = src.strip()
+                if src:
+                    gene_source_coverage[src] += 1
+
+    # Build per-source quality breakdown
+    source_quality_breakdown: dict[str, dict[str, Any]] = {}
+    for ns in sorted(_sqb_total):
+        avg_q = round(_sqb_quality_sum[ns] / _sqb_quality_n[ns], 2) if _sqb_quality_n[ns] else 0.0
+        source_quality_breakdown[ns] = {
+            "tier_counts": dict(_sqb_tier.get(ns, Counter()).most_common()),
+            "avg_quality": avg_q,
+            "needs_action": _sqb_needs_action.get(ns, 0),
+            "total": _sqb_total[ns],
+        }
 
     stats = {
         "total_concepts": total_concepts,
         "total_edges": total_edges,
         "total_hierarchy_edges": total_hierarchy_edges,
+        "total_clinical_descendant_edges": total_clinical_descendant_edges,
         "total_labels": total_labels,
         "total_decisions": total_decisions,
         "confidence_distribution": dict(confidence_dist.most_common()),
         "quality_distribution": dict(quality_dist.most_common()),
+        "edge_evidence_tier_distribution": dict(edge_evidence_tier_dist.most_common()),
+        "edge_review_tier_distribution": dict(edge_review_tier_dist.most_common()),
+        "edge_relation_type_distribution": dict(edge_relation_type_dist.most_common()),
         "source_coverage": dict(source_coverage.most_common()),
         "nodenorm_distribution": dict(nodenorm_dist.most_common()),
         "disease_type_distribution": dict(disease_type_dist.most_common()),
@@ -326,6 +543,23 @@ def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
         "multi_source_percent": multi_source_percent,
         "source_only_count": source_only_count,
         "avg_xrefs_per_concept": avg_xrefs,
+        "xref_density_label": "Average direct xrefs per concept; coverage context only, not confidence.",
+        "concepts_with_clinical_codes": concepts_with_clinical_codes,
+        "concepts_with_clinical_descendants": concepts_with_clinical_descendants,
+        "clinical_descendant_summary": {
+            "total": total_clinical_descendant_edges,
+            "concepts": concepts_with_clinical_descendants,
+            "by_hierarchy_source": dict(clinical_descendant_source_dist.most_common()),
+            "by_distance": dict(clinical_descendant_distance_dist.most_common()),
+            "by_warning": dict(clinical_descendant_warning_dist.most_common()),
+            "by_review_status": dict(clinical_descendant_review_dist.most_common()),
+        },
+        "source_quality_breakdown": source_quality_breakdown,
+        "total_gene_associations": total_gene_associations,
+        "unique_genes": len(unique_genes),
+        "concepts_with_genes": concepts_with_genes,
+        "gene_support_tier_distribution": dict(gene_tier_dist.most_common()),
+        "gene_source_coverage": dict(gene_source_coverage.most_common()),
     }
     data._dashboard_stats = stats
     return stats
@@ -402,7 +636,69 @@ def _concept_graph_node(data: DiseaseGraphData, pxref: str, classes: str = "conc
     }
 
 
-def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) -> dict[str, Any]:
+def _extract_primary_predicate(predicates_str: str) -> str:
+    """Pick the primary biolink predicate from a pipe-delimited string."""
+    if not predicates_str or predicates_str == "nan":
+        return ""
+    parts = [p.strip() for p in predicates_str.split("|") if p.strip()]
+    for part in parts:
+        if part.startswith("biolink:"):
+            return part
+    return parts[0] if parts else ""
+
+
+def _short_predicate(predicate: str) -> str:
+    """Strip ``biolink:`` prefix for display labels."""
+    return predicate.replace("biolink:", "") if predicate else ""
+
+
+def _resolve_target_id_safe(target_data: "TargetGraphData | None", symbol: str) -> str | None:
+    """Resolve a gene symbol to a target_id, returning None on failure."""
+    if target_data is None:
+        return None
+    try:
+        from src.qa_browser.target_id_graph import _resolve_target_id
+        return _resolve_target_id(target_data, symbol)
+    except Exception:
+        return None
+
+
+def _target_relation(
+    source_id: str,
+    target_id: str,
+    predicate: str,
+    edge_row: dict | None = None,
+) -> dict:
+    """Build a Cytoscape edge element for a target harmonizer relation."""
+    edge_id = f"target-rel::{source_id}::{target_id}::{predicate}"
+    label = _short_predicate(predicate)
+    classes = "target-relation-edge"
+    if predicate == "biolink:has_gene_product":
+        classes += " gene-product-edge"
+    elif predicate == "biolink:transcribed_to":
+        classes += " transcription-edge"
+    elif predicate == "biolink:translates_to":
+        classes += " translation-edge"
+    data: dict[str, Any] = {
+        "id": edge_id,
+        "source": source_id,
+        "target": target_id,
+        "label": label,
+        "kind": "target_relation_edge",
+        "predicate": predicate,
+    }
+    if edge_row:
+        data["relation_kind"] = edge_row.get("relation_kind", "")
+        data["evidence_identifier"] = edge_row.get("evidence_identifier", "")
+        data["evidence_namespace"] = edge_row.get("evidence_namespace", "")
+    return {"data": data, "classes": classes}
+
+
+def build_disease_graph_payload(
+    data: DiseaseGraphData,
+    query_ids: list[str],
+    target_data: "TargetGraphData | None" = None,
+) -> dict[str, Any]:
     """Build Cytoscape elements for the given disease IDs."""
     if not query_ids:
         raise HTTPException(status_code=400, detail="Provide at least one disease ID.")
@@ -410,9 +706,14 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
     concept_nodes: dict[str, dict] = {}
     xref_nodes: dict[str, dict] = {}
     decision_nodes: dict[str, dict] = {}
+    gene_nodes: dict[str, dict] = {}
+    gene_transcripts: dict[str, list[dict]] = {}
+    gene_proteins: dict[str, list[dict]] = {}
+    gene_product_counts: dict[str, dict[str, int]] = {}
     edges: dict[str, dict] = {}
     missing: list[str] = []
     namespaces: set[str] = set()
+    seen_target_products: set[str] = set()
 
     for qid in query_ids:
         pxref = _resolve_to_pxref(data, qid)
@@ -486,14 +787,21 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
             })
 
             match_type = edge_row.get("match_type", "unclassified")
+            relation_type = edge_row.get("relation_type", "") or match_type
             label_sim = edge_row.get("label_similarity", "")
             xref_conf = edge_row.get("xref_confidence", "")
-            if xref_conf and xref_conf != "0.0":
-                edge_label = f"{match_type} [{xref_conf}]"
+            equiv_conf = edge_row.get("equivalence_confidence", "")
+            rel_conf = edge_row.get("relation_confidence", "")
+            evidence_tier = edge_row.get("evidence_tier", "")
+            label_score = equiv_conf or rel_conf or xref_conf
+            if label_score and label_score != "0.0":
+                edge_label = f"{relation_type} [eq={label_score}]"
             elif label_sim and label_sim != "0.0":
-                edge_label = f"{match_type} ({label_sim})"
+                edge_label = f"{relation_type} ({label_sim})"
             else:
-                edge_label = match_type
+                edge_label = relation_type
+            if evidence_tier:
+                edge_label += f" {evidence_tier}"
 
             # --- enrich edge with conflict/resolution data ---
             edge_decs = _dec_by_xref.get(xref_id, [])
@@ -549,6 +857,7 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "label": edge_label,
                     "kind": "xref_edge",
                     "match_type": match_type,
+                    "relation_type": relation_type,
                     "match_type_source": edge_row.get("match_type_source", ""),
                     "source_asserted": edge_row.get("source_asserted", ""),
                     "agreement_level": edge_row.get("agreement_level", ""),
@@ -557,9 +866,18 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "mapping_confidence": edge_row.get("mapping_confidence", ""),
                     "label_confidence": edge_row.get("label_confidence", ""),
                     "source_support": edge_row.get("source_support", ""),
+                    "validation_support": edge_row.get("validation_support", ""),
+                    "corroboration_score": edge_row.get("corroboration_score", ""),
                     "asserting_sources": edge_row.get("asserting_sources", ""),
+                    "validation_sources": edge_row.get("validation_sources", ""),
+                    "evidence_streams": edge_row.get("evidence_streams", ""),
                     "structural_confidence": edge_row.get("structural_confidence", ""),
                     "xref_confidence": xref_conf,
+                    "relation_confidence": rel_conf,
+                    "equivalence_confidence": equiv_conf,
+                    "evidence_tier": evidence_tier,
+                    "review_tier": edge_row.get("review_tier", ""),
+                    "score_rationale": edge_row.get("score_rationale", ""),
                     "xref_is_obsolete": edge_row.get("xref_is_obsolete", ""),
                     "override_status": edge_row.get("override_status", ""),
                     "override_reason": edge_row.get("override_reason", ""),
@@ -628,26 +946,242 @@ def build_disease_graph_payload(data: DiseaseGraphData, query_ids: list[str]) ->
                     "classes": "decision-edge",
                 }
 
+        # --- gene associations ---
+        ncats_id = concept.get("ncats_disease_id", "")
+        for assoc in data.associations_by_ncats_id.get(ncats_id, []):
+            symbol = assoc.get("subject_symbol", "").strip()
+            if not symbol:
+                continue
+            gene_node_id = f"gene::{symbol}"
+            tier = assoc.get("support_tier", "unknown")
+            n_sources = assoc.get("n_supporting_sources", "")
+            gene_public_id = assoc.get("gene_public_id", "")
+            primary_predicate = _extract_primary_predicate(assoc.get("predicates", ""))
+
+            # Enriched gene label: "SYMBOL\nHGNC:xxxxx"
+            gene_label = f"{symbol}\n{gene_public_id}" if gene_public_id else symbol
+
+            # Resolve symbol to target harmonizer
+            target_tid = _resolve_target_id_safe(target_data, symbol)
+            gene_classes = "gene"
+            gene_data: dict[str, Any] = {
+                "id": gene_node_id,
+                "label": gene_label,
+                "kind": "gene",
+                "ncats_gene_id": assoc.get("ncats_gene_id", ""),
+                "gene_public_id": gene_public_id,
+                "subject_symbol": symbol,
+                "source_subject_ids": assoc.get("source_subject_ids", ""),
+            }
+
+            if target_tid and target_data is not None:
+                gene_classes = "gene target-linked"
+                tnode = target_data.nodes_by_id.get(target_tid, {})
+                gene_data["target_id"] = target_tid
+                gene_data["target_name"] = tnode.get("target_name", "")
+                gene_data["target_primary_id"] = tnode.get("primary_id", "")
+                gene_data["target_ids"] = tnode.get("ids", "")
+                gene_data["target_mapping_ratio"] = tnode.get("mapping_ratio", "")
+
+            gene_nodes.setdefault(symbol, {
+                "data": gene_data,
+                "classes": gene_classes,
+            })
+
+            # Enriched association edge label
+            short_pred = _short_predicate(primary_predicate)
+            assoc_label = f"{short_pred}\n[{tier}, {n_sources} src]" if short_pred else f"{tier} [{n_sources}]"
+
+            assoc_edge_id = f"assoc::{pxref}::{symbol}"
+            edges[assoc_edge_id] = {
+                "data": {
+                    "id": assoc_edge_id,
+                    "source": concept_node_id,
+                    "target": gene_node_id,
+                    "label": assoc_label,
+                    "kind": "association_edge",
+                    "subject_symbol": symbol,
+                    "ncats_gene_id": assoc.get("ncats_gene_id", ""),
+                    "gene_public_id": gene_public_id,
+                    "primary_predicate": primary_predicate,
+                    "support_tier": tier,
+                    "support_score_raw": assoc.get("support_score_raw", ""),
+                    "n_supporting_sources": n_sources,
+                    "supporting_sources": assoc.get("supporting_sources", ""),
+                    "curated_support_count": assoc.get("curated_support_count", ""),
+                    "predicates": assoc.get("predicates", ""),
+                    "evidence_types": assoc.get("evidence_types", ""),
+                    "evidence_labels": assoc.get("evidence_labels", ""),
+                    "publications": assoc.get("publications", ""),
+                    "source_subject_ids": assoc.get("source_subject_ids", ""),
+                    "source_disease_ids": assoc.get("source_disease_ids", ""),
+                    "primary_knowledge_sources": assoc.get("primary_knowledge_sources", ""),
+                    "aggregator_knowledge_sources": assoc.get("aggregator_knowledge_sources", ""),
+                    "provided_bys": assoc.get("provided_bys", ""),
+                },
+                "classes": f"association-edge support-{_graph_id_part(tier)}",
+            }
+
+            # --- collect target products for on-demand expansion ---
+            if target_tid and target_data is not None and symbol not in gene_transcripts and symbol not in gene_proteins:
+                # Step 1: Collect transcripts and proteins from gene edges
+                candidate_transcripts: list[tuple[dict, str]] = []  # (product_el, tid)
+                candidate_proteins: list[tuple[dict, str, dict]] = []  # (product_el, tid, gene_edge)
+                seen_tids: set[str] = set()
+                for rel in target_data.relation_edges_by_target.get(target_tid, []):
+                    rel_predicate = rel.get("predicate", "")
+                    if rel_predicate not in ("biolink:has_gene_product", "biolink:transcribed_to"):
+                        continue
+                    rel_source = rel.get("source_id", "")
+                    rel_target = rel.get("target_id", "")
+                    product_tid = rel_target if rel_source == target_tid else rel_source
+                    if product_tid in seen_target_products or product_tid in seen_tids:
+                        continue
+                    seen_tids.add(product_tid)
+                    product_node = target_data.nodes_by_id.get(product_tid)
+                    if not product_node:
+                        continue
+                    product_type = product_node.get("target_type", "")
+                    product_node_id = f"target-product::{product_tid}"
+                    product_primary_id = product_node.get("primary_id", "")
+                    product_label = product_primary_id or product_node.get("symbol", product_tid)
+                    if product_type == "protein":
+                        p_classes = "target-product protein"
+                    elif product_type == "transcript":
+                        p_classes = "target-product transcript"
+                    else:
+                        p_classes = "target-product"
+                    product_el = {
+                        "data": {
+                            "id": product_node_id,
+                            "label": product_label,
+                            "kind": "target_product",
+                            "target_type": product_type,
+                            "target_id": product_tid,
+                            "target_name": product_node.get("target_name", ""),
+                            "target_primary_id": product_primary_id,
+                            "target_ids": product_node.get("ids", ""),
+                        },
+                        "classes": p_classes,
+                    }
+                    if product_type == "protein":
+                        candidate_proteins.append((product_el, product_tid, rel))
+                    elif product_type == "transcript":
+                        candidate_transcripts.append((product_el, product_tid))
+
+                # Step 2: Build translates_to index (protein_tid → (transcript_tid, edge_row))
+                transcript_tid_set = {tid for _, tid in candidate_transcripts}
+                translates_to_map: dict[str, tuple[str, dict]] = {}
+                for _, p_tid, _ in candidate_proteins:
+                    for tt_edge in target_data.relation_edges_by_target.get(p_tid, []):
+                        if tt_edge.get("predicate") != "biolink:translates_to":
+                            continue
+                        src = tt_edge.get("source_id", "")
+                        tgt = tt_edge.get("target_id", "")
+                        tt_tid = src if tgt == p_tid else tgt
+                        if tt_tid in transcript_tid_set:
+                            translates_to_map[p_tid] = (tt_tid, tt_edge)
+                            break
+
+                # Step 3: Cap selection — up to 5 each, overflow fills other slots
+                max_products = 10
+                max_per_type = 5
+                transcripts_take = candidate_transcripts[:max_per_type]
+                proteins_take = candidate_proteins[:max_per_type]
+                remaining = max_products - len(proteins_take) - len(transcripts_take)
+                if remaining > 0 and len(candidate_proteins) > max_per_type:
+                    proteins_take.extend(candidate_proteins[max_per_type:max_per_type + remaining])
+                    remaining = max_products - len(proteins_take) - len(transcripts_take)
+                if remaining > 0 and len(candidate_transcripts) > max_per_type:
+                    transcripts_take.extend(candidate_transcripts[max_per_type:max_per_type + remaining])
+
+                # Step 4: Build separate transcript and protein element lists
+                selected_transcript_tids = {tid for _, tid in transcripts_take}
+                t_elements: list[dict] = []
+                p_elements: list[dict] = []
+
+                for product_el, t_tid in transcripts_take:
+                    seen_target_products.add(t_tid)
+                    t_elements.append(product_el)
+                    t_elements.append(_target_relation(
+                        gene_node_id, product_el["data"]["id"],
+                        "biolink:transcribed_to",
+                    ))
+
+                for product_el, p_tid, gene_rel in proteins_take:
+                    seen_target_products.add(p_tid)
+                    product_el["data"]["subject_symbol"] = symbol
+                    p_elements.append(product_el)
+                    # Use translates_to when the translating transcript is
+                    # in the transcript set; otherwise fall back to
+                    # has_gene_product from the gene node.
+                    if p_tid in translates_to_map:
+                        tt_tid, tt_edge = translates_to_map[p_tid]
+                        if tt_tid in selected_transcript_tids:
+                            transcript_node_id = f"target-product::{tt_tid}"
+                            p_elements.append(_target_relation(
+                                transcript_node_id, product_el["data"]["id"],
+                                "biolink:translates_to", tt_edge,
+                            ))
+                            # Fallback edge for when transcripts are hidden
+                            fallback = _target_relation(
+                                gene_node_id, product_el["data"]["id"],
+                                "biolink:has_gene_product", gene_rel,
+                            )
+                            fallback["data"]["_fallback"] = True
+                            p_elements.append(fallback)
+                            continue
+                    p_elements.append(_target_relation(
+                        gene_node_id, product_el["data"]["id"],
+                        "biolink:has_gene_product", gene_rel,
+                    ))
+
+                total_proteins = len(candidate_proteins)
+                total_transcripts = len(candidate_transcripts)
+                if t_elements:
+                    gene_transcripts[symbol] = t_elements
+                if p_elements:
+                    gene_proteins[symbol] = p_elements
+                gene_product_counts[symbol] = {
+                    "transcripts": total_transcripts,
+                    "proteins": total_proteins,
+                }
+                gene_nodes[symbol]["data"]["target_protein_count"] = str(total_proteins)
+                gene_nodes[symbol]["data"]["target_transcript_count"] = str(total_transcripts)
+                gene_nodes[symbol]["data"]["target_product_count"] = str(
+                    total_proteins + total_transcripts
+                )
+
     elements = [
         *concept_nodes.values(),
         *xref_nodes.values(),
         *decision_nodes.values(),
+        *gene_nodes.values(),
         *edges.values(),
     ]
 
-    return {
+    result: dict[str, Any] = {
         "queryIds": query_ids,
         "missingIds": missing,
+        "namespaces": sorted(namespaces),
         "stats": {
             "conceptCount": len(concept_nodes),
             "xrefCount": len(xref_nodes),
             "namespaceCount": len(namespaces),
             "edgeCount": len(edges),
             "decisionCount": len(decision_nodes),
+            "geneCount": len(gene_nodes),
         },
         "manifest": data.manifest,
         "elements": elements,
     }
+    if gene_transcripts:
+        result["geneTranscripts"] = gene_transcripts
+    if gene_proteins:
+        result["geneProteins"] = gene_proteins
+    if gene_product_counts:
+        result["geneProductCounts"] = gene_product_counts
+    return result
 
 
 def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict[str, Any]:
@@ -739,6 +1273,106 @@ def build_hierarchy_graph_payload(data: DiseaseGraphData, query_id: str) -> dict
     }
 
 
+def build_clinical_descendant_graph_payload(
+    data: DiseaseGraphData,
+    query_id: str,
+    limit: int = 80,
+) -> dict[str, Any]:
+    """Build clinical-code descendant candidate context for one concept."""
+    pxref = _resolve_to_pxref(data, query_id)
+    if pxref is None:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {query_id}")
+
+    concept = data.concepts_by_pxref.get(pxref)
+    concept_node = _concept_graph_node(data, pxref, "concept clinical-descendant-focus")
+    elements: list[dict[str, Any]] = []
+    if concept_node:
+        elements.append(concept_node)
+
+    rows = data.clinical_descendants_by_pxref.get(pxref, [])[:limit]
+    for row in rows:
+        descendant_xref = row.get("descendant_xref_id", "")
+        if not descendant_xref:
+            continue
+        ns = _normalize_ns(row.get("descendant_xref_namespace", ""))
+        ns_class = ns.lower()
+        xref_node_id = f"clinical-descendant::{descendant_xref}"
+        desc_label = row.get("descendant_xref_label", "")
+        display_label = f"{descendant_xref}\n{desc_label}" if desc_label else descendant_xref
+        elements.append({
+            "data": {
+                "id": xref_node_id,
+                "label": display_label,
+                "kind": "clinical_descendant_xref",
+                "xref_namespace": ns,
+                "xref_label": desc_label,
+                "relationship_to_disease": row.get("relationship_to_disease", ""),
+                "descendant_source_status": row.get("descendant_source_status", ""),
+                "may_not_be_rare_warning": row.get("may_not_be_rare_warning", ""),
+                "warning_reason": row.get("warning_reason", ""),
+            },
+            "classes": f"xref clinical-descendant-xref {ns_class}",
+        })
+
+        edge_id = "::".join([
+            "clinical-descendant-edge",
+            pxref,
+            row.get("anchor_xref_id", ""),
+            descendant_xref,
+        ])
+        distance = row.get("distance_from_anchor", "")
+        label = "narrow candidate"
+        if distance:
+            label = f"{label} d={distance}"
+        elements.append({
+            "data": {
+                "id": edge_id,
+                "source": f"concept::{pxref}",
+                "target": xref_node_id,
+                "label": label,
+                "kind": "clinical_descendant_edge",
+                "match_type": "narrow",
+                "predicate": row.get("predicate", ""),
+                "relationship_to_anchor": row.get("relationship_to_anchor", ""),
+                "relationship_to_disease": row.get("relationship_to_disease", ""),
+                "hierarchy_source": row.get("hierarchy_source", ""),
+                "distance_from_anchor": distance,
+                "distance_status": row.get("distance_status", ""),
+                "path": row.get("path", ""),
+                "anchor_xref_id": row.get("anchor_xref_id", ""),
+                "anchor_xref_namespace": row.get("anchor_xref_namespace", ""),
+                "anchor_xref_label": row.get("anchor_xref_label", ""),
+                "anchor_match_type": row.get("anchor_match_type", ""),
+                "anchor_asserting_sources": row.get("anchor_asserting_sources", ""),
+                "descendant_xref_id": descendant_xref,
+                "descendant_xref_namespace": ns,
+                "descendant_xref_label": desc_label,
+                "descendant_source_status": row.get("descendant_source_status", ""),
+                "existing_odin_match_types": row.get("existing_odin_match_types", ""),
+                "existing_odin_primary_xrefs": row.get("existing_odin_primary_xrefs", ""),
+                "in_mondo_xrefs": row.get("in_mondo_xrefs", ""),
+                "in_yadaw_s2": row.get("in_yadaw_s2", ""),
+                "in_yadaw_s3": row.get("in_yadaw_s3", ""),
+                "may_not_be_rare_warning": row.get("may_not_be_rare_warning", ""),
+                "warning_reason": row.get("warning_reason", ""),
+                "evidence_sources": row.get("evidence_sources", ""),
+                "review_status": row.get("review_status", ""),
+            },
+            "classes": "clinical-descendant-edge match-narrow",
+        })
+
+    return {
+        "queryIds": [query_id],
+        "missingIds": [],
+        "stats": {
+            "conceptCount": 1 if concept else 0,
+            "clinicalDescendantCount": len(rows),
+        },
+        "manifest": data.manifest,
+        "elements": elements,
+    }
+
+
 def load_flagged_concepts(data: DiseaseGraphData, limit: int = 500) -> list[dict[str, Any]]:
     """Return concepts that still need review/action for the landing page table."""
     flagged: list[dict[str, Any]] = []
@@ -794,6 +1428,391 @@ def export_flagged_tsv(data: DiseaseGraphData, limit: int = 5000) -> str:
     ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=columns, delimiter="\t", extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
+def _review_category(decision: dict, concept: dict) -> str:
+    """Bucket a review decision into a compact UI category."""
+    text = " ".join([
+        decision.get("decision_type", ""),
+        decision.get("scenario_id", ""),
+        decision.get("auto_decision", ""),
+        decision.get("auto_rationale", ""),
+        decision.get("resolution", ""),
+        concept.get("needs_review_triage_bucket", ""),
+        concept.get("needs_review_triage_action", ""),
+        concept.get("evidence_note", ""),
+    ]).lower()
+    tier = concept.get("confidence_tier", "").lower()
+    namespace = decision.get("xref_namespace", "").upper()
+    if "obsolete" in text or tier == "review_obsolete_xref":
+        return "obsolete_xref"
+    if "validator" in text or tier == "review_validator_disagreement":
+        return "validator_disagreement"
+    if "broad" in text or "narrow" in text or "split" in text:
+        return "broad_narrow_or_split"
+    if "phenotype" in text or concept.get("disease_type", "") == "biolink:PhenotypicFeature":
+        return "phenotype_vs_disease"
+    if "cardinality" in text or _safe_int(concept.get("cardinality_issue_count")) > 0:
+        return "cardinality_issue"
+    if namespace:
+        return f"{namespace.lower()}_conflict"
+    if "conflict" in text or "dissent" in text:
+        return "source_conflict"
+    return "needs_review"
+
+
+def _review_category_label(category: str) -> str:
+    labels = {
+        "obsolete_xref": "Obsolete xref",
+        "validator_disagreement": "Validator disagreement",
+        "broad_narrow_or_split": "Broad/narrow or split concern",
+        "phenotype_vs_disease": "Phenotype vs disease",
+        "cardinality_issue": "Cardinality issue",
+        "source_conflict": "Source conflict",
+        "needs_review": "Needs review",
+    }
+    if category.endswith("_conflict"):
+        return f"{category[:-9].upper()} conflict"
+    return labels.get(category, category.replace("_", " "))
+
+
+def _review_status_filter(status: str) -> set[str] | None:
+    status = (status or "open").strip().lower()
+    if status in {"all", "any"}:
+        return None
+    if status in {"open", "unresolved", "needs_action"}:
+        return _OPEN_REVIEW_STATUSES
+    if status in {"stale", "inactive"}:
+        return {"stale"}
+    if status in {"resolved", "closed"}:
+        return _RESOLVED_DECISION_STATUSES
+    return {status}
+
+
+def _review_item_status(item: dict[str, Any]) -> str:
+    return (item.get("status", "") or "open").strip().lower()
+
+
+def _review_xref_tokens(value: str) -> list[str]:
+    return [token.strip() for token in (value or "").split("|") if token.strip()]
+
+
+def _build_review_edge_indexes(
+    data: DiseaseGraphData,
+) -> tuple[set[tuple[str, str, str]], dict[str, set[str]]]:
+    edge_keys: set[tuple[str, str, str]] = set()
+    xref_to_pxrefs: dict[str, set[str]] = defaultdict(set)
+    for pxref, edges in data.edges_by_pxref.items():
+        for edge in edges:
+            xref_id = edge.get("xref_id", "")
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
+            if not xref_id:
+                continue
+            edge_keys.add((pxref, xref_id, ns))
+            xref_to_pxrefs[xref_id].add(pxref)
+    return edge_keys, xref_to_pxrefs
+
+
+_STALE_REASON_LABELS = {
+    "edge_still_present": "Edge still present; old QC conflict no longer reproduced",
+    "edge_split_or_changed": "Old combined xref assertion is now split or changed",
+    "xref_attached_elsewhere": "Xref now attached to a different primary concept",
+    "xref_edge_absent": "Xref edge no longer present in current graph",
+    "primary_concept_absent": "Primary concept no longer present in current graph",
+}
+
+
+def _stale_review_reason(
+    data: DiseaseGraphData,
+    item: dict[str, Any],
+    edge_keys: set[tuple[str, str, str]],
+    xref_to_pxrefs: dict[str, set[str]],
+) -> tuple[str, str]:
+    pxref = item.get("primary_xref", "")
+    ns = _normalize_ns(item.get("xref_namespace", ""))
+    xref_tokens = _review_xref_tokens(item.get("xref_id", ""))
+    if pxref not in data.concepts_by_pxref:
+        key = "primary_concept_absent"
+    elif any((pxref, xref_id, ns) in edge_keys for xref_id in xref_tokens):
+        key = "edge_still_present"
+    elif len(xref_tokens) > 1 and any(
+        any((pxref, xref_id, edge_ns) in edge_keys for edge_ns in ("", ns))
+        or any(candidate_px == pxref for candidate_px in xref_to_pxrefs.get(xref_id, set()))
+        for xref_id in xref_tokens
+    ):
+        key = "edge_split_or_changed"
+    elif any(xref_id in xref_to_pxrefs for xref_id in xref_tokens):
+        key = "xref_attached_elsewhere"
+    else:
+        key = "xref_edge_absent"
+    return key, _STALE_REASON_LABELS[key]
+
+
+def _review_item_from_decision(
+    pxref: str,
+    concept: dict,
+    decision: dict,
+) -> dict[str, Any]:
+    category = _review_category(decision, concept)
+    rationale = (
+        decision.get("auto_rationale", "")
+        or decision.get("resolution", "")
+        or concept.get("evidence_note", "")
+    )
+    registry_id = decision.get("decision_id", "")
+    return {
+        "review_id": registry_id or f"concept::{pxref}",
+        "registry_id": registry_id,
+        "saveable": bool(registry_id and decision.get("decision_source") == "divergence_registry"),
+        "decision_source": decision.get("decision_source", ""),
+        "primary_xref": pxref,
+        "ncats_disease_id": concept.get("ncats_disease_id", ""),
+        "standard_name": concept.get("standard_name", ""),
+        "category": category,
+        "category_label": _review_category_label(category),
+        "xref_id": decision.get("xref_id", ""),
+        "xref_namespace": _normalize_ns(decision.get("xref_namespace", "")),
+        "decision_type": decision.get("decision_type", ""),
+        "scenario_id": decision.get("scenario_id", ""),
+        "status": decision.get("status", ""),
+        "auto_decision": decision.get("auto_decision", ""),
+        "auto_confidence": decision.get("auto_confidence", ""),
+        "source_value": decision.get("source_value", ""),
+        "consensus_value": decision.get("consensus_value", ""),
+        "n_sources_agree": decision.get("n_sources_agree", ""),
+        "n_sources_total": decision.get("n_sources_total", ""),
+        "evidence_note": normalize_review_text(rationale),
+        "reviewed_by": decision.get("reviewed_by", ""),
+        "date_found": decision.get("date_found", ""),
+        "date_resolved": decision.get("date_resolved", ""),
+        "graph_href": f"/disease-id-qa?ids={pxref}&tab=graph",
+        "provenance_href": f"/disease-id-qa/api/provenance/{pxref}",
+    }
+
+
+def _review_item_from_concept(pxref: str, concept: dict) -> dict[str, Any]:
+    decision = {
+        "decision_id": "",
+        "decision_source": "concept_triage",
+        "primary_xref": pxref,
+        "ncats_disease_id": concept.get("ncats_disease_id", ""),
+        "standard_name": concept.get("standard_name", ""),
+        "xref_id": "",
+        "xref_namespace": concept.get("needs_review_problem_namespaces", ""),
+        "decision_type": concept.get("needs_review_triage_bucket", ""),
+        "scenario_id": "",
+        "status": "open",
+        "auto_decision": concept.get("needs_review_triage_action", ""),
+        "auto_confidence": "",
+        "auto_rationale": concept.get("evidence_note", ""),
+        "source_value": "",
+        "consensus_value": concept.get("authority_consensus", ""),
+        "n_sources_agree": "",
+        "n_sources_total": concept.get("n_sources", ""),
+    }
+    return _review_item_from_decision(pxref, concept, decision)
+
+
+def _iter_review_items(
+    data: DiseaseGraphData,
+    *,
+    include_resolved: bool = False,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for pxref, concept in data.concepts_by_pxref.items():
+        decisions = data.decisions_by_pxref.get(pxref, [])
+        active_decisions = [
+            decision for decision in decisions
+            if decision.get("status", "").strip().lower() not in _RESOLVED_DECISION_STATUSES
+        ]
+        row_decisions = decisions if include_resolved else active_decisions
+        for decision in row_decisions:
+            items.append(_review_item_from_decision(pxref, concept, decision))
+        if not active_decisions and _is_flagged(concept, decisions):
+            items.append(_review_item_from_concept(pxref, concept))
+    return items
+
+
+def build_review_queue(
+    data: DiseaseGraphData,
+    *,
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+) -> dict[str, Any]:
+    """Return clustered review items with pagination for the app Review tab."""
+    q_lower = q.strip().lower()
+    wanted_status = _review_status_filter(status)
+    source_upper = source.strip().upper()
+
+    all_items = _iter_review_items(data, include_resolved=True)
+    status_counts: Counter[str] = Counter(_review_item_status(item) for item in all_items)
+    edge_keys, xref_to_pxrefs = _build_review_edge_indexes(data)
+    stale_reason_source_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    stale_reason_key_counts: Counter[str] = Counter()
+    obsolete_omitted_count = 0
+    for item in all_items:
+        if _review_item_status(item) == "stale":
+            reason_key, reason_label = _stale_review_reason(
+                data,
+                item,
+                edge_keys,
+                xref_to_pxrefs,
+            )
+            item["stale_reason"] = reason_label
+            item["stale_reason_key"] = reason_key
+            stale_reason_key_counts[reason_key] += 1
+            ns = item.get("xref_namespace", "")
+            if ns:
+                stale_reason_source_counts[reason_key][ns] += 1
+        action = (
+            item.get("auto_decision", "")
+            or item.get("resolution", "")
+            or ""
+        ).lower().replace(" ", "_")
+        if (
+            _review_item_status(item) in _RESOLVED_DECISION_STATUSES
+            and action in {"omit_obsolete_xref", "remove_obsolete_xref"}
+        ):
+            obsolete_omitted_count += 1
+
+    review_summary = {
+        "still_needs_decision": sum(status_counts.get(s, 0) for s in _OPEN_REVIEW_STATUSES),
+        "stale_or_inactive": status_counts.get("stale", 0),
+        "reviewed_or_resolved": sum(status_counts.get(s, 0) for s in _RESOLVED_DECISION_STATUSES),
+        "obsolete_omitted": obsolete_omitted_count,
+        "all_review_records": len(all_items),
+        "stale_reasons": [
+            {
+                "reason": key,
+                "label": _STALE_REASON_LABELS.get(key, key),
+                "count": count,
+            }
+            for key, count in stale_reason_key_counts.most_common()
+        ],
+        "stale_reason_counts": dict(stale_reason_key_counts.most_common()),
+        "stale_sources_by_reason": {
+            key: dict(counts.most_common())
+            for key, counts in stale_reason_source_counts.items()
+        },
+    }
+
+    status_scoped_items = [
+        item for item in all_items
+        if wanted_status is None or _review_item_status(item) in wanted_status
+    ]
+    category_counts: Counter[str] = Counter(
+        item["category"] for item in status_scoped_items
+    )
+    source_counts: Counter[str] = Counter(
+        item["xref_namespace"] for item in status_scoped_items if item["xref_namespace"]
+    )
+
+    filtered: list[dict[str, Any]] = []
+    for item in status_scoped_items:
+        if category and item.get("category") != category:
+            continue
+        if source_upper and item.get("xref_namespace", "").upper() != source_upper:
+            continue
+        if q_lower:
+            haystack = " ".join([
+                item.get("primary_xref", ""),
+                item.get("ncats_disease_id", ""),
+                item.get("standard_name", ""),
+                item.get("xref_id", ""),
+                item.get("xref_namespace", ""),
+                item.get("decision_type", ""),
+                item.get("evidence_note", ""),
+            ]).lower()
+            if q_lower not in haystack:
+                continue
+        filtered.append(item)
+
+    filtered.sort(
+        key=lambda row: (
+            row.get("category_label", ""),
+            row.get("xref_namespace", ""),
+            row.get("standard_name", "").lower(),
+            row.get("primary_xref", ""),
+        )
+    )
+    total = len(filtered)
+    per_page = max(1, min(per_page, 200))
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    rows = filtered[start:start + per_page]
+
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "category": category,
+        "source": source,
+        "status": status,
+        "query": q,
+        "category_counts": [
+            {"category": key, "label": _review_category_label(key), "count": count}
+            for key, count in category_counts.most_common()
+        ],
+        "source_counts": dict(source_counts.most_common()),
+        "status_counts": dict(status_counts.most_common()),
+        "review_summary": review_summary,
+        "decision_options": REVIEW_DECISION_OPTIONS,
+    }
+
+
+def export_review_intake_template(
+    data: DiseaseGraphData,
+    *,
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    limit: int = 5000,
+) -> str:
+    """Export a TargetGraph-compatible review intake TSV template."""
+    queue = build_review_queue(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+        page=1,
+        per_page=min(max(1, limit), 5000),
+    )
+    rows = []
+    for item in queue["rows"]:
+        rows.append({
+            "Registry ID": item.get("registry_id", ""),
+            "Review decision": "",
+            "Corrected xref / replacement": "",
+            "Reviewer notes": "",
+            "Primary Xref": item.get("primary_xref", ""),
+            "Disease Name": item.get("standard_name", ""),
+            "NCATS Disease ID": item.get("ncats_disease_id", ""),
+            "Review category": item.get("category", ""),
+            "Xref ID": item.get("xref_id", ""),
+            "Xref Namespace": item.get("xref_namespace", ""),
+            "Decision type": item.get("decision_type", ""),
+            "Scenario ID": item.get("scenario_id", ""),
+            "Source value": item.get("source_value", ""),
+            "Consensus value": item.get("consensus_value", ""),
+            "Evidence note": item.get("evidence_note", ""),
+            "Reviewed by": "",
+            "Reviewed at": "",
+            "App review ID": item.get("review_id", ""),
+        })
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=REVIEW_INTAKE_COLUMNS, delimiter="\t")
     writer.writeheader()
     writer.writerows(rows)
     return buf.getvalue()
@@ -875,6 +1894,39 @@ def _format_hierarchy_refs(rows: list[dict], role: str, limit: int = 12) -> str:
     return " | ".join(values)
 
 
+_DISEASE_SOURCE_NAMESPACE_COLUMNS = [
+    "DOID", "EFO", "GARD", "HP", "ICD10", "ICD11", "ICD11f",
+    "ICD9", "ICDO", "KEGG", "MEDDRA", "MEDGEN", "MESH",
+    "MONDO", "NCIT", "OMIM", "OMIMPS", "Orphanet", "SNOMEDCT", "UMLS",
+]
+_DISEASE_SOURCE_NAMESPACE_BY_UPPER = {
+    ns.upper(): ns for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+}
+_DISEASE_SOURCE_NAMESPACE_ALIASES = {
+    "ICD10CM": "ICD10",
+    "ORPHA": "Orphanet",
+    "ORDO": "Orphanet",
+}
+
+
+def _curie_namespace(curie: str) -> str:
+    return curie.split(":", 1)[0].strip() if ":" in curie else ""
+
+
+def _canonical_source_column(ns: str) -> str:
+    normalized = _normalize_ns((ns or "").strip())
+    key = normalized.upper()
+    if key in _DISEASE_SOURCE_NAMESPACE_ALIASES:
+        return _DISEASE_SOURCE_NAMESPACE_ALIASES[key]
+    return _DISEASE_SOURCE_NAMESPACE_BY_UPPER.get(key, normalized)
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    value = (value or "").strip()
+    if value and value not in values:
+        values.append(value)
+
+
 def _concept_to_row(
     pxref: str,
     concept: dict,
@@ -907,16 +1959,30 @@ def _concept_to_row(
 
     parents = data.hierarchy_by_child.get(pxref, [])
     children = data.hierarchy_by_parent.get(pxref, [])
+    source_xrefs: dict[str, list[str]] = {
+        ns: [] for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+    }
+
+    def add_source_xref(xref_id: str, namespace: str = "") -> None:
+        column = _canonical_source_column(namespace or _curie_namespace(xref_id))
+        if column not in source_xrefs:
+            return
+        if include_sources is not None and column.upper() not in include_sources:
+            return
+        _append_unique(source_xrefs[column], xref_id)
+
+    add_source_xref(pxref)
 
     # Build compact source labels: "MONDO: Diabetes | OMIM: Type 2 diabetes"
     source_labels: list[str] = []
     for edge in data.edges_by_pxref.get(pxref, []):
         xref_id = edge.get("xref_id", "")
         ns = _normalize_ns(edge.get("xref_namespace", ""))
-        if include_sources and ns.upper() not in include_sources:
+        if include_sources is not None and ns.upper() not in include_sources:
             continue
         if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
             continue
+        add_source_xref(xref_id, ns)
         label = edge.get("xref_label", "")
         if not label:
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -924,7 +1990,7 @@ def _concept_to_row(
         if ns and label:
             source_labels.append(f"{ns}: {label}")
 
-    return {
+    row = {
         "primary_xref": pxref,
         "ncats_disease_id": concept.get("ncats_disease_id", ""),
         "standard_name": concept.get("standard_name", ""),
@@ -937,7 +2003,11 @@ def _concept_to_row(
         "needs_review_problem_namespaces": concept.get("needs_review_problem_namespaces", ""),
         "needs_review_cardinality_namespaces": concept.get("needs_review_cardinality_namespaces", ""),
         "needs_review_obsolete_namespaces": concept.get("needs_review_obsolete_namespaces", ""),
-        "needs_review_validator_namespaces": concept.get("needs_review_validator_namespaces", ""),
+        "needs_review_validator_namespaces": (
+            concept.get("needs_review_validator_namespaces", "")
+            or concept.get("needs_review_discordant_namespaces", "")
+        ),
+        "needs_review_discordant_namespaces": concept.get("needs_review_discordant_namespaces", ""),
         "needs_review_decision": _needs_review_decision(concept),
         "authority_consensus": concept.get("authority_consensus", ""),
         "evidence_note": concept.get("evidence_note", ""),
@@ -952,13 +2022,18 @@ def _concept_to_row(
         "disease_type": concept.get("disease_type", ""),
         "nodenorm_canonical_curie": concept.get("nodenorm_canonical_curie", ""),
         "nodenorm_canonical_label": concept.get("nodenorm_canonical_label", ""),
-        "nodenorm_validation_status": concept.get("nodenorm_validation_status", ""),
+        "nodenorm_validation_status": _nodenorm_status(concept),
         "hierarchy_parent_count": len(parents),
         "hierarchy_child_count": len(children),
         "hierarchy_parents": _format_hierarchy_refs(parents, "parent"),
         "hierarchy_children": _format_hierarchy_refs(children, "child"),
         "href": f"/disease-id-qa?ids={pxref}",
     }
+    row.update({
+        ns: " | ".join(source_xrefs[ns])
+        for ns in _DISEASE_SOURCE_NAMESPACE_COLUMNS
+    })
+    return row
 
 
 def _split_pipe(value: Any) -> list[str]:
@@ -1084,6 +2159,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
         xref_id: str = "",
         match_type: str = "",
         xref_confidence: str = "",
+        equivalence_confidence: str = "",
         obsolete: bool = False,
     ) -> None:
         raw_term = str(raw_term or "").strip()
@@ -1103,6 +2179,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
             "xref_id": xref_id,
             "match_type": match_type,
             "xref_confidence": xref_confidence,
+            "equivalence_confidence": equivalence_confidence or xref_confidence,
             "obsolete": obsolete,
         })
 
@@ -1126,6 +2203,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             add_term(
@@ -1136,6 +2214,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             label_row = data.labels_by_xref_id.get(xref_id, {})
@@ -1147,6 +2226,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                 xref_id=xref_id,
                 match_type=edge.get("match_type", ""),
                 xref_confidence=edge.get("xref_confidence", ""),
+                equivalence_confidence=edge.get("equivalence_confidence", ""),
                 obsolete=is_obsolete,
             )
             for synonym in _split_pipe(label_row.get("synonyms", "")):
@@ -1158,6 +2238,7 @@ def _resolver_index(data: DiseaseGraphData) -> list[dict[str, Any]]:
                     xref_id=xref_id,
                     match_type=edge.get("match_type", ""),
                     xref_confidence=edge.get("xref_confidence", ""),
+                    equivalence_confidence=edge.get("equivalence_confidence", ""),
                     obsolete=is_obsolete,
                 )
 
@@ -1196,6 +2277,7 @@ def resolve_name_candidates(
             "xref_id": "",
             "match_type": "exact",
             "xref_confidence": "1.0",
+            "equivalence_confidence": "1.0",
             "obsolete": False,
         }, 1.0)
 
@@ -1222,7 +2304,10 @@ def resolve_name_candidates(
         concept = data.concepts_by_pxref.get(pxref, {})
         source_count = int(_safe_float(concept.get("n_sources", 0)))
         source_score = min(1.0, 0.55 + source_count * 0.09)
-        xref_score = _safe_float(term.get("xref_confidence", ""), 0.0)
+        xref_score = _safe_float(
+            term.get("equivalence_confidence", "") or term.get("xref_confidence", ""),
+            0.0,
+        )
         harmonizer_score = max(_tier_score(concept.get("confidence_tier", "")), xref_score)
         prior = _field_prior(term.get("field", ""))
 
@@ -1269,6 +2354,7 @@ def resolve_name_candidates(
             "matched_source": term.get("source", ""),
             "matched_xref_id": term.get("xref_id", ""),
             "matched_xref_match_type": term.get("match_type", ""),
+            "equivalence_confidence": term.get("equivalence_confidence", ""),
             "xref_confidence": term.get("xref_confidence", ""),
             "confidence_tier": concept.get("confidence_tier", ""),
             "overall_quality": concept.get("overall_quality", ""),
@@ -1384,6 +2470,16 @@ def _match_filters(
     return True
 
 
+_SORT_KEYS: dict[str, str] = {
+    "primary_xref": "primary_xref",
+    "name": "standard_name",
+    "tier": "confidence_tier",
+    "quality": "overall_quality",
+    "sources": "n_sources",
+    "xrefs": "xref_count",
+}
+
+
 def search_concepts(
     data: DiseaseGraphData,
     q: str = "",
@@ -1395,8 +2491,10 @@ def search_concepts(
     source: str = "",
     quality: str = "",
     disease_type: str = "",
+    sort: str = "",
+    sort_dir: str = "asc",
 ) -> dict[str, Any]:
-    """Search concepts with pagination and optional filters."""
+    """Search concepts with pagination, optional filters, and sorting."""
     q_lower = q.strip().lower()
     matches: list[tuple[str, dict]] = []
 
@@ -1410,6 +2508,24 @@ def search_concepts(
         ):
             continue
         matches.append((pxref, concept))
+
+    # Sort if requested
+    sort_field = _SORT_KEYS.get(sort, "")
+    if sort_field:
+        reverse = sort_dir.lower() == "desc"
+
+        def _sort_val(pair: tuple[str, dict]):
+            pxref, concept = pair
+            if sort_field == "primary_xref":
+                return pxref.lower()
+            val = concept.get(sort_field, "")
+            # Try numeric sort for quality/sources/xrefs
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return str(val).lower()
+
+        matches.sort(key=_sort_val, reverse=reverse)
 
     total = len(matches)
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -1469,13 +2585,273 @@ def export_search_tsv(
 
 
 _XREF_EDGE_COLUMNS = {
-    "xref_id", "xref_namespace", "match_type", "match_type_source",
-    "agreement_level", "xref_confidence", "mapping_confidence",
-    "label_confidence", "source_support", "asserting_sources",
-    "structural_confidence",
+    "xref_id", "xref_namespace", "match_type", "relation_type",
+    "match_type_source", "agreement_level", "xref_confidence",
+    "relation_confidence", "equivalence_confidence",
+    "mapping_confidence", "label_confidence", "source_support",
+    "validation_support", "corroboration_score", "asserting_sources",
+    "validation_sources", "evidence_streams", "structural_confidence",
+    "evidence_tier", "review_tier", "score_rationale",
     "confidence_score", "label_similarity", "xref_label",
     "xref_is_obsolete", "source_asserted",
 }
+
+_CLINICAL_DESCENDANT_COLUMNS = {
+    "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+    "anchor_match_type", "anchor_asserting_sources",
+    "descendant_xref_id", "descendant_xref_namespace", "descendant_xref_label",
+    "relationship_to_anchor", "relationship_to_disease", "predicate",
+    "hierarchy_source", "distance_from_anchor", "distance_status", "path",
+    "descendant_source_status", "existing_odin_match_types",
+    "existing_odin_primary_xrefs", "in_mondo_xrefs", "in_yadaw_s2",
+    "in_yadaw_s3", "rare_anchor", "may_not_be_rare_warning",
+    "warning_reason", "evidence_sources", "review_status",
+}
+
+_CORE_DOWNLOAD_COLUMNS = ["ncats_disease_id", "primary_xref", "standard_name"]
+_CONCEPT_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "definition", "synonyms", "disease_type", "is_rare",
+    "overall_quality", "n_sources", "xref_count",
+    "nodenorm_canonical_curie", "nodenorm_canonical_label",
+    "hierarchy_parents", "hierarchy_children",
+    *_DISEASE_SOURCE_NAMESPACE_COLUMNS,
+]
+_XREF_EDGE_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "xref_id", "xref_namespace", "xref_label", "match_type",
+    "relation_type", "match_type_source", "equivalence_confidence",
+    "relation_confidence", "evidence_tier", "review_tier",
+    "xref_confidence", "agreement_level", "xref_is_obsolete",
+    "asserting_sources", "validation_sources", "evidence_streams",
+]
+_CLINICAL_DESCENDANT_DOWNLOAD_DEFAULT_COLUMNS = [
+    *_CORE_DOWNLOAD_COLUMNS,
+    "disease_type", "is_rare",
+    "anchor_xref_id", "anchor_xref_namespace", "anchor_xref_label",
+    "anchor_match_type", "anchor_asserting_sources",
+    "descendant_xref_id", "descendant_xref_namespace",
+    "descendant_xref_label", "relationship_to_disease", "predicate",
+    "hierarchy_source", "distance_from_anchor", "distance_status",
+    "descendant_source_status", "may_not_be_rare_warning",
+    "warning_reason", "review_status",
+]
+
+
+def _dedupe_columns(columns: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for col in columns:
+        if col and col not in seen:
+            seen.add(col)
+            deduped.append(col)
+    return deduped
+
+
+def _normalize_download_mode(mode: str = "concepts") -> str:
+    mode = (mode or "concepts").strip().lower()
+    aliases = {
+        "concept": "concepts",
+        "diseases": "concepts",
+        "disease": "concepts",
+        "edges": "xref_edges",
+        "xref": "xref_edges",
+        "xrefs": "xref_edges",
+        "clinical": "clinical_descendants",
+        "clinical_descendant": "clinical_descendants",
+    }
+    return aliases.get(mode, mode if mode in {"concepts", "xref_edges", "clinical_descendants"} else "concepts")
+
+
+def _filtered_download_columns(
+    columns: list[str] | None = None,
+    mode: str = "concepts",
+) -> tuple[list[str], bool, bool]:
+    """Return (use_columns, xref_edge_mode, clinical_descendant_mode)."""
+    mode = _normalize_download_mode(mode)
+    if columns:
+        use_columns = _dedupe_columns([*_CORE_DOWNLOAD_COLUMNS, *columns])
+    elif mode == "xref_edges":
+        use_columns = list(_XREF_EDGE_DOWNLOAD_DEFAULT_COLUMNS)
+    elif mode == "clinical_descendants":
+        use_columns = list(_CLINICAL_DESCENDANT_DOWNLOAD_DEFAULT_COLUMNS)
+    else:
+        use_columns = list(_CONCEPT_DOWNLOAD_DEFAULT_COLUMNS)
+    if mode == "concepts":
+        relationship_columns = _XREF_EDGE_COLUMNS | _CLINICAL_DESCENDANT_COLUMNS
+        use_columns = [col for col in use_columns if col not in relationship_columns]
+    elif mode == "xref_edges":
+        use_columns = [col for col in use_columns if col not in _CLINICAL_DESCENDANT_COLUMNS]
+    elif mode == "clinical_descendants":
+        use_columns = [col for col in use_columns if col not in _XREF_EDGE_COLUMNS]
+    clinical_descendant_mode = mode == "clinical_descendants"
+    edge_mode = mode == "xref_edges"
+    return use_columns, edge_mode, clinical_descendant_mode
+
+
+def _filtered_download_rows(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    mode: str = "concepts",
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> tuple[list[str], bool, Any]:
+    """Return (use_columns, edge_mode, row_iterator) for filtered downloads."""
+    use_columns, edge_mode, clinical_descendant_mode = _filtered_download_columns(columns, mode)
+    q_lower = q.strip().lower()
+
+    def _iter_rows():
+        count = 0
+        for pxref, concept in data.concepts_by_pxref.items():
+            if not _match_filters(
+                pxref, concept, data,
+                q_lower=q_lower, filter_mode=filter_mode,
+                confidence_tier=confidence_tier, is_rare=is_rare,
+                source=source, quality=quality,
+                disease_type=disease_type,
+            ):
+                continue
+
+            concept_row = _concept_to_row(
+                pxref, concept, data,
+                include_sources=include_sources,
+                exclude_obsolete=exclude_obsolete,
+            )
+
+            if clinical_descendant_mode:
+                descendant_rows = data.clinical_descendants_by_pxref.get(pxref, [])
+                for descendant in descendant_rows:
+                    ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
+                    anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
+                    if include_sources is not None and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
+                        continue
+                    row = dict(concept_row)
+                    for col in _CLINICAL_DESCENDANT_COLUMNS:
+                        row[col] = descendant.get(col, "")
+                    yield row
+                    count += 1
+                    if count >= limit:
+                        return
+            elif not edge_mode:
+                yield concept_row
+                count += 1
+            else:
+                edges = data.edges_by_pxref.get(pxref, [])
+                for edge in edges:
+                    ns = _normalize_ns(edge.get("xref_namespace", ""))
+                    if include_sources is not None and ns.upper() not in include_sources:
+                        continue
+                    if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
+                        continue
+                    row = dict(concept_row)
+                    row["xref_id"] = edge.get("xref_id", "")
+                    row["xref_namespace"] = ns
+                    row["match_type"] = edge.get("match_type", "")
+                    row["relation_type"] = edge.get("relation_type", "") or edge.get("match_type", "")
+                    row["match_type_source"] = edge.get("match_type_source", "")
+                    row["agreement_level"] = edge.get("agreement_level", "")
+                    row["xref_confidence"] = edge.get("xref_confidence", "")
+                    row["relation_confidence"] = edge.get("relation_confidence", "")
+                    row["equivalence_confidence"] = edge.get("equivalence_confidence", "")
+                    row["mapping_confidence"] = edge.get("mapping_confidence", "")
+                    row["label_confidence"] = edge.get("label_confidence", "")
+                    row["source_support"] = edge.get("source_support", "")
+                    row["validation_support"] = edge.get("validation_support", "")
+                    row["corroboration_score"] = edge.get("corroboration_score", "")
+                    row["asserting_sources"] = edge.get("asserting_sources", "")
+                    row["validation_sources"] = edge.get("validation_sources", "")
+                    row["evidence_streams"] = edge.get("evidence_streams", "")
+                    row["structural_confidence"] = edge.get("structural_confidence", "")
+                    row["evidence_tier"] = edge.get("evidence_tier", "")
+                    row["review_tier"] = edge.get("review_tier", "")
+                    row["score_rationale"] = edge.get("score_rationale", "")
+                    row["confidence_score"] = edge.get("confidence_score", "")
+                    row["label_similarity"] = edge.get("label_similarity", "")
+                    row["xref_label"] = edge.get("xref_label", "")
+                    row["xref_is_obsolete"] = edge.get("xref_is_obsolete", "")
+                    row["source_asserted"] = edge.get("source_asserted", "")
+                    yield row
+                    count += 1
+                    if count >= limit:
+                        return
+
+            if count >= limit:
+                return
+
+    return use_columns, edge_mode, _iter_rows()
+
+
+def compute_download_preview_counts(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    mode: str = "concepts",
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> dict[str, Any]:
+    """Return exact concept and row counts for the selected download mode."""
+    mode_key = _normalize_download_mode(mode)
+    q_lower = q.strip().lower()
+    concept_count = 0
+    xref_edge_count = 0
+    clinical_descendant_count = 0
+
+    for pxref, concept in data.concepts_by_pxref.items():
+        if not _match_filters(
+            pxref, concept, data,
+            q_lower=q_lower, filter_mode=filter_mode,
+            confidence_tier=confidence_tier, is_rare=is_rare,
+            source=source, quality=quality,
+            disease_type=disease_type,
+        ):
+            continue
+        concept_count += 1
+
+        for edge in data.edges_by_pxref.get(pxref, []):
+            ns = _normalize_ns(edge.get("xref_namespace", ""))
+            if include_sources is not None and ns.upper() not in include_sources:
+                continue
+            if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
+                continue
+            xref_edge_count += 1
+
+        for descendant in data.clinical_descendants_by_pxref.get(pxref, []):
+            ns = _normalize_ns(descendant.get("descendant_xref_namespace", ""))
+            anchor_ns = _normalize_ns(descendant.get("anchor_xref_namespace", ""))
+            if include_sources is not None and ns.upper() not in include_sources and anchor_ns.upper() not in include_sources:
+                continue
+            clinical_descendant_count += 1
+
+    row_count = {
+        "xref_edges": xref_edge_count,
+        "clinical_descendants": clinical_descendant_count,
+    }.get(mode_key, concept_count)
+    row_label = {
+        "xref_edges": "xref edge rows",
+        "clinical_descendants": "clinical descendant rows",
+    }.get(mode_key, "concept rows")
+
+    return {
+        "mode": mode_key,
+        "row_count": row_count,
+        "row_label": row_label,
+        "concept_count": concept_count,
+        "xref_edge_count": xref_edge_count,
+        "clinical_descendant_count": clinical_descendant_count,
+    }
 
 
 def export_filtered_download(
@@ -1488,6 +2864,7 @@ def export_filtered_download(
     quality: str = "",
     disease_type: str = "",
     columns: list[str] | None = None,
+    mode: str = "concepts",
     fmt: str = "tsv",
     limit: int = 200_000,
     include_sources: set[str] | None = None,
@@ -1511,83 +2888,123 @@ def export_filtered_download(
     exclude_obsolete : bool
         When True, omit xref edges where ``xref_is_obsolete`` is true.
     """
-    default_columns = [
-        "ncats_disease_id", "primary_xref", "standard_name",
-        "confidence_tier", "confidence_tier_original",
-        "needs_review_auto_cleared", "needs_review_triage_bucket",
-        "needs_review_decision", "overall_quality", "n_sources", "xref_count",
-    ]
-    use_columns = columns if columns else default_columns
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
     delimiter = "," if fmt == "csv" else "\t"
-
-    # Determine whether any xref edge columns were requested
-    requested_edge_cols = [c for c in use_columns if c in _XREF_EDGE_COLUMNS]
-    edge_mode = len(requested_edge_cols) > 0
-
-    q_lower = q.strip().lower()
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
     writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
 
-    count = 0
-    for pxref, concept in data.concepts_by_pxref.items():
-        if not _match_filters(
-            pxref, concept, data,
-            q_lower=q_lower, filter_mode=filter_mode,
-            confidence_tier=confidence_tier, is_rare=is_rare,
-            source=source, quality=quality,
-            disease_type=disease_type,
-        ):
-            continue
 
-        concept_row = _concept_to_row(
-            pxref, concept, data,
-            include_sources=include_sources,
-            exclude_obsolete=exclude_obsolete,
-        )
+def stream_filtered_download(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    mode: str = "concepts",
+    fmt: str = "tsv",
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+):
+    """Yield lines for streaming TSV/CSV download."""
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
+    delimiter = "," if fmt == "csv" else "\t"
 
-        if not edge_mode:
-            writer.writerow(concept_row)
-            count += 1
-        else:
-            edges = data.edges_by_pxref.get(pxref, [])
-            wrote_any = False
-            for edge in edges:
-                ns = _normalize_ns(edge.get("xref_namespace", ""))
-                if include_sources and ns.upper() not in include_sources:
-                    continue
-                if exclude_obsolete and edge.get("xref_is_obsolete", "").lower() in ("true", "1"):
-                    continue
-                row = dict(concept_row)
-                row["xref_id"] = edge.get("xref_id", "")
-                row["xref_namespace"] = ns
-                row["match_type"] = edge.get("match_type", "")
-                row["match_type_source"] = edge.get("match_type_source", "")
-                row["agreement_level"] = edge.get("agreement_level", "")
-                row["xref_confidence"] = edge.get("xref_confidence", "")
-                row["mapping_confidence"] = edge.get("mapping_confidence", "")
-                row["label_confidence"] = edge.get("label_confidence", "")
-                row["source_support"] = edge.get("source_support", "")
-                row["asserting_sources"] = edge.get("asserting_sources", "")
-                row["structural_confidence"] = edge.get("structural_confidence", "")
-                row["confidence_score"] = edge.get("confidence_score", "")
-                row["label_similarity"] = edge.get("label_similarity", "")
-                row["xref_label"] = edge.get("xref_label", "")
-                row["xref_is_obsolete"] = edge.get("xref_is_obsolete", "")
-                row["source_asserted"] = edge.get("source_asserted", "")
-                writer.writerow(row)
-                count += 1
-                wrote_any = True
-                if count >= limit:
-                    break
-            # Concepts with no matching edges still get a row
-            if not wrote_any:
-                writer.writerow(concept_row)
-                count += 1
+    # Header line
+    line_buf = io.StringIO()
+    writer = csv.DictWriter(line_buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
+    writer.writeheader()
+    yield line_buf.getvalue()
 
-        if count >= limit:
-            break
+    # Data rows
+    for row in rows:
+        line_buf = io.StringIO()
+        writer = csv.DictWriter(line_buf, fieldnames=use_columns, delimiter=delimiter, extrasaction="ignore")
+        writer.writerow(row)
+        yield line_buf.getvalue()
 
+
+def export_filtered_xlsx(
+    data: DiseaseGraphData,
+    q: str = "",
+    filter_mode: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    columns: list[str] | None = None,
+    mode: str = "concepts",
+    limit: int = 200_000,
+    include_sources: set[str] | None = None,
+    exclude_obsolete: bool = False,
+) -> bytes:
+    """Export filtered concepts as an Excel (.xlsx) file returned as bytes."""
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    use_columns, edge_mode, rows = _filtered_download_rows(
+        data, q=q, filter_mode=filter_mode,
+        confidence_tier=confidence_tier, is_rare=is_rare, source=source,
+        quality=quality, disease_type=disease_type, columns=columns,
+        mode=mode,
+        limit=limit, include_sources=include_sources,
+        exclude_obsolete=exclude_obsolete,
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = {
+        "xref_edges": "Disease Xref Edges",
+        "clinical_descendants": "Clinical Descendants",
+    }.get(_normalize_download_mode(mode), "Disease Concepts")
+
+    # Header
+    ws.append(use_columns)
+
+    # Data
+    for row in rows:
+        ws.append([row.get(col, "") for col in use_columns])
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+    # Auto-filter
+    ws.auto_filter.ref = ws.dimensions
+
+    # Auto-width columns (capped at 40)
+    for col_idx, col_name in enumerate(use_columns, 1):
+        max_len = len(col_name)
+        for row_cells in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx, max_row=min(100, ws.max_row)):
+            for cell in row_cells:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
     return buf.getvalue()
 
 
@@ -1682,7 +3099,7 @@ def export_sssom(
             object_label = edge.get("xref_label", "") or label_row.get("preferred_label", "")
             if object_label in ("nan", "NaN"):
                 object_label = ""
-            confidence = edge.get("xref_confidence", "")
+            confidence = edge.get("equivalence_confidence", "") or edge.get("xref_confidence", "")
             row = [
                 pxref,
                 concept.get("standard_name", ""),
@@ -1693,7 +3110,7 @@ def export_sssom(
                 confidence,
                 concept.get("primary_xref_source", ""),
                 ns,
-                edge.get("agreement_level", ""),
+                edge.get("score_rationale", "") or edge.get("evidence_tier", "") or edge.get("agreement_level", ""),
             ]
             lines.append("\t".join(row))
 
@@ -1719,7 +3136,12 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "xref_id": edge.get("xref_id", ""),
             "namespace": _normalize_ns(edge.get("xref_namespace", "")),
             "match_type": edge.get("match_type", ""),
-            "confidence": edge.get("xref_confidence", ""),
+            "relation_type": edge.get("relation_type", "") or edge.get("match_type", ""),
+            "confidence": edge.get("equivalence_confidence", "") or edge.get("xref_confidence", ""),
+            "equivalence_confidence": edge.get("equivalence_confidence", ""),
+            "relation_confidence": edge.get("relation_confidence", ""),
+            "evidence_tier": edge.get("evidence_tier", ""),
+            "review_tier": edge.get("review_tier", ""),
             "agreement_level": edge.get("agreement_level", ""),
             "match_type_source": edge.get("match_type_source", ""),
             "xref_label": edge.get("xref_label", ""),
@@ -1727,8 +3149,13 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
             "mapping_confidence": edge.get("mapping_confidence", ""),
             "label_confidence": edge.get("label_confidence", ""),
             "source_support": edge.get("source_support", ""),
+            "validation_support": edge.get("validation_support", ""),
+            "corroboration_score": edge.get("corroboration_score", ""),
             "asserting_sources": edge.get("asserting_sources", ""),
+            "validation_sources": edge.get("validation_sources", ""),
+            "evidence_streams": edge.get("evidence_streams", ""),
             "structural_confidence": edge.get("structural_confidence", ""),
+            "score_rationale": edge.get("score_rationale", ""),
         })
 
     decision_list = []
@@ -1784,7 +3211,7 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
         "nodenorm": {
             "canonical_curie": concept.get("nodenorm_canonical_curie", ""),
             "canonical_label": concept.get("nodenorm_canonical_label", ""),
-            "validation_status": concept.get("nodenorm_validation_status", ""),
+            "validation_status": _nodenorm_status(concept),
         },
     }
 
@@ -1794,14 +3221,35 @@ def resolve_concept(data: DiseaseGraphData, curie: str) -> dict[str, Any] | None
 # ---------------------------------------------------------------------------
 
 _NS_CASE_NORMALIZE: dict[str, str] = {
+    "doid": "DOID",
+    "efo": "EFO",
+    "gard": "GARD",
+    "hp": "HP",
+    "icd10": "ICD10",
+    "icd10cm": "ICD10CM",
+    "icd11": "ICD11",
+    "icd11f": "ICD11f",
+    "icd9": "ICD9",
+    "icdo": "ICDO",
+    "kegg": "KEGG",
+    "meddra": "MEDDRA",
     "snomedct": "SNOMEDCT",
     "medgen": "MEDGEN",
+    "mesh": "MESH",
+    "mondo": "MONDO",
+    "ncit": "NCIT",
+    "omim": "OMIM",
+    "omimps": "OMIMPS",
+    "ordo": "ORDO",
+    "orphanet": "Orphanet",
+    "umls": "UMLS",
 }
 
 
 def _normalize_ns(ns: str) -> str:
     """Normalize namespace casing (e.g. snomedct → SNOMEDCT)."""
-    return _NS_CASE_NORMALIZE.get(ns, ns)
+    ns = (ns or "").strip()
+    return _NS_CASE_NORMALIZE.get(ns.lower(), ns)
 
 
 def compute_source_agreement_matrix(data: DiseaseGraphData) -> dict[str, Any]:
@@ -1926,7 +3374,8 @@ def compute_source_flow_data(data: DiseaseGraphData) -> dict[str, Any]:
 # Version Diff
 # ---------------------------------------------------------------------------
 
-_version_graph_cache: dict[str, DiseaseGraphData] = {}
+_VERSION_CACHE_MAX = 4
+_version_graph_cache: OrderedDict[str, DiseaseGraphData] = OrderedDict()
 
 
 def load_version_data(data_dir: str | Path) -> DiseaseGraphData:
@@ -1934,9 +3383,12 @@ def load_version_data(data_dir: str | Path) -> DiseaseGraphData:
     data_dir = Path(data_dir)
     cache_key = str(data_dir.resolve())
     if cache_key in _version_graph_cache:
+        _version_graph_cache.move_to_end(cache_key)
         return _version_graph_cache[cache_key]
     data = _load_app_graph_data(data_dir)
     _version_graph_cache[cache_key] = data
+    while len(_version_graph_cache) > _VERSION_CACHE_MAX:
+        _version_graph_cache.popitem(last=False)
     _print_graph_load(f"Disease version {data_dir.name}", data)
     return data
 
@@ -1963,6 +3415,16 @@ def _edge_namespace_distribution(data: DiseaseGraphData) -> Counter[str]:
     return counts
 
 
+def _xref_owner_index(data: DiseaseGraphData) -> dict[str, set[str]]:
+    owners: dict[str, set[str]] = defaultdict(set)
+    for pxref, edges in data.edges_by_pxref.items():
+        for edge in edges:
+            xid = edge.get("xref_id", "")
+            if xid:
+                owners[xid].add(pxref)
+    return owners
+
+
 def _distribution_delta(
     baseline: Counter[str],
     current: Counter[str],
@@ -1981,6 +3443,152 @@ def _distribution_delta(
     return sorted(rows, key=lambda r: (-abs(r["delta"]), r[key_name]))
 
 
+def _clean_source_version_value(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() in {"", "unknown", "none", "nan", "null"} else text
+
+
+def _disease_source_version_map(data: DiseaseGraphData) -> dict[str, dict[str, str]]:
+    rows = data.source_catalog or data.manifest.get("source_versions") or []
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(rows, list):
+        return out
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        source = _clean_source_version_value(
+            raw.get("source_name") or raw.get("source") or raw.get("name")
+        )
+        if not source:
+            continue
+        out[source] = {
+            "source": source,
+            "version": _clean_source_version_value(raw.get("source_version") or raw.get("version")),
+            "release_date": _clean_source_version_value(raw.get("release_date") or raw.get("source_release_date")),
+            "download_start": _clean_source_version_value(raw.get("download_start") or raw.get("odin_download_date")),
+            "metadata_file": _clean_source_version_value(raw.get("metadata_file")),
+        }
+    return out
+
+
+def _disease_source_version_changes(
+    baseline: DiseaseGraphData,
+    current: DiseaseGraphData,
+) -> list[dict[str, Any]]:
+    baseline_versions = _disease_source_version_map(baseline)
+    current_versions = _disease_source_version_map(current)
+    ordered_sources: list[str] = []
+    for source in list(current_versions) + list(baseline_versions):
+        if source not in ordered_sources:
+            ordered_sources.append(source)
+
+    rows: list[dict[str, Any]] = []
+    for source in ordered_sources:
+        old = baseline_versions.get(source, {})
+        new = current_versions.get(source, {})
+        old_version = old.get("version", "")
+        new_version = new.get("version", "")
+        if old and not new:
+            status = "removed"
+        elif new and not old:
+            status = "added"
+        elif old_version != new_version:
+            status = "version_changed"
+        else:
+            status = "unchanged"
+        rows.append({
+            "source": source,
+            "old_version": old_version,
+            "new_version": new_version,
+            "status": status,
+            "old_download_date": (old.get("download_start", "") or old.get("release_date", ""))[:10],
+            "new_download_date": (new.get("download_start", "") or new.get("release_date", ""))[:10],
+        })
+    return rows
+
+
+def _format_signed_delta(value: int, label: str) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{label} {sign}{value:,}"
+
+
+def _disease_change_drivers(
+    source_version_rows: list[dict[str, Any]],
+    category_delta: list[dict[str, Any]],
+    namespace_delta: list[dict[str, Any]],
+    data_layer_changes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_rows = {row["source"]: row for row in source_version_rows}
+    category_counts = {row["category"]: int(row.get("delta") or 0) for row in category_delta}
+    ns_counts = {row["namespace"]: int(row.get("delta") or 0) for row in namespace_delta}
+    layer_counts = {row["layer"]: int(row.get("delta") or 0) for row in data_layer_changes}
+
+    def version_text(source: str) -> str:
+        row = source_rows.get(source, {})
+        old = row.get("old_version") or "not captured"
+        new = row.get("new_version") or "not captured"
+        return f"{old} -> {new}"
+
+    nodenorm_changed = source_rows.get("NodeNorm", {}).get("status") != "unchanged"
+    nodenorm_interpretation = (
+        "NodeNorm advanced in this release; this affects preferred CURIE validation and label/canonicalization context, not primary source authority."
+        if nodenorm_changed
+        else "NodeNorm stayed version-stable; it should be interpreted as validator context rather than an asserting xref source."
+    )
+
+    return [
+        {
+            "source": "NodeNorm",
+            "version_change": version_text("NodeNorm"),
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("UMLS", 0), "UMLS xref edges"),
+                _format_signed_delta(layer_counts.get("Xref labels", 0), "xref label rows"),
+            ]),
+            "interpretation": nodenorm_interpretation,
+        },
+        {
+            "source": "SNOMEDCT / ICD-10-CM",
+            "version_change": f"SNOMEDCT {version_text('SNOMEDCT')}; ICD-10-CM {version_text('ICD-10-CM')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("SNOMEDCT", 0), "SNOMEDCT xref edges"),
+                _format_signed_delta(ns_counts.get("ICD10", 0) + ns_counts.get("ICD10CM", 0), "ICD-10 xref edges"),
+                _format_signed_delta(layer_counts.get("Clinical descendant edges", 0), "clinical descendant edges"),
+            ]),
+            "interpretation": "Clinical-code movement should be interpreted separately from exact disease xrefs, especially when descendant-only SNOMEDCT/ICD codes are included as context.",
+        },
+        {
+            "source": "MONDO / DOID / EFO",
+            "version_change": f"MONDO {version_text('MONDO')}; DOID {version_text('DOID')}; EFO {version_text('EFO')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("MONDO", 0), "MONDO xref edges"),
+                _format_signed_delta(ns_counts.get("DOID", 0), "DOID xref edges"),
+                _format_signed_delta(ns_counts.get("EFO", 0), "EFO xref edges"),
+                _format_signed_delta(layer_counts.get("Ontology hierarchy edges", 0), "hierarchy edges"),
+            ]),
+            "interpretation": "Ontology-source changes drive concept grounding, hierarchy context, and curated exact/broad/narrow match evidence.",
+        },
+        {
+            "source": "MedGen / OMIM / Orphanet",
+            "version_change": f"MedGen {version_text('MedGen')}; OMIM {version_text('OMIM')}; Orphanet {version_text('Orphanet')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(ns_counts.get("MEDGEN", 0), "MedGen xref edges"),
+                _format_signed_delta(ns_counts.get("OMIM", 0) + ns_counts.get("OMIMPS", 0), "OMIM xref edges"),
+                _format_signed_delta(ns_counts.get("Orphanet", 0), "Orphanet xref edges"),
+            ]),
+            "interpretation": "Disease-source refreshes change the cross-reference evidence used by ODIN; downstream QC determines whether conflicts remain open or are resolved.",
+        },
+        {
+            "source": "Gene association sources",
+            "version_change": f"ClinGen {version_text('ClinGen')}; Monarch {version_text('Monarch')}; Jensen {version_text('Jensen')}; MedGen associations {version_text('MedGen Gene Associations')}",
+            "observed_delta": "; ".join([
+                _format_signed_delta(layer_counts.get("Disease-gene associations", 0), "disease-gene associations"),
+                _format_signed_delta(category_counts.get("biolink:PhenotypicFeature", 0), "phenotype-labeled concepts"),
+            ]),
+            "interpretation": "Association-source changes affect the disease-gene context layer and should not be confused with disease xref equivalence changes.",
+        },
+    ]
+
+
 def _xref_edge_key(pxref: str, edge: dict) -> tuple[str, str, str]:
     return (
         pxref,
@@ -1997,22 +3605,93 @@ def compute_version_diff(
     current_pxrefs = set(current.concepts_by_pxref.keys())
     baseline_pxrefs = set(baseline.concepts_by_pxref.keys())
 
-    added_pxrefs = current_pxrefs - baseline_pxrefs
-    removed_pxrefs = baseline_pxrefs - current_pxrefs
-    shared_pxrefs = current_pxrefs & baseline_pxrefs
+    # Build ncats_disease_id → primary_xref maps for stable identity matching
+    baseline_ncats_to_pxref: dict[str, str] = {}
+    for pxref, concept in baseline.concepts_by_pxref.items():
+        nid = concept.get("ncats_disease_id", "").strip()
+        if nid:
+            baseline_ncats_to_pxref[nid] = pxref
 
-    # Tier changes
+    current_ncats_to_pxref: dict[str, str] = {}
+    for pxref, concept in current.concepts_by_pxref.items():
+        nid = concept.get("ncats_disease_id", "").strip()
+        if nid:
+            current_ncats_to_pxref[nid] = pxref
+
+    shared_ncats_ids = set(baseline_ncats_to_pxref) & set(current_ncats_to_pxref)
+
+    # Concepts matched by stable ncats_disease_id (even if primary_xref changed)
+    matched_baseline_pxrefs: set[str] = set()
+    matched_current_pxrefs: set[str] = set()
+    identity_matched_pairs: list[tuple[str, str]] = []  # (baseline_pxref, current_pxref)
+    rekeyed_concepts: list[dict[str, str]] = []
+
+    for nid in shared_ncats_ids:
+        b_pxref = baseline_ncats_to_pxref[nid]
+        c_pxref = current_ncats_to_pxref[nid]
+        matched_baseline_pxrefs.add(b_pxref)
+        matched_current_pxrefs.add(c_pxref)
+        identity_matched_pairs.append((b_pxref, c_pxref))
+        if b_pxref != c_pxref:
+            rekeyed_concepts.append({
+                "ncats_disease_id": nid,
+                "old_primary_xref": b_pxref,
+                "new_primary_xref": c_pxref,
+                "standard_name": current.concepts_by_pxref[c_pxref].get("standard_name", ""),
+            })
+
+    current_xref_owners = _xref_owner_index(current)
+    baseline_xref_owners = _xref_owner_index(baseline)
+
+    # Raw primary-row churn can be large when the preferred primary grounding
+    # changes between releases. Treat previous primary IDs that are now current
+    # xrefs as grounding changes before counting true concept additions/removals.
+    raw_added_pxrefs = current_pxrefs - matched_current_pxrefs - baseline_pxrefs
+    raw_removed_pxrefs = baseline_pxrefs - matched_baseline_pxrefs - current_pxrefs
+    primary_grounding_changes: list[dict[str, Any]] = []
+    previous_primary_represented_as_xref: set[str] = set()
+    current_primary_explained_by_previous_xref: set[str] = set()
+    for old_pxref in sorted(raw_removed_pxrefs):
+        owners = sorted(current_xref_owners.get(old_pxref, set()) - {old_pxref})
+        if not owners:
+            continue
+        previous_primary_represented_as_xref.add(old_pxref)
+        current_primary_explained_by_previous_xref.update(owners)
+        owner_labels = [
+            current.concepts_by_pxref[owner].get("standard_name", "")
+            for owner in owners[:3]
+            if owner in current.concepts_by_pxref
+        ]
+        owner_suffix = "" if len(owners) <= 3 else f" +{len(owners) - 3} more"
+        primary_grounding_changes.append({
+            "old_primary_xref": old_pxref,
+            "old_standard_name": baseline.concepts_by_pxref[old_pxref].get("standard_name", ""),
+            "new_primary_xref": ", ".join(owners[:3]) + owner_suffix,
+            "new_standard_name": " | ".join(owner_labels),
+            "n_current_primary_concepts": len(owners),
+            "reason": "Previous primary identifier is now represented as a current xref",
+        })
+
+    # Concept additions/removals after primary-grounding changes are accounted for.
+    added_pxrefs = raw_added_pxrefs - current_primary_explained_by_previous_xref
+    removed_pxrefs = raw_removed_pxrefs - previous_primary_represented_as_xref
+
+    # Concepts matched by pxref that weren't already matched by ncats_id
+    shared_pxrefs = (current_pxrefs & baseline_pxrefs) - matched_current_pxrefs
+
+    # Tier / quality / category changes across identity-matched pairs
     tier_changes: list[dict[str, str]] = []
     quality_changes: list[dict[str, str]] = []
     disease_type_changes: list[dict[str, str]] = []
-    for pxref in shared_pxrefs:
-        cur = current.concepts_by_pxref[pxref]
-        base = baseline.concepts_by_pxref[pxref]
+
+    def _compare_pair(b_pxref: str, c_pxref: str) -> None:
+        cur = current.concepts_by_pxref[c_pxref]
+        base = baseline.concepts_by_pxref[b_pxref]
         cur_tier = cur.get("confidence_tier", "")
         base_tier = base.get("confidence_tier", "")
         if cur_tier != base_tier:
             tier_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_tier": base_tier,
                 "new_tier": cur_tier,
@@ -2021,7 +3700,7 @@ def compute_version_diff(
         base_q = base.get("overall_quality", "")
         if cur_q != base_q:
             quality_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_quality": base_q,
                 "new_quality": cur_q,
@@ -2030,11 +3709,19 @@ def compute_version_diff(
         base_type = _concept_biolink_category(base)
         if cur_type != base_type:
             disease_type_changes.append({
-                "primary_xref": pxref,
+                "primary_xref": c_pxref,
                 "standard_name": cur.get("standard_name", ""),
                 "old_category": base_type,
                 "new_category": cur_type,
             })
+
+    # Compare ncats_id-matched pairs
+    for b_pxref, c_pxref in identity_matched_pairs:
+        _compare_pair(b_pxref, c_pxref)
+
+    # Compare pxref-matched concepts not already covered by ncats_id matching
+    for pxref in shared_pxrefs:
+        _compare_pair(pxref, pxref)
 
     # Edge diffs
     current_edge_keys: set[tuple[str, str, str]] = set()
@@ -2078,27 +3765,15 @@ def compute_version_diff(
     )
     decisions_resolved = cur_resolved - base_resolved
 
-    added_concepts = [
+    all_added_concepts = [
         {
             "primary_xref": p,
             "standard_name": current.concepts_by_pxref[p].get("standard_name", ""),
             "disease_type": _concept_biolink_category(current.concepts_by_pxref[p]),
         }
-        for p in sorted(added_pxrefs)[:500]
+        for p in sorted(added_pxrefs)
     ]
-    # Build reverse index: xref_id → set of current primary_xrefs
-    current_xref_owners: dict[str, set[str]] = defaultdict(set)
-    for px, edges in current.edges_by_pxref.items():
-        for e in edges:
-            xid = e.get("xref_id", "")
-            if xid:
-                current_xref_owners[xid].add(px)
-    baseline_xref_owners: dict[str, set[str]] = defaultdict(set)
-    for px, edges in baseline.edges_by_pxref.items():
-        for e in edges:
-            xid = e.get("xref_id", "")
-            if xid:
-                baseline_xref_owners[xid].add(px)
+    added_concepts = all_added_concepts[:500]
 
     removed_concepts: list[dict[str, str]] = []
     legacy_source_only_rows: list[dict[str, str]] = []
@@ -2192,11 +3867,79 @@ def compute_version_diff(
     baseline_version = baseline.manifest.get("pipeline_version", "unknown")
     current_version = current.manifest.get("pipeline_version", "unknown")
 
+    sorted_rekeyed = sorted(rekeyed_concepts, key=lambda x: x["old_primary_xref"])
+    sorted_primary_grounding_changes = sorted(
+        primary_grounding_changes,
+        key=lambda x: x["old_primary_xref"],
+    )
+    hierarchy_edges_baseline = sum(len(v) for v in baseline.hierarchy_by_child.values())
+    hierarchy_edges_current = sum(len(v) for v in current.hierarchy_by_child.values())
+    clinical_descendant_edges_baseline = sum(
+        len(v) for v in baseline.clinical_descendants_by_pxref.values()
+    )
+    clinical_descendant_edges_current = sum(
+        len(v) for v in current.clinical_descendants_by_pxref.values()
+    )
+    gene_associations_baseline = sum(len(v) for v in baseline.associations_by_ncats_id.values())
+    gene_associations_current = sum(len(v) for v in current.associations_by_ncats_id.values())
+    review_records_baseline = sum(len(v) for v in baseline.decisions_by_pxref.values())
+    review_records_current = sum(len(v) for v in current.decisions_by_pxref.values())
+    data_layer_changes = [
+        {
+            "layer": "Concepts",
+            "old_count": len(baseline.concepts_by_pxref),
+            "new_count": len(current.concepts_by_pxref),
+        },
+        {
+            "layer": "Exact xref edges",
+            "old_count": len(baseline_edge_keys),
+            "new_count": len(current_edge_keys),
+        },
+        {
+            "layer": "Ontology hierarchy edges",
+            "old_count": hierarchy_edges_baseline,
+            "new_count": hierarchy_edges_current,
+        },
+        {
+            "layer": "Clinical descendant edges",
+            "old_count": clinical_descendant_edges_baseline,
+            "new_count": clinical_descendant_edges_current,
+        },
+        {
+            "layer": "Disease-gene associations",
+            "old_count": gene_associations_baseline,
+            "new_count": gene_associations_current,
+        },
+        {
+            "layer": "Xref labels",
+            "old_count": len(baseline.labels_by_xref_id),
+            "new_count": len(current.labels_by_xref_id),
+        },
+        {
+            "layer": "Review registry records",
+            "old_count": review_records_baseline,
+            "new_count": review_records_current,
+        },
+    ]
+    for row in data_layer_changes:
+        row["delta"] = row["new_count"] - row["old_count"]
+
+    category_delta = _distribution_delta(baseline_type_dist, current_type_dist, "category")
+    namespace_delta = _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace")
+    source_version_changes = _disease_source_version_changes(baseline, current)
+
     return {
         "summary": {
             "concepts_added": len(added_pxrefs),
             "concepts_removed": len(removed_concepts),
-            "raw_primary_rows_absent": len(removed_pxrefs),
+            "concepts_rekeyed": len(rekeyed_concepts),
+            "primary_grounding_changes": len(primary_grounding_changes),
+            "raw_primary_rows_added": len(raw_added_pxrefs),
+            "raw_primary_rows_absent": len(raw_removed_pxrefs),
+            "previous_primary_ids_now_xrefs": len(previous_primary_represented_as_xref),
+            "current_primary_rows_explained_by_previous_xrefs": len(
+                current_primary_explained_by_previous_xref & raw_added_pxrefs
+            ),
             "legacy_source_only_removed": len(legacy_source_only_rows),
             "other_removed_rows": len(other_removed_rows),
             "tier_changes": len(tier_changes),
@@ -2204,31 +3947,62 @@ def compute_version_diff(
             "disease_type_changes": len(disease_type_changes),
             "edges_added": edges_added,
             "edges_removed": edges_removed,
+            "hierarchy_edges_delta": hierarchy_edges_current - hierarchy_edges_baseline,
+            "clinical_descendant_edges_added": max(
+                0,
+                clinical_descendant_edges_current - clinical_descendant_edges_baseline,
+            ),
+            "gene_associations_added": max(0, gene_associations_current - gene_associations_baseline),
             "decisions_resolved": max(0, decisions_resolved),
             "source_namespaces_added": sum(1 for ns, count in current_ns_dist.items() if count and not baseline_ns_dist.get(ns)),
             "source_namespaces_removed": sum(1 for ns, count in baseline_ns_dist.items() if count and not current_ns_dist.get(ns)),
         },
+        "data_layer_changes": data_layer_changes,
         "added_concepts": added_concepts,
         "removed_concepts": removed_concepts[:500],
+        "rekeyed_concepts": sorted_rekeyed[:500],
+        "primary_grounding_changes": sorted_primary_grounding_changes[:500],
         "legacy_source_only_rows": legacy_source_only_rows[:200],
         "other_removed_rows": other_removed_rows[:200],
         "tier_changes": tier_changes[:500],
         "quality_changes": quality_changes[:500],
         "disease_type_changes": disease_type_changes[:500],
+        "truncation": {
+            "added_concepts": {"total": len(all_added_concepts), "shown": len(added_concepts)},
+            "removed_concepts": {"total": len(removed_concepts), "shown": min(len(removed_concepts), 500)},
+            "rekeyed_concepts": {"total": len(rekeyed_concepts), "shown": min(len(rekeyed_concepts), 500)},
+            "primary_grounding_changes": {
+                "total": len(primary_grounding_changes),
+                "shown": min(len(primary_grounding_changes), 500),
+            },
+            "legacy_source_only_rows": {"total": len(legacy_source_only_rows), "shown": min(len(legacy_source_only_rows), 200)},
+            "other_removed_rows": {"total": len(other_removed_rows), "shown": min(len(other_removed_rows), 200)},
+            "tier_changes": {"total": len(tier_changes), "shown": min(len(tier_changes), 500)},
+            "quality_changes": {"total": len(quality_changes), "shown": min(len(quality_changes), 500)},
+            "disease_type_changes": {"total": len(disease_type_changes), "shown": min(len(disease_type_changes), 500)},
+        },
         "biolink_category_distribution": {
             "baseline": dict(baseline_type_dist.most_common()),
             "current": dict(current_type_dist.most_common()),
-            "delta": _distribution_delta(baseline_type_dist, current_type_dist, "category"),
+            "delta": category_delta,
             "added": dict(added_by_category.most_common()),
             "removed": dict(removed_by_category.most_common()),
         },
         "source_namespace_distribution": {
             "baseline": dict(baseline_ns_dist.most_common()),
             "current": dict(current_ns_dist.most_common()),
-            "delta": _distribution_delta(baseline_ns_dist, current_ns_dist, "namespace"),
+            "delta": namespace_delta,
             "edges_added": dict(edges_added_by_namespace.most_common()),
             "edges_removed": dict(edges_removed_by_namespace.most_common()),
         },
+        "source_version_changes": source_version_changes,
+        "change_drivers": _disease_change_drivers(
+            source_version_changes,
+            category_delta,
+            namespace_delta,
+            data_layer_changes,
+        ),
+        "change_driver_note": "Source attribution is inferred from source-version changes plus app-graph namespace and layer deltas. NodeNorm is shown as validator/canonicalization context, not as an asserting disease source.",
         "baseline_version": baseline_version,
         "current_version": current_version,
     }
@@ -2298,23 +4072,32 @@ def build_provenance_chain(
     scored_xrefs: set[str] = set()
     for edge in data.edges_by_pxref.get(pxref, []):
         xid = edge.get("xref_id", "")
-        conf = edge.get("xref_confidence", "")
+        conf = edge.get("equivalence_confidence", "") or edge.get("xref_confidence", "")
+        legacy_conf = edge.get("xref_confidence", "")
         if xid and conf and xid not in scored_xrefs:
             scored_xrefs.add(xid)
             steps.append({
                 "step": "confidence_scoring",
                 "xref": xid,
                 "scores": {
-                    "xref_confidence": conf,
+                    "recommended_confidence": conf,
+                    "equivalence_confidence": edge.get("equivalence_confidence", ""),
+                    "relation_confidence": edge.get("relation_confidence", ""),
+                    "xref_confidence": legacy_conf,
                     "mapping_confidence": edge.get("mapping_confidence", ""),
                     "label_confidence": edge.get("label_confidence", ""),
                     "source_support": edge.get("source_support", ""),
+                    "validation_support": edge.get("validation_support", ""),
+                    "corroboration_score": edge.get("corroboration_score", ""),
                     "structural_confidence": edge.get("structural_confidence", ""),
                 },
+                "evidence_tier": edge.get("evidence_tier", ""),
+                "review_tier": edge.get("review_tier", ""),
+                "score_rationale": edge.get("score_rationale", ""),
             })
 
     # Step 3: NodeNorm validation
-    nn_status = concept.get("nodenorm_validation_status", "")
+    nn_status = _nodenorm_status(concept)
     if nn_status:
         steps.append({
             "step": "nodenorm_validation",
@@ -2359,7 +4142,9 @@ DOWNLOADABLE_FILES = frozenset({
     "disease_concepts.tsv",
     "disease_xref_edges.tsv",
     "disease_hierarchy_edges.tsv",
+    "disease_clinical_descendant_edges.tsv",
     "xref_labels.tsv",
     "review_decisions.tsv",
+    "disease_gene_associations.tsv",
     "manifest.json",
 })

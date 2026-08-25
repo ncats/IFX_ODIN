@@ -1,4 +1,17 @@
-<article class="metabolite-id-compare-card">
+<article class="metabolite-id-compare-card{% if component.newly_failing_assertion_count %} has-new-assertion-failure{% endif %}">
+    {% if component.newly_failing_assertions %}
+    <div class="metabolite-id-compare-assertion-alert">
+        <strong>New expected-clique failure</strong>
+        {% for assertion in component.newly_failing_assertions %}
+        <div>
+            <span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.right_status }}">{{ "Fail" if assertion.right_status == "split" else assertion.right_status|title }}</span>
+            <a href="{{ root_path }}/ramp-id-qa?{{ assertion.inspection_query }}" target="_blank" rel="noopener noreferrer">{{ assertion.name }}</a>
+            <code>{{ assertion.member_ids|join("  ") }}</code>
+            {% if assertion.rationale %}<span>{{ assertion.rationale }}</span>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
     <div class="metabolite-id-compare-card-header">
         <div>
             <strong>{{ rank }}. {{ component.change_type|title }}</strong>

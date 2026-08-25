@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Timeout in seconds for update fetch requests.",
     )
     parser.add_argument(
-        "--internal-minio-url",
+        "--internal-storage-url",
         action="store_true",
         help="Use the internal object-store URL when supported by the credentials file.",
     )
@@ -96,7 +96,7 @@ def main() -> None:
     args = build_parser().parse_args()
     registry = DataRegistry.from_registry_credentials(
         args.credentials,
-        use_internal_url=args.internal_minio_url,
+        use_internal_url=args.internal_storage_url,
     )
     statuses = registry.check_all_latest_registered(timeout=args.check_timeout)
     if not statuses:

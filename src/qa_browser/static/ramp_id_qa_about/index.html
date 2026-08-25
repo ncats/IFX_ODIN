@@ -34,6 +34,14 @@
     .title-graphic::after { content:""; position:absolute; inset:13%; border:4px solid #0f766e; border-radius:50%; opacity:.35; }
     .figure { width:100%; max-height:72vh; object-fit:contain; display:block; }
     .figure.tall { max-height:76vh; }
+    .continuity-title { position:relative; height:3.3rem; font-size:clamp(1.5rem,2.4vw,2.7rem); white-space:nowrap; }
+    .continuity-title span { position:absolute; inset:0 auto auto 0; transition:opacity .35s ease, transform .6s ease; }
+    .continuity-title .after { opacity:0; transform:translateX(2vw); }
+    .continuity-slide.shifted .continuity-title .before { opacity:0; transform:translateX(-2vw); }
+    .continuity-slide.shifted .continuity-title .after { opacity:1; transform:translateX(0); }
+    .continuity-viewport { width:100%; aspect-ratio:2 / 1; overflow:hidden; }
+    .continuity-track { display:block; width:147.0588%; max-width:none; transform:translateX(0); transition:transform .9s cubic-bezier(.65,0,.35,1); }
+    .continuity-slide.shifted .continuity-track { transform:translateX(-32%); }
     .cards { display:grid; grid-template-columns:1fr 1fr; gap:2.2vw; margin-top:3vh; }
     .card { padding:2.2vw; border-radius:1.4vw; background:white; border:2px solid #cbd5e1; box-shadow:0 12px 30px rgba(15,23,42,.08); }
     .card.evidence { border-color:var(--teal); }
@@ -52,6 +60,12 @@
     .screenshot { display:block; width:100%; max-height:66vh; object-fit:contain; border:2px solid #cbd5e1; border-radius:1vw; background:white; box-shadow:0 12px 30px rgba(15,23,42,.12); }
     .screenshot.wide { max-height:60vh; margin:1.5vh auto 0; }
     .screenshot-caption { margin-top:1vh; text-align:center; font-size:1vw; color:#64748b; }
+    .assertion-setup { display:grid; grid-template-columns:.42fr 1.58fr; gap:2vw; align-items:center; margin-top:1vh; }
+    .assertion-form-shot { display:block; width:100%; max-height:21vh; object-fit:contain; border:2px solid #cbd5e1; border-radius:1vw; background:white; box-shadow:0 10px 24px rgba(15,23,42,.08); }
+    .assertion-setup-copy { padding:1.3vw 1.6vw; border-left:6px solid var(--teal); background:#ecfeff; border-radius:.6vw; }
+    .assertion-setup-copy p { font-size:1.25vw; }
+    .assertion-results-shot { display:block; width:100%; max-height:34vh; object-fit:contain; margin:1.5vh auto 0; border:2px solid #cbd5e1; border-radius:1vw; background:white; box-shadow:0 10px 24px rgba(15,23,42,.08); }
+    .assertion-results-caption { margin-top:1vh; text-align:center; font-size:1.1vw; font-weight:700; color:#5b21b6; }
     .side-copy { padding:1.8vw; border-radius:1.2vw; background:white; border:2px solid #cbd5e1; box-shadow:0 10px 24px rgba(15,23,42,.07); }
     .side-copy p { font-size:1.28vw; }
     .side-copy li { font-size:1.24vw; margin:1.2vh 0; }
@@ -63,6 +77,9 @@
       .app-nav { display:none; }
       .deck { position:static; height:auto; }
       .slide { display:block !important; position:relative; width:13.333in; height:7.5in; max-width:none; max-height:none; page-break-after:always; padding:.55in .7in; }
+      .continuity-title .after { display:none; }
+      .continuity-viewport { aspect-ratio:2500 / 850; overflow:visible; }
+      .continuity-track, .continuity-slide.shifted .continuity-track { width:100%; transform:none; }
       .controls { display:none; }
       @page { size:13.333in 7.5in; margin:0; }
     }
@@ -74,9 +91,9 @@
   <div class="app-breadcrumb">
     <a href="../../">Home</a>
     <span class="sep">/</span>
-    <a href="../">Metabolite Harmonization Workbench</a>
+    <a href="../">Metabolite Harmonization Studio</a>
     <span class="sep">/</span>
-    <span>How the workbench works</span>
+    <span>How the Studio works</span>
   </div>
   <div class="app-mode-switch" aria-label="Display mode" onclick="toggleDeckMode()">
     <span data-mode="qa">QA Mode</span>
@@ -99,10 +116,12 @@
     <div class="footer"><span>Source identity remains first-class</span><span>2</span></div>
   </section>
 
-  <section class="slide">
-    <p class="eyebrow">Architectural contract</p>
-    <h2>The graph records evidence—not the final identity decision</h2>
-    <img class="figure tall" src="figures/evidence_to_decision.svg" alt="Worked example showing durable source evidence transformed into two revisable harmonized clique decisions">
+  <section class="slide continuity-slide" data-continuity-slide>
+    <p class="eyebrow">How the layers work</p>
+    <h2 class="continuity-title"><span class="before">The graph records evidence—not the final identity decision</span><span class="after">The decision becomes a traceable graph result</span></h2>
+    <div class="continuity-viewport">
+      <img class="continuity-track" src="figures/evidence_to_decision.svg" alt="Worked example showing durable source evidence transformed into two revisable clique decisions and then materialized with source-identifier lineage">
+    </div>
     <div class="footer"><span>Evidence can remain stable while policy evolves</span><span>3</span></div>
   </section>
 
@@ -139,16 +158,53 @@
     <h2>Questionable equivalences become obvious in context</h2>
     <div class="screenshot-layout">
       <div>
-        <img class="screenshot" src="screenshots/qa_mw_discrepancy_graph.png" alt="QA Browser graph showing a metabolite clique with molecular weights 707.4 and 282.2 connected by source mapping edges">
-        <div class="screenshot-caption">A 707.4 Da structure is grouped with several 282.2 Da structures</div>
+        <img class="screenshot" src="screenshots/qa_mw_discrepancy_graph.png" alt="QA Browser graph showing a selected mapping edge between metabolite identifiers with molecular weights 610.5 and 261.3, together with the action to add an edge-removal curation">
+        <div class="screenshot-caption">A 610.5 Da structure is grouped with several 261.3 Da structures</div>
       </div>
       <aside class="side-copy">
         <h3>The graph exposes the evidence behind the alert</h3>
         <p>The molecular-weight discrepancy is immediately visible, together with the source mappings responsible for the connection.</p>
-        <div class="callout" style="margin-top:2vh;">Future development: select a specific mapping edge and add it to the curation list, then generate a new snapshot without deleting the source evidence.</div>
+        <div class="callout" style="margin-top:2vh;">Select a questionable mapping edge and add an edge-removal curation directly from the graph. The source evidence remains intact, while the cliques are recalculated to apply the decision.</div>
       </aside>
     </div>
     <div class="footer"><span>Validation leads directly to evidence-aware curation</span><span>6</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Denylist curation</p>
+    <h2>Which other edge keeps denied IDs in the same clique?</h2>
+    <div class="screenshot-layout">
+      <div>
+        <img class="screenshot" src="screenshots/qa_denylist_curation_graph.png" alt="QA Browser denylist warning graph with a red dashed KEGG-to-HMDB warning link, a selected LipidMaps identifier, and source-record linkout">
+        <div class="screenshot-caption">The dashed red line marks a denylisted pair that remains connected indirectly</div>
+      </div>
+      <aside class="side-copy">
+        <h3>Source linkouts reveal the incorrect bridge</h3>
+        <p>Reviewing each identifier shows:</p>
+        <ul>
+          <li><strong>KEGG C00350</strong> is generic.</li>
+          <li><strong>LIPIDMAPS LMGP02010000</strong> is generic.</li>
+          <li><strong>HMDB05779</strong>, shown in green, is not generic.</li>
+        </ul>
+        <div class="callout" style="margin-top:2vh;">Ignore the LipidMaps–HMDB bridge to finish the curation: generic and non-generic structures separate into the appropriate cliques.</div>
+      </aside>
+    </div>
+    <div class="footer"><span>Linkouts support evidence-based selection of the edge to curate</span><span>7</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Expected-clique assertions</p>
+    <h2>Turn expert expectations into regression tests</h2>
+    <div class="assertion-setup">
+      <img class="assertion-form-shot" src="screenshots/qa_assertion_form.png" alt="QA Browser form for naming an expected clique, entering metabolite identifiers, and documenting the rationale">
+      <div class="assertion-setup-copy">
+        <h3>1. Publish the expected outcome</h3>
+        <p>Name the assertion, list the identifiers that should resolve together, and record why the grouping is expected.</p>
+      </div>
+    </div>
+    <img class="assertion-results-shot" src="screenshots/qa_assertions_by_stage.png" alt="QA Browser Expected-Clique Assertions matrix showing pass and fail results for expert expectations at successive rule stages">
+    <div class="assertion-results-caption">2. Evaluate every materialized stage to see where things go wrong—or right</div>
+    <div class="footer"><span>Assertions show where a rule pipeline begins to violate expected outcomes</span><span>8</span></div>
   </section>
 
   <section class="slide">
@@ -156,21 +212,21 @@
     <h2>Follow a resolved metabolite through the rule pipeline</h2>
     <img class="screenshot wide" src="screenshots/qa_pipeline_sankey.png" alt="QA Browser Sankey plot tracing a set of metabolite identifiers through successive harmonization stages">
     <div class="callout" style="margin:1.5vh auto 0; max-width:88%; text-align:center;">The Sankey view shows when a clique stays together, splits, or loses members—and retains the source IDs and molecular-weight range at each stage.</div>
-    <div class="footer"><span>Trace the result backward through every decision</span><span>7</span></div>
+    <div class="footer"><span>Trace the result backward through every decision</span><span>9</span></div>
   </section>
 
   <section class="slide">
     <p class="eyebrow">End-to-end flow</p>
     <h2>Evidence first; identity decisions second</h2>
     <img class="figure tall" src="figures/harmonization_pipeline.svg" alt="Metabolite harmonization pipeline">
-    <div class="footer"><span>Source assertions → rules → snapshot → RaMP SQLite extract</span><span>8</span></div>
+    <div class="footer"><span>Harmonize → validate → curate → re-harmonize → publish</span><span>10</span></div>
   </section>
 
   <section class="slide">
     <p class="eyebrow">The one-sentence explanation</p>
-    <div class="quote">The metabolite harmonization graph preserves <strong>source-native identifier lineage</strong>, deferring resolution into canonical RaMP metabolites while maintaining traceability to the identifiers and assertions in the original data.</div>
+    <div class="quote">The Metabolite Harmonization Studio preserves <strong>source evidence</strong>, uses transparent and testable rules plus expert curation to form metabolite cliques, and keeps every result traceable to its original identifiers and assertions.</div>
     <div class="callout" style="max-width:72%; margin:5vh auto 0; text-align:center;">The graph preserves the evidence. The snapshot records the decision. The export carries the lineage.</div>
-    <div class="footer"><span>Metabolite harmonization evidence graph</span><span>9</span></div><div class="hero-line"></div>
+    <div class="footer"><span>Metabolite harmonization evidence graph</span><span>11</span></div><div class="hero-line"></div>
   </section>
 </main>
 <nav class="controls" aria-label="Slide controls"><button id="prev" aria-label="Previous slide">←</button><button id="next" aria-label="Next slide">→</button></nav>
@@ -182,8 +238,18 @@
   }
   const slides = [...document.querySelectorAll('.slide')]; let index = 0;
   function show(next) { index = Math.max(0, Math.min(slides.length - 1, next)); slides.forEach((s, i) => s.classList.toggle('active', i === index)); history.replaceState(null, '', `#${index + 1}`); }
-  document.getElementById('prev').onclick = () => show(index - 1); document.getElementById('next').onclick = () => show(index + 1);
-  document.addEventListener('keydown', e => { if (['ArrowRight','PageDown',' '].includes(e.key)) show(index + 1); if (['ArrowLeft','PageUp'].includes(e.key)) show(index - 1); if (e.key === 'Home') show(0); if (e.key === 'End') show(slides.length - 1); });
+  function advance() {
+    const current = slides[index];
+    if (current.matches('[data-continuity-slide]') && !current.classList.contains('shifted')) { current.classList.add('shifted'); return; }
+    show(index + 1);
+  }
+  function retreat() {
+    const current = slides[index];
+    if (current.matches('[data-continuity-slide]') && current.classList.contains('shifted')) { current.classList.remove('shifted'); return; }
+    show(index - 1);
+  }
+  document.getElementById('prev').onclick = retreat; document.getElementById('next').onclick = advance;
+  document.addEventListener('keydown', e => { if (['ArrowRight','PageDown',' '].includes(e.key)) advance(); if (['ArrowLeft','PageUp'].includes(e.key)) retreat(); if (e.key === 'Home') { slides.forEach(s => s.classList.remove('shifted')); show(0); } if (e.key === 'End') show(slides.length - 1); });
   const initial = Number(location.hash.slice(1)); if (initial) show(initial - 1);
 </script>
 </body>

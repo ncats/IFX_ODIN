@@ -1,8 +1,8 @@
 #destination_credentials: &destination_credentials ./src/use_cases/secrets/local_arangodb.yaml
-#minio_credentials: &minio_credentials ./src/use_cases/secrets/local_minio.yaml
+#object_storage_credentials: &object_storage_credentials ./src/use_cases/secrets/local_s3.yaml
 
 destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
-minio_credentials: &minio_credentials ./src/use_cases/secrets/aws_ifx_registry.yaml
+object_storage_credentials: &object_storage_credentials ./src/use_cases/secrets/aws_ifx_registry.yaml
 ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.12.sqlite
 
 resolvers:
@@ -58,5 +58,5 @@ output_adapters:
     class: ArangoOutputAdapter
     kwargs:
       database_name: pounce
-      minio_credentials: *minio_credentials
+      object_storage_credentials: *object_storage_credentials
     credentials: *destination_credentials

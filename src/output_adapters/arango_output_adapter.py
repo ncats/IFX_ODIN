@@ -18,19 +18,19 @@ from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 from src.shared.db_credentials import DBCredentials
-from src.registry.storage import AwsAssumeRoleCredentials, AwsAssumeRoleStorage, MinioStorage
+from src.registry.storage import AwsAssumeRoleCredentials, AwsAssumeRoleStorage, S3CompatibleStorage
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     NODE_MERGE_METADATA_FIELDS = ("_key", "id", "creation", "updates", "resolved_ids")
 
-    def __init__(self, credentials, database_name, minio_credentials=None):
+    def __init__(self, credentials, database_name, object_storage_credentials=None):
         self._collection_schemas = {}
         self._graph_views = []
         self._graph_view_source_yaml = None
         self._resolver_fingerprints_by_type = {}
         self._resolver_source_yaml = None
         self._registry_datasets = []
-        self.minio_storage = self._object_storage_from_credentials(minio_credentials)
+        self.object_storage = self._object_storage_from_credentials(object_storage_credentials)
         super().__init__(credentials=credentials, database_name=database_name)
 
     @staticmethod
@@ -39,7 +39,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             return None
         if "role_arn" in credentials or credentials.get("type") == "aws_assume_role":
             return AwsAssumeRoleStorage(AwsAssumeRoleCredentials.from_yaml(credentials))
-        return MinioStorage(DBCredentials(**credentials))
+        return S3CompatibleStorage(DBCredentials(**credentials))
 
     def set_graph_views_metadata(self, graph_views=None, source_yaml=None):
         self._graph_views = graph_views or []
@@ -147,18 +147,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 s3_client.create_bucket(Bucket=bucket)
 
     def _handle_dataset_nodes(self, objects):
-        """Upload DataFrame from any Dataset or StatsResult nodes to MinIO as Parquet, update file_reference."""
+        """Upload DataFrame from any Dataset or StatsResult node to object storage as Parquet."""
         from src.models.pounce.dataset import Dataset
         from src.models.pounce.stats_result import StatsResult
 
-        if not self.minio_storage:
+        if not self.object_storage:
             return
 
         import io
         import pyarrow as pa
         import pyarrow.parquet as pq
 
-        storage = self.minio_storage
+        storage = self.object_storage
         s3 = storage.client()
         storage.ensure_bucket()
 
@@ -198,10 +198,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         from src.models.pounce.stats_result import StatsResult
         from src.models.pounce.workbook_artifact import WorkbookArtifact
 
-        if not self.minio_storage:
+        if not self.object_storage:
             return
 
-        storage = self.minio_storage
+        storage = self.object_storage
         s3 = storage.client()
         storage.ensure_bucket()
 
@@ -533,13 +533,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 print(failure)
             raise Exception(f"failed to update {len(failed)} {kind} records into {label}")
 
-    def _delete_minio_prefix(self, prefix: str) -> None:
-        if not self.minio_storage:
+    def _delete_object_storage_prefix(self, prefix: str) -> None:
+        if not self.object_storage:
             return
 
         from botocore.exceptions import ClientError
 
-        storage = self.minio_storage
+        storage = self.object_storage
         s3 = storage.client()
 
         try:
@@ -571,7 +571,7 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             if effective_truncate:
                 sys_db.delete_database(self.database_name)
                 sys_db.create_database(self.database_name)
-                self._delete_minio_prefix(f"{self.database_name}/")
+                self._delete_object_storage_prefix(f"{self.database_name}/")
         else:
             sys_db.create_database(self.database_name)
 

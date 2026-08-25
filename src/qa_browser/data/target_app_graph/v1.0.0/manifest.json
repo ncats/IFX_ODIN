@@ -1,0 +1,193 @@
+{
+  "contract_version": "1.0.0",
+  "target_release_version": "v1.0.0",
+  "pipeline": "TargetGraph target harmonizer",
+  "generated_at": "2026-08-18T16:19:39.226124+00:00",
+  "updated_last": "2026-08-18T16:19:39.226142+00:00",
+  "pipeline_git_commit": "40ff879",
+  "source_files": {
+    "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids.tsv",
+    "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids_2026-06-15.tsv",
+    "transcript_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/transcript_ids.tsv"
+  },
+  "source_file_timestamps": {
+    "gene_ids": "2026-05-06T21:12:17.602639+00:00",
+    "protein_ids": "2026-06-15T17:43:24.467910+00:00",
+    "transcript_ids": "2026-05-06T21:12:42.378289+00:00"
+  },
+  "source_versions": [
+    {
+      "source": "Ensembl BioMart",
+      "version": "115",
+      "download_start": "2026-05-06T13:26:42.517935",
+      "download_end": "2026-05-06T13:26:42.548103",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ensembl_metadata.json"
+    },
+    {
+      "source": "NCBI Gene Info",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:42.821033",
+      "download_end": "2026-05-06T13:26:42.821047",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_ncbi_metadata.json"
+    },
+    {
+      "source": "GeneRIF",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:43.183606",
+      "download_end": "2026-05-06T13:26:43.183614",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_generif_metadata.json"
+    },
+    {
+      "source": "HGNC",
+      "version": "2026-05-05",
+      "download_start": "2026-05-06T13:26:44.246072",
+      "download_end": "2026-05-06T13:26:44.246085",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_hgnc_metadata.json"
+    },
+    {
+      "source": "RefSeq (NCBI)",
+      "version": "2026-05-06",
+      "download_start": "2026-05-06T13:26:44.253923",
+      "download_end": "2026-05-06T13:26:44.817541",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json"
+    },
+    {
+      "source": "UniProt",
+      "version": "2026_01",
+      "download_start": "2026-05-06T13:27:15.794626",
+      "download_end": "2026-05-06T13:27:15.794629",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_uniprot_metadata.json"
+    },
+    {
+      "source": "NodeNorm Gene",
+      "version": "2025nov4",
+      "download_start": "2026-05-06T13:27:15.809343",
+      "download_end": "2026-05-06T13:27:16.222880",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_genes_metadata.json"
+    },
+    {
+      "source": "NodeNorm Protein",
+      "version": "2025nov4",
+      "download_start": "2026-05-06T13:27:16.252263",
+      "download_end": "2026-05-06T13:27:16.554916",
+      "metadata_file": "src/data/publicdata/target_data/metadata/dl_nodenorm_proteins_metadata.json"
+    }
+  ],
+  "files": {
+    "target_nodes.tsv": {
+      "rows": 893967,
+      "key": "target_id",
+      "columns": [
+        "target_id",
+        "target_type",
+        "primary_id",
+        "symbol",
+        "name",
+        "description",
+        "category",
+        "ids",
+        "id_namespaces",
+        "source_namespaces",
+        "mapping_ratio",
+        "quality_note",
+        "canonical_status",
+        "canonical_ifx_id",
+        "source_annotations",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "target_edges.tsv": {
+      "rows": 751212,
+      "key": "source_id,predicate,target_id,evidence_identifier",
+      "columns": [
+        "source_id",
+        "predicate",
+        "target_id",
+        "relation_kind",
+        "evidence_identifier",
+        "evidence_namespace",
+        "evidence_source",
+        "support_tier",
+        "support_ratio",
+        "support_score"
+      ]
+    }
+  },
+  "node_counts": {
+    "gene": 193394,
+    "transcript": 533740,
+    "protein": 166833
+  },
+  "edge_predicate_counts": {
+    "biolink:transcribed_to": 449378,
+    "biolink:has_gene_product": 177852,
+    "biolink:translates_to": 123982
+  },
+  "annotation_counts": {
+    "Ensembl_Transcript_ID_Provenance": 533740,
+    "ensembl_trans_length": 533740,
+    "ensembl_transcript_tsl": 291890,
+    "Description_Provenance": 193394,
+    "Symbol_Provenance": 193393,
+    "NCBI_ID_Provenance": 193322,
+    "UniProt_ID_Provenance": 166833,
+    "Ensembl_Mapping_Score": 166833,
+    "RefSeq_Mapping_Score": 166833,
+    "UniProt_Mapping_Score": 166833,
+    "Mapping_Support_Score": 166833,
+    "Mapping_Support_Max": 166833,
+    "Mapping_Support_Ratio": 166833,
+    "Mapping_Conflict_Count": 166833,
+    "Mapping_Evidence_Domains": 166833,
+    "Mapping_Supported_Domains": 166833,
+    "Mapping_Support_Tier": 166833,
+    "Total_Mapping_Score": 166833,
+    "Total_Mapping_Ratio": 166833,
+    "uniprot_computationally_mapped_isoform": 166833,
+    "protein_group_anchor": 166833,
+    "protein_grouping_reason": 166833,
+    "is_canonical": 166833,
+    "uniprot_annotationScore": 166833,
+    "protein_name_score": 166833,
+    "NodeNorm_Protein": 166829,
+    "Ensembl_ID_Provenance": 149521,
+    "protein_name_method": 121849,
+    "ensembl_canonical": 105948,
+    "same_uniref100_as_parent": 103533,
+    "RefSeq_Provenance": 78931,
+    "refseq_status": 78862,
+    "refseq_ncbi_id": 78862,
+    "Location_Provenance": 70526,
+    "consolidated_location": 70526,
+    "RefSeq_ID_Provenance": 69836,
+    "refseq_method": 67583,
+    "uniprot_NCBI_id": 55089,
+    "HGNC_ID_Provenance": 45053,
+    "ensembl_strand": 45015,
+    "canonical_isoform_status_source": 43361,
+    "ensembl_refseq_MANEselect": 38580,
+    "hgnc_vega_id": 32430,
+    "nodenorm_UMLS": 28683,
+    "hgnc_pubmed_id": 23696,
+    "ensembl_canonical_token": 19579,
+    "uniprot_secondaryAccessions": 19249,
+    "hgnc_ccds_id": 19068,
+    "OMIM_ID_Provenance": 18935,
+    "hgnc_prev_symbol": 12671,
+    "hgnc_orphanet_id": 4418,
+    "ncbi_miR_id": 1916,
+    "ncbi_imgt_id": 677
+  },
+  "identifier_namespace_concept_counts": {
+    "ENSEMBL": 683261,
+    "NCBIGene": 327133,
+    "UniProtKB": 166833,
+    "NodeNorm": 166829,
+    "UniRef100": 156568,
+    "RefSeq": 148698,
+    "UMLS": 71409,
+    "HGNC": 45053,
+    "MIM": 18936
+  }
+}

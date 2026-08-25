@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Stage Comparison · Metabolite Harmonization Workbench{% endblock %}
+{% block title %}Stage Comparison · Metabolite Harmonization Studio{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
-<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Workbench</a>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Studio</a>
 <span class="sep">/</span>
 <span>Stage Comparison</span>
 {% endblock %}
@@ -64,12 +64,20 @@
         <dl class="ramp-id-stats">
             <div><dt>Unchanged Cliques</dt><dd>{{ "{:,}".format(comparison.unchanged_clique_count) }}</dd></div>
             <div><dt>Changed Components</dt><dd>{{ "{:,}".format(comparison.changed_component_count) }}</dd></div>
+            <div><dt>New Assertion Failures</dt><dd>{{ "{:,}".format(comparison.newly_failing_assertion_count) }}</dd></div>
             <div><dt>Recombinations</dt><dd>{{ "{:,}".format(comparison.recombination_count) }}</dd></div>
             <div><dt>Non-Trivial Splits</dt><dd>{{ "{:,}".format(comparison.nontrivial_split_count) }}</dd></div>
             <div><dt>From Changed</dt><dd>{{ "{:,}".format(comparison.changed_left_clique_count) }}</dd></div>
             <div><dt>To Changed</dt><dd>{{ "{:,}".format(comparison.changed_right_clique_count) }}</dd></div>
         </dl>
     </section>
+
+    {% if comparison.newly_failing_assertions %}
+    <section class="metabolite-id-compare-assertion-summary" aria-label="New expected-clique assertion failures">
+        <strong>{{ comparison.newly_failing_assertion_count }} expected-clique assertion{{ "" if comparison.newly_failing_assertion_count == 1 else "s" }} newly fail in the destination stage.</strong>
+        <span>Affected change cards are highlighted and sorted first in each section.</span>
+    </section>
+    {% endif %}
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">

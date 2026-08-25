@@ -16,8 +16,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Optional, Dict, Iterable, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional, Dict, Iterable, List
 from urllib.parse import quote as url_quote, urlencode
 
 import urllib3
@@ -38,16 +38,23 @@ from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
 from src.models.node import Node
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
+    REVIEW_DECISION_OPTIONS,
+    REVIEW_INTAKE_COLUMNS,
+    build_review_queue,
+    build_clinical_descendant_graph_payload,
     build_disease_graph_payload,
     build_hierarchy_graph_payload,
     build_provenance_chain,
     bulk_resolve_names,
     compute_dashboard_stats,
+    compute_download_preview_counts,
     compute_source_agreement_matrix,
     compute_source_flow_data,
     compute_version_diff,
     export_filtered_download,
+    export_filtered_xlsx,
     export_flagged_tsv,
+    export_review_intake_template,
     export_search_tsv,
     export_sssom,
     find_concept_neighbors,
@@ -55,10 +62,19 @@ from src.qa_browser.disease_id_graph import (
     load_disease_graph_data,
     load_version_data,
     load_flagged_concepts,
+    _normalize_download_mode,
     parse_disease_ids,
     resolve_concept,
     resolve_name_candidates,
     search_concepts,
+    stream_filtered_download,
+)
+from src.qa_browser.cure_entity_resolver import build_cure_entity_resolver_index
+from src.qa_browser.curation_cart import (
+    add_cart_operation,
+    load_cart,
+    publish_cart,
+    remove_cart_operation,
 )
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
@@ -70,6 +86,30 @@ from src.qa_browser.registry_usage import (
     load_graph_registry_usage_cached,
     with_graph_usages,
 )
+from src.qa_browser.target_id_graph import (
+    TARGET_REVIEW_INTAKE_COLUMNS as TARGET_REVIEW_INTAKE_COLUMNS,
+    append_target_review_rows,
+    build_batch_review_payload,
+    build_target_graph_payload,
+    build_target_review_queue,
+    compute_target_stats,
+    compute_target_version_diff,
+    export_divergences,
+    export_targets,
+    load_target_graph_data,
+    load_target_version_data,
+    mark_rows_resolved_by_registry_ids,
+    mark_rows_resolved_by_triage,
+    search_targets,
+    validate_and_build_target_review_rows,
+)
+from src.qa_browser.variant_id_graph import (
+    build_variant_graph_payload,
+    compute_variant_stats,
+    export_variants,
+    load_variant_graph_data,
+    search_variants,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -78,6 +118,8 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
+TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
+VARIANT_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "variant_app_graph"
 
 
 @asynccontextmanager
@@ -103,10 +145,14 @@ _mysql_credentials: dict = {}
 _mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
-_minio_credentials: dict = {}
+_registry_storage_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
+_target_graph_dir: str = ""
+_variant_graph_dir: str = ""
+_disease_review_file: str = ""
+_disease_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -147,6 +193,12 @@ _resolver_warmup_status: dict = {
     "warmed": 0,
     "errors": [],
 }
+_cure_entity_resolver_cache: dict = {
+    "graph_dir": None,
+    "index": None,
+    "loaded_at": None,
+}
+_cure_entity_resolver_lock = threading.Lock()
 _REGISTRY_USAGE_TTL_SECONDS = 60
 _REGISTRY_CATALOG_TTL_SECONDS = int(os.getenv("QA_BROWSER_REGISTRY_CATALOG_TTL_SECONDS", "300"))
 _RESOLVER_API_MAX_IDS = 1000
@@ -164,7 +216,12 @@ _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
 _HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v3"
-_RAMP_MAPPING_DENYLIST_PATH = BASE_DIR / "data" / "ramp_mapping_denylist.tsv"
+_HARMONIZATION_AQL_BATCH_SIZE = 1000
+_HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
+_METABOLITE_CURATION_PREFIX = os.getenv(
+    "QA_BROWSER_METABOLITE_CURATION_PREFIX",
+    "curations/v1/metabolite_harmonization/",
+)
 _HMDB_IGNORED_PREFIX_DEFAULTS = [
     "BiGG",
     "BioCyc",
@@ -200,7 +257,7 @@ _LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_generic_structure_mismatch",
-        "label": "Ignore generic/non-generic structure equivalence",
+        "label": "Ignore generic/non-generic edges",
         "description": "Drop equivalence edges where exactly one endpoint has an R-group or wildcard structure signal.",
     },
     {
@@ -256,6 +313,11 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "placeholder": "Optional, for experiments only",
             },
         ],
+    },
+    {
+        "id": "force_expected_clique_assertions",
+        "label": "Give up: Make Assertions True",
+        "description": "Add explicitly synthetic, curation-provenanced edges so every active expected-clique assertion merges. Use only as a visible fallback before cleanup.",
     },
     {
         "id": "remove_refmet_only_metabolites",
@@ -489,22 +551,297 @@ def _normalize_ramp_denylist_identifier(value: Optional[str]) -> Optional[str]:
     return f"{normalized_prefix}:{local_id}"
 
 
-def _load_ramp_mapping_denylist_pairs() -> set[tuple[str, str]]:
-    denylist_pairs = set()
-    if not _RAMP_MAPPING_DENYLIST_PATH.exists():
-        return denylist_pairs
-    with _RAMP_MAPPING_DENYLIST_PATH.open(newline="") as handle:
-        reader = csv.reader(handle, delimiter="\t")
-        next(reader, None)
-        for row in reader:
-            if len(row) < 2:
+def _metabolite_edge_decisions_from_curation_batch(
+    batch: dict,
+) -> List[tuple[tuple[str, str], str]]:
+    if batch.get("format_version") != 1:
+        raise ValueError(f"unsupported curation format_version: {batch.get('format_version')!r}")
+    if batch.get("graph") != "metabolite_harmonization":
+        return []
+
+    decisions = []
+    for operation in batch.get("operations") or []:
+        if (
+            operation.get("action") not in {"remove_edge", "retain_edge"}
+            or operation.get("edge_type") != "MetaboliteIdentifierMappingEdge"
+        ):
+            continue
+        if operation.get("symmetric") is not True:
+            continue
+        left = _normalize_ramp_denylist_identifier(operation.get("start_id"))
+        right = _normalize_ramp_denylist_identifier(operation.get("end_id"))
+        if left and right and left != right:
+            decisions.append((tuple(sorted((left, right))), operation["action"]))
+    return decisions
+
+
+def _metabolite_edge_removal_pairs_from_curation_batch(batch: dict) -> set[tuple[str, str]]:
+    pair_states = {}
+    for pair, action in _metabolite_edge_decisions_from_curation_batch(batch):
+        pair_states[pair] = action
+    return {pair for pair, action in pair_states.items() if action == "remove_edge"}
+
+
+def _normalize_expected_clique_member_ids(value: Any) -> List[str]:
+    raw_ids = _parse_metabolite_identifier_query(
+        " ".join(str(item) for item in value) if isinstance(value, (list, tuple, set)) else str(value or "")
+    )
+    normalized = []
+    seen = set()
+    for raw_id in raw_ids:
+        identifier = _normalize_ramp_denylist_identifier(raw_id)
+        if not identifier:
+            raise HTTPException(status_code=400, detail=f"Invalid prefixed metabolite identifier: {raw_id}")
+        if identifier not in seen:
+            seen.add(identifier)
+            normalized.append(identifier)
+    normalized.sort()
+    if len(normalized) < 2:
+        raise HTTPException(status_code=400, detail="An expected-clique assertion requires at least two identifiers.")
+    if len(normalized) > _METABOLITE_COMPARE_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"An expected-clique assertion may contain at most {_METABOLITE_COMPARE_MAX_IDS} identifiers.",
+        )
+    return normalized
+
+
+def _metabolite_expected_clique_assertion_operation(
+    member_ids: Any,
+    name: str,
+    rationale: str = "",
+    missing_member_ids_at_add_time: Optional[List[str]] = None,
+) -> dict:
+    normalized_ids = _normalize_expected_clique_member_ids(member_ids)
+    clean_name = str(name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Assertion name is required.")
+    assertion_id = "same-clique-" + hashlib.sha256(
+        json.dumps(normalized_ids, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+    operation = {
+        "action": "assert_same_clique",
+        "assertion_id": assertion_id,
+        "assertion_type": "expected_same_clique",
+        "member_ids": normalized_ids,
+        "name": clean_name,
+    }
+    clean_rationale = str(rationale or "").strip()
+    if clean_rationale:
+        operation["rationale"] = clean_rationale
+    missing = sorted(set(missing_member_ids_at_add_time or []))
+    if missing:
+        operation["missing_member_ids_at_add_time"] = missing
+    return operation
+
+
+def _metabolite_retire_assertion_operation(assertion_id: str, note: str = "") -> dict:
+    clean_id = str(assertion_id or "").strip()
+    if not re.fullmatch(r"same-clique-[0-9a-f]{24}", clean_id):
+        raise HTTPException(status_code=400, detail="A valid expected-clique assertion ID is required.")
+    operation = {"action": "retire_assertion", "assertion_id": clean_id}
+    clean_note = str(note or "").strip()
+    if clean_note:
+        operation["note"] = clean_note
+    return operation
+
+
+def _missing_metabolite_identifier_ids(member_ids: List[str]) -> List[str]:
+    db = get_db("metabolite_harmonization")
+    found_ids = set(db.aql.execute(
+        """
+        FOR metabolite IN MetaboliteIdentifier
+          FILTER metabolite.id IN @member_ids
+          RETURN metabolite.id
+        """,
+        bind_vars={"member_ids": member_ids},
+        max_runtime=120,
+    ))
+    return sorted(set(member_ids) - found_ids)
+
+
+def _metabolite_assertion_decisions_from_curation_batch(batch: dict) -> List[tuple[str, Optional[dict]]]:
+    if batch.get("format_version") != 1:
+        raise ValueError(f"unsupported curation format_version: {batch.get('format_version')!r}")
+    if batch.get("graph") != "metabolite_harmonization":
+        return []
+    decisions = []
+    for operation in batch.get("operations") or []:
+        action = operation.get("action")
+        assertion_id = str(operation.get("assertion_id") or "").strip()
+        if action == "retire_assertion" and assertion_id:
+            decisions.append((assertion_id, None))
+            continue
+        if action != "assert_same_clique" or not assertion_id:
+            continue
+        member_ids = _normalize_expected_clique_member_ids(operation.get("member_ids") or [])
+        expected_id = _metabolite_expected_clique_assertion_operation(
+            member_ids,
+            operation.get("name"),
+            operation.get("rationale") or "",
+            operation.get("missing_member_ids_at_add_time") or [],
+        )["assertion_id"]
+        if assertion_id != expected_id:
+            raise ValueError(f"Expected-clique assertion ID does not match its members: {assertion_id}")
+        decisions.append((assertion_id, dict(operation)))
+    return decisions
+
+
+def _metabolite_curation_publication_time(batch: dict, key: str) -> datetime:
+    value = str(batch.get("published_at") or batch.get("created_at") or "").strip()
+    if not value:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid curation publication timestamp in {key}: {value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _load_metabolite_edge_removal_curations(storage=None, prefix: str = _METABOLITE_CURATION_PREFIX) -> dict:
+    if storage is None:
+        if not _registry_storage_credentials:
+            raise RuntimeError("Registry storage credentials are required to load metabolite curations")
+        storage = _storage_from_credentials(_registry_storage_credentials, use_internal_url=False)
+
+    keys = sorted(key for key in storage.list_keys(prefix) if key.endswith(".json"))
+    loaded_batches = []
+    fingerprint = hashlib.sha256()
+    assertion_fingerprint = hashlib.sha256()
+    for key in keys:
+        raw = storage.read_text(key)
+        try:
+            batch = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid curation JSON at s3://{storage.bucket}/{key}: {exc}") from exc
+        batch_id = batch.get("curation_batch_id") or key.rsplit("/", 1)[-1].removesuffix(".json")
+        edge_decisions = _metabolite_edge_decisions_from_curation_batch(batch)
+        assertion_decisions = _metabolite_assertion_decisions_from_curation_batch(batch)
+        if edge_decisions:
+            fingerprint.update(key.encode("utf-8"))
+            fingerprint.update(b"\0")
+            fingerprint.update(raw.encode("utf-8"))
+            fingerprint.update(b"\0")
+        if assertion_decisions:
+            assertion_fingerprint.update(key.encode("utf-8"))
+            assertion_fingerprint.update(b"\0")
+            assertion_fingerprint.update(raw.encode("utf-8"))
+            assertion_fingerprint.update(b"\0")
+        loaded_batches.append({
+            "key": key,
+            "batch_id": batch_id,
+            "publication_time": _metabolite_curation_publication_time(batch, key),
+            "batch": batch,
+            "raw": raw,
+            "edge_decisions": edge_decisions,
+            "assertion_decisions": assertion_decisions,
+        })
+
+    loaded_batches.sort(key=lambda item: (item["publication_time"], item["batch_id"], item["key"]))
+    pair_states = {}
+    assertion_states: Dict[str, Optional[dict]] = {}
+    edge_batch_ids = []
+    assertion_batch_ids = []
+    for loaded_batch in loaded_batches:
+        edge_decisions = loaded_batch["edge_decisions"]
+        assertion_decisions = loaded_batch["assertion_decisions"]
+        if edge_decisions:
+            edge_batch_ids.append(loaded_batch["batch_id"])
+        if assertion_decisions:
+            assertion_batch_ids.append(loaded_batch["batch_id"])
+        for pair, action in edge_decisions:
+            pair_states[pair] = action
+        for assertion_id, assertion in assertion_decisions:
+            if assertion is None:
+                assertion_states[assertion_id] = None
                 continue
-            left = _normalize_ramp_denylist_identifier(row[0])
-            right = _normalize_ramp_denylist_identifier(row[1])
-            if not left or not right or left == right:
-                continue
-            denylist_pairs.add(tuple(sorted((left, right))))
-    return denylist_pairs
+            assertion_states[assertion_id] = {
+                **assertion,
+                "curation_batch_id": loaded_batch["batch_id"],
+                "published_at": loaded_batch["batch"].get("published_at")
+                    or loaded_batch["batch"].get("created_at"),
+                "published_by": loaded_batch["batch"].get("created_by"),
+            }
+    pairs = {pair for pair, action in pair_states.items() if action == "remove_edge"}
+    assertions = sorted(
+        (assertion for assertion in assertion_states.values() if assertion is not None),
+        key=lambda assertion: (assertion.get("name", "").casefold(), assertion["assertion_id"]),
+    )
+
+    return {
+        "pairs": pairs,
+        "pair_states": pair_states,
+        "batch_ids": edge_batch_ids,
+        "fingerprint": fingerprint.hexdigest(),
+        "assertions": assertions,
+        "assertion_batch_ids": assertion_batch_ids,
+        "assertion_fingerprint": assertion_fingerprint.hexdigest(),
+        "prefix": f"s3://{storage.bucket}/{prefix}",
+    }
+
+
+def _curation_cart_storage():
+    if not _registry_storage_credentials:
+        raise HTTPException(
+            status_code=503,
+            detail="Registry storage credentials are required to use curation carts.",
+        )
+    return _storage_from_credentials(_registry_storage_credentials, use_internal_url=False)
+
+
+def _curator_identity(request: Request, payload: Optional[dict] = None) -> tuple[str, str]:
+    payload = payload or {}
+    header_identity = next((
+        request.headers.get(header)
+        for header in (
+            "x-auth-request-email",
+            "x-auth-request-user",
+            "x-forwarded-email",
+            "x-forwarded-user",
+            "remote-user",
+        )
+        if request.headers.get(header)
+    ), None)
+    supplied_identity = str(payload.get("curator") or "").strip()
+    curator_id = str(header_identity or supplied_identity).strip()
+    curator_name = str(payload.get("curator_name") or curator_id).strip()
+    if not curator_id:
+        raise HTTPException(status_code=400, detail="Enter your curator name before using the curation cart.")
+    return curator_id, curator_name
+
+
+def _metabolite_edge_decision_operation(
+    action: str,
+    start_id: str,
+    end_id: str,
+    note: str = "",
+) -> dict:
+    if action not in {"remove_edge", "retain_edge"}:
+        raise HTTPException(status_code=400, detail="Edge curation action must be remove_edge or retain_edge.")
+    left = _normalize_ramp_denylist_identifier(start_id)
+    right = _normalize_ramp_denylist_identifier(end_id)
+    if not left or not right:
+        raise HTTPException(status_code=400, detail="Both edge endpoints must be valid prefixed identifiers.")
+    if left == right:
+        raise HTTPException(status_code=400, detail="A curation cannot target a self-edge.")
+    left, right = sorted((left, right))
+    operation = {
+        "action": action,
+        "edge_type": "MetaboliteIdentifierMappingEdge",
+        "start_id": left,
+        "end_id": right,
+        "symmetric": True,
+    }
+    clean_note = str(note or "").strip()
+    if clean_note:
+        operation["note"] = clean_note
+    return operation
+
+
+def _metabolite_edge_removal_operation(start_id: str, end_id: str, note: str = "") -> dict:
+    return _metabolite_edge_decision_operation("remove_edge", start_id, end_id, note)
 
 
 def _normalize_metabolite_rule_ids(rule_ids: Optional[List[str]]) -> List[str]:
@@ -594,7 +931,7 @@ def _load_generic_structure_ids(db) -> set:
             )
           }
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for row in metabolite_structure_cursor:
@@ -617,7 +954,7 @@ def _load_generic_structure_ids(db) -> set:
             ]
           }
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for row in chebi_structure_cursor:
@@ -651,7 +988,7 @@ def _iter_metabolite_identifier_inchi_key_matches(db, mode: str, mw_cutoff: Opti
           FILTER LENGTH(inchi_keys) > 0 OR LENGTH(prefixes) > 0
           RETURN {id: d.id, inchi_keys: inchi_keys, prefixes: prefixes, masses: masses}
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for row in cursor:
@@ -819,6 +1156,101 @@ def _stage_is_referenced_by_any_run(db, stage_key: str) -> bool:
     return bool(rows)
 
 
+def _delete_unreferenced_harmonization_stages(db, orphaned_before: Optional[str] = None) -> List[str]:
+    if (
+        not db.has_collection(_HARMONIZATION_STAGE_COLLECTION)
+        or not db.has_collection(_HARMONIZATION_PIPELINE_RUN_COLLECTION)
+    ):
+        return []
+    cutoff = orphaned_before or (
+        datetime.now(timezone.utc) - _HARMONIZATION_ORPHAN_GRACE_PERIOD
+    ).isoformat()
+    candidate_stage_keys = list(db.aql.execute(
+        f"""
+        FOR s IN {_HARMONIZATION_STAGE_COLLECTION}
+          FILTER s.status == "complete"
+          LET stage_time = s.updated_at != null ? s.updated_at : s.created_at
+          FILTER stage_time != null AND stage_time < @orphaned_before
+          LET referenced = FIRST(
+            FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+              FILTER s._key IN (r.stage_keys || [])
+              LIMIT 1
+              RETURN true
+          )
+          FILTER referenced == null
+          SORT s._key
+          RETURN s._key
+        """,
+        bind_vars={"orphaned_before": cutoff},
+        max_runtime=120,
+    ))
+
+    deleted_stage_keys = []
+    stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
+    for stage_key in candidate_stage_keys:
+        # Recheck immediately before deletion in case another pipeline run reused
+        # this deterministic stage while the orphan scan was in progress.
+        if _stage_is_referenced_by_any_run(db, stage_key):
+            continue
+        _delete_harmonization_stage_artifacts(db, stage_key)
+        if stage_collection.has(stage_key):
+            stage_collection.delete(stage_key)
+        deleted_stage_keys.append(stage_key)
+    return deleted_stage_keys
+
+
+def _delete_previous_harmonization_pipeline_runs(db, pipeline_key: str, current_run_key: str) -> dict:
+    previous_runs = list(db.aql.execute(
+        f"""
+        FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+          FILTER r.pipeline_key == @pipeline_key
+          FILTER r._key != @current_run_key
+          RETURN KEEP(r, "_key", "stage_keys")
+        """,
+        bind_vars={"pipeline_key": pipeline_key, "current_run_key": current_run_key},
+        max_runtime=120,
+    ))
+    previous_run_keys = [run["_key"] for run in previous_runs]
+    candidate_stage_keys = sorted({
+        stage_key
+        for run in previous_runs
+        for stage_key in run.get("stage_keys") or []
+        if stage_key
+    })
+    if previous_run_keys:
+        db.aql.execute(
+            f"""
+            FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+              FILTER r._key IN @run_keys
+              REMOVE r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
+            """,
+            bind_vars={"run_keys": previous_run_keys},
+            max_runtime=120,
+        )
+
+    deleted_stage_keys = []
+    stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
+    for stage_key in candidate_stage_keys:
+        if _stage_is_referenced_by_any_run(db, stage_key):
+            continue
+        _delete_harmonization_stage_artifacts(db, stage_key)
+        if stage_collection.has(stage_key):
+            stage_collection.delete(stage_key)
+        deleted_stage_keys.append(stage_key)
+    deleted_superseded_stage_keys = list(deleted_stage_keys)
+    deleted_orphan_stage_keys = _delete_unreferenced_harmonization_stages(db)
+    deleted_stage_keys.extend(
+        stage_key for stage_key in deleted_orphan_stage_keys
+        if stage_key not in deleted_stage_keys
+    )
+    return {
+        "deleted_run_keys": previous_run_keys,
+        "deleted_stage_keys": deleted_stage_keys,
+        "deleted_superseded_stage_keys": deleted_superseded_stage_keys,
+        "deleted_orphan_stage_keys": deleted_orphan_stage_keys,
+    }
+
+
 def _delete_harmonization_pipeline(db, pipeline_key: str) -> dict:
     _ensure_harmonization_pipeline_collections(db)
     pipeline = _get_harmonization_pipeline(db, pipeline_key)
@@ -872,7 +1304,7 @@ def _load_metabolite_identifier_source_support(db) -> Dict[str, set]:
           ]))
           RETURN {id: d.id, support: support}
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for row in cursor:
@@ -955,7 +1387,7 @@ def _load_wikipathways_xref_only_ids_for_ignored_source_fields(
             details: e.details || []
           }
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     pathway_primary_ids = db.aql.execute(
@@ -968,7 +1400,7 @@ def _load_wikipathways_xref_only_ids_for_ignored_source_fields(
           ) > 0
           RETURN DISTINCT e.start_id
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     return _wikipathways_xref_only_ids_from_rows(
@@ -1019,11 +1451,10 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
     active_ids: set,
     rule_ids: List[str],
     rule_parameters: dict,
+    ramp_mapping_denylist_pairs: Optional[set[tuple[str, str]]] = None,
 ) -> tuple[List[dict], dict]:
     generic_structure_ids = _load_generic_structure_ids(db) if "ignore_generic_structure_mismatch" in rule_ids else set()
-    ramp_mapping_denylist_pairs = (
-        _load_ramp_mapping_denylist_pairs() if "ignore_ramp_mapping_denylist" in rule_ids else set()
-    )
+    ramp_mapping_denylist_pairs = ramp_mapping_denylist_pairs or set()
     hmdb_ignored_prefixes = set()
     if "ignore_hmdb_prefixes" in rule_ids:
         hmdb_ignored_prefixes = {
@@ -1081,7 +1512,7 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
             details: e.details || []
           }
         """,
-        batch_size=10000,
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for edge in cursor:
@@ -1151,6 +1582,61 @@ def _active_metabolite_identifier_mapping_edges_for_rules(
         })
     summary["active_edge_count"] = len(active_edges)
     return active_edges, summary
+
+
+def _expected_clique_assertion_edges(
+    active_ids: set,
+    assertions: List[dict],
+) -> tuple[List[dict], dict]:
+    synthetic_edges = []
+    skipped_assertions = []
+    applied_assertion_count = 0
+    for assertion in assertions:
+        member_ids = assertion.get("member_ids") or []
+        missing_member_ids = sorted(set(member_ids) - active_ids)
+        if missing_member_ids:
+            skipped_assertions.append({
+                "assertion_id": assertion.get("assertion_id"),
+                "name": assertion.get("name"),
+                "missing_member_ids": missing_member_ids,
+            })
+            continue
+        if len(member_ids) < 2:
+            continue
+        applied_assertion_count += 1
+        anchor_id = member_ids[0]
+        for end_id in member_ids[1:]:
+            assertion_id = assertion["assertion_id"]
+            edge_key = f"assertion-{assertion_id}-{_canonical_json_digest({'start_id': anchor_id, 'end_id': end_id})}"
+            detail = {
+                "source": "Expected Clique Assertion",
+                "synthetic": True,
+                "fallback": True,
+                "assertion_id": assertion_id,
+                "assertion_name": assertion.get("name"),
+                "rationale": assertion.get("rationale"),
+                "curation_batch_id": assertion.get("curation_batch_id"),
+                "published_at": assertion.get("published_at"),
+                "published_by": assertion.get("published_by"),
+            }
+            synthetic_edges.append({
+                "key": edge_key,
+                "id": f"SyntheticExpectedCliqueEdge:{edge_key}",
+                "start_id": anchor_id,
+                "end_id": end_id,
+                "sources": ["Expected Clique Assertion"],
+                "details": [detail],
+                "synthetic": True,
+                "fallback": True,
+                "assertion_id": assertion_id,
+            })
+    return synthetic_edges, {
+        "expected_clique_assertion_count": len(assertions),
+        "expected_clique_assertion_applied_count": applied_assertion_count,
+        "expected_clique_assertion_skipped_count": len(skipped_assertions),
+        "expected_clique_synthetic_edge_count": len(synthetic_edges),
+        "expected_clique_assertion_skipped_samples": skipped_assertions[:20],
+    }
 
 
 def _build_harmonized_groups(
@@ -1332,7 +1818,8 @@ def _load_bio_connected_ids(db) -> set:
     connected = set()
     for coll in _BIO_CONTEXT_EDGE_COLLECTIONS:
         for doc_id in db.aql.execute(
-            f"FOR e IN {coll} RETURN DISTINCT e._from", batch_size=10000
+            f"FOR e IN {coll} RETURN DISTINCT e._from",
+            batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         ):
             connected.add(doc_id.split("/", 1)[-1])
     return connected
@@ -1421,88 +1908,126 @@ def _materialize_harmonization_stage(
     groups: List[List[str]],
 ) -> None:
     _delete_harmonization_stage_artifacts(db, stage_key)
-    db.collection(_HARMONIZATION_STAGE_COLLECTION).insert(stage_doc, overwrite=True)
-    identifier_handles = _load_metabolite_identifier_handles(db, active_ids)
+    stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
+    materialization_started_at = datetime.now(timezone.utc).isoformat()
+    stage_doc.update({
+        "status": "materializing",
+        "materialization_started_at": materialization_started_at,
+        "materialization_completed_at": None,
+        "materialization_failed_at": None,
+        "materialization_error": None,
+    })
+    stage_collection.insert(stage_doc, overwrite=True)
+    try:
+        identifier_handles = _load_metabolite_identifier_handles(db, active_ids)
 
-    active_chunk_collection = db.collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION)
-    active_ids_sorted = sorted(active_ids)
-    for chunk_index, identifiers in enumerate(_chunked_records(active_ids_sorted, 20000)):
-        active_chunk_collection.insert({
-            "_key": f"{stage_key}-{chunk_index:05d}",
-            "id": f"HarmonizationStageActiveIdentifierChunk:{stage_key}-{chunk_index:05d}",
-            "stage_key": stage_key,
-            "chunk_index": chunk_index,
-            "identifier_ids": identifiers,
-        }, overwrite=True)
+        active_chunk_collection = db.collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION)
+        active_ids_sorted = sorted(active_ids)
+        for chunk_index, identifiers in enumerate(_chunked_records(active_ids_sorted, 20000)):
+            active_chunk_collection.insert({
+                "_key": f"{stage_key}-{chunk_index:05d}",
+                "id": f"HarmonizationStageActiveIdentifierChunk:{stage_key}-{chunk_index:05d}",
+                "stage_key": stage_key,
+                "chunk_index": chunk_index,
+                "identifier_ids": identifiers,
+            }, overwrite=True)
 
-    evidence_collection = db.collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION)
-    evidence_batch = []
-    for edge in active_edges:
-        edge_key = f"{stage_key}-{_canonical_json_digest({'edge_key': edge.get('key'), 'start_id': edge.get('start_id'), 'end_id': edge.get('end_id')})}"
-        evidence_batch.append({
-            "_key": edge_key,
-            "_from": identifier_handles[edge["start_id"]],
-            "_to": identifier_handles[edge["end_id"]],
-            "id": f"HarmonizationStageEvidenceEdge:{edge_key}",
-            "stage_key": stage_key,
-            "raw_edge_key": edge.get("key"),
-            "raw_edge_id": edge.get("id"),
-            "start_id": edge["start_id"],
-            "end_id": edge["end_id"],
-            "sources": edge.get("sources") or [],
-            "source_count": len(edge.get("sources") or []),
-            "detail_count": len(edge.get("details") or []),
-            "details": edge.get("details") or [],
-        })
-        if len(evidence_batch) >= 10000:
-            evidence_collection.insert_many(evidence_batch, overwrite=True)
-            evidence_batch = []
-    if evidence_batch:
-        evidence_collection.insert_many(evidence_batch, overwrite=True)
+        evidence_collection = db.collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION)
+        evidence_batch = []
+        for edge in active_edges:
+            edge_key = f"{stage_key}-{_canonical_json_digest({'edge_key': edge.get('key'), 'start_id': edge.get('start_id'), 'end_id': edge.get('end_id')})}"
+            evidence_batch.append({
+                "_key": edge_key,
+                "_from": identifier_handles[edge["start_id"]],
+                "_to": identifier_handles[edge["end_id"]],
+                "id": f"HarmonizationStageEvidenceEdge:{edge_key}",
+                "stage_key": stage_key,
+                "raw_edge_key": edge.get("key"),
+                "raw_edge_id": edge.get("id"),
+                "start_id": edge["start_id"],
+                "end_id": edge["end_id"],
+                "sources": edge.get("sources") or [],
+                "source_count": len(edge.get("sources") or []),
+                "detail_count": len(edge.get("details") or []),
+                "details": edge.get("details") or [],
+                "synthetic": bool(edge.get("synthetic")),
+                "fallback": bool(edge.get("fallback")),
+                "assertion_id": edge.get("assertion_id"),
+            })
+            if len(evidence_batch) >= 10000:
+                evidence_collection.insert_many(evidence_batch, overwrite=True, silent=True)
+                evidence_batch = []
+        if evidence_batch:
+            evidence_collection.insert_many(evidence_batch, overwrite=True, silent=True)
 
-    metabolite_collection = db.collection(_HARMONIZED_METABOLITE_COLLECTION)
-    member_collection = db.collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
-    metabolite_batch = []
-    member_batch = []
-    for rank, members in enumerate(groups, start=1):
-        member_digest = _canonical_json_digest({"members": members}, 16)
-        harmonized_key = f"{stage_key}-{rank:06d}-{member_digest}"
-        harmonized_id = f"HarmonizedMetabolite:{harmonized_key}"
-        metabolite_batch.append({
-            "_key": harmonized_key,
-            "id": harmonized_id,
-            "stage_key": stage_key,
-            "stage_id": stage_doc["id"],
-            "name": f"{stage_doc['name']} group {rank}",
-            "size": len(members),
-            "rank_by_size": rank,
-            "representative_id": members[0],
-            "sample_member_ids": members[:25],
-            "member_hash": member_digest,
-        })
-        for member_index, member_id in enumerate(members):
-            member_edge_key = f"{harmonized_key}-{_canonical_json_digest({'member': member_id})}"
-            member_batch.append({
-                "_key": member_edge_key,
-                "_from": f"{_HARMONIZED_METABOLITE_COLLECTION}/{harmonized_key}",
-                "_to": identifier_handles[member_id],
-                "id": f"HarmonizedMetaboliteMemberEdge:{member_edge_key}",
+        metabolite_collection = db.collection(_HARMONIZED_METABOLITE_COLLECTION)
+        member_collection = db.collection(_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION)
+        metabolite_batch = []
+        member_batch = []
+        for rank, members in enumerate(groups, start=1):
+            member_digest = _canonical_json_digest({"members": members}, 16)
+            harmonized_key = f"{stage_key}-{rank:06d}-{member_digest}"
+            harmonized_id = f"HarmonizedMetabolite:{harmonized_key}"
+            metabolite_batch.append({
+                "_key": harmonized_key,
+                "id": harmonized_id,
                 "stage_key": stage_key,
                 "stage_id": stage_doc["id"],
-                "harmonized_metabolite_id": harmonized_id,
-                "member_id": member_id,
-                "member_index": member_index,
+                "name": f"{stage_doc['name']} group {rank}",
+                "size": len(members),
+                "rank_by_size": rank,
+                "representative_id": members[0],
+                "sample_member_ids": members[:25],
+                "member_hash": member_digest,
             })
-        if len(metabolite_batch) >= 5000:
-            metabolite_collection.insert_many(metabolite_batch, overwrite=True)
-            metabolite_batch = []
-        if len(member_batch) >= 10000:
-            member_collection.insert_many(member_batch, overwrite=True)
-            member_batch = []
-    if metabolite_batch:
-        metabolite_collection.insert_many(metabolite_batch, overwrite=True)
-    for batch in _chunked_records(member_batch):
-        member_collection.insert_many(batch, overwrite=True)
+            for member_index, member_id in enumerate(members):
+                member_edge_key = f"{harmonized_key}-{_canonical_json_digest({'member': member_id})}"
+                member_batch.append({
+                    "_key": member_edge_key,
+                    "_from": f"{_HARMONIZED_METABOLITE_COLLECTION}/{harmonized_key}",
+                    "_to": identifier_handles[member_id],
+                    "id": f"HarmonizedMetaboliteMemberEdge:{member_edge_key}",
+                    "stage_key": stage_key,
+                    "stage_id": stage_doc["id"],
+                    "harmonized_metabolite_id": harmonized_id,
+                    "member_id": member_id,
+                    "member_index": member_index,
+                })
+            if len(metabolite_batch) >= 5000:
+                metabolite_collection.insert_many(metabolite_batch, overwrite=True, silent=True)
+                metabolite_batch = []
+            if len(member_batch) >= 10000:
+                member_collection.insert_many(member_batch, overwrite=True, silent=True)
+                member_batch = []
+        if metabolite_batch:
+            metabolite_collection.insert_many(metabolite_batch, overwrite=True, silent=True)
+        for batch in _chunked_records(member_batch):
+            member_collection.insert_many(batch, overwrite=True, silent=True)
+    except Exception as exc:
+        failed_at = datetime.now(timezone.utc).isoformat()
+        failure_update = {
+            "_key": stage_key,
+            "status": "failed",
+            "updated_at": failed_at,
+            "materialization_failed_at": failed_at,
+            "materialization_error": str(exc),
+        }
+        try:
+            stage_collection.update(failure_update)
+        except Exception:
+            pass
+        stage_doc.update(failure_update)
+        raise
+
+    completed_at = datetime.now(timezone.utc).isoformat()
+    completed_update = {
+        "_key": stage_key,
+        "status": "complete",
+        "updated_at": completed_at,
+        "materialization_completed_at": completed_at,
+    }
+    stage_collection.update(completed_update)
+    stage_doc.update(completed_update)
 
 
 def _ensure_harmonization_stage(
@@ -1513,8 +2038,29 @@ def _ensure_harmonization_stage(
     display_name: str,
     stage_index: int,
     mass_values_provider=None,
+    curation_state=None,
 ) -> dict:
-    stage_key = _harmonization_stage_key(rule_ids, rule_parameters, graph_fingerprint)
+    denylist_rule_enabled = "ignore_ramp_mapping_denylist" in rule_ids
+    assertion_fallback_enabled = "force_expected_clique_assertions" in rule_ids
+    if denylist_rule_enabled or assertion_fallback_enabled:
+        if curation_state is None:
+            curation_state = _load_metabolite_edge_removal_curations()
+    else:
+        curation_state = {
+            "pairs": set(),
+            "batch_ids": [],
+            "fingerprint": None,
+            "assertions": [],
+            "assertion_batch_ids": [],
+            "assertion_fingerprint": None,
+            "prefix": None,
+        }
+    stage_fingerprint = dict(graph_fingerprint)
+    if denylist_rule_enabled:
+        stage_fingerprint["curation_fingerprint"] = curation_state["fingerprint"]
+    if assertion_fallback_enabled:
+        stage_fingerprint["assertion_fingerprint"] = curation_state["assertion_fingerprint"]
+    stage_key = _harmonization_stage_key(rule_ids, rule_parameters, stage_fingerprint)
     existing = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
     if existing and existing.get("status") == "complete":
         return existing
@@ -1550,10 +2096,24 @@ def _ensure_harmonization_stage(
         active_ids,
         rule_ids,
         rule_parameters,
+        curation_state["pairs"],
     )
     for edge in active_edges:
         active_ids.add(edge["start_id"])
         active_ids.add(edge["end_id"])
+    assertion_edge_summary = {
+        "expected_clique_assertion_count": 0,
+        "expected_clique_assertion_applied_count": 0,
+        "expected_clique_assertion_skipped_count": 0,
+        "expected_clique_synthetic_edge_count": 0,
+        "expected_clique_assertion_skipped_samples": [],
+    }
+    if assertion_fallback_enabled:
+        assertion_edges, assertion_edge_summary = _expected_clique_assertion_edges(
+            active_ids,
+            curation_state.get("assertions") or [],
+        )
+        active_edges.extend(assertion_edges)
     groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
     refmet_only_summary = {
         "refmet_only_removed_metabolite_count": 0,
@@ -1591,6 +2151,7 @@ def _ensure_harmonization_stage(
         **graph_fingerprint,
         **edge_summary,
         **merge_summary,
+        **assertion_edge_summary,
         **refmet_only_summary,
         **enrichment_only_summary,
         "wikipathways_ignored_source_field_identifier_count": len(
@@ -1606,9 +2167,11 @@ def _ensure_harmonization_stage(
     }
     mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
     mw_validation = _build_harmonization_stage_mw_validation(groups, mass_values_by_id)
-    denylist_rule_enabled = "ignore_ramp_mapping_denylist" in rule_ids
-    denylist_pairs = _load_ramp_mapping_denylist_pairs() if denylist_rule_enabled else set()
-    denylist_validation = _build_harmonization_stage_denylist_validation(groups, denylist_pairs, denylist_rule_enabled)
+    denylist_validation = _build_harmonization_stage_denylist_validation(
+        groups,
+        curation_state["pairs"],
+        denylist_rule_enabled,
+    )
     stage_doc = {
         "_key": stage_key,
         "id": f"HarmonizationStage:{stage_key}",
@@ -1619,6 +2182,11 @@ def _ensure_harmonization_stage(
         "graph_database": "metabolite_harmonization",
         "engine_version": _HARMONIZATION_ENGINE_VERSION,
         "code_fingerprint": _harmonization_code_fingerprint(),
+        "curation_fingerprint": curation_state["fingerprint"],
+        "curation_batch_ids": curation_state["batch_ids"],
+        "assertion_fingerprint": curation_state.get("assertion_fingerprint"),
+        "assertion_batch_ids": curation_state.get("assertion_batch_ids") or [],
+        "curation_prefix": curation_state["prefix"],
         "stage_index": stage_index,
         "rule_ids": rule_ids,
         "rule_parameters": rule_parameters,
@@ -1681,6 +2249,72 @@ def _list_harmonization_pipelines(limit: int = 25) -> List[dict]:
     return pipelines
 
 
+def _annotate_harmonization_pipeline_curation_status(
+    pipelines: List[dict],
+    current_curation_fingerprint: Optional[str],
+    current_assertion_fingerprint: Optional[str] = None,
+) -> None:
+    for pipeline in pipelines:
+        rule_ids = pipeline.get("rule_ids") or []
+        uses_edge_curations = "ignore_ramp_mapping_denylist" in rule_ids
+        uses_assertion_curations = "force_expected_clique_assertions" in rule_ids
+        uses_curations = uses_edge_curations or uses_assertion_curations
+        latest_complete_run = next(
+            (run for run in pipeline.get("runs") or [] if run.get("status") == "complete"),
+            None,
+        )
+        latest_run = (pipeline.get("runs") or [None])[0]
+        edge_curations_changed = bool(
+            uses_edge_curations
+            and latest_complete_run
+            and latest_complete_run.get("curation_fingerprint") != current_curation_fingerprint
+        )
+        assertion_curations_changed = bool(
+            uses_assertion_curations
+            and latest_complete_run
+            and latest_complete_run.get("assertion_fingerprint") != current_assertion_fingerprint
+        )
+        needs_sync = edge_curations_changed or assertion_curations_changed
+        changed_rule_ids = set()
+        if edge_curations_changed:
+            changed_rule_ids.add("ignore_ramp_mapping_denylist")
+        if assertion_curations_changed:
+            changed_rule_ids.add("force_expected_clique_assertions")
+        changed_rule_indexes = [
+            index
+            for index, rule_id in enumerate(rule_ids, start=1)
+            if rule_id in changed_rule_ids
+        ]
+        pipeline["uses_curations"] = uses_curations
+        pipeline["uses_edge_curations"] = uses_edge_curations
+        pipeline["uses_assertion_curations"] = uses_assertion_curations
+        pipeline["edge_curations_changed"] = edge_curations_changed
+        pipeline["assertion_curations_changed"] = assertion_curations_changed
+        pipeline["needs_curation_sync"] = needs_sync
+        pipeline["sync_from_stage_index"] = min(changed_rule_indexes) if changed_rule_indexes else None
+        pipeline["current_curation_fingerprint"] = current_curation_fingerprint if uses_edge_curations else None
+        pipeline["current_assertion_fingerprint"] = current_assertion_fingerprint if uses_assertion_curations else None
+        pipeline["latest_complete_run_key"] = latest_complete_run.get("_key") if latest_complete_run else None
+        pipeline["run_action_enabled"] = True
+        if latest_run and latest_run.get("status") == "failed":
+            pipeline["run_button_label"] = "Retry failed pipeline"
+            pipeline["run_action_kind"] = "retry"
+        elif latest_run and latest_run.get("status") in {"queued", "running", "cleaning_up"}:
+            pipeline["run_button_label"] = "Running..."
+            pipeline["run_action_kind"] = "running"
+            pipeline["run_action_enabled"] = False
+        elif latest_complete_run is None:
+            pipeline["run_button_label"] = "Run pipeline"
+            pipeline["run_action_kind"] = "run"
+        elif needs_sync:
+            pipeline["run_button_label"] = "Sync curations"
+            pipeline["run_action_kind"] = "sync"
+        else:
+            pipeline["run_button_label"] = "Up to date"
+            pipeline["run_action_kind"] = "current"
+            pipeline["run_action_enabled"] = False
+
+
 def _list_harmonization_stages(limit: int = 50) -> List[dict]:
     db = get_db("metabolite_harmonization")
     if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
@@ -1706,6 +2340,48 @@ def _harmonization_jobs_by_pipeline_key(jobs: List[dict]) -> Dict[str, List[dict
             continue
         jobs_by_pipeline_key.setdefault(pipeline_key, []).append(job)
     return jobs_by_pipeline_key
+
+
+def _annotate_harmonization_pipeline_run_progress(
+    pipelines: List[dict],
+    jobs: List[dict],
+) -> None:
+    pipelines_by_key = {pipeline.get("_key"): pipeline for pipeline in pipelines}
+    for pipeline in pipelines:
+        pipeline["active_stage_index"] = None
+        pipeline["active_stage_text"] = None
+        active_run = next(
+            (
+                run
+                for run in pipeline.get("runs") or []
+                if run.get("status") in {"running", "cleaning_up"}
+            ),
+            None,
+        )
+        if active_run is None:
+            continue
+        if active_run.get("status") == "cleaning_up":
+            pipeline["active_stage_text"] = "Cleaning up old snapshots"
+            continue
+        completed_stage_count = len(active_run.get("stage_keys") or [])
+        rules = pipeline.get("rules") or []
+        if completed_stage_count == 0:
+            pipeline["active_stage_index"] = 0
+            pipeline["active_stage_text"] = "Baseline"
+        elif completed_stage_count <= len(rules):
+            active_rule = rules[completed_stage_count - 1]
+            active_label = active_rule.get("label") or active_rule.get("id")
+            pipeline["active_stage_index"] = completed_stage_count
+            pipeline["active_stage_text"] = f"Step {completed_stage_count}: {active_label}"
+        else:
+            pipeline["active_stage_text"] = "Cleaning up old snapshots"
+
+    for job in jobs:
+        if job.get("action") != "run_pipeline" or job.get("status") != "running":
+            continue
+        pipeline = pipelines_by_key.get(job.get("pipeline_key"))
+        if pipeline:
+            job["active_stage_text"] = pipeline.get("active_stage_text")
 
 
 def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optional[List[str]] = None) -> List[dict]:
@@ -1789,6 +2465,10 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
             "singleton_identifier_count": summary.get("singleton_identifier_count", 0),
             "active_edge_count": summary.get("active_edge_count", 0),
             "ignored_edge_count": summary.get("ignored_edge_count", 0),
+            "assertion_fallback_enabled": "force_expected_clique_assertions" in (stage.get("rule_ids") or []),
+            "assertion_fallback_applied_count": summary.get("expected_clique_assertion_applied_count", 0),
+            "assertion_fallback_skipped_count": summary.get("expected_clique_assertion_skipped_count", 0),
+            "assertion_synthetic_edge_count": summary.get("expected_clique_synthetic_edge_count", 0),
             "mw_warning_count": mw_validation.get("warning_count", 0),
             "mw_validation_computed": mw_validation.get("computed", False),
             "denylist_warning_count": denylist_validation.get("warning_count", 0),
@@ -1822,7 +2502,186 @@ def _stage_sort_key(stage: dict) -> tuple:
     )
 
 
-def _list_harmonization_pipeline_stage_overview_stats(pipelines: List[dict]) -> List[dict]:
+def _evaluate_expected_clique_assertions(
+    assertions: List[dict],
+    stage_keys: List[str],
+    active_memberships: Iterable[dict],
+    clique_memberships: Iterable[dict],
+) -> dict:
+    ordered_stage_keys = list(dict.fromkeys(stage_keys))
+    active_by_stage: Dict[str, set[str]] = {stage_key: set() for stage_key in ordered_stage_keys}
+    for row in active_memberships:
+        if row.get("stage_key") in active_by_stage and row.get("member_id"):
+            active_by_stage[row["stage_key"]].add(row["member_id"])
+
+    clique_by_stage: Dict[str, Dict[str, dict]] = {stage_key: {} for stage_key in ordered_stage_keys}
+    for row in clique_memberships:
+        stage_key = row.get("stage_key")
+        member_id = row.get("member_id")
+        if stage_key in clique_by_stage and member_id:
+            clique_by_stage[stage_key][member_id] = row
+
+    by_stage = {}
+    matrix_rows = [{**assertion, "stage_results": []} for assertion in assertions]
+    matrix_by_id = {row["assertion_id"]: row for row in matrix_rows}
+    for stage_key in ordered_stage_keys:
+        results = []
+        for assertion in assertions:
+            member_ids = assertion.get("member_ids") or []
+            missing_ids = [member_id for member_id in member_ids if member_id not in active_by_stage[stage_key]]
+            partitions_by_token: Dict[str, dict] = {}
+            for member_id in member_ids:
+                if member_id in missing_ids:
+                    continue
+                membership = clique_by_stage[stage_key].get(member_id)
+                if membership:
+                    token = membership.get("clique_id") or f"clique:{member_id}"
+                    partition = partitions_by_token.setdefault(token, {
+                        "clique_id": membership.get("clique_id"),
+                        "rank_by_size": membership.get("rank_by_size"),
+                        "clique_size": membership.get("clique_size"),
+                        "representative_id": membership.get("representative_id"),
+                        "member_ids": [],
+                    })
+                else:
+                    token = f"singleton:{member_id}"
+                    partition = partitions_by_token.setdefault(token, {
+                        "clique_id": None,
+                        "rank_by_size": None,
+                        "clique_size": 1,
+                        "representative_id": member_id,
+                        "member_ids": [],
+                    })
+                partition["member_ids"].append(member_id)
+            partitions = sorted(
+                partitions_by_token.values(),
+                key=lambda item: (item.get("representative_id") or "", item.get("clique_id") or ""),
+            )
+            if missing_ids:
+                status = "missing"
+            elif len(partitions) == 1:
+                status = "pass"
+            else:
+                status = "split"
+            result = {
+                "assertion_id": assertion["assertion_id"],
+                "name": assertion.get("name") or assertion["assertion_id"],
+                "rationale": assertion.get("rationale"),
+                "member_ids": member_ids,
+                "status": status,
+                "missing_member_ids": missing_ids,
+                "partitions": partitions,
+                "inspection_query": urlencode({"id": " ".join(member_ids), "stages": stage_key}),
+                "published_at": assertion.get("published_at"),
+                "published_by": assertion.get("published_by"),
+                "curation_batch_id": assertion.get("curation_batch_id"),
+            }
+            results.append(result)
+            matrix_by_id[assertion["assertion_id"]]["stage_results"].append({
+                "stage_key": stage_key,
+                "status": status,
+                "missing_member_ids": missing_ids,
+                "partitions": partitions,
+            })
+        status_counts = {
+            status: sum(result["status"] == status for result in results)
+            for status in ("pass", "split", "missing")
+        }
+        by_stage[stage_key] = {
+            "stage_key": stage_key,
+            "assertion_count": len(results),
+            "pass_count": status_counts["pass"],
+            "split_count": status_counts["split"],
+            "missing_count": status_counts["missing"],
+            "failure_count": status_counts["split"] + status_counts["missing"],
+            "results": results,
+        }
+    return {"by_stage": by_stage, "matrix_rows": matrix_rows}
+
+
+def _load_expected_clique_assertion_results(
+    db,
+    assertions: List[dict],
+    stage_keys: List[str],
+) -> dict:
+    ordered_stage_keys = list(dict.fromkeys(stage_keys))
+    member_ids = sorted({
+        member_id
+        for assertion in assertions
+        for member_id in assertion.get("member_ids") or []
+    })
+    if not assertions or not ordered_stage_keys or not member_ids:
+        return _evaluate_expected_clique_assertions(assertions, ordered_stage_keys, [], [])
+
+    active_rows = list(db.aql.execute(
+        f"""
+        FOR chunk IN {_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION}
+          FILTER chunk.stage_key IN @stage_keys
+          FOR member_id IN chunk.identifier_ids || []
+            FILTER member_id IN @member_ids
+            RETURN DISTINCT {{stage_key: chunk.stage_key, member_id: member_id}}
+        """,
+        bind_vars={"stage_keys": ordered_stage_keys, "member_ids": member_ids},
+        max_runtime=120,
+    ))
+    clique_rows = list(db.aql.execute(
+        f"""
+        FOR edge IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+          FILTER edge.stage_key IN @stage_keys
+          FILTER edge.member_id IN @member_ids
+          LET clique = DOCUMENT(edge._from)
+          RETURN {{
+            stage_key: edge.stage_key,
+            member_id: edge.member_id,
+            clique_id: edge._from,
+            rank_by_size: clique.rank_by_size,
+            clique_size: clique.size,
+            representative_id: clique.representative_id
+          }}
+        """,
+        bind_vars={"stage_keys": ordered_stage_keys, "member_ids": member_ids},
+        max_runtime=120,
+    ))
+    return _evaluate_expected_clique_assertions(
+        assertions,
+        ordered_stage_keys,
+        active_rows,
+        clique_rows,
+    )
+
+
+def _expected_clique_assertion_matrix(assertion_results: dict, stages: List[dict]) -> dict:
+    stage_by_key = {stage["_key"]: stage for stage in stages}
+    stage_keys = set(stage_by_key)
+    rows = []
+    for assertion in assertion_results.get("matrix_rows") or []:
+        stage_results = [
+            result
+            for result in assertion.get("stage_results") or []
+            if result.get("stage_key") in stage_keys
+        ]
+        first_failure = next((result for result in stage_results if result["status"] != "pass"), None)
+        final_result = stage_results[-1] if stage_results else None
+        rows.append({
+            **assertion,
+            "stage_results": stage_results,
+            "first_failure": ({
+                **first_failure,
+                "display_label": stage_by_key.get(first_failure["stage_key"], {}).get("display_label"),
+            } if first_failure else None),
+            "final_status": final_result.get("status") if final_result else None,
+        })
+    return {
+        "assertion_count": len(rows),
+        "stages": stages,
+        "rows": rows,
+    }
+
+
+def _list_harmonization_pipeline_stage_overview_stats(
+    pipelines: List[dict],
+    curation_state: Optional[dict] = None,
+) -> List[dict]:
     if not pipelines:
         return []
     stage_keys = []
@@ -1839,6 +2698,22 @@ def _list_harmonization_pipeline_stage_overview_stats(pipelines: List[dict]) -> 
         for stage in _list_harmonization_stage_overview_stats(limit=max(len(stage_keys), 100), stage_keys=stage_keys)
     }
     pipeline_stats = []
+    assertions = (curation_state or {}).get("assertions") or []
+    assertion_results = _load_expected_clique_assertion_results(
+        get_db("metabolite_harmonization"),
+        assertions,
+        stage_keys,
+    )
+    for stage_key, stage_assertions in assertion_results["by_stage"].items():
+        stage = stats_by_key.get(stage_key)
+        if stage:
+            stage["overview_stats"].update({
+                "assertion_count": stage_assertions["assertion_count"],
+                "assertion_pass_count": stage_assertions["pass_count"],
+                "assertion_failure_count": stage_assertions["failure_count"],
+                "assertion_split_count": stage_assertions["split_count"],
+                "assertion_missing_count": stage_assertions["missing_count"],
+            })
     for pipeline in pipelines:
         latest_run = (pipeline.get("runs") or [None])[0]
         stages = [
@@ -1859,6 +2734,7 @@ def _list_harmonization_pipeline_stage_overview_stats(pipelines: List[dict]) -> 
             "stages": stages,
             "code_fingerprint_mismatch": len(fingerprints) > 1,
             "code_fingerprints": sorted(fingerprints),
+            "expected_clique_assertions": _expected_clique_assertion_matrix(assertion_results, stages),
         })
     return pipeline_stats
 
@@ -1979,6 +2855,23 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
 
         normalized_rule_ids = pipeline.get("rule_ids") or []
         normalized_rule_parameters = pipeline.get("rule_parameters") or {}
+        curation_state = (
+            _load_metabolite_edge_removal_curations()
+            if (
+                "ignore_ramp_mapping_denylist" in normalized_rule_ids
+                or "force_expected_clique_assertions" in normalized_rule_ids
+            )
+            else None
+        )
+        if curation_state is not None:
+            run_collection.update({
+                "_key": run_key,
+                "curation_fingerprint": curation_state["fingerprint"],
+                "curation_batch_ids": curation_state["batch_ids"],
+                "assertion_fingerprint": curation_state["assertion_fingerprint"],
+                "assertion_batch_ids": curation_state["assertion_batch_ids"],
+                "curation_prefix": curation_state["prefix"],
+            })
         cumulative_rule_ids: List[str] = []
         cumulative_rule_parameters = _cumulative_rule_parameters(cumulative_rule_ids, normalized_rule_parameters)
         baseline_stage = _ensure_harmonization_stage(
@@ -1989,6 +2882,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             f"{pipeline.get('name') or 'Pipeline'}: baseline",
             0,
             mass_values_provider,
+            curation_state,
         )
         stage_docs.append(baseline_stage)
         run_collection.update({
@@ -2018,6 +2912,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 f"{pipeline.get('name') or 'Pipeline'}: {stage_index}. {rule_label}",
                 stage_index,
                 mass_values_provider,
+                curation_state,
             ))
             run_collection.update({
                 "_key": run_key,
@@ -2033,13 +2928,12 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                     for stage in stage_docs
                 ],
             })
-        completed_at = datetime.now(timezone.utc).isoformat()
-        elapsed_seconds = round(time.time() - started, 1)
-        completed_update = {
+        stages_completed_at = datetime.now(timezone.utc).isoformat()
+        cleaning_update = {
             "_key": run_key,
-            "status": "complete",
-            "completed_at": completed_at,
-            "elapsed_seconds": elapsed_seconds,
+            "status": "cleaning_up",
+            "stages_completed_at": stages_completed_at,
+            "stage_elapsed_seconds": round(time.time() - started, 1),
             "stage_keys": [stage["_key"] for stage in stage_docs],
             "stages": [
                 {
@@ -2052,6 +2946,36 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 for stage in stage_docs
             ],
         }
+        run_collection.update(cleaning_update)
+        db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
+            "_key": pipeline_key,
+            "latest_run_key": run_key,
+            "latest_stage_key": stage_docs[-1]["_key"] if stage_docs else None,
+            "updated_at": stages_completed_at,
+            "status": "cleaning_up",
+        })
+        cleanup = {
+            "deleted_run_keys": [],
+            "deleted_stage_keys": [],
+            "deleted_superseded_stage_keys": [],
+            "deleted_orphan_stage_keys": [],
+        }
+        cleanup_error = None
+        try:
+            cleanup = _delete_previous_harmonization_pipeline_runs(db, pipeline_key, run_key)
+        except Exception as cleanup_exc:
+            cleanup_error = str(cleanup_exc)
+        completed_at = datetime.now(timezone.utc).isoformat()
+        completed_update = {
+            "_key": run_key,
+            "status": "complete",
+            "completed_at": completed_at,
+            "elapsed_seconds": round(time.time() - started, 1),
+            "replaced_run_keys": cleanup["deleted_run_keys"],
+            "deleted_superseded_stage_keys": cleanup["deleted_superseded_stage_keys"],
+            "deleted_orphan_stage_keys": cleanup["deleted_orphan_stage_keys"],
+            "cleanup_error": cleanup_error,
+        }
         run_collection.update(completed_update)
         db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
             "_key": pipeline_key,
@@ -2060,7 +2984,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             "updated_at": completed_at,
             "status": "complete",
         })
-        return {**run_doc, **completed_update}
+        return {**run_doc, **cleaning_update, **completed_update}
     except Exception as exc:
         failed_at = datetime.now(timezone.utc).isoformat()
         run_collection.update({
@@ -2089,10 +3013,17 @@ def _load_harmonization_pipeline_workbench() -> dict:
         db = get_db("metabolite_harmonization")
         _ensure_harmonization_pipeline_collections(db)
         pipelines = _list_harmonization_pipelines()
+        curation_state = _load_metabolite_edge_removal_curations()
+        _annotate_harmonization_pipeline_curation_status(
+            pipelines,
+            curation_state["fingerprint"],
+            curation_state["assertion_fingerprint"],
+        )
+        _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
         return {
             "available_rules": _METABOLITE_HARMONIZATION_RULES,
             "pipelines": pipelines,
-            "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines),
+            "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines, curation_state),
             "jobs": jobs,
             "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
@@ -2229,6 +3160,21 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
             bind_vars={"stage_key": stage_key},
             max_runtime=120,
         ))
+    curation_state = _load_metabolite_edge_removal_curations()
+    expected_clique_assertions = _load_expected_clique_assertion_results(
+        db,
+        curation_state.get("assertions") or [],
+        [stage_key],
+    )["by_stage"].get(stage_key, {
+        "stage_key": stage_key,
+        "assertion_count": 0,
+        "pass_count": 0,
+        "split_count": 0,
+        "missing_count": 0,
+        "failure_count": 0,
+        "results": [],
+    })
+    expected_clique_assertions["fingerprint"] = curation_state.get("assertion_fingerprint")
     return {
         "stage": stage,
         "summary": stage.get("summary") or {},
@@ -2237,6 +3183,138 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
         "source_counts": source_counts,
         "mw_validation": _harmonization_stage_mw_validation_from_doc(stage),
         "denylist_validation": _harmonization_stage_denylist_validation_from_doc(stage),
+        "expected_clique_assertions": expected_clique_assertions,
+    }
+
+
+def _build_harmonization_stage_cart_flags(
+    operations: List[dict],
+    member_rank_by_id: Dict[str, int],
+    active_edge_pairs: set[tuple[str, str]],
+    warning_ranks: set[int],
+    denylist_warning_pairs: Optional[set[tuple[str, str]]] = None,
+) -> List[dict]:
+    denylist_warning_pairs = denylist_warning_pairs or set()
+    decisions_by_rank: Dict[int, set[tuple[str, str, str]]] = {}
+    for operation in operations or []:
+        if (
+            operation.get("action") not in {"remove_edge", "retain_edge"}
+            or operation.get("edge_type") != "MetaboliteIdentifierMappingEdge"
+        ):
+            continue
+        left = _normalize_ramp_denylist_identifier(operation.get("start_id"))
+        right = _normalize_ramp_denylist_identifier(operation.get("end_id"))
+        if not left or not right or left == right:
+            continue
+        pair = tuple(sorted((left, right)))
+        left_rank = member_rank_by_id.get(left)
+        right_rank = member_rank_by_id.get(right)
+        if (
+            left_rank is None
+            or left_rank != right_rank
+            or left_rank not in warning_ranks
+        ):
+            continue
+        action = operation["action"]
+        if action == "remove_edge" and pair not in active_edge_pairs:
+            continue
+        if action == "retain_edge" and pair not in denylist_warning_pairs:
+            continue
+        decisions_by_rank.setdefault(left_rank, set()).add((action, *pair))
+    return [
+        {
+            "rank_by_size": rank,
+            "queued_edge_count": len(decisions),
+            "edges": [
+                {"action": action, "start_id": left, "end_id": right}
+                for action, left, right in sorted(decisions)
+            ],
+        }
+        for rank, decisions in sorted(decisions_by_rank.items())
+    ]
+
+
+def _harmonization_stage_cart_warning_ranks(stage: dict) -> set[int]:
+    warnings = [
+        *(_harmonization_stage_mw_validation_from_doc(stage).get("warnings") or []),
+        *(_harmonization_stage_denylist_validation_from_doc(stage).get("warnings") or []),
+    ]
+    return {
+        int(warning["rank_by_size"])
+        for warning in warnings
+        if warning.get("rank_by_size") is not None
+    }
+
+
+def _load_harmonization_stage_cart_flags(stage_key: str, operations: List[dict]) -> dict:
+    stage = _get_harmonization_stage(stage_key)
+    warning_ranks = _harmonization_stage_cart_warning_ranks(stage)
+    denylist_warning_pairs = {
+        tuple(sorted((pair["left_id"], pair["right_id"])))
+        for warning in (_harmonization_stage_denylist_validation_from_doc(stage).get("warnings") or [])
+        for pair in (warning.get("pairs") or [])
+        if pair.get("left_id") and pair.get("right_id")
+    }
+    endpoint_ids = sorted({
+        normalized
+        for operation in operations or []
+        if (
+            operation.get("action") in {"remove_edge", "retain_edge"}
+            and operation.get("edge_type") == "MetaboliteIdentifierMappingEdge"
+        )
+        for normalized in (
+            _normalize_ramp_denylist_identifier(operation.get("start_id")),
+            _normalize_ramp_denylist_identifier(operation.get("end_id")),
+        )
+        if normalized
+    })
+    if not endpoint_ids or not warning_ranks:
+        return {"stage_key": stage_key, "flags": [], "flagged_warning_count": 0}
+
+    db = get_db("metabolite_harmonization")
+    member_rows = list(db.aql.execute(
+        f"""
+        FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+          FILTER e.stage_key == @stage_key
+          FILTER e.member_id IN @endpoint_ids
+          LET clique = DOCUMENT(e._from)
+          FILTER clique != null
+          RETURN {{member_id: e.member_id, rank_by_size: clique.rank_by_size}}
+        """,
+        bind_vars={"stage_key": stage_key, "endpoint_ids": endpoint_ids},
+        max_runtime=120,
+    ))
+    member_rank_by_id = {
+        row["member_id"]: int(row["rank_by_size"])
+        for row in member_rows
+        if row.get("member_id") and row.get("rank_by_size") is not None
+    }
+    edge_rows = list(db.aql.execute(
+        f"""
+        FOR e IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
+          FILTER e.stage_key == @stage_key
+          FILTER e.start_id IN @endpoint_ids AND e.end_id IN @endpoint_ids
+          RETURN {{start_id: e.start_id, end_id: e.end_id}}
+        """,
+        bind_vars={"stage_key": stage_key, "endpoint_ids": endpoint_ids},
+        max_runtime=120,
+    ))
+    active_edge_pairs = {
+        tuple(sorted((row["start_id"], row["end_id"])))
+        for row in edge_rows
+        if row.get("start_id") and row.get("end_id")
+    }
+    flags = _build_harmonization_stage_cart_flags(
+        operations,
+        member_rank_by_id,
+        active_edge_pairs,
+        warning_ranks,
+        denylist_warning_pairs,
+    )
+    return {
+        "stage_key": stage_key,
+        "flags": flags,
+        "flagged_warning_count": len(flags),
     }
 
 
@@ -2335,6 +3413,14 @@ def _build_snapshot_comparison_review_fields(
     right_key: str,
 ) -> None:
     review_ids = []
+    for assertion in component.get("newly_failing_assertions") or []:
+        for member_id in assertion.get("member_ids") or []:
+            if member_id not in review_ids:
+                review_ids.append(member_id)
+            if len(review_ids) >= 12:
+                break
+        if len(review_ids) >= 12:
+            break
     for bucket in (
         component.get("_added_members", set()),
         component.get("_removed_members", set()),
@@ -2353,6 +3439,42 @@ def _build_snapshot_comparison_review_fields(
         "stages": ",".join([left_key, right_key]),
     }
     component["review_query_string"] = urlencode(query_params)
+
+
+def _newly_failing_expected_clique_assertions(
+    assertion_results: dict,
+    left_key: str,
+    right_key: str,
+) -> List[dict]:
+    left_results = {
+        result["assertion_id"]: result
+        for result in assertion_results.get("by_stage", {}).get(left_key, {}).get("results", [])
+    }
+    right_results = {
+        result["assertion_id"]: result
+        for result in assertion_results.get("by_stage", {}).get(right_key, {}).get("results", [])
+    }
+    newly_failing = []
+    for assertion_id, left_result in left_results.items():
+        right_result = right_results.get(assertion_id)
+        if left_result.get("status") != "pass" or not right_result or right_result.get("status") == "pass":
+            continue
+        newly_failing.append({
+            **right_result,
+            "left_status": left_result.get("status"),
+            "right_status": right_result.get("status"),
+            "inspection_query": urlencode({
+                "id": " ".join(right_result.get("member_ids") or []),
+                "stages": ",".join([left_key, right_key]),
+            }),
+        })
+    return sorted(
+        newly_failing,
+        key=lambda assertion: (
+            (assertion.get("name") or "").casefold(),
+            assertion.get("assertion_id") or "",
+        ),
+    )
 
 
 def _snapshot_compare_clique_summary(clique: dict, sample_members: Optional[set] = None) -> dict:
@@ -2412,6 +3534,17 @@ def _load_metabolite_snapshot_comparison(
     right_snapshot = _get_harmonization_stage(right_key)
     left_cliques = _load_stage_harmonized_member_sets(left_key)
     right_cliques = _load_stage_harmonized_member_sets(right_key)
+    curations = _load_metabolite_edge_removal_curations()
+    assertion_results = _load_expected_clique_assertion_results(
+        get_db("metabolite_harmonization"),
+        curations.get("assertions") or [],
+        [left_key, right_key],
+    )
+    newly_failing_assertions = _newly_failing_expected_clique_assertions(
+        assertion_results,
+        left_key,
+        right_key,
+    )
     right_signatures = {clique["signature"] for clique in right_cliques}
     left_signatures = {clique["signature"] for clique in left_cliques}
     changed_left = [
@@ -2509,6 +3642,12 @@ def _load_metabolite_snapshot_comparison(
         merge_fragment_count = sum(transition["fragment_count"] for transition in merge_transitions)
         merge_member_count = sum(transition["member_count"] for transition in merge_transitions)
         is_recombination = bool(split_transitions and merge_transitions)
+        component_members = left_members | right_members
+        component_assertions = [
+            assertion
+            for assertion in newly_failing_assertions
+            if set(assertion.get("member_ids") or []).issubset(component_members)
+        ]
         components.append({
             "change_type": change_type,
             "change_score": change_score,
@@ -2529,6 +3668,8 @@ def _load_metabolite_snapshot_comparison(
             "retained_count": len(retained_members),
             "added_count": len(added_members),
             "removed_count": len(removed_members),
+            "newly_failing_assertion_count": len(component_assertions),
+            "newly_failing_assertions": component_assertions,
             "left_cliques": sorted(left_items, key=lambda item: (item.get("rank_by_size") or 10**12, item["clique_key"])),
             "right_cliques": sorted(right_items, key=lambda item: (item.get("rank_by_size") or 10**12, item["clique_key"])),
             "_retained_members": retained_members,
@@ -2542,6 +3683,7 @@ def _load_metabolite_snapshot_comparison(
 
     components.sort(
         key=lambda item: (
+            -item["newly_failing_assertion_count"],
             -item["change_score"],
             -max(item["left_member_count"], item["right_member_count"]),
             item["change_type"],
@@ -2549,6 +3691,7 @@ def _load_metabolite_snapshot_comparison(
     )
     nontrivial_split_candidates.sort(
         key=lambda item: (
+            -item["newly_failing_assertion_count"],
             -item["nontrivial_split_fragment_count"],
             -item["nontrivial_split_member_count"],
             -item["left_member_count"],
@@ -2557,6 +3700,7 @@ def _load_metabolite_snapshot_comparison(
     )
     recombination_candidates.sort(
         key=lambda item: (
+            -item["newly_failing_assertion_count"],
             -item["nontrivial_split_fragment_count"] - item["nontrivial_merge_fragment_count"],
             -item["nontrivial_split_member_count"] - item["nontrivial_merge_member_count"],
             -max(item["left_member_count"], item["right_member_count"]),
@@ -2603,6 +3747,12 @@ def _load_metabolite_snapshot_comparison(
         "changed_left_clique_count": len(changed_left),
         "changed_right_clique_count": len(changed_right),
         "changed_component_count": len(components),
+        "newly_failing_assertion_count": len(newly_failing_assertions),
+        "newly_failing_assertions": newly_failing_assertions,
+        "assertion_failure_component_count": sum(
+            component["newly_failing_assertion_count"] > 0
+            for component in components
+        ),
         "nontrivial_split_count": len(nontrivial_split_candidates),
         "recombination_count": len(recombination_candidates),
         "nontrivial_split_min_size": nontrivial_split_min_size,
@@ -2731,11 +3881,10 @@ def _load_metabolite_snapshot_memberships(identifier_ids: List[str]) -> List[dic
         or not db.has_collection(_HARMONIZATION_STAGE_COLLECTION)
     ):
         return []
-    vertex_ids = [f"MetaboliteIdentifier/{identifier_id}" for identifier_id in identifier_ids]
     return list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
-          FILTER e._to IN @vertex_ids
+          FILTER e.member_id IN @identifier_ids
           LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
           LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
           FILTER clique != null AND snapshot != null
@@ -2755,7 +3904,7 @@ def _load_metabolite_snapshot_memberships(identifier_ids: List[str]) -> List[dic
             sample_member_ids: clique.sample_member_ids
           }}
         """,
-        bind_vars={"vertex_ids": vertex_ids},
+        bind_vars={"identifier_ids": identifier_ids},
         max_runtime=120,
     ))
 
@@ -3014,6 +4163,25 @@ def _harmonization_stage_denylist_validation_from_doc(
     }
 
 
+def _harmonization_denylist_review_from_stage(stage: dict, rank_by_size: int) -> Optional[dict]:
+    validation = _harmonization_stage_denylist_validation_from_doc(stage)
+    warning = next(
+        (
+            item
+            for item in validation.get("warnings") or []
+            if item.get("rank_by_size") == rank_by_size
+        ),
+        None,
+    )
+    if warning is None:
+        return None
+    return {
+        "stage_key": stage.get("_key"),
+        "rank_by_size": rank_by_size,
+        "pairs": warning.get("pairs") or [],
+    }
+
+
 def _metabolite_query_id_labels(query_ids: List[str], max_ids: int = 4) -> List[str]:
     if not query_ids:
         return []
@@ -3021,6 +4189,40 @@ def _metabolite_query_id_labels(query_ids: List[str], max_ids: int = 4) -> List[
     if len(query_ids) > max_ids:
         labels.append(f"+{len(query_ids) - max_ids} more query IDs")
     return labels
+
+
+def _metabolite_identifier_source_linkout(identifier: str) -> Optional[dict]:
+    prefix, separator, local_id = str(identifier or "").partition(":")
+    if not separator or not local_id:
+        return None
+    linkouts = {
+        "CHEBI": (
+            "ChEBI",
+            f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={url_quote(identifier, safe='')}",
+        ),
+        "HMDB": ("HMDB", f"https://hmdb.ca/metabolites/{url_quote(local_id, safe='')}"),
+        "KEGG.COMPOUND": ("KEGG Compound", f"https://www.kegg.jp/entry/{url_quote(local_id, safe='')}"),
+        "LIPIDMAPS": ("LIPID MAPS", f"https://www.lipidmaps.org/databases/lmsd/{url_quote(local_id, safe='')}"),
+        "REFMET": (
+            "RefMet",
+            f"https://www.metabolomicsworkbench.org/databases/refmet/refmet_details.php?REFMET_ID={url_quote(local_id, safe='')}",
+        ),
+        "PUBCHEM.COMPOUND": ("PubChem", f"https://pubchem.ncbi.nlm.nih.gov/compound/{url_quote(local_id, safe='')}"),
+        "ChemSpider": ("ChemSpider", f"https://www.chemspider.com/Chemical-Structure.{url_quote(local_id, safe='')}.html"),
+        "SwissLipids": ("SwissLipids", f"https://www.swisslipids.org/#/entity/{url_quote(local_id, safe=':')}"),
+        "Wikidata": ("Wikidata", f"https://www.wikidata.org/wiki/{url_quote(local_id, safe='')}"),
+        "CAS": ("CAS Common Chemistry", f"https://commonchemistry.cas.org/detail?cas_rn={url_quote(local_id, safe='')}"),
+        "DRUGBANK": ("DrugBank", f"https://go.drugbank.com/drugs/{url_quote(local_id, safe='')}"),
+        "InChIKey": (
+            "PubChem InChIKey lookup",
+            f"https://pubchem.ncbi.nlm.nih.gov/compound/{url_quote(local_id, safe='-')}",
+        ),
+    }
+    linkout = linkouts.get(prefix)
+    if linkout is None:
+        return None
+    label, url = linkout
+    return {"label": label, "url": url}
 
 
 def _parse_metabolite_snapshot_key_filter(value: str) -> List[str]:
@@ -3051,9 +4253,9 @@ def _load_metabolite_snapshot_union(
     db = get_db("metabolite_harmonization")
     existing_query_ids = sorted(list(db.aql.execute(
         """
-        FOR id IN @ids
-          FILTER DOCUMENT("MetaboliteIdentifier", id) != null
-          COLLECT existing_id = id
+        FOR node IN MetaboliteIdentifier
+          FILTER node.id IN @ids
+          COLLECT existing_id = node.id
           SORT existing_id
           RETURN existing_id
         """,
@@ -3082,7 +4284,7 @@ def _load_metabolite_snapshot_union(
             f"""
             FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
               FILTER e._from IN @clique_vertex_ids
-              FILTER DOCUMENT("MetaboliteIdentifier", e.member_id) != null
+              FILTER DOCUMENT(e._to) != null
               COLLECT member_id = e.member_id
               SORT member_id
               RETURN member_id
@@ -3101,11 +4303,11 @@ def _load_metabolite_snapshot_union(
     rows = list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
-          FILTER e._to IN @member_vertex_ids
+          FILTER e.member_id IN @member_ids
           FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
           LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
           LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
-          LET node = DOCUMENT("MetaboliteIdentifier", e.member_id)
+          LET node = DOCUMENT(e._to)
           FILTER clique != null AND snapshot != null AND node != null
           LET names = node.names || []
           SORT snapshot.created_at, clique.rank_by_size, e.member_index
@@ -3127,7 +4329,7 @@ def _load_metabolite_snapshot_union(
           }}
         """,
         bind_vars={
-            "member_vertex_ids": [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids],
+            "member_ids": union_member_ids,
             "snapshot_keys": selected_snapshot_keys,
         },
         max_runtime=120,
@@ -3220,12 +4422,11 @@ def _load_metabolite_snapshot_union(
         bind_vars={"member_ids": union_member_ids},
         max_runtime=120,
     ))
-    union_member_vertex_ids = [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids]
     mapping_edge_rows = list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
-          FILTER e._from IN @vertex_ids
-          FILTER e._to IN @vertex_ids
+          FILTER e.start_id IN @member_ids
+          FILTER e.end_id IN @member_ids
           FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
           RETURN {{
             id: e.id || e._key,
@@ -3237,7 +4438,7 @@ def _load_metabolite_snapshot_union(
             details: e.details || []
           }}
         """,
-        bind_vars={"vertex_ids": union_member_vertex_ids, "snapshot_keys": selected_snapshot_keys},
+        bind_vars={"member_ids": union_member_ids, "snapshot_keys": selected_snapshot_keys},
         max_runtime=120,
     )) if db.has_collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION) else []
     highlighted_id_set = set(identifier_ids)
@@ -3247,6 +4448,10 @@ def _load_metabolite_snapshot_union(
         for row in node_rows
     }
     for node in node_by_member_id.values():
+        source_linkout = _metabolite_identifier_source_linkout(node.get("id"))
+        if source_linkout:
+            node["source_url"] = source_linkout["url"]
+            node["source_label"] = source_linkout["label"]
         node["masses"] = [
             mass
             for mass in (_parse_metabolite_mass(value) for value in node.get("raw_masses") or [])
@@ -3256,7 +4461,11 @@ def _load_metabolite_snapshot_union(
         mass_label = _metabolite_mass_summary_label(mass_summary)
         compact_mass_label = _metabolite_compact_mass_label(mass_summary)
         node["mass_summary"] = mass_summary
-        node["node_label"] = compact_mass_label or (node.get("label") or node.get("id"))
+        node["node_label"] = "\n".join([
+            part
+            for part in (node.get("id"), compact_mass_label)
+            if part
+        ])
         node["node_detail_label"] = "\n".join([part for part in [node.get("label") or node.get("id"), mass_label] if part])
     for snapshot in _list_harmonization_stages():
         if selected_snapshot_keys and snapshot["_key"] not in selected_snapshot_keys:
@@ -3450,6 +4659,7 @@ def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[di
         sankeys.append({
             "pipeline_key": pipeline.get("_key"),
             "pipeline_name": pipeline.get("name") or pipeline.get("_key"),
+            "stage_count": len(ordered_stage_keys),
             "sankey": _build_metabolite_snapshot_sankey(sections, ordered_stage_keys),
         })
 
@@ -3462,6 +4672,7 @@ def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[di
         sankeys.append({
             "pipeline_key": "unassigned",
             "pipeline_name": "Stages not assigned to a pipeline",
+            "stage_count": len(unassigned_sections),
             "sankey": _build_metabolite_snapshot_sankey(
                 unassigned_sections,
                 [section["snapshot_key"] for section in unassigned_sections],
@@ -3725,8 +4936,8 @@ def _get_parquet_buffer(file_ref: str):
         credentials_options = []
         if _parquet_storage_credentials:
             credentials_options.append(("parquet storage", _parquet_storage_credentials))
-        if _minio_credentials:
-            credentials_options.append(("registry storage", _minio_credentials))
+        if _registry_storage_credentials:
+            credentials_options.append(("registry storage", _registry_storage_credentials))
         if not credentials_options:
             return None, None
 
@@ -4622,7 +5833,7 @@ def _registry_catalog_cache_fresh(category: str, now: float) -> bool:
 
 
 def _load_registry_catalog_categories(categories: List[str]) -> tuple[dict, Optional[str]]:
-    if not _minio_credentials:
+    if not _registry_storage_credentials:
         return {}, "Registry storage credentials are not configured for this QA Browser instance."
 
     now = time.time()
@@ -4688,24 +5899,24 @@ def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[d
 def _storage_from_credentials(credentials_config: dict, *, use_internal_url: bool):
     from src.registry.storage import AwsAssumeRoleCredentials
     from src.registry.storage import AwsAssumeRoleStorage
-    from src.registry.storage import MinioStorage
+    from src.registry.storage import S3CompatibleStorage
     from src.shared.db_credentials import DBCredentials
 
     if "role_arn" in credentials_config or credentials_config.get("type") == "aws_assume_role":
         return AwsAssumeRoleStorage(AwsAssumeRoleCredentials.from_yaml(credentials_config))
-    return MinioStorage(DBCredentials.from_yaml(credentials_config), use_internal_url=use_internal_url)
+    return S3CompatibleStorage(DBCredentials.from_yaml(credentials_config), use_internal_url=use_internal_url)
 
 
 def _registry_from_credentials(*, use_internal_url: bool):
-    if not _minio_credentials:
+    if not _registry_storage_credentials:
         raise HTTPException(status_code=503, detail="Registry storage credentials are not configured for this QA Browser instance.")
     from src.registry.storage import AwsAssumeRoleCredentials
     from src.shared.db_credentials import DBCredentials
 
-    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
-        credentials = AwsAssumeRoleCredentials.from_yaml(_minio_credentials)
+    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
+        credentials = AwsAssumeRoleCredentials.from_yaml(_registry_storage_credentials)
     else:
-        credentials = DBCredentials.from_yaml(_minio_credentials)
+        credentials = DBCredentials.from_yaml(_registry_storage_credentials)
 
     return DataRegistry.from_credentials(
         credentials,
@@ -4716,9 +5927,9 @@ def _registry_from_credentials(*, use_internal_url: bool):
 
 
 def _registry_endpoint_order() -> List[bool]:
-    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
+    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
         return [False]
-    configured = os.getenv("QA_BROWSER_MINIO_URL_ORDER", "external,internal")
+    configured = os.getenv("QA_BROWSER_STORAGE_URL_ORDER", "external,internal")
     order = []
     for part in configured.split(","):
         name = part.strip().lower()
@@ -4730,7 +5941,7 @@ def _registry_endpoint_order() -> List[bool]:
 
 
 def _registry_endpoint_label(use_internal_url: bool) -> str:
-    if "role_arn" in _minio_credentials or _minio_credentials.get("type") == "aws_assume_role":
+    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
         return "aws_assume_role"
     return "internal_url" if use_internal_url else "url"
 
@@ -5118,7 +6329,7 @@ def _start_resolver_warmup_thread():
         return
     if _resolver_warmup_started:
         return
-    if not _minio_credentials:
+    if not _registry_storage_credentials:
         print("Resolver warmup skipped because registry storage credentials are not configured.")
         return
     _resolver_warmup_started = True
@@ -5392,15 +6603,25 @@ async def qa_browser_home(request: Request):
 
 
 @app.get("/ramp-id-qa", response_class=HTMLResponse)
-def ramp_id_qa(request: Request, id: str = "", ids: str = "", stages: str = ""):
+def ramp_id_qa(
+    request: Request,
+    id: str = "",
+    ids: str = "",
+    stages: str = "",
+    denylist_rank: int = 0,
+):
     query_id = (id or ids or "").strip()
     selected_stage_keys = _parse_metabolite_snapshot_key_filter(stages)
     result = None
     error = None
     overview = None
+    denylist_review = None
     if query_id:
         try:
             result = _load_metabolite_identifier_qa_many(query_id, selected_stage_keys)
+            if denylist_rank and len(selected_stage_keys) == 1:
+                stage = _get_harmonization_stage(selected_stage_keys[0])
+                denylist_review = _harmonization_denylist_review_from_stage(stage, denylist_rank)
         except Exception as exc:
             error = str(exc)
     else:
@@ -5411,6 +6632,7 @@ def ramp_id_qa(request: Request, id: str = "", ids: str = "", stages: str = ""):
         "selected_snapshot_keys": selected_stage_keys,
         "selected_stage_keys": selected_stage_keys,
         "result": result,
+        "denylist_review": denylist_review,
         "error": error,
         "overview": overview,
     })
@@ -5527,6 +6749,7 @@ def ramp_id_qa_harmonization_jobs(request: Request):
     return templates.TemplateResponse(request, "ramp_id_pipeline_table.html", {
         "request": request,
         "overview": overview,
+        "stage_stats_oob": True,
     })
 
 
@@ -5538,6 +6761,799 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
     if len(query_ids) == 1:
         return _load_metabolite_identifier_qa(query_ids[0], selected_snapshot_keys)
     return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
+
+
+@app.get("/ramp-id-qa/api/curation-cart")
+def ramp_id_qa_curation_cart(request: Request, curator: str = "", curator_name: str = ""):
+    curator_id, display_name = _curator_identity(request, {
+        "curator": curator,
+        "curator_name": curator_name,
+    })
+    try:
+        return load_cart(
+            _curation_cart_storage(),
+            "metabolite_harmonization",
+            curator_id,
+            display_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/ramp-id-qa/api/curation-cart/items")
+async def ramp_id_qa_add_curation_cart_item(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    curator_id, curator_name = _curator_identity(request, payload)
+    action = str(payload.get("action") or "remove_edge")
+    if action == "assert_same_clique":
+        member_ids = _normalize_expected_clique_member_ids(payload.get("member_ids") or "")
+        operation = _metabolite_expected_clique_assertion_operation(
+            member_ids,
+            str(payload.get("name") or ""),
+            str(payload.get("rationale") or ""),
+            await run_in_threadpool(_missing_metabolite_identifier_ids, member_ids),
+        )
+    elif action == "retire_assertion":
+        operation = _metabolite_retire_assertion_operation(
+            str(payload.get("assertion_id") or ""),
+            str(payload.get("note") or ""),
+        )
+    else:
+        operation = _metabolite_edge_decision_operation(
+            action,
+            str(payload.get("start_id") or ""),
+            str(payload.get("end_id") or ""),
+            str(payload.get("note") or ""),
+        )
+    try:
+        return await run_in_threadpool(
+            add_cart_operation,
+            _curation_cart_storage(),
+            "metabolite_harmonization",
+            curator_id,
+            curator_name,
+            operation,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/ramp-id-qa/api/expected-clique-assertions")
+def ramp_id_qa_expected_clique_assertions(stages: str = ""):
+    stage_keys = _parse_metabolite_snapshot_key_filter(stages)
+    curation_state = _load_metabolite_edge_removal_curations()
+    assertions = curation_state.get("assertions") or []
+    evaluated = _load_expected_clique_assertion_results(
+        get_db("metabolite_harmonization"),
+        assertions,
+        stage_keys,
+    )
+    return {
+        "assertion_fingerprint": curation_state.get("assertion_fingerprint"),
+        "assertion_batch_ids": curation_state.get("assertion_batch_ids") or [],
+        "assertions": assertions,
+        "stages": stage_keys,
+        **evaluated,
+    }
+
+
+@app.get("/ramp-id-qa/api/stages/{stage_key}/curation-cart-flags")
+def ramp_id_qa_stage_curation_cart_flags(
+    stage_key: str,
+    request: Request,
+    curator: str = "",
+    curator_name: str = "",
+):
+    curator_id, display_name = _curator_identity(request, {
+        "curator": curator,
+        "curator_name": curator_name,
+    })
+    try:
+        cart = load_cart(
+            _curation_cart_storage(),
+            "metabolite_harmonization",
+            curator_id,
+            display_name,
+        )
+        return _load_harmonization_stage_cart_flags(stage_key, cart.get("operations") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/ramp-id-qa/api/curation-cart/items/{operation_id}")
+async def ramp_id_qa_remove_curation_cart_item(operation_id: str, request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    curator_id, curator_name = _curator_identity(request, payload)
+    try:
+        return await run_in_threadpool(
+            remove_cart_operation,
+            _curation_cart_storage(),
+            "metabolite_harmonization",
+            curator_id,
+            curator_name,
+            operation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/ramp-id-qa/api/curation-cart/publish")
+async def ramp_id_qa_publish_curation_cart(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    curator_id, curator_name = _curator_identity(request, payload)
+    try:
+        return await run_in_threadpool(
+            publish_cart,
+            _curation_cart_storage(),
+            "metabolite_harmonization",
+            curator_id,
+            curator_name,
+            str(payload.get("batch_name") or ""),
+            str(payload.get("description") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _load_cure_entity_resolver():
+    graph_dir = _disease_graph_dir or ""
+    target_graph_dir = _target_graph_dir or ""
+    cache_key = (graph_dir, target_graph_dir)
+    with _cure_entity_resolver_lock:
+        if (
+            _cure_entity_resolver_cache.get("index") is not None
+            and _cure_entity_resolver_cache.get("graph_dir") == cache_key
+        ):
+            return _cure_entity_resolver_cache["index"]
+        index = build_cure_entity_resolver_index(graph_dir, target_graph_dir)
+        _cure_entity_resolver_cache.update({
+            "graph_dir": cache_key,
+            "index": index,
+            "loaded_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return index
+
+
+def _parse_cure_resolver_queries(value) -> list[str]:
+    if isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = re.split(r"[\r\n]+", str(value or ""))
+    queries = []
+    for raw in raw_values:
+        text = str(raw or "").strip()
+        if text:
+            queries.append(text)
+    return queries
+
+
+@app.get("/cure-entity-resolver", response_class=HTMLResponse)
+def cure_entity_resolver(request: Request):
+    return templates.TemplateResponse(request, "cure_entity_resolver.html", {
+        "request": request,
+    })
+
+
+@app.get("/cure-entity-resolver/api/stats")
+def cure_entity_resolver_stats():
+    index = _load_cure_entity_resolver()
+    stats = index.stats()
+    stats["loaded_at"] = _cure_entity_resolver_cache.get("loaded_at")
+    stats["disease_graph_dir"] = _disease_graph_dir
+    stats["target_graph_dir"] = _target_graph_dir
+    return stats
+
+
+@app.post("/cure-entity-resolver/api/resolve")
+async def cure_entity_resolver_resolve(request: Request):
+    payload = await request.json()
+    queries = _parse_cure_resolver_queries(
+        payload.get("queries") if "queries" in payload else payload.get("text", "")
+    )
+    if not queries:
+        raise HTTPException(status_code=400, detail="Provide at least one query.")
+    if len(queries) > 1000:
+        raise HTTPException(status_code=400, detail="At most 1000 queries are allowed per request.")
+    entity_type = str(payload.get("entity_type") or "auto").strip().lower()
+    allowed_entity_types = {
+        "auto",
+        "all",
+        "clinical",
+        "drug",
+        "disease",
+        "phenotype",
+        "adverse_event",
+        "gene",
+        "protein",
+        "sequence_variant",
+    }
+    if entity_type not in allowed_entity_types:
+        allowed = ", ".join(sorted(allowed_entity_types))
+        raise HTTPException(status_code=400, detail=f"entity_type must be one of: {allowed}.")
+    try:
+        top_k = int(payload.get("top_k", 5))
+    except Exception:
+        top_k = 5
+    top_k = max(1, min(top_k, 10))
+
+    index = _load_cure_entity_resolver()
+    results = await run_in_threadpool(
+        index.resolve_many,
+        queries,
+        entity_type=entity_type,
+        top_k=top_k,
+    )
+    return {
+        "query_count": len(queries),
+        "entity_type": entity_type,
+        "top_k": top_k,
+        "index": index.stats(),
+        "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Target Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+_target_qc_dir: str = ""
+
+
+def _load_target_graph():
+    if not _target_graph_dir:
+        raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
+    return load_target_graph_data(_target_graph_dir, qc_dir=_target_qc_dir)
+
+
+def _target_manifest_snapshot() -> dict[str, Any]:
+    if not _target_graph_dir:
+        return {}
+    manifest_path = Path(_target_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _target_version_display(manifest: dict[str, Any]) -> str:
+    raw = (
+        manifest.get("target_release_version")
+        or manifest.get("release_version")
+        or manifest.get("pipeline_version")
+        or "—"
+    )
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v."):
+        return text
+    if text.startswith("v"):
+        return f"v.{text[1:]}"
+    return f"v.{text}"
+
+
+def _target_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
+
+
+def _load_variant_graph():
+    if not _variant_graph_dir:
+        raise HTTPException(status_code=500, detail="No --variant-graph-dir configured.")
+    return load_variant_graph_data(_variant_graph_dir)
+
+
+def _variant_manifest_snapshot() -> dict[str, Any]:
+    if not _variant_graph_dir:
+        return {}
+    manifest_path = Path(_variant_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _variant_version_display(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("version") or manifest.get("variant_release_version") or "—"
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v."):
+        return text
+    if text.startswith("v"):
+        return f"v.{text[1:]}"
+    return f"v.{text}"
+
+
+def _variant_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("createdAt") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
+
+
+@app.get("/target-id-qa", response_class=HTMLResponse)
+def target_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _target_manifest_snapshot()
+    return templates.TemplateResponse(request, "target_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "target_version_display": _target_version_display(manifest),
+        "target_updated_last": _target_updated_last(manifest),
+    })
+
+
+@app.get("/target-id-qa/api/stats")
+def target_id_qa_stats():
+    data = _load_target_graph()
+    return compute_target_stats(data)
+
+
+@app.get("/target-id-qa/api/search")
+def target_id_qa_search(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_target_graph()
+    return search_targets(data, q=q, target_type=target_type, namespace=namespace, page=page, per_page=per_page)
+
+
+@app.get("/target-id-qa/api/graph")
+def target_id_qa_graph(ids: str = ""):
+    data = _load_target_graph()
+    return build_target_graph_payload(data, ids)
+
+
+@app.get("/target-id-qa/download-filtered")
+def target_id_qa_download_filtered(
+    q: str = "",
+    target_type: str = "",
+    namespace: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_target_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_targets(data, q=q, target_type=target_type, namespace=namespace, fmt=fmt, columns=selected_columns)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("target_release_version") or data.manifest.get("release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_targets.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/target-id-qa/download-divergences")
+def target_id_qa_download_divergences(
+    entity_type: str = "",
+    triage_category: str = "",
+    review_group: str = "",
+    status: str = "",
+    format: str = "tsv",
+):
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target QC export is disabled in public/read-only mode.")
+    fmt = "csv" if format == "csv" else "tsv"
+    content = export_divergences(
+        data, entity_type=entity_type, triage_category=triage_category,
+        review_group=review_group, status=status, fmt=fmt,
+    )
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("target_release_version") or data.manifest.get("release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_divergences.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/target-id-qa/api/review-queue")
+def target_id_qa_review_queue(
+    entity_type: str = "",
+    divergence_type: str = "",
+    source: str = "",
+    status: str = "open",
+    auto_decision: str = "",
+    triage_category: str = "",
+    review_group: str = "",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_target_graph()
+    return build_target_review_queue(
+        data,
+        entity_type=entity_type,
+        divergence_type=divergence_type,
+        source=source,
+        status=status,
+        auto_decision=auto_decision,
+        triage_category=triage_category,
+        review_group=review_group,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+def _default_target_review_file() -> str:
+    # Use the loaded data's qc_dir if available
+    try:
+        data = _load_target_graph()
+        if data.qc_dir:
+            return str(Path(data.qc_dir) / "review" / "app_completed" / "target_app_review_decisions.tsv")
+    except Exception:
+        pass
+    if not _target_graph_dir:
+        return ""
+    graph_dir = Path(_target_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "qc" / "review" / "app_completed" / "target_app_review_decisions.tsv")
+    return str(graph_dir / "qc" / "review" / "app_completed" / "target_app_review_decisions.tsv")
+
+
+@app.post("/target-id-qa/api/review-decisions")
+async def target_id_qa_save_review_decisions(request: Request):
+    """Append app-entered target review decisions to a TargetGraph intake TSV."""
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target review decisions are disabled in public/read-only mode.")
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = validate_and_build_target_review_rows(payload)
+    review_path = _default_target_review_file()
+    if not review_path:
+        raise HTTPException(status_code=500, detail="No target graph dir configured.")
+    path = append_target_review_rows(rows, review_path)
+    # Mark resolved in memory so they disappear from the "open" view
+    resolved_ids = {r["Registry ID"] for r in rows if r.get("Registry ID")}
+    mark_rows_resolved_by_registry_ids(data, resolved_ids)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph target_review_intake.",
+    }
+
+
+@app.post("/target-id-qa/api/batch-review")
+async def target_id_qa_batch_review(request: Request):
+    """Batch-apply a review decision to all items matching a triage category."""
+    data = _load_target_graph()
+    if not data.review_can_write:
+        raise HTTPException(status_code=403, detail="Target batch review is disabled in public/read-only mode.")
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    triage_cat = str(payload.get("triage_category") or "").strip()
+    review_group = str(payload.get("review_group") or "").strip()
+    decision = str(payload.get("review_decision") or "").strip()
+    if not triage_cat and not review_group:
+        raise HTTPException(status_code=400, detail="triage_category or review_group is required.")
+    if not decision:
+        raise HTTPException(status_code=400, detail="review_decision is required.")
+
+    rows = build_batch_review_payload(
+        data,
+        triage_category=triage_cat,
+        review_decision=decision,
+        entity_type=str(payload.get("entity_type") or ""),
+        source=str(payload.get("source") or ""),
+        status=str(payload.get("status") or "open"),
+        review_group=review_group,
+        reviewed_by=str(payload.get("reviewed_by") or ""),
+    )
+    if not rows:
+        return {"saved": 0, "message": "No matching items found."}
+    review_path = _default_target_review_file()
+    if not review_path:
+        raise HTTPException(status_code=500, detail="No target graph dir configured.")
+    path = append_target_review_rows(rows, review_path)
+    # Mark resolved in memory so they disappear from "open" view
+    mark_rows_resolved_by_triage(
+        data,
+        triage_category=triage_cat,
+        entity_type=str(payload.get("entity_type") or ""),
+        source=str(payload.get("source") or ""),
+        status=str(payload.get("status") or "open"),
+        review_group=review_group,
+    )
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": f"Batch-applied '{decision}' to {len(rows):,} {review_group or triage_cat} items.",
+    }
+
+
+@app.get("/target-id-qa/api/review-template")
+def target_id_qa_review_template():
+    """Return a TSV with just the header row of target review intake columns."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=TARGET_REVIEW_INTAKE_COLUMNS, delimiter="\t")
+    writer.writeheader()
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="target_review_intake_template.tsv"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Target Harmonizer — Version Comparison
+# ---------------------------------------------------------------------------
+
+def _candidate_target_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _target_graph_dir:
+        graph_path = Path(_target_graph_dir)
+        if graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(TARGET_APP_GRAPH_BUNDLED_DIR)
+
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            key = str(root)
+        if key not in seen and root.is_dir():
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _normalize_target_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _target_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_target_version(version))]
+    return tuple(parts or [0])
+
+
+def _discover_target_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_target_graph_dir).resolve() if _target_graph_dir else None
+
+    for root in _candidate_target_version_roots():
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir() or not (child / "manifest.json").exists():
+                continue
+            if not (child / "target_nodes.tsv").exists():
+                continue
+            with open(child / "manifest.json", encoding="utf-8") as fh:
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    continue
+            version = _normalize_target_version(
+                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or child.name
+            )
+            if not version:
+                continue
+            resolved = child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": child.name,
+                "path": str(child),
+                "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
+                "node_rows": manifest.get("files", {}).get("target_nodes.tsv", {}).get("rows"),
+                "edge_rows": manifest.get("files", {}).get("target_edges.tsv", {}).get("rows"),
+                "current": bool(current_path and resolved == current_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"]:
+                version_by_key[version] = entry
+
+    # Fallback: match by directory name
+    if _target_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_target_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+
+    return sorted(
+        version_by_key.values(),
+        key=lambda row: _target_version_sort_key(row["version"]),
+    )
+
+
+def _default_target_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = ""
+    if len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _target_version_dir(version: str) -> Path | None:
+    wanted = _normalize_target_version(version)
+    for entry in _discover_target_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+def _target_precomputed_diff_path(from_version: str, to_version: str, to_dir: Path) -> Path | None:
+    from_token = f"v{_normalize_target_version(from_version)}"
+    to_token = f"v{_normalize_target_version(to_version)}"
+    candidates = [
+        to_dir / f"target_version_diff_{from_token}_to_{to_token}.json",
+        to_dir.parent / to_token / f"target_version_diff_{from_token}_to_{to_token}.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@app.get("/target-id-qa/api/versions")
+def target_id_qa_versions():
+    """List bundled/versioned target app_graph datasets available for diffs."""
+    versions = _discover_target_versions()
+    default_from, default_to = _default_target_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
+@app.get("/target-id-qa/api/version-diff")
+def target_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned target app_graph datasets."""
+    if not _target_graph_dir:
+        raise HTTPException(status_code=500, detail="No --target-graph-dir configured.")
+    versions = _discover_target_versions()
+    default_from, default_to = _default_target_version_pair(versions)
+    from_version = _normalize_target_version(from_version or default_from)
+    to_version = _normalize_target_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different target graph versions.")
+
+    from_dir = _target_version_dir(from_version)
+    to_dir = _target_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Target graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Target graph version not found: {to_version}")
+
+    precomputed = _target_precomputed_diff_path(from_version, to_version, to_dir)
+    if precomputed:
+        with open(precomputed, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    baseline = load_target_version_data(from_dir)
+    current = _load_target_graph() if to_dir.resolve() == Path(_target_graph_dir).resolve() else load_target_version_data(to_dir)
+    return compute_target_version_diff(current, baseline)
+
+
+# ---------------------------------------------------------------------------
+# Variant Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+@app.get("/variant-id-qa", response_class=HTMLResponse)
+def variant_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _variant_manifest_snapshot()
+    return templates.TemplateResponse(request, "variant_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "variant_version_display": _variant_version_display(manifest),
+        "variant_updated_last": _variant_updated_last(manifest),
+    })
+
+
+@app.get("/variant-id-qa/api/stats")
+def variant_id_qa_stats():
+    data = _load_variant_graph()
+    return compute_variant_stats(data)
+
+
+@app.get("/variant-id-qa/api/search")
+def variant_id_qa_search(
+    q: str = "",
+    source: str = "",
+    gene: str = "",
+    significance: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_variant_graph()
+    return search_variants(
+        data, q=q, source=source, gene=gene,
+        significance=significance, page=page, per_page=per_page,
+    )
+
+
+@app.get("/variant-id-qa/api/graph")
+def variant_id_qa_graph(ids: str = ""):
+    data = _load_variant_graph()
+    return build_variant_graph_payload(data, ids)
+
+
+@app.get("/variant-id-qa/download-filtered")
+def variant_id_qa_download_filtered(
+    q: str = "",
+    source: str = "",
+    gene: str = "",
+    significance: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_variant_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_variants(
+        data, q=q, source=source, gene=gene, significance=significance,
+        fmt=fmt, columns=selected_columns,
+    )
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = (data.manifest.get("version") or data.manifest.get("variant_release_version") or "current")
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_variants.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)
@@ -5571,7 +7587,13 @@ def disease_id_qa_graph(ids: str = ""):
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
-    return build_disease_graph_payload(data, parse_disease_ids(ids))
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, parse_disease_ids(ids), target_data=target_data)
 
 
 @app.get("/disease-id-qa/download/{filename}")
@@ -5606,6 +7628,151 @@ def disease_id_qa_download_flagged():
     )
 
 
+def _default_disease_review_file() -> str:
+    if not _disease_graph_dir:
+        return ""
+    graph_dir = Path(_disease_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "qc" / "review" / "app_completed" / "disease_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "disease_app_review_decisions.tsv")
+
+
+def _resolved_disease_review_file() -> str:
+    return _disease_review_file or _default_disease_review_file()
+
+
+def _review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        registry_id = str(raw.get("registry_id") or raw.get("Registry ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Review decision") or "").strip()
+        if not registry_id:
+            raise HTTPException(status_code=400, detail="Each review decision needs registry_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each review decision needs review_decision.")
+        if decision not in {opt["value"] for opt in REVIEW_DECISION_OPTIONS}:
+            raise HTTPException(status_code=400, detail=f"Unsupported review_decision: {decision}")
+
+        rows.append({
+            "Registry ID": registry_id,
+            "Review decision": decision,
+            "Corrected xref / replacement": str(raw.get("replacement") or raw.get("Corrected xref / replacement") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Primary Xref": str(raw.get("primary_xref") or raw.get("Primary Xref") or "").strip(),
+            "Disease Name": str(raw.get("standard_name") or raw.get("Disease Name") or "").strip(),
+            "NCATS Disease ID": str(raw.get("ncats_disease_id") or raw.get("NCATS Disease ID") or "").strip(),
+            "Review category": str(raw.get("category") or raw.get("Review category") or "").strip(),
+            "Xref ID": str(raw.get("xref_id") or raw.get("Xref ID") or "").strip(),
+            "Xref Namespace": str(raw.get("xref_namespace") or raw.get("Xref Namespace") or "").strip(),
+            "Decision type": str(raw.get("decision_type") or raw.get("Decision type") or "").strip(),
+            "Scenario ID": str(raw.get("scenario_id") or raw.get("Scenario ID") or "").strip(),
+            "Source value": str(raw.get("source_value") or raw.get("Source value") or "").strip(),
+            "Consensus value": str(raw.get("consensus_value") or raw.get("Consensus value") or "").strip(),
+            "Evidence note": str(raw.get("evidence_note") or raw.get("Evidence note") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No review decisions provided.")
+    return rows
+
+
+def _append_disease_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_disease_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No disease review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _disease_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/disease-id-qa/api/review-queue")
+def disease_id_qa_review_queue(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Return clustered disease review items for the Review tab."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_review_queue(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/disease-id-qa/download-review-template")
+def disease_id_qa_download_review_template(
+    category: str = "",
+    source: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    """Download a TargetGraph-compatible review intake template for the current queue."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    tsv_content = export_review_intake_template(
+        data,
+        category=category,
+        source=source,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="disease_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/disease-id-qa/api/review-decisions")
+async def disease_id_qa_save_review_decisions(request: Request):
+    """Append app-entered review decisions to a TargetGraph intake TSV."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = _review_payload_rows(payload)
+    path = _append_disease_review_rows(rows)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph disease_review_intake.",
+    }
+
+
 @app.get("/disease-id-qa/api/search")
 def disease_id_qa_search(
     q: str = "",
@@ -5617,6 +7784,8 @@ def disease_id_qa_search(
     source: str = "",
     quality: str = "",
     disease_type: str = "",
+    sort: str = "",
+    sort_dir: str = "asc",
 ):
     """Paginated search across all disease concepts."""
     if not _disease_graph_dir:
@@ -5626,7 +7795,7 @@ def disease_id_qa_search(
     return search_concepts(
         data, q=q, filter_mode=filter, page=page, per_page=per_page,
         confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
+        disease_type=disease_type, sort=sort, sort_dir=sort_dir,
     )
 
 
@@ -5653,6 +7822,128 @@ def disease_id_qa_dashboard():
     return compute_dashboard_stats(data)
 
 
+@app.get("/disease-id-qa/api/download-preview")
+def disease_id_qa_download_preview(
+    q: str = "",
+    filter: str = "all",
+    confidence_tier: str = "",
+    is_rare: str = "",
+    source: str = "",
+    quality: str = "",
+    disease_type: str = "",
+    mode: str = "concepts",
+    include_sources: str = "",
+    exclude_obsolete: str = "",
+):
+    """Return exact row counts for the selected download table mode."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
+    return compute_download_preview_counts(
+        data,
+        q=q,
+        filter_mode=filter,
+        confidence_tier=confidence_tier,
+        is_rare=is_rare,
+        source=source,
+        quality=quality,
+        disease_type=disease_type,
+        mode=mode,
+        include_sources=src_set,
+        exclude_obsolete=exclude_obsolete.lower() == "true",
+    )
+
+
+@app.get("/disease-id-qa/api/suggest")
+def disease_id_qa_suggest(q: str = "", limit: int = 8):
+    """Return autocomplete suggestions for the search input."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if len(q.strip()) < 2:
+        return {"suggestions": []}
+    data = load_disease_graph_data(_disease_graph_dir)
+    result = resolve_name_candidates(data, q, limit=max(1, min(limit, 20)))
+    suggestions = []
+    seen_pxrefs: set = set()
+    for cand in result.get("candidates", []):
+        pxref = cand.get("pxref", "")
+        if pxref in seen_pxrefs:
+            continue
+        seen_pxrefs.add(pxref)
+        concept = data.concepts_by_pxref.get(pxref, {})
+        suggestions.append({
+            "primary_xref": pxref,
+            "standard_name": concept.get("standard_name", ""),
+            "confidence_tier": concept.get("confidence_tier", ""),
+            "n_sources": concept.get("n_sources", ""),
+            "disease_type": concept.get("disease_type", ""),
+        })
+        if len(suggestions) >= limit:
+            break
+    return {"suggestions": suggestions}
+
+
+@app.get("/disease-id-qa/api/review-history")
+def disease_id_qa_review_history(primary_xref: str = ""):
+    """Return review decision history for a concept from the intake TSV."""
+    review_file = _resolved_disease_review_file()
+    if not review_file or not Path(review_file).is_file():
+        return {"decisions": []}
+    decisions = []
+    with open(review_file, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            if primary_xref and row.get("Primary Xref", "") != primary_xref:
+                continue
+            decisions.append({
+                "review_decision": row.get("Review decision", ""),
+                "reviewed_by": row.get("Reviewed by", ""),
+                "reviewed_at": row.get("Reviewed at", ""),
+                "notes": row.get("Reviewer notes", ""),
+                "replacement": row.get("Corrected xref / replacement", ""),
+                "category": row.get("Review category", ""),
+                "xref_id": row.get("Xref ID", ""),
+                "xref_namespace": row.get("Xref Namespace", ""),
+                "decision_type": row.get("Decision type", ""),
+                "evidence_note": row.get("Evidence note", ""),
+                "disease_name": row.get("Disease Name", ""),
+            })
+    decisions.sort(key=lambda d: d.get("reviewed_at", ""), reverse=True)
+    return {"decisions": decisions}
+
+
+@app.get("/disease-id-qa/api/compare")
+def disease_id_qa_compare(a: str = "", b: str = ""):
+    """Compare two disease concepts side by side."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not a or not b:
+        raise HTTPException(status_code=400, detail="Both 'a' and 'b' parameters are required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    concept_a = resolve_concept(data, a)
+    concept_b = resolve_concept(data, b)
+    if not concept_a:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {a}")
+    if not concept_b:
+        raise HTTPException(status_code=404, detail=f"Concept not found: {b}")
+    xrefs_a = {x["xref_id"] for x in concept_a.get("xrefs", []) if x.get("xref_id")}
+    xrefs_b = {x["xref_id"] for x in concept_b.get("xrefs", []) if x.get("xref_id")}
+    return {
+        "concept_a": concept_a,
+        "concept_b": concept_b,
+        "shared_xrefs": sorted(xrefs_a & xrefs_b),
+        "unique_a": sorted(xrefs_a - xrefs_b),
+        "unique_b": sorted(xrefs_b - xrefs_a),
+    }
+
+
 @app.get("/disease-id-qa/download-filtered")
 def disease_id_qa_download_filtered(
     q: str = "",
@@ -5663,36 +7954,80 @@ def disease_id_qa_download_filtered(
     quality: str = "",
     disease_type: str = "",
     columns: str = "",
+    mode: str = "concepts",
     format: str = "tsv",
     include_sources: str = "",
     exclude_obsolete: str = "",
 ):
-    """Download filtered concepts with selectable columns."""
+    """Download filtered disease harmonizer tables with selectable columns."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
-    src_set = (
-        {s.strip().upper() for s in include_sources.split(",") if s.strip()}
-        if include_sources else None
-    )
-    content = export_filtered_download(
-        data, q=q, filter_mode=filter,
-        confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
-        disease_type=disease_type,
-        columns=col_list, fmt=format, include_sources=src_set,
-        exclude_obsolete=exclude_obsolete.lower() == "true",
-    )
+    if include_sources == "__none__":
+        src_set = set()
+    else:
+        src_set = (
+            {s.strip().upper() for s in include_sources.split(",") if s.strip()}
+            if include_sources else None
+        )
+    excl_obs = exclude_obsolete.lower() == "true"
+    mode_key = _normalize_download_mode(mode)
+    version = str(data.manifest.get("pipeline_version", "") or "unknown").strip()
+    version_tag = f"ODINv{version}" if version and not version.startswith("v") else f"ODIN{version}"
+    table_name = {
+        "xref_edges": "disease_xref_edges",
+        "clinical_descendants": "disease_clinical_descendants",
+    }.get(mode_key, "diseases")
+    row_filters_active = any([
+        q.strip(),
+        filter not in ("", "all"),
+        confidence_tier.strip(),
+        is_rare.strip(),
+        source.strip(),
+        quality.strip(),
+        disease_type.strip(),
+        mode_key != "concepts" and bool(src_set),
+        mode_key != "concepts" and excl_obs,
+    ])
+    suffix = "_filtered" if row_filters_active else ""
+
+    if format == "xlsx":
+        content = export_filtered_xlsx(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, mode=mode_key, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        )
+        filename = f"{version_tag}_{table_name}{suffix}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    def _stream():
+        for line in stream_filtered_download(
+            data, q=q, filter_mode=filter,
+            confidence_tier=confidence_tier, is_rare=is_rare, source=source, quality=quality,
+            disease_type=disease_type,
+            columns=col_list, mode=mode_key, fmt=format, include_sources=src_set,
+            exclude_obsolete=excl_obs,
+        ):
+            yield line.encode("utf-8")
+
     if format == "csv":
         media = "text/csv"
         ext = "csv"
     else:
         media = "text/tab-separated-values"
         ext = "tsv"
+    filename = f"{version_tag}_{table_name}{suffix}.{ext}"
     return StreamingResponse(
-        io.BytesIO(content.encode("utf-8")),
+        _stream(),
         media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="disease_filtered.{ext}"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -5814,11 +8149,16 @@ def api_disease_stats():
     return {
         "total_concepts": stats["total_concepts"],
         "total_edges": stats["total_edges"],
+        "total_hierarchy_edges": stats.get("total_hierarchy_edges", 0),
+        "total_clinical_descendant_edges": stats.get("total_clinical_descendant_edges", 0),
         "sources_covered": len(stats["source_coverage"]),
         "avg_xrefs_per_concept": stats["avg_xrefs_per_concept"],
         "multi_source_count": stats.get("multi_source_count", 0),
         "multi_source_percent": stats.get("multi_source_percent", 0),
         "source_only_count": stats.get("source_only_count", 0),
+        "concepts_with_clinical_codes": stats.get("concepts_with_clinical_codes", 0),
+        "concepts_with_clinical_descendants": stats.get("concepts_with_clinical_descendants", 0),
+        "clinical_descendant_summary": stats.get("clinical_descendant_summary", {}),
         "rare_count": stats["rare_count"],
         "flagged_count": stats["flagged_count"],
         "needs_action_count": stats.get("needs_action_count", stats["flagged_count"]),
@@ -5845,6 +8185,192 @@ def api_disease_sources():
             for ns, count in sorted(stats["source_coverage"].items(), key=lambda x: -x[1])
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Disease Explorer — Source Versions (from pipeline metadata)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/disease-id-qa/api/source-versions")
+def disease_id_qa_source_versions():
+    """Return source database versions from the pipeline metadata catalog."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    graph_dir = Path(_disease_graph_dir)
+    # metadata lives at ../metadata/ relative to app_graph/
+    if graph_dir.name == "app_graph":
+        metadata_dir = graph_dir.parent / "metadata"
+    else:
+        metadata_dir = graph_dir / "metadata"
+    catalog_candidates = [
+        graph_dir / "disease_source_catalog.tsv",
+        metadata_dir / "disease_source_catalog.tsv",
+    ]
+    catalog_path = next((path for path in catalog_candidates if path.exists()), None)
+    if catalog_path is None:
+        return {"sources": [], "catalog_found": False}
+    sources = []
+
+    def _clean(value: object) -> str:
+        text = str(value or "").strip()
+        return "" if text.lower() == "unknown" else text
+
+    def _nested(dct: dict, *keys: str) -> str:
+        if not isinstance(dct, dict):
+            return ""
+        for key in keys:
+            value = _clean(dct.get(key))
+            if value:
+                return value
+        return ""
+
+    def _load_row_metadata(row: dict) -> dict:
+        meta_name = row.get("metadata_file", "").strip()
+        if not meta_name:
+            return {}
+        meta_path = Path(meta_name)
+        if not meta_path.is_absolute():
+            meta_path = metadata_dir / "source" / meta_name
+        if not meta_path.exists():
+            return {}
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception as exc:
+            logger.warning("Failed to read source metadata %s: %s", meta_path, exc)
+            return {}
+
+    def _resolve_metadata_path(path_text: str) -> Optional[Path]:
+        path_text = _clean(path_text)
+        if not path_text:
+            return None
+        raw_path = Path(path_text)
+        if raw_path.is_absolute() and raw_path.exists():
+            return raw_path
+        for base in [Path.cwd(), *metadata_dir.parents]:
+            candidate = base / raw_path
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _raw_obo_version(raw_file: str) -> str:
+        raw_path = _resolve_metadata_path(raw_file)
+        if not raw_path:
+            return ""
+        try:
+            with open(raw_path, "r", encoding="utf-8", errors="replace") as fh:
+                for line_no, line in enumerate(fh, start=1):
+                    if line_no > 200 or line.startswith("[Term]"):
+                        break
+                    line = line.strip()
+                    if line.startswith("property_value: owl:versionInfo"):
+                        match = re.search(r'"([^"]+)"', line)
+                        if match:
+                            return match.group(1)
+                    if line.startswith("data-version:"):
+                        match = re.search(r"\d{4}-\d{2}-\d{2}", line)
+                        return match.group(0) if match else line.split(":", 1)[1].strip()
+                    if line.startswith("date:"):
+                        match = re.search(r"(\d{2}):(\d{2}):(\d{4})", line)
+                        if match:
+                            day, month, year = match.groups()
+                            return f"{year}-{month}-{day}"
+        except Exception as exc:
+            logger.warning("Failed to read source OBO version from %s: %s", raw_path, exc)
+        return ""
+
+    def _freshest_file_date(meta: dict) -> str:
+        files = meta.get("files", []) if isinstance(meta, dict) else []
+        if not isinstance(files, list):
+            return ""
+        dates = []
+        for file_meta in files:
+            if not isinstance(file_meta, dict):
+                continue
+            date_value = _nested(file_meta, "last_modified_iso", "last_modified")
+            if date_value:
+                dates.append(date_value)
+        return max(dates) if dates else ""
+
+    def _date_only(value: str) -> str:
+        value = _clean(value)
+        return value[:10] if value else ""
+
+    try:
+        import csv
+        with open(catalog_path, "r") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for row in reader:
+                name = row.get("source_name", "").strip()
+                if not name:
+                    continue
+                meta = _load_row_metadata(row)
+                source_meta = meta.get("source", {}) if isinstance(meta.get("source"), dict) else {}
+                release_info = (
+                    meta.get("release_info", {})
+                    if isinstance(meta.get("release_info"), dict)
+                    else {}
+                )
+                file_release_date = _freshest_file_date(meta)
+                raw_obo_version = _raw_obo_version(meta.get("raw_file", ""))
+                version = (
+                    _clean(row.get("source_version"))
+                    or _nested(meta, "source_version")
+                    or _nested(source_meta, "version")
+                    or _nested(release_info, "releaseVersion", "version", "releaseDate")
+                    or raw_obo_version
+                    or _date_only(file_release_date)
+                    or "unknown"
+                )
+                release_date = (
+                    _clean(row.get("release_date"))
+                    or _nested(meta, "release_date", "last_modified_iso")
+                    or _nested(source_meta, "last_modified_iso", "last_modified")
+                    or _nested(release_info, "releaseDate", "last_modified_iso", "last_modified")
+                    or raw_obo_version
+                    or file_release_date
+                )
+                download_start = (
+                    _clean(row.get("download_start"))
+                    or _nested(meta, "download_start", "timestamp_start")
+                )
+                download_date = _date_only(download_start)
+                tf_output_rows = _clean(row.get("tf_output_rows"))
+                tf_input_rows = _clean(row.get("tf_input_rows"))
+                status = _clean(row.get("status"))
+                changed = _clean(row.get("changed"))
+                url = (
+                    _clean(row.get("url"))
+                    or _nested(meta, "url", "download_url")
+                )
+                source_release_url = _nested(meta, "source_release_url", "html_url")
+                note = ""
+                if name.upper() == "SNOMEDCT":
+                    note = "UMLS SNOMEDCT subset; source version is the UMLS release."
+                elif name.upper() == "UMLS":
+                    note = "UMLS-derived labels/xrefs; access depends on local UMLS credentials."
+                elif version == "unknown":
+                    note = "Source-native version was not captured by the download metadata."
+                sources.append({
+                    "name": name,
+                    "version": version,
+                    "release_date": release_date,
+                    "source_release_date": release_date,
+                    "download_date": download_date,
+                    "odin_download_date": download_date,
+                    "transform_input_rows": tf_input_rows,
+                    "transform_output_rows": tf_output_rows,
+                    "status": status,
+                    "changed": changed,
+                    "note": note,
+                    "url": url,
+                    "source_release_url": source_release_url,
+                })
+    except Exception as exc:
+        logger.warning("Failed to read source catalog %s: %s", catalog_path, exc)
+        return {"sources": [], "catalog_found": False, "error": str(exc)}
+    return {"sources": sources, "catalog_found": True}
 
 
 # ---------------------------------------------------------------------------
@@ -5888,6 +8414,21 @@ def _disease_version_sort_key(version: str) -> tuple[int, ...]:
     return tuple(parts or [0])
 
 
+def _versioned_app_graph_dirs(root: Path, required_file: str) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return sorted(
+        [
+            d for d in root.iterdir()
+            if d.is_dir()
+            and d.name.startswith("v")
+            and (d / "manifest.json").exists()
+            and (d / required_file).exists()
+        ],
+        key=lambda path: _disease_version_sort_key(path.name),
+    )
+
+
 def _candidate_disease_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _disease_graph_dir:
@@ -5921,7 +8462,11 @@ def _discover_disease_versions() -> list[dict]:
             if not child.is_dir() or not (child / "manifest.json").exists():
                 continue
             with open(child / "manifest.json", encoding="utf-8") as fh:
-                manifest = json.load(fh)
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    continue
             version = _normalize_disease_version(
                 manifest.get("pipeline_version", "") or child.name
             )
@@ -5942,6 +8487,20 @@ def _discover_disease_versions() -> list[dict]:
             existing = version_by_key.get(version)
             if existing is None or entry["current"] or entry["baseline"]:
                 version_by_key[version] = entry
+
+    # Fallback: if nothing matched by resolved path, match by directory name
+    if _disease_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_disease_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+    if _baseline_graph_dir and not any(v.get("baseline") for v in version_by_key.values()):
+        baseline_dir_name = Path(_baseline_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == baseline_dir_name:
+                entry["baseline"] = True
+                break
 
     return sorted(
         version_by_key.values(),
@@ -6030,7 +8589,13 @@ def disease_id_qa_graph_neighbors(pxref: str = ""):
         return {"elements": []}
     # Build graph payload for the neighbors (include the original concept too)
     all_ids = [pxref] + neighbors
-    return build_disease_graph_payload(data, all_ids)
+    target_data = None
+    if _target_graph_dir:
+        try:
+            target_data = load_target_graph_data(_target_graph_dir)
+        except Exception:
+            pass
+    return build_disease_graph_payload(data, all_ids, target_data=target_data)
 
 
 @app.get("/disease-id-qa/api/graph/hierarchy")
@@ -6042,6 +8607,17 @@ def disease_id_qa_graph_hierarchy(pxref: str = ""):
         raise HTTPException(status_code=400, detail="pxref parameter required.")
     data = load_disease_graph_data(_disease_graph_dir)
     return build_hierarchy_graph_payload(data, pxref)
+
+
+@app.get("/disease-id-qa/api/graph/clinical-descendants")
+def disease_id_qa_graph_clinical_descendants(pxref: str = "", limit: int = 80):
+    """Return Cytoscape elements for SNOMED/ICD descendant candidate mappings."""
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not pxref:
+        raise HTTPException(status_code=400, detail="pxref parameter required.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return build_clinical_descendant_graph_payload(data, pxref, limit=limit)
 
 
 @app.get("/disease-id-qa/api/provenance/{pxref:path}")
@@ -8913,9 +11489,9 @@ def main():
                         action="append",
                         default=[],
                         help="Path to a MySQL credentials YAML file; repeat to load multiple MySQL servers")
-    parser.add_argument("--minio-credentials", "-s",
+    parser.add_argument("--storage-credentials", "-s",
                         default=None,
-                        help="Path to registry storage credentials YAML file (MinIO or AWS assume-role)")
+                        help="Path to registry object-storage credentials YAML file")
     parser.add_argument("--parquet-storage-credentials",
                         default=None,
                         help="Path to object-storage credentials YAML for existing Dataset parquet files")
@@ -8939,12 +11515,24 @@ def main():
     parser.add_argument("--disease-graph-dir",
                         default="",
                         help="Path to disease app_graph/ directory (TSV files + manifest.json)")
+    parser.add_argument("--disease-review-file",
+                        default="",
+                        help="Path to TargetGraph-compatible disease review intake TSV written by the Review tab")
     parser.add_argument("--baseline-graph-dir",
                         default="",
                         help="Path to baseline disease app_graph/ directory for version diff")
+    parser.add_argument("--target-graph-dir",
+                        default="",
+                        help="Path to target app_graph/ directory (target_nodes.tsv + manifest.json)")
+    parser.add_argument("--target-qc-dir",
+                        default="",
+                        help="Path to target pipeline qc/ directory (divergence registries + provenance CSVs)")
+    parser.add_argument("--variant-graph-dir",
+                        default="",
+                        help="Path to variant app_graph/ directory (variant_nodes.tsv + manifest.json)")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _parquet_storage_credentials, _disease_graph_dir, _baseline_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -8980,14 +11568,14 @@ def main():
     if _demo_queries_enabled:
         _demo_module.set_mysql_credentials(_mysql_credentials)
 
-    if args.minio_credentials:
-        minio_path = Path(args.minio_credentials)
-        if minio_path.exists():
-            with open(minio_path) as f:
-                _minio_credentials = yaml.safe_load(f)
-            print(f"Loaded registry storage credentials from {minio_path}")
+    if args.storage_credentials:
+        storage_path = Path(args.storage_credentials)
+        if storage_path.exists():
+            with open(storage_path) as f:
+                _registry_storage_credentials = yaml.safe_load(f)
+            print(f"Loaded registry storage credentials from {storage_path}")
         else:
-            print(f"Warning: registry storage credentials file {minio_path} not found")
+            print(f"Warning: registry storage credentials file {storage_path} not found")
 
     if args.parquet_storage_credentials:
         parquet_storage_path = Path(args.parquet_storage_credentials)
@@ -9017,6 +11605,9 @@ def main():
                 print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
+    _disease_review_file = args.disease_review_file
+    if _resolved_disease_review_file():
+        print(f"Disease review intake file: {_resolved_disease_review_file()}")
 
     _baseline_graph_dir = args.baseline_graph_dir
     if not _baseline_graph_dir:
@@ -9032,6 +11623,37 @@ def main():
                 print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
     if _baseline_graph_dir:
         print(f"Baseline graph dir: {_baseline_graph_dir}")
+
+    _target_graph_dir = args.target_graph_dir
+    if not _target_graph_dir:
+        bundled_dir = TARGET_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "target_nodes.tsv")
+        current_dir = bundled_dir / "current"
+        if versions:
+            _target_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled target data: {_target_graph_dir}")
+        elif current_dir.is_dir():
+            _target_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled target data: {_target_graph_dir}")
+    if _target_graph_dir:
+        print(f"Target graph dir: {_target_graph_dir}")
+    _target_qc_dir = args.target_qc_dir
+    if _target_qc_dir:
+        print(f"Target QC dir: {_target_qc_dir}")
+
+    _variant_graph_dir = args.variant_graph_dir
+    if not _variant_graph_dir:
+        bundled_dir = VARIANT_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "variant_nodes.tsv")
+        current_dir = bundled_dir / "current"
+        if versions:
+            _variant_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
+        elif current_dir.is_dir():
+            _variant_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
+    if _variant_graph_dir:
+        print(f"Variant graph dir: {_variant_graph_dir}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

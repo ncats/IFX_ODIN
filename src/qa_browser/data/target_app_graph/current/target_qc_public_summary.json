@@ -1,0 +1,218 @@
+{
+  "divergence": {
+    "auto_decision_counts": {
+      "cosmetic_ignore": 12643,
+      "needs_expert_review": 810032,
+      "trust_ensembl": 11,
+      "trust_hgnc": 133,
+      "trust_ncbi": 704,
+      "trust_refseq": 19577,
+      "trust_uniprot": 4236
+    },
+    "confidence_average": 0.348,
+    "divergence_type_counts": {
+      "conflict": 39173,
+      "low_score": 187771,
+      "sole_source": 620392
+    },
+    "divergences_by_entity": {
+      "gene": 823159,
+      "protein": 24177
+    },
+    "namespace_divergence_counts": {
+      "Description": 199799,
+      "Ensembl_ID": 42859,
+      "Ensembl_Protein_ID": 344,
+      "HGNC_ID": 8877,
+      "Location": 68104,
+      "NCBI_ID": 154781,
+      "OMIM_ID": 1763,
+      "RefSeq_Protein_ID": 19597,
+      "Symbol": 159205,
+      "UniProt_ID": 4236,
+      "mapping_score": 187771
+    },
+    "open_conflict_auto_decisions": {
+      "needs_expert_review": 1869,
+      "trust_ensembl": 11,
+      "trust_hgnc": 133,
+      "trust_ncbi": 704,
+      "trust_refseq": 19577,
+      "trust_uniprot": 4236
+    },
+    "open_conflicts": 26530,
+    "review_can_write": false,
+    "review_group_counts": {
+      "cosmetic_metadata": 12643,
+      "coverage_gap": 620392,
+      "gene_hgnc_authority": 133,
+      "gene_hgnc_identifier_conflict": 308,
+      "gene_ncbi_authority": 704,
+      "gene_omim_identifier_conflict": 22,
+      "gene_symbol_conflict": 1186,
+      "low_mapping_support": 187771,
+      "protein_ensembl_authority": 11,
+      "protein_isoform_context": 353,
+      "protein_refseq_authority": 19577,
+      "protein_uniprot_authority": 4236
+    },
+    "review_group_open_counts": {
+      "gene_hgnc_authority": 133,
+      "gene_hgnc_identifier_conflict": 308,
+      "gene_ncbi_authority": 704,
+      "gene_omim_identifier_conflict": 22,
+      "gene_symbol_conflict": 1186,
+      "protein_ensembl_authority": 11,
+      "protein_isoform_context": 353,
+      "protein_refseq_authority": 19577,
+      "protein_uniprot_authority": 4236
+    },
+    "review_group_resolved_counts": {
+      "cosmetic_metadata": 12643,
+      "coverage_gap": 620392,
+      "low_mapping_support": 187771
+    },
+    "review_groups": [
+      {
+        "description": "RefSeq protein-accession disagreements where the QC policy already prefers RefSeq for RefSeq IDs.",
+        "key": "protein_refseq_authority",
+        "label": "Protein RefSeq Authority",
+        "recommended_decision": "trust_refseq"
+      },
+      {
+        "description": "UniProt accession disagreements where the QC policy already prefers UniProt for UniProt IDs.",
+        "key": "protein_uniprot_authority",
+        "label": "Protein UniProt Authority",
+        "recommended_decision": "trust_uniprot"
+      },
+      {
+        "description": "Ensembl protein-ID disagreements where the QC policy already prefers Ensembl for Ensembl IDs.",
+        "key": "protein_ensembl_authority",
+        "label": "Protein Ensembl Authority",
+        "recommended_decision": "trust_ensembl"
+      },
+      {
+        "description": "Protein identifier conflicts needing isoform/canonical-product context before accepting one source.",
+        "key": "protein_isoform_context",
+        "label": "Protein Isoform Context",
+        "recommended_decision": "needs_expert_review"
+      },
+      {
+        "description": "NCBI Gene identifier conflicts where the QC policy already prefers NCBI for NCBI Gene IDs.",
+        "key": "gene_ncbi_authority",
+        "label": "Gene NCBI Authority",
+        "recommended_decision": "trust_ncbi"
+      },
+      {
+        "description": "HGNC identifier or symbol conflicts where the QC policy already prefers HGNC.",
+        "key": "gene_hgnc_authority",
+        "label": "Gene HGNC Authority",
+        "recommended_decision": "trust_hgnc"
+      },
+      {
+        "description": "Gene symbol disagreements, including aliases and changed symbols, that need symbol-history review.",
+        "key": "gene_symbol_conflict",
+        "label": "Gene Symbol Conflict",
+        "recommended_decision": "needs_expert_review"
+      },
+      {
+        "description": "HGNC identifier disagreements without a current high-confidence authority decision.",
+        "key": "gene_hgnc_identifier_conflict",
+        "label": "Gene HGNC ID Conflict",
+        "recommended_decision": "needs_expert_review"
+      },
+      {
+        "description": "OMIM identifier disagreements that should be checked against gene/disease inheritance context.",
+        "key": "gene_omim_identifier_conflict",
+        "label": "Gene OMIM ID Conflict",
+        "recommended_decision": "needs_expert_review"
+      },
+      {
+        "description": "Ensembl gene identifier disagreements without a current high-confidence authority decision.",
+        "key": "gene_ensembl_identifier_conflict",
+        "label": "Gene Ensembl ID Conflict",
+        "recommended_decision": "needs_expert_review"
+      },
+      {
+        "description": "Only one source provides the field. This is usually expected coverage difference.",
+        "key": "coverage_gap",
+        "label": "Coverage Gap",
+        "recommended_decision": "accept_sole_source"
+      },
+      {
+        "description": "Identifier mapping support is below threshold but the row can often be accepted as low-confidence evidence.",
+        "key": "low_mapping_support",
+        "label": "Low Mapping Support",
+        "recommended_decision": "accept_low_score"
+      },
+      {
+        "description": "Formatting, punctuation, or metadata-only differences that do not change the identifier mapping.",
+        "key": "cosmetic_metadata",
+        "label": "Cosmetic Metadata",
+        "recommended_decision": "cosmetic_ignore"
+      },
+      {
+        "description": "Conflict pattern not yet assigned to a more specific review group.",
+        "key": "other_conflict",
+        "label": "Other Conflict",
+        "recommended_decision": "needs_expert_review"
+      }
+    ],
+    "review_mode": "public",
+    "source_divergence_counts": {
+      "ensembl": 150360,
+      "hgnc": 14516,
+      "ncbi": 475535,
+      "nodenorm": 1,
+      "pipeline": 187771,
+      "refseq": 8755,
+      "uniprot": 10398
+    },
+    "status_counts": {
+      "open": 26530,
+      "resolved": 820806
+    },
+    "total_divergences": 847336,
+    "triage_categories": [
+      {
+        "description": "Only one source provides this field \u2014 expected, not an error.",
+        "key": "coverage_gap",
+        "label": "Coverage Gap"
+      },
+      {
+        "description": "Mapping support ratio is below threshold but may still be correct.",
+        "key": "low_mapping",
+        "label": "Low Mapping Support"
+      },
+      {
+        "description": "Minor formatting or notation difference between sources.",
+        "key": "cosmetic",
+        "label": "Cosmetic Difference"
+      },
+      {
+        "description": "Sources disagree on a substantive value \u2014 needs human review.",
+        "key": "source_conflict",
+        "label": "Source Conflict"
+      }
+    ],
+    "triage_category_counts": {
+      "cosmetic": 12643,
+      "coverage_gap": 620392,
+      "low_mapping": 187771,
+      "source_conflict": 26530
+    },
+    "triage_category_open_counts": {
+      "source_conflict": 26530
+    },
+    "triage_category_resolved_counts": {
+      "cosmetic": 12643,
+      "coverage_gap": 620392,
+      "low_mapping": 187771
+    }
+  },
+  "generated_at": "2026-08-19T16:21:54.084651+00:00",
+  "open_review_rows_file": "target_review_public.tsv",
+  "review_mode": "public_read_only",
+  "source_qc_dir": "/Users/mainejl/Documents/Projects/ODIN/TargetGraph/TargetGraph7/src/data/publicdata/target_data/qc",
+  "source_review_file": "/Users/mainejl/Documents/Projects/ODIN/TargetGraph/TargetGraph7/src/data/publicdata/target_data/qc/review/app_completed/target_app_review_decisions.tsv"
+}
