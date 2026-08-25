@@ -173,6 +173,7 @@
     </section>
 
     {% for pipeline_sankey in result.snapshot_sankeys %}
+    {% if pipeline_sankey.stage_count > 1 %}
     <section class="ramp-id-table-section metabolite-id-sankey-section">
         <div class="ramp-id-section-header">
             <h2>Stage Flow · {{ pipeline_sankey.pipeline_name }}</h2>
@@ -188,6 +189,7 @@
         <div id="metaboliteIdSnapshotSankey-{{ loop.index }}" class="metabolite-id-sankey"></div>
         <div id="metaboliteIdSnapshotSankeyTip-{{ loop.index }}" class="metabolite-id-sankey-tip"></div>
     </section>
+    {% endif %}
     {% else %}
     <section class="ramp-id-table-section metabolite-id-sankey-section">
         <div class="ramp-id-section-header">
@@ -478,6 +480,9 @@
         const orderContainer = document.getElementById(`metaboliteIdSankeyOrder-${plotIndex}`);
         const tip = d3.select(`#metaboliteIdSnapshotSankeyTip-${plotIndex}`);
         let sankeySnapshotOrder = snapshotOrderFromPayload();
+        const sankeyStageColor = d3.scaleOrdinal()
+            .domain(sankeySnapshotOrder.map((snapshot) => snapshot.key))
+            .range(d3.schemeTableau10);
         let selectedSankeyNodeId = null;
         let draggedSankeySnapshotKey = null;
 
@@ -594,7 +599,6 @@
             .nodeAlign((node) => node.stageIndex)
             .extent([[margin.left, margin.top], [width - margin.right, height - margin.bottom]]);
         sankey(graph);
-        const color = d3.scaleOrdinal(d3.schemeTableau10);
         const showTip = (event, html) => {
             tip.html(html).style("opacity", 1);
             const box = tip.node().getBoundingClientRect();
@@ -612,7 +616,7 @@
             .data(graph.links)
             .join("path")
             .attr("d", d3.sankeyLinkHorizontal())
-            .attr("stroke", (link) => link.source.is_singleton_bucket || link.target.is_singleton_bucket ? "#94a3b8" : color(link.source.snapshot_key))
+            .attr("stroke", (link) => link.source.is_singleton_bucket || link.target.is_singleton_bucket ? "#94a3b8" : sankeyStageColor(link.source.snapshot_key))
             .attr("stroke-width", (link) => Math.max(1, link.width))
             .attr("stroke-opacity", 0.62)
             .on("mousemove", (event, link) => showTip(event,
@@ -628,7 +632,7 @@
             .attr("height", (node) => Math.max(1, node.y1 - node.y0))
             .attr("width", (node) => node.x1 - node.x0)
             .attr("rx", 3)
-            .attr("fill", (node) => node.is_singleton_bucket ? "#94a3b8" : color(node.snapshot_key))
+            .attr("fill", (node) => node.is_singleton_bucket ? "#94a3b8" : sankeyStageColor(node.snapshot_key))
             .attr("stroke", (node) => node.id === selectedSankeyNodeId ? "#f59e0b" : "rgba(15, 23, 42, 0.35)")
             .attr("stroke-width", (node) => node.id === selectedSankeyNodeId ? 3 : 1)
             .style("cursor", "pointer")
@@ -676,11 +680,13 @@
             item.innerHTML = `
                 <label>
                     <input type="checkbox" ${snapshot.visible === false ? "" : "checked"} aria-label="Show ${escapeHtml(snapshot.name)} in Sankey">
-                    <span></span>
+                    <span class="metabolite-id-sankey-stage-swatch" aria-hidden="true"></span>
+                    <span class="metabolite-id-sankey-stage-name"></span>
                 </label>
                 <small></small>
             `;
-            item.querySelector("span").textContent = snapshot.name;
+            item.querySelector(".metabolite-id-sankey-stage-swatch").style.backgroundColor = sankeyStageColor(snapshot.key);
+            item.querySelector(".metabolite-id-sankey-stage-name").textContent = snapshot.name;
             item.querySelector("small").textContent = snapshot.key;
             orderContainer.appendChild(item);
         });

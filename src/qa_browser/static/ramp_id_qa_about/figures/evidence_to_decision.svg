@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="850" height="425" viewBox="0 0 1700 850" role="img" aria-labelledby="title desc">
-  <title id="title">Durable evidence and revisable harmonization decisions</title>
-  <desc id="desc">Three source metabolite identifiers carry mapping, pathway, and reaction evidence. A revisable rule accepts one mapping and rejects another, producing two clique nodes linked to their source identifier members, which remain linked to their original biological payload.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1250" height="425" viewBox="0 0 2500 850" role="img" aria-labelledby="title desc">
+  <title id="title">Durable evidence, revisable harmonization decisions, and materialized lineage</title>
+  <desc id="desc">Three source metabolite identifiers carry mapping, pathway, and reaction evidence. In the revisable decision layer, a curation explicitly ignores the mapping between HMDB ID A and KEGG ID C. Dotted boundaries show HMDB ID A and ChEBI ID B grouped in one clique while KEGG ID C remains in another. The materialized result links each clique to its source identifier members and preserves their pathway and reaction relationships.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
     <marker id="teal-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#0f766e"/></marker>
@@ -19,7 +19,7 @@
   <text x="555" y="240" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#92400e">CHEBI:</text>
   <text x="555" y="270" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#b45309">ID_B</text>
   <circle cx="555" cy="510" r="82" fill="#ede9fe" stroke="#7c3aed" stroke-width="4"/>
-  <text x="555" y="500" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#5b21b6">REFMET:</text>
+  <text x="555" y="500" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#5b21b6">KEGG:</text>
   <text x="555" y="530" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#6d28d9">ID_C</text>
 
   <line x1="359" y1="307" x2="476" y2="273" stroke="#0f766e" stroke-width="6"/>
@@ -41,7 +41,7 @@
 
   <rect x="530" y="650" width="215" height="82" rx="15" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
   <text x="638" y="683" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#3f6212">Pathway β</text>
-  <text x="638" y="710" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#4d7c0f">reported for REFMET:ID_C</text>
+  <text x="638" y="710" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#4d7c0f">reported for KEGG:ID_C</text>
   <line x1="607" y1="650" x2="577" y2="590" stroke="#65a30d" stroke-width="4" marker-end="url(#arrow)"/>
 
   <rect x="75" y="690" width="375" height="67" rx="15" fill="#ecfeff" stroke="#14b8a6" stroke-width="2"/>
@@ -55,52 +55,84 @@
   <text x="930" y="117" font-family="Inter, Arial, sans-serif" font-size="19" fill="#64748b">Rules produce clique outputs while retaining source-ID links.</text>
 
   <text x="930" y="151" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#5b21b6">RULE PROFILE</text>
-  <rect x="930" y="158" width="205" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
-  <text x="1032" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Ignore generic structures</text>
-  <line x1="1139" y1="179" x2="1161" y2="179" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
-  <rect x="1167" y="158" width="190" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
-  <text x="1262" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Apply curations</text>
-  <line x1="1361" y1="179" x2="1383" y2="179" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
-  <rect x="1389" y="158" width="231" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
-  <text x="1504" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Clean up</text>
+  <rect x="930" y="158" width="260" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1060" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Ignore generic/non-generic edges</text>
+  <line x1="1194" y1="179" x2="1210" y2="179" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="1216" y="158" width="175" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1303" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Apply curations</text>
+  <line x1="1395" y1="179" x2="1411" y2="179" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="1417" y="158" width="203" height="42" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1518" y="185" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#5b21b6">Clean up</text>
 
-  <text x="1015" y="230" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">CLIQUE OUTPUT</text>
-  <text x="1240" y="230" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">SOURCE-ID MEMBERS</text>
-  <text x="1520" y="230" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">SOURCE PAYLOAD</text>
+  <rect x="995" y="210" width="490" height="265" rx="105" fill="#f5f3ff" fill-opacity="0.45" stroke="#7c3aed" stroke-width="4" stroke-dasharray="11 9"/>
+  <text x="1035" y="245" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800" letter-spacing="1" fill="#5b21b6">CLIQUE 1 · RAMP_C…01</text>
+  <circle cx="1390" cy="610" r="105" fill="#f5f3ff" fill-opacity="0.45" stroke="#7c3aed" stroke-width="4" stroke-dasharray="11 9"/>
 
-  <circle cx="1015" cy="340" r="88" fill="#e2e8f0" stroke="#64748b" stroke-width="4"/>
-  <text x="1015" y="323" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#334155">Clique 1</text>
-  <text x="1015" y="355" text-anchor="middle" font-family="ui-monospace, monospace" font-size="17" fill="#475569">RAMP_C…01</text>
-  <text x="1015" y="383" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">2 members</text>
-  <circle cx="1015" cy="610" r="80" fill="#e2e8f0" stroke="#64748b" stroke-width="4"/>
-  <text x="1015" y="595" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#334155">Clique 2</text>
-  <text x="1015" y="627" text-anchor="middle" font-family="ui-monospace, monospace" font-size="17" fill="#475569">RAMP_C…02</text>
-  <text x="1015" y="654" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">1 member</text>
+  <line x1="1194" y1="357" x2="1311" y2="323" stroke="#0f766e" stroke-width="6"/>
+  <line x1="1188" y1="424" x2="1322" y2="566" stroke="#0f766e" stroke-width="6" opacity="0.48"/>
+  <rect x="1190" y="314" width="133" height="34" rx="17" fill="#ccfbf1"/>
+  <text x="1257" y="337" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#115e59">maps_to</text>
 
-  <circle cx="1240" cy="279" r="45" fill="#e0f2fe" stroke="#0284c7" stroke-width="3"/>
-  <text x="1240" y="273" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#075985">HMDB:</text>
-  <text x="1240" y="294" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#0369a1">ID_A</text>
-  <circle cx="1240" cy="369" r="45" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
-  <text x="1240" y="363" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#92400e">CHEBI:</text>
-  <text x="1240" y="384" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#b45309">ID_B</text>
-  <circle cx="1240" cy="609" r="45" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
-  <text x="1240" y="603" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#5b21b6">REFMET:</text>
-  <text x="1240" y="624" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#6d28d9">ID_C</text>
+  <circle cx="1115" cy="380" r="82" fill="#e0f2fe" stroke="#0284c7" stroke-width="4"/>
+  <text x="1115" y="370" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#075985">HMDB:</text>
+  <text x="1115" y="400" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#0369a1">ID_A</text>
+  <circle cx="1390" cy="300" r="82" fill="#fef3c7" stroke="#d97706" stroke-width="4"/>
+  <text x="1390" y="290" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#92400e">CHEBI:</text>
+  <text x="1390" y="320" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#b45309">ID_B</text>
+  <circle cx="1390" cy="610" r="82" fill="#ede9fe" stroke="#7c3aed" stroke-width="4"/>
+  <text x="1390" y="600" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" font-weight="700" fill="#5b21b6">KEGG:</text>
+  <text x="1390" y="630" text-anchor="middle" font-family="ui-monospace, monospace" font-size="18" fill="#6d28d9">ID_C</text>
 
-  <line x1="1100" y1="316" x2="1192" y2="288" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
-  <line x1="1103" y1="357" x2="1192" y2="367" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
-  <line x1="1095" y1="610" x2="1187" y2="609" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
-  <text x="1125" y="252" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#64748b">has member</text>
+  <line x1="1224" y1="461" x2="1248" y2="485" stroke="#dc2626" stroke-width="8" stroke-linecap="round"/>
+  <line x1="1248" y1="461" x2="1224" y2="485" stroke="#dc2626" stroke-width="8" stroke-linecap="round"/>
+  <line x1="1218" y1="515" x2="1232" y2="490" stroke="#dc2626" stroke-width="3"/>
+  <rect x="975" y="510" width="250" height="42" rx="21" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+  <text x="1100" y="537" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="800" fill="#991b1b">Curation: ignore edge</text>
+  <text x="1390" y="755" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800" letter-spacing="1" fill="#5b21b6">CLIQUE 2 · RAMP_C…02</text>
 
-  <rect x="1435" y="246" width="185" height="66" rx="14" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
-  <text x="1527" y="286" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#3f6212">Pathway α</text>
-  <rect x="1435" y="336" width="185" height="66" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
-  <text x="1527" y="376" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#991b1b">Reaction 101</text>
-  <rect x="1435" y="576" width="185" height="66" rx="14" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
-  <text x="1527" y="616" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#3f6212">Pathway β</text>
-  <line x1="1285" y1="279" x2="1427" y2="279" stroke="#65a30d" stroke-width="4" marker-end="url(#arrow)"/>
-  <line x1="1285" y1="369" x2="1427" y2="369" stroke="#dc2626" stroke-width="4" marker-end="url(#arrow)"/>
-  <line x1="1285" y1="609" x2="1427" y2="609" stroke="#65a30d" stroke-width="4" marker-end="url(#arrow)"/>
-  <text x="1379" y="259" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#64748b">source assertion</text>
+  <line x1="1665" y1="420" x2="1715" y2="420" stroke="#64748b" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="1720" y="30" width="745" height="785" rx="28" fill="#ffffff" stroke="#64748b" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1760" y="83" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#334155">Materialized result</text>
+  <text x="1760" y="117" font-family="Inter, Arial, sans-serif" font-size="19" fill="#64748b">Clique outputs retain lineage to source IDs and their biological payload.</text>
+
+  <text x="1845" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">CLIQUE OUTPUT</text>
+  <text x="2070" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">SOURCE-ID MEMBERS</text>
+  <text x="2330" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#64748b">SOURCE PAYLOAD</text>
+
+  <circle cx="1845" cy="340" r="88" fill="#e2e8f0" stroke="#64748b" stroke-width="4"/>
+  <text x="1845" y="323" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#334155">Clique 1</text>
+  <text x="1845" y="355" text-anchor="middle" font-family="ui-monospace, monospace" font-size="17" fill="#475569">RAMP_C…01</text>
+  <text x="1845" y="383" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">2 members</text>
+  <circle cx="1845" cy="610" r="80" fill="#e2e8f0" stroke="#64748b" stroke-width="4"/>
+  <text x="1845" y="595" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#334155">Clique 2</text>
+  <text x="1845" y="627" text-anchor="middle" font-family="ui-monospace, monospace" font-size="17" fill="#475569">RAMP_C…02</text>
+  <text x="1845" y="654" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">1 member</text>
+
+  <circle cx="2070" cy="279" r="45" fill="#e0f2fe" stroke="#0284c7" stroke-width="3"/>
+  <text x="2070" y="273" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#075985">HMDB:</text>
+  <text x="2070" y="294" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#0369a1">ID_A</text>
+  <circle cx="2070" cy="369" r="45" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
+  <text x="2070" y="363" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#92400e">CHEBI:</text>
+  <text x="2070" y="384" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#b45309">ID_B</text>
+  <circle cx="2070" cy="609" r="45" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
+  <text x="2070" y="603" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" font-weight="700" fill="#5b21b6">KEGG:</text>
+  <text x="2070" y="624" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#6d28d9">ID_C</text>
+
+  <line x1="1930" y1="316" x2="2022" y2="288" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="1933" y1="357" x2="2022" y2="367" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="1925" y1="610" x2="2017" y2="609" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="1955" y="252" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#64748b">has member</text>
+
+  <rect x="2235" y="246" width="185" height="66" rx="14" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
+  <text x="2327" y="286" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#3f6212">Pathway α</text>
+  <rect x="2235" y="336" width="185" height="66" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
+  <text x="2327" y="376" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#991b1b">Reaction 101</text>
+  <rect x="2235" y="576" width="185" height="66" rx="14" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
+  <text x="2327" y="616" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#3f6212">Pathway β</text>
+  <line x1="2115" y1="279" x2="2227" y2="279" stroke="#65a30d" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="2115" y1="369" x2="2227" y2="369" stroke="#dc2626" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="2115" y1="609" x2="2227" y2="609" stroke="#65a30d" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="2185" y="259" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#64748b">source assertion</text>
 
 </svg>

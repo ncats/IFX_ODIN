@@ -61,7 +61,7 @@
             <h2>Expected-Clique Assertions</h2>
             <p>
                 {{ stats.expected_clique_assertions.pass_count }} pass ·
-                {{ stats.expected_clique_assertions.split_count }} split ·
+                {{ stats.expected_clique_assertions.split_count }} fail ·
                 {{ stats.expected_clique_assertions.missing_count }} missing
             </p>
         </div>
@@ -88,7 +88,7 @@
                 <tbody>
                 {% for assertion in stats.expected_clique_assertions.results %}
                 <tr>
-                    <td><span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.status }}">{{ assertion.status }}</span></td>
+                    <td><span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.status }}">{{ "Fail" if assertion.status == "split" else assertion.status|title }}</span></td>
                     <td>
                         <strong>{{ assertion.name }}</strong>
                         <div class="mono">{{ assertion.member_ids|join(" ") }}</div>

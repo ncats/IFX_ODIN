@@ -60,6 +60,9 @@
                         <strong>{{ loop.index }}. {{ rule.label }} — running</strong>
                         {% else %}
                         {{ loop.index }}. {{ rule.label }}
+                        {% if pipeline.sync_from_stage_index and loop.index >= pipeline.sync_from_stage_index %}
+                        <span class="metabolite-id-step-sync-needed">rebuild</span>
+                        {% endif %}
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -69,7 +72,7 @@
                 </td>
                 <td>
                     {% if latest_run %}
-                    <strong>{{ latest_run.status }}</strong>
+                    <strong>{{ "Cleaning up old snapshots" if latest_run.status == "cleaning_up" else latest_run.status }}</strong>
                     <div>{{ latest_run.created_at }}</div>
                     {% if latest_run.elapsed_seconds %}<div>{{ latest_run.elapsed_seconds }}s</div>{% endif %}
                     {% else %}
@@ -83,7 +86,9 @@
                             <span>
                                 <strong>{{ job.status }}</strong>
                                 {{ job.label }}
-                                {% if job.active_stage_text %}<span>Working on {{ job.active_stage_text }}</span>{% endif %}
+                                {% if job.active_stage_text %}
+                                <span>{% if job.active_stage_text == "Cleaning up old snapshots" %}{{ job.active_stage_text }}{% else %}Working on {{ job.active_stage_text }}{% endif %}</span>
+                                {% endif %}
                                 {% if job.started_at and job.status in ["queued", "running"] %}<span>Started {{ job.started_at }}</span>{% endif %}
                                 {% if job.message %}<span>{{ job.message }}</span>{% endif %}
                                 {% if job.error %}<span>{{ job.error }}</span>{% endif %}
