@@ -49,6 +49,17 @@ def edge_retention(left="CHEBI:1", right="HMDB:1"):
     }
 
 
+def expected_clique(name="Glucose anomers", rationale="Expected together"):
+    return {
+        "action": "assert_same_clique",
+        "assertion_id": "same-clique-1234567890abcdef12345678",
+        "assertion_type": "expected_same_clique",
+        "member_ids": ["CHEBI:15903", "CHEBI:17925"],
+        "name": name,
+        "rationale": rationale,
+    }
+
+
 def test_cart_autosaves_and_reloads_one_draft_per_curator_and_graph():
     storage = FakeStorage()
 
@@ -103,6 +114,22 @@ def test_new_edge_decision_replaces_opposite_decision_in_draft_cart():
 
     assert cart["operation_count"] == 1
     assert cart["operations"][0]["action"] == "retain_edge"
+
+
+def test_new_assertion_decision_replaces_same_assertion_in_draft_cart():
+    storage = FakeStorage()
+    add_cart_operation(storage, "metabolite_harmonization", "keith", "Keith", expected_clique())
+
+    cart = add_cart_operation(
+        storage,
+        "metabolite_harmonization",
+        "keith",
+        "Keith",
+        expected_clique(name="Glucose forms", rationale="Updated rationale"),
+    )
+
+    assert cart["operation_count"] == 1
+    assert cart["operations"][0]["name"] == "Glucose forms"
 
 
 def test_removing_last_item_deletes_persisted_draft():

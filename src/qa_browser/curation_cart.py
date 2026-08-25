@@ -64,8 +64,11 @@ def _write_json(storage, key: str, payload: dict) -> None:
     )
 
 
-def _edge_decision_subject(operation: dict) -> Optional[tuple[str, str, str]]:
+def _operation_subject(operation: dict) -> Optional[tuple[str, ...]]:
     if operation.get("action") not in {"remove_edge", "retain_edge"}:
+        if operation.get("action") in {"assert_same_clique", "retire_assertion"}:
+            assertion_id = str(operation.get("assertion_id") or "").strip()
+            return ("expected_clique_assertion", assertion_id) if assertion_id else None
         return None
     edge_type = str(operation.get("edge_type") or "").strip()
     start_id = str(operation.get("start_id") or "").strip()
@@ -73,7 +76,7 @@ def _edge_decision_subject(operation: dict) -> Optional[tuple[str, str, str]]:
     if not edge_type or not start_id or not end_id:
         return None
     left, right = sorted((start_id, end_id))
-    return edge_type, left, right
+    return "edge_decision", edge_type, left, right
 
 
 def empty_cart(graph: str, curator_id: str, curator_name: str) -> dict:
@@ -114,22 +117,18 @@ def add_cart_operation(
         operation_payload.pop("operation_id", None)
         operation_payload.pop("added_at", None)
         operation_payload.pop("added_by", None)
-        identity_payload = {
-            key: operation_payload.get(key)
-            for key in ("action", "edge_type", "start_id", "end_id", "symmetric")
-            if key in operation_payload
-        }
+        identity_payload = operation_payload
         operation_id = hashlib.sha256(
             json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:24]
         operations = cart.setdefault("operations", [])
         if not any(item.get("operation_id") == operation_id for item in operations):
-            decision_subject = _edge_decision_subject(operation_payload)
-            if decision_subject is not None:
+            operation_subject = _operation_subject(operation_payload)
+            if operation_subject is not None:
                 operations[:] = [
                     item
                     for item in operations
-                    if _edge_decision_subject(item) != decision_subject
+                    if _operation_subject(item) != operation_subject
                 ]
             operations.append({
                 **operation_payload,

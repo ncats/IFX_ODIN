@@ -27,6 +27,7 @@
                 <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
                 <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
+                <div class="metabolite-id-stage-stats-grid-header">Assertions</div>
                 <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
                 <div class="metabolite-id-stage-stats-grid-header">Largest</div>
                 {% for stage in pipeline_stats.stages %}
@@ -70,6 +71,16 @@
                     {% endif %}
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
+                    {% if stage_summary.assertion_count|default(0, true) %}
+                    <span class="metabolite-assertion-pass-summary {% if stage_summary.assertion_failure_count %}has-failures{% else %}all-pass{% endif %}"
+                          {% if stage_summary.assertion_fallback_enabled %}title="This stage used synthetic assertion edges; see stage details."{% endif %}>
+                        {{ stage_summary.assertion_pass_count }} / {{ stage_summary.assertion_count }} pass
+                    </span>
+                    {% else %}
+                    <span>None</span>
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
                     <div class="metabolite-id-stage-size-bins">
                         <span>2: {{ "{:,}".format(bins.size_2|default(0, true)) }}</span>
                         <span>3-5: {{ "{:,}".format(bins.size_3_5|default(0, true)) }}</span>
@@ -89,6 +100,54 @@
                 {% endfor %}
             </div>
         </div>
+        {% set assertion_matrix = pipeline_stats.expected_clique_assertions %}
+        <div class="ramp-id-section-header">
+            <h4>Expected-Clique Assertions</h4>
+            <p>{{ assertion_matrix.assertion_count }} published assertion{{ "" if assertion_matrix.assertion_count == 1 else "s" }}</p>
+        </div>
+        {% if assertion_matrix.rows %}
+        <div class="table-wrap">
+            <table class="metabolite-assertion-matrix">
+                <thead>
+                <tr>
+                    <th>Assertion</th>
+                    {% for stage in assertion_matrix.stages %}<th>{{ stage.display_label }}</th>{% endfor %}
+                    <th>First Failure</th>
+                    <th>Final</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for assertion in assertion_matrix.rows %}
+                <tr>
+                    <td>
+                        <strong>{{ assertion.name }}</strong>
+                        <div class="mono">{{ assertion.member_ids|join(" ") }}</div>
+                        {% if assertion.rationale %}<small>{{ assertion.rationale }}</small>{% endif %}
+                        <div><button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Add retirement to cart</button></div>
+                    </td>
+                    {% for result in assertion.stage_results %}
+                    <td>
+                        <a href="{{ root_path }}/ramp-id-qa?id={{ assertion.member_ids|join(' ')|urlencode }}&stages={{ result.stage_key|urlencode }}" target="_blank" rel="noopener">
+                            <span class="metabolite-assertion-status metabolite-assertion-status-{{ result.status }}">{{ result.status }}</span>
+                        </a>
+                    </td>
+                    {% endfor %}
+                    <td>
+                        {% if assertion.first_failure %}
+                        {{ assertion.first_failure.display_label }}
+                        {% else %}
+                        None
+                        {% endif %}
+                    </td>
+                    <td>{% if assertion.final_status %}<span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.final_status }}">{{ assertion.final_status }}</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No published expected-clique assertions. Add one through the curation cart.</p>
+        {% endif %}
     </section>
     {% else %}
     <p>No materialized stages yet.</p>

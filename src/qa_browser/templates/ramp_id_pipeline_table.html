@@ -42,7 +42,13 @@
                     {% endif %}
                     {% if pipeline.needs_curation_sync %}
                     <div class="metabolite-id-curation-sync-warning">
-                        Curation batches changed. Sync to replace affected snapshots; earlier unaffected snapshots will be reused.
+                        {% if pipeline.edge_curations_changed and pipeline.assertion_curations_changed %}
+                        Curations and assertions have changed: Sync to rebuild
+                        {% elif pipeline.assertion_curations_changed %}
+                        Assertions have changed: Sync to rebuild
+                        {% else %}
+                        Curations have changed: Sync to rebuild
+                        {% endif %}
                     </div>
                     {% endif %}
                 </td>
@@ -93,6 +99,8 @@
                         <button type="button" class="btn btn-secondary" disabled>Deleting...</button>
                         {% elif run_active %}
                         <button type="button" class="btn btn-primary" disabled>Running...</button>
+                        {% elif not pipeline.run_action_enabled %}
+                        <button type="button" class="btn btn-secondary" disabled>{{ pipeline.run_button_label }}</button>
                         {% else %}
                         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/run">
                             <button type="submit" class="btn btn-primary">{{ pipeline.run_button_label }}</button>
