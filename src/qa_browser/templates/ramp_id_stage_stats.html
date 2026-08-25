@@ -44,6 +44,90 @@
         </dl>
     </section>
 
+    {% if "force_expected_clique_assertions" in stats.stage.rule_ids %}
+    <div class="registry-update-error">
+        <strong>Fallback merge rule active.</strong>
+        “Give up: Make Assertions True” added {{ stats.summary.expected_clique_synthetic_edge_count|default(0, true) }} synthetic edge{{ "" if stats.summary.expected_clique_synthetic_edge_count|default(0, true) == 1 else "s" }}
+        for {{ stats.summary.expected_clique_assertion_applied_count|default(0, true) }} assertion{{ "" if stats.summary.expected_clique_assertion_applied_count|default(0, true) == 1 else "s" }}.
+        Passing assertions at this stage may therefore be forced rather than explained by chemistry-based rules.
+        {% if stats.summary.expected_clique_assertion_skipped_count|default(0, true) %}
+        {{ stats.summary.expected_clique_assertion_skipped_count }} assertion{{ "" if stats.summary.expected_clique_assertion_skipped_count == 1 else "s" }} could not be forced because an ID was inactive.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Expected-Clique Assertions</h2>
+            <p>
+                {{ stats.expected_clique_assertions.pass_count }} pass ·
+                {{ stats.expected_clique_assertions.split_count }} split ·
+                {{ stats.expected_clique_assertions.missing_count }} missing
+            </p>
+        </div>
+        <p>
+            Published expert expectations evaluated against this materialized stage.
+            {% if "force_expected_clique_assertions" in stats.stage.rule_ids %}
+            This stage includes explicitly synthetic assertion edges.
+            {% else %}
+            These assertions do not change clique membership.
+            {% endif %}
+        </p>
+        {% if stats.expected_clique_assertions.results %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Assertion</th>
+                    <th>Stage Result</th>
+                    <th>Published</th>
+                    <th>Review</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for assertion in stats.expected_clique_assertions.results %}
+                <tr>
+                    <td><span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.status }}">{{ assertion.status }}</span></td>
+                    <td>
+                        <strong>{{ assertion.name }}</strong>
+                        <div class="mono">{{ assertion.member_ids|join(" ") }}</div>
+                        {% if assertion.rationale %}<small>{{ assertion.rationale }}</small>{% endif %}
+                    </td>
+                    <td>
+                        {% if assertion.missing_member_ids %}
+                        <div>Missing or inactive: <span class="mono">{{ assertion.missing_member_ids|join(" ") }}</span></div>
+                        {% endif %}
+                        {% if assertion.partitions %}
+                        <div class="metabolite-assertion-partitions">
+                            {% for partition in assertion.partitions %}
+                            <span>
+                                {% if partition.clique_id %}Clique {{ partition.rank_by_size }} ({{ partition.clique_size }} IDs){% else %}Singleton{% endif %}:
+                                <span class="mono">{{ partition.member_ids|join(" ") }}</span>
+                            </span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if assertion.published_by %}{{ assertion.published_by.name|default(assertion.published_by.id, true) }}{% endif %}
+                        {% if assertion.published_at %}<div>{{ assertion.published_at }}</div>{% endif %}
+                        <div class="mono">{{ assertion.curation_batch_id }}</div>
+                    </td>
+                    <td>
+                        <a class="btn btn-secondary btn-sm" href="{{ root_path }}/ramp-id-qa?{{ assertion.inspection_query }}" target="_blank" rel="noopener">Inspect IDs</a>
+                        <button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Add retirement to cart</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No published expected-clique assertions.</p>
+        {% endif %}
+    </section>
+
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>MW Validation</h2>

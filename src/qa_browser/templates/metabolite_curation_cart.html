@@ -19,6 +19,25 @@
             <div class="metabolite-curation-cart-status" data-curation-cart-status role="status" aria-live="polite">
                 Enter your curator identity to load your saved cart.
             </div>
+            <details class="metabolite-assertion-authoring">
+                <summary>Add expected-clique assertion</summary>
+                <div class="metabolite-assertion-authoring-fields">
+                    <label>
+                        <span>Name</span>
+                        <input data-assertion-name placeholder="Alpha and beta D-glucose">
+                    </label>
+                    <label>
+                        <span>Metabolite IDs</span>
+                        <textarea data-assertion-member-ids rows="3" placeholder="CHEBI:15903 CHEBI:17925"></textarea>
+                    </label>
+                    <label>
+                        <span>Rationale (optional)</span>
+                        <textarea data-assertion-rationale rows="2" placeholder="These anomers should resolve to one RaMP metabolite."></textarea>
+                    </label>
+                    <button type="button" class="btn" data-assertion-add>Add assertion to cart</button>
+                    <small>Assertions report pass, split, or missing at each stage. They do not change the graph.</small>
+                </div>
+            </details>
             <div data-curation-cart-items class="metabolite-curation-cart-items"></div>
             <div class="metabolite-curation-publish-form">
                 <label>

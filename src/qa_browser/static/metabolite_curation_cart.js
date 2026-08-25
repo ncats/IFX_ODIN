@@ -12,6 +12,10 @@
     const publish = container.querySelector("[data-curation-publish]");
     const batchName = container.querySelector("[data-curation-batch-name]");
     const batchDescription = container.querySelector("[data-curation-batch-description]");
+    const assertionName = container.querySelector("[data-assertion-name]");
+    const assertionMemberIds = container.querySelector("[data-assertion-member-ids]");
+    const assertionRationale = container.querySelector("[data-assertion-rationale]");
+    const assertionAdd = container.querySelector("[data-assertion-add]");
     const identityStorageKey = "metaboliteHarmonizationCurator";
     let cart = {operations: [], operation_count: 0};
     let loadTimer = null;
@@ -60,15 +64,26 @@
         });
         publish.disabled = operations.length === 0;
         if (!operations.length) {
-            items.innerHTML = '<p class="metabolite-curation-cart-empty">Your cart is empty. Select an equivalence edge and add it here.</p>';
+            items.innerHTML = '<p class="metabolite-curation-cart-empty">Your cart is empty. Add an edge decision or expected-clique assertion.</p>';
             return;
         }
         items.innerHTML = operations.map((operation) => `
             <article class="metabolite-curation-cart-item">
                 <div>
-                    <strong>${operation.action === "retain_edge" ? "Retain equivalence edge" : "Remove equivalence edge"}</strong>
-                    <span><code>${escapeHtml(operation.start_id)}</code> ↔ <code>${escapeHtml(operation.end_id)}</code></span>
-                    ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ${operation.action === "assert_same_clique" ? `
+                        <strong>Expected same clique: ${escapeHtml(operation.name)}</strong>
+                        <span class="metabolite-curation-member-ids">${(operation.member_ids || []).map((id) => `<code>${escapeHtml(id)}</code>`).join(" ")}</span>
+                        ${operation.rationale ? `<small>${escapeHtml(operation.rationale)}</small>` : ""}
+                        ${(operation.missing_member_ids_at_add_time || []).length ? `<small class="metabolite-assertion-warning">Not currently found: ${operation.missing_member_ids_at_add_time.map(escapeHtml).join(", ")}</small>` : ""}
+                    ` : operation.action === "retire_assertion" ? `
+                        <strong>Retire expected-clique assertion</strong>
+                        <span><code>${escapeHtml(operation.assertion_id)}</code></span>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : `
+                        <strong>${operation.action === "retain_edge" ? "Retain equivalence edge" : "Remove equivalence edge"}</strong>
+                        <span><code>${escapeHtml(operation.start_id)}</code> ↔ <code>${escapeHtml(operation.end_id)}</code></span>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    `}
                 </div>
                 <button type="button" class="btn" data-curation-remove-id="${escapeHtml(operation.operation_id)}">Remove</button>
             </article>
@@ -143,8 +158,60 @@
                 method: "POST",
                 body: JSON.stringify({...identityPayload(), action, start_id: startId, end_id: endId}),
             }));
-            drawer.hidden = false;
             status.textContent = "Added and autosaved. This draft is not active until you publish it.";
+        } catch (error) {
+            status.textContent = error.message;
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    async function addExpectedCliqueAssertion() {
+        openCart();
+        if (!curatorInput.value.trim()) {
+            status.textContent = "Enter your curator name or email before adding an assertion.";
+            curatorInput.focus();
+            return;
+        }
+        status.textContent = "Saving expected-clique assertion to your cart…";
+        assertionAdd.disabled = true;
+        try {
+            acceptCart(await api("/ramp-id-qa/api/curation-cart/items", {
+                method: "POST",
+                body: JSON.stringify({
+                    ...identityPayload(),
+                    action: "assert_same_clique",
+                    name: assertionName.value.trim(),
+                    member_ids: assertionMemberIds.value,
+                    rationale: assertionRationale.value.trim(),
+                }),
+            }));
+            assertionName.value = "";
+            assertionMemberIds.value = "";
+            assertionRationale.value = "";
+            status.textContent = "Assertion added and autosaved. It will be evaluated after publication.";
+        } catch (error) {
+            status.textContent = error.message;
+        } finally {
+            assertionAdd.disabled = false;
+        }
+    }
+
+    async function addAssertionRetirement(assertionId, button) {
+        openCart();
+        if (!curatorInput.value.trim()) {
+            status.textContent = "Enter your curator name or email before retiring an assertion.";
+            curatorInput.focus();
+            return;
+        }
+        status.textContent = "Adding assertion retirement to your cart…";
+        if (button) button.disabled = true;
+        try {
+            acceptCart(await api("/ramp-id-qa/api/curation-cart/items", {
+                method: "POST",
+                body: JSON.stringify({...identityPayload(), action: "retire_assertion", assertion_id: assertionId}),
+            }));
+            status.textContent = "Retirement added and autosaved. The assertion remains active until publication.";
         } catch (error) {
             status.textContent = error.message;
         } finally {
@@ -166,6 +233,7 @@
         else openCart();
     });
     close.addEventListener("click", closeCart);
+    assertionAdd.addEventListener("click", addExpectedCliqueAssertion);
     window.closeMetaboliteCurationCart = closeCart;
 
     document.addEventListener("click", (event) => {
@@ -178,6 +246,12 @@
                 addButton.dataset.curationEndId,
                 addButton,
             );
+            return;
+        }
+        const retireButton = event.target.closest("[data-assertion-retire-add]");
+        if (retireButton) {
+            event.preventDefault();
+            addAssertionRetirement(retireButton.dataset.assertionRetireAdd, retireButton);
             return;
         }
         const removeButton = event.target.closest("[data-curation-remove-id]");
@@ -199,6 +273,7 @@
     });
 
     publish.addEventListener("click", async () => {
+        const publishedOperations = [...(cart.operations || [])];
         status.textContent = "Publishing immutable curation batch…";
         publish.disabled = true;
         try {
@@ -219,7 +294,10 @@
             batchName.value = "";
             batchDescription.value = "";
             defaultBatchName();
-            status.textContent = `Published ${result.operation_count} curation${result.operation_count === 1 ? "" : "s"}. Pipelines can now sync this batch.`;
+            const hasGraphChanges = publishedOperations.some((operation) => ["remove_edge", "retain_edge"].includes(operation.action));
+            status.textContent = hasGraphChanges
+                ? `Published ${result.operation_count} item${result.operation_count === 1 ? "" : "s"}. Sync affected pipelines to apply edge decisions.`
+                : `Published ${result.operation_count} assertion item${result.operation_count === 1 ? "" : "s"}. Validation views now use the new assertion set.`;
         } catch (error) {
             status.textContent = error.message;
             renderCart();
