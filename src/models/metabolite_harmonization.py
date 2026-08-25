@@ -29,6 +29,12 @@ class MetaboliteChemProps:
     isomeric_smiles: Optional[str] = None
     inchi_key_prefix: Optional[str] = None
     inchi_key: Optional[str] = None
+    derived_inchi_key_prefix: Optional[str] = None
+    derived_inchi_key: Optional[str] = None
+    derived_inchi_key_input_field: Optional[str] = None
+    derived_inchi_key_method: Optional[str] = None
+    derived_inchi_key_method_version: Optional[str] = None
+    derived_inchi_key_error: Optional[str] = None
     inchi: Optional[str] = None
     mw: Optional[str] = None
     monoisotopic_mass: Optional[str] = None
@@ -45,6 +51,12 @@ class MetaboliteChemProps:
             "isomeric_smiles": self.isomeric_smiles,
             "inchi_key_prefix": self.inchi_key_prefix,
             "inchi_key": self.inchi_key,
+            "derived_inchi_key_prefix": self.derived_inchi_key_prefix,
+            "derived_inchi_key": self.derived_inchi_key,
+            "derived_inchi_key_input_field": self.derived_inchi_key_input_field,
+            "derived_inchi_key_method": self.derived_inchi_key_method,
+            "derived_inchi_key_method_version": self.derived_inchi_key_method_version,
+            "derived_inchi_key_error": self.derived_inchi_key_error,
             "inchi": self.inchi,
             "mw": self.mw,
             "monoisotopic_mass": self.monoisotopic_mass,

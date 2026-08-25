@@ -27,7 +27,6 @@ from src.qa_browser.app import (
     _metabolite_mw_spread_percent,
     _annotate_harmonization_pipeline_run_progress,
     _normalize_metabolite_rule_parameters,
-    _remove_refmet_only_metabolites,
     _wikipathways_xref_only_ids_from_rows,
 )
 
@@ -43,6 +42,70 @@ class _FakeCurationStorage:
 
     def read_text(self, key):
         return self.objects[key]
+
+
+def test_derived_inchikey_iterator_selects_derived_fields():
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert "prop[@inchi_key_field]" in query
+            assert "prop[@inchi_key_prefix_field]" in query
+            assert bind_vars == {
+                "inchi_key_field": "derived_inchi_key",
+                "inchi_key_prefix_field": "derived_inchi_key_prefix",
+            }
+            return [{
+                "id": "CHEBI:1",
+                "inchi_keys": ["ABCDEFGHIJKLMN-ABCDEFGHIJ-N"],
+                "prefixes": ["ABCDEFGHIJKLMN"],
+                "masses": ["100"],
+            }]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    assert list(qa_app._iter_metabolite_identifier_inchi_key_matches(
+        FakeDb(),
+        "mw_cutoff",
+        500,
+        "derived",
+    )) == [
+        ("CHEBI:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0),
+    ]
+
+
+def test_derived_inchikey_rule_merges_without_changing_reported_rule(monkeypatch):
+    def fake_matches(_db, mode, mw_cutoff=None, key_kind="reported"):
+        assert mode == "mw_cutoff"
+        assert mw_cutoff == 500
+        if key_kind == "derived":
+            yield "CHEBI:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0
+            yield "HMDB:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0
+
+    monkeypatch.setattr(
+        qa_app,
+        "_iter_metabolite_identifier_inchi_key_matches",
+        fake_matches,
+    )
+
+    reported_groups, _ = qa_app._build_harmonized_groups(
+        object(),
+        {"CHEBI:1", "HMDB:1"},
+        [],
+        ["merge_inchikey_by_mw_cutoff"],
+        {"merge_inchikey_by_mw_cutoff": {"mw_cutoff": 500}},
+    )
+    derived_groups, summary = qa_app._build_harmonized_groups(
+        object(),
+        {"CHEBI:1", "HMDB:1"},
+        [],
+        ["merge_derived_inchikey_by_mw_cutoff"],
+        {"merge_derived_inchikey_by_mw_cutoff": {"mw_cutoff": 500}},
+    )
+
+    assert reported_groups == []
+    assert derived_groups == [["CHEBI:1", "HMDB:1"]]
+    assert summary["derived_inchi_key_mw_cutoff_identifier_count"] == 2
+    assert summary["derived_inchi_key_mw_cutoff_merge_count"] == 1
 
 
 def test_metabolite_curation_batch_extracts_symmetric_mapping_edge_removals():
@@ -375,13 +438,12 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         },
         {
             "_key": "unaffected",
-            "rule_ids": ["remove_refmet_only_metabolites"],
+            "rule_ids": ["merge_shared_inchikey_duplex"],
             "runs": [{"_key": "base-run", "status": "complete"}],
         },
         {
             "_key": "assertions-stale",
             "rule_ids": [
-                "remove_refmet_only_metabolites",
                 "force_expected_clique_assertions",
                 "remove_enrichment_only_metabolites",
             ],
@@ -424,7 +486,7 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
     assert pipelines[4]["edge_curations_changed"] is False
     assert pipelines[4]["assertion_curations_changed"] is True
     assert pipelines[1]["sync_from_stage_index"] == 1
-    assert pipelines[4]["sync_from_stage_index"] == 2
+    assert pipelines[4]["sync_from_stage_index"] == 1
     assert pipelines[2]["sync_from_stage_index"] is None
     assert [pipeline["run_action_enabled"] for pipeline in pipelines] == [
         True,
@@ -843,105 +905,6 @@ def test_filter_identifier_support_removes_only_wikipathways_from_ignored_xref_o
         "Wikidata:Q1": set(),
         "Wikidata:Q2": {"HMDB"},
         "CHEBI:1": {"WikiPathways"},
-    }
-
-
-def test_remove_refmet_only_metabolites_uses_node_level_support():
-    active_ids = {
-        "REFMET:RM1",
-        "CHEBI:1",
-        "PUBCHEM.COMPOUND:1",
-        "REFMET:RM2",
-        "CHEBI:2",
-        "HMDB:HMDB1",
-        "CHEBI:3",
-        "REFMET:RM3",
-    }
-    active_edges = [
-        {
-            "start_id": "REFMET:RM1",
-            "end_id": "CHEBI:1",
-            "sources": ["RefMet"],
-        },
-        {
-            "start_id": "CHEBI:1",
-            "end_id": "PUBCHEM.COMPOUND:1",
-            "sources": ["RefMet"],
-        },
-        {
-            "start_id": "REFMET:RM2",
-            "end_id": "CHEBI:2",
-            "sources": ["RefMet"],
-        },
-        {
-            "start_id": "CHEBI:2",
-            "end_id": "HMDB:HMDB1",
-            "sources": ["HMDB"],
-        },
-    ]
-    groups = [
-        ["CHEBI:1", "PUBCHEM.COMPOUND:1", "REFMET:RM1"],
-        ["CHEBI:2", "HMDB:HMDB1", "REFMET:RM2"],
-    ]
-    support_by_id = {
-        "REFMET:RM1": {"RefMet"},
-        "CHEBI:1": {"RefMet", "Reactome"},
-        "PUBCHEM.COMPOUND:1": {"RefMet", "PubChem"},
-        "REFMET:RM2": {"RefMet"},
-        "CHEBI:2": {"RefMet", "HMDB"},
-        "HMDB:HMDB1": {"HMDB"},
-        "CHEBI:3": {"RefMet"},
-        "REFMET:RM3": {"RefMet"},
-    }
-
-    filtered_ids, filtered_edges, filtered_groups, summary = _remove_refmet_only_metabolites(
-        active_ids,
-        active_edges,
-        groups,
-        support_by_id,
-    )
-
-    assert filtered_ids == active_ids - {"CHEBI:3", "REFMET:RM3"}
-    assert filtered_edges == active_edges
-    assert filtered_groups == groups
-    assert summary == {
-        "refmet_only_removed_metabolite_count": 2,
-        "refmet_only_removed_group_count": 0,
-        "refmet_only_removed_singleton_count": 2,
-        "refmet_only_removed_identifier_count": 2,
-        "refmet_only_removed_edge_count": 0,
-    }
-
-
-def test_remove_refmet_only_metabolites_removes_node_level_refmet_only_groups():
-    active_ids = {"REFMET:RM1", "CHEBI:1", "PUBCHEM.COMPOUND:1"}
-    active_edges = [
-        {"start_id": "REFMET:RM1", "end_id": "CHEBI:1", "sources": ["RefMet"]},
-        {"start_id": "CHEBI:1", "end_id": "PUBCHEM.COMPOUND:1", "sources": ["RefMet"]},
-    ]
-    groups = [["CHEBI:1", "PUBCHEM.COMPOUND:1", "REFMET:RM1"]]
-    support_by_id = {
-        "REFMET:RM1": {"RefMet\tsha256-example\t2026-06-30\t2026-06-30"},
-        "CHEBI:1": {"RefMet\tsha256-example\t2026-06-30\t2026-06-30"},
-        "PUBCHEM.COMPOUND:1": {"RefMet\tsha256-example\t2026-06-30\t2026-06-30"},
-    }
-
-    filtered_ids, filtered_edges, filtered_groups, summary = _remove_refmet_only_metabolites(
-        active_ids,
-        active_edges,
-        groups,
-        support_by_id,
-    )
-
-    assert filtered_ids == set()
-    assert filtered_edges == []
-    assert filtered_groups == []
-    assert summary == {
-        "refmet_only_removed_metabolite_count": 1,
-        "refmet_only_removed_group_count": 1,
-        "refmet_only_removed_singleton_count": 0,
-        "refmet_only_removed_identifier_count": 3,
-        "refmet_only_removed_edge_count": 2,
     }
 
 
