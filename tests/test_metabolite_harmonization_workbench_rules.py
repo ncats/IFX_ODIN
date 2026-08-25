@@ -380,7 +380,11 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         },
         {
             "_key": "assertions-stale",
-            "rule_ids": ["force_expected_clique_assertions", "remove_enrichment_only_metabolites"],
+            "rule_ids": [
+                "remove_refmet_only_metabolites",
+                "force_expected_clique_assertions",
+                "remove_enrichment_only_metabolites",
+            ],
             "runs": [{"_key": "assertion-run", "status": "complete", "assertion_fingerprint": "old"}],
         },
         {
@@ -392,6 +396,11 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
             "_key": "running",
             "rule_ids": [],
             "runs": [{"_key": "running-run", "status": "running"}],
+        },
+        {
+            "_key": "cleaning",
+            "rule_ids": [],
+            "runs": [{"_key": "cleaning-run", "status": "cleaning_up"}],
         },
     ]
 
@@ -405,6 +414,7 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         "Sync curations",
         "Retry failed pipeline",
         "Running...",
+        "Running...",
     ]
     assert pipelines[1]["needs_curation_sync"] is True
     assert pipelines[1]["edge_curations_changed"] is True
@@ -413,6 +423,9 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
     assert pipelines[4]["needs_curation_sync"] is True
     assert pipelines[4]["edge_curations_changed"] is False
     assert pipelines[4]["assertion_curations_changed"] is True
+    assert pipelines[1]["sync_from_stage_index"] == 1
+    assert pipelines[4]["sync_from_stage_index"] == 2
+    assert pipelines[2]["sync_from_stage_index"] is None
     assert [pipeline["run_action_enabled"] for pipeline in pipelines] == [
         True,
         True,
@@ -420,6 +433,7 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         False,
         True,
         True,
+        False,
         False,
     ]
 
@@ -460,7 +474,7 @@ def test_pipeline_run_progress_distinguishes_baseline_and_finalization():
         {
             "_key": "finalizing",
             "rules": [{"id": "rule-1", "label": "First rule"}],
-            "runs": [{"status": "running", "stage_keys": ["baseline", "stage-1"]}],
+            "runs": [{"status": "cleaning_up", "stage_keys": ["baseline", "stage-1"]}],
         },
     ]
 
@@ -468,7 +482,7 @@ def test_pipeline_run_progress_distinguishes_baseline_and_finalization():
 
     assert pipelines[0]["active_stage_text"] == "Baseline"
     assert pipelines[1]["active_stage_index"] is None
-    assert pipelines[1]["active_stage_text"] == "Finalizing snapshots and cleaning up"
+    assert pipelines[1]["active_stage_text"] == "Cleaning up old snapshots"
 
 
 def test_interrupted_stage_materialization_is_not_marked_complete(monkeypatch):
@@ -1142,6 +1156,87 @@ def test_denylist_review_selects_all_pairs_for_the_affected_clique():
         ],
     }
     assert _harmonization_denylist_review_from_stage(stage, 3) is None
+
+
+def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monkeypatch):
+    member_id = "CAS:62-31-7"
+    stage_key = "stage-cas"
+    clique_key = "stage-cas-000001-clique"
+
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            bind_vars = bind_vars or {}
+            if "FILTER node.id IN @ids" in query:
+                return [member_id]
+            if "FILTER e._from IN @clique_vertex_ids" in query:
+                assert "DOCUMENT(e._to)" in query
+                return [member_id]
+            if "FOR e IN HarmonizedMetaboliteMemberEdge" in query:
+                assert "FILTER e.member_id IN @member_ids" in query
+                assert bind_vars["member_ids"] == [member_id]
+                return [{
+                    "member_id": member_id,
+                    "member_label": member_id,
+                    "member_prefix": "CAS",
+                    "name_count": 0,
+                    "synonym_count": 0,
+                    "chem_prop_count": 0,
+                    "snapshot_key": stage_key,
+                    "snapshot_name": "CAS stage",
+                    "snapshot_created_at": "2026-08-25T00:00:00+00:00",
+                    "rules": [],
+                    "clique_id": f"HarmonizedMetabolite:{clique_key}",
+                    "clique_key": clique_key,
+                    "clique_size": 1,
+                    "clique_rank_by_size": 1,
+                }]
+            if "LET chemical_entity" in query:
+                return [{
+                    "id": member_id,
+                    "label": member_id,
+                    "names": [],
+                    "prefix": "CAS",
+                    "name_count": 0,
+                    "synonym_count": 0,
+                    "chem_prop_count": 0,
+                    "raw_masses": [],
+                    "chem_props": [],
+                    "formulas": [],
+                    "smiles": [],
+                    "inchi_keys": [],
+                    "chemical_entity": None,
+                }]
+            if "FOR e IN HarmonizationStageEvidenceEdge" in query:
+                assert "FILTER e.start_id IN @member_ids" in query
+                assert "FILTER e.end_id IN @member_ids" in query
+                return []
+            raise AssertionError(query)
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, _name):
+            return True
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+    monkeypatch.setattr(qa_app, "_load_metabolite_snapshot_memberships", lambda _ids: [{
+        "member_id": member_id,
+        "clique_key": clique_key,
+        "snapshot_key": stage_key,
+    }])
+    monkeypatch.setattr(qa_app, "_list_harmonization_stages", lambda: [{
+        "_key": stage_key,
+        "name": "CAS stage",
+        "created_at": "2026-08-25T00:00:00+00:00",
+        "rules": [],
+    }])
+    monkeypatch.setattr(qa_app, "_list_harmonization_pipelines", lambda limit=100: [])
+
+    result = qa_app._load_metabolite_snapshot_union([member_id], [stage_key])
+
+    clique = result["snapshot_graphs"][0]["cliques"][0]
+    assert clique["member_ids"] == [member_id]
+    assert clique["elements"][0]["data"]["id"] == member_id
 
 
 def test_build_harmonization_stage_denylist_validation_ignores_separated_or_missing_pairs():

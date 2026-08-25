@@ -10,7 +10,7 @@
     </filter>
   </defs>
   <rect width="1600" height="820" fill="#f8fafc"/>
-  <text x="80" y="78" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">Two different graph contracts</text>
+  <text x="80" y="78" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">Two different graph designs</text>
   <text x="80" y="122" font-family="Inter, Arial, sans-serif" font-size="23" fill="#475569">The difference is when identity is decided—and what remains inspectable afterward.</text>
 
   <rect x="70" y="175" width="700" height="565" rx="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
@@ -48,7 +48,7 @@
   <text x="1190" y="332" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#92400e">ChEBI</text>
   <text x="1190" y="361" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#b45309">ID_B</text>
   <circle cx="1190" cy="550" r="76" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
-  <text x="1190" y="542" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#5b21b6">RefMet</text>
+  <text x="1190" y="542" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#5b21b6">KEGG</text>
   <text x="1190" y="571" text-anchor="middle" font-family="ui-monospace, monospace" font-size="16" fill="#6d28d9">ID_C</text>
   <line x1="1038" y1="387" x2="1118" y2="363" stroke="#0f766e" stroke-width="5"/>
   <line x1="1038" y1="433" x2="1118" y2="519" stroke="#0f766e" stroke-width="5"/>

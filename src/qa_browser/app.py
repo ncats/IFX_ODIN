@@ -257,7 +257,7 @@ _LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_generic_structure_mismatch",
-        "label": "Ignore generic/non-generic structure equivalence",
+        "label": "Ignore generic/non-generic edges",
         "description": "Drop equivalence edges where exactly one endpoint has an R-group or wildcard structure signal.",
     },
     {
@@ -2275,12 +2275,23 @@ def _annotate_harmonization_pipeline_curation_status(
             and latest_complete_run.get("assertion_fingerprint") != current_assertion_fingerprint
         )
         needs_sync = edge_curations_changed or assertion_curations_changed
+        changed_rule_ids = set()
+        if edge_curations_changed:
+            changed_rule_ids.add("ignore_ramp_mapping_denylist")
+        if assertion_curations_changed:
+            changed_rule_ids.add("force_expected_clique_assertions")
+        changed_rule_indexes = [
+            index
+            for index, rule_id in enumerate(rule_ids, start=1)
+            if rule_id in changed_rule_ids
+        ]
         pipeline["uses_curations"] = uses_curations
         pipeline["uses_edge_curations"] = uses_edge_curations
         pipeline["uses_assertion_curations"] = uses_assertion_curations
         pipeline["edge_curations_changed"] = edge_curations_changed
         pipeline["assertion_curations_changed"] = assertion_curations_changed
         pipeline["needs_curation_sync"] = needs_sync
+        pipeline["sync_from_stage_index"] = min(changed_rule_indexes) if changed_rule_indexes else None
         pipeline["current_curation_fingerprint"] = current_curation_fingerprint if uses_edge_curations else None
         pipeline["current_assertion_fingerprint"] = current_assertion_fingerprint if uses_assertion_curations else None
         pipeline["latest_complete_run_key"] = latest_complete_run.get("_key") if latest_complete_run else None
@@ -2288,7 +2299,7 @@ def _annotate_harmonization_pipeline_curation_status(
         if latest_run and latest_run.get("status") == "failed":
             pipeline["run_button_label"] = "Retry failed pipeline"
             pipeline["run_action_kind"] = "retry"
-        elif latest_run and latest_run.get("status") in {"queued", "running"}:
+        elif latest_run and latest_run.get("status") in {"queued", "running", "cleaning_up"}:
             pipeline["run_button_label"] = "Running..."
             pipeline["run_action_kind"] = "running"
             pipeline["run_action_enabled"] = False
@@ -2340,10 +2351,17 @@ def _annotate_harmonization_pipeline_run_progress(
         pipeline["active_stage_index"] = None
         pipeline["active_stage_text"] = None
         active_run = next(
-            (run for run in pipeline.get("runs") or [] if run.get("status") == "running"),
+            (
+                run
+                for run in pipeline.get("runs") or []
+                if run.get("status") in {"running", "cleaning_up"}
+            ),
             None,
         )
         if active_run is None:
+            continue
+        if active_run.get("status") == "cleaning_up":
+            pipeline["active_stage_text"] = "Cleaning up old snapshots"
             continue
         completed_stage_count = len(active_run.get("stage_keys") or [])
         rules = pipeline.get("rules") or []
@@ -2356,7 +2374,7 @@ def _annotate_harmonization_pipeline_run_progress(
             pipeline["active_stage_index"] = completed_stage_count
             pipeline["active_stage_text"] = f"Step {completed_stage_count}: {active_label}"
         else:
-            pipeline["active_stage_text"] = "Finalizing snapshots and cleaning up"
+            pipeline["active_stage_text"] = "Cleaning up old snapshots"
 
     for job in jobs:
         if job.get("action") != "run_pipeline" or job.get("status") != "running":
@@ -2910,13 +2928,12 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                     for stage in stage_docs
                 ],
             })
-        completed_at = datetime.now(timezone.utc).isoformat()
-        elapsed_seconds = round(time.time() - started, 1)
-        completed_update = {
+        stages_completed_at = datetime.now(timezone.utc).isoformat()
+        cleaning_update = {
             "_key": run_key,
-            "status": "complete",
-            "completed_at": completed_at,
-            "elapsed_seconds": elapsed_seconds,
+            "status": "cleaning_up",
+            "stages_completed_at": stages_completed_at,
+            "stage_elapsed_seconds": round(time.time() - started, 1),
             "stage_keys": [stage["_key"] for stage in stage_docs],
             "stages": [
                 {
@@ -2929,13 +2946,13 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 for stage in stage_docs
             ],
         }
-        run_collection.update(completed_update)
+        run_collection.update(cleaning_update)
         db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
             "_key": pipeline_key,
             "latest_run_key": run_key,
             "latest_stage_key": stage_docs[-1]["_key"] if stage_docs else None,
-            "updated_at": completed_at,
-            "status": "complete",
+            "updated_at": stages_completed_at,
+            "status": "cleaning_up",
         })
         cleanup = {
             "deleted_run_keys": [],
@@ -2948,15 +2965,26 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             cleanup = _delete_previous_harmonization_pipeline_runs(db, pipeline_key, run_key)
         except Exception as cleanup_exc:
             cleanup_error = str(cleanup_exc)
-        cleanup_update = {
+        completed_at = datetime.now(timezone.utc).isoformat()
+        completed_update = {
             "_key": run_key,
+            "status": "complete",
+            "completed_at": completed_at,
+            "elapsed_seconds": round(time.time() - started, 1),
             "replaced_run_keys": cleanup["deleted_run_keys"],
             "deleted_superseded_stage_keys": cleanup["deleted_superseded_stage_keys"],
             "deleted_orphan_stage_keys": cleanup["deleted_orphan_stage_keys"],
             "cleanup_error": cleanup_error,
         }
-        run_collection.update(cleanup_update)
-        return {**run_doc, **completed_update, **cleanup_update}
+        run_collection.update(completed_update)
+        db.collection(_HARMONIZATION_PIPELINE_COLLECTION).update({
+            "_key": pipeline_key,
+            "latest_run_key": run_key,
+            "latest_stage_key": stage_docs[-1]["_key"] if stage_docs else None,
+            "updated_at": completed_at,
+            "status": "complete",
+        })
+        return {**run_doc, **cleaning_update, **completed_update}
     except Exception as exc:
         failed_at = datetime.now(timezone.utc).isoformat()
         run_collection.update({
@@ -3853,11 +3881,10 @@ def _load_metabolite_snapshot_memberships(identifier_ids: List[str]) -> List[dic
         or not db.has_collection(_HARMONIZATION_STAGE_COLLECTION)
     ):
         return []
-    vertex_ids = [f"MetaboliteIdentifier/{identifier_id}" for identifier_id in identifier_ids]
     return list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
-          FILTER e._to IN @vertex_ids
+          FILTER e.member_id IN @identifier_ids
           LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
           LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
           FILTER clique != null AND snapshot != null
@@ -3877,7 +3904,7 @@ def _load_metabolite_snapshot_memberships(identifier_ids: List[str]) -> List[dic
             sample_member_ids: clique.sample_member_ids
           }}
         """,
-        bind_vars={"vertex_ids": vertex_ids},
+        bind_vars={"identifier_ids": identifier_ids},
         max_runtime=120,
     ))
 
@@ -4226,9 +4253,9 @@ def _load_metabolite_snapshot_union(
     db = get_db("metabolite_harmonization")
     existing_query_ids = sorted(list(db.aql.execute(
         """
-        FOR id IN @ids
-          FILTER DOCUMENT("MetaboliteIdentifier", id) != null
-          COLLECT existing_id = id
+        FOR node IN MetaboliteIdentifier
+          FILTER node.id IN @ids
+          COLLECT existing_id = node.id
           SORT existing_id
           RETURN existing_id
         """,
@@ -4257,7 +4284,7 @@ def _load_metabolite_snapshot_union(
             f"""
             FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
               FILTER e._from IN @clique_vertex_ids
-              FILTER DOCUMENT("MetaboliteIdentifier", e.member_id) != null
+              FILTER DOCUMENT(e._to) != null
               COLLECT member_id = e.member_id
               SORT member_id
               RETURN member_id
@@ -4276,11 +4303,11 @@ def _load_metabolite_snapshot_union(
     rows = list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
-          FILTER e._to IN @member_vertex_ids
+          FILTER e.member_id IN @member_ids
           FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
           LET clique = DOCUMENT("{_HARMONIZED_METABOLITE_COLLECTION}", PARSE_IDENTIFIER(e._from).key)
           LET snapshot = DOCUMENT("{_HARMONIZATION_STAGE_COLLECTION}", e.stage_key)
-          LET node = DOCUMENT("MetaboliteIdentifier", e.member_id)
+          LET node = DOCUMENT(e._to)
           FILTER clique != null AND snapshot != null AND node != null
           LET names = node.names || []
           SORT snapshot.created_at, clique.rank_by_size, e.member_index
@@ -4302,7 +4329,7 @@ def _load_metabolite_snapshot_union(
           }}
         """,
         bind_vars={
-            "member_vertex_ids": [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids],
+            "member_ids": union_member_ids,
             "snapshot_keys": selected_snapshot_keys,
         },
         max_runtime=120,
@@ -4395,12 +4422,11 @@ def _load_metabolite_snapshot_union(
         bind_vars={"member_ids": union_member_ids},
         max_runtime=120,
     ))
-    union_member_vertex_ids = [f"MetaboliteIdentifier/{member_id}" for member_id in union_member_ids]
     mapping_edge_rows = list(db.aql.execute(
         f"""
         FOR e IN {_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION}
-          FILTER e._from IN @vertex_ids
-          FILTER e._to IN @vertex_ids
+          FILTER e.start_id IN @member_ids
+          FILTER e.end_id IN @member_ids
           FILTER LENGTH(@snapshot_keys) == 0 OR e.stage_key IN @snapshot_keys
           RETURN {{
             id: e.id || e._key,
@@ -4412,7 +4438,7 @@ def _load_metabolite_snapshot_union(
             details: e.details || []
           }}
         """,
-        bind_vars={"vertex_ids": union_member_vertex_ids, "snapshot_keys": selected_snapshot_keys},
+        bind_vars={"member_ids": union_member_ids, "snapshot_keys": selected_snapshot_keys},
         max_runtime=120,
     )) if db.has_collection(_HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION) else []
     highlighted_id_set = set(identifier_ids)
@@ -4633,6 +4659,7 @@ def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[di
         sankeys.append({
             "pipeline_key": pipeline.get("_key"),
             "pipeline_name": pipeline.get("name") or pipeline.get("_key"),
+            "stage_count": len(ordered_stage_keys),
             "sankey": _build_metabolite_snapshot_sankey(sections, ordered_stage_keys),
         })
 
@@ -4645,6 +4672,7 @@ def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[di
         sankeys.append({
             "pipeline_key": "unassigned",
             "pipeline_name": "Stages not assigned to a pipeline",
+            "stage_count": len(unassigned_sections),
             "sankey": _build_metabolite_snapshot_sankey(
                 unassigned_sections,
                 [section["snapshot_key"] for section in unassigned_sections],

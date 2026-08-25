@@ -128,7 +128,7 @@
                     {% for result in assertion.stage_results %}
                     <td>
                         <a href="{{ root_path }}/ramp-id-qa?id={{ assertion.member_ids|join(' ')|urlencode }}&stages={{ result.stage_key|urlencode }}" target="_blank" rel="noopener">
-                            <span class="metabolite-assertion-status metabolite-assertion-status-{{ result.status }}">{{ result.status }}</span>
+                            <span class="metabolite-assertion-status metabolite-assertion-status-{{ result.status }}">{{ "Fail" if result.status == "split" else result.status|title }}</span>
                         </a>
                     </td>
                     {% endfor %}
@@ -139,7 +139,7 @@
                         None
                         {% endif %}
                     </td>
-                    <td>{% if assertion.final_status %}<span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.final_status }}">{{ assertion.final_status }}</span>{% endif %}</td>
+                    <td>{% if assertion.final_status %}<span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.final_status }}">{{ "Fail" if assertion.final_status == "split" else assertion.final_status|title }}</span>{% endif %}</td>
                 </tr>
                 {% endfor %}
                 </tbody>

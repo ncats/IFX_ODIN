@@ -2998,6 +2998,18 @@ details summary:hover { color: var(--accent); }
     white-space: normal;
 }
 
+.metabolite-id-step-sync-needed {
+    background: rgba(245, 158, 11, 0.16);
+    border-radius: 999px;
+    color: #b45309;
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 800;
+    margin-left: 0.3rem;
+    padding: 0.08rem 0.38rem;
+    text-transform: uppercase;
+}
+
 .metabolite-curation-cart {
     --curation-cart-width: 360px;
     height: 100vh;
@@ -3078,7 +3090,8 @@ details summary:hover { color: var(--accent); }
     padding: 10px 4px;
     position: absolute;
     right: var(--curation-cart-width);
-    top: 34%;
+    top: calc(50% - 4rem);
+    transform: translateY(-100%);
     transition: opacity 0.15s;
     width: 28px;
 }
@@ -3289,8 +3302,8 @@ tr.has-cart-review > td {
 }
 
 .metabolite-assertion-status-pass { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-.metabolite-assertion-status-split { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
-.metabolite-assertion-status-missing { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.metabolite-assertion-status-split { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.metabolite-assertion-status-missing { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
 
 .metabolite-assertion-pass-summary {
     border-radius: 999px;
@@ -4204,23 +4217,31 @@ tr.has-cart-review > td {
     cursor: pointer;
     display: grid;
     gap: 0.45rem;
-    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-columns: max-content max-content minmax(0, 1fr);
 }
 
 .metabolite-id-sankey-order-item input {
     margin: 0;
 }
 
-.metabolite-id-sankey-order-item label span,
+.metabolite-id-sankey-order-item .metabolite-id-sankey-stage-name,
 .metabolite-id-sankey-order-item small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.metabolite-id-sankey-order-item label span {
+.metabolite-id-sankey-order-item .metabolite-id-sankey-stage-name {
     color: var(--text);
     font-weight: 800;
+}
+
+.metabolite-id-sankey-stage-swatch {
+    border: 1px solid rgba(15, 23, 42, 0.35);
+    border-radius: 3px;
+    display: block;
+    height: 0.85rem;
+    width: 0.85rem;
 }
 
 .metabolite-id-sankey-order-item small {

@@ -4,7 +4,7 @@
         <strong>New expected-clique failure</strong>
         {% for assertion in component.newly_failing_assertions %}
         <div>
-            <span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.right_status }}">{{ assertion.right_status }}</span>
+            <span class="metabolite-assertion-status metabolite-assertion-status-{{ assertion.right_status }}">{{ "Fail" if assertion.right_status == "split" else assertion.right_status|title }}</span>
             <a href="{{ root_path }}/ramp-id-qa?{{ assertion.inspection_query }}" target="_blank" rel="noopener noreferrer">{{ assertion.name }}</a>
             <code>{{ assertion.member_ids|join("  ") }}</code>
             {% if assertion.rationale %}<span>{{ assertion.rationale }}</span>{% endif %}
