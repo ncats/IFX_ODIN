@@ -104,6 +104,21 @@ InChIKey can appear in two ways:
 
 Rules must be explicit about which InChIKey evidence they use.
 
+Chemical-property records preserve source-reported `inchi_key` and
+`inchi_key_prefix` fields unchanged. During chemistry ingest, a standard
+InChIKey is also calculated from the first available SMILES field in this
+order: `iso_smiles`, `isomeric_smiles`, then `canonical_smiles`. The calculated
+value is stored separately as `derived_inchi_key` and
+`derived_inchi_key_prefix`, together with its input field, calculation method,
+toolkit version, and any calculation error. A derived key never overwrites or
+masquerades as a source-reported key.
+
+The reported-key harmonization rules continue to consume only `inchi_key` and
+`inchi_key_prefix`. A separate optional derived-key rule can include calculated
+keys in a pipeline. Downstream compatibility exports such as RaMP SQLite should
+continue to export source-reported keys unless the export contract is
+explicitly expanded to include derived chemistry.
+
 Rhea participant names, HTML names, and formula strings are stored as
 reaction-participant edge context. They are not stored as `chem_props`, because
 Rhea does not provide structure-derived SMILES, InChI, or InChIKey values in the
@@ -141,9 +156,10 @@ Current intentional skips:
   `HmdbOntologyTerm` nodes because they duplicate pathway-specific graph
   adapters and can otherwise become misleading `ontology_type` values.
 
-RefMet-only orphan handling is not an ingest concern. If we need a RaMP-like
-rule that ignores RefMet-only results, it should be modeled as an explicit
-harmonization/export rule.
+RefMet-only orphan handling is not an ingest concern. The harmonization
+workbench handles it through the broader secondary-source-only cleanup rule,
+which also covers PubChem-, ChEBI-, and LipidMaps-only results without meaningful
+biological connections.
 
 RaMP's legacy SQLite build applies additional ontology export logic after HMDB
 parsing. In `ramp-backend-ncats`, `hmdbData.py` extracts only specific HMDB

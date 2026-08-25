@@ -2822,7 +2822,10 @@ details summary:hover { color: var(--accent); }
 }
 
 .workbench-guide-link:hover {
+    background: linear-gradient(135deg, var(--accent-2), color-mix(in srgb, var(--accent) 64%, #7c3aed));
+    border-color: color-mix(in srgb, var(--accent) 86%, black);
     box-shadow: 0 7px 18px color-mix(in srgb, var(--accent) 34%, transparent);
+    color: #fff;
     opacity: 1;
     text-decoration: none;
     transform: translateY(-1px);

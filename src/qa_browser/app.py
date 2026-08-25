@@ -215,7 +215,7 @@ _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
-_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v3"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v4"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
 _HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 _METABOLITE_CURATION_PREFIX = os.getenv(
@@ -320,29 +320,40 @@ _METABOLITE_HARMONIZATION_RULES = [
         "description": "Add explicitly synthetic, curation-provenanced edges so every active expected-clique assertion merges. Use only as a visible fallback before cleanup.",
     },
     {
-        "id": "remove_refmet_only_metabolites",
-        "label": "Cleanup: Remove RefMet-only Metabolites",
-        "description": "Remove harmonized metabolites whose surviving equivalence support is only RefMet. Use this last.",
-    },
-    {
         "id": "remove_enrichment_only_metabolites",
         "label": "Cleanup: Remove Secondary-Source-Only Metabolites",
-        "description": "Remove harmonized metabolites whose only sourcing is from secondary databases (RefMet, PubChem, ChEBI, LipidMaps) and have no meaningful biological connections. Subsumes the RefMet-only cleanup. Use this last.",
+        "description": "Remove harmonized metabolites whose only sourcing is from secondary databases (RefMet, PubChem, ChEBI, LipidMaps) and have no meaningful biological connections. Use this last.",
     },
     {
         "id": "merge_shared_inchikey_prefix",
-        "label": "Merge shared InChIKey prefix",
-        "description": "Merge identifiers when any stored structure has the same InChIKey first block.",
+        "label": "Merge InchiKey prefix",
+        "description": "Merge identifiers when any source-reported structure has the same InChIKey first block.",
     },
     {
         "id": "merge_shared_inchikey_duplex",
-        "label": "Merge shared InChIKey duplex",
-        "description": "Merge identifiers when any stored structure has the same first two InChIKey blocks.",
+        "label": "Merge InchiKey duplex",
+        "description": "Merge identifiers when any source-reported structure has the same first two InChIKey blocks.",
     },
     {
         "id": "merge_inchikey_by_mw_cutoff",
-        "label": "Merge InChIKey by MW cutoff",
-        "description": "Use InChIKey duplex below the cutoff and InChIKey prefix at or above it.",
+        "label": "Merge InchiKey with cutoff",
+        "description": "Use source-reported InChIKey duplex below the cutoff and prefix at or above it.",
+        "parameters": [
+            {
+                "id": "mw_cutoff",
+                "label": "MW cutoff",
+                "type": "number",
+                "default": 500,
+                "min": 0,
+                "step": 1,
+                "unit": "Da",
+            },
+        ],
+    },
+    {
+        "id": "merge_derived_inchikey_by_mw_cutoff",
+        "label": "Merge Derived InchiKey with cutoff",
+        "description": "Additionally merge using InChIKeys calculated from stored SMILES: duplex below the cutoff and prefix at or above it.",
         "parameters": [
             {
                 "id": "mw_cutoff",
@@ -963,20 +974,31 @@ def _load_generic_structure_ids(db) -> set:
     return generic_structure_ids
 
 
-def _iter_metabolite_identifier_inchi_key_matches(db, mode: str, mw_cutoff: Optional[float] = None):
+def _iter_metabolite_identifier_inchi_key_matches(
+    db,
+    mode: str,
+    mw_cutoff: Optional[float] = None,
+    key_kind: str = "reported",
+):
+    if key_kind not in {"reported", "derived"}:
+        raise ValueError(f"Unsupported InChIKey kind: {key_kind}")
+    inchi_key_field = "inchi_key" if key_kind == "reported" else "derived_inchi_key"
+    inchi_key_prefix_field = (
+        "inchi_key_prefix" if key_kind == "reported" else "derived_inchi_key_prefix"
+    )
     cursor = db.aql.execute(
         """
         FOR d IN MetaboliteIdentifier
           LET inchi_keys = UNIQUE(
             FLATTEN(
               FOR prop IN d.chem_props || []
-                RETURN [prop.inchi_key]
+                RETURN [prop[@inchi_key_field]]
             )
           )
           LET prefixes = UNIQUE(
             FLATTEN(
               FOR prop IN d.chem_props || []
-                RETURN [prop.inchi_key_prefix]
+                RETURN [prop[@inchi_key_prefix_field]]
             )
           )
           LET masses = UNIQUE(
@@ -988,6 +1010,10 @@ def _iter_metabolite_identifier_inchi_key_matches(db, mode: str, mw_cutoff: Opti
           FILTER LENGTH(inchi_keys) > 0 OR LENGTH(prefixes) > 0
           RETURN {id: d.id, inchi_keys: inchi_keys, prefixes: prefixes, masses: masses}
         """,
+        bind_vars={
+            "inchi_key_field": inchi_key_field,
+            "inchi_key_prefix_field": inchi_key_prefix_field,
+        },
         batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
@@ -1689,15 +1715,28 @@ def _build_harmonized_groups(
         "inchi_key_mw_cutoff_duplex_identifier_count": 0,
         "inchi_key_mw_cutoff_identifier_count": 0,
         "inchi_key_mw_cutoff_merge_count": 0,
+        "derived_inchi_key_mw_cutoff_prefix_identifier_count": 0,
+        "derived_inchi_key_mw_cutoff_duplex_identifier_count": 0,
+        "derived_inchi_key_mw_cutoff_identifier_count": 0,
+        "derived_inchi_key_mw_cutoff_merge_count": 0,
     }
 
-    def merge_by_inchi_key_matches(mode: str, mw_cutoff: Optional[float] = None) -> dict:
+    def merge_by_inchi_key_matches(
+        mode: str,
+        mw_cutoff: Optional[float] = None,
+        key_kind: str = "reported",
+    ) -> dict:
         first_identifier_by_match: Dict[str, str] = {}
         identifier_count = 0
         merge_count = 0
         prefix_identifier_count = 0
         duplex_identifier_count = 0
-        for identifier, matches, effective_mode, _mass in _iter_metabolite_identifier_inchi_key_matches(db, mode, mw_cutoff):
+        for identifier, matches, effective_mode, _mass in _iter_metabolite_identifier_inchi_key_matches(
+            db,
+            mode,
+            mw_cutoff,
+            key_kind,
+        ):
             if identifier not in active_ids:
                 continue
             identifier_count += 1
@@ -1737,6 +1776,13 @@ def _build_harmonized_groups(
         merge_summary["inchi_key_mw_cutoff_merge_count"] = stats["merge_count"]
         merge_summary["inchi_key_mw_cutoff_prefix_identifier_count"] = stats["prefix_identifier_count"]
         merge_summary["inchi_key_mw_cutoff_duplex_identifier_count"] = stats["duplex_identifier_count"]
+    if "merge_derived_inchikey_by_mw_cutoff" in rule_ids:
+        mw_cutoff = rule_parameters.get("merge_derived_inchikey_by_mw_cutoff", {}).get("mw_cutoff", 500)
+        stats = merge_by_inchi_key_matches("mw_cutoff", mw_cutoff, "derived")
+        merge_summary["derived_inchi_key_mw_cutoff_identifier_count"] = stats["identifier_count"]
+        merge_summary["derived_inchi_key_mw_cutoff_merge_count"] = stats["merge_count"]
+        merge_summary["derived_inchi_key_mw_cutoff_prefix_identifier_count"] = stats["prefix_identifier_count"]
+        merge_summary["derived_inchi_key_mw_cutoff_duplex_identifier_count"] = stats["duplex_identifier_count"]
 
     members_by_root: Dict[str, List[str]] = {}
     for identifier in active_ids:
@@ -1748,59 +1794,6 @@ def _build_harmonized_groups(
     ]
     non_singleton_groups.sort(key=lambda members: (-len(members), members[0]))
     return non_singleton_groups, merge_summary
-
-
-def _remove_refmet_only_metabolites(
-    active_ids: set,
-    active_edges: List[dict],
-    groups: List[List[str]],
-    support_by_id: Dict[str, set],
-) -> tuple[set, List[dict], List[List[str]], dict]:
-    removed_ids = set()
-
-    def is_refmet_only_supported(identifiers: Iterable[str]) -> bool:
-        sources = {
-            _metabolite_support_source_name(source).lower()
-            for identifier in identifiers
-            for source in support_by_id.get(identifier, set())
-            if source is not None and str(source).strip()
-        }
-        return bool(sources) and sources <= {"refmet"}
-
-    kept_groups = []
-    removed_group_count = 0
-    for members in groups:
-        if is_refmet_only_supported(members):
-            removed_group_count += 1
-            removed_ids.update(members)
-        else:
-            kept_groups.append(members)
-
-    grouped_ids = {
-        member_id
-        for members in groups
-        for member_id in members
-    }
-    refmet_singleton_ids = {
-        identifier
-        for identifier in active_ids
-        if identifier not in grouped_ids
-        and is_refmet_only_supported([identifier])
-    }
-    removed_ids.update(refmet_singleton_ids)
-
-    filtered_active_ids = set(active_ids) - removed_ids
-    filtered_active_edges = [
-        edge for edge in active_edges
-        if edge["start_id"] in filtered_active_ids and edge["end_id"] in filtered_active_ids
-    ]
-    return filtered_active_ids, filtered_active_edges, kept_groups, {
-        "refmet_only_removed_metabolite_count": removed_group_count + len(refmet_singleton_ids),
-        "refmet_only_removed_group_count": removed_group_count,
-        "refmet_only_removed_singleton_count": len(refmet_singleton_ids),
-        "refmet_only_removed_identifier_count": len(removed_ids),
-        "refmet_only_removed_edge_count": len(active_edges) - len(filtered_active_edges),
-    }
 
 
 _SECONDARY_SOURCES = {"refmet", "pubchem", "chebi", "lipidmaps"}
@@ -2115,20 +2108,6 @@ def _ensure_harmonization_stage(
         )
         active_edges.extend(assertion_edges)
     groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
-    refmet_only_summary = {
-        "refmet_only_removed_metabolite_count": 0,
-        "refmet_only_removed_group_count": 0,
-        "refmet_only_removed_singleton_count": 0,
-        "refmet_only_removed_identifier_count": 0,
-        "refmet_only_removed_edge_count": 0,
-    }
-    if "remove_refmet_only_metabolites" in rule_ids:
-        active_ids, active_edges, groups, refmet_only_summary = _remove_refmet_only_metabolites(
-            active_ids,
-            active_edges,
-            groups,
-            filtered_support_by_id,
-        )
     enrichment_only_summary = {
         "enrichment_only_removed_metabolite_count": 0,
         "enrichment_only_removed_group_count": 0,
@@ -2152,7 +2131,6 @@ def _ensure_harmonization_stage(
         **edge_summary,
         **merge_summary,
         **assertion_edge_summary,
-        **refmet_only_summary,
         **enrichment_only_summary,
         "wikipathways_ignored_source_field_identifier_count": len(
             wikipathways_ignored_source_field_ids
@@ -4377,7 +4355,14 @@ def _load_metabolite_snapshot_union(
                 formula: prop.molecular_formula,
                 mw: prop.mw,
                 monoisotopic_mass: prop.monoisotopic_mass,
+                inchi_key_prefix: prop.inchi_key_prefix,
                 inchi_key: prop.inchi_key,
+                derived_inchi_key_prefix: prop.derived_inchi_key_prefix,
+                derived_inchi_key: prop.derived_inchi_key,
+                derived_inchi_key_input_field: prop.derived_inchi_key_input_field,
+                derived_inchi_key_method: prop.derived_inchi_key_method,
+                derived_inchi_key_method_version: prop.derived_inchi_key_method_version,
+                derived_inchi_key_error: prop.derived_inchi_key_error,
                 smiles: prop.iso_smiles || prop.isomeric_smiles || prop.canonical_smiles,
                 inchi: prop.inchi
               }
@@ -4406,6 +4391,11 @@ def _load_metabolite_snapshot_union(
               FOR prop IN chem_prop_summaries
                 FILTER prop.inchi_key != null AND prop.inchi_key != ""
                 RETURN prop.inchi_key
+            ),
+            derived_inchi_keys: UNIQUE(
+              FOR prop IN chem_prop_summaries
+                FILTER prop.derived_inchi_key != null AND prop.derived_inchi_key != ""
+                RETURN prop.derived_inchi_key
             ),
             chemical_entity: chemical_entity == null ? null : {
               id: chemical_entity.id,
