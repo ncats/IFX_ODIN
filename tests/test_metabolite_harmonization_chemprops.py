@@ -86,12 +86,12 @@ def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
         {
             "ChEBI ID": "CHEBI:27596",
             "SMILES": "Cn1cncc1C[C@H](N)C(=O)O",
-            "InChIKey": "BRMWTNUJHUMWMS-LURJTMIESA-N",
-            "InChI": "InChI=1S/C7H11N3O2",
+            "INCHIKEY": "BRMWTNUJHUMWMS-LURJTMIESA-N",
+            "INCHI": "InChI=1S/C7H11N3O2",
             "MASS": "169.184",
-            "Monoisotopic Mass": "169.085126611",
-            "ChEBI Name": "1-methyl-L-histidine",
-            "Formulae": "C7H11N3O2",
+            "MONOISOTOPIC_MASS": "169.085126611",
+            "ChEBI NAME": "1-methyl-L-histidine",
+            "FORMULA": "C7H11N3O2",
         },
     )
     with gzip.open(gz_path, "wt", encoding="utf-8") as handle:
@@ -102,8 +102,11 @@ def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
     assert node.id == "CHEBI:27596"
     assert node.chem_props[0].source == "ChEBI"
     assert node.chem_props[0].mw == "169.184"
+    assert node.chem_props[0].monoisotopic_mass == "169.085126611"
     assert node.chem_props[0].common_name == "1-methyl-L-histidine"
     assert node.chem_props[0].inchi_key == "BRMWTNUJHUMWMS-LURJTMIESA-N"
+    assert node.chem_props[0].inchi == "InChI=1S/C7H11N3O2"
+    assert node.chem_props[0].molecular_formula == "C7H11N3O2"
     assert node.chem_props[0].derived_inchi_key == "JDHILDINMRGULE-LURJTMIESA-N"
 
 
@@ -229,6 +232,7 @@ def test_chemprops_without_smiles_do_not_record_a_derivation_attempt(tmp_path: P
 
     node = _records(ChebiMetaboliteChemPropsAdapter(chebi_sdf_file=str(gz_path)))[0]
 
+    assert node.chem_props[0].inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
     assert node.chem_props[0].derived_inchi_key is None
     assert node.chem_props[0].derived_inchi_key_input_field is None
     assert node.chem_props[0].derived_inchi_key_error is None
