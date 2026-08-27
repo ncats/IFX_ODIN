@@ -123,7 +123,7 @@
                         <strong>{{ assertion.name }}</strong>
                         <div class="mono">{{ assertion.member_ids|join(" ") }}</div>
                         {% if assertion.rationale %}<small>{{ assertion.rationale }}</small>{% endif %}
-                        <div><button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Add retirement to cart</button></div>
+                        <div><button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Retire assertion</button></div>
                     </td>
                     {% for result in assertion.stage_results %}
                     <td>

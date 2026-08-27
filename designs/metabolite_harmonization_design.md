@@ -113,6 +113,15 @@ value is stored separately as `derived_inchi_key` and
 toolkit version, and any calculation error. A derived key never overwrites or
 masquerades as a source-reported key.
 
+The current ChEBI three-star SDF uses uppercase property tags including
+`INCHIKEY`, `INCHI`, `MONOISOTOPIC_MASS`, `ChEBI NAME`, and `FORMULA`. Older
+three-star payloads used the mixed-case tags `InChIKey`, `InChI`,
+`Monoisotopic Mass`, `ChEBI Name`, and `Formulae`. The ChEBI chemistry adapter
+accepts both explicit tag sets, preferring the current tags. This compatibility
+is intentional: a case-sensitive legacy parser silently retained only ChEBI
+ID, SMILES, and molecular weight after the upstream tag change, which removed
+reported keys and other chemistry fields without failing the build.
+
 The reported-key harmonization rules continue to consume only `inchi_key` and
 `inchi_key_prefix`. A separate optional derived-key rule can include calculated
 keys in a pipeline. Downstream compatibility exports such as RaMP SQLite should

@@ -3,6 +3,7 @@ import json
 
 import src.qa_browser.app as qa_app
 from src.qa_browser.app import (
+    _build_harmonization_pipeline_tree,
     _build_harmonization_stage_denylist_validation,
     _build_harmonization_stage_mw_validation,
     _build_harmonization_stage_cart_flags,
@@ -42,6 +43,134 @@ class _FakeCurationStorage:
 
     def read_text(self, key):
         return self.objects[key]
+
+
+def test_harmonization_rules_have_expected_workbench_groups():
+    groups_by_rule = {
+        rule["id"]: rule["group"]
+        for rule in qa_app._METABOLITE_HARMONIZATION_RULES
+    }
+
+    assert groups_by_rule["ignore_generic_structure_mismatch"] == "Pruning"
+    assert groups_by_rule["merge_inchikey_by_mw_cutoff"] == "Merging"
+    assert groups_by_rule["merge_derived_inchikey_by_mw_cutoff"] == "Chemistry-based merging"
+    assert groups_by_rule["merge_free_anomeric_forms"] == "Chemistry-based merging"
+    assert groups_by_rule["ignore_ramp_mapping_denylist"] == "Cleanup"
+    assert groups_by_rule["force_expected_clique_assertions"] == "Cleanup"
+
+
+def test_metabolite_identifier_summaries_batch_ids_without_legacy_edge_queries(monkeypatch):
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert "FOR identifier IN @identifiers" in query
+            assert "MetaboliteIdentifierMappingEdge" not in query
+            assert "ChebiChemicalEntityMetaboliteIdentifierEdge" not in query
+            assert bind_vars == {"identifiers": ["CHEBI:1", "HMDB:1"]}
+            return [
+                {"query_id": "CHEBI:1", "found": True, "metabolite": {"id": "CHEBI:1"}},
+                {"query_id": "HMDB:1", "found": False, "metabolite": None},
+            ]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    rows = qa_app._load_metabolite_identifier_summaries(["CHEBI:1", "HMDB:1"])
+
+    assert [row["query_id"] for row in rows] == ["CHEBI:1", "HMDB:1"]
+
+
+def test_harmonization_pipeline_tree_shares_prefix_and_branches_at_first_different_stage():
+    pipelines = [
+        {
+            "_key": "pipeline-a",
+            "name": "With carbohydrate gate",
+            "runs": [{
+                "_key": "run-a",
+                "status": "complete",
+                "stages": [
+                    {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
+                    {"_key": "shared-1", "stage_index": 1, "rule_ids": ["shared"], "display_label": "Shared rule"},
+                    {"_key": "gated-2", "stage_index": 2, "rule_ids": ["gated"], "display_label": "Anomers with gate"},
+                ],
+            }],
+        },
+        {
+            "_key": "pipeline-b",
+            "name": "Without carbohydrate gate",
+            "runs": [{
+                "_key": "run-b",
+                "status": "complete",
+                "stages": [
+                    {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
+                    {"_key": "shared-1", "stage_index": 1, "rule_ids": ["shared"], "display_label": "Shared rule"},
+                    {"_key": "ungated-2", "stage_index": 2, "rule_ids": ["ungated"], "display_label": "Anomers without gate"},
+                ],
+            }],
+        },
+        {"_key": "pipeline-c", "name": "Not run", "runs": []},
+    ]
+
+    tree = _build_harmonization_pipeline_tree(pipelines, [{
+        "pipeline_key": "pipeline-a",
+        "stages": [{
+            "_key": "shared-1",
+            "overview_stats": {
+                "clique_count": 123,
+                "mw_warning_count": 2,
+                "denylist_warning_count": 1,
+                "assertion_count": 4,
+            },
+        }],
+    }])
+
+    assert tree["pipeline_count"] == 3
+    assert tree["represented_pipeline_count"] == 2
+    assert tree["not_run_count"] == 1
+    assert len(tree["roots"]) == 1
+    baseline = tree["roots"][0]
+    shared = baseline["children"][0]
+    assert baseline["pipeline_count"] == 2
+    assert baseline["is_shared"] is True
+    assert shared["stage_key"] == "shared-1"
+    assert shared["pipeline_count"] == 2
+    assert shared["stats"]["clique_count"] == 123
+    assert [child["stage_key"] for child in shared["children"]] == ["gated-2", "ungated-2"]
+    assert [
+        child["terminals"][0]["pipeline_name"] for child in shared["children"]
+    ] == ["With carbohydrate gate", "Without carbohydrate gate"]
+
+
+def test_harmonization_pipeline_page_loads_only_requested_pipeline(monkeypatch):
+    pipeline = {"_key": "pipeline-a", "name": "Pipeline A", "runs": []}
+    calls = {}
+
+    monkeypatch.setattr(qa_app, "get_db", lambda name: calls.setdefault("db_name", name) or object())
+    monkeypatch.setattr(qa_app, "_ensure_harmonization_pipeline_collections", lambda _db: None)
+
+    def fake_list(limit=25, pipeline_key=None):
+        calls["list"] = (limit, pipeline_key)
+        return [pipeline]
+
+    monkeypatch.setattr(qa_app, "_list_harmonization_pipelines", fake_list)
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_edge_removal_curations",
+        lambda: {"assertions": []},
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_list_harmonization_pipeline_stage_overview_stats",
+        lambda pipelines, _curation_state: [{"pipeline_key": pipelines[0]["_key"], "stages": []}],
+    )
+
+    page = qa_app._load_harmonization_pipeline_page("pipeline-a")
+
+    assert calls["db_name"] == "metabolite_harmonization"
+    assert calls["list"] == (1, "pipeline-a")
+    assert page["pipeline"] == pipeline
+    assert page["overview"]["pipeline_stage_stats"][0]["pipeline_key"] == "pipeline-a"
 
 
 def test_derived_inchikey_iterator_selects_derived_fields():
@@ -342,6 +471,176 @@ def test_stage_comparison_only_reports_assertions_that_newly_fail():
     assert failures[0]["left_status"] == "pass"
     assert failures[0]["right_status"] == "split"
     assert failures[0]["inspection_query"] == "id=CHEBI%3A1+CHEBI%3A2&stages=left%2Cright"
+
+
+def test_stage_comparison_involved_preview_deduplicates_names_and_ids():
+    preview = qa_app._snapshot_compare_involved_preview(
+        {"CHEBI:3", "CHEBI:1", "CHEBI:2"},
+        {
+            "CHEBI:1": {"label": "D-glucose"},
+            "CHEBI:2": {"label": "d-Glucose"},
+            "CHEBI:3": {"label": "D-mannose"},
+        },
+        limit=2,
+    )
+
+    assert preview == {
+        "count": 3,
+        "ids": ["CHEBI:1", "CHEBI:2"],
+        "names": ["D-glucose"],
+        "remaining_id_count": 1,
+    }
+
+
+def test_stage_comparison_pipeline_context_shows_overlap_and_selected_stages():
+    shared_stages = [
+        {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
+        {"_key": "shared-1", "stage_index": 1, "rule_ids": ["ignore_generic_structure_mismatch"], "display_label": "Ignore Generic Structure Mismatch"},
+    ]
+    pipelines = [
+        {
+            "_key": "pipeline-a",
+            "name": "Without carbohydrate gate",
+            "runs": [{
+                "_key": "run-a",
+                "stages": [*shared_stages, {"_key": "left", "stage_index": 2, "rule_ids": ["a", "left"], "display_label": "Cleanup A"}],
+            }],
+        },
+        {
+            "_key": "pipeline-b",
+            "name": "With carbohydrate gate",
+            "runs": [{
+                "_key": "run-b",
+                "stages": [*shared_stages, {"_key": "right", "stage_index": 2, "rule_ids": ["b", "right"], "display_label": "Cleanup B"}],
+            }],
+        },
+    ]
+
+    context = qa_app._snapshot_comparison_pipeline_context(
+        {"_key": "left", "stage_index": 2, "rule_ids": ["a", "left"]},
+        {"_key": "right", "stage_index": 2, "rule_ids": ["b", "right"]},
+        pipelines,
+    )
+
+    assert context["same_pipeline"] is False
+    assert context["shared_stage_count"] == 2
+    assert context["common_prefix_count"] == 2
+    assert context["divergence_after_label"] == "Ignore Generic Structure Mismatch"
+    assert [lane["pipeline_name"] for lane in context["lanes"]] == [
+        "Without carbohydrate gate",
+        "With carbohydrate gate",
+    ]
+    assert context["lanes"][0]["stages"][-1]["is_left"] is True
+    assert context["lanes"][1]["stages"][-1]["is_right"] is True
+    assert [stage["key"] for stage in context["trunk_stages"]] == ["baseline", "shared-1"]
+    assert [[stage["key"] for stage in branch["stages"]] for branch in context["branches"]] == [
+        ["left"],
+        ["right"],
+    ]
+    assert context["branch_start_column"] == 2
+
+
+def test_stage_comparison_same_pipeline_marks_context_stages_shared():
+    pipeline = {
+        "_key": "pipeline",
+        "name": "One pipeline",
+        "runs": [{
+            "_key": "run",
+            "stages": [
+                {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
+                {"_key": "left", "stage_index": 1, "rule_ids": ["left"], "display_label": "Left"},
+                {"_key": "right", "stage_index": 2, "rule_ids": ["left", "right"], "display_label": "Right"},
+            ],
+        }],
+    }
+
+    context = qa_app._snapshot_comparison_pipeline_context(
+        {"_key": "left", "stage_index": 1, "rule_ids": ["left"]},
+        {"_key": "right", "stage_index": 2, "rule_ids": ["left", "right"]},
+        [pipeline],
+    )
+
+    assert context["same_pipeline"] is True
+    assert context["branches"] == []
+    assert context["shared_stage_count"] == 3
+    assert all(stage["is_shared"] for stage in context["lanes"][0]["stages"])
+
+
+def test_stage_comparison_visualization_reuses_snapshot_graph_and_sankey_builders(monkeypatch):
+    snapshot_graphs = [
+        {"snapshot_key": "left", "cliques": []},
+        {"snapshot_key": "right", "cliques": []},
+    ]
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_snapshot_union",
+        lambda ids, stages: {
+            "member_ids": ids,
+            "snapshot_graphs": snapshot_graphs,
+            "stages": stages,
+        },
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_build_metabolite_snapshot_sankey",
+        lambda sections, order: {"sections": sections, "order": order},
+    )
+
+    result = qa_app._load_metabolite_snapshot_comparison_visualization(
+        ["CHEBI:47935", "CHEBI:47936"],
+        "left",
+        "right",
+    )
+
+    assert result["query_ids"] == ["CHEBI:47935", "CHEBI:47936"]
+    assert result["snapshot_graphs"] == snapshot_graphs
+    assert result["sankey"] == {"sections": snapshot_graphs, "order": ["left", "right"]}
+
+
+def test_explicit_stage_selection_builds_one_sankey_across_pipeline_boundaries(monkeypatch):
+    monkeypatch.setattr(
+        qa_app,
+        "_list_harmonization_pipelines",
+        lambda limit=100: (_ for _ in ()).throw(AssertionError("pipeline grouping should be bypassed")),
+    )
+    sections = [
+        {
+            "snapshot_key": "pipeline-a-cleanup",
+            "snapshot_name": "Pipeline A cleanup",
+            "snapshot_created_at": "2026-08-27T10:00:00Z",
+            "cliques": [{
+                "clique_key": "a",
+                "clique_size": 2,
+                "member_ids": ["CHEBI:1", "CHEBI:2"],
+                "member_name_by_id": {},
+            }],
+        },
+        {
+            "snapshot_key": "pipeline-b-cleanup",
+            "snapshot_name": "Pipeline B cleanup",
+            "snapshot_created_at": "2026-08-27T11:00:00Z",
+            "cliques": [{
+                "clique_key": "b",
+                "clique_size": 2,
+                "member_ids": ["CHEBI:1", "CHEBI:2"],
+                "member_name_by_id": {},
+            }],
+        },
+    ]
+
+    plots = qa_app._build_metabolite_snapshot_sankeys(
+        sections,
+        ["pipeline-a-cleanup", "pipeline-b-cleanup"],
+    )
+
+    assert len(plots) == 1
+    assert plots[0]["pipeline_key"] == "selected-stage-comparison"
+    assert plots[0]["stage_count"] == 2
+    assert [node["snapshot_key"] for node in plots[0]["sankey"]["nodes"]] == [
+        "pipeline-a-cleanup",
+        "pipeline-b-cleanup",
+    ]
+    assert plots[0]["sankey"]["links"][0]["value"] == 2
 
 
 def test_expected_clique_assertion_edges_use_a_provenanced_star_and_skip_missing_ids():
@@ -818,6 +1117,56 @@ def test_normalize_metabolite_rule_parameters_parses_default_and_submitted_texta
         "prefixes": ["CHEBI", "HMDB"],
         "source_fields": ["bdbKeggCompound", "bdbWikidata"],
     }
+
+
+def test_normalize_free_anomer_carbohydrate_gate_parameter():
+    default_parameters = _normalize_metabolite_rule_parameters(
+        ["merge_free_anomeric_forms"],
+        {},
+    )
+    disabled_parameters = _normalize_metabolite_rule_parameters(
+        ["merge_free_anomeric_forms"],
+        {"merge_free_anomeric_forms": {"use_carbohydrate_gate": "false"}},
+    )
+
+    assert default_parameters["merge_free_anomeric_forms"]["use_carbohydrate_gate"] is True
+    assert disabled_parameters["merge_free_anomeric_forms"]["use_carbohydrate_gate"] is False
+
+
+def test_harmonization_evidence_display_identifies_and_labels_ifx_rule_edges():
+    display = qa_app._metabolite_harmonization_evidence_display({
+        "sources": ["IFX Harmonization Rule"],
+        "rule_id": "merge_free_anomeric_forms",
+        "details": [],
+    })
+
+    assert display == {
+        "label": "IFX: Merge Free Anomeric Forms",
+        "class_name": "metabolite-equivalence-edge ifx-harmonization-rule-edge",
+        "rule_id": "merge_free_anomeric_forms",
+        "rule_label": "Merge Free Anomeric Forms",
+    }
+
+
+def test_harmonization_evidence_display_falls_back_to_detail_rule_id():
+    display = qa_app._metabolite_harmonization_evidence_display({
+        "sources": ["IFX Harmonization Rule"],
+        "details": [{"rule_id": "future_rule"}],
+    })
+
+    assert display["label"] == "IFX: future_rule"
+    assert display["rule_id"] == "future_rule"
+    assert "ifx-harmonization-rule-edge" in display["class_name"]
+
+
+def test_harmonization_evidence_display_preserves_source_labels_for_regular_edges():
+    display = qa_app._metabolite_harmonization_evidence_display({
+        "sources": ["ChEBI", "HMDB"],
+        "details": [],
+    })
+
+    assert display["label"] == "ChEBI, HMDB"
+    assert display["class_name"] == "metabolite-equivalence-edge"
 
 
 def test_wikipathways_ignored_source_fields_identify_only_xref_only_identifiers():

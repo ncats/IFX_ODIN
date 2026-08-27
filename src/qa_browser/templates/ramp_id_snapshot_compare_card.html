@@ -14,39 +14,78 @@
     {% endif %}
     <div class="metabolite-id-compare-card-header">
         <div>
-            <strong>{{ rank }}. {{ component.change_type|title }}</strong>
+            <div class="metabolite-id-compare-component-title">
+                <span class="metabolite-id-compare-component-rank" aria-label="Changed component {{ rank }}">{{ rank }}</span>
+                <strong>{{ component.change_type|title }}</strong>
+            </div>
             <span>
                 {{ component.left_clique_count }} → {{ component.right_clique_count }} clique{{ "" if component.right_clique_count == 1 else "s" }}
                 · {{ "{:,}".format(component.left_member_count) }} → {{ "{:,}".format(component.right_member_count) }} IDs
             </span>
-            {% if component.is_recombination %}
-            <span>
-                Recombination: {{ component.nontrivial_split_count }} split transition{{ "" if component.nontrivial_split_count == 1 else "s" }}
-                · {{ component.nontrivial_merge_count }} merge transition{{ "" if component.nontrivial_merge_count == 1 else "s" }}
-            </span>
-            {% elif component.nontrivial_split_count|default(0, true) %}
-            <span>
-                {{ component.nontrivial_split_count }} non-trivial split transition{{ "" if component.nontrivial_split_count == 1 else "s" }}
-                · {{ component.nontrivial_split_fragment_count }} fragments
-                · {{ "{:,}".format(component.nontrivial_split_member_count) }} IDs retained across those fragments
-            </span>
-            {% elif component.nontrivial_merge_count|default(0, true) %}
-            <span>
-                {{ component.nontrivial_merge_count }} non-trivial merge transition{{ "" if component.nontrivial_merge_count == 1 else "s" }}
-                · {{ component.nontrivial_merge_fragment_count }} source fragments
-                · {{ "{:,}".format(component.nontrivial_merge_member_count) }} IDs retained across those fragments
-            </span>
-            {% endif %}
-            {% if component.review_ids %}
-            <a class="metabolite-id-compare-review-link" href="{{ root_path }}/ramp-id-qa?{{ component.review_query_string }}" target="_blank" rel="noopener noreferrer">Open ID comparison for these stages</a>
-            {% endif %}
         </div>
-        <dl>
-            <div><dt>Added</dt><dd>{{ "{:,}".format(component.added_count) }}</dd></div>
-            <div><dt>Removed</dt><dd>{{ "{:,}".format(component.removed_count) }}</dd></div>
-            <div><dt>Retained</dt><dd>{{ "{:,}".format(component.retained_count) }}</dd></div>
+        <dl class="metabolite-id-compare-membership-venn" aria-label="Identifier membership overlap">
+            <div class="is-from" title="Identifiers present only in the From stage component"><dt>From only</dt><dd>{{ "{:,}".format(component.removed_count) }}</dd></div>
+            <div class="is-both" title="Identifiers represented in both stage components"><dt>Both</dt><dd>{{ "{:,}".format(component.retained_count) }}</dd></div>
+            <div class="is-to" title="Identifiers present only in the To stage component"><dt>To only</dt><dd>{{ "{:,}".format(component.added_count) }}</dd></div>
         </dl>
     </div>
+    {% if component.involved_preview %}
+    <div class="metabolite-id-compare-involved">
+        <div>
+            <strong>Metabolite names</strong>
+            <span class="metabolite-id-compare-name-list">
+                {% for name in component.involved_preview.names %}<span>{{ name }}</span>{% else %}<em>No preferred names available</em>{% endfor %}
+            </span>
+        </div>
+        <div>
+            <strong>Unique IDs</strong>
+            <span class="metabolite-id-compare-id-list">
+                {% for member_id in component.involved_preview.ids %}<code>{{ member_id }}</code>{% endfor %}
+                {% if component.involved_preview.remaining_id_count %}<em>+{{ "{:,}".format(component.involved_preview.remaining_id_count) }} more</em>{% endif %}
+            </span>
+        </div>
+    </div>
+    {% endif %}
+    {% if component.visualization_ids or component.review_ids %}
+    <div class="metabolite-id-compare-actions">
+        {% if component.visualization_ids %}
+        <button type="button" class="btn metabolite-id-compare-visualize-button"
+            data-compare-visualize
+            data-panel-id="metaboliteCompareVisual-{{ card_scope }}"
+            data-ids="{{ component.visualization_ids|join(' ') }}"
+            data-left-stage="{{ comparison.left_snapshot._key }}"
+            data-right-stage="{{ comparison.right_snapshot._key }}">Show flow and evidence</button>
+        {% endif %}
+        {% if component.review_ids %}
+        <a class="metabolite-id-compare-review-link is-secondary" href="{{ root_path }}/ramp-id-qa?{{ component.review_query_string }}" target="_blank" rel="noopener noreferrer">Open ID comparison for these stages <span aria-hidden="true">↗</span></a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if component.visualization_ids %}
+    <section id="metaboliteCompareVisual-{{ card_scope }}" class="metabolite-id-compare-visualization" hidden>
+        <div data-compare-visualization-loading class="ramp-id-structure-empty">Loading changed clique flow…</div>
+        <div data-compare-sankey class="metabolite-id-sankey metabolite-id-compare-sankey"></div>
+        <div data-compare-sankey-tip class="metabolite-id-sankey-tip"></div>
+        <div data-compare-selected-empty class="ramp-id-structure-empty">Select a Sankey bar to inspect its evidence graph.</div>
+        <div data-compare-selected hidden>
+            <div class="metabolite-id-snapshot-clique-heading">
+                <strong data-compare-clique-title>Stage group</strong>
+                <span data-compare-clique-subtitle></span>
+            </div>
+            <div class="metabolite-id-snapshot-rules" data-compare-clique-rules></div>
+            <div class="metabolite-id-component-layout">
+                <div data-compare-clique-graph class="metabolite-id-cy metabolite-id-snapshot-graph"></div>
+                <aside class="metabolite-id-graph-detail">
+                    <h3 data-compare-graph-title>Stage Group</h3>
+                    <p data-compare-graph-subtitle>Select a node or edge</p>
+                    <div data-compare-graph-details class="ramp-id-details"></div>
+                </aside>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+    <details class="metabolite-id-compare-text-details">
+        <summary>Text details and identifier samples</summary>
     <div class="metabolite-id-compare-columns">
         <section>
             <h3>From</h3>
@@ -117,28 +156,29 @@
     {% endif %}
     <div class="metabolite-id-compare-samples">
         <section>
-            <h3>Added IDs</h3>
-            {% for item in component.added_samples %}
-            <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
-            {% else %}
-            <p>No added IDs.</p>
-            {% endfor %}
-        </section>
-        <section>
-            <h3>Removed IDs</h3>
+            <h3>From-only IDs</h3>
             {% for item in component.removed_samples %}
             <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
             {% else %}
-            <p>No removed IDs.</p>
+            <p>No From-only IDs.</p>
             {% endfor %}
         </section>
         <section>
-            <h3>Retained IDs</h3>
+            <h3>IDs in both</h3>
             {% for item in component.retained_samples %}
             <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
             {% else %}
-            <p>No retained IDs.</p>
+            <p>No IDs represented on both sides.</p>
+            {% endfor %}
+        </section>
+        <section>
+            <h3>To-only IDs</h3>
+            {% for item in component.added_samples %}
+            <div><span>{{ item.label }}</span><code>{{ item.id }}</code></div>
+            {% else %}
+            <p>No To-only IDs.</p>
             {% endfor %}
         </section>
     </div>
+    </details>
 </article>

@@ -114,7 +114,7 @@ class ChebiMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                 source_id = _prefixed_id("CHEBI", record.get("ChEBI ID"))
                 if source_id is None:
                     continue
-                inchi_key = _clean_text(record.get("InChIKey"))
+                inchi_key = _record_text(record, "INCHIKEY", "InChIKey")
                 yield MetaboliteIdentifier(
                     id=source_id,
                     chem_props=[
@@ -124,11 +124,15 @@ class ChebiMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                             iso_smiles=_clean_text(record.get("SMILES")),
                             inchi_key_prefix=_inchi_key_prefix(inchi_key),
                             inchi_key=inchi_key,
-                            inchi=_clean_text(record.get("InChI")),
+                            inchi=_record_text(record, "INCHI", "InChI"),
                             mw=_clean_text(record.get("MASS")),
-                            monoisotopic_mass=_clean_text(record.get("Monoisotopic Mass")),
-                            common_name=_clean_text(record.get("ChEBI Name")),
-                            molecular_formula=_clean_text(record.get("Formulae")),
+                            monoisotopic_mass=_record_text(
+                                record,
+                                "MONOISOTOPIC_MASS",
+                                "Monoisotopic Mass",
+                            ),
+                            common_name=_record_text(record, "ChEBI NAME", "ChEBI Name"),
+                            molecular_formula=_record_text(record, "FORMULA", "Formulae"),
                         )
                     ],
                 )
@@ -296,6 +300,10 @@ def _clean_text(value: Optional[str]) -> Optional[str]:
         return None
     value = str(value).strip()
     return value or None
+
+
+def _record_text(record: Dict[str, str], *field_names: str) -> Optional[str]:
+    return _first_clean(*(record.get(field_name) for field_name in field_names))
 
 
 def _first_clean(*values: Optional[str]) -> Optional[str]:

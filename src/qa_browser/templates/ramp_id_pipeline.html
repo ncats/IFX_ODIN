@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ pipeline.name if pipeline else pipeline_key }} · Harmonization Pipeline{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Studio</a>
+<span class="sep">/</span>
+<span>{{ pipeline.name if pipeline else pipeline_key }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="ramp-id-page metabolite-id-qa-page">
+    <section class="ramp-id-header">
+        <div>
+            <h1>{{ pipeline.name if pipeline else "Pipeline" }}</h1>
+            <p class="mono">{{ pipeline._key if pipeline else pipeline_key }}</p>
+            {% if pipeline and pipeline.runs %}
+            {% set latest_run = pipeline.runs[0] %}
+            <p>Latest run: <strong>{{ latest_run.status }}</strong> · {{ latest_run.created_at }}{% if latest_run.elapsed_seconds %} · {{ latest_run.elapsed_seconds }}s{% endif %}</p>
+            {% endif %}
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="registry-update-error">{{ error }}</div>
+    {% endif %}
+
+    {% if pipeline %}
+    {% include "ramp_id_stage_stats_table.html" %}
+    {% endif %}
+</div>
+{% endblock %}
