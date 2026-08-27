@@ -1,307 +1,253 @@
-# Free-anomer metabolite harmonization rule
+# Merge Free Anomeric Forms
 
-**Status:** Optional QA Studio prototype implemented; chemistry review is still required before production use.
+**Status:** Implemented as an optional Metabolite Harmonization Studio rule.
 
-**Studio name:** `Merge Free Anomeric Forms`
+**Rule ID:** `merge_free_anomeric_forms`
 
-## Decision requested
+**Algorithm version:** `free-anomer-v1`
 
-Should an optional harmonization rule treat the alpha, beta, and anomer-unspecified forms of a **concrete carbohydrate with one free reducing end** as one metabolite when the structures differ only at that free anomeric center?
+## What the rule does
 
-The first-generation proposal is intentionally narrower than “ignore carbohydrate stereochemistry”:
+The rule merges ChEBI forms that differ only in the stereochemistry of one free
+anomeric carbon. Its main use is to put the alpha, beta, and
+anomer-unspecified forms of a reducing sugar in the same harmonized clique.
 
-- Include concrete mono-, modified mono-, and finite oligosaccharides whose structures differ only at one free hemiacetal/hemiketal center.
-- Preserve every other stereocenter, so glucose, mannose, and galactose remain distinct.
-- Exclude fixed glycosides, nonreducing sugars, polymers/generic structures, D/L pairs, and changes in ring size.
-- Initially require a direct ChEBI parent/child relationship as well as agreement after the structure transformation.
-- Defer non-carbohydrate cyclic hemiacetals/hemiketals until chemistry review establishes whether the same biological interpretation is appropriate.
+For example, these forms of D-glucopyranose should merge:
 
-This would be an optional harmonization operation. It would not rewrite source evidence or replace the documented and derived InChIKeys stored on the evidence entities.
+- `CHEBI:17925` — alpha-D-glucose
+- `CHEBI:15903` — beta-D-glucose
+- `CHEBI:4167` — D-glucopyranose with no specified anomer
 
-The QA Studio prototype is available as `Merge Free Anomeric Forms`. It uses
-`CHEBI:16646` (carbohydrate) as its ChEBI `is_a` scope gate and excludes
-descendants of `CHEBI:60027` (polymer) and `CHEBI:18154` (polysaccharide).
-Accepted pairs are materialized as synthetic, rule-labeled stage evidence edges
-so the ordinary stage and pipeline comparison tools can expose the clique delta.
-This is reviewable derived evidence, not a source assertion.
+The rule preserves every other stereocenter. It therefore does not merge
+glucose with mannose or galactose, D forms with L forms, or pyranose rings with
+furanose rings.
 
-The rule parameter **Require ChEBI carbohydrate ancestry** defaults to enabled.
-Reviewers may disable it to run the same local structure algorithm over all
-concrete ChEBI child/parent pairs. That comparison mode is intentionally broader:
-it exposes non-carbohydrate cyclic hemiacetal/hemiketal lookalikes for review
-rather than declaring them production equivalences. Polymer/polysaccharide,
-repeat-formula, wildcard, formula, and charge protections remain enabled in both
-modes. Because the parameter is part of the materialized stage key, gated and
-ungated results can coexist and be compared directly in the QA Browser.
+It also does not merge fixed glycosides, nonreducing sugars, or polymers. Those
+structures do not have the free anomeric hydroxyl required by the rule, or are
+excluded from candidate generation.
 
-## Chemical rationale
+The rule adds synthetic, auditable `IFX Harmonization Rule` edges to the stage.
+It does not change source structures or overwrite documented or derived
+InChIKeys.
 
-Alpha- and beta-D-glucopyranose are anomers. In aqueous solution, a molecule with a free anomeric hydroxyl can open to the carbonyl form and close again as either anomer. The resulting change in optical rotation is mutarotation. The rate and equilibrium depend on conditions, so the forms are interconverting rather than literally identical at every instant. See the IUPAC definitions of [mutarotation](https://goldbook.iupac.org/terms/view/M04073) and the [anomeric hydroxy group](https://goldbook.iupac.org/terms/view/09808), and an experimental discussion of [glucose mutarotation kinetics](https://pmc.ncbi.nlm.nih.gov/articles/PMC9969180/).
+## Why these forms can be merged
 
-The same reasoning can apply to the free reducing-end residue of a finite oligosaccharide. IUPAC carbohydrate nomenclature explicitly distinguishes oligosaccharides [with a free hemiacetal group](https://iupac.qmul.ac.uk/2carb/37.html) from those [without one](https://iupac.qmul.ac.uk/2carb/36.html).
+A sugar with a free anomeric hydroxyl can open to its carbonyl form and close
+again as either the alpha or beta anomer. This interconversion is called
+mutarotation. The rule treats those free forms as members of the same
+harmonized metabolite group.
 
-It does **not** apply to an alpha/beta descriptor that defines a glycosidic acetal linkage. That configuration is fixed until the covalent bond is broken; it does not interconvert by ordinary mutarotation. See the definitions of a [glycosidic linkage](https://goldbook.iupac.org/terms/view/09825) and [glycosides](https://goldbook.iupac.org/terms/view/G02661).
+This reasoning does not apply when the anomeric oxygen is part of a glycosidic
+acetal bond. Alpha and beta glycosides are distinct compounds and remain
+separate.
 
-The operational rule is therefore:
+## Examples
 
-> Merge configurations that differ only at a free reducing-end anomeric hydroxyl. Never discard stereochemistry that belongs to a glycosidic linkage or any other stereocenter.
-
-## Structures proposed for inclusion
-
-The highlighted atom in these diagrams is the free anomeric center detected from the graph SMILES.
-
-### Core test case: D-glucopyranose
+### D-glucopyranose: merge
 
 ![Alpha, beta, and anomer-unspecified D-glucopyranose](assets/metabolite_anomer_rule/included_glucose.svg)
 
-These three should form one clique:
+The alpha (`CHEBI:17925`), beta (`CHEBI:15903`), and unspecified
+(`CHEBI:4167`) structures differ only at the free anomeric carbon. Clearing the
+chiral tag on that carbon gives all three the same full normalized InChIKey, so
+the direct child–parent pairs are merged. Together, those edges put all three
+identifiers in one clique.
 
-- `CHEBI:17925` alpha-D-glucose
-- `CHEBI:15903` beta-D-glucose
-- `CHEBI:4167` D-glucopyranose, anomer unspecified
+### Modified and larger reducing sugars: merge
 
-Their complete derived InChIKeys differ because the stereochemical block records the anomeric configuration. If chirality is cleared **only** at the detected free anomeric carbon, all three structures produce the same complete normalized key:
+The same rule can merge a modified sugar as long as the modification and all
+other stereochemistry remain identical. Examples include:
 
-`WQZGKKKJIJFFOK-GASJEMHNSA-N`
+- alpha-, beta-, and unspecified D-glucose 6-phosphate (`CHEBI:17665`,
+  `CHEBI:17719`, and `CHEBI:4170`);
+- alpha-, beta-, and unspecified N-acetyl-D-glucosamine (`CHEBI:44278`,
+  `CHEBI:28009`, and `CHEBI:506227`); and
+- alpha-, beta-, and unspecified cellotriose (`CHEBI:41727`, `CHEBI:41753`,
+  and `CHEBI:3528`).
 
-This is more selective than using the InChIKey connectivity block. The connectivity block alone is also shared by glucose, mannose, galactose, and other stereoisomers.
+For cellotriose, only the free anomeric center on the terminal reducing sugar
+is normalized. Its internal glycosidic bonds and their stereochemistry are not
+changed.
 
-### Modified reducing monosaccharides
-
-![Glucose 6-phosphate and N-acetylglucosamine anomer groups](assets/metabolite_anomer_rule/included_modified_sugars.svg)
-
-The same structural test identifies a single free anomeric OH while preserving the phosphate, amino/acetamido substitution, and all other stereochemistry. Proposed first-generation examples include:
-
-- alpha-, beta-, and anomer-unspecified D-glucopyranose 6-phosphate;
-- alpha-, beta-, and anomer-unspecified N-acetyl-D-glucosamine;
-- analogous concrete reducing sugars such as glucosamine, uronic acids, and sialic-acid/hemiketal forms, subject to chemistry review.
-
-### Finite reducing oligosaccharides
-
-![Alpha, beta, and anomer-unspecified cellotriose](assets/metabolite_anomer_rule/included_reducing_oligosaccharide.svg)
-
-Cellotriose illustrates the proposed boundary. Its internal beta-(1→4) linkages remain unchanged. Only the terminal residue with a free anomeric OH changes between alpha, beta, and unspecified forms. The proposal includes this kind of finite, fully specified reducing oligosaccharide.
-
-## Structures that must remain separate
-
-### Other monosaccharide stereochemistry
+### Other sugar stereochemistry: keep separate
 
 ![D-glucose, D-mannose, and D-galactose](assets/metabolite_anomer_rule/excluded_epimers.svg)
 
-D-glucose, D-mannose, and D-galactose each have a free anomeric center, but they differ at other stereocenters. Clearing chirality only at the highlighted atom leaves different normalized complete InChIKeys. They therefore remain separate.
+D-glucopyranose (`CHEBI:4167`), D-mannopyranose (`CHEBI:4208`), and
+D-galactopyranose (`CHEBI:4139`) differ at stereocenters other than the free
+anomeric carbon. Those protected differences remain after normalization, so
+their full normalized InChIKeys do not match.
 
-The same protection applies to D/L pairs and to any other epimer or stereoisomer whose difference is not confined to the one free anomeric carbon.
-
-### Locked glycosides and nonreducing sugars
+### Locked or nonreducing sugars: keep separate
 
 ![Methyl glucosides, sucrose, and trehalose](assets/metabolite_anomer_rule/excluded_locked_glycosides.svg)
 
-These structures have no free anomeric OH that meets the proposed test:
+Methyl alpha- and beta-D-glucopyranoside (`CHEBI:320061` and `CHEBI:320055`)
+have a methoxy group instead of a free anomeric hydroxyl. Sucrose
+(`CHEBI:17992`) and trehalose (`CHEBI:16551`) use their anomeric centers in
+glycosidic bonds. The detector therefore does not find exactly one qualifying
+free anomeric center, and these structures are not merged.
 
-- Methyl alpha- and beta-D-glucopyranoside have anomeric methoxy acetals. They are distinct compounds and do not mutarotate without bond cleavage.
-- Sucrose and alpha,alpha-trehalose use both anomeric centers in glycosidic bonds and are nonreducing.
+## Candidate pairs
 
-They must not be merged by this rule.
+The rule evaluates direct ChEBI `is_a` child–parent pairs. This normally gives
+an alpha or beta ChEBI term paired with its anomer-unspecified parent. Both
+ChEBI identifiers must be active metabolite identifiers in the current stage.
 
-### Polymer and generic carbohydrate records
+The parameter **Require ChEBI carbohydrate ancestry** is enabled by default.
+When enabled, both identifiers must be descendants of `CHEBI:16646`
+(`carbohydrate`). Descendants of these classes are always excluded:
 
-![Alpha- and beta-(1→4)-D-glucan source representations](assets/metabolite_anomer_rule/excluded_polymers.svg)
+- `CHEBI:60027` — polymer
+- `CHEBI:18154` — polysaccharide
 
-The first generation should exclude polymer and generic records, including alpha- and beta-glucans. Their alpha/beta designation describes the repeating glycosidic linkage and is biologically consequential, not an equilibrating free-end configuration.
+Disabling the carbohydrate gate runs the same structural test against all
+direct ChEBI child–parent pairs. This is useful for comparing the gate's effect,
+but it may admit non-carbohydrate cyclic hemiacetal or hemiketal pairs that need
+additional review.
 
-The graph examples above also show a data-quality reason for exclusion: ChEBI supplies monomer-like SMILES for these polymer classes while the formula is `(C6H10O5)n.H2O`. A structure-only detector could mistake that illustrative repeat-unit representation for a discrete reducing sugar. Polymer/generic filters are therefore required even if an apparent terminal OH is present.
+## Matching algorithm
 
-### Non-carbohydrate lookalikes: defer in generation one
+A candidate pair is merged only when all of these checks pass:
 
-![Hydroxynaringenin stereoisomers](assets/metabolite_anomer_rule/deferred_noncarbohydrate.svg)
+1. Both records have the same nonempty molecular formula and charge.
+2. The formula is not a repeat formula containing `n`.
+3. Both records have parseable SMILES with no wildcard atoms.
+4. RDKit finds exactly one free anomeric center in each structure.
+5. The original full InChIKeys are different.
+6. After removing stereochemistry only at the detected anomeric centers, the
+   full normalized InChIKeys are equal.
 
-The graph contains non-carbohydrate cyclic hemiacetal-like structures that pass the local atom pattern. One example is the (2R), (2S), and unspecified 2-hydroxynaringenin group. The structural transformation is analogous, but it is not yet established that these should be treated as one biological metabolite. Generation one should use a carbohydrate scope gate and leave these unchanged.
-
-## Explicit first-generation boundary
-
-| Situation | Generation-one behavior | Reason |
-|---|---|---|
-| Alpha/beta/unspecified form of one concrete reducing monosaccharide | Include | Interconversion can occur through ring opening/closure |
-| Modified monosaccharide with one free anomeric OH | Include | Modification is retained; only free-end chirality is normalized |
-| Finite reducing oligosaccharide with one free end | Include | Only terminal free-end configuration changes |
-| Glucose versus mannose/galactose | Exclude | Difference occurs at protected stereocenters |
-| D versus L form | Exclude | Difference is not confined to the free anomeric center |
-| Pyranose versus furanose | Exclude in generation one | Ring connectivity/size differs; this proposal only removes one local chiral assignment |
-| Open-chain versus cyclic sugar | Exclude in generation one | Requires a tautomer/ring-chain equivalence rule, not an anomer-only rule |
-| Alkyl glycoside or fixed glycosidic linkage | Exclude | Anomeric oxygen is an acetal linkage, not a free OH |
-| Nonreducing sugar such as sucrose or trehalose | Exclude | No free reducing end |
-| Polymer, repeat unit, wildcard, or formula containing `n` | Exclude | Linkage stereochemistry matters and source structures may be illustrative |
-| Generic ontology class without a concrete structure | Exclude | Insufficient structure evidence |
-| Non-carbohydrate cyclic hemiacetal/hemiketal | Defer | Chemistry may fit, but desired metabolite identity semantics are unreviewed |
-
-## Proposed matching algorithm
-
-Generation one should be conservative and explainable:
-
-1. Use a direct ChEBI `is_a` child/parent relationship to propose a pair. This connects each alpha or beta term to its anomer-unspecified parent without treating every ontology ancestor as chemical equivalence.
-2. Resolve both ChEBI terms to their concrete `MetaboliteIdentifier` structures.
-3. Require both records to have parseable SMILES, equal exact molecular formula, and equal formal charge.
-4. Require carbohydrate scope and reject polymer/generic records. Initial rejection signals should include wildcard atoms, polymer ontology membership, and formulas containing a repeat variable such as `n`.
-5. Detect exactly one free anomeric center: a ring carbon bonded to a ring oxygen and to an external, neutral, degree-one hydroxyl oxygen.
-6. Copy each molecule and remove the chiral assignment only from that detected carbon. Do not alter any other atom, bond, isotope, charge, or connectivity.
-7. Calculate a complete InChIKey from each normalized copy and require equality. Do not compare only the connectivity prefix.
-8. Add the accepted pair to the transient harmonization graph. The alpha and beta children become one clique through their common unspecified parent.
-9. Record rule-level explanation data sufficient to audit the merge: ChEBI relationship, source and normalized structures/keys, detected atom index, formula/charge checks, and algorithm version.
-
-### RDKit detection and stereo normalization
-
-The prototype uses RDKit to interpret the ChEBI SMILES as a molecular graph.
-Although wedge/hash bonds are a common drawing convention, the operation is
-implemented at the tetrahedral atom rather than by searching for and deleting a
-particular drawn bond. In SMILES, that tetrahedral assignment is represented by
-the atom's `@`/`@@` chirality; RDKit exposes it as the atom's chiral tag.
-
-For each atom in the molecule, the detector accepts the atom as a possible free
-anomeric center only when all of the following are true:
-
-1. The atom is carbon (`atomic number == 6`).
-2. The carbon is part of a ring (`atom.IsInRing()`).
-3. At least one directly bonded oxygen is also part of a ring. This identifies
-   the carbon next to the cyclic hemiacetal/hemiketal oxygen.
-4. A different directly bonded oxygen is outside the ring, neutral, degree one,
-   and bears at least one hydrogen. This is the free anomeric hydroxyl, not an
-   ether or glycosidic oxygen.
-5. Exactly one carbon in the whole structure satisfies this pattern.
-
-In code, the local structural test is equivalent to:
-
-```python
-for atom in mol.GetAtoms():
-    if atom.GetAtomicNum() != 6 or not atom.IsInRing():
-        continue
-    has_ring_oxygen = any(
-        neighbor.GetAtomicNum() == 8 and neighbor.IsInRing()
-        for neighbor in atom.GetNeighbors()
-    )
-    has_external_oh = any(
-        neighbor.GetAtomicNum() == 8
-        and not neighbor.IsInRing()
-        and neighbor.GetDegree() == 1
-        and neighbor.GetFormalCharge() == 0
-        and neighbor.GetTotalNumHs() > 0
-        for neighbor in atom.GetNeighbors()
-    )
-```
-
-The source molecule is copied. On the copy, and only at the detected carbon,
-the prototype calls:
-
-```python
-normalized.GetAtomWithIdx(anomeric_atom_index).SetChiralTag(
-    Chem.ChiralType.CHI_UNSPECIFIED
-)
-Chem.AssignStereochemistry(normalized, cleanIt=True, force=True)
-normalized_key = inchi.MolToInchiKey(normalized)
-```
-
-This does **not** call `Chem.RemoveStereochemistry`, because that would erase
-every stereocenter and would incorrectly collapse glucose with mannose,
-galactose, D/L pairs, and other protected stereoisomers. It also does not alter
-double-bond stereo, isotopes, formal charges, connectivity, or a glycosidic
-bond. The child and parent are accepted only when their complete normalized
-InChIKeys are equal and their original complete InChIKeys were different.
-
-The accepted stage-evidence edge records both original SMILES and InChIKeys,
-the normalized complete InChIKey, each detected atom index, the direct ChEBI
-relationship, and algorithm version `free-anomer-v1`. These values make the
-specific stereo removal reproducible during review.
-
-Conceptually:
+In high-level pseudocode:
 
 ```text
-direct ChEBI alpha/beta -> unspecified parent
-                  |
-                  v
-concrete carbohydrate + exact formula/charge + non-polymer
-                  |
-                  v
-exactly one free anomeric OH in each structure
-                  |
-                  v
-clear chirality only there -> calculate full InChIKeys -> equal?
-                  |
-             yes: transient merge
+for each direct ChEBI child -> parent relationship:
+    if carbohydrate gate is enabled:
+        require child and parent to be carbohydrates
+    reject polymers and polysaccharides
+    require both identifiers to be active in this stage
+
+    require equal, concrete formulas
+    require equal charges
+    parse both SMILES with RDKit
+
+    child_center  = find_exactly_one_free_anomeric_center(child)
+    parent_center = find_exactly_one_free_anomeric_center(parent)
+
+    child_key  = InChIKey(child structure)
+    parent_key = InChIKey(parent structure)
+    require child_key != parent_key
+
+    normalized_child  = clear_chirality(child, child_center)
+    normalized_parent = clear_chirality(parent, parent_center)
+
+    if full_InChIKey(normalized_child) == full_InChIKey(normalized_parent):
+        add an IFX Harmonization Rule edge between child and parent
 ```
 
-Requiring the ChEBI relationship makes generation one dependent on ontology coverage, but sharply reduces the chance that coincidentally similar structures are merged. A later, separately evaluated version could generate candidates from structures alone.
+## What RDKit does
 
-## Current-graph candidate population
+RDKit interprets each SMILES as a molecular graph. The rule does not search for
+and delete a wedge/hash bond. SMILES chirality such as `@` or `@@` is stored by
+RDKit as a chiral tag on the tetrahedral atom, so the rule clears the tag on one
+specific carbon atom.
 
-The following exploratory counts come from the `metabolite_harmonization` graph on 2026-08-26. They describe candidate discovery, not approved merges:
+### Finding the free anomeric center
 
-- 73,537 `ChemicalEntity` records had a structure and a linked `MetaboliteIdentifier`.
-- 3,632 had exactly one atom matching the local free-anomeric-OH pattern.
-- Structure-only grouping, with normalized-key and formula checks but without ontology gating, produced 574 possible groups containing 1,361 entities. Inspection showed this is too permissive because it includes polymer/class records and non-carbohydrate lookalikes.
-- Direct ChEBI `is_a` relationships plus exact formula and normalized-structure agreement produced 526 candidate child/parent pairs involving 907 entities.
-- Those pairs formed 381 connected components: 236 pairs and 145 three-member groups.
+The detector looks for a ring carbon that is bonded to both:
 
-The 526-pair result is an **upper bound before a validated carbohydrate/polymer scope filter**. It contains strong examples such as glucose, mannose, galactose, talose, sorbose, arabinose, xylose, rhamnose, sugar phosphates, amino sugars, uronic acids, and finite reducing oligosaccharides. It also contains cases such as hydroxynaringenin that generation one proposes to defer.
+- an oxygen inside the ring; and
+- a different oxygen outside the ring that is neutral, has only one heavy-atom
+  bond, and bears a hydrogen — a free hydroxyl rather than an ether or
+  glycosidic oxygen.
 
-### Prototype validation on the rebuilt graph
+Exactly one carbon in the molecule must match.
 
-A read-only run of `free-anomer-v1` with the carbohydrate gate enabled against the rebuilt
-`metabolite_harmonization` graph on 2026-08-27 produced:
+Equivalent RDKit-style pseudocode:
 
-- 5,744 ChEBI identifiers under the carbohydrate scope root;
-- 1,805 identifiers removed by the polymer/polysaccharide exclusion;
-- 1,555 remaining scope identifiers that were active metabolite identifiers;
-- 577 direct ChEBI child/parent candidate pairs;
-- 264 accepted free-anomer pairs and 313 rejected pairs.
+```python
+def find_free_anomeric_centers(molecule):
+    matches = []
 
-The principal rejection counts were 185 missing-formula pairs, 62 pairs where
-one endpoint did not have exactly one qualifying free-anomeric center, 29 pairs
-with missing SMILES, 16 formula mismatches, 14 normalized-key mismatches, five
-repeat formulas, and two wildcard structures. Alpha- and beta-D-glucose both
-matched their anomer-unspecified `CHEBI:4167` parent. The hydroxynaringenin
-examples passed the local atom transformation when evaluated alone but were not
-under `CHEBI:16646`, confirming that the carbohydrate scope gate excludes them
-from rule candidates as intended.
+    for atom in molecule.atoms:
+        if atom.atomic_number != CARBON or not atom.is_in_ring:
+            continue
 
-With the carbohydrate gate disabled, the same graph produced 69,492 direct
-ChEBI child/parent candidates and 526 accepted structure pairs. The additional
-262 accepted pairs include the two hydroxynaringenin-to-unspecified-parent
-edges. This broader mode is therefore useful as a review contrast, while the
-enabled-by-default gate remains the conservative pipeline setting.
+        has_ring_oxygen = any(
+            neighbor.atomic_number == OXYGEN
+            and neighbor.is_in_ring
+            for neighbor in atom.neighbors
+        )
 
-## Relationship to existing InChIKey rules
+        has_free_hydroxyl = any(
+            neighbor.atomic_number == OXYGEN
+            and not neighbor.is_in_ring
+            and neighbor.degree == 1
+            and neighbor.formal_charge == 0
+            and neighbor.total_hydrogens > 0
+            for neighbor in atom.neighbors
+        )
 
-The existing documented and derived InChIKey rules should remain unchanged:
+        if has_ring_oxygen and has_free_hydroxyl:
+            matches.append(atom.index)
 
-- A documented InChIKey remains source evidence.
-- A derived InChIKey remains a reproducible property calculated from source SMILES.
-- The proposed rule calculates an additional **transient normalized key** from an in-memory copy of the structure. That key exists only to evaluate this rule and should not overwrite either stored field.
-- The full normalized key, not its first connectivity block, is used for the final comparison.
+    return matches
+```
 
-This separation makes the operation reviewable and prevents an anomer-normalized identity from being mistaken for a source assertion.
+### Removing only the anomeric stereochemistry
 
-## Validation plan
+The source molecule is copied. RDKit clears the chiral tag only on the detected
+carbon, recalculates stereochemical assignments, and generates a full InChIKey
+from the copy:
 
-Before enabling the rule in a shared pipeline:
+```python
+normalized = copy(molecule)
+center = normalized.atom(anomeric_atom_index)
+center.chiral_tag = CHIRALITY_UNSPECIFIED
 
-1. Produce a complete candidate report with identifiers, names, formulas, original structures/InChIKeys, normalized keys, and the exact ChEBI edge used.
-2. Have chemistry reviewers approve categories and flag exceptions, not just the glucose assertion.
-3. Build positive tests for glucose, mannose, galactose, glucose 6-phosphate, N-acetylglucosamine, and a finite reducing oligosaccharide.
-4. Build negative tests for glucose-versus-mannose/galactose, D/L pairs, pyranose/furanose, methyl glucosides, sucrose, trehalose, alpha/beta glucans, wildcard polymers, and non-carbohydrate lookalikes.
-5. Verify that the rule adds no bridge between different normalized complete keys and changes no evidence-layer record.
-6. Run it as an optional Studio rule and compare clique deltas against the same pipeline without the rule.
-7. Review unexpectedly large cliques and every candidate outside the pre-approved chemical categories before considering it stable.
+assign_stereochemistry(normalized, clean=True, force=True)
+normalized_key = full_inchikey(normalized)
+```
 
-## Questions for chemistry review
+The rule deliberately does not call RDKit's `RemoveStereochemistry`, which
+would erase every stereocenter and could incorrectly merge epimers or D/L
+pairs. It does not change bonds, connectivity, isotopes, charges, double-bond
+stereochemistry, or any other tetrahedral center.
 
-1. Is “rapidly interconverting free-anomer pool under ordinary biological aqueous conditions” the right identity criterion for RaMP harmonization?
-2. Should alpha, beta, and unspecified free forms be merged even when a source or enzyme annotation is explicitly anomer-specific?
-3. Are modified monosaccharides such as sugar phosphates, amino sugars, uronic acids, and sialic-acid hemiketals acceptable in generation one?
-4. Should all finite reducing oligosaccharides be included, or should generation one stop at monosaccharides?
-5. Is a ChEBI carbohydrate ontology gate sufficient, and which exact ancestor(s) should define it?
-6. Are there concrete polymer records for which a free reducing-end anomer should be represented separately from the linkage-defined polymer class, or should all polymers remain categorically excluded?
-7. Are any non-carbohydrate cyclic hemiacetal/hemiketal families appropriate for a later generalized rule?
-8. Are there expected exceptions where ring opening is so constrained or slow that merging the free anomers would be misleading?
+The final comparison uses the complete normalized InChIKey, not just its
+connectivity block.
 
-## Figure provenance
+## Audit information
 
-The SVG panels are generated with RDKit from the exact graph SMILES listed in `generate_structures.py` under `designs/assets/metabolite_anomer_rule/`. The highlighted atoms show the current proposed detector, not a manually selected illustration. Regenerating the figures therefore also checks that the detector continues to identify the intended center.
+Each accepted rule edge records:
+
+- the direct ChEBI relationship;
+- the original SMILES and generated InChIKey for each endpoint;
+- the detected atom index for each endpoint;
+- the shared normalized full InChIKey;
+- whether the carbohydrate gate was enabled; and
+- algorithm version `free-anomer-v1`.
+
+This makes every merge visible in stage comparisons and reproducible without
+changing the source evidence.
+
+## Expected boundaries
+
+| Pair or structure | Result |
+|---|---|
+| Alpha, beta, and unspecified D-glucopyranose | Merge |
+| Modified reducing sugar with one free anomeric OH | Merge if all checks pass |
+| Finite reducing oligosaccharide with one free end | Merge if all checks pass |
+| Glucose versus mannose or galactose | Keep separate |
+| D versus L form | Keep separate |
+| Pyranose versus furanose | Keep separate |
+| Open-chain versus cyclic sugar | Keep separate |
+| Alpha versus beta glycoside | Keep separate |
+| Sucrose, trehalose, polymers, and generic structures | Keep separate |
+
+## Review point
+
+The local atom pattern is intentionally simple and explainable, but it is still
+a structural heuristic. The default carbohydrate gate supplies the conservative
+biological scope. Results from disabling that gate should be treated as review
+candidates rather than automatically approved metabolite equivalences.
