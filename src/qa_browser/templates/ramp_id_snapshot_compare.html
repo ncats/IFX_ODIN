@@ -54,11 +54,15 @@
     {% if comparison.left_snapshot and comparison.right_snapshot %}
     <section class="ramp-id-overview metabolite-id-overview">
         <div>
-            <h2>{{ comparison.left_snapshot.name }} → {{ comparison.right_snapshot.name }}</h2>
+            <h2>Pipeline Stage Comparison</h2>
             <p>
-                <span class="mono">{{ comparison.left_snapshot._key }}</span>
-                <span> to </span>
-                <span class="mono">{{ comparison.right_snapshot._key }}</span>
+                {% if comparison.pipeline_context.same_pipeline %}
+                Two stages selected from the same pipeline.
+                {% else %}
+                {{ comparison.pipeline_context.shared_stage_count }} shared stage{{ "" if comparison.pipeline_context.shared_stage_count == 1 else "s" }}
+                · {{ comparison.pipeline_context.common_prefix_count }} in the common prefix
+                {% if comparison.pipeline_context.divergence_after_label %} · diverges after {{ comparison.pipeline_context.divergence_after_label }}{% endif %}
+                {% endif %}
             </p>
         </div>
         <dl class="ramp-id-stats">
@@ -66,10 +70,77 @@
             <div><dt>Changed Components</dt><dd>{{ "{:,}".format(comparison.changed_component_count) }}</dd></div>
             <div><dt>New Assertion Failures</dt><dd>{{ "{:,}".format(comparison.newly_failing_assertion_count) }}</dd></div>
             <div><dt>Recombinations</dt><dd>{{ "{:,}".format(comparison.recombination_count) }}</dd></div>
-            <div><dt>Non-Trivial Splits</dt><dd>{{ "{:,}".format(comparison.nontrivial_split_count) }}</dd></div>
+            <div><dt>Splits Only</dt><dd>{{ "{:,}".format(comparison.nontrivial_split_count) }}</dd></div>
+            <div><dt>Merges Only</dt><dd>{{ "{:,}".format(comparison.nontrivial_merge_count) }}</dd></div>
             <div><dt>From Changed</dt><dd>{{ "{:,}".format(comparison.changed_left_clique_count) }}</dd></div>
             <div><dt>To Changed</dt><dd>{{ "{:,}".format(comparison.changed_right_clique_count) }}</dd></div>
         </dl>
+    </section>
+
+    <section class="metabolite-pipeline-compare-map" aria-label="Selected pipeline stages and overlap">
+        <div class="metabolite-pipeline-compare-legend">
+            <span class="is-shared"><i aria-hidden="true"></i>Shared stage</span>
+            <span class="is-from"><i aria-hidden="true"></i>Compare from</span>
+            <span class="is-to"><i aria-hidden="true"></i>Compare to</span>
+        </div>
+        {% if comparison.pipeline_context.same_pipeline %}
+        <div class="metabolite-pipeline-compare-lanes">
+            {% for lane in comparison.pipeline_context.lanes %}
+            <article class="metabolite-pipeline-compare-lane">
+                <header>
+                    <strong>{{ lane.pipeline_name }}</strong>
+                    {% if lane.run_key %}<small class="mono">{{ lane.run_key }}</small>{% endif %}
+                </header>
+                <div class="metabolite-pipeline-stage-track" style="--stage-columns: {{ comparison.pipeline_context.column_count }}">
+                    {% for stage in lane.stages %}
+                    <div class="metabolite-pipeline-stage{% if stage.is_shared %} is-shared{% endif %}{% if stage.is_left %} is-from{% endif %}{% if stage.is_right %} is-to{% endif %}"
+                         style="grid-column: {{ stage.index + 1 }}" title="{{ stage.key }}">
+                        <small>{% if stage.index == 0 %}Baseline{% else %}Stage {{ stage.number }}{% endif %}</small>
+                        <strong>{{ stage.label }}</strong>
+                        {% if stage.is_left and stage.is_right %}<em>From &amp; To</em>
+                        {% elif stage.is_left %}<em>From</em>
+                        {% elif stage.is_right %}<em>To</em>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="metabolite-pipeline-branch-canvas"
+             style="--stage-columns: {{ comparison.pipeline_context.column_count }}; --branch-column: {{ comparison.pipeline_context.branch_start_column + 1 }}">
+            <i class="metabolite-pipeline-canvas-line is-trunk" aria-hidden="true"></i>
+            <i class="metabolite-pipeline-canvas-line is-upper" aria-hidden="true"></i>
+            <i class="metabolite-pipeline-canvas-line is-lower" aria-hidden="true"></i>
+            <i class="metabolite-pipeline-canvas-spine" aria-hidden="true"></i>
+            <i class="metabolite-pipeline-canvas-fork" aria-hidden="true"></i>
+            {% for stage in comparison.pipeline_context.trunk_stages %}
+            <div class="metabolite-pipeline-stage is-shared{% if stage.is_left %} is-from{% endif %}{% if stage.is_right %} is-to{% endif %}"
+                 style="grid-column: {{ stage.index + 1 }}; grid-row: 2" title="{{ stage.key }}">
+                <small>{% if stage.index == 0 %}Baseline{% else %}Stage {{ stage.number }}{% endif %}</small>
+                <strong>{{ stage.label }}</strong>
+                {% if stage.is_left and stage.is_right %}<em>From &amp; To</em>
+                {% elif stage.is_left %}<em>From</em>
+                {% elif stage.is_right %}<em>To</em>{% endif %}
+            </div>
+            {% endfor %}
+            {% for branch in comparison.pipeline_context.branches %}
+            {% set branch_row = 1 if loop.index == 1 else 3 %}
+            <div class="metabolite-pipeline-canvas-label" style="grid-column: var(--branch-column) / -1; grid-row: {{ branch_row }}">
+                <strong>{{ branch.pipeline_name }}</strong>
+                {% if branch.run_key %}<small class="mono">{{ branch.run_key }}</small>{% endif %}
+            </div>
+            {% for stage in branch.stages %}
+            <div class="metabolite-pipeline-stage{% if stage.is_shared %} is-shared{% endif %}{% if stage.is_left %} is-from{% endif %}{% if stage.is_right %} is-to{% endif %}"
+                 style="grid-column: {{ stage.index + 1 }}; grid-row: {{ branch_row }}" title="{{ stage.key }}">
+                <small>Stage {{ stage.number }}</small>
+                <strong>{{ stage.label }}</strong>
+                {% if stage.is_left %}<em>From</em>{% elif stage.is_right %}<em>To</em>{% endif %}
+            </div>
+            {% endfor %}
+            {% endfor %}
+        </div>
+        {% endif %}
     </section>
 
     {% if comparison.newly_failing_assertions %}
@@ -81,42 +152,13 @@
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
-            <h2>Recombinations</h2>
-            <p>Changed components that contain both non-trivial splits and non-trivial merges.</p>
-        </div>
-        <div class="metabolite-id-compare-list">
-            {% for component in comparison.recombinations %}
-            {% set rank = loop.index %}
-            {% include "ramp_id_snapshot_compare_card.html" %}
-            {% else %}
-            <p>No mixed split/merge recombinations found for this pair.</p>
-            {% endfor %}
-        </div>
-    </section>
-
-    <section class="ramp-id-table-section">
-        <div class="ramp-id-section-header">
-            <h2>Non-Trivial Splits</h2>
-            <p>One source clique split into at least two destination cliques with {{ comparison.nontrivial_split_min_size }} or more overlapping IDs each.</p>
-        </div>
-        <div class="metabolite-id-compare-list">
-            {% for component in comparison.nontrivial_splits %}
-            {% set rank = loop.index %}
-            {% include "ramp_id_snapshot_compare_card.html" %}
-            {% else %}
-            <p>No non-trivial clique splits found for this pair.</p>
-            {% endfor %}
-        </div>
-    </section>
-
-    <section class="ramp-id-table-section">
-        <div class="ramp-id-section-header">
-            <h2>Most Changed Cliques</h2>
-            <p>Showing {{ comparison.components|length }} of {{ "{:,}".format(comparison.changed_component_count) }} changed component{{ "" if comparison.changed_component_count == 1 else "s" }}.</p>
+            <h2>Changed Clique Components</h2>
+            <p>Showing {{ comparison.components|length }} of {{ "{:,}".format(comparison.changed_component_count) }} unique changed component{{ "" if comparison.changed_component_count == 1 else "s" }}. Assertion failures, recombinations, and non-trivial transitions are prioritized.</p>
         </div>
         <div class="metabolite-id-compare-list">
             {% for component in comparison.components %}
             {% set rank = loop.index %}
+            {% set card_scope = "changed-" ~ loop.index %}
             {% include "ramp_id_snapshot_compare_card.html" %}
             {% else %}
             <p>No changed non-singleton cliques found for this snapshot pair.</p>
@@ -125,4 +167,149 @@
     </section>
     {% endif %}
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+<script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script src="{{ root_path }}/static/metabolite_harmonization_visuals.js?v={{ metabolite_visuals_version }}"></script>
+<script>
+(function () {
+    const rootPath = {{ root_path|tojson }};
+    const graphByPanel = new Map();
+
+    function escapeHtml(value) {
+        return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    }
+
+    function distinctValues(values) {
+        return Array.from(new Set((values || []).map((value) => String(value ?? "").trim()).filter(Boolean)));
+    }
+
+    function formatHover(item) {
+        const ids = distinctValues(item.member_ids || item.member_id_samples || []);
+        const names = distinctValues(item.member_names || item.name_samples || []);
+        const parts = [];
+        if (item.value !== undefined) parts.push(`<strong>${Number(item.value).toLocaleString()} retained ID${Number(item.value) === 1 ? "" : "s"}</strong>`);
+        if (names.length) parts.push(names.slice(0, 8).map(escapeHtml).join("<br>"));
+        if (ids.length) parts.push(ids.slice(0, 8).map((id) => `<code>${escapeHtml(id)}</code>`).join("<br>"));
+        return parts.join("<br><br>") || "No sampled IDs";
+    }
+
+    function renderSelectionDetails(panel, data, isEdge) {
+        const sharedRenderer = window.MetaboliteHarmonizationVisuals.selectionDetails;
+        const rendered = typeof sharedRenderer === "function"
+            ? sharedRenderer(data, isEdge)
+            : {
+                title: data.label || data.node_label || data.id || "Selection",
+                subtitle: isEdge
+                    ? `${data.start_id || data.source} → ${data.end_id || data.target}`
+                    : (data.kind || data.prefix || "Metabolite identifier"),
+                html: isEdge
+                    ? ["kind", "sources", "rule_label", "rule_id", "algorithm_version", "snapshot"]
+                        .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
+                        .map((key) => `<div><strong>${escapeHtml(key)}</strong><span>${escapeHtml(data[key])}</span></div>`)
+                        .join("")
+                    : `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">
+                        <div><strong>ID</strong><span><code>${escapeHtml(data.id || "")}</code></span></div>
+                        ${data.source_url ? `<div><strong>Source</strong><span><a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(data.source_label || "source record")}</a></span></div>` : ""}
+                    </div></section>`,
+            };
+        panel.querySelector("[data-compare-graph-title]").textContent = rendered.title;
+        panel.querySelector("[data-compare-graph-subtitle]").textContent = rendered.subtitle;
+        panel.querySelector("[data-compare-graph-details]").innerHTML = rendered.html;
+    }
+
+    function renderClique(panel, payload, node) {
+        const section = (payload.snapshot_graphs || []).find((item) => item.snapshot_key === node.snapshot_key);
+        const clique = (section?.cliques || []).find((item) => item.clique_key === node.clique_key);
+        if (!clique) return;
+        const empty = panel.querySelector("[data-compare-selected-empty]");
+        const selected = panel.querySelector("[data-compare-selected]");
+        empty.hidden = true;
+        selected.hidden = false;
+        selected.querySelector("[data-compare-clique-title]").textContent = `${Number(clique.clique_size || 0).toLocaleString()} member${clique.clique_size === 1 ? "" : "s"}`;
+        selected.querySelector("[data-compare-clique-subtitle]").textContent = `${section.snapshot_name} · ${clique.clique_key}`;
+        const rules = selected.querySelector("[data-compare-clique-rules]");
+        rules.innerHTML = "";
+        (section.rules || []).forEach((rule) => {
+            const badge = document.createElement("span");
+            badge.textContent = rule.label || rule.id;
+            rules.appendChild(badge);
+        });
+        const previous = graphByPanel.get(panel);
+        if (previous) previous.destroy();
+        const cy = window.MetaboliteHarmonizationVisuals.renderCliqueGraph({
+            container: selected.querySelector("[data-compare-clique-graph]"),
+            elements: clique.elements || [],
+            onNodeTap: (data) => renderSelectionDetails(selected, data, false),
+            onEdgeTap: (data) => renderSelectionDetails(selected, data, true),
+            onReady: (graph) => {
+                const queryNode = graph.nodes(".selected-query").first();
+                if (queryNode.length) renderSelectionDetails(selected, queryNode.data(), false);
+            },
+        });
+        graphByPanel.set(panel, cy);
+    }
+
+    function renderVisualization(panel, payload) {
+        const sankey = payload.sankey || {nodes: [], links: []};
+        let selectedNodeId = null;
+        const draw = () => window.MetaboliteHarmonizationVisuals.renderSankey({
+            container: panel.querySelector("[data-compare-sankey]"),
+            tip: panel.querySelector("[data-compare-sankey-tip]"),
+            payload: sankey,
+            selectedNodeId,
+            formatHover,
+            onNodeClick: (node) => {
+                selectedNodeId = node.id;
+                draw();
+                renderClique(panel, payload, node);
+            },
+        });
+        draw();
+        const destinationNodes = (sankey.nodes || []).filter((node) => Number(node.stageIndex) === 1 && !node.is_singleton_bucket);
+        const initialNode = destinationNodes.sort((a, b) => Number(b.clique_size || 0) - Number(a.clique_size || 0))[0]
+            || (sankey.nodes || [])[0];
+        if (initialNode) {
+            selectedNodeId = initialNode.id;
+            draw();
+            renderClique(panel, payload, initialNode);
+        }
+    }
+
+    document.querySelectorAll("[data-compare-visualize]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const panel = document.getElementById(button.dataset.panelId);
+            if (!panel) return;
+            if (panel.dataset.loaded === "true") {
+                panel.hidden = !panel.hidden;
+                button.textContent = panel.hidden ? "Show flow and evidence" : "Hide flow and evidence";
+                return;
+            }
+            panel.hidden = false;
+            button.disabled = true;
+            button.textContent = "Loading flow…";
+            const params = new URLSearchParams({
+                ids: button.dataset.ids,
+                left_stage: button.dataset.leftStage,
+                right_stage: button.dataset.rightStage,
+            });
+            try {
+                const response = await fetch(`${rootPath}/ramp-id-qa/api/stage-comparison-visualization?${params}`);
+                if (!response.ok) throw new Error(`Could not load visualization (${response.status})`);
+                renderVisualization(panel, await response.json());
+                panel.dataset.loaded = "true";
+                button.textContent = "Hide flow and evidence";
+            } catch (error) {
+                panel.querySelector("[data-compare-visualization-loading]").textContent = error.message;
+                button.textContent = "Retry flow and evidence";
+            } finally {
+                button.disabled = false;
+                if (panel.dataset.loaded === "true") panel.querySelector("[data-compare-visualization-loading]").hidden = true;
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

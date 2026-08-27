@@ -76,6 +76,16 @@ from src.qa_browser.curation_cart import (
     publish_cart,
     remove_cart_operation,
 )
+from src.qa_browser.metabolite_anomer_rule import (
+    CHEBI_CARBOHYDRATE_ROOT_ID,
+    CHEBI_POLYMER_ROOT_IDS,
+    FREE_ANOMER_ALGORITHM_VERSION,
+    FREE_ANOMER_RULE_ID,
+    evaluate_free_anomer_candidate,
+    free_anomeric_oh_atoms,
+    normalized_free_anomer_structure,
+    summarize_free_anomer_decisions,
+)
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -137,6 +147,9 @@ app.mount(
 )
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["root_path"] = ""
+templates.env.globals["metabolite_visuals_version"] = hashlib.sha1(
+    (STATIC_DIR / "metabolite_harmonization_visuals.js").read_bytes()
+).hexdigest()[:12]
 
 # -- Global state set at startup --
 _client: Optional[ArangoClient] = None
@@ -257,16 +270,19 @@ _LIPIDMAPS_IGNORED_PREFIX_DEFAULTS = []
 _METABOLITE_HARMONIZATION_RULES = [
     {
         "id": "ignore_generic_structure_mismatch",
+        "group": "Pruning",
         "label": "Ignore generic/non-generic edges",
         "description": "Drop equivalence edges where exactly one endpoint has an R-group or wildcard structure signal.",
     },
     {
         "id": "ignore_ramp_mapping_denylist",
+        "group": "Cleanup",
         "label": "Ignore RaMP mapping deny list",
         "description": "Drop source equivalence edges listed in the RaMP curated mapping deny list.",
     },
     {
         "id": "ignore_hmdb_prefixes",
+        "group": "Pruning",
         "label": "Ignore HMDB prefixes",
         "description": "Drop HMDB-reported equivalence edges to configured identifier prefixes.",
         "parameters": [
@@ -281,6 +297,7 @@ _METABOLITE_HARMONIZATION_RULES = [
     },
     {
         "id": "ignore_wikipathways_prefixes",
+        "group": "Pruning",
         "label": "Ignore WikiPathways prefixes",
         "description": "Drop WikiPathways-reported equivalence edges to configured identifier prefixes or BridgeDb source fields.",
         "parameters": [
@@ -302,6 +319,7 @@ _METABOLITE_HARMONIZATION_RULES = [
     },
     {
         "id": "ignore_lipidmaps_prefixes",
+        "group": "Pruning",
         "label": "Ignore LipidMaps prefixes",
         "description": "Drop LipidMaps-reported equivalence edges to configured identifier prefixes.",
         "parameters": [
@@ -316,26 +334,31 @@ _METABOLITE_HARMONIZATION_RULES = [
     },
     {
         "id": "force_expected_clique_assertions",
+        "group": "Cleanup",
         "label": "Give up: Make Assertions True",
         "description": "Add explicitly synthetic, curation-provenanced edges so every active expected-clique assertion merges. Use only as a visible fallback before cleanup.",
     },
     {
         "id": "remove_enrichment_only_metabolites",
+        "group": "Cleanup",
         "label": "Cleanup: Remove Secondary-Source-Only Metabolites",
         "description": "Remove harmonized metabolites whose only sourcing is from secondary databases (RefMet, PubChem, ChEBI, LipidMaps) and have no meaningful biological connections. Use this last.",
     },
     {
         "id": "merge_shared_inchikey_prefix",
+        "group": "Merging",
         "label": "Merge InchiKey prefix",
         "description": "Merge identifiers when any source-reported structure has the same InChIKey first block.",
     },
     {
         "id": "merge_shared_inchikey_duplex",
+        "group": "Merging",
         "label": "Merge InchiKey duplex",
         "description": "Merge identifiers when any source-reported structure has the same first two InChIKey blocks.",
     },
     {
         "id": "merge_inchikey_by_mw_cutoff",
+        "group": "Merging",
         "label": "Merge InchiKey with cutoff",
         "description": "Use source-reported InChIKey duplex below the cutoff and prefix at or above it.",
         "parameters": [
@@ -352,6 +375,7 @@ _METABOLITE_HARMONIZATION_RULES = [
     },
     {
         "id": "merge_derived_inchikey_by_mw_cutoff",
+        "group": "Chemistry-based merging",
         "label": "Merge Derived InchiKey with cutoff",
         "description": "Additionally merge using InChIKeys calculated from stored SMILES: duplex below the cutoff and prefix at or above it.",
         "parameters": [
@@ -363,6 +387,20 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "min": 0,
                 "step": 1,
                 "unit": "Da",
+            },
+        ],
+    },
+    {
+        "id": FREE_ANOMER_RULE_ID,
+        "group": "Chemistry-based merging",
+        "label": "Merge Free Anomeric Forms",
+        "description": "Merge direct ChEBI child/parent forms that differ only at one free reducing-end anomeric hydroxyl; preserve all other stereochemistry and exclude polymers.",
+        "parameters": [
+            {
+                "id": "use_carbohydrate_gate",
+                "label": "Require ChEBI carbohydrate ancestry",
+                "type": "boolean",
+                "default": True,
             },
         ],
     },
@@ -423,6 +461,10 @@ def _harmonization_code_fingerprint() -> str:
             _wikipathways_xref_only_ids_from_rows,
             _filter_identifier_support_for_rules,
             _active_metabolite_identifier_mapping_edges_for_rules,
+            free_anomeric_oh_atoms,
+            normalized_free_anomer_structure,
+            evaluate_free_anomer_candidate,
+            _free_anomer_rule_edges,
         ]
     )
     return hashlib.sha1(code.encode()).hexdigest()[:12]
@@ -894,6 +936,13 @@ def _normalize_metabolite_rule_parameters(rule_ids: List[str], rule_parameters: 
                 normalized[rule_id][parameter_id] = parsed_value if parsed_value is not None else default_value
             elif parameter_types.get(parameter_id) == "textarea":
                 normalized[rule_id][parameter_id] = _normalize_prefix_list(raw_value)
+            elif parameter_types.get(parameter_id) == "boolean":
+                if isinstance(raw_value, bool):
+                    normalized[rule_id][parameter_id] = raw_value
+                else:
+                    normalized[rule_id][parameter_id] = str(raw_value).strip().lower() not in {
+                        "0", "false", "no", "off", "disabled",
+                    }
             else:
                 normalized[rule_id][parameter_id] = raw_value
     return normalized
@@ -915,6 +964,33 @@ def _metabolite_rule_metadata(rule_ids: List[str], rule_parameters: Optional[dic
             item["parameters"] = parameter_by_rule_id[rule_id]
         metadata.append(item)
     return metadata
+
+
+def _metabolite_harmonization_evidence_display(edge: dict) -> dict:
+    """Return the graph label and class for a materialized evidence edge."""
+    sources = edge.get("sources") or []
+    details = edge.get("details") or []
+    rule_id = edge.get("rule_id") or next(
+        (detail.get("rule_id") for detail in details if detail.get("rule_id")),
+        None,
+    )
+    is_ifx_rule = bool(rule_id) or "IFX Harmonization Rule" in sources
+    if not is_ifx_rule:
+        return {
+            "label": "equiv" if not sources else ", ".join(sources[:3]),
+            "class_name": "metabolite-equivalence-edge",
+            "rule_id": None,
+            "rule_label": None,
+        }
+
+    rule_metadata = _metabolite_rule_metadata([rule_id]) if rule_id else []
+    rule_label = rule_metadata[0]["label"] if rule_metadata else rule_id
+    return {
+        "label": f"IFX: {rule_label}" if rule_label else "IFX Harmonization Rule",
+        "class_name": "metabolite-equivalence-edge ifx-harmonization-rule-edge",
+        "rule_id": rule_id,
+        "rule_label": rule_label,
+    }
 
 
 def _chunked_records(records: List[dict], chunk_size: int = 10000):
@@ -1665,6 +1741,126 @@ def _expected_clique_assertion_edges(
     }
 
 
+def _load_chebi_descendant_ids(db, root_ids: Iterable[str]) -> set:
+    descendants = set()
+    for root_id in root_ids:
+        rows = db.aql.execute(
+            """
+            LET root = DOCUMENT("ChemicalEntity", @root_id)
+            FOR vertex IN 0..100 INBOUND root IsAEdge
+              OPTIONS {order: "bfs", uniqueVertices: "global"}
+              RETURN DISTINCT vertex.id
+            """,
+            bind_vars={"root_id": root_id},
+            batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
+            max_runtime=600,
+        )
+        descendants.update(identifier for identifier in rows if identifier)
+    return descendants
+
+
+def _free_anomer_rule_edges(
+    db,
+    active_ids: set,
+    use_carbohydrate_gate: bool = True,
+) -> tuple[List[dict], dict]:
+    """Build auditable synthetic edges for conservative ChEBI free-anomer pairs."""
+    carbohydrate_ids = _load_chebi_descendant_ids(db, [CHEBI_CARBOHYDRATE_ROOT_ID])
+    polymer_ids = _load_chebi_descendant_ids(db, CHEBI_POLYMER_ROOT_IDS)
+    carbohydrate_scope_ids = carbohydrate_ids - polymer_ids
+    candidate_rows = list(db.aql.execute(
+        """
+        FOR edge IN IsAEdge
+          FILTER edge.start_id NOT IN @polymer_ids
+          FILTER edge.end_id NOT IN @polymer_ids
+          FILTER !@use_carbohydrate_gate OR (
+            edge.start_id IN @carbohydrate_scope_ids
+            AND edge.end_id IN @carbohydrate_scope_ids
+          )
+          LET child = DOCUMENT("ChemicalEntity", edge.start_id)
+          LET parent = DOCUMENT("ChemicalEntity", edge.end_id)
+          LET child_identifier = DOCUMENT("MetaboliteIdentifier", edge.start_id)
+          LET parent_identifier = DOCUMENT("MetaboliteIdentifier", edge.end_id)
+          FILTER child != null AND parent != null
+          FILTER child_identifier != null AND parent_identifier != null
+          RETURN {
+            relationship_key: edge._key,
+            relationship_id: edge.id,
+            relationship_predicate: edge.source_predicate,
+            child: KEEP(child, "id", "name", "formula", "charge", "smiles"),
+            parent: KEEP(parent, "id", "name", "formula", "charge", "smiles")
+          }
+        """,
+        bind_vars={
+            "use_carbohydrate_gate": use_carbohydrate_gate,
+            "carbohydrate_scope_ids": sorted(carbohydrate_scope_ids) if use_carbohydrate_gate else [],
+            "polymer_ids": sorted(polymer_ids),
+        },
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
+        max_runtime=600,
+    ))
+    candidate_rows = [
+        row
+        for row in candidate_rows
+        if row.get("child", {}).get("id") in active_ids
+        and row.get("parent", {}).get("id") in active_ids
+    ]
+    decisions = [evaluate_free_anomer_candidate(row) for row in candidate_rows]
+    edges = []
+    for decision in decisions:
+        if not decision.get("accepted"):
+            continue
+        child_id = decision["child_id"]
+        parent_id = decision["parent_id"]
+        edge_key = f"free-anomer-{_canonical_json_digest({'child_id': child_id, 'parent_id': parent_id, 'algorithm_version': FREE_ANOMER_ALGORITHM_VERSION})}"
+        detail = {
+            "source": "IFX Harmonization Rule",
+            "source_field": "free_anomeric_center",
+            "source_id": decision.get("relationship_id") or decision.get("relationship_key") or child_id,
+            "rule_id": FREE_ANOMER_RULE_ID,
+            "algorithm_version": FREE_ANOMER_ALGORITHM_VERSION,
+            "carbohydrate_gate_enabled": use_carbohydrate_gate,
+            "decision": decision["reason"],
+            "chebi_relationship": decision["relationship_predicate"],
+            "child_name": decision.get("child_name"),
+            "parent_name": decision.get("parent_name"),
+            "normalized_inchi_key": decision["normalized_inchi_key"],
+            "child_source_smiles": decision["child_structure"]["source_smiles"],
+            "parent_source_smiles": decision["parent_structure"]["source_smiles"],
+            "child_source_inchi_key": decision["child_structure"]["source_inchi_key"],
+            "parent_source_inchi_key": decision["parent_structure"]["source_inchi_key"],
+            "child_anomeric_atom_index": decision["child_structure"]["anomeric_atom_index"],
+            "parent_anomeric_atom_index": decision["parent_structure"]["anomeric_atom_index"],
+        }
+        edges.append({
+            "key": edge_key,
+            "id": f"SyntheticFreeAnomerEdge:{edge_key}",
+            "start_id": child_id,
+            "end_id": parent_id,
+            "sources": ["IFX Harmonization Rule"],
+            "details": [detail],
+            "synthetic": True,
+            "fallback": False,
+            "rule_id": FREE_ANOMER_RULE_ID,
+            "algorithm_version": FREE_ANOMER_ALGORITHM_VERSION,
+        })
+    summary = {
+        **summarize_free_anomer_decisions(decisions),
+        "free_anomer_algorithm_version": FREE_ANOMER_ALGORITHM_VERSION,
+        "free_anomer_carbohydrate_gate_enabled": use_carbohydrate_gate,
+        "free_anomer_carbohydrate_scope_identifier_count": len(carbohydrate_ids),
+        "free_anomer_polymer_excluded_identifier_count": len(carbohydrate_ids & polymer_ids),
+        "free_anomer_candidate_identifier_count": len({
+            identifier
+            for decision in decisions
+            for identifier in (decision.get("child_id"), decision.get("parent_id"))
+            if identifier
+        }),
+        "free_anomer_synthetic_edge_count": len(edges),
+    }
+    return edges, summary
+
+
 def _build_harmonized_groups(
     db,
     active_ids: set,
@@ -1946,6 +2142,8 @@ def _materialize_harmonization_stage(
                 "synthetic": bool(edge.get("synthetic")),
                 "fallback": bool(edge.get("fallback")),
                 "assertion_id": edge.get("assertion_id"),
+                "rule_id": edge.get("rule_id"),
+                "algorithm_version": edge.get("algorithm_version"),
             })
             if len(evidence_batch) >= 10000:
                 evidence_collection.insert_many(evidence_batch, overwrite=True, silent=True)
@@ -2101,6 +2299,26 @@ def _ensure_harmonization_stage(
         "expected_clique_synthetic_edge_count": 0,
         "expected_clique_assertion_skipped_samples": [],
     }
+    free_anomer_summary = {
+        "free_anomer_candidate_pair_count": 0,
+        "free_anomer_accepted_pair_count": 0,
+        "free_anomer_rejected_pair_count": 0,
+        "free_anomer_rejection_reason_counts": {},
+        "free_anomer_carbohydrate_gate_enabled": True,
+        "free_anomer_candidate_identifier_count": 0,
+        "free_anomer_synthetic_edge_count": 0,
+    }
+    if FREE_ANOMER_RULE_ID in rule_ids:
+        use_carbohydrate_gate = rule_parameters.get(FREE_ANOMER_RULE_ID, {}).get(
+            "use_carbohydrate_gate",
+            True,
+        )
+        free_anomer_edges, free_anomer_summary = _free_anomer_rule_edges(
+            db,
+            active_ids,
+            use_carbohydrate_gate=use_carbohydrate_gate,
+        )
+        active_edges.extend(free_anomer_edges)
     if assertion_fallback_enabled:
         assertion_edges, assertion_edge_summary = _expected_clique_assertion_edges(
             active_ids,
@@ -2131,6 +2349,7 @@ def _ensure_harmonization_stage(
         **edge_summary,
         **merge_summary,
         **assertion_edge_summary,
+        **free_anomer_summary,
         **enrichment_only_summary,
         "wikipathways_ignored_source_field_identifier_count": len(
             wikipathways_ignored_source_field_ids
@@ -2196,13 +2415,21 @@ def _stage_display_label(stage: dict, rule_parameters: Optional[dict] = None) ->
     return rule_ids[-1]
 
 
-def _list_harmonization_pipelines(limit: int = 25) -> List[dict]:
+def _list_harmonization_pipelines(
+    limit: int = 25,
+    pipeline_key: Optional[str] = None,
+) -> List[dict]:
     db = get_db("metabolite_harmonization")
     if not db.has_collection(_HARMONIZATION_PIPELINE_COLLECTION):
         return []
+    pipeline_filter = "FILTER p._key == @pipeline_key" if pipeline_key else ""
+    bind_vars = {"limit": limit}
+    if pipeline_key:
+        bind_vars["pipeline_key"] = pipeline_key
     pipelines = list(db.aql.execute(
         f"""
         FOR p IN {_HARMONIZATION_PIPELINE_COLLECTION}
+          {pipeline_filter}
           SORT p.updated_at DESC
           LIMIT @limit
           LET runs = (
@@ -2214,7 +2441,7 @@ def _list_harmonization_pipelines(limit: int = 25) -> List[dict]:
           )
           RETURN MERGE(p, {{runs: runs}})
         """,
-        bind_vars={"limit": limit},
+        bind_vars=bind_vars,
         max_runtime=120,
     ))
     for pipeline in pipelines:
@@ -2225,6 +2452,94 @@ def _list_harmonization_pipelines(limit: int = 25) -> List[dict]:
             for stage in stages:
                 stage["display_label"] = _stage_display_label(stage, rule_parameters)
     return pipelines
+
+
+def _build_harmonization_pipeline_tree(
+    pipelines: List[dict],
+    pipeline_stage_stats: Optional[List[dict]] = None,
+) -> dict:
+    """Build a trie of the latest run's exact stage sequence for each pipeline."""
+    root = {"children": {}}
+    represented_pipeline_count = 0
+    stage_stats_by_key = {
+        stage["_key"]: stage.get("overview_stats") or {}
+        for pipeline_stats in pipeline_stage_stats or []
+        for stage in pipeline_stats.get("stages") or []
+        if stage.get("_key")
+    }
+
+    for pipeline in pipelines:
+        latest_run = (pipeline.get("runs") or [None])[0]
+        stages = sorted((latest_run or {}).get("stages") or [], key=_stage_sort_key)
+        if not stages:
+            continue
+        represented_pipeline_count += 1
+        pipeline_key = pipeline.get("_key") or pipeline.get("name") or "pipeline"
+        current = root
+        for stage in stages:
+            stage_key = stage.get("_key")
+            if not stage_key:
+                continue
+            current = current["children"].setdefault(stage_key, {
+                "stage_key": stage_key,
+                "label": stage.get("display_label") or _stage_display_label(
+                    stage,
+                    pipeline.get("rule_parameters") or {},
+                ),
+                "stage_index": stage.get("stage_index"),
+                "stats": stage_stats_by_key.get(stage_key),
+                "pipeline_keys": set(),
+                "terminals": [],
+                "children": {},
+            })
+            current["pipeline_keys"].add(pipeline_key)
+        if current is not root:
+            current["terminals"].append({
+                "pipeline_key": pipeline_key,
+                "pipeline_name": pipeline.get("name") or pipeline_key,
+                "run_key": latest_run.get("_key"),
+                "status": latest_run.get("status"),
+            })
+
+    def render_node(node: dict) -> dict:
+        children = sorted(
+            (render_node(child) for child in node["children"].values()),
+            key=lambda child: (
+                child["stage_index"] if child["stage_index"] is not None else 10**9,
+                child["label"],
+                child["stage_key"],
+            ),
+        )
+        pipeline_keys = sorted(node["pipeline_keys"])
+        return {
+            "stage_key": node["stage_key"],
+            "label": node["label"],
+            "stage_index": node["stage_index"],
+            "stats": node.get("stats"),
+            "pipeline_keys": pipeline_keys,
+            "pipeline_count": len(pipeline_keys),
+            "is_shared": len(pipeline_keys) > 1,
+            "terminals": sorted(
+                node["terminals"],
+                key=lambda terminal: (terminal["pipeline_name"], terminal["pipeline_key"]),
+            ),
+            "children": children,
+        }
+
+    roots = sorted(
+        (render_node(node) for node in root["children"].values()),
+        key=lambda node: (
+            node["stage_index"] if node["stage_index"] is not None else 10**9,
+            node["label"],
+            node["stage_key"],
+        ),
+    )
+    return {
+        "roots": roots,
+        "pipeline_count": len(pipelines),
+        "represented_pipeline_count": represented_pipeline_count,
+        "not_run_count": len(pipelines) - represented_pipeline_count,
+    }
 
 
 def _annotate_harmonization_pipeline_curation_status(
@@ -2362,7 +2677,11 @@ def _annotate_harmonization_pipeline_run_progress(
             job["active_stage_text"] = pipeline.get("active_stage_text")
 
 
-def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optional[List[str]] = None) -> List[dict]:
+def _list_harmonization_stage_overview_stats(
+    limit: int = 100,
+    stage_keys: Optional[List[str]] = None,
+    include_distribution: bool = True,
+) -> List[dict]:
     db = get_db("metabolite_harmonization")
     if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
         return []
@@ -2388,7 +2707,7 @@ def _list_harmonization_stage_overview_stats(limit: int = 100, stage_keys: Optio
         return []
     stage_keys = [stage["_key"] for stage in stages]
     distribution_by_stage = {}
-    if db.has_collection(_HARMONIZED_METABOLITE_COLLECTION):
+    if include_distribution and db.has_collection(_HARMONIZED_METABOLITE_COLLECTION):
         distribution_rows = list(db.aql.execute(
             f"""
             FOR c IN {_HARMONIZED_METABOLITE_COLLECTION}
@@ -2659,6 +2978,8 @@ def _expected_clique_assertion_matrix(assertion_results: dict, stages: List[dict
 def _list_harmonization_pipeline_stage_overview_stats(
     pipelines: List[dict],
     curation_state: Optional[dict] = None,
+    include_distribution: bool = True,
+    include_assertion_matrix: bool = True,
 ) -> List[dict]:
     if not pipelines:
         return []
@@ -2673,7 +2994,11 @@ def _list_harmonization_pipeline_stage_overview_stats(
         return []
     stats_by_key = {
         stage["_key"]: stage
-        for stage in _list_harmonization_stage_overview_stats(limit=max(len(stage_keys), 100), stage_keys=stage_keys)
+        for stage in _list_harmonization_stage_overview_stats(
+            limit=max(len(stage_keys), 100),
+            stage_keys=stage_keys,
+            include_distribution=include_distribution,
+        )
     }
     pipeline_stats = []
     assertions = (curation_state or {}).get("assertions") or []
@@ -2712,7 +3037,11 @@ def _list_harmonization_pipeline_stage_overview_stats(
             "stages": stages,
             "code_fingerprint_mismatch": len(fingerprints) > 1,
             "code_fingerprints": sorted(fingerprints),
-            "expected_clique_assertions": _expected_clique_assertion_matrix(assertion_results, stages),
+            "expected_clique_assertions": (
+                _expected_clique_assertion_matrix(assertion_results, stages)
+                if include_assertion_matrix
+                else {"assertion_count": len(assertions), "stages": [], "rows": []}
+            ),
         })
     return pipeline_stats
 
@@ -2998,10 +3327,17 @@ def _load_harmonization_pipeline_workbench() -> dict:
             curation_state["assertion_fingerprint"],
         )
         _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
+        pipeline_stage_stats = _list_harmonization_pipeline_stage_overview_stats(
+            pipelines,
+            curation_state,
+            include_distribution=False,
+            include_assertion_matrix=False,
+        )
         return {
             "available_rules": _METABOLITE_HARMONIZATION_RULES,
             "pipelines": pipelines,
-            "pipeline_stage_stats": _list_harmonization_pipeline_stage_overview_stats(pipelines, curation_state),
+            "pipeline_tree": _build_harmonization_pipeline_tree(pipelines, pipeline_stage_stats),
+            "pipeline_stage_stats": pipeline_stage_stats,
             "jobs": jobs,
             "active_jobs": active_jobs,
             "jobs_by_pipeline_key": _harmonization_jobs_by_pipeline_key(jobs),
@@ -3014,6 +3350,12 @@ def _load_harmonization_pipeline_workbench() -> dict:
         return {
             "available_rules": _METABOLITE_HARMONIZATION_RULES,
             "pipelines": [],
+            "pipeline_tree": {
+                "roots": [],
+                "pipeline_count": 0,
+                "represented_pipeline_count": 0,
+                "not_run_count": 0,
+            },
             "pipeline_stage_stats": [],
             "jobs": jobs,
             "active_jobs": active_jobs,
@@ -3023,6 +3365,23 @@ def _load_harmonization_pipeline_workbench() -> dict:
             "deleting_pipeline_keys": sorted(deleting_pipeline_keys),
             "error": str(exc),
         }
+
+
+def _load_harmonization_pipeline_page(pipeline_key: str) -> dict:
+    db = get_db("metabolite_harmonization")
+    _ensure_harmonization_pipeline_collections(db)
+    pipelines = _list_harmonization_pipelines(limit=1, pipeline_key=pipeline_key)
+    if not pipelines:
+        raise ValueError(f"Harmonization pipeline {pipeline_key} does not exist.")
+    pipeline = pipelines[0]
+    curation_state = _load_metabolite_edge_removal_curations()
+    stage_stats = _list_harmonization_pipeline_stage_overview_stats(pipelines, curation_state)
+    return {
+        "pipeline": pipeline,
+        "overview": {
+            "pipeline_stage_stats": stage_stats,
+        },
+    }
 
 
 def _get_harmonization_stage(stage_key: str) -> dict:
@@ -3385,6 +3744,31 @@ def _format_compare_member_samples(member_ids: set, display_by_id: Dict[str, dic
     return samples
 
 
+def _snapshot_compare_involved_preview(
+    member_ids: set,
+    display_by_id: Dict[str, dict],
+    limit: int = 24,
+) -> dict:
+    sampled_ids = _sample_member_ids(member_ids, limit)
+    names = []
+    seen_names = set()
+    for member_id in sampled_ids:
+        label = (display_by_id.get(member_id) or {}).get("label")
+        if not label or label == member_id:
+            continue
+        normalized_label = label.casefold()
+        if normalized_label in seen_names:
+            continue
+        seen_names.add(normalized_label)
+        names.append(label)
+    return {
+        "count": len(member_ids),
+        "ids": sampled_ids,
+        "names": names,
+        "remaining_id_count": max(len(member_ids) - len(sampled_ids), 0),
+    }
+
+
 def _build_snapshot_comparison_review_fields(
     component: dict,
     left_key: str,
@@ -3498,6 +3882,136 @@ def _snapshot_compare_nontrivial_transitions(
     return transitions
 
 
+def _snapshot_comparison_pipeline_context(
+    left_snapshot: dict,
+    right_snapshot: dict,
+    pipelines: List[dict],
+) -> dict:
+    left_key = left_snapshot.get("_key")
+    right_key = right_snapshot.get("_key")
+    run_matches = []
+    for pipeline in pipelines:
+        for run in pipeline.get("runs") or []:
+            stages = sorted(run.get("stages") or [], key=_stage_sort_key)
+            stage_keys = [stage.get("_key") for stage in stages]
+            if left_key in stage_keys or right_key in stage_keys:
+                run_matches.append({
+                    "pipeline": pipeline,
+                    "run": run,
+                    "stages": stages,
+                    "stage_keys": stage_keys,
+                })
+
+    shared_run = next(
+        (match for match in run_matches if left_key in match["stage_keys"] and right_key in match["stage_keys"]),
+        None,
+    )
+    selected_matches = []
+    if shared_run:
+        selected_matches = [shared_run]
+    else:
+        left_match = next((match for match in run_matches if left_key in match["stage_keys"]), None)
+        right_match = next((match for match in run_matches if right_key in match["stage_keys"]), None)
+        selected_matches = [match for match in (left_match, right_match) if match]
+
+    if not selected_matches:
+        selected_matches = [
+            {
+                "pipeline": {"_key": "unassigned", "name": "Saved stages"},
+                "run": {},
+                "stages": [left_snapshot, right_snapshot],
+                "stage_keys": [left_key, right_key],
+            }
+        ]
+
+    lane_stage_key_sets = [set(match["stage_keys"]) for match in selected_matches]
+    shared_stage_keys = (
+        set.intersection(*lane_stage_key_sets)
+        if len(lane_stage_key_sets) > 1
+        else set(selected_matches[0]["stage_keys"])
+    )
+    common_prefix_keys = []
+    if len(selected_matches) > 1:
+        for stage_keys in zip(*(match["stage_keys"] for match in selected_matches)):
+            if len(set(stage_keys)) != 1:
+                break
+            common_prefix_keys.append(stage_keys[0])
+
+    lanes = []
+    for match in selected_matches:
+        lane_stages = []
+        for fallback_index, stage in enumerate(match["stages"]):
+            stage_key = stage.get("_key")
+            stage_index = stage.get("stage_index")
+            if stage_index is None:
+                stage_index = fallback_index
+            lane_stages.append({
+                "key": stage_key,
+                "index": stage_index,
+                "number": stage_index,
+                "label": stage.get("display_label") or _stage_display_label(
+                    stage,
+                    match["pipeline"].get("rule_parameters") or {},
+                ),
+                "is_left": stage_key == left_key,
+                "is_right": stage_key == right_key,
+                "is_shared": stage_key in shared_stage_keys,
+            })
+        lanes.append({
+            "pipeline_key": match["pipeline"].get("_key"),
+            "pipeline_name": match["pipeline"].get("name") or match["pipeline"].get("_key"),
+            "run_key": match["run"].get("_key"),
+            "stages": lane_stages,
+        })
+
+    stage_by_key = {
+        stage["key"]: stage
+        for lane in lanes
+        for stage in lane["stages"]
+    }
+    max_stage_index = max(
+        (stage["index"] for lane in lanes for stage in lane["stages"]),
+        default=0,
+    )
+    trunk_stage_keys = (
+        set(common_prefix_keys)
+        if len(lanes) > 1
+        else {stage["key"] for stage in lanes[0]["stages"]}
+    )
+    trunk_stages = [
+        stage
+        for stage in lanes[0]["stages"]
+        if stage["key"] in trunk_stage_keys
+    ]
+    branches = [
+        {
+            **{key: value for key, value in lane.items() if key != "stages"},
+            "stages": [stage for stage in lane["stages"] if stage["key"] not in trunk_stage_keys],
+        }
+        for lane in lanes
+    ] if len(lanes) > 1 else []
+    branch_stage_indexes = [
+        stage["index"]
+        for branch in branches
+        for stage in branch["stages"]
+    ]
+    return {
+        "lanes": lanes,
+        "trunk_stages": trunk_stages,
+        "branches": branches,
+        "same_pipeline": len(lanes) == 1,
+        "shared_stage_count": len(shared_stage_keys),
+        "common_prefix_count": len(common_prefix_keys),
+        "divergence_after_label": (
+            stage_by_key.get(common_prefix_keys[-1], {}).get("label")
+            if common_prefix_keys
+            else None
+        ),
+        "branch_start_column": min(branch_stage_indexes, default=max_stage_index + 1),
+        "column_count": max_stage_index + 1,
+    }
+
+
 def _load_metabolite_snapshot_comparison(
     left_key: str,
     right_key: str,
@@ -3579,6 +4093,7 @@ def _load_metabolite_snapshot_comparison(
 
     components = []
     nontrivial_split_candidates = []
+    nontrivial_merge_candidates = []
     recombination_candidates = []
     nontrivial_split_min_size = 2
     for component_nodes in nodes_by_component.values():
@@ -3656,58 +4171,44 @@ def _load_metabolite_snapshot_comparison(
         })
         if split_transitions:
             nontrivial_split_candidates.append(components[-1])
+        if merge_transitions:
+            nontrivial_merge_candidates.append(components[-1])
         if is_recombination:
             recombination_candidates.append(components[-1])
 
     components.sort(
         key=lambda item: (
             -item["newly_failing_assertion_count"],
+            -int(item["is_recombination"]),
+            -int(bool(item["nontrivial_split_count"] or item["nontrivial_merge_count"])),
             -item["change_score"],
             -max(item["left_member_count"], item["right_member_count"]),
             item["change_type"],
         )
     )
-    nontrivial_split_candidates.sort(
-        key=lambda item: (
-            -item["newly_failing_assertion_count"],
-            -item["nontrivial_split_fragment_count"],
-            -item["nontrivial_split_member_count"],
-            -item["left_member_count"],
-            item["left_cliques"][0]["clique_key"] if item["left_cliques"] else "",
-        )
-    )
-    recombination_candidates.sort(
-        key=lambda item: (
-            -item["newly_failing_assertion_count"],
-            -item["nontrivial_split_fragment_count"] - item["nontrivial_merge_fragment_count"],
-            -item["nontrivial_split_member_count"] - item["nontrivial_merge_member_count"],
-            -max(item["left_member_count"], item["right_member_count"]),
-            item["left_cliques"][0]["clique_key"] if item["left_cliques"] else "",
-        )
-    )
     limited_components = components[:limit]
-    limited_nontrivial_splits = nontrivial_split_candidates[:limit]
-    limited_recombinations = recombination_candidates[:limit]
-    display_components = []
-    seen_component_ids = set()
-    for component in [*limited_recombinations, *limited_nontrivial_splits, *limited_components]:
-        component_id = id(component)
-        if component_id in seen_component_ids:
-            continue
-        seen_component_ids.add(component_id)
-        display_components.append(component)
+    display_components = limited_components
     sample_ids = sorted({
         member_id
         for component in display_components
         for bucket in ("_added_members", "_removed_members", "_retained_members")
-        for member_id in _sample_member_ids(component[bucket], 20)
+        for member_id in _sample_member_ids(component[bucket], 24)
     })
     display_by_id = _load_metabolite_identifier_display_map(sample_ids)
     for component in display_components:
         _build_snapshot_comparison_review_fields(component, left_key, right_key)
+        component["visualization_ids"] = list(dict.fromkeys(
+            clique.get("representative_id")
+            for clique in [*component["left_cliques"], *component["right_cliques"]]
+            if clique.get("representative_id")
+        ))[:_METABOLITE_COMPARE_MAX_IDS]
         added_members = component.pop("_added_members")
         removed_members = component.pop("_removed_members")
         retained_members = component.pop("_retained_members")
+        component["involved_preview"] = _snapshot_compare_involved_preview(
+            added_members | removed_members | retained_members,
+            display_by_id,
+        )
         component["added_samples"] = _format_compare_member_samples(added_members, display_by_id)
         component["removed_samples"] = _format_compare_member_samples(removed_members, display_by_id)
         component["retained_samples"] = _format_compare_member_samples(retained_members, display_by_id, 12)
@@ -3716,9 +4217,15 @@ def _load_metabolite_snapshot_comparison(
             clique.pop("member_set", None)
             clique.pop("signature", None)
 
+    pipelines = _list_harmonization_pipelines(limit=100)
     return {
         "left_snapshot": left_snapshot,
         "right_snapshot": right_snapshot,
+        "pipeline_context": _snapshot_comparison_pipeline_context(
+            left_snapshot,
+            right_snapshot,
+            pipelines,
+        ),
         "left_materialized_clique_count": len(left_cliques),
         "right_materialized_clique_count": len(right_cliques),
         "unchanged_clique_count": len(left_cliques) - len(changed_left),
@@ -3731,15 +4238,43 @@ def _load_metabolite_snapshot_comparison(
             component["newly_failing_assertion_count"] > 0
             for component in components
         ),
-        "nontrivial_split_count": len(nontrivial_split_candidates),
+        "nontrivial_split_count": sum(
+            not component["is_recombination"]
+            for component in nontrivial_split_candidates
+        ),
+        "nontrivial_merge_count": sum(
+            not component["is_recombination"]
+            for component in nontrivial_merge_candidates
+        ),
         "recombination_count": len(recombination_candidates),
         "nontrivial_split_min_size": nontrivial_split_min_size,
         "display_limit": limit,
         "components": limited_components,
-        "nontrivial_splits": limited_nontrivial_splits,
-        "recombinations": limited_recombinations,
         "snapshots": _list_harmonization_stages(),
         "comparison_kind": "stage",
+    }
+
+
+def _load_metabolite_snapshot_comparison_visualization(
+    identifier_ids: List[str],
+    left_key: str,
+    right_key: str,
+) -> dict:
+    if not identifier_ids:
+        raise ValueError("No changed-clique identifiers were provided.")
+    if len(identifier_ids) > _METABOLITE_COMPARE_MAX_IDS:
+        raise ValueError(f"Visualize {_METABOLITE_COMPARE_MAX_IDS} or fewer identifiers at a time.")
+    if not left_key or not right_key or left_key == right_key:
+        raise ValueError("Choose two different stages to visualize.")
+    snapshot_union = _load_metabolite_snapshot_union(identifier_ids, [left_key, right_key])
+    snapshot_graphs = snapshot_union.get("snapshot_graphs") or []
+    return {
+        "query_ids": identifier_ids,
+        "snapshot_graphs": snapshot_graphs,
+        "sankey": _build_metabolite_snapshot_sankey(
+            snapshot_graphs,
+            [left_key, right_key],
+        ),
     }
 
 
@@ -4425,7 +4960,9 @@ def _load_metabolite_snapshot_union(
             start_id: e.start_id,
             end_id: e.end_id,
             sources: e.sources || [],
-            details: e.details || []
+            details: e.details || [],
+            rule_id: e.rule_id,
+            algorithm_version: e.algorithm_version
           }}
         """,
         bind_vars={"member_ids": union_member_ids, "snapshot_keys": selected_snapshot_keys},
@@ -4576,22 +5113,26 @@ def _load_metabolite_snapshot_union(
                 if start_id not in displayed_member_id_set or end_id not in displayed_member_id_set:
                     continue
                 sources = edge.get("sources") or []
+                evidence_display = _metabolite_harmonization_evidence_display(edge)
                 elements.append({
                     "data": {
                         "id": f"metabolite-equivalence::{clique['clique_key']}::{edge.get('key') or edge.get('id')}",
                         "source": start_id,
                         "target": end_id,
-                        "label": "equiv" if not sources else ", ".join(sources[:3]),
+                        "label": evidence_display["label"],
                         "kind": "MetaboliteIdentifierMappingEdge",
                         "start_id": start_id,
                         "end_id": end_id,
                         "sources": ", ".join(sources),
                         "source_count": len(sources),
                         "detail_count": len(edge.get("details") or []),
+                        "rule_id": evidence_display["rule_id"],
+                        "rule_label": evidence_display["rule_label"],
+                        "algorithm_version": edge.get("algorithm_version"),
                         "snapshot": section["snapshot_name"],
                         "snapshot_key": section["snapshot_key"],
                     },
-                    "classes": "metabolite-equivalence-edge",
+                    "classes": evidence_display["class_name"],
                 })
             cliques.append({
                 **clique,
@@ -4617,7 +5158,10 @@ def _load_metabolite_snapshot_union(
             ),
         })
 
-    sankeys = _build_metabolite_snapshot_sankeys(snapshot_sections)
+    sankeys = _build_metabolite_snapshot_sankeys(
+        snapshot_sections,
+        selected_snapshot_keys,
+    )
     return {
         "memberships": memberships,
         "member_ids": union_member_ids,
@@ -4626,12 +5170,32 @@ def _load_metabolite_snapshot_union(
     }
 
 
-def _build_metabolite_snapshot_sankeys(snapshot_sections: List[dict]) -> List[dict]:
-    """Build one stage-flow Sankey for each pipeline represented by the stages."""
+def _build_metabolite_snapshot_sankeys(
+    snapshot_sections: List[dict],
+    selected_snapshot_keys: Optional[List[str]] = None,
+) -> List[dict]:
+    """Build stage-flow Sankeys, preserving explicit comparisons across pipelines."""
     sections_by_key = {
         section["snapshot_key"]: section
         for section in snapshot_sections
     }
+    ordered_selected_keys = [
+        stage_key
+        for stage_key in selected_snapshot_keys or []
+        if stage_key in sections_by_key
+    ]
+    if len(ordered_selected_keys) > 1:
+        selected_sections = [sections_by_key[stage_key] for stage_key in ordered_selected_keys]
+        return [{
+            "pipeline_key": "selected-stage-comparison",
+            "pipeline_name": "Selected stage comparison",
+            "stage_count": len(selected_sections),
+            "sankey": _build_metabolite_snapshot_sankey(
+                selected_sections,
+                ordered_selected_keys,
+            ),
+        }]
+
     pipelines = _list_harmonization_pipelines(limit=100)
     sankeys = []
     assigned_stage_keys = set()
@@ -4851,9 +5415,49 @@ def _parse_metabolite_identifier_query(value: str) -> List[str]:
     return ids
 
 
+def _load_metabolite_identifier_summaries(identifiers: List[str]) -> List[dict]:
+    """Load only the identifier fields rendered by the HTML query page, in one AQL call."""
+    if not identifiers:
+        return []
+    db = get_db("metabolite_harmonization")
+    return list(db.aql.execute(
+        """
+        FOR identifier IN @identifiers
+          LET metabolite_doc = FIRST(
+            FOR d IN MetaboliteIdentifier
+              FILTER d.id == identifier
+              LIMIT 1
+              RETURN d
+          )
+          LET chemical_entity_doc = FIRST(
+            FOR d IN ChemicalEntity
+              FILTER d.id == identifier
+              LIMIT 1
+              RETURN d
+          )
+          RETURN {
+            query_id: identifier,
+            found: metabolite_doc != null,
+            metabolite: metabolite_doc == null ? null : {
+              id: metabolite_doc.id,
+              prefix: metabolite_doc.prefix,
+              names: SLICE(metabolite_doc.names || [], 0, 25)
+            },
+            chemical_entity: chemical_entity_doc == null ? null : {
+              id: chemical_entity_doc.id,
+              name: chemical_entity_doc.name
+            }
+          }
+        """,
+        bind_vars={"identifiers": identifiers},
+        max_runtime=120,
+    ))
+
+
 def _load_metabolite_identifier_qa_many(
     value: str,
     snapshot_keys: Optional[List[str]] = None,
+    include_identifier_details: bool = True,
 ) -> dict:
     query_ids = _parse_metabolite_identifier_query(value)
     if not query_ids:
@@ -4864,12 +5468,35 @@ def _load_metabolite_identifier_qa_many(
             detail=f"Compare {_METABOLITE_COMPARE_MAX_IDS} or fewer identifiers at a time.",
         )
 
-    results = [
-        _load_metabolite_identifier_qa(identifier, snapshot_keys, include_snapshot_union=False)
-        for identifier in query_ids
-    ]
+    if include_identifier_details:
+        results = [
+            _load_metabolite_identifier_qa(identifier, snapshot_keys, include_snapshot_union=False)
+            for identifier in query_ids
+        ]
+    else:
+        results = _load_metabolite_identifier_summaries(query_ids)
     found_results = [result for result in results if result.get("found")]
     missing_results = [result for result in results if not result.get("found")]
+    preview_ids = {
+        (result.get("metabolite") or {}).get("id")
+        for result in found_results
+        if (result.get("metabolite") or {}).get("id")
+    }
+    preview_display_by_id = {}
+    for result in found_results:
+        metabolite = result.get("metabolite") or {}
+        identifier = metabolite.get("id")
+        if not identifier:
+            continue
+        names = metabolite.get("names") or []
+        preferred_name = next(
+            (name.get("value") for name in names if name.get("value")),
+            None,
+        )
+        chemical_entity = result.get("chemical_entity") or {}
+        preview_display_by_id[identifier] = {
+            "label": preferred_name or chemical_entity.get("name") or identifier,
+        }
     combined_result = {
         "query_id": " ".join(query_ids),
         "query_ids": query_ids,
@@ -4877,6 +5504,10 @@ def _load_metabolite_identifier_qa_many(
         "results": results,
         "found_results": found_results,
         "missing_results": missing_results,
+        "query_preview": _snapshot_compare_involved_preview(
+            preview_ids,
+            preview_display_by_id,
+        ),
     }
     snapshot_union = _load_metabolite_snapshot_union(query_ids, snapshot_keys)
     combined_result["snapshot_memberships"] = snapshot_union["memberships"]
@@ -6608,7 +7239,11 @@ def ramp_id_qa(
     denylist_review = None
     if query_id:
         try:
-            result = _load_metabolite_identifier_qa_many(query_id, selected_stage_keys)
+            result = _load_metabolite_identifier_qa_many(
+                query_id,
+                selected_stage_keys,
+                include_identifier_details=False,
+            )
             if denylist_rank and len(selected_stage_keys) == 1:
                 stage = _get_harmonization_stage(selected_stage_keys[0])
                 denylist_review = _harmonization_denylist_review_from_stage(stage, denylist_rank)
@@ -6651,6 +7286,26 @@ async def ramp_id_qa_save_pipeline(
             {"pipeline_key": pipeline["_key"]},
         )
     return _redirect_to("/ramp-id-qa")
+
+
+@app.get("/ramp-id-qa/pipelines/{pipeline_key}", response_class=HTMLResponse)
+def ramp_id_qa_pipeline_page(request: Request, pipeline_key: str):
+    pipeline = None
+    overview = {"pipeline_stage_stats": []}
+    error = None
+    try:
+        page = _load_harmonization_pipeline_page(pipeline_key)
+        pipeline = page["pipeline"]
+        overview = page["overview"]
+    except Exception as exc:
+        error = str(exc)
+    return templates.TemplateResponse(request, "ramp_id_pipeline.html", {
+        "request": request,
+        "pipeline_key": pipeline_key,
+        "pipeline": pipeline,
+        "overview": overview,
+        "error": error,
+    })
 
 
 @app.post("/ramp-id-qa/pipelines/{pipeline_key}/run")
@@ -6717,6 +7372,19 @@ def ramp_id_qa_stage_comparison(
     })
 
 
+@app.get("/ramp-id-qa/api/stage-comparison-visualization")
+def ramp_id_qa_stage_comparison_visualization(
+    ids: str = "",
+    left_stage: str = "",
+    right_stage: str = "",
+):
+    return _load_metabolite_snapshot_comparison_visualization(
+        _parse_metabolite_identifier_query(ids),
+        left_stage,
+        right_stage,
+    )
+
+
 @app.get("/ramp-id-qa/stages/{stage_key}", response_class=HTMLResponse)
 def ramp_id_qa_stage_stats(request: Request, stage_key: str):
     stats = None
@@ -6739,7 +7407,6 @@ def ramp_id_qa_harmonization_jobs(request: Request):
     return templates.TemplateResponse(request, "ramp_id_pipeline_table.html", {
         "request": request,
         "overview": overview,
-        "stage_stats_oob": True,
     })
 
 

@@ -56,6 +56,43 @@
     </div>
     {% endif %}
 
+    {% if "merge_free_anomeric_forms" in stats.stage.rule_ids %}
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Free-Anomer Rule</h2>
+            <p>
+                {{ "{:,}".format(stats.summary.free_anomer_accepted_pair_count|default(0, true)) }} accepted ·
+                {{ "{:,}".format(stats.summary.free_anomer_rejected_pair_count|default(0, true)) }} rejected
+            </p>
+        </div>
+        <p>
+            Direct ChEBI carbohydrate child/parent pairs are merged only when formula and charge agree,
+            both structures have exactly one free anomeric OH, and clearing chirality at only that atom
+            produces the same complete InChIKey. The carbohydrate ancestry gate is
+            <strong>{{ "enabled" if stats.summary.free_anomer_carbohydrate_gate_enabled|default(true) else "disabled" }}</strong>.
+            Polymer and polysaccharide descendants are excluded in either mode.
+        </p>
+        <dl class="ramp-id-stats">
+            <div><dt>Candidate Pairs</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_candidate_pair_count|default(0, true)) }}</dd></div>
+            <div><dt>Rule Edges</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_synthetic_edge_count|default(0, true)) }}</dd></div>
+            <div><dt>Candidate IDs</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_candidate_identifier_count|default(0, true)) }}</dd></div>
+            <div><dt>Algorithm</dt><dd>{{ stats.summary.free_anomer_algorithm_version|default("free-anomer-v1", true) }}</dd></div>
+        </dl>
+        {% if stats.summary.free_anomer_rejection_reason_counts %}
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Why Candidate Pairs Stayed Separate</th><th>Pairs</th></tr></thead>
+                <tbody>
+                {% for reason, count in stats.summary.free_anomer_rejection_reason_counts|dictsort %}
+                <tr><td>{{ reason|replace("_", " ") }}</td><td>{{ "{:,}".format(count) }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>Expected-Clique Assertions</h2>
@@ -116,7 +153,7 @@
                     </td>
                     <td>
                         <a class="btn btn-secondary btn-sm" href="{{ root_path }}/ramp-id-qa?{{ assertion.inspection_query }}" target="_blank" rel="noopener">Inspect IDs</a>
-                        <button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Add retirement to cart</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-assertion-retire-add="{{ assertion.assertion_id }}">Retire assertion</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -601,7 +638,7 @@
         title.textContent = data.label || data.node_label || data.id || "Selection";
         subtitle.textContent = isEdge ? `${data.start_id || data.source} → ${data.end_id || data.target}` : (data.kind || data.prefix || "Metabolite identifier");
         if (isEdge) {
-            const values = ["kind", "source", "target", "label", "sources", "source_count", "detail_count", "snapshot", "snapshot_key"]
+            const values = ["kind", "source", "target", "label", "sources", "rule_label", "rule_id", "algorithm_version", "source_count", "detail_count", "snapshot", "snapshot_key"]
                 .map((key) => detailRow(key, data[key]))
                 .filter(Boolean)
                 .join("");
@@ -677,6 +714,12 @@
                     "curve-style": "bezier", "line-color": "#2563eb", "width": 2.5,
                     "target-arrow-shape": "none", "label": "data(label)", "font-size": 8,
                     "text-rotation": "autorotate", "opacity": 0.85,
+                }},
+                {selector: ".ifx-harmonization-rule-edge", style: {
+                    "line-color": "#e11d48", "width": 4, "opacity": 1,
+                    "color": "#9f1239", "font-weight": 700,
+                    "text-background-color": "#fff1f2", "text-background-opacity": 0.92,
+                    "text-background-padding": 2,
                 }},
                 {selector: ".pending-curation-removal", style: {
                     "line-color": "#f59e0b", "line-style": "dashed", "width": 6,

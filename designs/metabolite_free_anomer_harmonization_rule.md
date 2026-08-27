@@ -1,8 +1,8 @@
 # Free-anomer metabolite harmonization rule
 
-**Status:** Proposal for chemistry review; no production rule has been implemented.
+**Status:** Optional QA Studio prototype implemented; chemistry review is still required before production use.
 
-**Proposed Studio name:** `Merge Free Anomeric Forms`
+**Studio name:** `Merge Free Anomeric Forms`
 
 ## Decision requested
 
@@ -17,6 +17,22 @@ The first-generation proposal is intentionally narrower than “ignore carbohydr
 - Defer non-carbohydrate cyclic hemiacetals/hemiketals until chemistry review establishes whether the same biological interpretation is appropriate.
 
 This would be an optional harmonization operation. It would not rewrite source evidence or replace the documented and derived InChIKeys stored on the evidence entities.
+
+The QA Studio prototype is available as `Merge Free Anomeric Forms`. It uses
+`CHEBI:16646` (carbohydrate) as its ChEBI `is_a` scope gate and excludes
+descendants of `CHEBI:60027` (polymer) and `CHEBI:18154` (polysaccharide).
+Accepted pairs are materialized as synthetic, rule-labeled stage evidence edges
+so the ordinary stage and pipeline comparison tools can expose the clique delta.
+This is reviewable derived evidence, not a source assertion.
+
+The rule parameter **Require ChEBI carbohydrate ancestry** defaults to enabled.
+Reviewers may disable it to run the same local structure algorithm over all
+concrete ChEBI child/parent pairs. That comparison mode is intentionally broader:
+it exposes non-carbohydrate cyclic hemiacetal/hemiketal lookalikes for review
+rather than declaring them production equivalences. Polymer/polysaccharide,
+repeat-formula, wildcard, formula, and charge protections remain enabled in both
+modes. Because the parameter is part of the materialized stage key, gated and
+ungated results can coexist and be compared directly in the QA Browser.
 
 ## Chemical rationale
 
@@ -132,6 +148,69 @@ Generation one should be conservative and explainable:
 8. Add the accepted pair to the transient harmonization graph. The alpha and beta children become one clique through their common unspecified parent.
 9. Record rule-level explanation data sufficient to audit the merge: ChEBI relationship, source and normalized structures/keys, detected atom index, formula/charge checks, and algorithm version.
 
+### RDKit detection and stereo normalization
+
+The prototype uses RDKit to interpret the ChEBI SMILES as a molecular graph.
+Although wedge/hash bonds are a common drawing convention, the operation is
+implemented at the tetrahedral atom rather than by searching for and deleting a
+particular drawn bond. In SMILES, that tetrahedral assignment is represented by
+the atom's `@`/`@@` chirality; RDKit exposes it as the atom's chiral tag.
+
+For each atom in the molecule, the detector accepts the atom as a possible free
+anomeric center only when all of the following are true:
+
+1. The atom is carbon (`atomic number == 6`).
+2. The carbon is part of a ring (`atom.IsInRing()`).
+3. At least one directly bonded oxygen is also part of a ring. This identifies
+   the carbon next to the cyclic hemiacetal/hemiketal oxygen.
+4. A different directly bonded oxygen is outside the ring, neutral, degree one,
+   and bears at least one hydrogen. This is the free anomeric hydroxyl, not an
+   ether or glycosidic oxygen.
+5. Exactly one carbon in the whole structure satisfies this pattern.
+
+In code, the local structural test is equivalent to:
+
+```python
+for atom in mol.GetAtoms():
+    if atom.GetAtomicNum() != 6 or not atom.IsInRing():
+        continue
+    has_ring_oxygen = any(
+        neighbor.GetAtomicNum() == 8 and neighbor.IsInRing()
+        for neighbor in atom.GetNeighbors()
+    )
+    has_external_oh = any(
+        neighbor.GetAtomicNum() == 8
+        and not neighbor.IsInRing()
+        and neighbor.GetDegree() == 1
+        and neighbor.GetFormalCharge() == 0
+        and neighbor.GetTotalNumHs() > 0
+        for neighbor in atom.GetNeighbors()
+    )
+```
+
+The source molecule is copied. On the copy, and only at the detected carbon,
+the prototype calls:
+
+```python
+normalized.GetAtomWithIdx(anomeric_atom_index).SetChiralTag(
+    Chem.ChiralType.CHI_UNSPECIFIED
+)
+Chem.AssignStereochemistry(normalized, cleanIt=True, force=True)
+normalized_key = inchi.MolToInchiKey(normalized)
+```
+
+This does **not** call `Chem.RemoveStereochemistry`, because that would erase
+every stereocenter and would incorrectly collapse glucose with mannose,
+galactose, D/L pairs, and other protected stereoisomers. It also does not alter
+double-bond stereo, isotopes, formal charges, connectivity, or a glycosidic
+bond. The child and parent are accepted only when their complete normalized
+InChIKeys are equal and their original complete InChIKeys were different.
+
+The accepted stage-evidence edge records both original SMILES and InChIKeys,
+the normalized complete InChIKey, each detected atom index, the direct ChEBI
+relationship, and algorithm version `free-anomer-v1`. These values make the
+specific stereo removal reproducible during review.
+
 Conceptually:
 
 ```text
@@ -162,6 +241,32 @@ The following exploratory counts come from the `metabolite_harmonization` graph 
 - Those pairs formed 381 connected components: 236 pairs and 145 three-member groups.
 
 The 526-pair result is an **upper bound before a validated carbohydrate/polymer scope filter**. It contains strong examples such as glucose, mannose, galactose, talose, sorbose, arabinose, xylose, rhamnose, sugar phosphates, amino sugars, uronic acids, and finite reducing oligosaccharides. It also contains cases such as hydroxynaringenin that generation one proposes to defer.
+
+### Prototype validation on the rebuilt graph
+
+A read-only run of `free-anomer-v1` with the carbohydrate gate enabled against the rebuilt
+`metabolite_harmonization` graph on 2026-08-27 produced:
+
+- 5,744 ChEBI identifiers under the carbohydrate scope root;
+- 1,805 identifiers removed by the polymer/polysaccharide exclusion;
+- 1,555 remaining scope identifiers that were active metabolite identifiers;
+- 577 direct ChEBI child/parent candidate pairs;
+- 264 accepted free-anomer pairs and 313 rejected pairs.
+
+The principal rejection counts were 185 missing-formula pairs, 62 pairs where
+one endpoint did not have exactly one qualifying free-anomeric center, 29 pairs
+with missing SMILES, 16 formula mismatches, 14 normalized-key mismatches, five
+repeat formulas, and two wildcard structures. Alpha- and beta-D-glucose both
+matched their anomer-unspecified `CHEBI:4167` parent. The hydroxynaringenin
+examples passed the local atom transformation when evaluated alone but were not
+under `CHEBI:16646`, confirming that the carbohydrate scope gate excludes them
+from rule candidates as intended.
+
+With the carbohydrate gate disabled, the same graph produced 69,492 direct
+ChEBI child/parent candidates and 526 accepted structure pairs. The additional
+262 accepted pairs include the two hydroxynaringenin-to-unspecified-parent
+edges. This broader mode is therefore useful as a review contrast, while the
+enabled-by-default gate remains the conservative pipeline setting.
 
 ## Relationship to existing InChIKey rules
 
