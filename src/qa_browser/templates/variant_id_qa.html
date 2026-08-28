@@ -10,7 +10,7 @@
         <div>
             <h1>Variant Harmonizer Explorer</h1>
             <p class="variant-explorer-release"><span class="mono">{{ variant_version_display }}</span>
-                &mdash; Sequence variant harmonization from ClinVar and GWAS Catalog with conservative disease/trait evidence modeling.
+                &mdash; Sequence variant harmonization from ClinVar, GWAS Catalog, and UniProt with conservative overlap/QC evidence modeling.
                 Updated last: {{ variant_updated_last }}.</p>
         </div>
         <div class="variant-open-box">
@@ -87,15 +87,19 @@
 
     <section class="variant-tab-panel" data-panel="graph">
         <div class="variant-graph-toolbar">
-            <span id="variantGraphLabel">Enter an IFXVariant ID, rsID, ClinVar VariationID, or gene symbol.</span>
+            <span id="variantGraphLabel">Enter an IFXVariant ID, rsID, ClinVar VariationID, UniProt feature, or gene symbol.</span>
+            <label class="variant-graph-toggle"><input id="variantShowOverlap" type="checkbox" checked> Overlap</label>
+            <label class="variant-graph-toggle"><input id="variantShowDisagreements" type="checkbox" checked> Disagreements</label>
             <button class="btn btn-sm" id="variantFitGraph" type="button">Fit graph</button>
         </div>
         <div class="variant-graph-legend">
             <span><i class="variant-legend-node variant-legend-variant"></i> Sequence variant</span>
             <span><i class="variant-legend-node variant-legend-disease"></i> Disease / trait</span>
             <span><i class="variant-legend-node variant-legend-gene"></i> Gene context</span>
-            <span><i class="variant-legend-line"></i> biolink:associated_with / biolink:affects</span>
-            <span class="variant-legend-help"><strong>Guardrail:</strong> rsID, ClinVar VariationID, and GWAS risk allele evidence are preserved separately. Shared rsID is not automatically treated as exact variant equivalence.</span>
+            <span><i class="variant-legend-node variant-legend-protein"></i> Protein context</span>
+            <span><i class="variant-legend-line"></i> source evidence</span>
+            <span><i class="variant-legend-line variant-legend-overlap"></i> selected-node overlap/QC</span>
+            <span class="variant-legend-help"><strong>Guardrail:</strong> rsID, ClinVar VariationID, GWAS risk allele, and UniProt protein-feature evidence are preserved separately. Shared rsID is visible as an overlap edge, not automatic exact variant equivalence.</span>
         </div>
         <div class="variant-graph-layout">
             <div id="variantGraph" class="variant-graph"></div>
@@ -135,7 +139,7 @@ let variantPage = 1;
 let variantLastPage = 0;
 let variantCy = null;
 let variantStatsCache = null;
-const defaultColumns = ["variant_id", "primary_id", "name", "biolink_category", "variant_type", "dbsnp_id", "clinvar_variation_id", "clinvar_allele_id", "gene_symbol", "gene_curie", "assembly", "chromosome", "position", "risk_allele", "clinical_significance", "review_status", "source_namespaces", "equivalence_scope", "quality_note"];
+const defaultColumns = ["variant_id", "primary_id", "name", "biolink_category", "variant_type", "dbsnp_id", "clinvar_variation_id", "clinvar_allele_id", "uniprot_id", "uniprot_feature_id", "protein_name", "protein_position", "amino_acid_change", "gene_symbol", "gene_curie", "assembly", "chromosome", "position", "risk_allele", "clinical_significance", "source_review_status", "source_namespaces", "equivalence_scope", "quality_note"];
 
 function setVariantTab(tab) {
     document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
@@ -216,7 +220,12 @@ async function runVariantSearch(page = 1) {
 
 async function loadVariantGraph(ids) {
     const query = ids || document.getElementById("variantOpenIds").value;
-    const resp = await fetch(`${rootPath}/variant-id-qa/api/graph?ids=${encodeURIComponent(query)}`);
+    const params = new URLSearchParams({
+        ids: query,
+        include_overlap: document.getElementById("variantShowOverlap")?.checked ? "true" : "false",
+        include_disagreements: document.getElementById("variantShowDisagreements")?.checked ? "true" : "false",
+    });
+    const resp = await fetch(`${rootPath}/variant-id-qa/api/graph?${params}`);
     if (!resp.ok) return;
     const payload = await resp.json();
     document.getElementById("variantGraphLabel").textContent = `${payload.node_count} nodes · ${payload.edge_count} edges` + (payload.not_found.length ? ` · not found: ${payload.not_found.join(", ")}` : "");
@@ -229,8 +238,12 @@ async function loadVariantGraph(ids) {
             { selector: "node", style: { "label": "data(label)", "font-size": 11, "text-wrap": "wrap", "text-max-width": 120, "background-color": "#64748b", "color": "#111827", "width": 34, "height": 34 } },
             { selector: ".sequencevariant", style: { "background-color": "#7c3aed", "color": "#111827" } },
             { selector: ".gene", style: { "background-color": "#0d9488" } },
+            { selector: ".protein", style: { "background-color": "#2563eb" } },
             { selector: ".diseaseorphenotypicfeature, .phenotypicfeature", style: { "background-color": "#f59e0b" } },
-            { selector: "edge", style: { "curve-style": "bezier", "target-arrow-shape": "triangle", "width": 1.5, "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8, "text-rotation": "autorotate" } }
+            { selector: "edge", style: { "curve-style": "bezier", "target-arrow-shape": "triangle", "width": 1.5, "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "label": "data(label)", "font-size": 8, "text-rotation": "autorotate" } },
+            { selector: ".variant-overlap-same-dbsnp", style: { "line-color": "#38bdf8", "target-arrow-color": "#38bdf8", "line-style": "dashed", "width": 2 } },
+            { selector: ".variant-scope-warning", style: { "line-color": "#f59e0b", "target-arrow-color": "#f59e0b", "line-style": "dashed", "width": 2.5 } },
+            { selector: ".variant-potential-disagreement", style: { "line-color": "#dc2626", "target-arrow-color": "#dc2626", "line-style": "dashed", "width": 3 } }
         ],
         layout: { name: "cose", fit: true, padding: 40, animate: false }
     });
@@ -238,7 +251,7 @@ async function loadVariantGraph(ids) {
 }
 
 function renderVariantDetail(data) {
-    const keys = ["id", "label", "node_type", "primary_id", "dbsnp_id", "clinvar_variation_id", "gene_symbol", "target_id", "target_label", "relation_kind", "evidence_source", "clinical_significance", "review_status", "study_accession", "pubmed_id", "p_value", "equivalence_scope", "quality_note"];
+    const keys = ["id", "label", "node_type", "primary_id", "dbsnp_id", "clinvar_variation_id", "uniprot_id", "uniprot_feature_id", "protein_name", "protein_position", "amino_acid_change", "gene_symbol", "target_id", "target_label", "raw_target_id", "raw_target_label", "target_mapping_status", "target_mapping_source", "target_mapping_note", "relation_kind", "evidence_source", "clinical_significance", "source_review_status", "rcv_accession", "condition_group_index", "raw_condition_ids", "raw_condition_labels", "study_accession", "pubmed_id", "p_value", "risk_allele", "overlap_key", "overlap_reason", "conflict_flag", "conflict_note", "equivalence_scope", "quality_note"];
     document.getElementById("variantGraphDetail").innerHTML = `<h2>${escapeHtml(data.label || data.id)}</h2><dl>${keys.filter(k => data[k]).map(k => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(data[k])}</dd>`).join("")}</dl>`;
 }
 
@@ -250,6 +263,8 @@ document.getElementById("variantSearchBtn").addEventListener("click", () => runV
 document.getElementById("variantPrevPage").addEventListener("click", () => { if (variantPage > 1) runVariantSearch(variantPage - 1); });
 document.getElementById("variantNextPage").addEventListener("click", () => { if (!variantLastPage || variantPage < variantLastPage) runVariantSearch(variantPage + 1); });
 document.getElementById("variantOpenGraph").addEventListener("click", () => loadVariantGraph());
+document.getElementById("variantShowOverlap").addEventListener("change", () => { if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph(); });
+document.getElementById("variantShowDisagreements").addEventListener("change", () => { if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph(); });
 document.getElementById("variantFitGraph").addEventListener("click", () => { if (variantCy) variantCy.fit(null, 35); });
 document.getElementById("variantDownloadBtn").addEventListener("click", () => {
     const cols = Array.from(document.querySelectorAll("#variantColumnGrid input:checked")).map(el => el.value).join(",");

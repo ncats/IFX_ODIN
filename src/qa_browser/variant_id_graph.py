@@ -50,6 +50,10 @@ DEFAULT_VARIANT_COLUMNS = [
     "dbsnp_id",
     "clinvar_variation_id",
     "clinvar_allele_id",
+    "uniprot_id",
+    "uniprot_entry_name",
+    "uniprot_feature_id",
+    "protein_name",
     "gene_symbol",
     "gene_curie",
     "assembly",
@@ -57,6 +61,7 @@ DEFAULT_VARIANT_COLUMNS = [
     "position",
     "risk_allele",
     "clinical_significance",
+    "source_review_status",
     "review_status",
     "source_namespaces",
     "equivalence_scope",
@@ -89,15 +94,21 @@ def _variant_lookup_aliases(value: str) -> set[str]:
     if not text:
         return set()
     aliases = {text, text.lower()}
-    if text.lower().startswith("dbsnp:rs"):
+    lower = text.lower()
+    if lower.startswith("dbsnp:rs"):
         bare = text.split(":", 1)[1]
         aliases.update({bare, bare.lower(), bare[2:] if bare.lower().startswith("rs") else bare})
     elif re.fullmatch(r"rs\d+", text, re.I):
         aliases.add(f"dbSNP:{text.lower()}")
     elif re.fullmatch(r"\d+", text):
         aliases.update({f"dbSNP:rs{text}", f"ClinVarVariation:{text}", f"ClinVarAllele:{text}"})
-    elif text.lower().startswith(("clinvarvariation:", "clinvarallele:")):
+    elif lower.startswith(("clinvarvariation:", "clinvarallele:")):
         aliases.add(text.split(":", 1)[1])
+    elif lower.startswith(("uniprotkb:", "uniprotvar:")):
+        aliases.add(text.split(":", 1)[1])
+    elif re.fullmatch(r"[A-Z0-9]{1,10}-?\d*", text, re.I):
+        aliases.add(f"UniProtKB:{text.upper()}")
+        aliases.add(f"UniProtVAR:{text.upper()}")
     return {a for a in aliases if a}
 
 
@@ -119,6 +130,9 @@ def _index_node(data: VariantGraphData, node: dict[str, str]) -> None:
         node.get("dbsnp_id", ""),
         node.get("clinvar_variation_id", ""),
         node.get("clinvar_allele_id", ""),
+        node.get("uniprot_id", ""),
+        node.get("uniprot_entry_name", ""),
+        node.get("uniprot_feature_id", ""),
         node.get("gene_symbol", ""),
     }
     for key in keys:
@@ -166,6 +180,11 @@ def _matches_query(node: dict[str, str], q: str) -> bool:
         "dbsnp_id",
         "clinvar_variation_id",
         "clinvar_allele_id",
+        "uniprot_id",
+        "uniprot_entry_name",
+        "uniprot_feature_id",
+        "protein_name",
+        "amino_acid_change",
         "gene_symbol",
         "gene_curie",
         "source_variant_ids",
@@ -269,7 +288,12 @@ def _resolve_variant_ids(data: VariantGraphData, raw_ids: str) -> tuple[list[str
     return resolved, not_found
 
 
-def build_variant_graph_payload(data: VariantGraphData, ids: str = "") -> dict[str, Any]:
+def build_variant_graph_payload(
+    data: VariantGraphData,
+    ids: str = "",
+    include_overlap: bool = True,
+    include_disagreements: bool = True,
+) -> dict[str, Any]:
     variant_ids, not_found = _resolve_variant_ids(data, ids)
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -299,27 +323,47 @@ def build_variant_graph_payload(data: VariantGraphData, ids: str = "") -> dict[s
             "biolink:SequenceVariant",
             {"node_type": "variant", **node},
         )
-        for idx, edge in enumerate(data.edges_by_variant.get(variant_id, [])[:120]):
+        edge_no = 0
+        for edge in data.edges_by_variant.get(variant_id, [])[:180]:
+            relation_kind = edge.get("relation_kind", "")
+            is_overlap = relation_kind.startswith("variant_")
+            is_disagreement = relation_kind == "variant_potential_disagreement" or edge.get("conflict_flag") == "TRUE"
+            if is_overlap and not include_overlap:
+                continue
+            if is_disagreement and not include_disagreements:
+                continue
             target_id = edge.get("target_id", "") or edge.get("target_label", "")
             if not target_id:
                 continue
-            graph_target_id = target_id if ":" in target_id and " " not in target_id else _json_safe_id("object", target_id)
-            target_category = edge.get("target_category", "") or "biolink:NamedThing"
-            add_node(
-                graph_target_id,
-                edge.get("target_label") or target_id,
-                target_category,
-                {"node_type": "object", "source_curie": target_id, **edge},
-            )
+            if target_id in data.nodes_by_id:
+                target_node = data.nodes_by_id[target_id]
+                graph_target_id = target_id
+                target_category = "biolink:SequenceVariant"
+                add_node(
+                    graph_target_id,
+                    target_node.get("primary_id") or target_node.get("name") or target_id,
+                    target_category,
+                    {"node_type": "variant", **target_node},
+                )
+            else:
+                graph_target_id = target_id if ":" in target_id and " " not in target_id else _json_safe_id("object", target_id)
+                target_category = edge.get("target_category", "") or "biolink:NamedThing"
+                add_node(
+                    graph_target_id,
+                    edge.get("target_label") or target_id,
+                    target_category,
+                    {"node_type": "object", "source_curie": target_id, **edge},
+                )
+            edge_no += 1
             edges.append({
                 "data": {
-                    "id": f"{variant_id}::{idx}::{graph_target_id}",
+                    "id": f"{variant_id}::{edge_no}::{graph_target_id}",
                     "source": variant_id,
                     "target": graph_target_id,
-                    "label": edge.get("predicate") or edge.get("relation_kind") or "associated_with",
+                    "label": relation_kind if is_overlap else (edge.get("predicate") or relation_kind or "associated_with"),
                     **edge,
                 },
-                "classes": edge.get("relation_kind", "").replace("_", "-") or "association",
+                "classes": relation_kind.replace("_", "-") or "association",
             })
     return {
         "elements": {"nodes": nodes, "edges": edges},
