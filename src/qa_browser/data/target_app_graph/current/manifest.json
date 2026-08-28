@@ -2,9 +2,9 @@
   "contract_version": "1.0.0",
   "target_release_version": "v2.1.1",
   "pipeline": "TargetGraph target harmonizer",
-  "generated_at": "2026-08-24T18:27:46.035413+00:00",
-  "updated_last": "2026-08-24T18:27:46.035423+00:00",
-  "pipeline_git_commit": "d2c3933",
+  "generated_at": "2026-08-24T20:02:24.875280+00:00",
+  "updated_last": "2026-08-24T20:02:24.875315+00:00",
+  "pipeline_git_commit": "5f904b8",
   "source_files": {
     "gene_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/gene_ids_2026-08-24.tsv",
     "protein_ids": "src/data/publicdata/target_data/cleaned/resolved_node_ids/protein_ids_2026-08-24.tsv",
@@ -62,7 +62,7 @@
       "download_start": "2026-08-24T10:57:57.829809",
       "download_end": "2026-08-24T10:57:58.865341",
       "metadata_file": "src/data/publicdata/target_data/metadata/dl_refSeq_metadata.json",
-      "url": "",
+      "url": "https://ftp.ncbi.nih.gov/gene/DATA/gene2refseq.gz",
       "release_date": "2026-08-20",
       "records": 1366996
     },

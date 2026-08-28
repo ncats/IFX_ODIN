@@ -76,16 +76,41 @@ from src.qa_browser.curation_cart import (
     publish_cart,
     remove_cart_operation,
 )
-from src.qa_browser.metabolite_anomer_rule import (
-    CHEBI_CARBOHYDRATE_ROOT_ID,
-    CHEBI_POLYMER_ROOT_IDS,
-    FREE_ANOMER_ALGORITHM_VERSION,
-    FREE_ANOMER_RULE_ID,
-    evaluate_free_anomer_candidate,
-    free_anomeric_oh_atoms,
-    normalized_free_anomer_structure,
-    summarize_free_anomer_decisions,
-)
+try:
+    from src.qa_browser.metabolite_anomer_rule import (
+        CHEBI_CARBOHYDRATE_ROOT_ID,
+        CHEBI_POLYMER_ROOT_IDS,
+        FREE_ANOMER_ALGORITHM_VERSION,
+        FREE_ANOMER_RULE_ID,
+        evaluate_free_anomer_candidate,
+        free_anomeric_oh_atoms,
+        normalized_free_anomer_structure,
+        summarize_free_anomer_decisions,
+    )
+    _metabolite_free_anomer_available = True
+except ModuleNotFoundError as exc:
+    if exc.name != "rdkit":
+        raise
+    CHEBI_CARBOHYDRATE_ROOT_ID = "CHEBI:16646"
+    CHEBI_POLYMER_ROOT_IDS = ("CHEBI:60027", "CHEBI:18154")
+    FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v1"
+    FREE_ANOMER_RULE_ID = "merge_free_anomeric_forms"
+    _metabolite_free_anomer_available = False
+
+    def _missing_free_anomer_dependency(*_args, **_kwargs):
+        raise RuntimeError("The free-anomer metabolite rule requires RDKit, but RDKit is not installed.")
+
+    free_anomeric_oh_atoms = _missing_free_anomer_dependency
+    normalized_free_anomer_structure = _missing_free_anomer_dependency
+    evaluate_free_anomer_candidate = _missing_free_anomer_dependency
+
+    def summarize_free_anomer_decisions(_decisions):
+        return {
+            "free_anomer_candidate_pair_count": 0,
+            "free_anomer_accepted_pair_count": 0,
+            "free_anomer_rejected_pair_count": 0,
+            "free_anomer_rejection_reason_counts": {"rdkit_unavailable": 1},
+        }
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -120,6 +145,22 @@ from src.qa_browser.variant_id_graph import (
     load_variant_graph_data,
     search_variants,
 )
+from src.qa_browser.drug_id_graph import (
+    DRUG_REVIEW_DECISION_OPTIONS,
+    DRUG_REVIEW_INTAKE_COLUMNS,
+    build_drug_graph_payload,
+    build_drug_review_queue,
+    compute_drug_stats,
+    export_drugs,
+    export_drug_review_intake_template,
+    load_drug_graph_data,
+    search_drugs,
+)
+from src.qa_browser.drug_resolver import get_ncats_property_catalog, resolve_and_enrich
+from src.qa_browser.variant_resolver import (
+    resolve_and_enrich as variant_resolve_and_enrich,
+    get_myvariant_field_catalog,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -130,6 +171,7 @@ RAMP_ID_QA_ABOUT_DIR = STATIC_DIR / "ramp_id_qa_about"
 DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
 TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
 VARIANT_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "variant_app_graph"
+DRUG_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "drug_app_graph"
 
 
 @asynccontextmanager
@@ -164,8 +206,11 @@ _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
 _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
+_drug_graph_dir: str = ""
+_drug_review_file: str = ""
 _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
+_drug_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -7744,6 +7789,44 @@ def _variant_updated_last(manifest: dict[str, Any]) -> str:
     return text[:10] if text and text != "—" else "—"
 
 
+def _load_drug_graph():
+    if not _drug_graph_dir:
+        raise HTTPException(status_code=500, detail="No --drug-graph-dir configured.")
+    return load_drug_graph_data(_drug_graph_dir)
+
+
+def _drug_manifest_snapshot() -> dict[str, Any]:
+    if not _drug_graph_dir:
+        return {}
+    manifest_path = Path(_drug_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _drug_version_display(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("version") or manifest.get("drug_release_version") or "—"
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v."):
+        return text
+    if text.startswith("v"):
+        return f"v.{text[1:]}"
+    return f"v.{text}"
+
+
+def _drug_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("createdAt") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
+
+
 @app.get("/target-id-qa", response_class=HTMLResponse)
 def target_id_qa(request: Request, ids: str = "", tab: str = ""):
     selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
@@ -8181,9 +8264,14 @@ def variant_id_qa_search(
 
 
 @app.get("/variant-id-qa/api/graph")
-def variant_id_qa_graph(ids: str = ""):
+def variant_id_qa_graph(ids: str = "", include_overlap: bool = True, include_disagreements: bool = True):
     data = _load_variant_graph()
-    return build_variant_graph_payload(data, ids)
+    return build_variant_graph_payload(
+        data,
+        ids,
+        include_overlap=include_overlap,
+        include_disagreements=include_disagreements,
+    )
 
 
 @app.get("/variant-id-qa/download-filtered")
@@ -8210,6 +8298,316 @@ def variant_id_qa_download_filtered(
         io.StringIO(content),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@app.get("/variant-id-qa/api/myvariant-fields")
+def variant_id_qa_myvariant_fields():
+    """Return the full MyVariant.info field catalog for the frontend selector."""
+    return get_myvariant_field_catalog()
+
+
+@app.post("/variant-id-qa/api/resolve")
+async def variant_id_qa_resolve(body: dict):
+    """Batch resolve + enrich variant queries against local graph and MyVariant.info."""
+    queries = body.get("queries", [])
+    if not queries:
+        return {"error": "No queries provided"}
+    if len(queries) > 50:
+        return {"error": "Maximum 50 queries per request"}
+    data = _load_variant_graph()
+    myvariant_fields = body.get("myvariant_fields")
+    if myvariant_fields is not None and not isinstance(myvariant_fields, list):
+        myvariant_fields = None
+    return variant_resolve_and_enrich(
+        queries=queries,
+        data=data,
+        enable_myvariant=body.get("enable_myvariant", True),
+        myvariant_fields=myvariant_fields,
+        workers=min(int(body.get("workers", 4)), 8),
+    )
+
+
+@app.get("/variant-id-qa/api/resolve-quick")
+async def variant_id_qa_resolve_quick(q: str = ""):
+    """Quick local-only resolution (no MyVariant enrichment, instant response)."""
+    if not q.strip():
+        return {"results": [], "stats": {"total": 0}}
+    queries = [s.strip() for s in q.split("|") if s.strip()][:50]
+    data = _load_variant_graph()
+    return variant_resolve_and_enrich(
+        queries=queries,
+        data=data,
+        enable_myvariant=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drug Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+
+@app.get("/drug-id-qa", response_class=HTMLResponse)
+def drug_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _drug_manifest_snapshot()
+    try:
+        drug_total = f"{len(_load_drug_graph().nodes):,}"
+    except Exception:
+        drug_total = "412,000+"
+    return templates.TemplateResponse(request, "drug_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "drug_version_display": _drug_version_display(manifest),
+        "drug_updated_last": _drug_updated_last(manifest),
+        "drug_total_drugs": drug_total,
+    })
+
+
+@app.get("/drug-id-qa/api/stats")
+def drug_id_qa_stats():
+    data = _load_drug_graph()
+    return compute_drug_stats(data)
+
+
+@app.get("/drug-id-qa/api/search")
+def drug_id_qa_search(
+    q: str = "",
+    source: str = "",
+    tier: str = "",
+    key_type: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_drug_graph()
+    return search_drugs(data, q=q, source=source, tier=tier, key_type=key_type, page=page, per_page=per_page)
+
+
+@app.get("/drug-id-qa/api/graph")
+def drug_id_qa_graph(ids: str = "", include_targets: bool = True):
+    data = _load_drug_graph()
+    return build_drug_graph_payload(data, ids, include_targets=include_targets)
+
+
+def _default_drug_review_file() -> str:
+    if not _drug_graph_dir:
+        return ""
+    graph_dir = Path(_drug_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "review_intake" / "drug_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "drug_app_review_decisions.tsv")
+
+
+def _resolved_drug_review_file() -> str:
+    return _drug_review_file or _default_drug_review_file()
+
+
+def _drug_review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    allowed = {opt["value"] for opt in DRUG_REVIEW_DECISION_OPTIONS}
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        registry_id = str(raw.get("registry_id") or raw.get("Registry ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Human decision") or "").strip()
+        if not registry_id:
+            raise HTTPException(status_code=400, detail="Each drug review decision needs registry_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each drug review decision needs review_decision.")
+        if decision not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unsupported drug review_decision: {decision}")
+
+        rows.append({
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+            "Registry ID": registry_id,
+            "Drug ID": str(raw.get("drug_id") or raw.get("Drug ID") or "").strip(),
+            "Drug Name": str(raw.get("standard_name") or raw.get("Drug Name") or "").strip(),
+            "Primary ID": str(raw.get("primary_id") or raw.get("Primary ID") or "").strip(),
+            "Source-standard primary ID": str(raw.get("source_standard_primary_id") or raw.get("Source-standard primary ID") or "").strip(),
+            "Issue type": str(raw.get("issue_type") or raw.get("Issue type") or "").strip(),
+            "Issue label": str(raw.get("issue_label") or raw.get("Issue label") or "").strip(),
+            "Severity": str(raw.get("severity") or raw.get("Severity") or "").strip(),
+            "Source": str(raw.get("source") or raw.get("Source") or "").strip(),
+            "Source value": str(raw.get("source_value") or raw.get("Source value") or "").strip(),
+            "Consensus value": str(raw.get("consensus_value") or raw.get("Consensus value") or "").strip(),
+            "NodeNorm canonical CURIE": str(raw.get("nodenorm_canonical_curie") or raw.get("NodeNorm canonical CURIE") or "").strip(),
+            "NodeNorm canonical label": str(raw.get("nodenorm_canonical_label") or raw.get("NodeNorm canonical label") or "").strip(),
+            "NodeNorm validation status": str(raw.get("nodenorm_validation_status") or raw.get("NodeNorm validation status") or "").strip(),
+            "Recommended action": str(raw.get("recommended_action") or raw.get("Recommended action") or "").strip(),
+            "Human decision": decision,
+            "Resolution": str(raw.get("resolution") or raw.get("Resolution") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No drug review decisions provided.")
+    return rows
+
+
+def _append_drug_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_drug_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No drug review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _drug_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=DRUG_REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/drug-id-qa/api/review-queue")
+def drug_id_qa_review_queue(
+    issue_type: str = "",
+    source: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_drug_graph()
+    return build_drug_review_queue(
+        data,
+        issue_type=issue_type,
+        source=source,
+        severity=severity,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/drug-id-qa/download-review-template")
+def drug_id_qa_download_review_template(
+    issue_type: str = "",
+    source: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    data = _load_drug_graph()
+    tsv_content = export_drug_review_intake_template(
+        data,
+        issue_type=issue_type,
+        source=source,
+        severity=severity,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="drug_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/drug-id-qa/api/review-decisions")
+async def drug_id_qa_save_review_decisions(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = _drug_review_payload_rows(payload)
+    path = _append_drug_review_rows(rows)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import on the next TargetGraph DRUGS drug_qc run.",
+    }
+
+
+@app.get("/drug-id-qa/download-filtered")
+def drug_id_qa_download_filtered(
+    q: str = "",
+    source: str = "",
+    tier: str = "",
+    key_type: str = "",
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_drug_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_drugs(data, q=q, source=source, tier=tier, key_type=key_type, fmt=fmt, columns=selected_columns)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("version") or data.manifest.get("drug_release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_drugs.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/drug-id-qa/api/ncats-properties")
+def drug_id_qa_ncats_properties():
+    """Return the full NCATS property catalog for the frontend selector."""
+    return get_ncats_property_catalog()
+
+
+@app.post("/drug-id-qa/api/resolve")
+async def drug_id_qa_resolve(body: dict):
+    """Batch resolve + enrich drug queries against local graph and live APIs."""
+    queries = body.get("queries", [])
+    if not queries:
+        return {"error": "No queries provided"}
+    if len(queries) > 50:
+        return {"error": "Maximum 50 queries per request"}
+    data = _load_drug_graph()
+    ncats_props = body.get("ncats_props")  # None → use defaults
+    if ncats_props is not None and not isinstance(ncats_props, list):
+        ncats_props = None
+    return resolve_and_enrich(
+        data,
+        queries=queries,
+        enable_ncats=body.get("enable_ncats", True),
+        enable_pharos=body.get("enable_pharos", True),
+        enable_inxight=body.get("enable_inxight", True),
+        enable_openfda=body.get("enable_openfda", True),
+        enable_chebi=body.get("enable_chebi", True),
+        workers=min(int(body.get("workers", 4)), 8),
+        delay=0.15,
+        ncats_props=ncats_props,
+    )
+
+
+@app.get("/drug-id-qa/api/resolve-quick")
+async def drug_id_qa_resolve_quick(q: str = ""):
+    """Quick local-only resolution (no enrichment, instant response)."""
+    if not q.strip():
+        return {"results": [], "stats": {"total": 0}}
+    queries = [s.strip() for s in q.split("|") if s.strip()][:50]
+    data = _load_drug_graph()
+    return resolve_and_enrich(
+        data,
+        queries=queries,
+        enable_ncats=False,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
     )
 
 
@@ -12187,9 +12585,15 @@ def main():
     parser.add_argument("--variant-graph-dir",
                         default="",
                         help="Path to variant app_graph/ directory (variant_nodes.tsv + manifest.json)")
+    parser.add_argument("--drug-graph-dir",
+                        default="",
+                        help="Path to drug app_graph/ directory (drug_nodes.tsv + manifest.json)")
+    parser.add_argument("--drug-review-file",
+                        default="",
+                        help="Path to TargetGraph-compatible drug review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _drug_graph_dir, _drug_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -12311,6 +12715,24 @@ def main():
             print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
     if _variant_graph_dir:
         print(f"Variant graph dir: {_variant_graph_dir}")
+
+
+    _drug_graph_dir = args.drug_graph_dir
+    if not _drug_graph_dir:
+        bundled_dir = DRUG_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "drug_nodes.tsv")
+        current_dir = bundled_dir / "current"
+        if versions:
+            _drug_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
+        elif current_dir.is_dir():
+            _drug_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
+    if _drug_graph_dir:
+        print(f"Drug graph dir: {_drug_graph_dir}")
+    _drug_review_file = args.drug_review_file
+    if _resolved_drug_review_file():
+        print(f"Drug review intake file: {_resolved_drug_review_file()}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)

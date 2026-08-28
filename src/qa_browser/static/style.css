@@ -9863,6 +9863,29 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
 }
 
 
+.workflow-card-drug {
+    color: #ffffff;
+    background:
+        linear-gradient(90deg, rgba(2, 8, 23, 0.90) 0%, rgba(7, 22, 37, 0.70) 44%, rgba(15, 23, 42, 0.18) 100%),
+        url("images/drug-harmonizer.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    border-color: rgba(45, 212, 191, 0.36);
+}
+
+.workflow-card-drug .db-name,
+.workflow-card-drug .db-card-footer {
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.workflow-card-drug:hover {
+    border-color: #2dd4bf;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22);
+    text-decoration: none;
+}
+
 /* Variant Harmonizer Explorer */
 .workflow-card-variant {
     color: #ffffff;
@@ -10131,6 +10154,20 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     gap: 0.35rem;
 }
 
+.drug-graph-toggle {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 0.82rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.drug-graph-toggle input {
+    accent-color: var(--accent, #7c3aed);
+}
+
 .variant-legend-help {
     border-top: 1px solid var(--border);
     flex-basis: 100%;
@@ -10149,12 +10186,55 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
 .variant-legend-variant { background: #7c3aed; }
 .variant-legend-disease { background: #f59e0b; }
 .variant-legend-gene { background: #0d9488; }
+.drug-legend-drug { background: #14b8a6; }
+.drug-legend-identity { background: #22d3ee; }
+.drug-legend-external { background: #93c5fd; }
+.drug-legend-publication {
+    background: #f97316;
+    border-radius: 2px;
+    transform: rotate(45deg) scale(0.82);
+}
+.drug-legend-target {
+    background: #8b5cf6;
+    border-radius: 3px;
+}
 
 .variant-legend-line {
     background: #94a3b8;
     display: inline-block;
     height: 2px;
     width: 1.6rem;
+}
+.drug-legend-line-identity { background: #0891b2; }
+.drug-legend-line-target { background: #8b5cf6; }
+.drug-legend-line-publication { background: #f97316; }
+
+.drug-evidence-table {
+    border-collapse: collapse;
+    font-size: 0.72rem;
+    margin-top: 0.45rem;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.drug-evidence-table th,
+.drug-evidence-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 0.4rem;
+    text-align: left;
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.drug-evidence-table th {
+    color: var(--text-muted);
+    font-size: 0.66rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.drug-evidence-table td:nth-child(3) {
+    font-family: var(--font-mono, monospace);
 }
 
 .variant-graph-layout {
@@ -10204,6 +10284,47 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     overflow-wrap: anywhere;
 }
 
+.drug-detail-section {
+    border-top: 1px solid var(--border);
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+}
+
+.drug-detail-section:first-of-type {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+}
+
+.drug-detail-section h3 {
+    color: var(--text);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    margin: 0 0 0.55rem;
+    text-transform: uppercase;
+}
+
+.drug-pmid-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.drug-pmid-chip {
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.45);
+    border-radius: 4px;
+    color: #9a3412;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.16rem 0.35rem;
+    text-decoration: none;
+}
+
+.drug-pmid-chip:hover {
+    background: rgba(249, 115, 22, 0.18);
+}
+
 .variant-column-grid {
     display: grid;
     gap: 0.45rem 0.8rem;
@@ -10214,6 +10335,95 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
 .variant-column-grid label {
     color: var(--text-muted);
     font-size: 0.82rem;
+}
+
+.drug-explorer-shell .review-header-row {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+}
+
+.drug-explorer-shell .review-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.75rem 0;
+}
+
+.drug-explorer-shell .review-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 0.38rem 0.65rem;
+}
+
+.drug-explorer-shell .review-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.drug-explorer-shell .review-pill {
+    background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-2) 32%, transparent);
+    border-radius: 999px;
+    display: inline-block;
+    font-size: 0.72rem;
+    margin-top: 0.25rem;
+    padding: 0.14rem 0.42rem;
+}
+
+.drug-explorer-shell .review-table {
+    min-width: 108rem;
+    table-layout: fixed;
+}
+
+.drug-explorer-shell .review-table th:nth-child(1),
+.drug-explorer-shell .review-table td:nth-child(1) { width: 15rem; }
+.drug-explorer-shell .review-table th:nth-child(2),
+.drug-explorer-shell .review-table td:nth-child(2) { width: 16rem; }
+.drug-explorer-shell .review-table th:nth-child(3),
+.drug-explorer-shell .review-table td:nth-child(3) { width: 22rem; }
+.drug-explorer-shell .review-table th:nth-child(4),
+.drug-explorer-shell .review-table td:nth-child(4) { width: 14rem; }
+.drug-explorer-shell .review-table th:nth-child(5),
+.drug-explorer-shell .review-table td:nth-child(5) { width: 16rem; }
+.drug-explorer-shell .review-table th:nth-child(6),
+.drug-explorer-shell .review-table td:nth-child(6) { width: 14rem; }
+.drug-explorer-shell .review-table th:nth-child(7),
+.drug-explorer-shell .review-table td:nth-child(7) { width: 16rem; }
+.drug-explorer-shell .review-table th:nth-child(8),
+.drug-explorer-shell .review-table td:nth-child(8) { width: 5rem; }
+
+.drug-explorer-shell .review-decision-select,
+.drug-explorer-shell .review-resolution-input,
+.drug-explorer-shell .review-notes-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+    width: 100%;
+}
+
+.drug-explorer-shell .review-resolution-input,
+.drug-explorer-shell .review-notes-input {
+    margin-top: 0.35rem;
+    padding: 0.45rem 0.55rem;
+}
+
+.drug-explorer-shell .review-evidence {
+    color: var(--text);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.35;
+    max-width: none;
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 900px) {

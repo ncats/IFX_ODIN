@@ -1,0 +1,21 @@
+{
+  "processor": "DrugSourceUpdateReport",
+  "version": "v0.1.0",
+  "source_metadata_dir": "src/data/publicdata/drug_data/metadata/source",
+  "source_catalog_file": "src/data/publicdata/drug_data/metadata/drug_source_catalog.tsv",
+  "output_file": "src/data/publicdata/drug_data/v0.1.0/metadata/drug_source_update_report.tsv",
+  "markdown_file": "src/data/publicdata/drug_data/v0.1.0/metadata/drug_source_update_report.md",
+  "records_written": 16,
+  "status_counts": {
+    "unchanged": 5,
+    "transformed": 8,
+    "xref_only": 2,
+    "disabled": 1
+  },
+  "artifact_type_counts": {
+    "download": 7,
+    "transform": 9
+  },
+  "started": "2026-08-27T20:50:34+00:00",
+  "ended": "2026-08-27T20:50:34+00:00"
+}
