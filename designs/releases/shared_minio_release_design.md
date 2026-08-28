@@ -2,10 +2,15 @@
 
 ## Current Design State
 
-As of 2026-06-12, the shared MinIO idea has become the IFX Data Source
-Registry. The registry is an ODIN core service layer, not just a bucket browser.
-It stores reproducible source snapshots, external source registrations, and
-derived artifacts in MinIO, while `DataRegistry` is the Python interface that
+This document began as the June 2026 shared-MinIO proposal. As of 2026-08-24,
+the deployed registry and POUNCE artifact store use AWS S3 in the
+`aws-ifx-registry` bucket, and MinIO is retired. Sections before **Historical
+Investigation** describe the current registry; later sections retain the
+original investigation and terminology as architectural history.
+
+The registry is an ODIN core service layer, not just a bucket browser. It stores
+reproducible source snapshots, external source registrations, and derived
+artifacts in AWS S3, while `DataRegistry` is the Python interface that
 knows how to list, check, fetch, sync, and materialize those registry entries.
 
 The registry is intentionally modest: it is not lakeFS, not a full data lake
@@ -29,7 +34,7 @@ cache locally.
 
 | Component | Responsibility |
 | --- | --- |
-| MinIO bucket `ifx-registry` | Object storage for manifests and files. |
+| AWS S3 bucket `aws-ifx-registry` | Object storage for manifests and files. |
 | `src/core/data_registry.py` | ODIN-facing API for registry operations. |
 | `src/registry/registry_sources.yaml` | Declarative catalog of configured source, external, and derived datasets. |
 | `src/registry/sources/` | Source-specific fetchers and external source providers. |
@@ -40,7 +45,7 @@ cache locally.
 
 ## Storage Namespaces
 
-Registry objects use three top-level MinIO namespaces:
+Registry objects use three top-level S3 namespaces:
 
 ```text
 sources/<source>/<dataset>/<version>/
@@ -75,11 +80,11 @@ has:
 
 `DataRegistry.sync_latest_snapshots(...)` checks configured fetchers, downloads
 missing or stale datasets into a local cache, writes manifests, and uploads
-files/manifests to MinIO.
+files/manifests to AWS S3.
 
 ### External Source Registrations
 
-External registrations represent sources where MinIO does not own raw bytes,
+External registrations represent sources where the registry does not own raw bytes,
 such as ChEMBL or DrugCentral databases. The registry stores a manifest with:
 
 - source/dataset/version
@@ -130,8 +135,8 @@ ODIN code and ad hoc working scripts.
 Current high-level operations:
 
 ```python
-registry = DataRegistry.from_minio_credentials(
-    "src/use_cases/secrets/ifxdev_minio.yaml"
+registry = DataRegistry.from_registry_credentials(
+    "src/use_cases/secrets/aws_ifx_registry.yaml"
 )
 
 registry.list_source_snapshots()
@@ -159,10 +164,10 @@ The registry is authoritative. Local files are caches.
 
 Expected build flow:
 
-1. Registry manifest exists in MinIO.
+1. Registry manifest exists in AWS S3.
 2. `DataRegistry` materializes needed files into a local cache.
 3. ETL/prep code reads local paths for speed.
-4. The cache can be deleted and recreated from MinIO.
+4. The cache can be deleted and recreated from AWS S3.
 
 Current default cache examples:
 
@@ -191,7 +196,7 @@ and then copied/moved into:
 
 ## QA Browser
 
-The QA Browser registry page is a read-only MinIO-backed catalog. It should not
+The QA Browser registry page is a read-only S3-backed catalog. It should not
 hard-code source lists.
 
 Current display:
@@ -221,7 +226,7 @@ Current display:
   both old local-file and new registry contracts indefinitely.
 - Resolver SQLite artifacts are planned but not yet modeled as a separate
   registry kind.
-- Direct-to-MinIO streaming for very large sources remains optional future work.
+- Direct-to-S3 streaming for very large sources remains optional future work.
   The current path downloads to a local cache first.
 - The registry does not expose a record-level API such as `get_record` or
   `get_batch`; that remains a future service layer if needed.

@@ -1,0 +1,60 @@
+<aside id="metaboliteCurationCart"
+       class="metabolite-curation-cart"
+       data-root-path="{{ root_path }}"
+       aria-label="Curation cart">
+    <div class="metabolite-curation-cart-drawer" data-curation-cart-drawer>
+        <div class="metabolite-curation-cart-header">
+            <div>
+                <strong>Curation Cart</strong>
+                <span><b data-curation-cart-count>0</b> pending</span>
+            </div>
+            <button type="button" class="metabolite-curation-cart-close"
+                    data-curation-cart-close aria-label="Close curation cart">✕</button>
+        </div>
+        <div class="metabolite-curation-cart-body">
+            <label class="metabolite-curation-curator-field">
+                <span>Curator</span>
+                <input data-curation-curator placeholder="Your name or email" autocomplete="name">
+            </label>
+            <div class="metabolite-curation-cart-status" data-curation-cart-status role="status" aria-live="polite">
+                Enter your curator identity to load your saved cart.
+            </div>
+            <details class="metabolite-assertion-authoring">
+                <summary>Add expected-clique assertion</summary>
+                <div class="metabolite-assertion-authoring-fields">
+                    <label>
+                        <span>Name</span>
+                        <input data-assertion-name placeholder="Alpha and beta D-glucose">
+                    </label>
+                    <label>
+                        <span>Metabolite IDs</span>
+                        <textarea data-assertion-member-ids rows="3" placeholder="CHEBI:15903 CHEBI:17925"></textarea>
+                    </label>
+                    <label>
+                        <span>Rationale (optional)</span>
+                        <textarea data-assertion-rationale rows="2" placeholder="These anomers should resolve to one RaMP metabolite."></textarea>
+                    </label>
+                    <button type="button" class="btn" data-assertion-add>Add assertion to cart</button>
+                    <small>Assertions report pass, split, or missing at each stage. They do not change the graph.</small>
+                </div>
+            </details>
+            <div data-curation-cart-items class="metabolite-curation-cart-items"></div>
+            <div class="metabolite-curation-publish-form">
+                <label>
+                    <span>Batch name</span>
+                    <input data-curation-batch-name placeholder="RaMP review 2026-08-24">
+                </label>
+                <label>
+                    <span>Description (optional)</span>
+                    <textarea data-curation-batch-description rows="2"></textarea>
+                </label>
+                <button type="button" class="btn btn-primary" data-curation-publish>Publish batch</button>
+            </div>
+        </div>
+    </div>
+    <button type="button" class="metabolite-curation-cart-tab"
+            data-curation-cart-toggle aria-label="Open curation cart" aria-expanded="false">
+        <span>Curation Cart</span>
+        <b data-curation-cart-count>0</b>
+    </button>
+</aside>

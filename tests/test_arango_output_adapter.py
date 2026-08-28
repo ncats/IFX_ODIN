@@ -122,7 +122,7 @@ def build_adapter(existing_nodes, collection):
     adapter._collection_schemas = {}
     adapter._graph_views = []
     adapter._graph_view_source_yaml = None
-    adapter.minio_creds = None
+    adapter.object_storage = None
     adapter.database_name = "test_db"
     adapter._handle_dataset_nodes = lambda objects: None
     adapter._handle_pounce_workbook_nodes = lambda objects: None

@@ -2,6 +2,7 @@ pytest
 pytest-mock
 pytest-cov
 requests
+rdkit
 biolink-model
 jsonasobj2
 linkml_runtime

@@ -13,27 +13,9 @@ services:
       - dashboard_network
     restart: unless-stopped
 
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    command: server /data --console-address ":9001"
-    env_file:
-      - secrets.env
-    environment:
-      MINIO_BROWSER_REDIRECT_URL: "https://ifxdev.ncats.nih.gov/minio"
-    ports:
-      - "8043:9000"
-      - "8044:9001"
-    volumes:
-      - minio_data:/data
-    networks:
-      - dashboard_network
-    restart: unless-stopped
-
 volumes:
   data:
   apps:
-  minio_data:
 
 networks:
   dashboard_network:

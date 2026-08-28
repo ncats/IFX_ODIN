@@ -1,3 +1,31 @@
+{% macro render_pipeline_tree_nodes(nodes) -%}
+<ul>
+    {% for node in nodes %}
+    <li>
+        <div class="metabolite-id-pipeline-tree-node" title="{{ node.stage_key }}" data-pipeline-stage-card="{{ node.stage_key }}">
+            <small>{% if node.stage_index == 0 %}Baseline{% else %}Stage {{ node.stage_index }}{% endif %}</small>
+            <strong><a href="{{ root_path }}/ramp-id-qa/stages/{{ node.stage_key }}" target="_blank" rel="noopener noreferrer">{{ node.label }}</a></strong>
+            {% if node.stats %}
+            <dl class="metabolite-id-pipeline-tree-stats" aria-label="Stage snapshot statistics">
+                <div title="Metabolites in this stage snapshot"><dt>Metabolites</dt><dd>{{ "{:,}".format(node.stats.clique_count|default(0, true)) }}</dd></div>
+                <div class="{% if node.stats.mw_warning_count %}has-alerts{% endif %}" title="Molecular-weight validation alerts"><dt>MW</dt><dd>{% if node.stats.mw_validation_computed %}{{ "{:,}".format(node.stats.mw_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
+                <div class="{% if node.stats.denylist_rule_enabled and node.stats.denylist_warning_count %}has-alerts{% endif %}" title="{% if node.stats.denylist_rule_enabled %}Denylist validation alerts{% else %}Denylist rule not applied at this stage{% endif %}"><dt>Deny</dt><dd>{% if node.stats.denylist_rule_enabled and node.stats.denylist_validation_computed %}{{ "{:,}".format(node.stats.denylist_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
+                <div title="Expected-clique assertion results"><dt>Assertions</dt><dd class="metabolite-id-pipeline-tree-assertions{% if node.stats.assertion_count|default(0, true) %} {{ 'is-fail' if node.stats.assertion_failure_count else 'is-pass' }}{% endif %}">{% if not node.stats.assertion_count|default(0, true) %}None{% elif node.stats.assertion_failure_count %}{{ "{:,}".format(node.stats.assertion_failure_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} fail{% else %}{{ "{:,}".format(node.stats.assertion_pass_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} pass{% endif %}</dd></div>
+            </dl>
+            {% endif %}
+            <button type="button" class="metabolite-id-pipeline-tree-select" data-pipeline-stage-select="{{ node.stage_key }}" data-stage-label="{{ node.label }}" aria-pressed="false">Select stage</button>
+            {% for terminal in node.terminals %}
+            <a class="metabolite-id-pipeline-tree-endpoint" href="{{ root_path }}/ramp-id-qa/pipelines/{{ terminal.pipeline_key }}" target="_blank" rel="noopener noreferrer" title="{{ terminal.pipeline_key }}{% if terminal.run_key %} · {{ terminal.run_key }}{% endif %}">
+                {{ terminal.pipeline_name }}
+            </a>
+            {% endfor %}
+        </div>
+        {% if node.children %}{{ render_pipeline_tree_nodes(node.children) }}{% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{%- endmacro %}
+
 <section class="ramp-id-table-section" id="metaboliteIdSavedSnapshots"
          {% if pipeline_table_oob %}hx-swap-oob="true"{% endif %}
          {% if overview.active_job_count %}hx-get="{{ root_path }}/ramp-id-qa/harmonization-jobs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
@@ -5,34 +33,11 @@
         <h2>Harmonization Pipelines</h2>
         <p>{{ overview.pipelines|length }} recent pipeline{{ "" if overview.pipelines|length == 1 else "s" }}{% if overview.active_job_count %} · {{ overview.active_job_count }} active job{{ "" if overview.active_job_count == 1 else "s" }}{% endif %}</p>
     </div>
-    {% if overview.active_jobs %}
-    <div class="metabolite-id-active-jobs" aria-live="polite">
-        {% for job in overview.active_jobs %}
-        <div class="metabolite-id-active-job metabolite-id-active-job-{{ job.action }}">
-            <span class="qa-loading-spinner" aria-hidden="true"></span>
-            <div>
-                <strong>
-                    {% if job.action == "delete_pipeline" %}
-                    Deleting pipeline
-                    {% elif job.action == "run_pipeline" %}
-                    Running pipeline
-                    {% else %}
-                    Harmonization job
-                    {% endif %}
-                </strong>
-                <span>{{ job.label }}</span>
-                {% if job.started_at %}<small>Started {{ job.started_at }}</small>{% else %}<small>Queued</small>{% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
     <div class="table-wrap">
         <table>
             <thead>
             <tr>
                 <th>Name</th>
-                <th>Steps</th>
                 <th>Latest Run</th>
                 <th>Action</th>
             </tr>
@@ -47,7 +52,7 @@
             <tr>
                 <td>
                     <div class="metabolite-id-pipeline-name-row">
-                        <strong>{{ pipeline.name }}</strong>
+                        <strong><a class="metabolite-id-pipeline-page-link" href="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}" target="_blank" rel="noopener noreferrer">{{ pipeline.name }}</a></strong>
                         <details class="metabolite-id-pipeline-rename">
                             <summary class="btn btn-secondary btn-sm">Rename</summary>
                             <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/rename">
@@ -62,19 +67,21 @@
                         ⚠ Code version mismatch — stages should be recomputed
                     </div>
                     {% endif %}
-                </td>
-                <td>
-                    {% if pipeline.rules %}
-                    {% for rule in pipeline.rules %}
-                    <div>{{ loop.index }}. {{ rule.label }}</div>
-                    {% endfor %}
-                    {% else %}
-                    <span>Baseline only</span>
+                    {% if pipeline.needs_curation_sync %}
+                    <div class="metabolite-id-curation-sync-warning">
+                        {% if pipeline.edge_curations_changed and pipeline.assertion_curations_changed %}
+                        Curations and assertions have changed: Sync to rebuild
+                        {% elif pipeline.assertion_curations_changed %}
+                        Assertions have changed: Sync to rebuild
+                        {% else %}
+                        Curations have changed: Sync to rebuild
+                        {% endif %}
+                    </div>
                     {% endif %}
                 </td>
                 <td>
                     {% if latest_run %}
-                    <strong>{{ latest_run.status }}</strong>
+                    <strong>{{ "Cleaning up old snapshots" if latest_run.status == "cleaning_up" else latest_run.status }}</strong>
                     <div>{{ latest_run.created_at }}</div>
                     {% if latest_run.elapsed_seconds %}<div>{{ latest_run.elapsed_seconds }}s</div>{% endif %}
                     {% else %}
@@ -88,6 +95,10 @@
                             <span>
                                 <strong>{{ job.status }}</strong>
                                 {{ job.label }}
+                                {% if job.active_stage_text %}
+                                <span>{% if job.active_stage_text == "Cleaning up old snapshots" %}{{ job.active_stage_text }}{% else %}Working on {{ job.active_stage_text }}{% endif %}</span>
+                                {% endif %}
+                                {% if job.started_at and job.status in ["queued", "running"] %}<span>Started {{ job.started_at }}</span>{% endif %}
                                 {% if job.message %}<span>{{ job.message }}</span>{% endif %}
                                 {% if job.error %}<span>{{ job.error }}</span>{% endif %}
                             </span>
@@ -102,11 +113,11 @@
                         <button type="button" class="btn btn-secondary" disabled>Deleting...</button>
                         {% elif run_active %}
                         <button type="button" class="btn btn-primary" disabled>Running...</button>
-                        {% elif latest_run and latest_run.status == "complete" %}
-                        <span class="metabolite-id-pipeline-run-status">Run complete</span>
+                        {% elif not pipeline.run_action_enabled %}
+                        <button type="button" class="btn btn-secondary" disabled>{{ pipeline.run_button_label }}</button>
                         {% else %}
                         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/run">
-                            <button type="submit" class="btn btn-primary">Run</button>
+                            <button type="submit" class="btn btn-primary">{{ pipeline.run_button_label }}</button>
                         </form>
                         {% endif %}
                         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/delete" onsubmit="return window.confirm('Delete this pipeline and any stages no other pipeline uses?');">
@@ -116,9 +127,34 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="4">No pipelines saved yet.</td></tr>
+            <tr><td colspan="3">No pipelines saved yet.</td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
+    {% if overview.pipeline_tree and overview.pipeline_tree.roots %}
+    <div class="metabolite-id-pipeline-tree-panel" data-pipeline-stage-comparison data-comparison-url="{{ root_path }}/ramp-id-qa/stage-comparison">
+        <div class="metabolite-id-pipeline-tree-header">
+            <div>
+                <strong>Pipeline topology</strong>
+                <span>Latest run for {{ overview.pipeline_tree.represented_pipeline_count }} pipeline{{ "" if overview.pipeline_tree.represented_pipeline_count == 1 else "s" }}{% if overview.pipeline_tree.not_run_count %} · {{ overview.pipeline_tree.not_run_count }} not run yet{% endif %}</span>
+            </div>
+            <div class="metabolite-id-pipeline-tree-legend" aria-label="Diagram legend">
+                <span><i class="is-from"></i>From stage</span>
+                <span><i class="is-to"></i>To stage</span>
+                <span><i class="is-endpoint"></i>Pipeline endpoint</span>
+            </div>
+        </div>
+        <div class="metabolite-id-pipeline-tree-compare-bar">
+            <span data-pipeline-stage-comparison-status>Select any two stages in the topology to compare them.</span>
+            <div>
+                <button type="button" class="btn btn-secondary btn-sm" data-pipeline-stage-comparison-clear hidden>Clear</button>
+                <a class="btn btn-primary btn-sm is-disabled" data-pipeline-stage-comparison-open target="_blank" rel="noopener noreferrer" aria-disabled="true">Compare selected stages</a>
+            </div>
+        </div>
+        <div class="metabolite-id-pipeline-tree" role="tree" aria-label="Harmonization pipeline topology">
+            {{ render_pipeline_tree_nodes(overview.pipeline_tree.roots) }}
+        </div>
+    </div>
+    {% endif %}
 </section>

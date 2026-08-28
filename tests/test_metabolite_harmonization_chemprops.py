@@ -2,6 +2,7 @@ from pathlib import Path
 import gzip
 import json
 import zipfile
+import rdkit
 
 from src.input_adapters.metabolite_harmonization.chemprops import (
     ChebiMetaboliteChemPropsAdapter,
@@ -67,6 +68,12 @@ def test_hmdb_chemprops_adapter_emits_chemprops(tmp_path: Path):
     assert node.chem_props[0].source_id == "HMDB:HMDB0000001"
     assert node.chem_props[0].iso_smiles == "C[NH+]1C=NC=C1CC(N)C(=O)O"
     assert node.chem_props[0].inchi_key_prefix == "BRMWTNUJHUMWMS"
+    assert node.chem_props[0].derived_inchi_key == "JDHILDINMRGULE-UHFFFAOYSA-O"
+    assert node.chem_props[0].derived_inchi_key_prefix == "JDHILDINMRGULE"
+    assert node.chem_props[0].derived_inchi_key_input_field == "iso_smiles"
+    assert node.chem_props[0].derived_inchi_key_method == "rdkit.Chem.inchi.MolToInchiKey"
+    assert node.chem_props[0].derived_inchi_key_method_version == rdkit.__version__
+    assert node.chem_props[0].derived_inchi_key_error is None
     assert node.chem_props[0].monoisotopic_mass == "169.085126611"
     assert node.chem_props[0].common_name == "1-Methylhistidine"
     assert node.chem_props[0].molecular_formula == "C7H11N3O2"
@@ -79,12 +86,12 @@ def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
         {
             "ChEBI ID": "CHEBI:27596",
             "SMILES": "Cn1cncc1C[C@H](N)C(=O)O",
-            "InChIKey": "BRMWTNUJHUMWMS-LURJTMIESA-N",
-            "InChI": "InChI=1S/C7H11N3O2",
+            "INCHIKEY": "BRMWTNUJHUMWMS-LURJTMIESA-N",
+            "INCHI": "InChI=1S/C7H11N3O2",
             "MASS": "169.184",
-            "Monoisotopic Mass": "169.085126611",
-            "ChEBI Name": "1-methyl-L-histidine",
-            "Formulae": "C7H11N3O2",
+            "MONOISOTOPIC_MASS": "169.085126611",
+            "ChEBI NAME": "1-methyl-L-histidine",
+            "FORMULA": "C7H11N3O2",
         },
     )
     with gzip.open(gz_path, "wt", encoding="utf-8") as handle:
@@ -95,8 +102,12 @@ def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
     assert node.id == "CHEBI:27596"
     assert node.chem_props[0].source == "ChEBI"
     assert node.chem_props[0].mw == "169.184"
+    assert node.chem_props[0].monoisotopic_mass == "169.085126611"
     assert node.chem_props[0].common_name == "1-methyl-L-histidine"
     assert node.chem_props[0].inchi_key == "BRMWTNUJHUMWMS-LURJTMIESA-N"
+    assert node.chem_props[0].inchi == "InChI=1S/C7H11N3O2"
+    assert node.chem_props[0].molecular_formula == "C7H11N3O2"
+    assert node.chem_props[0].derived_inchi_key == "JDHILDINMRGULE-LURJTMIESA-N"
 
 
 def test_lipidmaps_chemprops_adapter_emits_chemprops(tmp_path: Path):
@@ -124,6 +135,7 @@ def test_lipidmaps_chemprops_adapter_emits_chemprops(tmp_path: Path):
     assert node.chem_props[0].mw == "102.09"
     assert node.chem_props[0].monoisotopic_mass == "102.031695"
     assert node.chem_props[0].common_name == "3-methyl pyruvic acid"
+    assert node.chem_props[0].derived_inchi_key == "TYEYBOSBBBHJIV-UHFFFAOYSA-N"
 
 
 def test_pubchem_chemprops_adapter_emits_chemprops(tmp_path: Path):
@@ -144,6 +156,8 @@ def test_pubchem_chemprops_adapter_emits_chemprops(tmp_path: Path):
     assert node.chem_props[0].isomeric_smiles == "CN1C=NC=C1C[C@H](N)C(=O)O"
     assert node.chem_props[0].mw == "169.18"
     assert node.chem_props[0].iupac_name == "2-amino-3-(1-methylimidazol-4-yl)propanoic acid"
+    assert node.chem_props[0].derived_inchi_key == "JDHILDINMRGULE-LURJTMIESA-N"
+    assert node.chem_props[0].derived_inchi_key_input_field == "iso_smiles"
 
 
 def test_chemprops_are_json_serializable_after_output_conversion(tmp_path: Path):
@@ -174,6 +188,12 @@ def test_chemprops_are_json_serializable_after_output_conversion(tmp_path: Path)
             "isomeric_smiles": "isomeric",
             "inchi_key_prefix": "BRMWTNUJHUMWMS",
             "inchi_key": "BRMWTNUJHUMWMS-LURJTMIESA-N",
+            "derived_inchi_key_prefix": None,
+            "derived_inchi_key": None,
+            "derived_inchi_key_input_field": "iso_smiles",
+            "derived_inchi_key_method": "rdkit.Chem.inchi.MolToInchiKey",
+            "derived_inchi_key_method_version": rdkit.__version__,
+            "derived_inchi_key_error": "smiles_parse_failed",
             "inchi": "InChI=1S/C7H11N3O2",
             "mw": "169.18",
             "monoisotopic_mass": "169.085126602",
@@ -196,3 +216,23 @@ def test_chemprops_adapters_honor_max_records(tmp_path: Path):
     records = _records(PubchemMetaboliteChemPropsAdapter(molecular_info_file=str(tsv_path), max_records=1))
 
     assert [record.id for record in records] == ["PUBCHEM.COMPOUND:1"]
+
+
+def test_chemprops_without_smiles_do_not_record_a_derivation_attempt(tmp_path: Path):
+    gz_path = tmp_path / "chebi_3_stars.sdf.gz"
+    sdf = _sdf_record(
+        "CHEBI:1",
+        {
+            "ChEBI ID": "CHEBI:1",
+            "InChIKey": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+        },
+    )
+    with gzip.open(gz_path, "wt", encoding="utf-8") as handle:
+        handle.write(sdf)
+
+    node = _records(ChebiMetaboliteChemPropsAdapter(chebi_sdf_file=str(gz_path)))[0]
+
+    assert node.chem_props[0].inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert node.chem_props[0].derived_inchi_key is None
+    assert node.chem_props[0].derived_inchi_key_input_field is None
+    assert node.chem_props[0].derived_inchi_key_error is None

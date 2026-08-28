@@ -104,6 +104,7 @@
         var loaded = false;
 
         function openFeedbackDrawer() {
+            if (window.closeMetaboliteCurationCart) window.closeMetaboliteCurationCart();
             wrap.classList.add('open');
             var path = window.location.pathname + ' — ' + document.title;
             document.getElementById('fb-page-input').value = path;

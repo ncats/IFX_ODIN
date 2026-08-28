@@ -12,6 +12,7 @@ from src.models.metabolite_harmonization import MetaboliteIdentifier, Metabolite
 
 HMDB_STRUCTURES_SDF_MEMBER = "structures.sdf"
 LIPIDMAPS_SDF_MEMBER = "structures.sdf"
+DERIVED_INCHI_KEY_METHOD = "rdkit.Chem.inchi.MolToInchiKey"
 
 
 class _ChemPropsAdapter(InputAdapter):
@@ -64,7 +65,7 @@ class HmdbMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                     yield MetaboliteIdentifier(
                         id=source_id,
                         chem_props=[
-                            MetaboliteChemProps(
+                            _metabolite_chem_props(
                                 source="HMDB",
                                 source_id=source_id,
                                 iso_smiles=_clean_text(record.get("SMILES")),
@@ -113,21 +114,25 @@ class ChebiMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                 source_id = _prefixed_id("CHEBI", record.get("ChEBI ID"))
                 if source_id is None:
                     continue
-                inchi_key = _clean_text(record.get("InChIKey"))
+                inchi_key = _record_text(record, "INCHIKEY", "InChIKey")
                 yield MetaboliteIdentifier(
                     id=source_id,
                     chem_props=[
-                        MetaboliteChemProps(
+                        _metabolite_chem_props(
                             source="ChEBI",
                             source_id=source_id,
                             iso_smiles=_clean_text(record.get("SMILES")),
                             inchi_key_prefix=_inchi_key_prefix(inchi_key),
                             inchi_key=inchi_key,
-                            inchi=_clean_text(record.get("InChI")),
+                            inchi=_record_text(record, "INCHI", "InChI"),
                             mw=_clean_text(record.get("MASS")),
-                            monoisotopic_mass=_clean_text(record.get("Monoisotopic Mass")),
-                            common_name=_clean_text(record.get("ChEBI Name")),
-                            molecular_formula=_clean_text(record.get("Formulae")),
+                            monoisotopic_mass=_record_text(
+                                record,
+                                "MONOISOTOPIC_MASS",
+                                "Monoisotopic Mass",
+                            ),
+                            common_name=_record_text(record, "ChEBI NAME", "ChEBI Name"),
+                            molecular_formula=_record_text(record, "FORMULA", "Formulae"),
                         )
                     ],
                 )
@@ -171,7 +176,7 @@ class LipidMapsMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                     yield MetaboliteIdentifier(
                         id=source_id,
                         chem_props=[
-                            MetaboliteChemProps(
+                            _metabolite_chem_props(
                                 source="LipidMaps",
                                 source_id=source_id,
                                 iso_smiles=_clean_text(record.get("SMILES")),
@@ -230,7 +235,7 @@ class PubchemMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                 yield MetaboliteIdentifier(
                     id=source_id,
                     chem_props=[
-                        MetaboliteChemProps(
+                        _metabolite_chem_props(
                             source="PubChem",
                             source_id=source_id,
                             iso_smiles=isomeric_smiles,
@@ -297,6 +302,10 @@ def _clean_text(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
+def _record_text(record: Dict[str, str], *field_names: str) -> Optional[str]:
+    return _first_clean(*(record.get(field_name) for field_name in field_names))
+
+
 def _first_clean(*values: Optional[str]) -> Optional[str]:
     for value in values:
         value = _clean_text(value)
@@ -323,3 +332,82 @@ def _inchi_key_prefix(inchi_key: Optional[str]) -> Optional[str]:
     if not inchi_key:
         return None
     return inchi_key.split("-", 1)[0]
+
+
+def _metabolite_chem_props(**values) -> MetaboliteChemProps:
+    derived_values = _derive_inchi_key_from_smiles(
+        iso_smiles=values.get("iso_smiles"),
+        isomeric_smiles=values.get("isomeric_smiles"),
+        canonical_smiles=values.get("canonical_smiles"),
+    )
+    return MetaboliteChemProps(**values, **derived_values)
+
+
+def _derive_inchi_key_from_smiles(
+    iso_smiles: Optional[str] = None,
+    isomeric_smiles: Optional[str] = None,
+    canonical_smiles: Optional[str] = None,
+) -> dict:
+    candidates = (
+        ("iso_smiles", _clean_text(iso_smiles)),
+        ("isomeric_smiles", _clean_text(isomeric_smiles)),
+        ("canonical_smiles", _clean_text(canonical_smiles)),
+    )
+    input_field, smiles = next(
+        ((field_name, value) for field_name, value in candidates if value),
+        (None, None),
+    )
+    if smiles is None:
+        return {}
+
+    try:
+        import rdkit
+        from rdkit import Chem, rdBase
+        from rdkit.Chem import inchi
+    except ImportError as exc:
+        raise RuntimeError(
+            "RDKit is required to derive InChIKeys from metabolite SMILES during ingest"
+        ) from exc
+
+    try:
+        with rdBase.BlockLogs():
+            molecule = Chem.MolFromSmiles(smiles)
+    except Exception as exc:
+        return {
+            "derived_inchi_key_input_field": input_field,
+            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
+            "derived_inchi_key_method_version": rdkit.__version__,
+            "derived_inchi_key_error": f"smiles_parse_error:{type(exc).__name__}",
+        }
+    if molecule is None:
+        return {
+            "derived_inchi_key_input_field": input_field,
+            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
+            "derived_inchi_key_method_version": rdkit.__version__,
+            "derived_inchi_key_error": "smiles_parse_failed",
+        }
+
+    try:
+        with rdBase.BlockLogs():
+            derived_inchi_key = _clean_text(inchi.MolToInchiKey(molecule))
+    except Exception as exc:
+        return {
+            "derived_inchi_key_input_field": input_field,
+            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
+            "derived_inchi_key_method_version": rdkit.__version__,
+            "derived_inchi_key_error": f"inchi_key_generation_error:{type(exc).__name__}",
+        }
+    if derived_inchi_key is None:
+        return {
+            "derived_inchi_key_input_field": input_field,
+            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
+            "derived_inchi_key_method_version": rdkit.__version__,
+            "derived_inchi_key_error": "inchi_key_generation_failed",
+        }
+    return {
+        "derived_inchi_key_prefix": _inchi_key_prefix(derived_inchi_key),
+        "derived_inchi_key": derived_inchi_key,
+        "derived_inchi_key_input_field": input_field,
+        "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
+        "derived_inchi_key_method_version": rdkit.__version__,
+    }

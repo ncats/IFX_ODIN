@@ -31,6 +31,11 @@ def main() -> None:
         help="Path to ArangoDB credentials YAML file",
     )
     parser.add_argument(
+        "--registry-credentials", "-s",
+        default="./src/use_cases/secrets/aws_ifx_registry.yaml",
+        help="Path to registry object-storage credentials YAML file",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Recompute denylist validation even for stages that already have it stored",
@@ -49,6 +54,12 @@ def main() -> None:
         print(f"Loaded ArangoDB credentials from {cred_path}")
     else:
         print(f"Warning: {cred_path} not found, using defaults")
+
+    registry_cred_path = Path(args.registry_credentials)
+    if not registry_cred_path.exists():
+        raise FileNotFoundError(registry_cred_path)
+    with registry_cred_path.open() as handle:
+        qa_app._registry_storage_credentials = yaml.safe_load(handle)
 
     db = qa_app.get_db("metabolite_harmonization")
     stage_collection = db.collection(qa_app._HARMONIZATION_STAGE_COLLECTION)
@@ -69,7 +80,11 @@ def main() -> None:
 
         rule_ids = stage.get("rule_ids") or []
         rule_enabled = "ignore_ramp_mapping_denylist" in rule_ids
-        denylist_pairs = qa_app._load_ramp_mapping_denylist_pairs() if rule_enabled else set()
+        denylist_pairs = (
+            qa_app._load_metabolite_edge_removal_curations()["pairs"]
+            if rule_enabled
+            else set()
+        )
 
         member_sets = qa_app._load_stage_harmonized_member_sets(stage_key)
         groups = [row["member_ids"] for row in member_sets]

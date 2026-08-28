@@ -147,8 +147,10 @@ weight missing for the relevant LIPID MAPS and PubChem chemical-property rows;
 only monoisotopic mass is populated. Its implementation consequently used the
 stereochemistry-sensitive InChIKey duplex and kept the groups separate.
 
-The main remaining decision is not about graph-only bridges. It is whether the
-greater-than-500 InChIKey-prefix policy should use the graph's current chemical
-properties, or reproduce the behavior produced by missing molecular weights in
-the legacy build. If the policy itself is still desired, many graph merges are
-expected improvements over SQLite rather than errors.
+The molecular-weight-cutoff policy uses the graph's current chemical
+properties. It does not reproduce behavior caused by molecular weights that
+were missing from the legacy build. The rule uses the InChIKey duplex below the
+configured cutoff and the InChIKey prefix at or above it; with the default
+cutoff, a molecular weight of 500 or greater selects the prefix strategy.
+Consequently, many of these graph merges are expected improvements over SQLite
+rather than errors.

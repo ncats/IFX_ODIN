@@ -1,13 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 1800 860" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1075" height="430" viewBox="0 0 2150 860" role="img" aria-labelledby="title desc">
   <title id="title">Metabolite harmonization pipeline</title>
-  <desc id="desc">Source-native identifiers and assertions enter an evidence layer, rules form inspectable cliques, and an export stage extracts those results into the legacy-compatible RaMP SQLite format while retaining identifier lineage.</desc>
+  <desc id="desc">Source-native identifiers and assertions enter an evidence layer, rules form inspectable cliques, and each snapshot is checked for molecular-weight warnings, denylist warnings, and expected-clique assertions. Failed checks lead to curation and re-harmonization; passing snapshots can be exported to the legacy-compatible RaMP SQLite format while retaining identifier lineage.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+    <marker id="green-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#16a34a"/></marker>
+    <marker id="red-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#dc2626"/></marker>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.14"/></filter>
   </defs>
-  <rect width="1800" height="860" fill="#f8fafc"/>
+  <rect width="2150" height="860" fill="#f8fafc"/>
   <text x="90" y="78" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">Evidence first; identity decisions second</text>
-  <text x="90" y="121" font-family="Inter, Arial, sans-serif" font-size="22" fill="#475569">Each stage has a different responsibility and a different durability contract.</text>
+  <text x="90" y="121" font-family="Inter, Arial, sans-serif" font-size="22" fill="#475569">Each stage has a distinct role; some layers are durable, while others can be rebuilt as policy changes.</text>
 
   <text x="100" y="192" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">SOURCES</text>
   <rect x="80" y="220" width="270" height="460" rx="26" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
@@ -46,21 +48,38 @@
   </g>
   <text x="1170" y="635" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#64748b">ordered · parameterized · reproducible</text>
 
-  <line x1="1335" y1="450" x2="1433" y2="450" stroke="#64748b" stroke-width="5" marker-end="url(#arrow)"/>
-  <text x="1385" y="420" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">extract</text>
+  <line x1="1335" y1="450" x2="1393" y2="450" stroke="#64748b" stroke-width="5" marker-end="url(#arrow)"/>
+  <text x="1365" y="420" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">validate</text>
 
-  <text x="1468" y="192" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">RAMP SQLITE EXTRACT</text>
-  <rect x="1440" y="220" width="280" height="460" rx="26" fill="#ffffff" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
-  <circle cx="1580" cy="355" r="92" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/>
-  <text x="1580" y="340" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#166534">Harmonized clique</text>
-  <text x="1580" y="374" text-anchor="middle" font-family="ui-monospace, monospace" font-size="19" fill="#15803d">RAMP_C…</text>
-  <rect x="1460" y="481" width="240" height="122" rx="14" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
-  <text x="1580" y="516" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#166534">RaMP SQLite extract</text>
-  <text x="1580" y="546" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#15803d">legacy-compatible tables</text>
-  <text x="1580" y="577" text-anchor="middle" font-family="ui-monospace, monospace" font-size="15" fill="#15803d">rampId + sourceId</text>
-  <text x="1580" y="630" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">Matches the output format</text>
-  <text x="1580" y="653" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">of the old RaMP build pipeline</text>
+  <text x="1425" y="192" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">QUALITY CHECKS</text>
+  <rect x="1400" y="220" width="300" height="460" rx="26" fill="#ffffff" stroke="#14b8a6" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1550" y="273" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#115e59">Check every snapshot</text>
+  <g font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">
+    <rect x="1432" y="322" width="236" height="68" rx="14" fill="#ecfeff"/><text x="1550" y="363" text-anchor="middle" fill="#115e59">MW validation</text>
+    <rect x="1432" y="414" width="236" height="68" rx="14" fill="#ecfeff"/><text x="1550" y="455" text-anchor="middle" fill="#115e59">Denylist validation</text>
+    <rect x="1432" y="506" width="236" height="68" rx="14" fill="#ecfeff"/><text x="1550" y="547" text-anchor="middle" fill="#115e59">Check assertions</text>
+  </g>
+  <text x="1550" y="628" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">evaluate each materialized stage</text>
 
-  <rect x="455" y="735" width="1265" height="72" rx="18" fill="#ecfeff" stroke="#14b8a6" stroke-width="2"/>
-  <text x="1087" y="779" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#115e59">The graph preserves the evidence; the snapshot records the decision; the export carries the lineage.</text>
+  <line x1="1700" y1="450" x2="1783" y2="450" stroke="#16a34a" stroke-width="5" marker-end="url(#green-arrow)"/>
+  <text x="1742" y="420" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#15803d">checks pass</text>
+
+  <text x="1818" y="192" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2" fill="#64748b">RAMP SQLITE EXTRACT</text>
+  <rect x="1790" y="220" width="280" height="460" rx="26" fill="#ffffff" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="1930" cy="355" r="92" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/>
+  <text x="1930" y="340" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#166534">Harmonized clique</text>
+  <text x="1930" y="374" text-anchor="middle" font-family="ui-monospace, monospace" font-size="19" fill="#15803d">RAMP_C…</text>
+  <rect x="1810" y="481" width="240" height="122" rx="14" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+  <text x="1930" y="516" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#166534">RaMP SQLite extract</text>
+  <text x="1930" y="546" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#15803d">legacy-compatible tables</text>
+  <text x="1930" y="577" text-anchor="middle" font-family="ui-monospace, monospace" font-size="15" fill="#15803d">rampId + sourceId</text>
+  <text x="1930" y="630" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">Matches the output format</text>
+  <text x="1930" y="653" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">of the old RaMP build pipeline</text>
+
+  <line x1="1550" y1="680" x2="1550" y2="722" stroke="#dc2626" stroke-width="4" marker-end="url(#red-arrow)"/>
+  <text x="1608" y="707" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#b91c1c">issues found</text>
+  <rect x="1420" y="730" width="260" height="62" rx="18" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
+  <text x="1550" y="768" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="800" fill="#991b1b">CURATE FAILED CHECKS</text>
+  <path d="M 1420 761 C 1300 838, 1150 838, 1240 674" fill="none" stroke="#dc2626" stroke-width="4" stroke-dasharray="9 7" marker-end="url(#red-arrow)"/>
+  <text x="1265" y="830" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#b91c1c">curate + re-harmonize</text>
 </svg>

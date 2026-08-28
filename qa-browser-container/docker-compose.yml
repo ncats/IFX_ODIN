@@ -27,7 +27,7 @@ services:
       - src/use_cases/secrets/galeradev_write.yaml
       - -m
       - src/use_cases/secrets/pharos_credentials.yaml
-      - -s
+      - --storage-credentials
       - src/use_cases/secrets/aws_ifx_registry.yaml
       - --parquet-storage-credentials
       - src/use_cases/secrets/ifxdev_minio.yaml

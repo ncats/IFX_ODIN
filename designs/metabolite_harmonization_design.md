@@ -104,6 +104,30 @@ InChIKey can appear in two ways:
 
 Rules must be explicit about which InChIKey evidence they use.
 
+Chemical-property records preserve source-reported `inchi_key` and
+`inchi_key_prefix` fields unchanged. During chemistry ingest, a standard
+InChIKey is also calculated from the first available SMILES field in this
+order: `iso_smiles`, `isomeric_smiles`, then `canonical_smiles`. The calculated
+value is stored separately as `derived_inchi_key` and
+`derived_inchi_key_prefix`, together with its input field, calculation method,
+toolkit version, and any calculation error. A derived key never overwrites or
+masquerades as a source-reported key.
+
+The current ChEBI three-star SDF uses uppercase property tags including
+`INCHIKEY`, `INCHI`, `MONOISOTOPIC_MASS`, `ChEBI NAME`, and `FORMULA`. Older
+three-star payloads used the mixed-case tags `InChIKey`, `InChI`,
+`Monoisotopic Mass`, `ChEBI Name`, and `Formulae`. The ChEBI chemistry adapter
+accepts both explicit tag sets, preferring the current tags. This compatibility
+is intentional: a case-sensitive legacy parser silently retained only ChEBI
+ID, SMILES, and molecular weight after the upstream tag change, which removed
+reported keys and other chemistry fields without failing the build.
+
+The reported-key harmonization rules continue to consume only `inchi_key` and
+`inchi_key_prefix`. A separate optional derived-key rule can include calculated
+keys in a pipeline. Downstream compatibility exports such as RaMP SQLite should
+continue to export source-reported keys unless the export contract is
+explicitly expanded to include derived chemistry.
+
 Rhea participant names, HTML names, and formula strings are stored as
 reaction-participant edge context. They are not stored as `chem_props`, because
 Rhea does not provide structure-derived SMILES, InChI, or InChIKey values in the
@@ -141,9 +165,10 @@ Current intentional skips:
   `HmdbOntologyTerm` nodes because they duplicate pathway-specific graph
   adapters and can otherwise become misleading `ontology_type` values.
 
-RefMet-only orphan handling is not an ingest concern. If we need a RaMP-like
-rule that ignores RefMet-only results, it should be modeled as an explicit
-harmonization/export rule.
+RefMet-only orphan handling is not an ingest concern. The harmonization
+workbench handles it through the broader secondary-source-only cleanup rule,
+which also covers PubChem-, ChEBI-, and LipidMaps-only results without meaningful
+biological connections.
 
 RaMP's legacy SQLite build applies additional ontology export logic after HMDB
 parsing. In `ramp-backend-ncats`, `hmdbData.py` extracts only specific HMDB
@@ -174,6 +199,19 @@ The workbench can create saved snapshots from rule pipelines such as:
 Rules should be independently configurable, ordered, and inspectable. A saved
 snapshot should record which rules ran, their order, parameters, and summary
 statistics.
+
+### Molecular-Weight Cutoff Policy
+
+The molecular-weight-sensitive InChIKey rule uses chemical properties from the
+current harmonization graph. With the default cutoff of 500, it uses the
+stereochemistry-sensitive InChIKey duplex below the cutoff and the
+connectivity-only InChIKey prefix at or above the cutoff.
+
+This policy intentionally does not reproduce decisions caused by missing
+molecular-weight values in a legacy RaMP SQLite build. When the current graph
+has a supported molecular weight that legacy SQLite lacked, the graph value
+controls the strategy. Resulting merges are expected harmonization outcomes,
+not compatibility defects merely because SQLite kept the identifiers separate.
 
 The WikiPathways prefix rule may also ignore configured BridgeDb source fields.
 If an identifier is introduced only as a WikiPathways xref through ignored
