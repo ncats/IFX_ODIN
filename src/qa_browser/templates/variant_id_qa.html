@@ -25,6 +25,7 @@
         <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="variant-tab-btn" data-tab="download" type="button">Download</button>
         <button class="variant-tab-btn" data-tab="api" type="button">API</button>
+        <button class="variant-tab-btn" data-tab="resolver" type="button">Resolver</button>
     </nav>
 
     <section class="variant-tab-panel" data-panel="dashboard">
@@ -130,7 +131,88 @@
             <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/variant-id-qa/api/graph?ids=rs123</span><div class="api-endpoint-desc">Graph-ready variant, disease/trait, and gene-context neighborhood.</div></div>
         </div>
     </section>
+
+    <section class="variant-tab-panel" data-panel="resolver">
+        <div class="api-resolver-panel" style="margin-bottom:1.5rem;">
+            <div class="api-resolver-head">
+                <h3 style="margin:0;font-size:1.1rem;">Variant Resolver</h3>
+                <span style="font-size:0.78rem;color:var(--text-muted);">
+                    Resolve variant identifiers (rsIDs, ClinVar IDs, HGVS, gene symbols) against the harmonized variant graph, then optionally enrich with live MyVariant.info annotations.
+                </span>
+            </div>
+
+            <textarea id="vrInput" class="api-resolver-input" rows="4"
+                placeholder="rs12345&#10;ClinVarVariation:37617&#10;BRAF&#10;NM_004333.6:c.1799T>A"></textarea>
+
+            <div style="display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap;">
+                <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+                    <label style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Enrich with:</label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="vrEnMyVariant" checked><span>MyVariant.info</span></label>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-left:auto;">
+                    <button id="vrClearBtn" class="btn" type="button">Clear</button>
+                    <button id="vrResolveBtn" class="btn btn-primary" type="button">Resolve</button>
+                </div>
+            </div>
+
+            <details id="myvariantFieldPanel" class="ncats-prop-panel" style="display:none;">
+                <summary style="cursor:pointer;font-size:0.78rem;color:var(--text-muted);font-weight:600;margin-bottom:0.5rem;user-select:none;">
+                    MyVariant.info Fields <span id="vrFieldCount" style="font-weight:400;"></span>
+                </summary>
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                    <button id="vrFieldSelectAll" class="btn btn-sm" type="button">Select All</button>
+                    <button id="vrFieldDefaults" class="btn btn-sm" type="button">Defaults</button>
+                    <button id="vrFieldNone" class="btn btn-sm" type="button">Clear All</button>
+                </div>
+                <div id="vrFieldGrid" class="ncats-prop-grid"></div>
+            </details>
+
+            <div id="vrStatus" class="api-resolver-status" style="min-height:1.2rem;"></div>
+        </div>
+
+        <div id="vrExportRow" style="display:none;margin-bottom:0.75rem;gap:0.5rem;align-items:center;">
+            <select id="vrExportFormat" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+                <option value="tsv">TSV</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+            </select>
+            <button id="vrExportBtn" class="btn btn-sm" type="button">Export Results</button>
+        </div>
+        <div id="vrResults" style="margin-bottom:1rem;"></div>
+    </section>
 </div>
+
+<style>
+.vr-result-card { background:var(--panel-bg,#1e293b); border:1px solid var(--border,#334155); border-radius:8px; padding:1rem; margin-bottom:0.75rem; }
+.vr-result-card h4 { margin:0 0 0.5rem; font-size:0.95rem; }
+.vr-section { margin-top:0.75rem; }
+.vr-section h5 { margin:0 0 0.35rem; font-size:0.82rem; color:var(--text-muted,#94a3b8); text-transform:uppercase; letter-spacing:0.04em; }
+.vr-kv { display:grid; grid-template-columns:minmax(140px,auto) 1fr; gap:0.15rem 0.75rem; font-size:0.82rem; }
+.vr-kv dt { color:var(--text-muted,#94a3b8); }
+.vr-kv dd { margin:0; word-break:break-all; }
+.vr-freq-table { width:100%; font-size:0.8rem; border-collapse:collapse; margin-top:0.25rem; }
+.vr-freq-table th, .vr-freq-table td { padding:0.2rem 0.5rem; text-align:right; border-bottom:1px solid var(--border,#334155); }
+.vr-freq-table th { text-align:left; color:var(--text-muted,#94a3b8); font-weight:600; }
+.vr-score-badge { display:inline-block; padding:0.1rem 0.45rem; border-radius:4px; font-size:0.78rem; font-weight:600; }
+.vr-score-badge.high { background:#dc2626; color:#fff; }
+.vr-score-badge.medium { background:#f59e0b; color:#111; }
+.vr-score-badge.low { background:#22c55e; color:#111; }
+.vr-score-badge.neutral { background:#475569; color:#e2e8f0; }
+.vr-status-badge { display:inline-block; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.72rem; font-weight:600; margin-left:0.5rem; }
+.vr-status-badge.both { background:#22c55e; color:#111; }
+.vr-status-badge.local_only { background:#3b82f6; color:#fff; }
+.vr-status-badge.api_only { background:#a855f7; color:#fff; }
+.vr-status-badge.not_found { background:#64748b; color:#e2e8f0; }
+.resolver-checkbox { display:inline-flex; align-items:center; gap:0.3rem; font-size:0.78rem; color:var(--text); cursor:pointer; user-select:none; }
+.resolver-checkbox input[type="checkbox"] { accent-color:var(--accent,#14b8a6); width:14px; height:14px; }
+.ncats-prop-panel { border:1px solid var(--border,#e2e8f0); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.75rem; background:var(--bg-secondary,#f8fafc); }
+.ncats-prop-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:0.5rem 1.5rem; }
+.ncats-prop-grid .ncats-prop-category { min-width:0; }
+.ncats-prop-grid .ncats-prop-category h4 { margin:0 0 0.25rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#64748b); font-weight:700; }
+.ncats-prop-grid label { display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--text,#1e293b); cursor:pointer; line-height:1.6; }
+.ncats-prop-grid input[type="checkbox"] { accent-color:var(--accent,#14b8a6); width:13px; height:13px; flex-shrink:0; }
+@media (max-width:700px) { .ncats-prop-grid { grid-template-columns:1fr; } }
+</style>
 
 <script>
 const rootPath = "{{ root_path }}";
@@ -275,5 +357,312 @@ document.getElementById("variantDownloadBtn").addEventListener("click", () => {
 setupVariantColumns();
 loadVariantStats().then(() => runVariantSearch(1));
 if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VARIANT RESOLVER TAB
+   ═══════════════════════════════════════════════════════════════════════ */
+(function() {
+    let vrFieldCatalog = [];
+    let vrLastResults = null;
+
+    /* ── Field panel ─────────────────────────────────────────────────── */
+    async function vrLoadFieldCatalog() {
+        try {
+            const resp = await fetch(`${rootPath}/variant-id-qa/api/myvariant-fields`);
+            if (!resp.ok) return;
+            vrFieldCatalog = await resp.json();
+            vrBuildFieldPanel(vrFieldCatalog);
+            document.getElementById("myvariantFieldPanel").style.display = "";
+        } catch (e) { /* field panel stays hidden */ }
+    }
+
+    function vrBuildFieldPanel(catalog) {
+        const cats = {};
+        catalog.forEach(f => { (cats[f.category] = cats[f.category] || []).push(f); });
+        const grid = document.getElementById("vrFieldGrid");
+        grid.innerHTML = Object.entries(cats).map(([cat, fields]) =>
+            `<div class="ncats-prop-category"><h4>${escapeHtml(cat)}</h4>${fields.map(f =>
+                `<label><input type="checkbox" value="${f.key}" ${f.default ? "checked" : ""}> ${escapeHtml(f.label)}</label>`
+            ).join("")}</div>`
+        ).join("");
+        vrUpdateFieldCount();
+    }
+
+    function vrUpdateFieldCount() {
+        const checked = document.querySelectorAll("#vrFieldGrid input:checked").length;
+        const total = document.querySelectorAll("#vrFieldGrid input[type='checkbox']").length;
+        document.getElementById("vrFieldCount").textContent = `(${checked}/${total} selected)`;
+    }
+
+    function vrGetSelectedFields() {
+        return Array.from(document.querySelectorAll("#vrFieldGrid input:checked")).map(el => el.value);
+    }
+
+    function vrFlags() {
+        return {
+            enable_myvariant: document.getElementById("vrEnMyVariant").checked,
+            myvariant_fields: vrGetSelectedFields(),
+        };
+    }
+
+    /* ── Field panel buttons ─────────────────────────────────────────── */
+    document.getElementById("vrFieldSelectAll").addEventListener("click", () => {
+        document.querySelectorAll("#vrFieldGrid input[type='checkbox']").forEach(el => el.checked = true);
+        vrUpdateFieldCount();
+    });
+    document.getElementById("vrFieldDefaults").addEventListener("click", () => {
+        document.querySelectorAll("#vrFieldGrid input[type='checkbox']").forEach(el => {
+            const entry = vrFieldCatalog.find(f => f.key === el.value);
+            el.checked = entry ? entry.default : false;
+        });
+        vrUpdateFieldCount();
+    });
+    document.getElementById("vrFieldNone").addEventListener("click", () => {
+        document.querySelectorAll("#vrFieldGrid input[type='checkbox']").forEach(el => el.checked = false);
+        vrUpdateFieldCount();
+    });
+    document.getElementById("vrFieldGrid").addEventListener("change", vrUpdateFieldCount);
+
+    /* Toggle field panel visibility based on enrichment checkbox */
+    document.getElementById("vrEnMyVariant").addEventListener("change", () => {
+        document.getElementById("myvariantFieldPanel").style.display =
+            document.getElementById("vrEnMyVariant").checked ? "" : "none";
+    });
+
+    /* ── Resolve ─────────────────────────────────────────────────────── */
+    async function vrResolve() {
+        const raw = document.getElementById("vrInput").value.trim();
+        if (!raw) return;
+        const queries = raw.split("\n").map(s => s.trim()).filter(Boolean);
+        if (!queries.length) return;
+
+        const status = document.getElementById("vrStatus");
+        status.textContent = `Resolving ${queries.length} quer${queries.length === 1 ? "y" : "ies"}...`;
+        document.getElementById("vrResults").innerHTML = "";
+        document.getElementById("vrExportRow").style.display = "none";
+
+        const flags = vrFlags();
+        try {
+            const resp = await fetch(`${rootPath}/variant-id-qa/api/resolve`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ queries, ...flags }),
+            });
+            if (!resp.ok) { status.textContent = `Error: ${resp.status}`; return; }
+            const data = await resp.json();
+            if (data.error) { status.textContent = data.error; return; }
+            vrLastResults = data;
+            const s = data.stats || {};
+            status.textContent = `${s.total || 0} queries | ${s.local_resolved || 0} local hits | ${s.myvariant_found || 0} MyVariant hits`;
+            vrRenderResults(data.results || []);
+            document.getElementById("vrExportRow").style.display = "flex";
+        } catch (err) {
+            status.textContent = `Error: ${err.message}`;
+        }
+    }
+
+    /* ── Render results ──────────────────────────────────────────────── */
+    function vrRenderResults(results) {
+        document.getElementById("vrResults").innerHTML = results.map(vrRenderResult).join("");
+        /* Wire up "Open in Graph" buttons */
+        document.querySelectorAll(".vr-open-graph").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.getElementById("variantOpenIds").value = btn.dataset.id;
+                setVariantTab("graph");
+                loadVariantGraph(btn.dataset.id);
+            });
+        });
+    }
+
+    function vrRenderResult(r) {
+        const statusLabel = {both:"Local + API", local_only:"Local only", api_only:"API only", not_found:"Not found", empty:"Empty", error:"Error"};
+        let html = `<div class="vr-result-card">`;
+        html += `<h4>${escapeHtml(r.query)} <span class="vr-status-badge ${r.status}">${statusLabel[r.status] || r.status}</span></h4>`;
+        html += `<span style="font-size:0.75rem;color:var(--text-muted);">Query type: ${escapeHtml(r.query_type)}</span>`;
+
+        /* Local hits */
+        if (r.local_hits && r.local_hits.length) {
+            html += `<div class="vr-section"><h5>Harmonized Graph</h5>`;
+            r.local_hits.forEach(hit => {
+                html += `<dl class="vr-kv">`;
+                const fields = ["variant_id","primary_id","name","gene_symbol","dbsnp_id","clinvar_variation_id","clinical_significance","source_namespaces","equivalence_scope"];
+                fields.forEach(k => {
+                    if (hit[k]) html += `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(hit[k])}</dd>`;
+                });
+                html += `</dl>`;
+                html += `<button class="btn btn-sm vr-open-graph" data-id="${escapeHtml(hit.variant_id)}" style="margin-top:0.3rem;">Open in Graph</button>`;
+            });
+            html += `</div>`;
+        }
+
+        /* MyVariant enrichment */
+        const mv = r.myvariant;
+        if (mv) {
+            /* Gene queries return {hits: [...]} */
+            const hits = mv.hits || [mv];
+            hits.forEach((hit, idx) => {
+                if (hits.length > 1) html += `<div class="vr-section"><h5>MyVariant Hit ${idx + 1}</h5>`;
+
+                /* Identifiers */
+                const idFields = ["dbsnp.rsid","dbsnp.gene.symbol","clinvar.variant_id","clinvar.allele_id","clinvar.rcv.accession","clinvar.hgvs.coding","clinvar.hgvs.genomic"];
+                const idEntries = idFields.filter(k => hit[k]).map(k => [k, hit[k]]);
+                if (idEntries.length) {
+                    html += `<div class="vr-section"><h5>MyVariant Identifiers</h5><dl class="vr-kv">`;
+                    idEntries.forEach(([k,v]) => {
+                        const label = (vrFieldCatalog.find(f => f.key === k) || {}).label || k;
+                        html += `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(v)}</dd>`;
+                    });
+                    html += `</dl></div>`;
+                }
+
+                /* ClinVar Clinical */
+                const clinFields = ["clinvar.rcv.clinical_significance","clinvar.rcv.conditions.name","clinvar.rcv.review_status"];
+                const clinEntries = clinFields.filter(k => hit[k]).map(k => [k, hit[k]]);
+                if (clinEntries.length) {
+                    html += `<div class="vr-section"><h5>ClinVar Clinical</h5><dl class="vr-kv">`;
+                    clinEntries.forEach(([k,v]) => {
+                        const label = (vrFieldCatalog.find(f => f.key === k) || {}).label || k;
+                        html += `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(v)}</dd>`;
+                    });
+                    html += `</dl></div>`;
+                }
+
+                /* Population Frequencies */
+                const freqKeys = ["gnomad_exome.af.af","gnomad_exome.af.af_afr","gnomad_exome.af.af_eas","gnomad_exome.af.af_nfe","gnomad_genome.af.af"];
+                const freqEntries = freqKeys.filter(k => hit[k]).map(k => [k, hit[k]]);
+                if (freqEntries.length) {
+                    html += `<div class="vr-section"><h5>Population Frequencies</h5><table class="vr-freq-table"><tr>`;
+                    freqEntries.forEach(([k]) => {
+                        const label = (vrFieldCatalog.find(f => f.key === k) || {}).label || k;
+                        html += `<th>${escapeHtml(label)}</th>`;
+                    });
+                    html += `</tr><tr>`;
+                    freqEntries.forEach(([,v]) => {
+                        const num = parseFloat(v);
+                        html += `<td>${isNaN(num) ? escapeHtml(v) : num.toExponential(2)}</td>`;
+                    });
+                    html += `</tr></table></div>`;
+                }
+
+                /* Deleteriousness Scores */
+                const scoreKeys = [
+                    {key:"cadd.phred",   hi:20, med:10, dir:"high"},
+                    {key:"dbnsfp.sift.score", hi:0.05, med:0.1, dir:"low"},
+                    {key:"dbnsfp.polyphen2.hdiv.score", hi:0.957, med:0.453, dir:"high"},
+                    {key:"dbnsfp.revel.score", hi:0.5, med:0.25, dir:"high"},
+                    {key:"dbnsfp.metalr.score", hi:0.5, med:0.25, dir:"high"},
+                ];
+                const scoreEntries = scoreKeys.filter(s => hit[s.key]);
+                if (scoreEntries.length) {
+                    html += `<div class="vr-section"><h5>Deleteriousness Scores</h5><dl class="vr-kv">`;
+                    scoreEntries.forEach(s => {
+                        const label = (vrFieldCatalog.find(f => f.key === s.key) || {}).label || s.key;
+                        const v = parseFloat(hit[s.key]);
+                        let badge = "neutral";
+                        if (!isNaN(v)) {
+                            if (s.dir === "high") badge = v >= s.hi ? "high" : (v >= s.med ? "medium" : "low");
+                            else badge = v <= s.hi ? "high" : (v <= s.med ? "medium" : "low");
+                        }
+                        html += `<dt>${escapeHtml(label)}</dt><dd><span class="vr-score-badge ${badge}">${escapeHtml(hit[s.key])}</span></dd>`;
+                    });
+                    html += `</dl></div>`;
+                }
+
+                /* COSMIC */
+                const cosmicKeys = ["cosmic.cosmic_id","cosmic.tumor_site"];
+                const cosmicEntries = cosmicKeys.filter(k => hit[k]).map(k => [k, hit[k]]);
+                if (cosmicEntries.length) {
+                    html += `<div class="vr-section"><h5>COSMIC</h5><dl class="vr-kv">`;
+                    cosmicEntries.forEach(([k,v]) => {
+                        const label = (vrFieldCatalog.find(f => f.key === k) || {}).label || k;
+                        html += `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(v)}</dd>`;
+                    });
+                    html += `</dl></div>`;
+                }
+
+                if (hits.length > 1) html += `</div>`;
+            });
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    /* ── Export ───────────────────────────────────────────────────────── */
+    function vrFlattenResult(r) {
+        const flat = { query: r.query, query_type: r.query_type, status: r.status };
+        /* Local hit fields */
+        if (r.local_hits && r.local_hits.length) {
+            const best = r.local_hits[0];
+            for (const [k,v] of Object.entries(best)) flat[`local_${k}`] = v;
+        }
+        /* MyVariant fields */
+        const mv = r.myvariant;
+        if (mv) {
+            const hit = mv.hits ? mv.hits[0] : mv;
+            if (hit) {
+                for (const [k,v] of Object.entries(hit)) {
+                    if (k.startsWith("_")) continue;
+                    flat[`myvariant_${k.replace(/\./g, "_")}`] = v;
+                }
+            }
+        }
+        return flat;
+    }
+
+    function vrExport() {
+        if (!vrLastResults || !vrLastResults.results) return;
+        const fmt = document.getElementById("vrExportFormat").value;
+        const results = vrLastResults.results;
+
+        if (fmt === "json") {
+            const blob = new Blob([JSON.stringify(vrLastResults, null, 2)], {type: "application/json"});
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "variant_resolver_results.json";
+            a.click();
+            return;
+        }
+
+        const rows = results.map(vrFlattenResult);
+        const allKeys = [...new Set(rows.flatMap(Object.keys))];
+        const sep = fmt === "csv" ? "," : "\t";
+        const esc = v => {
+            const s = String(v == null ? "" : v);
+            return (s.includes(sep) || s.includes('"') || s.includes("\n")) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const lines = [allKeys.map(esc).join(sep)];
+        rows.forEach(row => lines.push(allKeys.map(k => esc(row[k])).join(sep)));
+        const blob = new Blob([lines.join("\n")], {type: fmt === "csv" ? "text/csv" : "text/tab-separated-values"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `variant_resolver_results.${fmt}`;
+        a.click();
+    }
+
+    /* ── Event wiring ────────────────────────────────────────────────── */
+    document.getElementById("vrResolveBtn").addEventListener("click", vrResolve);
+    document.getElementById("vrClearBtn").addEventListener("click", () => {
+        document.getElementById("vrInput").value = "";
+        document.getElementById("vrResults").innerHTML = "";
+        document.getElementById("vrStatus").textContent = "";
+        document.getElementById("vrExportRow").style.display = "none";
+        vrLastResults = null;
+    });
+    document.getElementById("vrExportBtn").addEventListener("click", vrExport);
+
+    /* Load field catalog on first resolver tab activation */
+    let vrFieldsLoaded = false;
+    const observer = new MutationObserver(() => {
+        const panel = document.querySelector('[data-panel="resolver"]');
+        if (panel && panel.classList.contains("active") && !vrFieldsLoaded) {
+            vrFieldsLoaded = true;
+            vrLoadFieldCatalog();
+        }
+    });
+    document.querySelectorAll(".variant-tab-panel").forEach(p => observer.observe(p, {attributes: true, attributeFilter: ["class"]}));
+    /* Also load immediately if resolver is the active tab */
+    if (initialTab === "resolver") { vrFieldsLoaded = true; vrLoadFieldCatalog(); }
+})();
 </script>
 {% endblock %}

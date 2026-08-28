@@ -76,16 +76,41 @@ from src.qa_browser.curation_cart import (
     publish_cart,
     remove_cart_operation,
 )
-from src.qa_browser.metabolite_anomer_rule import (
-    CHEBI_CARBOHYDRATE_ROOT_ID,
-    CHEBI_POLYMER_ROOT_IDS,
-    FREE_ANOMER_ALGORITHM_VERSION,
-    FREE_ANOMER_RULE_ID,
-    evaluate_free_anomer_candidate,
-    free_anomeric_oh_atoms,
-    normalized_free_anomer_structure,
-    summarize_free_anomer_decisions,
-)
+try:
+    from src.qa_browser.metabolite_anomer_rule import (
+        CHEBI_CARBOHYDRATE_ROOT_ID,
+        CHEBI_POLYMER_ROOT_IDS,
+        FREE_ANOMER_ALGORITHM_VERSION,
+        FREE_ANOMER_RULE_ID,
+        evaluate_free_anomer_candidate,
+        free_anomeric_oh_atoms,
+        normalized_free_anomer_structure,
+        summarize_free_anomer_decisions,
+    )
+    _metabolite_free_anomer_available = True
+except ModuleNotFoundError as exc:
+    if exc.name != "rdkit":
+        raise
+    CHEBI_CARBOHYDRATE_ROOT_ID = "CHEBI:16646"
+    CHEBI_POLYMER_ROOT_IDS = ("CHEBI:60027", "CHEBI:18154")
+    FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v1"
+    FREE_ANOMER_RULE_ID = "merge_free_anomeric_forms"
+    _metabolite_free_anomer_available = False
+
+    def _missing_free_anomer_dependency(*_args, **_kwargs):
+        raise RuntimeError("The free-anomer metabolite rule requires RDKit, but RDKit is not installed.")
+
+    free_anomeric_oh_atoms = _missing_free_anomer_dependency
+    normalized_free_anomer_structure = _missing_free_anomer_dependency
+    evaluate_free_anomer_candidate = _missing_free_anomer_dependency
+
+    def summarize_free_anomer_decisions(_decisions):
+        return {
+            "free_anomer_candidate_pair_count": 0,
+            "free_anomer_accepted_pair_count": 0,
+            "free_anomer_rejected_pair_count": 0,
+            "free_anomer_rejection_reason_counts": {"rdkit_unavailable": 1},
+        }
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
 from src.qa_browser.registry_usage import (
     extract_registry_datasets,
@@ -131,7 +156,11 @@ from src.qa_browser.drug_id_graph import (
     load_drug_graph_data,
     search_drugs,
 )
-from src.qa_browser.drug_resolver import resolve_and_enrich
+from src.qa_browser.drug_resolver import get_ncats_property_catalog, resolve_and_enrich
+from src.qa_browser.variant_resolver import (
+    resolve_and_enrich as variant_resolve_and_enrich,
+    get_myvariant_field_catalog,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -8271,6 +8300,47 @@ def variant_id_qa_download_filtered(
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+@app.get("/variant-id-qa/api/myvariant-fields")
+def variant_id_qa_myvariant_fields():
+    """Return the full MyVariant.info field catalog for the frontend selector."""
+    return get_myvariant_field_catalog()
+
+
+@app.post("/variant-id-qa/api/resolve")
+async def variant_id_qa_resolve(body: dict):
+    """Batch resolve + enrich variant queries against local graph and MyVariant.info."""
+    queries = body.get("queries", [])
+    if not queries:
+        return {"error": "No queries provided"}
+    if len(queries) > 50:
+        return {"error": "Maximum 50 queries per request"}
+    data = _load_variant_graph()
+    myvariant_fields = body.get("myvariant_fields")
+    if myvariant_fields is not None and not isinstance(myvariant_fields, list):
+        myvariant_fields = None
+    return variant_resolve_and_enrich(
+        queries=queries,
+        data=data,
+        enable_myvariant=body.get("enable_myvariant", True),
+        myvariant_fields=myvariant_fields,
+        workers=min(int(body.get("workers", 4)), 8),
+    )
+
+
+@app.get("/variant-id-qa/api/resolve-quick")
+async def variant_id_qa_resolve_quick(q: str = ""):
+    """Quick local-only resolution (no MyVariant enrichment, instant response)."""
+    if not q.strip():
+        return {"results": [], "stats": {"total": 0}}
+    queries = [s.strip() for s in q.split("|") if s.strip()][:50]
+    data = _load_variant_graph()
+    return variant_resolve_and_enrich(
+        queries=queries,
+        data=data,
+        enable_myvariant=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Drug Harmonizer Explorer
 # ---------------------------------------------------------------------------
@@ -8316,9 +8386,9 @@ def drug_id_qa_search(
 
 
 @app.get("/drug-id-qa/api/graph")
-def drug_id_qa_graph(ids: str = ""):
+def drug_id_qa_graph(ids: str = "", include_targets: bool = True):
     data = _load_drug_graph()
-    return build_drug_graph_payload(data, ids)
+    return build_drug_graph_payload(data, ids, include_targets=include_targets)
 
 
 def _default_drug_review_file() -> str:
@@ -8491,6 +8561,12 @@ def drug_id_qa_download_filtered(
     )
 
 
+@app.get("/drug-id-qa/api/ncats-properties")
+def drug_id_qa_ncats_properties():
+    """Return the full NCATS property catalog for the frontend selector."""
+    return get_ncats_property_catalog()
+
+
 @app.post("/drug-id-qa/api/resolve")
 async def drug_id_qa_resolve(body: dict):
     """Batch resolve + enrich drug queries against local graph and live APIs."""
@@ -8500,6 +8576,9 @@ async def drug_id_qa_resolve(body: dict):
     if len(queries) > 50:
         return {"error": "Maximum 50 queries per request"}
     data = _load_drug_graph()
+    ncats_props = body.get("ncats_props")  # None → use defaults
+    if ncats_props is not None and not isinstance(ncats_props, list):
+        ncats_props = None
     return resolve_and_enrich(
         data,
         queries=queries,
@@ -8510,6 +8589,7 @@ async def drug_id_qa_resolve(body: dict):
         enable_chebi=body.get("enable_chebi", True),
         workers=min(int(body.get("workers", 4)), 8),
         delay=0.15,
+        ncats_props=ncats_props,
     )
 
 

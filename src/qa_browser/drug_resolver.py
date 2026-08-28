@@ -44,7 +44,79 @@ NCATS_PROPS = [
     "devphase", "molWeight", "molForm",
 ]
 
+# Full catalog of NCATS Resolver properties, organized by category.
+# Each entry: (api_key, display_label, category, default_on)
+NCATS_PROPERTY_CATALOG: list[dict[str, Any]] = [
+    # ── Annotations ──────────────────────────────────────────────────
+    {"key": "cid",                 "label": "PubChem CID",                "category": "Annotations",  "default": True},
+    {"key": "chembl",              "label": "ChEMBL",                     "category": "Annotations",  "default": True},
+    {"key": "chebi",               "label": "ChEBI",                      "category": "Annotations",  "default": True},
+    {"key": "unii",                "label": "FDA UNII Code",              "category": "Annotations",  "default": True},
+    {"key": "cas",                 "label": "CAS Registry Number",        "category": "Annotations",  "default": True},
+    {"key": "pt",                  "label": "Preferred Term (FDA)",       "category": "Annotations",  "default": True},
+    {"key": "names",               "label": "Names (FDA)",                "category": "Annotations",  "default": True},
+    {"key": "devphase",            "label": "Highest Development Phase",  "category": "Annotations",  "default": True},
+    {"key": "description",         "label": "Substance Description",      "category": "Annotations",  "default": True},
+    {"key": "moa",                 "label": "Substance primary MOA",      "category": "Annotations",  "default": False},
+    {"key": "drugbankmoa",         "label": "DrugBank primary MOA",       "category": "Annotations",  "default": False},
+    {"key": "npcmoa",              "label": "NPC primary MOA",            "category": "Annotations",  "default": False},
+    {"key": "ptargets",            "label": "Primary Targets",            "category": "Annotations",  "default": False},
+    {"key": "stitch_target_human", "label": "Target (Human) geneIDs",     "category": "Annotations",  "default": False},
+    {"key": "stitch_target",       "label": "Target geneIDs",             "category": "Annotations",  "default": False},
+    {"key": "predictor",           "label": "NCATS Predictor Models",     "category": "Annotations",  "default": False},
+    {"key": "predictorTarget",     "label": "NCATS Predictor Target",     "category": "Annotations",  "default": False},
+    # ── Calculations ─────────────────────────────────────────────────
+    {"key": "cns",                 "label": "CNS Score",                  "category": "Calculations", "default": True},
+    {"key": "drug",                "label": "Drug-like Violations",       "category": "Calculations", "default": True},
+    {"key": "hbd",                 "label": "Hydrogen Bond Donors",       "category": "Calculations", "default": True},
+    {"key": "hba",                 "label": "Hydrogen Bond Acceptors",    "category": "Calculations", "default": True},
+    {"key": "tpsa",                "label": "TPSA",                       "category": "Calculations", "default": True},
+    {"key": "logp",                "label": "LogP",                       "category": "Calculations", "default": True},
+    {"key": "logd",                "label": "LogD",                       "category": "Calculations", "default": True},
+    {"key": "lead",                "label": "Lead-like Violations",       "category": "Calculations", "default": False},
+    {"key": "mbpka",               "label": "Most Basic pKa",             "category": "Calculations", "default": False},
+    {"key": "fastmap",             "label": "FASTMAP Embedding",          "category": "Calculations", "default": False},
+    # ── Structure ────────────────────────────────────────────────────
+    {"key": "smiles",              "label": "SMILES",                     "category": "Structure",    "default": True},
+    {"key": "molForm",             "label": "Molecular Formula",          "category": "Structure",    "default": True},
+    {"key": "molWeight",           "label": "Molecular Weight",           "category": "Structure",    "default": True},
+    {"key": "inchikey",            "label": "InChIKey",                   "category": "Structure",    "default": False},
+    {"key": "img",                 "label": "Structure Image URL",        "category": "Structure",    "default": False},
+    {"key": "smilesParent",        "label": "SMILES [Parent]",            "category": "Structure",    "default": False},
+    {"key": "molFormParent",       "label": "Molecular Formula [Parent]", "category": "Structure",    "default": False},
+    {"key": "molWeightParent",     "label": "Molecular Weight [Parent]",  "category": "Structure",    "default": False},
+    {"key": "molExactMass",        "label": "Exact Molecular Mass",       "category": "Structure",    "default": False},
+    {"key": "molExactMassParent",  "label": "Exact Molecular Mass [Parent]", "category": "Structure", "default": False},
+    {"key": "lychi",               "label": "Lychi Hash",                 "category": "Structure",    "default": False},
+    {"key": "lychiParent",         "label": "Lychi Hash [Parent]",        "category": "Structure",    "default": False},
+    {"key": "hash",                "label": "Layered Hashes",             "category": "Structure",    "default": False},
+    {"key": "rbc",                 "label": "Rotatable Bonds",            "category": "Structure",    "default": False},
+    {"key": "stereoCount",         "label": "Stereocenter Count",         "category": "Structure",    "default": False},
+    {"key": "stereoParent",        "label": "Stereo [Parent]",            "category": "Structure",    "default": False},
+    {"key": "pains",               "label": "PAINS Filters",              "category": "Structure",    "default": False},
+    {"key": "sp3f",                "label": "SP3 Carbon Fraction",        "category": "Structure",    "default": False},
+    {"key": "sp3sp2f",             "label": "SP3/(SP3+SP2) Carbon Fraction", "category": "Structure", "default": False},
+    {"key": "sssr",                "label": "SSSR Count",                 "category": "Structure",    "default": False},
+    {"key": "tautomers",           "label": "Tautomers",                  "category": "Structure",    "default": False},
+    {"key": "smallestMoietySmiles","label": "Salt SMILES",                "category": "Structure",    "default": False},
+    {"key": "smallestMoietyName",  "label": "Salt Name",                  "category": "Structure",    "default": False},
+    {"key": "smallestMoietyCount", "label": "Salt Count",                 "category": "Structure",    "default": False},
+]
+
+NCATS_DEFAULT_PROPS: list[str] = [p["key"] for p in NCATS_PROPERTY_CATALOG if p["default"]]
+
+# Lookup: key → catalog entry
+_NCATS_CATALOG_BY_KEY: dict[str, dict[str, Any]] = {p["key"]: p for p in NCATS_PROPERTY_CATALOG}
+# All valid keys
+_NCATS_VALID_KEYS: set[str] = {p["key"] for p in NCATS_PROPERTY_CATALOG}
+
+
+def get_ncats_property_catalog() -> list[dict[str, Any]]:
+    """Return the full NCATS property catalog for the frontend."""
+    return NCATS_PROPERTY_CATALOG
+
 CAS_RE = re.compile(r"^\d{2,7}-\d{2}-\d$")
+_INTERNAL_ID_RE = re.compile(r"^IFX[A-Za-z]+:")  # skip internal IDs for external API lookups
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +214,24 @@ def enrich_ncats_resolver(
     session: requests.Session | None = None,
     api_key: str = "5fd5bb2a05eb6195",
     timeout: int = 30,
+    props: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Query the NCATS chemical resolver for a single identifier."""
+    """Query the NCATS chemical resolver for a single identifier.
+
+    *props* selects which NCATS properties to retrieve.  Defaults to
+    ``NCATS_DEFAULT_PROPS`` when ``None``.  The returned dict uses
+    ``ncats_<api_key>`` keys for every requested property that has a
+    value, plus convenience keys ``ncats_resolved_name`` and
+    ``ncats_all_names`` when "names" is in the property list.
+    """
     session = session or _build_session()
+    prop_list = list(props) if props else list(NCATS_DEFAULT_PROPS)
+    # Validate — silently drop unknown keys
+    prop_list = [p for p in prop_list if p in _NCATS_VALID_KEYS]
+    if not prop_list:
+        return None
     try:
-        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(NCATS_PROPS)}/"
+        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(prop_list)}/"
         params = {
             "structure": query,
             "standardize": "CHARGE_NORMALIZE",
@@ -165,7 +250,7 @@ def enrich_ncats_resolver(
         if len(values) < 2:
             return None
         raw: dict[str, str] = {}
-        for i, prop in enumerate(NCATS_PROPS):
+        for i, prop in enumerate(prop_list):
             idx = i + 1
             if idx < len(values):
                 v = values[idx].strip()
@@ -174,29 +259,28 @@ def enrich_ncats_resolver(
                     raw[prop] = v
         if not raw:
             return None
+
+        # Build result dict dynamically from whatever properties were requested
+        result: dict[str, Any] = {}
+        for prop in prop_list:
+            val = raw.get(prop)
+            if val is not None:
+                if prop == "description":
+                    result[f"ncats_{prop}"] = _shorten(val, 300)
+                else:
+                    result[f"ncats_{prop}"] = val
+
+        # Convenience: resolved name / all names from "names" property
         names_raw = raw.get("names", "")
         name_list = [n.strip() for n in names_raw.split("|") if n.strip()]
-        return {
-            "ncats_resolved_name": name_list[0] if name_list else None,
-            "ncats_smiles": raw.get("smiles"),
-            "ncats_formula": raw.get("molForm"),
-            "ncats_mol_weight": raw.get("molWeight"),
-            "ncats_cid": raw.get("cid"),
-            "ncats_unii": raw.get("unii"),
-            "ncats_chembl": raw.get("chembl"),
-            "ncats_chebi": raw.get("chebi"),
-            "ncats_cas": raw.get("cas"),
-            "ncats_tpsa": raw.get("tpsa"),
-            "ncats_logp": raw.get("logp"),
-            "ncats_logd": raw.get("logd"),
-            "ncats_hbd": raw.get("hbd"),
-            "ncats_hba": raw.get("hba"),
-            "ncats_drug_flag": raw.get("drug"),
-            "ncats_cns_flag": raw.get("cns"),
-            "ncats_dev_phase": raw.get("devphase"),
-            "ncats_description": _shorten(raw.get("description"), 300),
-            "ncats_all_names": "|".join(name_list[:15]),
-        }
+        if name_list:
+            result["ncats_resolved_name"] = name_list[0]
+            result["ncats_all_names"] = "|".join(name_list[:15])
+
+        # Provide catalog metadata so the frontend knows labels/categories
+        result["_ncats_props_requested"] = prop_list
+
+        return result or None
     except Exception as exc:
         logger.debug("NCATS resolver failed for %s: %s", query, exc)
         return None
@@ -526,6 +610,7 @@ def _enrich_one(
     enable_chebi: bool,
     delay: float,
     graph_data: "DrugGraphData | None" = None,
+    ncats_props: list[str] | None = None,
 ) -> dict[str, Any]:
     """Enrich a single local-resolved result with live API data."""
     session = _build_session()
@@ -546,10 +631,10 @@ def _enrich_one(
     if enable_ncats:
         seen_lookups: set[str] = set()
         for lookup in [query, unii, chembl_id, name]:
-            if not lookup or lookup in seen_lookups:
+            if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_lookups.add(lookup)
-            ncats = enrich_ncats_resolver(lookup, session=session)
+            ncats = enrich_ncats_resolver(lookup, session=session, props=ncats_props)
             if ncats:
                 enrichment["ncats_resolver"] = ncats
                 # Override IDs with NCATS-resolved values so downstream
@@ -603,7 +688,7 @@ def _enrich_one(
         pharos = None
         seen_pharos: set[str] = set()
         for lookup in [query, name, chembl_id]:
-            if not lookup or lookup in seen_pharos:
+            if not lookup or lookup in seen_pharos or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_pharos.add(lookup)
             pharos = enrich_pharos(lookup, session=session)
@@ -671,6 +756,7 @@ def resolve_and_enrich(
     enable_chebi: bool = True,
     workers: int = 4,
     delay: float = 0.15,
+    ncats_props: list[str] | None = None,
 ) -> dict[str, Any]:
     """Full resolve+enrich for a batch of user queries.
 
@@ -715,6 +801,7 @@ def resolve_and_enrich(
             enable_chebi=enable_chebi,
             delay=delay,
             graph_data=data,
+            ncats_props=ncats_props,
         )
         with stats_lock:
             if result.get("resolved"):

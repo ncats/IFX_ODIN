@@ -150,6 +150,27 @@ def _json_safe_id(prefix: str, value: str) -> str:
     return f"{prefix}:{digest}"
 
 
+def _class_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9_-]+", "-", str(value or "").replace("_", "-").lower()).strip("-")
+
+
+def _pipe_join(values: list[Any]) -> str:
+    seen: list[str] = []
+    for value in values:
+        for part in str(value or "").split("|"):
+            text = part.strip()
+            if text and text not in seen:
+                seen.append(text)
+    return "|".join(seen)
+
+
+def _edge_count(value: Any) -> int:
+    try:
+        return max(1, int(float(str(value or "1"))))
+    except ValueError:
+        return 1
+
+
 def _drug_lookup_aliases(value: str) -> set[str]:
     text = (value or "").strip()
     if not text:
@@ -521,7 +542,7 @@ def _resolve_drug_ids(data: DrugGraphData, raw_ids: str) -> tuple[list[str], lis
     return resolved, not_found
 
 
-def build_drug_graph_payload(data: DrugGraphData, ids: str = "") -> dict[str, Any]:
+def build_drug_graph_payload(data: DrugGraphData, ids: str = "", include_targets: bool = True) -> dict[str, Any]:
     drug_ids, not_found = _resolve_drug_ids(data, ids)
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -531,9 +552,15 @@ def build_drug_graph_payload(data: DrugGraphData, ids: str = "") -> dict[str, An
         if node_id in seen_nodes:
             return
         seen_nodes.add(node_id)
+        classes = {
+            _class_token(category.replace("biolink:", "")),
+            _class_token(payload.get("node_type", "")),
+            _class_token(payload.get("relation_kind", "")),
+            _class_token(payload.get("xref_prefix", "")),
+        }
         nodes.append({
             "data": {"id": node_id, "label": label or node_id, "category": category, **payload},
-            "classes": category.replace("biolink:", "").replace(":", "_").lower(),
+            "classes": " ".join(sorted(c for c in classes if c)),
         })
 
     for drug_id in drug_ids[:25]:
@@ -541,7 +568,11 @@ def build_drug_graph_payload(data: DrugGraphData, ids: str = "") -> dict[str, An
         if not node:
             continue
         add_node(drug_id, node.get("standard_name") or node.get("primary_id") or drug_id, node.get("biolink_category") or "biolink:Drug", {"node_type": "drug", **node})
-        for edge_no, edge in enumerate(data.edges_by_drug.get(drug_id, [])[:220], start=1):
+        raw_edges = data.edges_by_drug.get(drug_id, [])
+        if not include_targets:
+            raw_edges = [edge for edge in raw_edges if edge.get("relation_kind") != "drug_target"]
+        graph_edges = _aggregate_graph_edges(raw_edges)[:220]
+        for edge_no, edge in enumerate(graph_edges, start=1):
             target_id = edge.get("target_id") or edge.get("target_label")
             if not target_id:
                 continue
@@ -562,9 +593,124 @@ def build_drug_graph_payload(data: DrugGraphData, ids: str = "") -> dict[str, An
                     "label": edge.get("relation_kind") or edge.get("predicate") or "related_to",
                     **edge,
                 },
-                "classes": (edge.get("relation_kind") or "association").replace("_", "-"),
+                "classes": " ".join(filter(None, [
+                    _class_token(edge.get("relation_kind", "")),
+                    _class_token(edge.get("evidence_layer", "")),
+                    _class_token(edge.get("predicate", "")),
+                ])),
             })
     return {"elements": {"nodes": nodes, "edges": edges}, "resolved_ids": drug_ids, "not_found": not_found, "node_count": len(nodes), "edge_count": len(edges)}
+
+
+def _aggregate_graph_edges(raw_edges: list[dict[str, str]]) -> list[dict[str, str]]:
+    combine_fields = [
+        "predicate",
+        "target_label",
+        "source_labels",
+        "evidence_layer",
+        "evidence_source",
+        "evidence_id",
+        "supporting_sources",
+        "activity_type",
+        "activity_value",
+        "activity_unit",
+        "mechanism_of_action",
+        "action_type",
+    ]
+    merged: dict[tuple[str, ...], dict[str, str]] = {}
+    detail_rows: dict[tuple[str, ...], dict[tuple[str, ...], dict[str, str]]] = defaultdict(dict)
+    for edge in raw_edges:
+        key = _graph_edge_key(edge)
+        if key not in merged:
+            out = dict(edge)
+            out["edge_record_count"] = str(edge.get("edge_record_count") or "1")
+            if clean_label := str(edge.get("target_label", "") or "").strip():
+                out["target_labels"] = clean_label
+            merged[key] = out
+        else:
+            existing = merged[key]
+            existing["edge_record_count"] = str(_edge_count(existing.get("edge_record_count")) + _edge_count(edge.get("edge_record_count")))
+            for field in combine_fields:
+                existing[field] = _pipe_join([existing.get(field, ""), edge.get(field, "")])
+            existing["target_labels"] = _pipe_join([existing.get("target_labels", ""), edge.get("target_label", "")])
+        for detail in _edge_evidence_details(edge):
+            detail_key = _edge_detail_key(detail)
+            if detail_key in detail_rows[key]:
+                stored = detail_rows[key][detail_key]
+                stored["edge_record_count"] = str(_edge_count(stored.get("edge_record_count")) + _edge_count(detail.get("edge_record_count")))
+            else:
+                detail_rows[key][detail_key] = detail
+    for key, row in merged.items():
+        details = list(detail_rows.get(key, {}).values())
+        if details:
+            row["evidence_details"] = json.dumps(details, separators=(",", ":"))
+    return list(merged.values())
+
+
+def _graph_edge_key(edge: dict[str, str]) -> tuple[str, ...]:
+    kind = str(edge.get("relation_kind", "") or "").strip()
+    if kind in {"drug_target", "rxnorm_product_ingredient"}:
+        return (
+            str(edge.get("source_id", "") or "").strip(),
+            str(edge.get("target_id", "") or "").strip(),
+            kind,
+            str(edge.get("target_category", "") or "").strip(),
+        )
+    return (
+        str(edge.get("source_id", "") or "").strip(),
+        str(edge.get("target_id", "") or "").strip(),
+        kind,
+        str(edge.get("xref_prefix", "") or "").strip(),
+        str(edge.get("target_category", "") or "").strip(),
+    )
+
+
+def _edge_evidence_details(edge: dict[str, str]) -> list[dict[str, str]]:
+    existing = edge.get("evidence_details", "")
+    if existing:
+        try:
+            parsed = json.loads(existing)
+            if isinstance(parsed, list):
+                return [
+                    {str(k): str(v) for k, v in row.items() if v not in ("", None)}
+                    for row in parsed
+                    if isinstance(row, dict)
+                ]
+        except json.JSONDecodeError:
+            pass
+    detail_fields = [
+        "predicate",
+        "target_label",
+        "evidence_layer",
+        "evidence_source",
+        "evidence_id",
+        "activity_type",
+        "activity_value",
+        "activity_unit",
+        "mechanism_of_action",
+        "action_type",
+        "supporting_sources",
+    ]
+    detail = {field: str(edge.get(field, "") or "").strip() for field in detail_fields if str(edge.get(field, "") or "").strip()}
+    detail["edge_record_count"] = str(edge.get("edge_record_count") or "1")
+    return [detail] if detail else []
+
+
+def _edge_detail_key(detail: dict[str, str]) -> tuple[str, ...]:
+    fields = [
+        "predicate",
+        "target_label",
+        "evidence_layer",
+        "evidence_source",
+        "evidence_id",
+        "activity_type",
+        "activity_value",
+        "activity_unit",
+        "mechanism_of_action",
+        "action_type",
+        "supporting_sources",
+    ]
+    return tuple(str(detail.get(field, "") or "").strip() for field in fields)
 
 
 def export_drugs(

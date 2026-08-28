@@ -2,7 +2,7 @@
   "entity": "drugs",
   "name": "Drug Harmonizer Explorer",
   "version": "v0.1.0",
-  "updated_last": "2026-08-27",
+  "updated_last": "2026-08-28",
   "files": {
     "nodes": "drug_nodes.tsv",
     "edges": "drug_edges.tsv",
@@ -17,9 +17,9 @@
   },
   "counts": {
     "nodes": 50000,
-    "edges": 219517,
+    "edges": 211823,
     "full_nodes_available": 412089,
-    "full_edges_available": 476426,
+    "full_edges_available": 468732,
     "qc_registry_rows": 5408,
     "open_review_rows": 5408,
     "resolved_or_acknowledged_review_rows": 0
@@ -42,7 +42,7 @@
     "identity_xref": 84567,
     "literature_evidence": 7562,
     "source_provenance_xref": 4,
-    "drug_target": 52346
+    "drug_target": 44652
   },
   "qc_status_counts": {
     "open": 5408
