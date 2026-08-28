@@ -27,6 +27,7 @@
                 <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
                 <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
+                <div class="metabolite-id-stage-stats-grid-header">Carb Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Assertions</div>
                 <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
                 <div class="metabolite-id-stage-stats-grid-header">Largest</div>
@@ -68,6 +69,13 @@
                     <span title="The 'Ignore RaMP mapping denylist' rule is not enabled for this stage.">Rule not enabled</span>
                     {% else %}
                     {{ "{:,}".format(stage_summary.denylist_warning_count|default(0, true)) }}
+                    {% endif %}
+                </div>
+                <div class="metabolite-id-stage-stats-grid-cell">
+                    {% if stage_summary.carbohydrate_family_validation_computed %}
+                    {{ "{:,}".format(stage_summary.carbohydrate_family_warning_count|default(0, true)) }}
+                    {% else %}
+                    <span title="This stage was materialized before carbohydrate-family validation was stored.">Not computed</span>
                     {% endif %}
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">

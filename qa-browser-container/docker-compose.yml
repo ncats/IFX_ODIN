@@ -29,8 +29,6 @@ services:
       - src/use_cases/secrets/pharos_credentials.yaml
       - --storage-credentials
       - src/use_cases/secrets/aws_ifx_registry.yaml
-      - --parquet-storage-credentials
-      - src/use_cases/secrets/ifxdev_minio.yaml
       - --root-path
       - /odin-qa
       - -P

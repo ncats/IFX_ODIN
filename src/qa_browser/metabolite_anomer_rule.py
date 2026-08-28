@@ -10,7 +10,8 @@ from rdkit.Chem import inchi
 
 
 FREE_ANOMER_RULE_ID = "merge_free_anomeric_forms"
-FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v1"
+FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v2"
+CARBOHYDRATE_FAMILY_ALGORITHM_VERSION = "carbohydrate-family-v1"
 CHEBI_CARBOHYDRATE_ROOT_ID = "CHEBI:16646"
 CHEBI_POLYMER_ROOT_IDS = ("CHEBI:60027", "CHEBI:18154")
 
@@ -38,36 +39,108 @@ def free_anomeric_oh_atoms(mol: Chem.Mol) -> list[int]:
     return matches
 
 
-def normalized_free_anomer_structure(smiles: Optional[str]) -> tuple[Optional[dict], Optional[str]]:
-    """Clear chirality only at one free anomeric OH-bearing carbon."""
+def generated_carbohydrate_structure(smiles: Optional[str]) -> tuple[Optional[dict], Optional[str]]:
+    """Generate comparable carbohydrate keys directly from one source SMILES."""
     if not smiles:
         return None, "missing_smiles"
-    # Invalid source SMILES are a normal review outcome; keep RDKit from flooding
-    # the QA Browser logs while we convert that failure into an explicit reason.
     with rdBase.BlockLogs():
         mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None, "unparseable_smiles"
     if any(atom.GetAtomicNum() == 0 for atom in mol.GetAtoms()):
         return None, "wildcard_structure"
-    atom_indexes = free_anomeric_oh_atoms(mol)
-    if len(atom_indexes) != 1:
-        return None, "free_anomeric_center_count_not_one"
 
     original_key = inchi.MolToInchiKey(mol)
-    normalized = Chem.Mol(mol)
-    normalized.GetAtomWithIdx(atom_indexes[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
-    Chem.AssignStereochemistry(normalized, cleanIt=True, force=True)
-    normalized_key = inchi.MolToInchiKey(normalized)
-    if not original_key or not normalized_key:
+    if not original_key:
         return None, "inchikey_generation_failed"
-    return {
+
+    atom_indexes = free_anomeric_oh_atoms(mol)
+    result = {
         "source_smiles": smiles,
         "source_inchi_key": original_key,
+        "free_anomeric_atom_indexes": atom_indexes,
+        "free_anomeric_center_count": len(atom_indexes),
+        "formal_charge": Chem.GetFormalCharge(mol),
+        "algorithm_version": CARBOHYDRATE_FAMILY_ALGORITHM_VERSION,
+    }
+    if len(atom_indexes) > 1:
+        result.update({
+            "comparable": False,
+            "classification_reason": "multiple_free_anomeric_centers",
+            "family_inchi_key": None,
+        })
+        return result, None
+
+    anomeric_atom_index = atom_indexes[0] if atom_indexes else None
+    unassigned_atom_indexes = [
+        atom_index
+        for atom_index, assignment in Chem.FindMolChiralCenters(
+            mol,
+            includeUnassigned=True,
+            useLegacyImplementation=False,
+        )
+        if assignment == "?" and atom_index != anomeric_atom_index
+    ]
+    if anomeric_atom_index is None:
+        result["unassigned_stereocenter_atom_indexes"] = unassigned_atom_indexes
+        if unassigned_atom_indexes:
+            result.update({
+                "comparable": False,
+                "classification_reason": "under_specified_stereochemistry",
+                "family_inchi_key": None,
+            })
+            return result, None
+        result.update({
+            "comparable": True,
+            "classification_reason": "fully_specified_structure",
+            "normalized_smiles": Chem.MolToSmiles(mol, isomericSmiles=True),
+            "normalized_inchi_key": original_key,
+            "family_inchi_key": original_key,
+            "anomeric_atom_index": None,
+        })
+        return result, None
+
+    normalized = Chem.Mol(mol)
+    normalized.GetAtomWithIdx(anomeric_atom_index).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    Chem.AssignStereochemistry(normalized, cleanIt=True, force=True)
+    normalized_key = inchi.MolToInchiKey(normalized)
+    if not normalized_key:
+        return None, "inchikey_generation_failed"
+    result.update({
         "normalized_smiles": Chem.MolToSmiles(normalized, isomericSmiles=True),
         "normalized_inchi_key": normalized_key,
-        "anomeric_atom_index": atom_indexes[0],
-        "formal_charge": Chem.GetFormalCharge(mol),
+        "anomeric_atom_index": anomeric_atom_index,
+        "unassigned_stereocenter_atom_indexes": unassigned_atom_indexes,
+    })
+    if unassigned_atom_indexes:
+        result.update({
+            "comparable": False,
+            "classification_reason": "under_specified_stereochemistry",
+            "family_inchi_key": None,
+        })
+        return result, None
+    result.update({
+        "comparable": True,
+        "classification_reason": "free_anomer_normalized",
+        "family_inchi_key": normalized_key,
+    })
+    return result, None
+
+
+def normalized_free_anomer_structure(smiles: Optional[str]) -> tuple[Optional[dict], Optional[str]]:
+    """Clear chirality only at one free anomeric OH-bearing carbon."""
+    structure, error = generated_carbohydrate_structure(smiles)
+    if error:
+        return None, error
+    if structure["free_anomeric_center_count"] != 1:
+        return None, "free_anomeric_center_count_not_one"
+    return {
+        "source_smiles": structure["source_smiles"],
+        "source_inchi_key": structure["source_inchi_key"],
+        "normalized_smiles": structure["normalized_smiles"],
+        "normalized_inchi_key": structure["normalized_inchi_key"],
+        "anomeric_atom_index": structure["anomeric_atom_index"],
+        "formal_charge": structure["formal_charge"],
     }, None
 
 

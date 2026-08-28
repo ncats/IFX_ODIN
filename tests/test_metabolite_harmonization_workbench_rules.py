@@ -5,11 +5,13 @@ import src.qa_browser.app as qa_app
 from src.qa_browser.app import (
     _build_harmonization_pipeline_tree,
     _build_harmonization_stage_denylist_validation,
+    _build_harmonization_stage_carbohydrate_family_validation,
     _build_harmonization_stage_mw_validation,
     _build_harmonization_stage_cart_flags,
     _filter_identifier_support_for_rules,
     _harmonization_denylist_review_from_stage,
     _harmonization_stage_cart_warning_ranks,
+    _harmonization_jobs_by_pipeline_key,
     _load_metabolite_edge_removal_curations,
     _materialize_harmonization_stage,
     _metabolite_edge_removal_pairs_from_curation_batch,
@@ -85,27 +87,27 @@ def test_harmonization_pipeline_tree_shares_prefix_and_branches_at_first_differe
     pipelines = [
         {
             "_key": "pipeline-a",
-            "name": "With carbohydrate gate",
+            "name": "Anomer merge with cleanup A",
             "runs": [{
                 "_key": "run-a",
                 "status": "complete",
                 "stages": [
                     {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
                     {"_key": "shared-1", "stage_index": 1, "rule_ids": ["shared"], "display_label": "Shared rule"},
-                    {"_key": "gated-2", "stage_index": 2, "rule_ids": ["gated"], "display_label": "Anomers with gate"},
+                    {"_key": "branch-a-2", "stage_index": 2, "rule_ids": ["cleanup-a"], "display_label": "Cleanup A"},
                 ],
             }],
         },
         {
             "_key": "pipeline-b",
-            "name": "Without carbohydrate gate",
+            "name": "Anomer merge with cleanup B",
             "runs": [{
                 "_key": "run-b",
                 "status": "complete",
                 "stages": [
                     {"_key": "baseline", "stage_index": 0, "rule_ids": [], "display_label": "Baseline"},
                     {"_key": "shared-1", "stage_index": 1, "rule_ids": ["shared"], "display_label": "Shared rule"},
-                    {"_key": "ungated-2", "stage_index": 2, "rule_ids": ["ungated"], "display_label": "Anomers without gate"},
+                    {"_key": "branch-b-2", "stage_index": 2, "rule_ids": ["cleanup-b"], "display_label": "Cleanup B"},
                 ],
             }],
         },
@@ -136,10 +138,10 @@ def test_harmonization_pipeline_tree_shares_prefix_and_branches_at_first_differe
     assert shared["stage_key"] == "shared-1"
     assert shared["pipeline_count"] == 2
     assert shared["stats"]["clique_count"] == 123
-    assert [child["stage_key"] for child in shared["children"]] == ["gated-2", "ungated-2"]
+    assert [child["stage_key"] for child in shared["children"]] == ["branch-a-2", "branch-b-2"]
     assert [
         child["terminals"][0]["pipeline_name"] for child in shared["children"]
-    ] == ["With carbohydrate gate", "Without carbohydrate gate"]
+    ] == ["Anomer merge with cleanup A", "Anomer merge with cleanup B"]
 
 
 def test_harmonization_pipeline_page_loads_only_requested_pipeline(monkeypatch):
@@ -500,7 +502,7 @@ def test_stage_comparison_pipeline_context_shows_overlap_and_selected_stages():
     pipelines = [
         {
             "_key": "pipeline-a",
-            "name": "Without carbohydrate gate",
+            "name": "Anomer merge with cleanup A",
             "runs": [{
                 "_key": "run-a",
                 "stages": [*shared_stages, {"_key": "left", "stage_index": 2, "rule_ids": ["a", "left"], "display_label": "Cleanup A"}],
@@ -508,7 +510,7 @@ def test_stage_comparison_pipeline_context_shows_overlap_and_selected_stages():
         },
         {
             "_key": "pipeline-b",
-            "name": "With carbohydrate gate",
+            "name": "Anomer merge with cleanup B",
             "runs": [{
                 "_key": "run-b",
                 "stages": [*shared_stages, {"_key": "right", "stage_index": 2, "rule_ids": ["b", "right"], "display_label": "Cleanup B"}],
@@ -527,8 +529,8 @@ def test_stage_comparison_pipeline_context_shows_overlap_and_selected_stages():
     assert context["common_prefix_count"] == 2
     assert context["divergence_after_label"] == "Ignore Generic Structure Mismatch"
     assert [lane["pipeline_name"] for lane in context["lanes"]] == [
-        "Without carbohydrate gate",
-        "With carbohydrate gate",
+        "Anomer merge with cleanup A",
+        "Anomer merge with cleanup B",
     ]
     assert context["lanes"][0]["stages"][-1]["is_left"] is True
     assert context["lanes"][1]["stages"][-1]["is_right"] is True
@@ -723,25 +725,30 @@ def test_load_metabolite_curations_applies_edge_decisions_in_publication_order()
 
 
 def test_pipeline_curation_status_uses_explicit_run_button_states():
+    current_engine = qa_app._HARMONIZATION_ENGINE_VERSION
     pipelines = [
         {"_key": "new", "rule_ids": ["ignore_ramp_mapping_denylist"], "runs": []},
         {
             "_key": "stale",
+            "engine_version": current_engine,
             "rule_ids": ["ignore_ramp_mapping_denylist"],
             "runs": [{"_key": "old-run", "status": "complete", "curation_fingerprint": "old"}],
         },
         {
             "_key": "current",
+            "engine_version": current_engine,
             "rule_ids": ["ignore_ramp_mapping_denylist"],
             "runs": [{"_key": "new-run", "status": "complete", "curation_fingerprint": "current"}],
         },
         {
             "_key": "unaffected",
+            "engine_version": current_engine,
             "rule_ids": ["merge_shared_inchikey_duplex"],
             "runs": [{"_key": "base-run", "status": "complete"}],
         },
         {
             "_key": "assertions-stale",
+            "engine_version": current_engine,
             "rule_ids": [
                 "force_expected_clique_assertions",
                 "remove_enrichment_only_metabolites",
@@ -750,16 +757,19 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         },
         {
             "_key": "failed",
+            "engine_version": current_engine,
             "rule_ids": ["force_expected_clique_assertions"],
             "runs": [{"_key": "failed-run", "status": "failed", "assertion_fingerprint": "current-assertions"}],
         },
         {
             "_key": "running",
+            "engine_version": current_engine,
             "rule_ids": [],
             "runs": [{"_key": "running-run", "status": "running"}],
         },
         {
             "_key": "cleaning",
+            "engine_version": current_engine,
             "rule_ids": [],
             "runs": [{"_key": "cleaning-run", "status": "cleaning_up"}],
         },
@@ -797,6 +807,73 @@ def test_pipeline_curation_status_uses_explicit_run_button_states():
         False,
         False,
     ]
+
+
+def test_pipeline_engine_change_enables_validation_rebuild():
+    pipelines = [{
+        "_key": "old-engine",
+        "engine_version": "staged-pipeline-v4",
+        "rule_ids": [],
+        "runs": [{"_key": "old-run", "status": "complete"}],
+    }]
+
+    _annotate_harmonization_pipeline_curation_status(pipelines, None, None)
+
+    assert pipelines[0]["engine_version_changed"] is True
+    assert pipelines[0]["run_action_enabled"] is True
+    assert pipelines[0]["run_action_kind"] == "rebuild"
+    assert pipelines[0]["run_button_label"] == "Re-run pipeline"
+
+
+def test_pipeline_job_history_hides_failure_superseded_by_successful_retry():
+    jobs = [
+        {
+            "id": "successful-retry",
+            "pipeline_key": "pipeline-a",
+            "action": "run_pipeline",
+            "status": "complete",
+            "created_at": "2026-08-27T14:00:00Z",
+        },
+        {
+            "id": "failed-attempt",
+            "pipeline_key": "pipeline-a",
+            "action": "run_pipeline",
+            "status": "failed",
+            "created_at": "2026-08-27T13:00:00Z",
+            "error": "[HTTP 404][ERR 1600] cursor not found",
+        },
+        {
+            "id": "unresolved-failure",
+            "pipeline_key": "pipeline-b",
+            "action": "run_pipeline",
+            "status": "failed",
+            "created_at": "2026-08-27T13:30:00Z",
+        },
+    ]
+
+    jobs_by_pipeline = _harmonization_jobs_by_pipeline_key(jobs)
+
+    assert [job["id"] for job in jobs_by_pipeline["pipeline-a"]] == ["successful-retry"]
+    assert [job["id"] for job in jobs_by_pipeline["pipeline-b"]] == ["unresolved-failure"]
+
+
+def test_completed_run_engine_version_takes_precedence_over_pipeline_version():
+    pipelines = [{
+        "_key": "current-run",
+        "engine_version": "staged-pipeline-v4",
+        "rule_ids": [],
+        "runs": [{
+            "_key": "current-run",
+            "status": "complete",
+            "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+        }],
+    }]
+
+    _annotate_harmonization_pipeline_curation_status(pipelines, None, None)
+
+    assert pipelines[0]["engine_version_changed"] is False
+    assert pipelines[0]["run_action_enabled"] is False
+    assert pipelines[0]["run_button_label"] == "Up to date"
 
 
 def test_pipeline_run_progress_marks_the_next_unfinished_step_and_active_job():
@@ -1119,18 +1196,19 @@ def test_normalize_metabolite_rule_parameters_parses_default_and_submitted_texta
     }
 
 
-def test_normalize_free_anomer_carbohydrate_gate_parameter():
-    default_parameters = _normalize_metabolite_rule_parameters(
-        ["merge_free_anomeric_forms"],
-        {},
+def test_free_anomer_rule_has_no_parameters():
+    rule = next(
+        rule
+        for rule in qa_app._METABOLITE_HARMONIZATION_RULES
+        if rule["id"] == "merge_free_anomeric_forms"
     )
-    disabled_parameters = _normalize_metabolite_rule_parameters(
+    normalized_parameters = _normalize_metabolite_rule_parameters(
         ["merge_free_anomeric_forms"],
-        {"merge_free_anomeric_forms": {"use_carbohydrate_gate": "false"}},
+        {"merge_free_anomeric_forms": {"obsolete_parameter": "ignored"}},
     )
 
-    assert default_parameters["merge_free_anomeric_forms"]["use_carbohydrate_gate"] is True
-    assert disabled_parameters["merge_free_anomeric_forms"]["use_carbohydrate_gate"] is False
+    assert "parameters" not in rule
+    assert normalized_parameters == {}
 
 
 def test_harmonization_evidence_display_identifies_and_labels_ifx_rule_edges():
@@ -1304,6 +1382,77 @@ def test_build_harmonization_stage_mw_validation_flags_large_spreads():
     assert validation["warnings"][0]["comparison_ids"] == "CHEBI:1 HMDB:1"
 
 
+def test_build_carbohydrate_family_validation_flags_distinct_generated_families():
+    validation = _build_harmonization_stage_carbohydrate_family_validation(
+        groups=[
+            ["CHEBI:1", "CHEBI:2", "CHEBI:3", "HMDB:1"],
+            ["CHEBI:4", "CHEBI:5"],
+        ],
+        carbohydrate_structures_by_id={
+            "CHEBI:1": {
+                "id": "CHEBI:1",
+                "name": "alpha-D-example",
+                "structure": {
+                    "comparable": True,
+                    "family_inchi_key": "PREFIX-DFAMILYSA-N",
+                    "source_inchi_key": "PREFIX-ALPHADSA-N",
+                    "classification_reason": "free_anomer_normalized",
+                },
+                "error": None,
+            },
+            "CHEBI:2": {
+                "id": "CHEBI:2",
+                "name": "beta-D-example",
+                "structure": {
+                    "comparable": True,
+                    "family_inchi_key": "PREFIX-DFAMILYSA-N",
+                    "source_inchi_key": "PREFIX-BETADSA-N",
+                    "classification_reason": "free_anomer_normalized",
+                },
+                "error": None,
+            },
+            "CHEBI:3": {
+                "id": "CHEBI:3",
+                "name": "L-example",
+                "structure": {
+                    "comparable": True,
+                    "family_inchi_key": "PREFIX-LFAMILYSA-N",
+                    "source_inchi_key": "PREFIX-ALPHALSA-N",
+                    "classification_reason": "free_anomer_normalized",
+                },
+                "error": None,
+            },
+            "CHEBI:4": {
+                "id": "CHEBI:4",
+                "name": "generic",
+                "structure": {
+                    "comparable": False,
+                    "family_inchi_key": None,
+                    "classification_reason": "under_specified_stereochemistry",
+                },
+                "error": None,
+            },
+            "CHEBI:5": {
+                "id": "CHEBI:5",
+                "name": "specific",
+                "structure": {
+                    "comparable": True,
+                    "family_inchi_key": "PREFIX-SPECIFICSA-N",
+                    "source_inchi_key": "PREFIX-SPECIFICSA-N",
+                    "classification_reason": "fully_specified_structure",
+                },
+                "error": None,
+            },
+        },
+    )
+
+    assert validation["warning_count"] == 1
+    warning = validation["warnings"][0]
+    assert warning["family_count"] == 2
+    assert warning["classified_carbohydrate_count"] == 3
+    assert warning["comparison_ids"].startswith("CHEBI:1 CHEBI:2 CHEBI:3")
+
+
 def test_build_harmonization_stage_cart_flags_marks_only_active_edges_in_mw_warning_cliques():
     flags = _build_harmonization_stage_cart_flags(
         operations=[
@@ -1369,7 +1518,7 @@ def test_build_harmonization_stage_cart_flags_marks_pending_denylist_retention()
     }]
 
 
-def test_harmonization_stage_cart_warning_ranks_include_mw_and_denylist_cliques():
+def test_harmonization_stage_cart_warning_ranks_include_all_validation_cliques():
     stage = {
         "validation": {
             "mw_spread": {"computed": True, "warnings": [{"rank_by_size": 4}]},
@@ -1378,10 +1527,14 @@ def test_harmonization_stage_cart_warning_ranks_include_mw_and_denylist_cliques(
                 "rule_enabled": True,
                 "warnings": [{"rank_by_size": 9}, {"rank_by_size": 4}],
             },
+            "carbohydrate_family_conflicts": {
+                "computed": True,
+                "warnings": [{"rank_by_size": 11}],
+            },
         },
     }
 
-    assert _harmonization_stage_cart_warning_ranks(stage) == {4, 9}
+    assert _harmonization_stage_cart_warning_ranks(stage) == {4, 9, 11}
 
 
 def test_build_harmonization_stage_denylist_validation_flags_still_merged_pairs():
