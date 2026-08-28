@@ -78,12 +78,14 @@ from src.qa_browser.curation_cart import (
 )
 try:
     from src.qa_browser.metabolite_anomer_rule import (
+        CARBOHYDRATE_FAMILY_ALGORITHM_VERSION,
         CHEBI_CARBOHYDRATE_ROOT_ID,
         CHEBI_POLYMER_ROOT_IDS,
         FREE_ANOMER_ALGORITHM_VERSION,
         FREE_ANOMER_RULE_ID,
         evaluate_free_anomer_candidate,
         free_anomeric_oh_atoms,
+        generated_carbohydrate_structure,
         normalized_free_anomer_structure,
         summarize_free_anomer_decisions,
     )
@@ -91,9 +93,10 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != "rdkit":
         raise
+    CARBOHYDRATE_FAMILY_ALGORITHM_VERSION = "carbohydrate-family-v1"
     CHEBI_CARBOHYDRATE_ROOT_ID = "CHEBI:16646"
     CHEBI_POLYMER_ROOT_IDS = ("CHEBI:60027", "CHEBI:18154")
-    FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v1"
+    FREE_ANOMER_ALGORITHM_VERSION = "free-anomer-v2"
     FREE_ANOMER_RULE_ID = "merge_free_anomeric_forms"
     _metabolite_free_anomer_available = False
 
@@ -101,6 +104,7 @@ except ModuleNotFoundError as exc:
         raise RuntimeError("The free-anomer metabolite rule requires RDKit, but RDKit is not installed.")
 
     free_anomeric_oh_atoms = _missing_free_anomer_dependency
+    generated_carbohydrate_structure = _missing_free_anomer_dependency
     normalized_free_anomer_structure = _missing_free_anomer_dependency
     evaluate_free_anomer_candidate = _missing_free_anomer_dependency
 
@@ -189,6 +193,9 @@ app.mount(
 )
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["root_path"] = ""
+templates.env.globals["style_version"] = hashlib.sha1(
+    (STATIC_DIR / "style.css").read_bytes()
+).hexdigest()[:12]
 templates.env.globals["metabolite_visuals_version"] = hashlib.sha1(
     (STATIC_DIR / "metabolite_harmonization_visuals.js").read_bytes()
 ).hexdigest()[:12]
@@ -273,7 +280,7 @@ _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
-_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v4"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v5"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
 _HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 _METABOLITE_CURATION_PREFIX = os.getenv(
@@ -439,15 +446,7 @@ _METABOLITE_HARMONIZATION_RULES = [
         "id": FREE_ANOMER_RULE_ID,
         "group": "Chemistry-based merging",
         "label": "Merge Free Anomeric Forms",
-        "description": "Merge direct ChEBI child/parent forms that differ only at one free reducing-end anomeric hydroxyl; preserve all other stereochemistry and exclude polymers.",
-        "parameters": [
-            {
-                "id": "use_carbohydrate_gate",
-                "label": "Require ChEBI carbohydrate ancestry",
-                "type": "boolean",
-                "default": True,
-            },
-        ],
+        "description": "Merge direct ChEBI child/parent forms that differ only at one free hemiacetal or hemiketal hydroxyl; preserve all other stereochemistry and exclude polymers.",
     },
 ]
 _metabolite_snapshot_jobs: dict = {}
@@ -455,6 +454,7 @@ _metabolite_snapshot_jobs_lock = threading.Lock()
 _METABOLITE_MW_SPREAD_WARNING_THRESHOLD = 0.10
 _METABOLITE_MW_SPREAD_WARNING_LIMIT = 50
 _METABOLITE_DENYLIST_STILL_MERGED_LIMIT = 50
+_METABOLITE_CARBOHYDRATE_FAMILY_WARNING_LIMIT = 50
 _METABOLITE_COMPARE_MAX_IDS = 500
 _demo_queries_enabled = os.getenv("QA_BROWSER_ENABLE_POUNCE_DEMOS", "").lower() in {
     "1", "true", "yes", "on"
@@ -1807,21 +1807,14 @@ def _load_chebi_descendant_ids(db, root_ids: Iterable[str]) -> set:
 def _free_anomer_rule_edges(
     db,
     active_ids: set,
-    use_carbohydrate_gate: bool = True,
 ) -> tuple[List[dict], dict]:
-    """Build auditable synthetic edges for conservative ChEBI free-anomer pairs."""
-    carbohydrate_ids = _load_chebi_descendant_ids(db, [CHEBI_CARBOHYDRATE_ROOT_ID])
+    """Build auditable synthetic edges for qualifying ChEBI free-anomer pairs."""
     polymer_ids = _load_chebi_descendant_ids(db, CHEBI_POLYMER_ROOT_IDS)
-    carbohydrate_scope_ids = carbohydrate_ids - polymer_ids
     candidate_rows = list(db.aql.execute(
         """
         FOR edge IN IsAEdge
           FILTER edge.start_id NOT IN @polymer_ids
           FILTER edge.end_id NOT IN @polymer_ids
-          FILTER !@use_carbohydrate_gate OR (
-            edge.start_id IN @carbohydrate_scope_ids
-            AND edge.end_id IN @carbohydrate_scope_ids
-          )
           LET child = DOCUMENT("ChemicalEntity", edge.start_id)
           LET parent = DOCUMENT("ChemicalEntity", edge.end_id)
           LET child_identifier = DOCUMENT("MetaboliteIdentifier", edge.start_id)
@@ -1837,8 +1830,6 @@ def _free_anomer_rule_edges(
           }
         """,
         bind_vars={
-            "use_carbohydrate_gate": use_carbohydrate_gate,
-            "carbohydrate_scope_ids": sorted(carbohydrate_scope_ids) if use_carbohydrate_gate else [],
             "polymer_ids": sorted(polymer_ids),
         },
         batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
@@ -1864,7 +1855,6 @@ def _free_anomer_rule_edges(
             "source_id": decision.get("relationship_id") or decision.get("relationship_key") or child_id,
             "rule_id": FREE_ANOMER_RULE_ID,
             "algorithm_version": FREE_ANOMER_ALGORITHM_VERSION,
-            "carbohydrate_gate_enabled": use_carbohydrate_gate,
             "decision": decision["reason"],
             "chebi_relationship": decision["relationship_predicate"],
             "child_name": decision.get("child_name"),
@@ -1892,9 +1882,7 @@ def _free_anomer_rule_edges(
     summary = {
         **summarize_free_anomer_decisions(decisions),
         "free_anomer_algorithm_version": FREE_ANOMER_ALGORITHM_VERSION,
-        "free_anomer_carbohydrate_gate_enabled": use_carbohydrate_gate,
-        "free_anomer_carbohydrate_scope_identifier_count": len(carbohydrate_ids),
-        "free_anomer_polymer_excluded_identifier_count": len(carbohydrate_ids & polymer_ids),
+        "free_anomer_polymer_excluded_identifier_count": len(polymer_ids),
         "free_anomer_candidate_identifier_count": len({
             identifier
             for decision in decisions
@@ -1904,6 +1892,33 @@ def _free_anomer_rule_edges(
         "free_anomer_synthetic_edge_count": len(edges),
     }
     return edges, summary
+
+
+def _load_chebi_carbohydrate_family_structures(db) -> Dict[str, dict]:
+    """Generate comparable family keys for structured ChEBI carbohydrates."""
+    carbohydrate_ids = _load_chebi_descendant_ids(db, [CHEBI_CARBOHYDRATE_ROOT_ID])
+    rows = db.aql.execute(
+        """
+        FOR d IN ChemicalEntity
+          FILTER d.id IN @carbohydrate_ids
+          RETURN KEEP(d, "id", "name", "smiles", "formula", "charge")
+        """,
+        bind_vars={"carbohydrate_ids": sorted(carbohydrate_ids)},
+        batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
+        max_runtime=600,
+    )
+    structures_by_id = {}
+    for row in rows:
+        structure, error = generated_carbohydrate_structure(row.get("smiles"))
+        structures_by_id[row["id"]] = {
+            "id": row["id"],
+            "name": row.get("name"),
+            "formula": row.get("formula"),
+            "charge": row.get("charge"),
+            "structure": structure,
+            "error": error,
+        }
+    return structures_by_id
 
 
 def _build_harmonized_groups(
@@ -2275,6 +2290,7 @@ def _ensure_harmonization_stage(
     stage_index: int,
     mass_values_provider=None,
     curation_state=None,
+    carbohydrate_family_provider=None,
 ) -> dict:
     denylist_rule_enabled = "ignore_ramp_mapping_denylist" in rule_ids
     assertion_fallback_enabled = "force_expected_clique_assertions" in rule_ids
@@ -2349,19 +2365,13 @@ def _ensure_harmonization_stage(
         "free_anomer_accepted_pair_count": 0,
         "free_anomer_rejected_pair_count": 0,
         "free_anomer_rejection_reason_counts": {},
-        "free_anomer_carbohydrate_gate_enabled": True,
         "free_anomer_candidate_identifier_count": 0,
         "free_anomer_synthetic_edge_count": 0,
     }
     if FREE_ANOMER_RULE_ID in rule_ids:
-        use_carbohydrate_gate = rule_parameters.get(FREE_ANOMER_RULE_ID, {}).get(
-            "use_carbohydrate_gate",
-            True,
-        )
         free_anomer_edges, free_anomer_summary = _free_anomer_rule_edges(
             db,
             active_ids,
-            use_carbohydrate_gate=use_carbohydrate_gate,
         )
         active_edges.extend(free_anomer_edges)
     if assertion_fallback_enabled:
@@ -2414,6 +2424,15 @@ def _ensure_harmonization_stage(
         curation_state["pairs"],
         denylist_rule_enabled,
     )
+    carbohydrate_structures_by_id = (
+        carbohydrate_family_provider()
+        if carbohydrate_family_provider is not None
+        else _load_chebi_carbohydrate_family_structures(db)
+    )
+    carbohydrate_family_validation = _build_harmonization_stage_carbohydrate_family_validation(
+        groups,
+        carbohydrate_structures_by_id,
+    )
     stage_doc = {
         "_key": stage_key,
         "id": f"HarmonizationStage:{stage_key}",
@@ -2437,6 +2456,7 @@ def _ensure_harmonization_stage(
         "validation": {
             "mw_spread": mw_validation,
             "denylist_still_merged": denylist_validation,
+            "carbohydrate_family_conflicts": carbohydrate_family_validation,
         },
         "materialization": {
             "active_identifier_chunks": _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
@@ -2602,6 +2622,15 @@ def _annotate_harmonization_pipeline_curation_status(
             None,
         )
         latest_run = (pipeline.get("runs") or [None])[0]
+        completed_engine_version = (
+            latest_complete_run.get("engine_version")
+            if latest_complete_run
+            else None
+        ) or pipeline.get("engine_version")
+        engine_version_changed = bool(
+            latest_complete_run
+            and completed_engine_version != _HARMONIZATION_ENGINE_VERSION
+        )
         edge_curations_changed = bool(
             uses_edge_curations
             and latest_complete_run
@@ -2629,6 +2658,9 @@ def _annotate_harmonization_pipeline_curation_status(
         pipeline["edge_curations_changed"] = edge_curations_changed
         pipeline["assertion_curations_changed"] = assertion_curations_changed
         pipeline["needs_curation_sync"] = needs_sync
+        pipeline["engine_version_changed"] = engine_version_changed
+        pipeline["completed_engine_version"] = completed_engine_version
+        pipeline["current_engine_version"] = _HARMONIZATION_ENGINE_VERSION
         pipeline["sync_from_stage_index"] = min(changed_rule_indexes) if changed_rule_indexes else None
         pipeline["current_curation_fingerprint"] = current_curation_fingerprint if uses_edge_curations else None
         pipeline["current_assertion_fingerprint"] = current_assertion_fingerprint if uses_assertion_curations else None
@@ -2644,6 +2676,9 @@ def _annotate_harmonization_pipeline_curation_status(
         elif latest_complete_run is None:
             pipeline["run_button_label"] = "Run pipeline"
             pipeline["run_action_kind"] = "run"
+        elif engine_version_changed:
+            pipeline["run_button_label"] = "Re-run pipeline"
+            pipeline["run_action_kind"] = "rebuild"
         elif needs_sync:
             pipeline["run_button_label"] = "Sync curations"
             pipeline["run_action_kind"] = "sync"
@@ -2677,6 +2712,18 @@ def _harmonization_jobs_by_pipeline_key(jobs: List[dict]) -> Dict[str, List[dict
         if not pipeline_key:
             continue
         jobs_by_pipeline_key.setdefault(pipeline_key, []).append(job)
+    for pipeline_key, pipeline_jobs in jobs_by_pipeline_key.items():
+        pipeline_jobs.sort(key=lambda job: job.get("created_at") or "", reverse=True)
+        successful_actions = set()
+        visible_jobs = []
+        for job in pipeline_jobs:
+            action = job.get("action")
+            if job.get("status") == "failed" and action in successful_actions:
+                continue
+            visible_jobs.append(job)
+            if job.get("status") == "complete":
+                successful_actions.add(action)
+        jobs_by_pipeline_key[pipeline_key] = visible_jobs
     return jobs_by_pipeline_key
 
 
@@ -2797,6 +2844,7 @@ def _list_harmonization_stage_overview_stats(
         distribution = distribution_by_stage.get(stage["_key"], {})
         mw_validation = _harmonization_stage_mw_validation_from_doc(stage)
         denylist_validation = _harmonization_stage_denylist_validation_from_doc(stage)
+        carbohydrate_family_validation = _harmonization_stage_carbohydrate_family_validation_from_doc(stage)
         stage["overview_stats"] = {
             "active_identifier_count": summary.get("active_identifier_count", 0),
             "clique_count": summary.get("clique_count", 0),
@@ -2816,6 +2864,8 @@ def _list_harmonization_stage_overview_stats(
             "denylist_warning_count": denylist_validation.get("warning_count", 0),
             "denylist_validation_computed": denylist_validation.get("computed", False),
             "denylist_rule_enabled": denylist_validation.get("rule_enabled", False),
+            "carbohydrate_family_warning_count": carbohydrate_family_validation.get("warning_count", 0),
+            "carbohydrate_family_validation_computed": carbohydrate_family_validation.get("computed", False),
             "max_size": distribution.get("max_size") or (
                 (summary.get("largest_clique_sizes") or [0])[0]
             ),
@@ -3185,6 +3235,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
         "pipeline_key": pipeline_key,
         "pipeline_id": pipeline["id"],
         "pipeline_name": pipeline.get("name"),
+        "engine_version": _HARMONIZATION_ENGINE_VERSION,
         "created_at": created_at,
         "started_at": created_at,
         "completed_at": None,
@@ -3199,11 +3250,17 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
         graph_fingerprint = _harmonization_graph_fingerprint(db)
         stage_docs = []
         mass_values_cache = {}
+        carbohydrate_family_cache = {}
 
         def mass_values_provider():
             if "values" not in mass_values_cache:
                 mass_values_cache["values"] = _load_metabolite_identifier_mass_values(db)
             return mass_values_cache["values"]
+
+        def carbohydrate_family_provider():
+            if "values" not in carbohydrate_family_cache:
+                carbohydrate_family_cache["values"] = _load_chebi_carbohydrate_family_structures(db)
+            return carbohydrate_family_cache["values"]
 
         normalized_rule_ids = pipeline.get("rule_ids") or []
         normalized_rule_parameters = pipeline.get("rule_parameters") or {}
@@ -3235,6 +3292,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             0,
             mass_values_provider,
             curation_state,
+            carbohydrate_family_provider,
         )
         stage_docs.append(baseline_stage)
         run_collection.update({
@@ -3265,6 +3323,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 stage_index,
                 mass_values_provider,
                 curation_state,
+                carbohydrate_family_provider,
             ))
             run_collection.update({
                 "_key": run_key,
@@ -3333,6 +3392,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             "_key": pipeline_key,
             "latest_run_key": run_key,
             "latest_stage_key": stage_docs[-1]["_key"] if stage_docs else None,
+            "engine_version": _HARMONIZATION_ENGINE_VERSION,
             "updated_at": completed_at,
             "status": "complete",
         })
@@ -3457,6 +3517,26 @@ def _harmonization_stage_mw_validation_from_doc(
     }
 
 
+def _harmonization_stage_carbohydrate_family_validation_from_doc(
+    stage: dict,
+    limit: int = _METABOLITE_CARBOHYDRATE_FAMILY_WARNING_LIMIT,
+) -> dict:
+    existing = (stage.get("validation") or {}).get("carbohydrate_family_conflicts")
+    if isinstance(existing, dict):
+        return existing
+    return {
+        "computed": False,
+        "algorithm_version": CARBOHYDRATE_FAMILY_ALGORITHM_VERSION,
+        "scope_root_id": CHEBI_CARBOHYDRATE_ROOT_ID,
+        "warning_count": 0,
+        "affected_clique_count": 0,
+        "classified_identifier_count": 0,
+        "unclassified_identifier_count": 0,
+        "display_limit": limit,
+        "warnings": [],
+    }
+
+
 def _load_harmonization_stage_stats(stage_key: str) -> dict:
     db = get_db("metabolite_harmonization")
     stage = _get_harmonization_stage(stage_key)
@@ -3565,6 +3645,7 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
         "source_counts": source_counts,
         "mw_validation": _harmonization_stage_mw_validation_from_doc(stage),
         "denylist_validation": _harmonization_stage_denylist_validation_from_doc(stage),
+        "carbohydrate_family_validation": _harmonization_stage_carbohydrate_family_validation_from_doc(stage),
         "expected_clique_assertions": expected_clique_assertions,
     }
 
@@ -3620,6 +3701,7 @@ def _harmonization_stage_cart_warning_ranks(stage: dict) -> set[int]:
     warnings = [
         *(_harmonization_stage_mw_validation_from_doc(stage).get("warnings") or []),
         *(_harmonization_stage_denylist_validation_from_doc(stage).get("warnings") or []),
+        *(_harmonization_stage_carbohydrate_family_validation_from_doc(stage).get("warnings") or []),
     ]
     return {
         int(warning["rank_by_size"])
@@ -4651,6 +4733,97 @@ def _build_harmonization_stage_mw_validation(
         "threshold": threshold,
         "threshold_percent": threshold * 100,
         "warning_count": len(warnings),
+        "display_limit": limit,
+        "warnings": warnings[:limit],
+    }
+
+
+def _build_harmonization_stage_carbohydrate_family_validation(
+    groups: List[List[str]],
+    carbohydrate_structures_by_id: Dict[str, dict],
+    limit: int = _METABOLITE_CARBOHYDRATE_FAMILY_WARNING_LIMIT,
+) -> dict:
+    warnings = []
+    classified_identifier_count = 0
+    unclassified_identifier_count = 0
+    for rank, members in enumerate(groups, start=1):
+        families_by_key: Dict[str, List[dict]] = {}
+        unclassified = []
+        for member_id in members:
+            row = carbohydrate_structures_by_id.get(member_id)
+            if row is None:
+                continue
+            structure = row.get("structure") or {}
+            family_key = structure.get("family_inchi_key") if structure.get("comparable") else None
+            if family_key:
+                classified_identifier_count += 1
+                families_by_key.setdefault(family_key, []).append(row)
+            else:
+                unclassified_identifier_count += 1
+                unclassified.append({
+                    "id": member_id,
+                    "name": row.get("name"),
+                    "reason": row.get("error")
+                    or structure.get("classification_reason")
+                    or "unclassified_structure",
+                })
+        if len(families_by_key) < 2:
+            continue
+
+        families = []
+        for family_key, family_rows in sorted(
+            families_by_key.items(),
+            key=lambda item: (-len(item[1]), item[0]),
+        ):
+            family_members = []
+            for family_row in sorted(family_rows, key=lambda item: item["id"]):
+                structure = family_row["structure"]
+                family_members.append({
+                    "id": family_row["id"],
+                    "name": family_row.get("name"),
+                    "source_inchi_key": structure.get("source_inchi_key"),
+                    "classification_reason": structure.get("classification_reason"),
+                })
+            families.append({
+                "family_inchi_key": family_key,
+                "member_count": len(family_members),
+                "members": family_members[:25],
+            })
+
+        classified_ids = [
+            family_member["id"]
+            for family in families
+            for family_member in family["members"]
+        ]
+        remaining_members = [member_id for member_id in members if member_id not in classified_ids]
+        ordered_member_ids = classified_ids + remaining_members
+        warnings.append({
+            "rank_by_size": rank,
+            "representative_id": members[0] if members else None,
+            "size": len(members),
+            "family_count": len(families),
+            "classified_carbohydrate_count": sum(family["member_count"] for family in families),
+            "families": families,
+            "unclassified_carbohydrates": sorted(unclassified, key=lambda item: item["id"])[:25],
+            "sample_member_ids": ordered_member_ids[:12],
+            "comparison_ids": " ".join(ordered_member_ids[:_METABOLITE_COMPARE_MAX_IDS]),
+        })
+    warnings.sort(
+        key=lambda item: (
+            -item["family_count"],
+            -item["classified_carbohydrate_count"],
+            -item["size"],
+            item.get("representative_id") or "",
+        )
+    )
+    return {
+        "computed": True,
+        "algorithm_version": CARBOHYDRATE_FAMILY_ALGORITHM_VERSION,
+        "scope_root_id": CHEBI_CARBOHYDRATE_ROOT_ID,
+        "warning_count": len(warnings),
+        "affected_clique_count": len(warnings),
+        "classified_identifier_count": classified_identifier_count,
+        "unclassified_identifier_count": unclassified_identifier_count,
         "display_limit": limit,
         "warnings": warnings[:limit],
     }

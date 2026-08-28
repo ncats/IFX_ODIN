@@ -10,6 +10,7 @@
                 <div title="Metabolites in this stage snapshot"><dt>Metabolites</dt><dd>{{ "{:,}".format(node.stats.clique_count|default(0, true)) }}</dd></div>
                 <div class="{% if node.stats.mw_warning_count %}has-alerts{% endif %}" title="Molecular-weight validation alerts"><dt>MW</dt><dd>{% if node.stats.mw_validation_computed %}{{ "{:,}".format(node.stats.mw_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
                 <div class="{% if node.stats.denylist_rule_enabled and node.stats.denylist_warning_count %}has-alerts{% endif %}" title="{% if node.stats.denylist_rule_enabled %}Denylist validation alerts{% else %}Denylist rule not applied at this stage{% endif %}"><dt>Deny</dt><dd>{% if node.stats.denylist_rule_enabled and node.stats.denylist_validation_computed %}{{ "{:,}".format(node.stats.denylist_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
+                <div class="{% if node.stats.carbohydrate_family_warning_count %}has-alerts{% endif %}" title="Carbohydrate family conflict alerts"><dt>Carb</dt><dd>{% if node.stats.carbohydrate_family_validation_computed %}{{ "{:,}".format(node.stats.carbohydrate_family_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
                 <div title="Expected-clique assertion results"><dt>Assertions</dt><dd class="metabolite-id-pipeline-tree-assertions{% if node.stats.assertion_count|default(0, true) %} {{ 'is-fail' if node.stats.assertion_failure_count else 'is-pass' }}{% endif %}">{% if not node.stats.assertion_count|default(0, true) %}None{% elif node.stats.assertion_failure_count %}{{ "{:,}".format(node.stats.assertion_failure_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} fail{% else %}{{ "{:,}".format(node.stats.assertion_pass_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} pass{% endif %}</dd></div>
             </dl>
             {% endif %}
@@ -65,6 +66,11 @@
                     {% if stage_stats and stage_stats.code_fingerprint_mismatch %}
                     <div class="metabolite-id-fingerprint-warning" title="Stages were computed with different code versions: {{ stage_stats.code_fingerprints | join(', ') }}">
                         ⚠ Code version mismatch — stages should be recomputed
+                    </div>
+                    {% endif %}
+                    {% if pipeline.engine_version_changed %}
+                    <div class="metabolite-id-curation-sync-warning">
+                        Harmonization validations have changed: Re-run to rebuild
                     </div>
                     {% endif %}
                     {% if pipeline.needs_curation_sync %}

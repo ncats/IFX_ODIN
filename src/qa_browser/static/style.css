@@ -3207,7 +3207,7 @@ details summary:hover { color: var(--accent); }
     border-top: 1px solid rgba(100, 116, 139, 0.28);
     display: grid;
     gap: 0.25rem 0.4rem;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin: 0.3rem 0 0;
     padding-top: 0.35rem;
 }
@@ -3827,8 +3827,8 @@ tr.has-cart-review > td {
     border: 1px solid var(--border);
     border-radius: 8px;
     display: grid;
-    grid-template-columns: 5rem minmax(12rem, 2fr) minmax(4rem, 0.45fr) repeat(4, minmax(6.5rem, 0.75fr)) minmax(7.5rem, 0.85fr) minmax(6.5rem, 0.75fr) repeat(2, minmax(7.5rem, 0.85fr)) minmax(14rem, 1.7fr) minmax(7rem, 0.9fr);
-    min-width: 98rem;
+    grid-template-columns: 5rem minmax(12rem, 2fr) minmax(4rem, 0.45fr) repeat(4, minmax(6.5rem, 0.75fr)) minmax(7.5rem, 0.85fr) minmax(6.5rem, 0.75fr) repeat(3, minmax(7.5rem, 0.85fr)) minmax(14rem, 1.7fr) minmax(7rem, 0.9fr);
+    min-width: 106rem;
 }
 
 #metaboliteIdMaterializedStageStats,
@@ -3851,8 +3851,8 @@ tr.has-cart-review > td {
     padding: 0.65rem 0.75rem;
 }
 
-.metabolite-id-stage-stats-grid-header:nth-child(13n),
-.metabolite-id-stage-stats-grid-cell:nth-child(13n) {
+.metabolite-id-stage-stats-grid-header:nth-child(14n),
+.metabolite-id-stage-stats-grid-cell:nth-child(14n) {
     border-right: 0;
 }
 
@@ -4683,6 +4683,12 @@ tr.has-cart-review > td {
 .metabolite-id-member-list span {
     color: var(--text-muted);
     font-size: 0.82rem;
+}
+
+.metabolite-id-carbohydrate-family-bucket + .metabolite-id-carbohydrate-family-bucket {
+    border-top: 1px solid var(--border);
+    margin-top: 0.65rem;
+    padding-top: 0.65rem;
 }
 
 .metabolite-id-compare-card-header dl {

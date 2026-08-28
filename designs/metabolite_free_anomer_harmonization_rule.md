@@ -4,13 +4,14 @@
 
 **Rule ID:** `merge_free_anomeric_forms`
 
-**Algorithm version:** `free-anomer-v1`
+**Algorithm version:** `free-anomer-v2`
 
 ## What the rule does
 
 The rule merges ChEBI forms that differ only in the stereochemistry of one free
-anomeric carbon. Its main use is to put the alpha, beta, and
-anomer-unspecified forms of a reducing sugar in the same harmonized clique.
+cyclic hemiacetal or hemiketal carbon. Most matches are reducing sugars, but
+carbohydrate ancestry is not required: the same ring-opening and reclosure
+chemistry can occur in other compound classes.
 
 For example, these forms of D-glucopyranose should merge:
 
@@ -30,12 +31,17 @@ The rule adds synthetic, auditable `IFX Harmonization Rule` edges to the stage.
 It does not change source structures or overwrite documented or derived
 InChIKeys.
 
+The same RDKit key-generation helper is also used by the
+[carbohydrate family conflict validation](metabolite_carbohydrate_family_validation.md),
+which checks complete stage cliques for incompatible carbohydrate families.
+
 ## Why these forms can be merged
 
-A sugar with a free anomeric hydroxyl can open to its carbonyl form and close
-again as either the alpha or beta anomer. This interconversion is called
-mutarotation. The rule treats those free forms as members of the same
-harmonized metabolite group.
+A compound with a free cyclic hemiacetal or hemiketal hydroxyl can open to a
+carbonyl form and close again with either configuration at that center. For
+sugars this interconversion is called mutarotation. The rule treats forms that
+differ only at that labile center as members of the same harmonized metabolite
+group.
 
 This reasoning does not apply when the anomeric oxygen is part of a glycosidic
 acetal bond. Alpha and beta glycosides are distinct compounds and remain
@@ -69,6 +75,22 @@ For cellotriose, only the free anomeric center on the terminal reducing sugar
 is normalized. Its internal glycosidic bonds and their stereochemistry are not
 changed.
 
+### Non-carbohydrate cyclic hemiacetals and hemiketals: merge
+
+Carbohydrate ancestry is not a requirement. Reviewed examples include:
+
+- beta-dihydroartemisinin (`CHEBI:135921`) and anomer-unspecified
+  dihydroartemisinin (`CHEBI:207229`);
+- alpha-, beta-, and unspecified ADP-D-ribose (`CHEBI:191408`,
+  `CHEBI:191409`, and `CHEBI:16960`);
+- alpha-, beta-, and unspecified punicalagin (`CHEBI:233620`, `CHEBI:233621`,
+  and `CHEBI:167695`); and
+- stereospecific and unspecified cyclic hydroxy-oxepanone and
+  2-hydroxyflavanone forms.
+
+These matches pass the same structural comparison as sugars. The rule does not
+infer equivalence from a compound name or class.
+
 ### Other sugar stereochemistry: keep separate
 
 ![D-glucose, D-mannose, and D-galactose](assets/metabolite_anomer_rule/excluded_epimers.svg)
@@ -94,17 +116,15 @@ The rule evaluates direct ChEBI `is_a` child–parent pairs. This normally gives
 an alpha or beta ChEBI term paired with its anomer-unspecified parent. Both
 ChEBI identifiers must be active metabolite identifiers in the current stage.
 
-The parameter **Require ChEBI carbohydrate ancestry** is enabled by default.
-When enabled, both identifiers must be descendants of `CHEBI:16646`
-(`carbohydrate`). Descendants of these classes are always excluded:
+Carbohydrate ancestry is not required. Descendants of these classes are always
+excluded:
 
 - `CHEBI:60027` — polymer
 - `CHEBI:18154` — polysaccharide
 
-Disabling the carbohydrate gate runs the same structural test against all
-direct ChEBI child–parent pairs. This is useful for comparing the gate's effect,
-but it may admit non-carbohydrate cyclic hemiacetal or hemiketal pairs that need
-additional review.
+The separate carbohydrate-family conflict validation remains scoped to ChEBI
+carbohydrate descendants. It checks complete cliques for incompatible
+carbohydrate families; it does not limit which pairs this merge rule evaluates.
 
 ## Matching algorithm
 
@@ -122,8 +142,6 @@ In high-level pseudocode:
 
 ```text
 for each direct ChEBI child -> parent relationship:
-    if carbohydrate gate is enabled:
-        require child and parent to be carbohydrates
     reject polymers and polysaccharides
     require both identifiers to be active in this stage
 
@@ -225,8 +243,7 @@ Each accepted rule edge records:
 - the original SMILES and generated InChIKey for each endpoint;
 - the detected atom index for each endpoint;
 - the shared normalized full InChIKey;
-- whether the carbohydrate gate was enabled; and
-- algorithm version `free-anomer-v1`.
+- algorithm version `free-anomer-v2`.
 
 This makes every merge visible in stage comparisons and reproducible without
 changing the source evidence.
@@ -248,6 +265,7 @@ changing the source evidence.
 ## Review point
 
 The local atom pattern is intentionally simple and explainable, but it is still
-a structural heuristic. The default carbohydrate gate supplies the conservative
-biological scope. Results from disabling that gate should be treated as review
-candidates rather than automatically approved metabolite equivalences.
+a structural heuristic. Stage comparisons and validations remain the review
+surface for chemistry-wide matches, especially uncommon non-carbohydrate
+hemiacetals and hemiketals. The carbohydrate-family validation continues to
+guard against merging incompatible carbohydrate stereochemical families.

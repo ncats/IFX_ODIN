@@ -66,17 +66,15 @@
             </p>
         </div>
         <p>
-            Direct ChEBI carbohydrate child/parent pairs are merged only when formula and charge agree,
+            Direct ChEBI child/parent pairs are merged only when formula and charge agree,
             both structures have exactly one free anomeric OH, and clearing chirality at only that atom
-            produces the same complete InChIKey. The carbohydrate ancestry gate is
-            <strong>{{ "enabled" if stats.summary.free_anomer_carbohydrate_gate_enabled|default(true) else "disabled" }}</strong>.
-            Polymer and polysaccharide descendants are excluded in either mode.
+            produces the same complete InChIKey. Polymer and polysaccharide descendants are excluded.
         </p>
         <dl class="ramp-id-stats">
             <div><dt>Candidate Pairs</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_candidate_pair_count|default(0, true)) }}</dd></div>
             <div><dt>Rule Edges</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_synthetic_edge_count|default(0, true)) }}</dd></div>
             <div><dt>Candidate IDs</dt><dd>{{ "{:,}".format(stats.summary.free_anomer_candidate_identifier_count|default(0, true)) }}</dd></div>
-            <div><dt>Algorithm</dt><dd>{{ stats.summary.free_anomer_algorithm_version|default("free-anomer-v1", true) }}</dd></div>
+            <div><dt>Algorithm</dt><dd>{{ stats.summary.free_anomer_algorithm_version|default("free-anomer-v2", true) }}</dd></div>
         </dl>
         {% if stats.summary.free_anomer_rejection_reason_counts %}
         <div class="table-wrap">
@@ -248,6 +246,79 @@
         {% endif %}
         {% else %}
         <p>MW validation is computed for newly materialized stages.</p>
+        {% endif %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <h2>Carbohydrate Family Validation</h2>
+            {% if stats.carbohydrate_family_validation.computed %}
+            <p>
+                {{ "{:,}".format(stats.carbohydrate_family_validation.warning_count) }} conflicting clique{{ "" if stats.carbohydrate_family_validation.warning_count == 1 else "s" }}.
+            </p>
+            {% else %}
+            <p>Not computed for this stage.</p>
+            {% endif %}
+        </div>
+        {% if stats.carbohydrate_family_validation.computed %}
+        <p>
+            Flags cliques containing more than one comparable ChEBI carbohydrate family. Full InChIKeys are generated
+            from ChEBI SMILES with RDKit; exactly one free anomeric center is normalized, while all other stereochemistry
+            is preserved. Under-specified structures do not create conflicts by themselves.
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Families</th>
+                    <th>Clique Size</th>
+                    <th>Generated Family Keys and ChEBI Members</th>
+                    <th>Unclassified</th>
+                    <th>Review</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for warning in stats.carbohydrate_family_validation.warnings %}
+                <tr>
+                    <td>{{ warning.family_count }}</td>
+                    <td>{{ "{:,}".format(warning.size) }}</td>
+                    <td>
+                        {% for family in warning.families %}
+                        <div class="metabolite-id-member-list metabolite-id-carbohydrate-family-bucket">
+                            <strong class="mono">{{ family.family_inchi_key }}</strong>
+                            {% for member in family.members %}
+                            <span><span class="mono">{{ member.id }}</span>{% if member.name %} — {{ member.name }}{% endif %}</span>
+                            {% endfor %}
+                        </div>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        <div class="metabolite-id-member-list">
+                        {% for member in warning.unclassified_carbohydrates %}
+                            <span><span class="mono">{{ member.id }}</span>{% if member.name %} — {{ member.name }}{% endif %} ({{ member.reason|replace("_", " ") }})</span>
+                        {% else %}
+                            <span>None</span>
+                        {% endfor %}
+                        </div>
+                    </td>
+                    <td>
+                        <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
+                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&stages={{ stats.stage._key|urlencode }}">
+                            Open clique
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No incompatible carbohydrate families were found in this stage.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if stats.carbohydrate_family_validation.warning_count > stats.carbohydrate_family_validation.warnings|length %}
+        <p>Showing the top {{ stats.carbohydrate_family_validation.warnings|length }} of {{ stats.carbohydrate_family_validation.warning_count }} conflicting cliques.</p>
+        {% endif %}
+        {% else %}
+        <p>Carbohydrate family validation is computed for newly materialized stages.</p>
         {% endif %}
     </section>
 
