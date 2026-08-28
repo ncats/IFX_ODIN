@@ -31,16 +31,130 @@
 
     <section class="variant-tab-panel" data-panel="dashboard">
         <div class="variant-empty" id="drugNoData" style="display:none;"></div>
-        <div class="variant-stat-grid" id="drugStats"></div>
-        <div class="variant-dashboard-grid">
-            <section class="variant-panel"><h2>Source Coverage</h2><div class="variant-bars" id="drugSourceBars"></div></section>
-            <section class="variant-panel"><h2>Evidence Tier</h2><div class="variant-bars" id="drugTierBars"></div></section>
+
+        <div class="dash-hero drug-dash-hero">
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashLoadedTotal">-</div>
+                <div class="dash-label">Loaded App Nodes <button class="chart-legend-toggle" type="button" aria-label="Explain loaded app nodes" aria-expanded="false" aria-controls="drugLoadedHelp">?</button></div>
+                <div class="chart-legend" id="drugLoadedHelp">
+                    <p>Substance/drug nodes bundled into this QA Browser release. The full harmonized output can be larger than the app subset when file-size limits require a deployable preview.</p>
+                </div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashFullTotal">-</div>
+                <div class="dash-label">Full Harmonized Nodes <button class="chart-legend-toggle" type="button" aria-label="Explain full harmonized nodes" aria-expanded="false" aria-controls="drugFullHelp">?</button></div>
+                <div class="chart-legend" id="drugFullHelp">
+                    <p>Total drug/substance nodes produced by the TargetGraph drug harmonizer before app packaging limits are applied.</p>
+                </div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashMultiSource">-</div>
+                <div class="dash-label">Multi-source Identity <button class="chart-legend-toggle" type="button" aria-label="Explain multi-source identity" aria-expanded="false" aria-controls="drugMultiSourceHelp">?</button></div>
+                <div class="chart-legend" id="drugMultiSourceHelp">
+                    <p>Percent of loaded nodes with identifiers from more than one source namespace. This is the main dashboard signal that the harmonizer connected records across independent resources.</p>
+                </div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashNodenorm">-</div>
+                <div class="dash-label">NodeNorm Resolved <button class="chart-legend-toggle" type="button" aria-label="Explain NodeNorm resolved drugs" aria-expanded="false" aria-controls="drugNodeNormHelp">?</button></div>
+                <div class="chart-legend" id="drugNodeNormHelp">
+                    <p>Percent of loaded drug nodes with a NodeNorm-preferred CURIE. NodeNorm is treated as canonicalization/validation evidence, not as a source that independently asserts drug identity.</p>
+                </div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashOpenReview">-</div>
+                <div class="dash-label">Open QC Rows <button class="chart-legend-toggle" type="button" aria-label="Explain open drug QC rows" aria-expanded="false" aria-controls="drugOpenReviewHelp">?</button></div>
+                <div class="chart-legend" id="drugOpenReviewHelp">
+                    <p>Unresolved rows from the drug divergence registry. These are the records the Review tab exposes for ODIN curation decisions.</p>
+                </div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="drugDashTargetEdges">-</div>
+                <div class="dash-label">Target Association Edges <button class="chart-legend-toggle" type="button" aria-label="Explain drug target association edges" aria-expanded="false" aria-controls="drugTargetEdgeHelp">?</button></div>
+                <div class="chart-legend" id="drugTargetEdgeHelp">
+                    <p>Drug-target context edges from DrugCentral and NCATS Inxight activity. These are pharmacology context, not substance identity merge evidence.</p>
+                </div>
+            </div>
         </div>
-        <div class="variant-dashboard-grid">
-            <section class="variant-panel"><h2>Primary Identity Key</h2><div class="variant-bars" id="drugKeyBars"></div></section>
-            <section class="variant-panel"><h2>Relationship Types</h2><div class="variant-bars" id="drugRelationBars"></div></section>
+
+        <div class="dash-version-bar drug-dash-version-bar">
+            <div class="dash-version-meta">
+                <span class="dash-version-label">Pipeline</span>
+                <span class="dash-version-value mono">{{ drug_version_display }}</span>
+            </div>
+            <div class="dash-source-tags" id="drugSourceTags">
+                <span class="dash-version-label">Source Versions:</span>
+            </div>
         </div>
-        <section class="variant-panel"><h2>Source Versions</h2><div class="variant-source-catalog" id="drugSourceCatalog"></div></section>
+
+        <div class="dash-charts drug-dash-charts">
+            <section class="dash-chart-panel">
+                <h3>Source Namespace Coverage <button class="chart-legend-toggle" type="button" aria-label="Explain drug source coverage" aria-expanded="false" aria-controls="drugSourceCoverageHelp">?</button></h3>
+                <div class="chart-legend" id="drugSourceCoverageHelp">
+                    <p>Loaded nodes grouped by the source namespaces that contributed identifiers or records to the harmonized component.</p>
+                </div>
+                <div class="bar-chart" id="drugSourceBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Identity Evidence Tier <button class="chart-legend-toggle" type="button" aria-label="Explain drug evidence tiers" aria-expanded="false" aria-controls="drugEvidenceTierHelp">?</button></h3>
+                <div class="chart-legend" id="drugEvidenceTierHelp">
+                    <dl>
+                        <dt>high_confidence_identity</dt><dd>NodeNorm and source-standard evidence agree on the primary identity.</dd>
+                        <dt>source_standard_multi_source_identity</dt><dd>Multiple source namespaces support the component, but the source-standard primary ID remains the local anchor.</dd>
+                        <dt>source_standard_single_source_identity</dt><dd>Only one source namespace supports the component.</dd>
+                        <dt>source_standard_conflict</dt><dd>Source-standard and canonicalization evidence disagree enough to require QC review.</dd>
+                    </dl>
+                </div>
+                <div class="bar-chart" id="drugTierBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>NodeNorm Canonicalization <button class="chart-legend-toggle" type="button" aria-label="Explain drug NodeNorm statuses" aria-expanded="false" aria-controls="drugNodenormChartHelp">?</button></h3>
+                <div class="chart-legend" id="drugNodenormChartHelp">
+                    <p>NodeNorm validation status for each harmonized node. It helps identify cases where a preferred CURIE is available, matches the local source standard, or remains unresolved.</p>
+                </div>
+                <div class="bar-chart" id="drugNodenormBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Evidence Layers <button class="chart-legend-toggle" type="button" aria-label="Explain drug evidence layers" aria-expanded="false" aria-controls="drugEvidenceLayerHelp">?</button></h3>
+                <div class="chart-legend" id="drugEvidenceLayerHelp">
+                    <p>Relationship rows exported for the graph. Identity xrefs are merge evidence. External identifiers, PubMed references, RxNorm products, and target interactions are retained as context layers.</p>
+                </div>
+                <div class="bar-chart" id="drugRelationBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Primary Identity Key <button class="chart-legend-toggle" type="button" aria-label="Explain drug identity keys" aria-expanded="false" aria-controls="drugIdentityKeyHelp">?</button></h3>
+                <div class="chart-legend" id="drugIdentityKeyHelp">
+                    <p>Primary key type used to seed or preserve a harmonized drug component before NodeNorm canonicalization. InChIKey and source identifiers are used carefully because salts, mixtures, isomers, and products can collapse incorrectly if treated as interchangeable.</p>
+                </div>
+                <div class="bar-chart" id="drugKeyBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Biolink Category Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain drug Biolink categories" aria-expanded="false" aria-controls="drugBiolinkHelp">?</button></h3>
+                <div class="chart-legend" id="drugBiolinkHelp">
+                    <p>Concept-level Biolink category assigned during drug harmonization. The dashboard separates curated drug-like nodes from broader chemical entities.</p>
+                </div>
+                <div class="bar-chart" id="drugBiolinkBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Source Update Status <button class="chart-legend-toggle" type="button" aria-label="Explain drug source update status" aria-expanded="false" aria-controls="drugSourceUpdateHelp">?</button></h3>
+                <div class="chart-legend" id="drugSourceUpdateHelp">
+                    <p>Download/transform status from the latest ODIN run. <code>xref_only</code> means identifiers are retained from other source xrefs without ingesting the full optional dataset. <code>disabled</code> means the source layer is intentionally not run in this release.</p>
+                </div>
+                <div class="bar-chart" id="drugSourceUpdateBars"></div>
+            </section>
+            <section class="dash-chart-panel drug-resolver-summary">
+                <h3>Resolver Tab <button class="chart-legend-toggle" type="button" aria-label="Explain drug resolver" aria-expanded="false" aria-controls="drugResolverHelp">?</button></h3>
+                <div class="chart-legend" id="drugResolverHelp">
+                    <p>The resolver searches the harmonized drug graph first, then optionally enriches candidates with NCATS Resolver, Pharos targets, Inxight/GSRS, openFDA labels, and ChEBI class context. It is a candidate-ranking workflow, not a silent authority for new mappings.</p>
+                </div>
+                <div id="drugResolverSummary" class="drug-dashboard-note"></div>
+            </section>
+        </div>
+
+        <section class="dash-chart-panel drug-source-catalog-panel">
+            <h3>Source Versions and ODIN Run Metadata</h3>
+            <div class="variant-source-catalog" id="drugSourceCatalog"></div>
+        </section>
     </section>
 
     <section class="variant-tab-panel" data-panel="concepts">
@@ -237,17 +351,129 @@ function setDrugTab(tab) {
 }
 document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.addEventListener("click", () => setDrugTab(btn.dataset.tab)));
 setDrugTab(initialTab);
+document.querySelectorAll(".chart-legend-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const targetId = btn.getAttribute("aria-controls");
+        const legend = targetId ? document.getElementById(targetId) : null;
+        if (!legend) return;
+        const expanded = !legend.classList.contains("expanded");
+        legend.classList.toggle("expanded", expanded);
+        btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+});
 function fmt(n) { return Number(n || 0).toLocaleString(); }
 function escapeHtml(v) { return String(v || "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c])); }
 function escapeAttr(v) { return escapeHtml(v).replace(/`/g, "&#96;"); }
-function renderBars(el, counts) {
-    const entries = Object.entries(counts || {}).slice(0, 14);
+function pct(count, total) {
+    return total ? `${(Number(count || 0) / total * 100).toFixed(1)}%` : "0.0%";
+}
+const DRUG_COLORS = {
+    "PubChem": "#0891b2",
+    "ChEMBL": "#7c3aed",
+    "ChEBI": "#0d9488",
+    "GSRS": "#14b8a6",
+    "RxNorm": "#f97316",
+    "UniChem": "#64748b",
+    "DrugCentral": "#be123c",
+    "NCATS Inxight Drugs": "#8b5cf6",
+    "NodeNorm Chemical": "#2563eb",
+    "identity_xref": "#0891b2",
+    "external_identifier_xref": "#93c5fd",
+    "source_provenance_xref": "#64748b",
+    "drug_target": "#8b5cf6",
+    "literature_evidence": "#f97316",
+    "high_confidence_identity": "#059669",
+    "source_standard_multi_source_identity": "#4f46e5",
+    "source_standard_single_source_identity": "#64748b",
+    "source_standard_conflict": "#dc2626",
+    "canonical_matches_source_standard": "#059669",
+    "canonical_from_equivalent_identifier": "#2563eb",
+    "not_normalized": "#d97706",
+    "biolink:Drug": "#7c3aed",
+    "biolink:ChemicalEntity": "#0d9488",
+    "unchanged": "#64748b",
+    "transformed": "#059669",
+    "xref_only": "#d97706",
+    "disabled": "#dc2626",
+};
+function prettyDrugLabel(label) {
+    return String(label || "unknown")
+        .replace(/^source_standard_/, "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase());
+}
+function renderBars(el, counts, total = null, colors = DRUG_COLORS) {
+    const entries = Object.entries(counts || {}).filter(([, count]) => Number(count || 0) > 0).slice(0, 14);
     const max = Math.max(...entries.map(x => x[1]), 1);
-    el.innerHTML = entries.length ? entries.map(([label, count]) => `<div class="variant-bar-row"><span title="${escapeHtml(label)}">${escapeHtml(label || "unknown")}</span><div><i style="width:${Math.max(2, count / max * 100)}%"></i></div><code>${fmt(count)}</code></div>`).join("") : "<p class='variant-muted'>No data</p>";
+    el.innerHTML = entries.length ? entries.map(([label, count]) => {
+        const color = colors[label] || "var(--accent)";
+        const value = total ? `${fmt(count)} <small>${pct(count, total)}</small>` : fmt(count);
+        return `<div class="bar-row">
+            <span class="bar-label" title="${escapeHtml(label)}">${escapeHtml(prettyDrugLabel(label))}</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${Math.max(2, count / max * 100)}%;background:${color};"></div></div>
+            <span class="bar-value">${value}</span>
+        </div>`;
+    }).join("") : "<p class='variant-muted'>No data</p>";
 }
 function renderSourceCatalog(rows) {
     if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
-    return `<table class="variant-table variant-source-table"><thead><tr><th>Source</th><th>Version</th><th>Records</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.version || row.source_version)}</td><td>${escapeHtml(row.records || "")}</td></tr>`).join("")}</tbody></table>`;
+    return `<table class="variant-table variant-source-table drug-source-table">
+        <thead><tr><th>Source</th><th>Source Version</th><th>Source Date</th><th>ODIN Download</th><th>ODIN Transform</th><th>Rows</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>${rows.map(row => {
+            const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ");
+            const notes = [row.role, row.note].filter(Boolean).join(" ");
+            const sourceName = row.url ? `<a href="${escapeAttr(String(row.url).split("|")[0].trim())}" target="_blank" rel="noopener">${escapeHtml(row.name || row.source)}</a>` : escapeHtml(row.name || row.source);
+            return `<tr>
+                <td>${sourceName}</td>
+                <td class="mono">${escapeHtml(row.version || "not captured")}</td>
+                <td>${escapeHtml(row.source_release_date || "not captured")}</td>
+                <td>${escapeHtml(row.odin_download_date || "not applicable")}</td>
+                <td>${escapeHtml(row.odin_transform_date || "not captured")}</td>
+                <td>${row.transform_output_rows ? fmt(row.transform_output_rows) : ""}</td>
+                <td>${escapeHtml(status || "recorded")}</td>
+                <td>${escapeHtml(notes)}</td>
+            </tr>`;
+        }).join("")}</tbody>
+    </table>`;
+}
+function renderSourceTags(rows) {
+    const container = document.getElementById("drugSourceTags");
+    if (!container) return;
+    container.querySelectorAll(".dash-source-tag").forEach(el => el.remove());
+    rows.forEach(row => {
+        const tag = document.createElement("span");
+        tag.className = "dash-source-tag";
+        const color = DRUG_COLORS[row.name] || "var(--accent)";
+        tag.style.borderColor = color;
+        tag.style.color = color;
+        const version = row.version || "not captured";
+        const sourceDate = row.source_release_date || "not captured";
+        const downloadDate = row.odin_download_date || "not applicable";
+        const rowsText = row.transform_output_rows ? fmt(row.transform_output_rows) : "not captured";
+        const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ") || "recorded";
+        tag.innerHTML =
+            `<span class="dash-source-tag-name">${escapeHtml(row.name)}</span>` +
+            `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
+            `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
+            `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(downloadDate)}</span>` +
+            `<span class="dash-source-tag-detail"><b>Rows</b> ${escapeHtml(rowsText)}</span>` +
+            `<span class="dash-source-tag-detail"><b>Status</b> ${escapeHtml(status)}</span>`;
+        tag.title =
+            `${row.name}\nVersion: ${version}\nSource date: ${sourceDate}\nODIN download: ${downloadDate}\nRows: ${rowsText}\nStatus: ${status}` +
+            (row.note ? `\n${row.note}` : "");
+        container.appendChild(tag);
+    });
+}
+function renderResolverSummary(stats) {
+    const el = document.getElementById("drugResolverSummary");
+    if (!el) return;
+    el.innerHTML = `
+        <div class="clinical-descendant-kpis">
+            <div><strong>${fmt(stats.total_drugs)}</strong><span>local searchable nodes</span></div>
+            <div><strong>${fmt(stats.nodenorm_resolved_count)}</strong><span>NodeNorm candidates</span></div>
+            <div><strong>${fmt(stats.target_association_edges)}</strong><span>target context edges</span></div>
+        </div>
+        <p class="variant-muted">Use the Resolver tab for pasted names or identifiers. Quick Search uses only this harmonized local graph; Resolve &amp; Enrich adds optional live context from selected services.</p>`;
 }
 async function loadDrugStats() {
     try {
@@ -255,17 +481,29 @@ async function loadDrugStats() {
         if (!resp.ok) throw new Error(await resp.text());
         const stats = await resp.json();
         document.getElementById("drugNoData").style.display = "none";
-        document.getElementById("drugStats").innerHTML = `<div><strong>${fmt(stats.total_drugs)}</strong><span>Drug/substance nodes</span></div><div><strong>${fmt(stats.total_edges)}</strong><span>Evidence edges</span></div><div><strong>${fmt(Object.keys(stats.source_counts || {}).length)}</strong><span>Sources</span></div><div><strong>${escapeHtml((stats.manifest || {}).version || "current")}</strong><span>Release</span></div>`;
-        renderBars(document.getElementById("drugSourceBars"), stats.source_counts);
-        renderBars(document.getElementById("drugTierBars"), stats.evidence_tier_counts);
-        renderBars(document.getElementById("drugKeyBars"), stats.structural_key_counts);
-        renderBars(document.getElementById("drugRelationBars"), stats.relation_counts);
+        document.getElementById("drugDashLoadedTotal").textContent = fmt(stats.total_drugs);
+        document.getElementById("drugDashFullTotal").textContent = fmt(stats.full_total_drugs || stats.total_drugs);
+        document.getElementById("drugDashMultiSource").textContent = `${Number(stats.multi_source_percent || 0).toFixed(1)}%`;
+        document.getElementById("drugDashMultiSource").title = `${fmt(stats.multi_source_count)} loaded nodes with more than one source namespace; ${fmt(stats.source_only_count)} source-only loaded nodes.`;
+        document.getElementById("drugDashNodenorm").textContent = `${Number(stats.nodenorm_resolved_percent || 0).toFixed(1)}%`;
+        document.getElementById("drugDashNodenorm").title = `${fmt(stats.nodenorm_resolved_count)} loaded nodes have a NodeNorm-preferred CURIE.`;
+        document.getElementById("drugDashOpenReview").textContent = fmt(stats.open_review_rows);
+        document.getElementById("drugDashTargetEdges").textContent = fmt(stats.target_association_edges);
+        renderSourceTags(stats.source_versions || []);
+        renderBars(document.getElementById("drugSourceBars"), stats.source_counts, stats.total_drugs);
+        renderBars(document.getElementById("drugTierBars"), stats.evidence_tier_counts, stats.total_drugs);
+        renderBars(document.getElementById("drugNodenormBars"), stats.nodenorm_status_counts, stats.total_drugs);
+        renderBars(document.getElementById("drugKeyBars"), stats.structural_key_counts, stats.total_drugs);
+        renderBars(document.getElementById("drugRelationBars"), stats.relation_counts, stats.total_edges);
+        renderBars(document.getElementById("drugBiolinkBars"), stats.biolink_category_counts, stats.total_drugs);
+        renderBars(document.getElementById("drugSourceUpdateBars"), stats.source_update_status_counts);
+        renderResolverSummary(stats);
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         const tierOptions = Object.keys(stats.evidence_tier_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         document.getElementById("drugSourceFilter").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
         document.getElementById("drugDownloadSource").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
         document.getElementById("drugTierFilter").innerHTML = `<option value="">All tiers</option>${tierOptions}`;
-        document.getElementById("drugSourceCatalog").innerHTML = renderSourceCatalog(stats.source_catalog || []);
+        document.getElementById("drugSourceCatalog").innerHTML = renderSourceCatalog(stats.source_versions || []);
     } catch (err) {
         document.getElementById("drugNoData").style.display = "block";
         document.getElementById("drugNoData").innerHTML = "Drug app graph data is not configured yet. Run <code>python src/code/main.py DRUGS --all</code>, then launch the QA Browser with <code>--drug-graph-dir .../drug_data/v0.1.0/app_graph</code>.";
