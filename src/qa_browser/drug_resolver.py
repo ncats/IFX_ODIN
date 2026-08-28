@@ -539,35 +539,43 @@ def _enrich_one(
     chebi_id = best.get("chebi_id") or ""
     chembl_id = best.get("chembl_id") or ""
 
-    # NCATS Resolver
+    # NCATS Resolver — try original query FIRST so a user-typed name
+    # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
+    # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
-        # Try UNII, then ChEMBL, then name, then raw query
-        for lookup in [unii, chembl_id, name, query]:
-            if not lookup:
+        seen_lookups: set[str] = set()
+        for lookup in [query, unii, chembl_id, name]:
+            if not lookup or lookup in seen_lookups:
                 continue
+            seen_lookups.add(lookup)
             ncats = enrich_ncats_resolver(lookup, session=session)
             if ncats:
                 enrichment["ncats_resolver"] = ncats
-                # Fill in any missing IDs from NCATS
-                if not unii and ncats.get("ncats_unii"):
+                # Override IDs with NCATS-resolved values so downstream
+                # lookups use the correct compound, not the local hit
+                if ncats.get("ncats_unii"):
                     unii = ncats["ncats_unii"]
-                if not chebi_id and ncats.get("ncats_chebi"):
+                if ncats.get("ncats_chebi"):
                     chebi_id = ncats["ncats_chebi"]
-                if not chembl_id and ncats.get("ncats_chembl"):
+                if ncats.get("ncats_chembl"):
                     chembl_id = ncats["ncats_chembl"]
-                # Update name so downstream lookups (Pharos, openFDA) use
-                # the resolved chemical name instead of the raw query ID
                 resolved_name = ncats.get("ncats_resolved_name")
-                if resolved_name and (not name or name == query):
+                if resolved_name:
                     name = resolved_name
                 break
             time.sleep(delay)
 
-    # Pharos — try resolved name, then ChEMBL ID as fallback
+    # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
-        pharos = enrich_pharos(name, session=session)
-        if not pharos and chembl_id:
-            pharos = enrich_pharos(chembl_id, session=session)
+        pharos = None
+        seen_pharos: set[str] = set()
+        for lookup in [query, name, chembl_id]:
+            if not lookup or lookup in seen_pharos:
+                continue
+            seen_pharos.add(lookup)
+            pharos = enrich_pharos(lookup, session=session)
+            if pharos:
+                break
         if pharos:
             enrichment["pharos"] = pharos
         time.sleep(delay)

@@ -1,0 +1,62 @@
+{
+  "entity": "drugs",
+  "name": "Drug Harmonizer Explorer",
+  "version": "v0.1.0",
+  "updated_last": "2026-08-27",
+  "files": {
+    "nodes": "drug_nodes.tsv",
+    "edges": "drug_edges.tsv",
+    "source_catalog": "drug_source_catalog.tsv",
+    "source_update_report": "drug_source_update_report.tsv",
+    "source_update_report_md": "drug_source_update_report.md",
+    "source_update_report_json": "drug_source_update_report_run.json",
+    "qc_registry": "drug_divergence_registry.tsv",
+    "review_queue": "drug_review_queue.tsv",
+    "qc_summary": "drug_qc_summary.json",
+    "scenario_log": "drug_scenario_log.md"
+  },
+  "counts": {
+    "nodes": 50000,
+    "edges": 219517,
+    "full_nodes_available": 412089,
+    "full_edges_available": 476426,
+    "qc_registry_rows": 5408,
+    "open_review_rows": 5408,
+    "resolved_or_acknowledged_review_rows": 0
+  },
+  "source_counts": {
+    "GSRS": 48530,
+    "ChEBI": 11377,
+    "DrugCentral": 4038,
+    "ChEMBL": 3715,
+    "PubChem": 10080
+  },
+  "evidence_tier_counts": {
+    "high_confidence_identity": 3538,
+    "source_standard_conflict": 3118,
+    "source_standard_multi_source_identity": 13157,
+    "source_standard_single_source_identity": 30187
+  },
+  "edge_kind_counts": {
+    "external_identifier_xref": 75038,
+    "identity_xref": 84567,
+    "literature_evidence": 7562,
+    "source_provenance_xref": 4,
+    "drug_target": 52346
+  },
+  "qc_status_counts": {
+    "open": 5408
+  },
+  "qc_issue_counts": {
+    "multiple_inchikey_values": 420,
+    "source_standard_conflict": 4988
+  },
+  "notes": [
+    "Substance-level identities are merged as connected components over trusted source identifiers and xrefs, with PubChem, ChEMBL, ChEBI, GSRS, RxNorm, UniChem, and DrugCentral used as the source-standard priority order.",
+    "The local source-standard ID is retained as source_standard_primary_id; primary_id is the NodeNorm-preferred CURIE when NodeNorm resolves the component.",
+    "InChIKey is used as a structural identity bridge. CAS is retained as provenance/xref evidence but is not used by default as a merge key.",
+    "RxNorm clinical-drug products are exported as context edges and are not treated as exact substance identity.",
+    "Inxight Activity targets are exported as pharmacology relationship context; DDI/victim/perpetrator/tox annotations should stay in separate safety/ADME layers.",
+    "PubChem enrichment is bounded to observed source CIDs, not a full PubChem mirror; UniChem is disabled until mapping-file ingestion is implemented."
+  ]
+}
