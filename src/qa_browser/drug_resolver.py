@@ -525,6 +525,7 @@ def _enrich_one(
     enable_openfda: bool,
     enable_chebi: bool,
     delay: float,
+    graph_data: "DrugGraphData | None" = None,
 ) -> dict[str, Any]:
     """Enrich a single local-resolved result with live API data."""
     session = _build_session()
@@ -564,6 +565,38 @@ def _enrich_one(
                     name = resolved_name
                 break
             time.sleep(delay)
+
+        # Re-lookup in local graph using NCATS-resolved IDs when the
+        # original query missed or matched the wrong compound (e.g.
+        # NCGC00256577-01 → prednisolone UNII 9PHQ9Y1OLM → IFXDrug).
+        if graph_data and enrichment.get("ncats_resolver"):
+            ncats_ids = enrichment["ncats_resolver"]
+            relookup_terms = [v for v in [
+                ncats_ids.get("ncats_unii"),
+                ncats_ids.get("ncats_chembl"),
+                ncats_ids.get("ncats_chebi"),
+                ncats_ids.get("ncats_resolved_name"),
+            ] if v]
+            # Only re-lookup if the original local hit seems wrong or absent
+            need_relookup = (
+                not best  # no local hit at all
+                or (best.get("unii") and ncats_ids.get("ncats_unii")
+                    and best["unii"] != ncats_ids["ncats_unii"])  # wrong compound
+            )
+            if need_relookup and relookup_terms:
+                for term in relookup_terms:
+                    retry = resolve_local(graph_data, [term])
+                    retry_hits = (retry[0].get("local_hits") or []) if retry else []
+                    if retry_hits:
+                        local_result = {
+                            **local_result,
+                            "local_hits": retry_hits,
+                            "resolved": True,
+                            "total_local_matches": retry[0].get("total_local_matches", len(retry_hits)),
+                            "resolved_via": f"NCATS→{term}",
+                        }
+                        best = retry_hits[0]
+                        break
 
     # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
@@ -681,6 +714,7 @@ def resolve_and_enrich(
             enable_openfda=enable_openfda,
             enable_chebi=enable_chebi,
             delay=delay,
+            graph_data=data,
         )
         with stats_lock:
             if result.get("resolved"):
