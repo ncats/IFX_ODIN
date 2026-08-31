@@ -3295,6 +3295,51 @@ def match_targets_to_tdl(
     }
 
 
+def lookup_tdl_by_symbols(
+    pharos: PharosTDLData, symbols: list[str],
+) -> dict[str, Any]:
+    """Look up Pharos TDL classification for a list of gene symbols.
+
+    Each symbol is matched against ``pharos.canonical_by_symbol``.  Returns
+    per-gene results with TDL metrics plus an aggregate TDL distribution.
+    """
+    results: list[dict[str, Any]] = []
+    not_found_symbols: list[str] = []
+    tdl_dist: Counter = Counter()
+
+    for symbol in symbols:
+        entry = pharos.canonical_by_symbol.get(symbol)
+        if entry:
+            tdl = entry.get("tdl", "Unknown") or "Unknown"
+            tdl_dist[tdl] += 1
+            results.append({
+                "symbol": symbol,
+                "tdl": tdl,
+                "name": entry.get("name", ""),
+                "uniprot_id": entry.get("uniprot_id", ""),
+                "idg_family": entry.get("idg_family", ""),
+                "tdl_drug_count": entry.get("tdl_drug_count", 0),
+                "tdl_ligand_count": entry.get("tdl_ligand_count", 0),
+                "tdl_go_term_count": entry.get("tdl_go_term_count", 0),
+                "tdl_generif_count": entry.get("tdl_generif_count", 0),
+                "tdl_pm_score": entry.get("tdl_pm_score", 0),
+                "tdl_antibody_count": entry.get("tdl_antibody_count", 0),
+            })
+        else:
+            not_found_symbols.append(symbol)
+
+    tdl_order = ["Tclin", "Tchem", "Tbio", "Tdark"]
+    ordered_dist = {k: tdl_dist.get(k, 0) for k in tdl_order if tdl_dist.get(k, 0) > 0}
+
+    return {
+        "results": results,
+        "tdl_distribution": ordered_dist,
+        "found": len(results),
+        "not_found": len(not_found_symbols),
+        "not_found_symbols": not_found_symbols,
+    }
+
+
 # ── STRING PPI ──
 
 STRING_NETWORK_URL = "https://string-db.org/api/tsv/network"

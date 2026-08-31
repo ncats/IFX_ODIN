@@ -340,6 +340,41 @@ ABCA5</textarea>
             </section>
         </div>
         <div class="target-panel" style="margin-top:1rem;">
+            <h2>TDL Lookup</h2>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 0.5rem;">Paste gene symbols to look up their Pharos TDL classification.</p>
+            <textarea id="tdlLookupGenes" rows="4" style="width:100%;font-family:monospace;font-size:0.85rem;" placeholder="Enter gene symbols, one per line (e.g. BRCA1, TP53, EGFR)..."></textarea>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+                <button class="btn btn-primary" id="tdlLookupBtn" type="button">Lookup TDLs</button>
+                <span id="tdlLookupStatus" style="font-size:0.85rem;color:var(--text-muted);"></span>
+            </div>
+            <div id="tdlLookupDistribution" style="display:none;margin-top:0.75rem;">
+                <div class="target-bars" id="tdlLookupBars"></div>
+            </div>
+            <div id="tdlLookupResults" style="display:none;margin-top:0.75rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                    <span id="tdlLookupCounts" style="font-size:0.85rem;"></span>
+                    <a href="#" id="tdlLookupDownload" style="font-size:0.85rem;">Download TSV</a>
+                </div>
+                <div style="max-height:400px;overflow:auto;">
+                    <table class="target-review-table" style="font-size:0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>TDL</th>
+                                <th>Name</th>
+                                <th>IDG Family</th>
+                                <th>UniProt</th>
+                                <th>Drugs</th>
+                                <th>Ligands</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tdlLookupBody"></tbody>
+                    </table>
+                </div>
+                <div id="tdlLookupNotFound" style="display:none;margin-top:0.5rem;font-size:0.85rem;color:var(--text-muted);"></div>
+            </div>
+        </div>
+        <div class="target-panel" style="margin-top:1rem;">
             <h2>STRING PPI Network (colored by TDL)</h2>
             <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
                 <div style="flex:1;min-width:250px;">
@@ -2273,6 +2308,103 @@ ABCA5</textarea>
         }
     }
 
+    const TDL_COLORS = {"Tclin": "#1f77b4", "Tchem": "#2ca02c", "Tbio": "#ff7f0e", "Tdark": "#d62728"};
+    let lastTdlLookupData = null;
+
+    async function lookupPharosTdl() {
+        const textarea = document.getElementById("tdlLookupGenes");
+        const statusEl = document.getElementById("tdlLookupStatus");
+        const genes = textarea.value.split(/[\n,]+/).map(g => g.trim()).filter(Boolean);
+        if (!genes.length) {
+            statusEl.textContent = "Enter at least one gene symbol.";
+            return;
+        }
+        const btn = document.getElementById("tdlLookupBtn");
+        btn.disabled = true;
+        btn.textContent = "Looking up…";
+        statusEl.textContent = `Looking up ${genes.length} gene${genes.length === 1 ? "" : "s"}…`;
+
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/pharos-tdl/lookup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ genes }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            lastTdlLookupData = data;
+
+            // Distribution bars
+            const distEl = document.getElementById("tdlLookupDistribution");
+            const barsEl = document.getElementById("tdlLookupBars");
+            if (Object.keys(data.tdl_distribution || {}).length) {
+                renderBars(barsEl, data.tdl_distribution);
+                distEl.style.display = "";
+            } else {
+                distEl.style.display = "none";
+            }
+
+            // Results table
+            const resultsEl = document.getElementById("tdlLookupResults");
+            const tbody = document.getElementById("tdlLookupBody");
+            const countsEl = document.getElementById("tdlLookupCounts");
+            resultsEl.style.display = "";
+            countsEl.innerHTML = `<strong>${data.found}</strong> found` +
+                (data.not_found > 0 ? `, <strong>${data.not_found}</strong> not found` : "");
+
+            tbody.innerHTML = data.results.map(r => {
+                const color = TDL_COLORS[r.tdl] || "#999";
+                return `<tr>
+                    <td><code>${escapeHtml(r.symbol)}</code></td>
+                    <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:4px;vertical-align:middle;"></span>${escapeHtml(r.tdl)}</td>
+                    <td>${escapeHtml(r.name || "—")}</td>
+                    <td>${escapeHtml(r.idg_family || "—")}</td>
+                    <td><code>${escapeHtml(r.uniprot_id || "—")}</code></td>
+                    <td>${r.tdl_drug_count}</td>
+                    <td>${r.tdl_ligand_count}</td>
+                </tr>`;
+            }).join("");
+
+            // Not-found list
+            const nfEl = document.getElementById("tdlLookupNotFound");
+            if (data.not_found_symbols && data.not_found_symbols.length) {
+                nfEl.style.display = "";
+                nfEl.textContent = "Not found: " + data.not_found_symbols.join(", ");
+            } else {
+                nfEl.style.display = "none";
+            }
+
+            statusEl.textContent = "";
+        } catch (err) {
+            statusEl.textContent = "Error: " + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Lookup TDLs";
+        }
+    }
+
+    function downloadTdlLookupTsv(e) {
+        e.preventDefault();
+        if (!lastTdlLookupData || !lastTdlLookupData.results.length) return;
+        const header = ["symbol", "tdl", "name", "idg_family", "uniprot_id",
+            "tdl_drug_count", "tdl_ligand_count", "tdl_go_term_count",
+            "tdl_generif_count", "tdl_pm_score", "tdl_antibody_count"];
+        const rows = lastTdlLookupData.results.map(r =>
+            header.map(k => r[k] != null ? String(r[k]) : "").join("\t")
+        );
+        const tsv = header.join("\t") + "\n" + rows.join("\n") + "\n";
+        const blob = new Blob([tsv], { type: "text/tab-separated-values" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "tdl_lookup_results.tsv";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     async function buildPharosPpi() {
         const statusEl = document.getElementById("pharosPpiStatus");
         const textarea = document.getElementById("pharosGeneList");
@@ -2378,6 +2510,8 @@ ABCA5</textarea>
 
     document.getElementById("pharosBuildPpi").addEventListener("click", buildPharosPpi);
     document.getElementById("pharosTdlRefresh").addEventListener("click", () => loadPharosTdl(true));
+    document.getElementById("tdlLookupBtn").addEventListener("click", lookupPharosTdl);
+    document.getElementById("tdlLookupDownload").addEventListener("click", downloadTdlLookupTsv);
 
     loadStats().then(() => search(1));
     setTab(activeTab || "dashboard");

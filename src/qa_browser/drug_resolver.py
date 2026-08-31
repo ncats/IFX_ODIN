@@ -18,6 +18,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 from html import unescape
 from threading import Lock
 from typing import Any
@@ -120,6 +121,51 @@ _INTERNAL_ID_RE = re.compile(r"^IFX[A-Za-z]+:")  # skip internal IDs for externa
 
 logger = logging.getLogger(__name__)
 
+_DRUG_SALT_SUFFIXES = (
+    "hydrochloride",
+    "hcl",
+    "mesylate",
+    "sulfate",
+    "sulphate",
+    "sodium",
+    "potassium",
+    "phosphate",
+    "acetate",
+    "citrate",
+    "fumarate",
+    "maleate",
+    "tartrate",
+    "succinate",
+    "besylate",
+    "tosylate",
+    "bromide",
+    "chloride",
+    "calcium",
+    "magnesium",
+)
+
+_DRUG_FORM_WORDS = {
+    "tablet",
+    "tablets",
+    "capsule",
+    "capsules",
+    "injection",
+    "injectable",
+    "solution",
+    "suspension",
+    "powder",
+    "concentrate",
+    "vial",
+    "kit",
+}
+
+_TIER_SORT_WEIGHT = {
+    "high_confidence_identity": 0.30,
+    "source_standard_multi_source_identity": 0.22,
+    "source_standard_single_source_identity": 0.12,
+    "source_standard_conflict": 0.08,
+}
+
 # ── HTTP session ─────────────────────────────────────────────────────────
 
 def _build_session() -> requests.Session:
@@ -129,7 +175,7 @@ def _build_session() -> requests.Session:
     s.trust_env = False
     s.verify = False
     retry = Retry(
-        total=3, backoff_factor=0.6,
+        total=0, connect=0, read=0, status=0, backoff_factor=0,
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=("GET", "POST"), raise_on_status=False,
     )
@@ -178,6 +224,290 @@ def _uniq_join(values: list, limit: int | None = None) -> str:
     return "|".join(seen)
 
 
+def _split_pipe_values(value: Any, limit: int = 6) -> list[str]:
+    """Split compact graph cells like CHEMBL1|CHEMBL2 into API lookup values."""
+    values: list[str] = []
+    for part in re.split(r"[|;,]", str(value or "")):
+        part = part.strip()
+        if part and part not in values:
+            values.append(part)
+    return values[:limit]
+
+
+def _clean_query_fragment(value: Any) -> str:
+    text = unescape(str(value or ""))
+    text = re.sub(r"[\u2010-\u2015\u2212]", "-", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"^[\s,;:/+&()\\[\\]-]+|[\s,;:/+&()\\[\\]-]+$", "", text)
+    return text.strip()
+
+
+def _normalize_drug_text(value: Any, keep_bracket_text: bool = False) -> str:
+    text = _clean_query_fragment(value).lower()
+    if keep_bracket_text:
+        text = re.sub(r"[\[\]{}()]", " ", text)
+    else:
+        text = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", text)
+    text = text.replace("&", " and ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _strip_form_words(value: str) -> str:
+    parts = _clean_query_fragment(value).split()
+    while parts and parts[-1].lower() in _DRUG_FORM_WORDS:
+        parts.pop()
+    return " ".join(parts).strip()
+
+
+def _strip_salt_or_suffix(value: str) -> str:
+    text = _strip_form_words(value)
+    lower = text.lower()
+    for suffix in _DRUG_SALT_SUFFIXES:
+        marker = f" {suffix}"
+        if lower.endswith(marker) and len(text) > len(marker) + 2:
+            return text[: -len(marker)].strip()
+    stripped = re.sub(r"\s*-\s*[a-z]{4}$", "", text, flags=re.I).strip()
+    if stripped and stripped != text:
+        return stripped
+    return text
+
+
+def _split_drug_terms(value: str) -> list[str]:
+    text = _clean_query_fragment(value)
+    if not text:
+        return []
+    pieces = re.split(r"\s+(?:and|or)\s+|[;&/+]", text, flags=re.I)
+    return [_clean_query_fragment(piece) for piece in pieces if _clean_query_fragment(piece)]
+
+
+def _drug_query_candidates(query: str) -> list[str]:
+    """Return resolver lookup terms for labels like "generic [Brand]".
+
+    The resolver keeps the original query, but also searches the pre-bracket
+    generic name, bracketed brand names, split combination terms, salt-stripped
+    forms, and biologic-suffix-stripped forms.
+    """
+    seen: set[str] = set()
+    terms: list[str] = []
+
+    def add(value: Any) -> None:
+        text = _clean_query_fragment(value)
+        if not text:
+            return
+        variants = [text, _strip_form_words(text), _strip_salt_or_suffix(text)]
+        for variant in variants:
+            variant = _clean_query_fragment(variant)
+            if len(variant) < 2:
+                continue
+            key = variant.lower()
+            if key not in seen:
+                seen.add(key)
+                terms.append(variant)
+
+    raw = _clean_query_fragment(query)
+    if not raw:
+        return []
+
+    add(raw)
+    bracket_parts = [m.group(1) or m.group(2) for m in re.finditer(r"\[([^\]]+)\]|\(([^)]+)\)", raw)]
+    outside = re.sub(r"\[[^\]]+\]|\([^)]*\)", " ", raw)
+    add(outside)
+    for piece in _split_drug_terms(outside):
+        add(piece)
+    for bracket in bracket_parts:
+        add(bracket)
+        for piece in _split_drug_terms(bracket):
+            add(piece)
+
+    normalized_with_brackets = _normalize_drug_text(raw, keep_bracket_text=True)
+    normalized_without_brackets = _normalize_drug_text(raw, keep_bracket_text=False)
+    add(normalized_with_brackets)
+    add(normalized_without_brackets)
+    return terms[:24]
+
+
+def _node_search_values(node: dict[str, str]) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+    for field in (
+        "drug_id", "standard_name", "primary_id", "nodenorm_canonical_label",
+        "unii", "chembl_id", "chebi_id", "pubchem_cid", "drugcentral_id",
+        "rxcui", "cas", "inchikey",
+    ):
+        value = str(node.get(field, "") or "").strip()
+        if value:
+            values.append((field, value))
+    for field in ("synonyms", "source_ids", "xrefs"):
+        for value in str(node.get(field, "") or "").split("|"):
+            value = value.strip()
+            if value:
+                values.append((field, value))
+    return values
+
+
+def _term_value_score(query_norm: str, value_norm: str) -> float:
+    if not query_norm or not value_norm:
+        return 0.0
+    if query_norm == value_norm:
+        return 1.0
+    score = 0.0
+    if len(query_norm) >= 5 and query_norm in value_norm:
+        score = max(score, 0.95 if value_norm.startswith(query_norm) else 0.91)
+    if len(value_norm) >= 5 and value_norm in query_norm:
+        score = max(score, 0.88)
+    q_tokens = set(query_norm.split())
+    v_tokens = set(value_norm.split())
+    if q_tokens and v_tokens:
+        overlap = len(q_tokens & v_tokens)
+        min_tokens = min(len(q_tokens), len(v_tokens))
+        max_tokens = max(len(q_tokens), len(v_tokens))
+        containment = overlap / min_tokens
+        coverage = overlap / max_tokens
+        if containment >= 0.80 and (len(q_tokens) > 1 or len(v_tokens) > 1):
+            score = max(score, 0.80 + (0.12 * containment) + (0.04 * coverage))
+    if len(query_norm) >= 5 and len(value_norm) >= 5:
+        score = max(score, 0.82 * SequenceMatcher(None, query_norm, value_norm).ratio())
+    return min(score, 1.0)
+
+
+def _score_node_against_terms(node: dict[str, str], terms: list[str]) -> tuple[float, str, str, str]:
+    best = (0.0, "", "", "")
+    norm_terms = [(term, _normalize_drug_text(term, keep_bracket_text=True)) for term in terms]
+    for field, value in _node_search_values(node):
+        value_norm = _normalize_drug_text(value, keep_bracket_text=True)
+        if not value_norm:
+            continue
+        for term, term_norm in norm_terms:
+            score = _term_value_score(term_norm, value_norm)
+            if score > best[0]:
+                best = (score, term, field, value)
+                if score >= 1.0:
+                    return best
+    return best
+
+
+def _floatish(value: Any) -> float:
+    try:
+        return float(str(value or "0").split("|")[0])
+    except ValueError:
+        return 0.0
+
+
+def _rank_local_hit(row: dict[str, Any]) -> tuple[float, float, float, float]:
+    score = _floatish(row.get("_match_score"))
+    tier = _TIER_SORT_WEIGHT.get(str(row.get("evidence_tier", "") or "").strip(), 0.0)
+    support = _floatish(row.get("source_support"))
+    source_records = _floatish(row.get("source_record_count"))
+    return (score, tier, support, source_records)
+
+
+def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tuple[list[dict[str, Any]], list[str], int]:
+    terms = _drug_query_candidates(query)
+    if not terms:
+        return [], [], 0
+
+    candidates: dict[str, dict[str, Any]] = {}
+
+    def add_hit(drug_id: str, term: str, strategy: str, base_score: float = 0.0) -> None:
+        node = data.nodes_by_id.get(drug_id)
+        if not node:
+            return
+        score, matched_term, matched_field, matched_value = _score_node_against_terms(node, [term])
+        score = max(score, base_score)
+        existing = candidates.get(drug_id)
+        if existing and _floatish(existing.get("_match_score")) >= score:
+            return
+        hit = dict(node)
+        hit["_match_score"] = f"{score:.3f}"
+        hit["_matched_query"] = matched_term or term
+        hit["_matched_field"] = matched_field
+        hit["_matched_value"] = matched_value
+        hit["_match_strategy"] = strategy
+        candidates[drug_id] = hit
+
+    for term in terms:
+        lookup_keys = {
+            term,
+            term.lower(),
+            term.upper(),
+            _normalize_drug_text(term, keep_bracket_text=True),
+            _normalize_drug_text(term, keep_bracket_text=False),
+        }
+        exact_term_hit = False
+        for key in lookup_keys:
+            exact_ids = data.ids_to_drugs.get(key, [])
+            if exact_ids:
+                exact_term_hit = True
+            for drug_id in exact_ids:
+                add_hit(drug_id, key if key != term else term, "exact_alias", 1.0)
+
+        if exact_term_hit:
+            continue
+
+        payload = search_drugs(data, q=term, per_page=25)
+        for node in payload.get("rows", []):
+            drug_id = node.get("drug_id")
+            if drug_id:
+                add_hit(drug_id, term, "substring")
+
+    if not candidates:
+        for node in data.nodes:
+            score, matched_term, matched_field, matched_value = _score_node_against_terms(node, terms)
+            if score >= 0.86:
+                hit = dict(node)
+                hit["_match_score"] = f"{score:.3f}"
+                hit["_matched_query"] = matched_term
+                hit["_matched_field"] = matched_field
+                hit["_matched_value"] = matched_value
+                hit["_match_strategy"] = "fuzzy_lexical"
+                candidates[node.get("drug_id", "")] = hit
+
+    ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
+    return ranked[:limit], terms, len(ranked)
+
+
+def _compact_local_hit(hit: dict[str, Any]) -> dict[str, Any]:
+    fields = [
+        "drug_id",
+        "primary_id",
+        "source_standard_primary_id",
+        "standard_name",
+        "definition",
+        "biolink_category",
+        "drug_scope",
+        "source_namespaces",
+        "nodenorm_canonical_curie",
+        "nodenorm_canonical_label",
+        "nodenorm_validation_status",
+        "inchikey",
+        "unii",
+        "pubchem_cid",
+        "chembl_id",
+        "chebi_id",
+        "drugcentral_id",
+        "rxcui",
+        "cas",
+        "atc_codes",
+        "approval_status",
+        "source_record_count",
+        "source_support",
+        "structural_key_type",
+        "evidence_tier",
+        "quality_flags",
+        "_match_score",
+        "_matched_query",
+        "_matched_field",
+        "_matched_value",
+        "_match_strategy",
+    ]
+    compact = {field: hit.get(field, "") for field in fields if hit.get(field, "")}
+    if len(str(compact.get("definition", ""))) > 220:
+        compact["definition"] = _shorten(compact["definition"], 220) or ""
+    if len(str(compact.get("_matched_value", ""))) > 220:
+        compact["_matched_value"] = _shorten(compact["_matched_value"], 220) or ""
+    return compact
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # STEP 1: LOCAL GRAPH LOOKUP
 # ═════════════════════════════════════════════════════════════════════════
@@ -194,13 +524,13 @@ def resolve_local(data: DrugGraphData, queries: list[str]) -> list[dict[str, Any
         if not q:
             results.append({"query": q, "local_hits": [], "resolved": False})
             continue
-        payload = search_drugs(data, q=q, per_page=10)
-        hits = payload.get("rows", [])
+        hits, query_terms, total = _resolve_local_hits(data, q, limit=5)
         results.append({
             "query": q,
-            "local_hits": hits,
+            "query_terms": query_terms,
+            "local_hits": [_compact_local_hit(hit) for hit in hits],
             "resolved": len(hits) > 0,
-            "total_local_matches": payload.get("total", 0),
+            "total_local_matches": total,
         })
     return results
 
@@ -213,7 +543,7 @@ def enrich_ncats_resolver(
     query: str,
     session: requests.Session | None = None,
     api_key: str = "5fd5bb2a05eb6195",
-    timeout: int = 30,
+    timeout: int = 3,
     props: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Query the NCATS chemical resolver for a single identifier.
@@ -333,7 +663,7 @@ def _clean_name_for_pharos(name: str | None) -> str | None:
 def enrich_pharos(
     name: str,
     session: requests.Session | None = None,
-    timeout: int = 20,
+    timeout: int = 5,
 ) -> dict[str, Any] | None:
     """Query Pharos GraphQL for drug-target activities."""
     if not name:
@@ -422,7 +752,7 @@ def _parse_inxight_drug_page(html: str) -> dict[str, Any]:
 def enrich_inxight(
     unii: str,
     session: requests.Session | None = None,
-    timeout: int = 20,
+    timeout: int = 3,
 ) -> dict[str, Any] | None:
     """Query Inxight/GSRS by UNII for regulatory + target context."""
     if not unii:
@@ -434,16 +764,7 @@ def enrich_inxight(
 
     result: dict[str, Any] = {}
 
-    # Drug page scrape for development badge
-    try:
-        page_resp = session.get(f"https://drugs.ncats.io/drug/{unii}", timeout=timeout)
-        if page_resp.status_code == 200:
-            page_data = _parse_inxight_drug_page(page_resp.text)
-            if page_data:
-                page_data["inxight_drug_url"] = f"https://drugs.ncats.io/drug/{unii}"
-                result.update(page_data)
-    except Exception:
-        pass
+    result["inxight_drug_url"] = f"https://drugs.ncats.io/drug/{unii}"
 
     # API search
     try:
@@ -510,7 +831,7 @@ def enrich_inxight(
 def enrich_openfda(
     name_candidates: list[str],
     session: requests.Session | None = None,
-    timeout: int = 15,
+    timeout: int = 3,
 ) -> dict[str, Any] | None:
     """Search openFDA drug labels for adverse reactions and warnings."""
     candidates = list(dict.fromkeys(c.strip() for c in name_candidates if c and c.strip()))[:8]
@@ -561,7 +882,7 @@ def enrich_openfda(
 def enrich_chebi(
     chebi_id: str,
     session: requests.Session | None = None,
-    timeout: int = 15,
+    timeout: int = 3,
 ) -> dict[str, Any] | None:
     """Look up ChEBI chemical class hierarchy via OLS4."""
     if not chebi_id:
@@ -621,16 +942,20 @@ def _enrich_one(
 
     # Determine lookup keys from local hit or raw query
     name = best.get("standard_name") or query
-    unii = best.get("unii") or ""
-    chebi_id = best.get("chebi_id") or ""
-    chembl_id = best.get("chembl_id") or ""
+    unii_values = _split_pipe_values(best.get("unii"))
+    chebi_values = _split_pipe_values(best.get("chebi_id"))
+    chembl_values = _split_pipe_values(best.get("chembl_id"))
+    unii = unii_values[0] if unii_values else ""
+    chebi_id = chebi_values[0] if chebi_values else ""
+    chembl_id = chembl_values[0] if chembl_values else ""
 
     # NCATS Resolver — try original query FIRST so a user-typed name
     # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
     # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
         seen_lookups: set[str] = set()
-        for lookup in [query, unii, chembl_id, name]:
+        ncats_lookups = [query, name, *unii_values[:1], *chembl_values[:1]]
+        for lookup in ncats_lookups:
             if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_lookups.add(lookup)
@@ -640,11 +965,20 @@ def _enrich_one(
                 # Override IDs with NCATS-resolved values so downstream
                 # lookups use the correct compound, not the local hit
                 if ncats.get("ncats_unii"):
-                    unii = ncats["ncats_unii"]
+                    unii_values = _split_pipe_values(ncats["ncats_unii"]) + [
+                        v for v in unii_values if v not in _split_pipe_values(ncats["ncats_unii"])
+                    ]
+                    unii = unii_values[0] if unii_values else ""
                 if ncats.get("ncats_chebi"):
-                    chebi_id = ncats["ncats_chebi"]
+                    chebi_values = _split_pipe_values(ncats["ncats_chebi"]) + [
+                        v for v in chebi_values if v not in _split_pipe_values(ncats["ncats_chebi"])
+                    ]
+                    chebi_id = chebi_values[0] if chebi_values else ""
                 if ncats.get("ncats_chembl"):
-                    chembl_id = ncats["ncats_chembl"]
+                    chembl_values = _split_pipe_values(ncats["ncats_chembl"]) + [
+                        v for v in chembl_values if v not in _split_pipe_values(ncats["ncats_chembl"])
+                    ]
+                    chembl_id = chembl_values[0] if chembl_values else ""
                 resolved_name = ncats.get("ncats_resolved_name")
                 if resolved_name:
                     name = resolved_name
@@ -657,9 +991,9 @@ def _enrich_one(
         if graph_data and enrichment.get("ncats_resolver"):
             ncats_ids = enrichment["ncats_resolver"]
             relookup_terms = [v for v in [
-                ncats_ids.get("ncats_unii"),
-                ncats_ids.get("ncats_chembl"),
-                ncats_ids.get("ncats_chebi"),
+                *_split_pipe_values(ncats_ids.get("ncats_unii")),
+                *_split_pipe_values(ncats_ids.get("ncats_chembl")),
+                *_split_pipe_values(ncats_ids.get("ncats_chebi")),
                 ncats_ids.get("ncats_resolved_name"),
             ] if v]
             # Only re-lookup if the original local hit seems wrong or absent
@@ -687,7 +1021,7 @@ def _enrich_one(
     if enable_pharos:
         pharos = None
         seen_pharos: set[str] = set()
-        for lookup in [query, name, chembl_id]:
+        for lookup in [query, name, *chembl_values]:
             if not lookup or lookup in seen_pharos or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_pharos.add(lookup)
@@ -699,21 +1033,25 @@ def _enrich_one(
         time.sleep(delay)
 
     # Inxight
-    if enable_inxight and unii:
-        inxight = enrich_inxight(unii, session=session)
-        if inxight:
-            enrichment["inxight"] = inxight
-            # Collect name candidates for openFDA
-            if not name or name == query:
-                name = inxight.get("inxight_name") or name
-        time.sleep(delay)
+    if enable_inxight and unii_values:
+        for lookup in unii_values[:1]:
+            inxight = enrich_inxight(lookup, session=session)
+            if inxight:
+                enrichment["inxight"] = inxight
+                # Collect name candidates for openFDA
+                if not name or name == query:
+                    name = inxight.get("inxight_name") or name
+                break
+            time.sleep(delay)
 
     # ChEBI
-    if enable_chebi and chebi_id:
-        chebi = enrich_chebi(chebi_id, session=session)
-        if chebi:
-            enrichment["chebi"] = chebi
-        time.sleep(delay)
+    if enable_chebi and chebi_values:
+        for lookup in chebi_values[:2]:
+            chebi = enrich_chebi(lookup, session=session)
+            if chebi:
+                enrichment["chebi"] = chebi
+                break
+            time.sleep(delay)
 
     # openFDA
     if enable_openfda:

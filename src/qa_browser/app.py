@@ -141,6 +141,7 @@ from src.qa_browser.target_id_graph import (
     invalidate_pharos_tdl_cache,
     load_pharos_tdl_data,
     load_target_graph_data,
+    lookup_tdl_by_symbols,
     load_target_version_data,
     mark_rows_resolved_by_registry_ids,
     mark_rows_resolved_by_triage,
@@ -221,6 +222,7 @@ _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
 _drug_graph_dir: str = ""
 _drug_review_file: str = ""
+DRUG_RESOLVER_MAX_QUERIES = 250
 _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
 _drug_review_lock = threading.Lock()
@@ -8487,6 +8489,23 @@ async def target_pharos_ppi(request: Request):
     return build_pharos_ppi_payload(pharos, genes, ppi_edges)
 
 
+@app.post("/target-id-qa/api/pharos-tdl/lookup")
+async def target_pharos_tdl_lookup(request: Request):
+    """Look up Pharos TDL classification for a list of gene symbols."""
+    body = await request.json()
+    genes = body.get("genes") or []
+    if isinstance(genes, str):
+        genes = [g.strip() for g in genes.split("\n") if g.strip()]
+    genes = [g.strip() for g in genes if g.strip()]
+    if not genes:
+        raise HTTPException(status_code=400, detail="No genes provided.")
+    if len(genes) > 2000:
+        raise HTTPException(status_code=400, detail="Too many genes (max 2000).")
+    db = _get_target_graph_db()
+    pharos = await run_in_threadpool(load_pharos_tdl_data, db)
+    return lookup_tdl_by_symbols(pharos, genes)
+
+
 # ---------------------------------------------------------------------------
 # Variant Harmonizer Explorer
 # ---------------------------------------------------------------------------
@@ -8839,8 +8858,8 @@ async def drug_id_qa_resolve(body: dict):
     queries = body.get("queries", [])
     if not queries:
         return {"error": "No queries provided"}
-    if len(queries) > 50:
-        return {"error": "Maximum 50 queries per request"}
+    if len(queries) > DRUG_RESOLVER_MAX_QUERIES:
+        raise HTTPException(status_code=400, detail=f"Maximum {DRUG_RESOLVER_MAX_QUERIES} queries per request")
     data = _load_drug_graph()
     ncats_props = body.get("ncats_props")  # None → use defaults
     if ncats_props is not None and not isinstance(ncats_props, list):
@@ -8864,7 +8883,7 @@ async def drug_id_qa_resolve_quick(q: str = ""):
     """Quick local-only resolution (no enrichment, instant response)."""
     if not q.strip():
         return {"results": [], "stats": {"total": 0}}
-    queries = [s.strip() for s in q.split("|") if s.strip()][:50]
+    queries = [s.strip() for s in q.split("|") if s.strip()][:DRUG_RESOLVER_MAX_QUERIES]
     data = _load_drug_graph()
     return resolve_and_enrich(
         data,
