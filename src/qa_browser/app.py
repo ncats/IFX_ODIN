@@ -159,6 +159,7 @@ from src.qa_browser.drug_id_graph import (
     export_drug_review_intake_template,
     load_drug_graph_data,
     search_drugs,
+    summarize_drug_source_versions,
 )
 from src.qa_browser.drug_resolver import get_ncats_property_catalog, resolve_and_enrich
 from src.qa_browser.variant_resolver import (
@@ -8543,6 +8544,12 @@ def drug_id_qa(request: Request, ids: str = "", tab: str = ""):
 def drug_id_qa_stats():
     data = _load_drug_graph()
     return compute_drug_stats(data)
+
+
+@app.get("/drug-id-qa/api/source-versions")
+def drug_id_qa_source_versions():
+    data = _load_drug_graph()
+    return {"sources": summarize_drug_source_versions(data)}
 
 
 @app.get("/drug-id-qa/api/search")

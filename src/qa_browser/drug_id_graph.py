@@ -26,6 +26,7 @@ class DrugGraphData:
         "review_registry_by_id",
         "manifest",
         "source_catalog",
+        "source_update_report",
         "_stats",
     )
 
@@ -40,6 +41,7 @@ class DrugGraphData:
         self.review_registry_by_id: dict[str, dict[str, str]] = {}
         self.manifest: dict[str, Any] = {}
         self.source_catalog: list[dict[str, str]] = []
+        self.source_update_report: list[dict[str, str]] = []
         self._stats: dict[str, Any] | None = None
 
 
@@ -171,6 +173,140 @@ def _edge_count(value: Any) -> int:
         return 1
 
 
+DRUG_SOURCE_ORDER = {
+    "PubChem": 0,
+    "ChEMBL": 1,
+    "ChEBI": 2,
+    "GSRS": 3,
+    "RxNorm": 4,
+    "UniChem": 5,
+    "DrugCentral": 6,
+    "NCATS Inxight Drugs": 7,
+    "NodeNorm Chemical": 8,
+}
+
+DRUG_SOURCE_ROLES = {
+    "PubChem": "Observed CID enrichment and structure properties",
+    "ChEMBL": "Approved/max-phase molecule source",
+    "ChEBI": "Ontology and chemical classification source",
+    "GSRS": "NCATS substance registry / UNII source",
+    "RxNorm": "RXCUI xref layer; full product context currently xref-only",
+    "UniChem": "Planned cross-reference enrichment; disabled until batch-file ingestion",
+    "DrugCentral": "Drug identity, approval, and target-interaction context",
+    "NCATS Inxight Drugs": "GSRS/Inxight activity and target context",
+    "NodeNorm Chemical": "Validator/canonical CURIE service, not an asserting source",
+}
+
+
+def _canonical_drug_source_name(value: str) -> str:
+    text = str(value or "").strip()
+    if text.startswith("RxNorm"):
+        return "RxNorm"
+    return text or "Unknown"
+
+
+def _first_date(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text[:10]
+    return ""
+
+
+def _source_sort_key(row: dict[str, Any]) -> tuple[int, str]:
+    name = str(row.get("name") or row.get("source") or "")
+    return (DRUG_SOURCE_ORDER.get(name, 999), name.lower())
+
+
+def summarize_drug_source_versions(data: DrugGraphData) -> list[dict[str, Any]]:
+    """Collapse download/transform rows into one dashboard row per source."""
+    by_source: dict[str, dict[str, Any]] = {}
+
+    def entry_for(name: str) -> dict[str, Any]:
+        source = _canonical_drug_source_name(name)
+        if source not in by_source:
+            by_source[source] = {
+                "name": source,
+                "versions": [],
+                "version": "",
+                "source_release_date": "",
+                "odin_download_date": "",
+                "odin_transform_date": "",
+                "download_status": "",
+                "transform_status": "",
+                "download_mode": "",
+                "download_changed": "",
+                "transform_output_rows": 0,
+                "url": "",
+                "notes": [],
+                "note": "",
+                "role": DRUG_SOURCE_ROLES.get(source, ""),
+            }
+        return by_source[source]
+
+    def add_version(entry: dict[str, Any], version: str) -> None:
+        version = str(version or "").strip()
+        if version and version not in {"unknown", "not captured"} and version not in entry["versions"]:
+            entry["versions"].append(version)
+
+    for row in data.source_catalog:
+        entry = entry_for(row.get("source", ""))
+        add_version(entry, row.get("version", ""))
+        if row.get("download_start") or row.get("download_end"):
+            entry["odin_download_date"] = _first_date(entry["odin_download_date"], row.get("download_end"), row.get("download_start"))
+            entry["download_changed"] = str(row.get("changed") or entry["download_changed"] or "").strip()
+        if row.get("transform_start") or row.get("transform_end"):
+            entry["odin_transform_date"] = _first_date(entry["odin_transform_date"], row.get("transform_end"), row.get("transform_start"))
+        try:
+            entry["transform_output_rows"] += int(float(str(row.get("records") or "0")))
+        except ValueError:
+            pass
+
+    for row in data.source_update_report:
+        entry = entry_for(row.get("source", ""))
+        artifact = str(row.get("artifact_type") or "").strip().lower()
+        add_version(entry, row.get("version", ""))
+        source_date = _first_date(row.get("source_release_date"), row.get("last_modified_iso"))
+        if source_date and not entry["source_release_date"]:
+            entry["source_release_date"] = source_date
+        if artifact == "download":
+            entry["download_status"] = row.get("status", "") or entry["download_status"]
+            entry["download_mode"] = row.get("download_mode", "") or entry["download_mode"]
+            entry["download_changed"] = row.get("changed", "") or entry["download_changed"]
+            entry["odin_download_date"] = _first_date(entry["odin_download_date"], row.get("download_end"), row.get("download_start"))
+        elif artifact == "transform":
+            entry["transform_status"] = row.get("status", "") or entry["transform_status"]
+            entry["odin_transform_date"] = _first_date(entry["odin_transform_date"], row.get("transform_end"), row.get("transform_start"))
+        if row.get("url") and not entry["url"]:
+            entry["url"] = row.get("url", "")
+        note = row.get("notes") or row.get("skip_reason") or ""
+        if note and note not in entry["notes"]:
+            entry["notes"].append(note)
+        try:
+            records = int(float(str(row.get("records") or "0")))
+        except ValueError:
+            records = 0
+        if artifact == "transform" and records:
+            entry["transform_output_rows"] = max(int(entry["transform_output_rows"]), records)
+
+    for entry in by_source.values():
+        versions = entry.pop("versions", [])
+        entry["version"] = "|".join(versions) if versions else "not captured"
+        if not entry["source_release_date"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", entry["version"]):
+            entry["source_release_date"] = entry["version"]
+        if not entry["source_release_date"] and re.fullmatch(r"\d{4}_\d{2}_\d{2}", entry["version"]):
+            entry["source_release_date"] = entry["version"].replace("_", "-")
+        entry["note"] = " | ".join(entry.pop("notes", []))
+        if not entry["download_status"] and not entry["odin_download_date"]:
+            entry["download_status"] = "not applicable"
+        if not entry["transform_status"] and entry["odin_transform_date"]:
+            entry["transform_status"] = "transformed"
+        if entry["transform_output_rows"] == 0 and entry["download_status"] in {"disabled", "xref_only"}:
+            entry["note"] = entry["note"] or DRUG_SOURCE_ROLES.get(entry["name"], "")
+
+    return sorted(by_source.values(), key=_source_sort_key)
+
+
 def _drug_lookup_aliases(value: str) -> set[str]:
     text = (value or "").strip()
     if not text:
@@ -242,6 +378,7 @@ def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
             if row.get("registry_id")
         }
         data.source_catalog = _read_tsv(graph_path / "drug_source_catalog.tsv")
+        data.source_update_report = _read_tsv(graph_path / "drug_source_update_report.tsv")
         _singletons[key] = data
         return data
 
@@ -297,16 +434,30 @@ def compute_drug_stats(data: DrugGraphData) -> dict[str, Any]:
     tier_counts: Counter[str] = Counter()
     key_counts: Counter[str] = Counter()
     scope_counts: Counter[str] = Counter()
+    biolink_counts: Counter[str] = Counter()
+    nodenorm_counts: Counter[str] = Counter()
+    multi_source_count = 0
     for node in data.nodes:
-        for source in _split_pipe(node.get("source_namespaces", "")):
+        node_sources = _split_pipe(node.get("source_namespaces", ""))
+        if len(node_sources) > 1:
+            multi_source_count += 1
+        for source in node_sources:
             source_counts[source] += 1
         tier_counts[node.get("evidence_tier", "") or "unknown"] += 1
         key_counts[node.get("structural_key_type", "") or "unknown"] += 1
         for scope in _split_pipe(node.get("drug_scope", "")) or ["unknown"]:
             scope_counts[scope] += 1
+        biolink_counts[node.get("biolink_category", "") or "unknown"] += 1
+        nodenorm_counts[node.get("nodenorm_validation_status", "") or "unknown"] += 1
     relation_counts = Counter(edge.get("relation_kind", "") or "unknown" for edge in data.edges)
     predicate_counts = Counter(edge.get("predicate", "") or "unknown" for edge in data.edges)
     target_category_counts = Counter(edge.get("target_category", "") or "unknown" for edge in data.edges)
+    source_versions = summarize_drug_source_versions(data)
+    source_update_status_counts = Counter()
+    for row in source_versions:
+        for status in (row.get("download_status", ""), row.get("transform_status", "")):
+            if status and status not in {"not applicable"}:
+                source_update_status_counts[str(status)] += 1
     review_status_counts = Counter(
         row.get("status", "") or "open"
         for row in data.review_registry
@@ -317,9 +468,22 @@ def compute_drug_stats(data: DrugGraphData) -> dict[str, Any]:
         row.get("issue_type", "") or "unknown"
         for row in (data.review_registry or data.review_queue)
     )
+    total_drugs = len(data.nodes)
+    nodenorm_resolved_count = total_drugs - int(nodenorm_counts.get("not_normalized", 0))
+    full_total = int(data.manifest.get("counts", {}).get("full_nodes_available") or total_drugs)
     data._stats = {
-        "total_drugs": len(data.nodes),
+        "total_drugs": total_drugs,
+        "full_total_drugs": full_total,
         "total_edges": len(data.edges),
+        "multi_source_count": multi_source_count,
+        "multi_source_percent": (multi_source_count / total_drugs * 100) if total_drugs else 0,
+        "source_only_count": total_drugs - multi_source_count,
+        "nodenorm_resolved_count": nodenorm_resolved_count,
+        "nodenorm_resolved_percent": (nodenorm_resolved_count / total_drugs * 100) if total_drugs else 0,
+        "identity_xref_edges": int(relation_counts.get("identity_xref", 0)),
+        "context_xref_edges": int(relation_counts.get("external_identifier_xref", 0) + relation_counts.get("source_provenance_xref", 0)),
+        "target_association_edges": int(relation_counts.get("drug_target", 0)),
+        "literature_edges": int(relation_counts.get("literature_evidence", 0)),
         "open_review_rows": int(review_status_counts.get("open", 0)),
         "resolved_or_acknowledged_review_rows": int(
             review_status_counts.get("resolved", 0) + review_status_counts.get("acknowledged", 0)
@@ -328,12 +492,16 @@ def compute_drug_stats(data: DrugGraphData) -> dict[str, Any]:
         "evidence_tier_counts": dict(tier_counts.most_common()),
         "structural_key_counts": dict(key_counts.most_common()),
         "drug_scope_counts": dict(scope_counts.most_common(20)),
+        "biolink_category_counts": dict(biolink_counts.most_common()),
+        "nodenorm_status_counts": dict(nodenorm_counts.most_common()),
         "relation_counts": dict(relation_counts.most_common()),
         "predicate_counts": dict(predicate_counts.most_common()),
         "target_category_counts": dict(target_category_counts.most_common()),
         "review_status_counts": dict(review_status_counts.most_common()),
         "review_issue_counts": dict(review_issue_counts.most_common()),
         "source_catalog": data.source_catalog,
+        "source_versions": source_versions,
+        "source_update_status_counts": dict(source_update_status_counts.most_common()),
         "manifest": data.manifest,
     }
     return data._stats

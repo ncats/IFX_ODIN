@@ -10243,6 +10243,41 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     font-family: var(--font-mono, monospace);
 }
 
+.drug-dash-hero .dash-card {
+    text-align: left;
+}
+
+.drug-dash-hero .dash-stat {
+    color: #4f46e5;
+}
+
+.drug-resolver-summary {
+    min-height: 13rem;
+}
+
+.drug-dashboard-note {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.drug-dashboard-note p {
+    line-height: 1.45;
+    margin: 0;
+}
+
+.drug-source-catalog-panel {
+    overflow: auto;
+}
+
+.drug-source-table {
+    min-width: 980px;
+}
+
+.drug-source-table td:last-child {
+    max-width: 28rem;
+    white-space: normal;
+}
+
 .variant-graph-layout {
     display: grid;
     gap: 1rem;
