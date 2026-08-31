@@ -265,7 +265,7 @@
             <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/drug-id-qa/api/graph?ids=aspirin</span><div class="api-endpoint-desc">Graph-ready identity xrefs, product context, and drug-target evidence.</div></div>
             <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/drug-id-qa/api/ncats-properties</span><div class="api-endpoint-desc">NCATS Resolver property catalog — all queryable properties with display names, categories, and defaults.</div></div>
             <div class="api-endpoint"><span class="api-endpoint-method">POST</span><span class="api-endpoint-path">/drug-id-qa/api/resolve</span><div class="api-endpoint-desc">Batch resolve + enrich drug queries against local graph and live APIs (NCATS Resolver, Pharos, Inxight, openFDA, ChEBI). Accepts optional <code>ncats_props</code> array to select NCATS properties.</div></div>
-            <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/drug-id-qa/api/resolve-quick?q=aspirin|ibuprofen</span><div class="api-endpoint-desc">Quick local-only resolution (no enrichment, instant response). Pipe-separated queries.</div></div>
+            <div class="api-endpoint"><span class="api-endpoint-method">POST</span><span class="api-endpoint-path">/drug-id-qa/api/resolve</span><div class="api-endpoint-desc">Quick local-only resolution uses the same batch endpoint with enrichment disabled. This avoids long browser URLs for pasted drug lists.</div></div>
         </div>
     </section>
 
@@ -279,7 +279,7 @@
             </div>
 
             <textarea id="drugResolverInput" class="api-resolver-input" rows="4"
-                placeholder="Enter drug names, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
+                placeholder="Enter drug names, brand names in brackets, combinations, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
 
             <div style="display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap;">
                 <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
@@ -318,6 +318,26 @@
                 <option value="json">JSON</option>
             </select>
             <button id="drugResolverExportBtn" class="btn btn-sm" type="button">Export Results</button>
+        </div>
+        <div id="drugResolverEnrichQueue" class="resolver-enrich-queue" style="display:none;">
+            <div class="resolver-enrich-queue-head">
+                <div>
+                    <strong>Enrichment queue</strong>
+                    <span id="drugResolverEnrichQueueSummary"></span>
+                </div>
+                <div class="resolver-enrich-queue-actions">
+                    <button id="drugResolverLoadTop10Btn" class="btn btn-sm" type="button">Run 10 Pharos</button>
+                    <button id="drugResolverLoadTop25Btn" class="btn btn-sm" type="button">Run 25 Pharos</button>
+                    <button id="drugResolverCopyQueueBtn" class="btn btn-sm" type="button">Copy IDs</button>
+                </div>
+            </div>
+            <p>
+                Use this after a large local search. These IFXDrug IDs pin the harmonized local hits first;
+                enrichment then uses the node's public identifiers and names for Pharos, NCATS Resolver,
+                Inxight/GSRS, ChEBI, and openFDA. For Pharos target checks, start with the Pharos-only
+                action because the other live sources can be slower.
+            </p>
+            <textarea id="drugResolverEnrichQueueText" rows="4" readonly></textarea>
         </div>
         <div id="drugResolverResults" style="margin-bottom:1rem;"></div>
 
@@ -819,6 +839,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drResults = document.getElementById("drugResolverResults");
     const drJsonWrap = document.getElementById("drugResolverJsonWrap");
     const drJsonPre = document.getElementById("drugResolverJson");
+    const DR_LARGE_BATCH_LOCAL_ONLY = 25;
 
     // ── NCATS Property Selector ──────────────────────────────────────
     let ncatsCatalog = [];  // populated from API
@@ -907,6 +928,17 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return flags;
     }
 
+    function drLocalOnlyFlags() {
+        return {
+            enable_ncats: false,
+            enable_pharos: false,
+            enable_inxight: false,
+            enable_openfda: false,
+            enable_chebi: false,
+            workers: 1,
+        };
+    }
+
     function drDetailRow(key, val) {
         if (!val) return "";
         return `<div style="display:flex;gap:0.3rem;line-height:1.5;font-size:0.78rem;"><span style="color:#555;min-width:6rem;flex-shrink:0;font-weight:600;">${escapeHtml(key)}</span><span style="word-break:break-word;color:#111;">${escapeHtml(String(val))}</span></div>`;
@@ -931,6 +963,30 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             }
             h += `</tbody></table></div><button style="background:none;border:none;color:var(--accent, #14b8a6);cursor:pointer;font-size:0.75rem;padding:0.15rem 0;" onclick="var el=document.getElementById('${id}_extra');el.style.display=el.style.display==='none'?'block':'none';this.textContent=el.style.display==='none'?'Show ${rest.length} more targets':'Collapse';">Show ${rest.length} more targets</button>`;
         }
+        return h;
+    }
+
+    function drLocalHitsTable(hits) {
+        if (!hits || hits.length <= 1) return "";
+        const shown = hits.slice(0, 5);
+        let h = `<table style="font-size:0.72rem;border-collapse:collapse;width:100%;margin-top:0.45rem;"><thead><tr>` +
+            `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Candidate</th>` +
+            `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">IFX ID</th>` +
+            `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Primary ID</th>` +
+            `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Score</th>` +
+            `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Matched</th>` +
+            `</tr></thead><tbody>`;
+        for (const hit of shown) {
+            const graph = hit.drug_id ? `<a href="${rootPath}/drug-id-qa?ids=${encodeURIComponent(hit.drug_id)}&tab=graph" style="color:var(--accent, #14b8a6);">${escapeHtml(hit.drug_id)}</a>` : "";
+            h += `<tr>` +
+                `<td style="padding:0.2rem 0.4rem;"><strong>${escapeHtml(hit.standard_name || "")}</strong></td>` +
+                `<td style="padding:0.2rem 0.4rem;">${graph}</td>` +
+                `<td style="padding:0.2rem 0.4rem;">${escapeHtml(hit.primary_id || "")}</td>` +
+                `<td style="padding:0.2rem 0.4rem;">${escapeHtml(hit._match_score || "")}</td>` +
+                `<td style="padding:0.2rem 0.4rem;">${escapeHtml(hit._matched_query || "")}</td>` +
+                `</tr>`;
+        }
+        h += `</tbody></table>`;
         return h;
     }
 
@@ -966,13 +1022,34 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             (best.source_namespaces || "").split("|").slice(0, 4).filter(Boolean).forEach(s => { badges += drBadge(s, badgeStyles.source); });
         }
         sources.forEach(s => { badges += drBadge(s, badgeStyles[s] || badgeStyles.source); });
+        if (found && !queried.length) badges += drBadge("local only", badgeStyles.notfound);
         if (!found && !sources.length) badges += drBadge("not found", badgeStyles.notfound);
 
         let details = "";
 
+        if (queried.length || r.resolved_via) {
+            let h = "";
+            h += drDetailRow("Queried", queried.join(" | "));
+            h += drDetailRow("Found", sources.length ? sources.join(" | ") : "No live-source hits");
+            h += drDetailRow("Resolved via", r.resolved_via);
+            if (h) details += `<div>${drSectionHead("External Lookup")}${h}</div>`;
+        }
+
+        // Query parsing / local matching
+        if (r.query_terms && r.query_terms.length) {
+            let h = "";
+            h += drDetailRow("Lookup terms", r.query_terms.slice(0, 12).join(" | "));
+            if (h) details += `<div>${drSectionHead("Resolver Parsing")}${h}</div>`;
+        }
+
         // Harmonized Graph
         if (found) {
             let h = "";
+            h += drDetailRow("Match score", best._match_score);
+            h += drDetailRow("Matched query", best._matched_query);
+            h += drDetailRow("Matched field", best._matched_field);
+            h += drDetailRow("Matched value", best._matched_value);
+            h += drDetailRow("Match strategy", best._match_strategy);
             h += drDetailRow("Drug ID", drugId);
             h += drDetailRow("Primary ID", best.primary_id);
             h += drDetailRow("InChIKey", best.inchikey);
@@ -985,6 +1062,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("CAS", best.cas);
             h += drDetailRow("Approval", best.approval_status);
             h += drDetailRow("Sources", best.source_namespaces);
+            h += drLocalHitsTable(hits);
             if (h) details += `<div>${drSectionHead("Harmonized Graph")}${h}</div>`;
         }
 
@@ -1101,6 +1179,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     function drRenderAll(payload) {
+        if (payload && payload.error) {
+            drStatus.textContent = "Error: " + payload.error;
+            drResults.innerHTML = "";
+            return;
+        }
         const results = payload.results || [];
         const stats = payload.stats || {};
         if (!results.length) { drResults.innerHTML = `<p style="color:var(--text-muted)">No results.</p>`; return; }
@@ -1114,6 +1197,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (stats.chebi_found) es.push(`ChEBI: ${stats.chebi_found}`);
             if (stats.openfda_found) es.push(`openFDA: ${stats.openfda_found}`);
             if (es.length) parts.push(`enriched: ${es.join(", ")}`);
+        } else if (stats.enrichment_skipped_reason === "large_batch_local_only") {
+            parts.push(`large batch: live enrichment skipped above ${stats.enrichment_limit || DR_LARGE_BATCH_LOCAL_ONLY} queries`);
+            parts.push("use enrichment queue below for a smaller chunk");
+        } else if (stats.enrichment_skipped_reason === "quick_search_local_only") {
+            parts.push("local search only");
         }
         drStatus.textContent = parts.join(" | ");
         drJsonWrap.style.display = "";
@@ -1155,7 +1243,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     drRunBtn.addEventListener("click", function() {
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
-        const flags = drFlags();
+        let flags = drFlags();
+        const forcedLocalOnly = queries.length > DR_LARGE_BATCH_LOCAL_ONLY;
+        if (forcedLocalOnly) {
+            flags = drLocalOnlyFlags();
+        }
         drSetLoading(drRunBtn, true);
         drResults.innerHTML = ""; drJsonWrap.style.display = "none";
         drStartProgress(queries, flags);
@@ -1165,6 +1257,16 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             body: JSON.stringify({queries, ...flags, workers: 4}),
         })
         .then(r => { if (!r.ok) return r.json().then(p => { throw new Error(p.detail || p.error || r.statusText); }); return r.json(); })
+        .then(payload => {
+            if (forcedLocalOnly) {
+                payload.stats = {
+                    ...(payload.stats || {}),
+                    enrichment_skipped_reason: "large_batch_local_only",
+                    enrichment_limit: DR_LARGE_BATCH_LOCAL_ONLY,
+                };
+            }
+            return payload;
+        })
         .then(drRenderAll)
         .catch(err => { drStatus.textContent = "Error: " + err.message; drResults.innerHTML = ""; })
         .finally(() => { drStopProgress(); drSetLoading(drRunBtn, false); });
@@ -1173,11 +1275,24 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     drLocalBtn.addEventListener("click", function() {
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
+        const flags = drLocalOnlyFlags();
         drSetLoading(drLocalBtn, true);
         drResults.innerHTML = ""; drJsonWrap.style.display = "none";
         drStatus.innerHTML = `<span style="color:#111;font-weight:600;">Searching ${queries.length} quer${queries.length === 1 ? "y" : "ies"}</span> <span style="color:#0d9488;font-style:italic;">Searching local graph...</span>`;
-        fetch(`${rootPath}/drug-id-qa/api/resolve-quick?q=${encodeURIComponent(queries.join("|"))}`)
+        fetch(`${rootPath}/drug-id-qa/api/resolve`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({queries, ...flags}),
+        })
         .then(r => { if (!r.ok) return r.json().then(p => { throw new Error(p.detail || p.error || r.statusText); }); return r.json(); })
+        .then(payload => {
+            payload.stats = {
+                ...(payload.stats || {}),
+                enrichment_skipped_reason: "quick_search_local_only",
+                enrichment_limit: DR_LARGE_BATCH_LOCAL_ONLY,
+            };
+            return payload;
+        })
         .then(drRenderAll)
         .catch(err => { drStatus.textContent = "Error: " + err.message; drResults.innerHTML = ""; })
         .finally(() => drSetLoading(drLocalBtn, false));
@@ -1192,12 +1307,82 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drExportRow = document.getElementById("drugResolverExportRow");
     const drExportBtn = document.getElementById("drugResolverExportBtn");
     const drExportFmt = document.getElementById("drugResolverExportFormat");
+    const drEnrichQueue = document.getElementById("drugResolverEnrichQueue");
+    const drEnrichQueueSummary = document.getElementById("drugResolverEnrichQueueSummary");
+    const drEnrichQueueText = document.getElementById("drugResolverEnrichQueueText");
+    const drLoadTop10Btn = document.getElementById("drugResolverLoadTop10Btn");
+    const drLoadTop25Btn = document.getElementById("drugResolverLoadTop25Btn");
+    const drCopyQueueBtn = document.getElementById("drugResolverCopyQueueBtn");
+    let drEnrichQueueRows = [];
+
+    function drBuildEnrichmentQueue(payload) {
+        const rows = [];
+        const seen = new Set();
+        for (const r of (payload.results || [])) {
+            const best = (r.local_hits || [])[0] || {};
+            if (!best.drug_id || seen.has(best.drug_id)) continue;
+            seen.add(best.drug_id);
+            rows.push({
+                query: r.query || "",
+                drug_id: best.drug_id,
+                standard_name: best.standard_name || "",
+                primary_id: best.primary_id || "",
+                match_score: best._match_score || "",
+            });
+        }
+        return rows;
+    }
+
+    function drQueueText(rows, limit) {
+        return rows.slice(0, limit || rows.length).map(row => row.drug_id).join("\n");
+    }
+
+    function drRenderEnrichmentQueue(payload) {
+        drEnrichQueueRows = drBuildEnrichmentQueue(payload || {});
+        if (!drEnrichQueueRows.length) {
+            drEnrichQueue.style.display = "none";
+            drEnrichQueueText.value = "";
+            return;
+        }
+        const total = (payload.results || []).length;
+        const unique = drEnrichQueueRows.length;
+        drEnrichQueueSummary.textContent = ` ${unique} unique local hit${unique === 1 ? "" : "s"} from ${total} quer${total === 1 ? "y" : "ies"}`;
+        drEnrichQueueText.value = drQueueText(drEnrichQueueRows);
+        drEnrichQueue.style.display = "block";
+    }
+
+    function drSetEnrichmentMode(mode) {
+        if (mode !== "pharos_only") return;
+        document.getElementById("drEnNCats").checked = false;
+        document.getElementById("drEnPharos").checked = true;
+        document.getElementById("drEnInxight").checked = false;
+        document.getElementById("drEnFDA").checked = false;
+        document.getElementById("drEnChEBI").checked = false;
+        ncatsTogglePanel();
+    }
+
+    function drLoadQueueLimit(limit, mode, autoRun) {
+        if (!drEnrichQueueRows.length) return;
+        drSetEnrichmentMode(mode);
+        const text = drQueueText(drEnrichQueueRows, limit);
+        const n = text ? text.split(/\n/).filter(Boolean).length : 0;
+        drInput.value = text;
+        const modeText = mode === "pharos_only" ? " with Pharos-only enrichment selected" : "";
+        drStatus.textContent = autoRun
+            ? `Running Pharos enrichment for ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"}...`
+            : `Loaded ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"}${modeText}. Press Resolve & Enrich to query live sources.`;
+        drInput.focus();
+        if (autoRun) {
+            setTimeout(() => drRunBtn.click(), 25);
+        }
+    }
 
     const origDrRenderAll = drRenderAll;
     drRenderAll = function(payload) {
         drLastPayload = payload;
         origDrRenderAll(payload);
         drExportRow.style.display = (payload.results && payload.results.length) ? "flex" : "none";
+        drRenderEnrichmentQueue(payload);
     };
 
     function drFlattenResult(r) {
@@ -1225,6 +1410,12 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             evidence_tier: best.evidence_tier || "",
             source_namespaces: best.source_namespaces || "",
             approval_status: best.approval_status || "",
+            match_score: best._match_score || "",
+            matched_query: best._matched_query || "",
+            matched_field: best._matched_field || "",
+            matched_value: best._matched_value || "",
+            match_strategy: best._match_strategy || "",
+            query_terms: (r.query_terms || []).join("|"),
         };
         // Dynamically add all NCATS properties
         row["ncats_name"] = ncats.ncats_resolved_name || "";
@@ -1299,6 +1490,23 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     drExportBtn.addEventListener("click", drExport);
+    drLoadTop10Btn.addEventListener("click", () => drLoadQueueLimit(10, "pharos_only", true));
+    drLoadTop25Btn.addEventListener("click", () => drLoadQueueLimit(25, "pharos_only", true));
+    drCopyQueueBtn.addEventListener("click", function() {
+        const text = drEnrichQueueText.value;
+        if (!text) return;
+        const fallback = () => {
+            drEnrichQueueText.focus();
+            drEnrichQueueText.select();
+            document.execCommand("copy");
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(fallback);
+        } else {
+            fallback();
+        }
+        drStatus.textContent = `Copied ${drEnrichQueueRows.length} IFXDrug IDs from the enrichment queue.`;
+    });
 })();
 </script>
 
@@ -1344,6 +1552,49 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 .dr-details-grid table th:hover {
     white-space: normal;
     overflow: visible;
+}
+.resolver-enrich-queue {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+    padding: 0.85rem;
+    margin-bottom: 1rem;
+    background: #f8fafc;
+}
+.resolver-enrich-queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    color: #172033;
+    font-size: 0.86rem;
+}
+.resolver-enrich-queue-head span {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.resolver-enrich-queue-actions {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+.resolver-enrich-queue p {
+    margin: 0.45rem 0 0.55rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+.resolver-enrich-queue textarea {
+    width: 100%;
+    min-height: 5.5rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    color: #172033;
+    background: #ffffff;
+    resize: vertical;
 }
 .ncats-prop-panel {
     border: 1px solid var(--border, #e2e8f0);

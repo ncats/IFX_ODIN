@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
 import re
 import threading
@@ -1880,6 +1881,148 @@ def export_targets(
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Pipeline-format entity ID exports (for Keith's target_graph ingestion)
+# ---------------------------------------------------------------------------
+
+def _extract_id(ids_field: str, prefix: str) -> str:
+    """Extract ID value(s) for a given namespace prefix from the pipe-delimited ids field."""
+    vals = []
+    for raw in ids_field.split("|"):
+        raw = raw.strip()
+        if raw.startswith(prefix + ":"):
+            vals.append(raw[len(prefix) + 1:])
+    return "|".join(vals)
+
+
+# Column definitions for each entity type — maps output column name to
+# either a direct field from _target_to_row, a namespace prefix to extract
+# from the ``ids`` field, or a key from ``source_annotations`` JSON.
+
+_GENE_ID_COLUMNS = [
+    ("ncats_gene_id", "field", "target_id"),
+    ("consolidated_NCBI_id", "id", "NCBIGene"),
+    ("consolidated_hgnc_id", "id", "HGNC"),
+    ("consolidated_symbol", "field", "symbol"),
+    ("consolidated_gene_id", "id", "ENSEMBL"),
+    ("consolidated_mim_id", "id", "OMIM"),
+    ("consolidated_description", "field", "description"),
+    ("consolidated_gene_type", "field", "category"),
+    ("ids", "field", "ids"),
+    ("id_namespaces", "field", "id_namespaces"),
+    ("source_namespaces", "field", "source_namespaces"),
+    ("Total_Mapping_Ratio", "field", "mapping_ratio"),
+    ("quality_note", "field", "quality_note"),
+    ("Symbol_Provenance", "annotation", "Symbol_Provenance"),
+    ("Description_Provenance", "annotation", "Description_Provenance"),
+    ("NCBI_ID_Provenance", "annotation", "NCBI_ID_Provenance"),
+    ("HGNC_ID_Provenance", "annotation", "HGNC_ID_Provenance"),
+    ("Ensembl_ID_Provenance", "annotation", "Ensembl_ID_Provenance"),
+    ("Location_Provenance", "annotation", "Location_Provenance"),
+    ("Mapping_Support_Tier", "annotation", "Mapping_Support_Tier"),
+    ("Total_Mapping_Score", "annotation", "Total_Mapping_Score"),
+    ("createdAt", "field", "createdAt"),
+    ("updatedAt", "field", "updatedAt"),
+]
+
+_PROTEIN_ID_COLUMNS = [
+    ("ncats_protein_id", "field", "target_id"),
+    ("uniprot_id", "id", "UniProtKB"),
+    ("consolidated_ensembl_protein_id", "id", "ENSEMBL"),
+    ("consolidated_refseq_protein", "id", "RefSeq"),
+    ("consolidated_symbol", "field", "symbol"),
+    ("combined_protein_name", "field", "name"),
+    ("is_canonical", "annotation", "is_canonical"),
+    ("canonical_isoform_status", "field", "canonical_status"),
+    ("canonical_ifx_id", "field", "canonical_ifx_id"),
+    ("ids", "field", "ids"),
+    ("id_namespaces", "field", "id_namespaces"),
+    ("source_namespaces", "field", "source_namespaces"),
+    ("Total_Mapping_Ratio", "field", "mapping_ratio"),
+    ("quality_note", "field", "quality_note"),
+    ("Mapping_Support_Tier", "annotation", "Mapping_Support_Tier"),
+    ("Total_Mapping_Score", "annotation", "Total_Mapping_Score"),
+    ("UniProt_ID_Provenance", "annotation", "UniProt_ID_Provenance"),
+    ("Ensembl_ID_Provenance", "annotation", "Ensembl_ID_Provenance"),
+    ("RefSeq_ID_Provenance", "annotation", "RefSeq_ID_Provenance"),
+    ("protein_name_score", "annotation", "protein_name_score"),
+    ("protein_name_method", "annotation", "protein_name_method"),
+    ("protein_group_anchor", "annotation", "protein_group_anchor"),
+    ("protein_grouping_reason", "annotation", "protein_grouping_reason"),
+    ("createdAt", "field", "createdAt"),
+    ("updatedAt", "field", "updatedAt"),
+]
+
+_TRANSCRIPT_ID_COLUMNS = [
+    ("ncats_transcript_id", "field", "target_id"),
+    ("ensembl_transcript_id", "id", "ENSEMBL"),
+    ("consolidated_symbol", "field", "symbol"),
+    ("consolidated_refseq_rna", "id", "RefSeq"),
+    ("ids", "field", "ids"),
+    ("id_namespaces", "field", "id_namespaces"),
+    ("source_namespaces", "field", "source_namespaces"),
+    ("Total_Mapping_Ratio", "field", "mapping_ratio"),
+    ("quality_note", "field", "quality_note"),
+    ("canonical_status", "field", "canonical_status"),
+    ("Mapping_Support_Tier", "annotation", "Mapping_Support_Tier"),
+    ("Total_Mapping_Score", "annotation", "Total_Mapping_Score"),
+    ("Ensembl_Transcript_ID_Provenance", "annotation", "Ensembl_Transcript_ID_Provenance"),
+    ("RefSeq_Provenance", "annotation", "RefSeq_Provenance"),
+    ("createdAt", "field", "createdAt"),
+    ("updatedAt", "field", "updatedAt"),
+]
+
+_ENTITY_COLUMN_MAP = {
+    "gene": _GENE_ID_COLUMNS,
+    "protein": _PROTEIN_ID_COLUMNS,
+    "transcript": _TRANSCRIPT_ID_COLUMNS,
+}
+
+
+def export_entity_ids(
+    data: TargetGraphData,
+    entity_type: str,
+    fmt: str = "tsv",
+) -> str:
+    """Export entity IDs in the pipeline-native column format for ingestion.
+
+    Reconstructs the original column names (``ncats_gene_id``,
+    ``uniprot_id``, etc.) from the app-graph's normalised fields so Keith's
+    ``target_graph`` build pipeline can consume the output directly.
+    """
+    entity_type = entity_type.lower().strip()
+    col_spec = _ENTITY_COLUMN_MAP.get(entity_type)
+    if not col_spec:
+        raise ValueError(f"Unknown entity type: {entity_type!r}")
+
+    columns = [c[0] for c in col_spec]
+    delimiter = "," if fmt == "csv" else "\t"
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, delimiter=delimiter, extrasaction="ignore")
+    writer.writeheader()
+
+    for node in data.nodes:
+        if (node.get("target_type") or "").lower() != entity_type:
+            continue
+
+        base = _target_to_row(node)
+        annotations = _parse_annotations(node)
+        ids_field = base.get("ids", "")
+
+        out: dict[str, str] = {}
+        for col_name, source_type, source_key in col_spec:
+            if source_type == "field":
+                out[col_name] = base.get(source_key, "")
+            elif source_type == "id":
+                out[col_name] = _extract_id(ids_field, source_key)
+            elif source_type == "annotation":
+                out[col_name] = str(annotations.get(source_key, ""))
+
+        writer.writerow(out)
+
+    return buf.getvalue()
+
+
 _DIVERGENCE_EXPORT_COLUMNS = [
     "registry_id", "entity_type", "standard_name", "row_id", "source",
     "namespace", "divergence_type", "source_value", "consensus_value",
@@ -2920,4 +3063,400 @@ def compute_target_version_diff(
         "removed_by_type": dict(removed_by_type.most_common()),
         "baseline_version": baseline_version,
         "current_version": current_version,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pharos TDL (from live target_graph ArangoDB) + STRING PPI
+# ---------------------------------------------------------------------------
+
+_log = logging.getLogger(__name__)
+
+TDL_COLOR_MAP = {
+    "Tclin": "#1f77b4",
+    "Tchem": "#2ca02c",
+    "Tbio": "#ff7f0e",
+    "Tdark": "#d62728",
+    "Unknown": "#999999",
+}
+
+# AQL mirrors the current_tdls graph view in target_graph_aql_post.yaml
+_CURRENT_TDLS_AQL = """\
+FOR pro IN `Protein`
+  RETURN {
+    id: pro.id,
+    uniprot_id: pro.uniprot_id,
+    tdl: pro.tdl,
+    symbol: pro.symbol,
+    name: pro.name,
+    idg_family: pro.idg_family,
+    canonical_isoform_status: pro.canonical_isoform_status,
+    tdl_ligand_count: pro.tdl_meta.tdl_ligand_count,
+    tdl_drug_count: pro.tdl_meta.tdl_drug_count,
+    tdl_go_term_count: pro.tdl_meta.tdl_go_term_count,
+    tdl_generif_count: pro.tdl_meta.tdl_generif_count,
+    tdl_pm_score: pro.tdl_meta.tdl_pm_score,
+    tdl_antibody_count: pro.tdl_meta.tdl_antibody_count
+  }
+"""
+
+
+class PharosTDLData:
+    """In-memory index of Pharos TDL data from the live target_graph ArangoDB."""
+
+    __slots__ = (
+        "by_ifx_id",
+        "by_uniprot",
+        "by_symbol",
+        "canonical_by_symbol",
+        "tdl_counts",
+        "loaded",
+        "source",
+    )
+
+    def __init__(self) -> None:
+        self.by_ifx_id: dict[str, dict] = {}
+        self.by_uniprot: dict[str, dict] = {}
+        self.by_symbol: dict[str, list[dict]] = defaultdict(list)
+        self.canonical_by_symbol: dict[str, dict] = {}
+        self.tdl_counts: Counter = Counter()
+        self.loaded: bool = False
+        self.source: str = ""
+
+
+_pharos_tdl: PharosTDLData | None = None
+_pharos_tdl_lock = threading.Lock()
+
+
+def load_pharos_tdl_data(db) -> PharosTDLData:
+    """Load Pharos TDL data from the live target_graph ArangoDB.
+
+    Runs the ``current_tdls`` AQL query against the Protein collection and
+    builds in-memory indexes by IFX ID, UniProt accession, and gene symbol.
+
+    Parameters
+    ----------
+    db : arango.database.StandardDatabase
+        An ArangoDB connection to the ``target_graph`` database,
+        typically obtained via ``get_db("target_graph")``.
+    """
+    global _pharos_tdl
+    if _pharos_tdl is not None and _pharos_tdl.loaded:
+        return _pharos_tdl
+    with _pharos_tdl_lock:
+        if _pharos_tdl is not None and _pharos_tdl.loaded:
+            return _pharos_tdl
+
+        db_name = getattr(db, "name", "target_graph")
+        _log.info("Loading Pharos TDL from ArangoDB: %s", db_name)
+
+        data = PharosTDLData()
+        data.source = f"arangodb:{db_name}/Protein"
+
+        try:
+            cursor = db.aql.execute(_CURRENT_TDLS_AQL, batch_size=5000)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cannot query target_graph ArangoDB ({db_name}): {exc}. "
+                       "Ensure ArangoDB is reachable and credentials are configured.",
+            ) from exc
+        for row in cursor:
+            ifx_id = (row.get("id") or "").strip()
+            uniprot = (row.get("uniprot_id") or "").strip()
+            symbol = (row.get("symbol") or "").strip()
+            tdl = (row.get("tdl") or "").strip() or "Unknown"
+
+            entry = {
+                "id": ifx_id,
+                "uniprot_id": uniprot,
+                "symbol": symbol,
+                "tdl": tdl,
+                "name": (row.get("name") or "").strip(),
+                "canonical_isoform_status": (row.get("canonical_isoform_status") or "").strip(),
+                "idg_family": (row.get("idg_family") or "").strip(),
+                "tdl_drug_count": row.get("tdl_drug_count") or 0,
+                "tdl_ligand_count": row.get("tdl_ligand_count") or 0,
+                "tdl_go_term_count": row.get("tdl_go_term_count") or 0,
+                "tdl_generif_count": row.get("tdl_generif_count") or 0,
+                "tdl_pm_score": row.get("tdl_pm_score") or 0,
+                "tdl_antibody_count": row.get("tdl_antibody_count") or 0,
+            }
+            if ifx_id:
+                data.by_ifx_id[ifx_id] = entry
+            if uniprot:
+                data.by_uniprot[uniprot] = entry
+            if symbol:
+                data.by_symbol[symbol].append(entry)
+            if tdl:
+                data.tdl_counts[tdl] += 1
+
+        # Build canonical_by_symbol: prefer canonical isoform, then first entry
+        for sym, entries in data.by_symbol.items():
+            canonical = None
+            for e in entries:
+                status = e.get("canonical_isoform_status", "").lower()
+                if "canonical" in status:
+                    canonical = e
+                    break
+            data.canonical_by_symbol[sym] = canonical or entries[0]
+
+        data.loaded = True
+        _pharos_tdl = data
+        _log.info(
+            "Pharos TDL loaded: %d proteins, %d UniProt, %d symbols — %s",
+            len(data.by_ifx_id),
+            len(data.by_uniprot),
+            len(data.by_symbol),
+            dict(data.tdl_counts.most_common()),
+        )
+        return data
+
+
+def invalidate_pharos_tdl_cache() -> None:
+    """Clear the cached Pharos TDL data so the next call re-queries ArangoDB."""
+    global _pharos_tdl
+    with _pharos_tdl_lock:
+        _pharos_tdl = None
+
+
+def match_targets_to_tdl(
+    data: TargetGraphData, pharos: PharosTDLData,
+) -> dict[str, Any]:
+    """Match protein nodes in the target graph to Pharos TDL classifications.
+
+    Matching strategy (in order):
+    1. IFXProtein target_id → ``pharos.by_ifx_id`` (direct pipeline ID match)
+    2. UniProt ID from node ``ids`` field → ``pharos.by_uniprot``
+    3. Gene symbol fallback → ``pharos.canonical_by_symbol``
+    """
+    tdl_dist: Counter = Counter()
+    matched = 0
+    unmatched = 0
+    targets: list[dict[str, Any]] = []
+
+    for node in data.nodes:
+        if (node.get("target_type") or "").lower() != "protein":
+            continue
+
+        symbol = (node.get("symbol") or "").strip()
+        target_id = node.get("target_id", "")
+        ids_field = node.get("ids") or ""
+
+        tdl_entry: dict | None = None
+
+        # Strategy 1: direct IFXProtein ID match
+        if target_id:
+            tdl_entry = pharos.by_ifx_id.get(target_id)
+
+        # Strategy 2: match by UniProt ID
+        if not tdl_entry:
+            for raw_id in ids_field.split("|"):
+                raw_id = raw_id.strip()
+                if raw_id.startswith("UniProtKB:"):
+                    up_acc = raw_id[len("UniProtKB:"):]
+                    tdl_entry = pharos.by_uniprot.get(up_acc)
+                    if tdl_entry:
+                        break
+
+        # Strategy 3: match by symbol
+        if not tdl_entry and symbol:
+            tdl_entry = pharos.canonical_by_symbol.get(symbol)
+
+        if tdl_entry:
+            tdl = tdl_entry.get("tdl", "Unknown") or "Unknown"
+            matched += 1
+        else:
+            tdl = "Unknown"
+            unmatched += 1
+
+        tdl_dist[tdl] += 1
+        targets.append({
+            "target_id": target_id,
+            "symbol": symbol,
+            "tdl": tdl,
+            "name": node.get("name", ""),
+            "canonical_status": node.get("canonical_status", ""),
+            "pharos_name": tdl_entry.get("name", "") if tdl_entry else "",
+            "idg_family": tdl_entry.get("idg_family", "") if tdl_entry else "",
+        })
+
+    # Sort TDL distribution in standard order
+    tdl_order = ["Tclin", "Tchem", "Tbio", "Tdark", "Unknown"]
+    ordered_dist = {k: tdl_dist.get(k, 0) for k in tdl_order if tdl_dist.get(k, 0) > 0}
+
+    return {
+        "tdl_distribution": ordered_dist,
+        "matched": matched,
+        "unmatched": unmatched,
+        "total_proteins": matched + unmatched,
+        "source": pharos.source,
+        "targets": targets,
+    }
+
+
+def lookup_tdl_by_symbols(
+    pharos: PharosTDLData, symbols: list[str],
+) -> dict[str, Any]:
+    """Look up Pharos TDL classification for a list of gene symbols.
+
+    Each symbol is matched against ``pharos.canonical_by_symbol``.  Returns
+    per-gene results with TDL metrics plus an aggregate TDL distribution.
+    """
+    results: list[dict[str, Any]] = []
+    not_found_symbols: list[str] = []
+    tdl_dist: Counter = Counter()
+
+    for symbol in symbols:
+        entry = pharos.canonical_by_symbol.get(symbol)
+        if entry:
+            tdl = entry.get("tdl", "Unknown") or "Unknown"
+            tdl_dist[tdl] += 1
+            results.append({
+                "symbol": symbol,
+                "tdl": tdl,
+                "name": entry.get("name", ""),
+                "uniprot_id": entry.get("uniprot_id", ""),
+                "idg_family": entry.get("idg_family", ""),
+                "tdl_drug_count": entry.get("tdl_drug_count", 0),
+                "tdl_ligand_count": entry.get("tdl_ligand_count", 0),
+                "tdl_go_term_count": entry.get("tdl_go_term_count", 0),
+                "tdl_generif_count": entry.get("tdl_generif_count", 0),
+                "tdl_pm_score": entry.get("tdl_pm_score", 0),
+                "tdl_antibody_count": entry.get("tdl_antibody_count", 0),
+            })
+        else:
+            not_found_symbols.append(symbol)
+
+    tdl_order = ["Tclin", "Tchem", "Tbio", "Tdark"]
+    ordered_dist = {k: tdl_dist.get(k, 0) for k in tdl_order if tdl_dist.get(k, 0) > 0}
+
+    return {
+        "results": results,
+        "tdl_distribution": ordered_dist,
+        "found": len(results),
+        "not_found": len(not_found_symbols),
+        "not_found_symbols": not_found_symbols,
+    }
+
+
+# ── STRING PPI ──
+
+STRING_NETWORK_URL = "https://string-db.org/api/tsv/network"
+
+
+def fetch_string_ppi(
+    genes: list[str],
+    required_score: int = 700,
+    species: int = 9606,
+) -> list[dict[str, Any]]:
+    """Query STRING for protein-protein interactions among a gene list.
+
+    Returns a list of edge dicts with ``preferredName_A``, ``preferredName_B``,
+    and ``score``.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter, Retry
+
+    if not genes:
+        return []
+
+    session = requests.Session()
+    retries = Retry(
+        total=4,
+        backoff_factor=0.8,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
+    identifiers = "%0d".join(genes)
+    params = {
+        "identifiers": identifiers,
+        "species": species,
+        "required_score": required_score,
+        "caller_identity": "odin_qa_browser",
+    }
+    resp = session.get(STRING_NETWORK_URL, params=params, timeout=60)
+    resp.raise_for_status()
+
+    edges: list[dict[str, Any]] = []
+    reader = csv.DictReader(io.StringIO(resp.text), delimiter="\t")
+    for row in reader:
+        score_raw = row.get("score", "0")
+        try:
+            score = float(score_raw)
+        except (ValueError, TypeError):
+            score = 0.0
+        # STRING sometimes returns 0–1 scale; normalize to 0–1000
+        if score <= 1.0:
+            score = score * 1000.0
+        edges.append({
+            "preferredName_A": row.get("preferredName_A", ""),
+            "preferredName_B": row.get("preferredName_B", ""),
+            "score": round(score),
+            "stringId_A": row.get("stringId_A", ""),
+            "stringId_B": row.get("stringId_B", ""),
+        })
+
+    return edges
+
+
+# ── Cytoscape payload builder ──
+
+
+def build_pharos_ppi_payload(
+    pharos: PharosTDLData,
+    genes: list[str],
+    ppi_edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a Cytoscape.js-compatible payload for the PPI network.
+
+    Nodes are colored by TDL class; edges carry STRING scores.
+    """
+    gene_set = set(genes)
+    tdl_map: dict[str, str] = {}
+    nodes: list[dict] = []
+
+    for g in genes:
+        entry = pharos.canonical_by_symbol.get(g)
+        tdl = (entry.get("tdl") if entry else None) or "Unknown"
+        tdl_map[g] = tdl
+        nodes.append({
+            "data": {
+                "id": g,
+                "label": g,
+                "tdl": tdl,
+                "color": TDL_COLOR_MAP.get(tdl, TDL_COLOR_MAP["Unknown"]),
+                "pharos_name": (entry.get("name", "") if entry else ""),
+                "idg_family": (entry.get("idg_family", "") if entry else ""),
+            },
+        })
+
+    edges: list[dict] = []
+    for e in ppi_edges:
+        a = e.get("preferredName_A", "")
+        b = e.get("preferredName_B", "")
+        if a in gene_set and b in gene_set:
+            score = e.get("score", 0)
+            edges.append({
+                "data": {
+                    "id": f"{a}--{b}",
+                    "source": a,
+                    "target": b,
+                    "score": score,
+                    "width": 1 + (score / 1000) * 6,
+                },
+            })
+
+    tdl_dist: Counter = Counter(tdl_map.values())
+    tdl_order = ["Tclin", "Tchem", "Tbio", "Tdark", "Unknown"]
+    ordered_dist = {k: tdl_dist.get(k, 0) for k in tdl_order if tdl_dist.get(k, 0) > 0}
+
+    return {
+        "elements": nodes + edges,
+        "tdl_distribution": ordered_dist,
+        "gene_count": len(nodes),
+        "edge_count": len(edges),
+        "tdl_map": tdl_map,
     }

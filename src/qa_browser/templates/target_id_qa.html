@@ -28,6 +28,7 @@
         <button class="target-tab-btn" data-tab="download" type="button">Download</button>
         <button class="target-tab-btn" data-tab="changes" type="button">Changes</button>
         <button class="target-tab-btn" data-tab="api" type="button">API</button>
+        <button class="target-tab-btn" data-tab="pharos" type="button">Pharos</button>
     </nav>
 
     <section class="target-tab-panel" data-panel="dashboard">
@@ -325,6 +326,83 @@ ABCA5</textarea>
             </div>
         </div>
     </section>
+
+    <section class="target-tab-panel" data-panel="pharos">
+        <div class="target-dashboard-grid">
+            <section class="target-panel">
+                <h2 style="display:flex;align-items:center;gap:0.5rem;">Pharos TDL Distribution
+                    <button class="btn" id="pharosTdlRefresh" type="button" title="Refresh from ArangoDB" style="font-size:0.75rem;padding:0.2rem 0.5rem;">&#x21bb; Refresh</button>
+                    <span id="pharosTdlSource" style="font-size:0.75rem;color:var(--text-muted);"></span>
+                </h2>
+                <div id="pharosTdlStatusMsg" class="review-note" style="display:none;"></div>
+                <div class="target-bars" id="pharosTdlBars"></div>
+                <div class="target-stat-grid" id="pharosTdlStats"></div>
+            </section>
+        </div>
+        <div class="target-panel" style="margin-top:1rem;">
+            <h2>TDL Lookup</h2>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 0.5rem;">Paste gene symbols to look up their Pharos TDL classification.</p>
+            <textarea id="tdlLookupGenes" rows="4" style="width:100%;font-family:monospace;font-size:0.85rem;" placeholder="Enter gene symbols, one per line (e.g. BRCA1, TP53, EGFR)..."></textarea>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+                <button class="btn btn-primary" id="tdlLookupBtn" type="button">Lookup TDLs</button>
+                <span id="tdlLookupStatus" style="font-size:0.85rem;color:var(--text-muted);"></span>
+            </div>
+            <div id="tdlLookupDistribution" style="display:none;margin-top:0.75rem;">
+                <div class="target-bars" id="tdlLookupBars"></div>
+            </div>
+            <div id="tdlLookupResults" style="display:none;margin-top:0.75rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                    <span id="tdlLookupCounts" style="font-size:0.85rem;"></span>
+                    <a href="#" id="tdlLookupDownload" style="font-size:0.85rem;">Download TSV</a>
+                </div>
+                <div style="max-height:400px;overflow:auto;">
+                    <table class="target-review-table" style="font-size:0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>TDL</th>
+                                <th>Name</th>
+                                <th>IDG Family</th>
+                                <th>UniProt</th>
+                                <th>Drugs</th>
+                                <th>Ligands</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tdlLookupBody"></tbody>
+                    </table>
+                </div>
+                <div id="tdlLookupNotFound" style="display:none;margin-top:0.5rem;font-size:0.85rem;color:var(--text-muted);"></div>
+            </div>
+        </div>
+        <div class="target-panel" style="margin-top:1rem;">
+            <h2>STRING PPI Network (colored by TDL)</h2>
+            <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+                <div style="flex:1;min-width:250px;">
+                    <textarea id="pharosGeneList" rows="6" style="width:100%;font-family:monospace;font-size:0.85rem;" placeholder="Enter gene symbols, one per line..."></textarea>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+                        <label style="font-size:0.85rem;">Min score:
+                            <input type="number" id="pharosMinScore" value="700" min="0" max="1000" step="50" style="width:5rem;">
+                        </label>
+                        <button class="btn btn-primary" id="pharosBuildPpi" type="button">Build PPI Network</button>
+                        <span id="pharosPpiStatus" style="font-size:0.85rem;color:var(--text-muted);"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="target-graph-legend" id="pharosLegend" style="display:none;" aria-label="Pharos TDL legend">
+            <span><i class="target-legend-node" style="background:#1f77b4;"></i> Tclin</span>
+            <span><i class="target-legend-node" style="background:#2ca02c;"></i> Tchem</span>
+            <span><i class="target-legend-node" style="background:#ff7f0e;"></i> Tbio</span>
+            <span><i class="target-legend-node" style="background:#d62728;"></i> Tdark</span>
+            <span><i class="target-legend-node" style="background:#999999;"></i> Unknown</span>
+        </div>
+        <div class="target-graph-layout" id="pharosPpiLayout" style="display:none;">
+            <div id="pharosPpiGraph" class="target-graph"></div>
+            <aside class="target-graph-detail" id="pharosPpiDetail">
+                <h2>No Selection</h2>
+            </aside>
+        </div>
+    </section>
 </div>
 
 <script>
@@ -377,12 +455,14 @@ ABCA5</textarea>
     }
 
     let changesLoaded = false;
+    let pharosTdlLoaded = false;
     function setTab(tab) {
         buttons.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
         panels.forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
         if (tab === "graph") loadGraph();
         if (tab === "review") loadReviewQueue(1);
         if (tab === "changes" && !changesLoaded) { changesLoaded = true; loadChangesTab(); }
+        if (tab === "pharos" && !pharosTdlLoaded) { pharosTdlLoaded = true; loadPharosTdl(); }
     }
 
     function paramsFromFilters(prefix) {
@@ -2189,6 +2269,249 @@ ABCA5</textarea>
             runTargetApiResolver();
         }
     });
+
+    /* ── Pharos TDL + STRING PPI tab ── */
+    let pharosCy = null;
+
+    async function loadPharosTdl(refresh) {
+        const statusEl = document.getElementById("pharosTdlStatusMsg");
+        const barsEl = document.getElementById("pharosTdlBars");
+        const statsEl = document.getElementById("pharosTdlStats");
+        const sourceEl = document.getElementById("pharosTdlSource");
+        statusEl.style.display = "block";
+        statusEl.textContent = refresh ? "Refreshing from ArangoDB…" : "Loading TDL data from target_graph…";
+        barsEl.innerHTML = "";
+        statsEl.innerHTML = "";
+
+        try {
+            const url = refresh
+                ? `${rootPath}/target-id-qa/api/pharos-tdl/refresh`
+                : `${rootPath}/target-id-qa/api/pharos-tdl`;
+            const resp = await fetch(url, { method: refresh ? "POST" : "GET" });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            statusEl.style.display = "none";
+
+            renderBars(barsEl, data.tdl_distribution || {});
+            statsEl.innerHTML = `
+                <div><strong>${(data.total_proteins || 0).toLocaleString()}</strong><span>Total proteins</span></div>
+                <div><strong>${(data.matched || 0).toLocaleString()}</strong><span>TDL matched</span></div>
+                <div><strong>${(data.unmatched || 0).toLocaleString()}</strong><span>Unmatched</span></div>
+            `;
+            if (data.source) sourceEl.textContent = "Source: " + data.source;
+        } catch (err) {
+            statusEl.textContent = "Failed to load Pharos TDL data: " + err.message;
+            statusEl.style.display = "block";
+        }
+    }
+
+    const TDL_COLORS = {"Tclin": "#1f77b4", "Tchem": "#2ca02c", "Tbio": "#ff7f0e", "Tdark": "#d62728"};
+    let lastTdlLookupData = null;
+
+    async function lookupPharosTdl() {
+        const textarea = document.getElementById("tdlLookupGenes");
+        const statusEl = document.getElementById("tdlLookupStatus");
+        const genes = textarea.value.split(/[\n,]+/).map(g => g.trim()).filter(Boolean);
+        if (!genes.length) {
+            statusEl.textContent = "Enter at least one gene symbol.";
+            return;
+        }
+        const btn = document.getElementById("tdlLookupBtn");
+        btn.disabled = true;
+        btn.textContent = "Looking up…";
+        statusEl.textContent = `Looking up ${genes.length} gene${genes.length === 1 ? "" : "s"}…`;
+
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/pharos-tdl/lookup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ genes }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            lastTdlLookupData = data;
+
+            // Distribution bars
+            const distEl = document.getElementById("tdlLookupDistribution");
+            const barsEl = document.getElementById("tdlLookupBars");
+            if (Object.keys(data.tdl_distribution || {}).length) {
+                renderBars(barsEl, data.tdl_distribution);
+                distEl.style.display = "";
+            } else {
+                distEl.style.display = "none";
+            }
+
+            // Results table
+            const resultsEl = document.getElementById("tdlLookupResults");
+            const tbody = document.getElementById("tdlLookupBody");
+            const countsEl = document.getElementById("tdlLookupCounts");
+            resultsEl.style.display = "";
+            countsEl.innerHTML = `<strong>${data.found}</strong> found` +
+                (data.not_found > 0 ? `, <strong>${data.not_found}</strong> not found` : "");
+
+            tbody.innerHTML = data.results.map(r => {
+                const color = TDL_COLORS[r.tdl] || "#999";
+                return `<tr>
+                    <td><code>${escapeHtml(r.symbol)}</code></td>
+                    <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:4px;vertical-align:middle;"></span>${escapeHtml(r.tdl)}</td>
+                    <td>${escapeHtml(r.name || "—")}</td>
+                    <td>${escapeHtml(r.idg_family || "—")}</td>
+                    <td><code>${escapeHtml(r.uniprot_id || "—")}</code></td>
+                    <td>${r.tdl_drug_count}</td>
+                    <td>${r.tdl_ligand_count}</td>
+                </tr>`;
+            }).join("");
+
+            // Not-found list
+            const nfEl = document.getElementById("tdlLookupNotFound");
+            if (data.not_found_symbols && data.not_found_symbols.length) {
+                nfEl.style.display = "";
+                nfEl.textContent = "Not found: " + data.not_found_symbols.join(", ");
+            } else {
+                nfEl.style.display = "none";
+            }
+
+            statusEl.textContent = "";
+        } catch (err) {
+            statusEl.textContent = "Error: " + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Lookup TDLs";
+        }
+    }
+
+    function downloadTdlLookupTsv(e) {
+        e.preventDefault();
+        if (!lastTdlLookupData || !lastTdlLookupData.results.length) return;
+        const header = ["symbol", "tdl", "name", "idg_family", "uniprot_id",
+            "tdl_drug_count", "tdl_ligand_count", "tdl_go_term_count",
+            "tdl_generif_count", "tdl_pm_score", "tdl_antibody_count"];
+        const rows = lastTdlLookupData.results.map(r =>
+            header.map(k => r[k] != null ? String(r[k]) : "").join("\t")
+        );
+        const tsv = header.join("\t") + "\n" + rows.join("\n") + "\n";
+        const blob = new Blob([tsv], { type: "text/tab-separated-values" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "tdl_lookup_results.tsv";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    async function buildPharosPpi() {
+        const statusEl = document.getElementById("pharosPpiStatus");
+        const textarea = document.getElementById("pharosGeneList");
+        const genes = textarea.value.split(/[\n,]+/).map(g => g.trim()).filter(Boolean);
+        if (!genes.length) {
+            statusEl.textContent = "Enter at least one gene symbol.";
+            return;
+        }
+        const requiredScore = parseInt(document.getElementById("pharosMinScore").value) || 700;
+        const btn = document.getElementById("pharosBuildPpi");
+        btn.disabled = true;
+        btn.textContent = "Building…";
+        statusEl.textContent = `Querying STRING for ${genes.length} gene${genes.length === 1 ? "" : "s"}…`;
+
+        try {
+            const resp = await fetch(`${rootPath}/target-id-qa/api/pharos-ppi`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ genes, required_score: requiredScore }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const payload = await resp.json();
+            statusEl.textContent = `${payload.gene_count} nodes, ${payload.edge_count} edges`;
+
+            document.getElementById("pharosLegend").style.display = "";
+            document.getElementById("pharosPpiLayout").style.display = "";
+
+            if (pharosCy) { pharosCy.destroy(); pharosCy = null; }
+
+            pharosCy = cytoscape({
+                container: document.getElementById("pharosPpiGraph"),
+                elements: payload.elements,
+                style: [
+                    {
+                        selector: "node",
+                        style: {
+                            "label": "data(label)",
+                            "background-color": "data(color)",
+                            "color": "#222",
+                            "font-size": "11px",
+                            "text-valign": "bottom",
+                            "text-margin-y": 5,
+                            "width": 28,
+                            "height": 28,
+                        },
+                    },
+                    {
+                        selector: "edge",
+                        style: {
+                            "width": "data(width)",
+                            "line-color": "#bbb",
+                            "curve-style": "bezier",
+                            "opacity": 0.6,
+                        },
+                    },
+                    {
+                        selector: "node:selected",
+                        style: {
+                            "border-width": 3,
+                            "border-color": "#333",
+                        },
+                    },
+                ],
+                layout: { name: "cose", animate: false, nodeDimensionsIncludeLabels: true },
+            });
+
+            const detailEl = document.getElementById("pharosPpiDetail");
+            pharosCy.on("tap", "node", function (evt) {
+                const d = evt.target.data();
+                const edges = evt.target.connectedEdges();
+                const neighbors = edges.map(e => {
+                    const src = e.data("source");
+                    const tgt = e.data("target");
+                    const neighbor = src === d.id ? tgt : src;
+                    return `<li>${escapeHtml(neighbor)} (score: ${e.data("score")})</li>`;
+                }).join("");
+                detailEl.innerHTML = `
+                    <h2>${escapeHtml(d.label)}</h2>
+                    <dl>
+                        <dt>TDL</dt><dd>${escapeHtml(d.tdl)}</dd>
+                        <dt>Pharos name</dt><dd>${escapeHtml(d.pharos_name || "—")}</dd>
+                        <dt>IDG family</dt><dd>${escapeHtml(d.idg_family || "—")}</dd>
+                        <dt>Interactions</dt><dd>${edges.length}</dd>
+                    </dl>
+                    ${neighbors ? `<h3>PPI Partners</h3><ul style="font-size:0.82rem;max-height:300px;overflow:auto;">${neighbors}</ul>` : ""}
+                `;
+            });
+            pharosCy.on("tap", function (evt) {
+                if (evt.target === pharosCy) {
+                    detailEl.innerHTML = "<h2>No Selection</h2>";
+                }
+            });
+        } catch (err) {
+            statusEl.textContent = "Error: " + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Build PPI Network";
+        }
+    }
+
+    document.getElementById("pharosBuildPpi").addEventListener("click", buildPharosPpi);
+    document.getElementById("pharosTdlRefresh").addEventListener("click", () => loadPharosTdl(true));
+    document.getElementById("tdlLookupBtn").addEventListener("click", lookupPharosTdl);
+    document.getElementById("tdlLookupDownload").addEventListener("click", downloadTdlLookupTsv);
 
     loadStats().then(() => search(1));
     setTab(activeTab || "dashboard");

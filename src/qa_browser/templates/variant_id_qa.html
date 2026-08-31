@@ -487,7 +487,17 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
                 html += `<dl class="vr-kv">`;
                 const fields = ["variant_id","primary_id","name","gene_symbol","dbsnp_id","clinvar_variation_id","clinical_significance","source_namespaces","equivalence_scope"];
                 fields.forEach(k => {
-                    if (hit[k]) html += `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(hit[k])}</dd>`;
+                    let val = hit[k];
+                    /* Show source-aware context when clinical significance is empty */
+                    if (k === "clinical_significance" && !val) {
+                        const src = (hit.source_namespaces || "").toLowerCase();
+                        if (src.includes("gwascatalog")) val = "Association only (GWAS Catalog)";
+                        else if (src.includes("uniprot")) val = "Protein variant annotation (UniProt)";
+                        else if (src.includes("omim")) val = "OMIM curated allelic variant";
+                        if (val) html += `<dt>${escapeHtml(k)}</dt><dd style="color:var(--text-muted,#94a3b8);font-style:italic;">${escapeHtml(val)}</dd>`;
+                        return;
+                    }
+                    if (val) html += `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(val)}</dd>`;
                 });
                 html += `</dl>`;
                 html += `<button class="btn btn-sm vr-open-graph" data-id="${escapeHtml(hit.variant_id)}" style="margin-top:0.3rem;">Open in Graph</button>`;
@@ -529,8 +539,10 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
 
                 /* Population Frequencies */
                 const freqKeys = ["gnomad_exome.af.af","gnomad_exome.af.af_afr","gnomad_exome.af.af_eas","gnomad_exome.af.af_nfe","gnomad_genome.af.af"];
-                const freqEntries = freqKeys.filter(k => hit[k]).map(k => [k, hit[k]]);
-                if (freqEntries.length) {
+                /* Show all requested freq keys; distinguish 0 from absent */
+                const freqEntries = freqKeys.map(k => [k, hit[k]]);
+                const anyFreq = freqEntries.some(([,v]) => v != null);
+                if (anyFreq) {
                     html += `<div class="vr-section"><h5>Population Frequencies</h5><table class="vr-freq-table"><tr>`;
                     freqEntries.forEach(([k]) => {
                         const label = (vrFieldCatalog.find(f => f.key === k) || {}).label || k;
@@ -538,8 +550,14 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
                     });
                     html += `</tr><tr>`;
                     freqEntries.forEach(([,v]) => {
-                        const num = parseFloat(v);
-                        html += `<td>${isNaN(num) ? escapeHtml(v) : num.toExponential(2)}</td>`;
+                        if (v == null) {
+                            html += `<td style="color:var(--text-muted,#64748b);" title="Not in gnomAD">\u2014</td>`;
+                        } else {
+                            const num = parseFloat(v);
+                            if (isNaN(num)) html += `<td>${escapeHtml(v)}</td>`;
+                            else if (num === 0) html += `<td title="Present in gnomAD at zero frequency">0</td>`;
+                            else html += `<td>${num < 0.001 ? num.toExponential(2) : num.toPrecision(3)}</td>`;
+                        }
                     });
                     html += `</tr></table></div>`;
                 }
@@ -557,13 +575,20 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
                     html += `<div class="vr-section"><h5>Deleteriousness Scores</h5><dl class="vr-kv">`;
                     scoreEntries.forEach(s => {
                         const label = (vrFieldCatalog.find(f => f.key === s.key) || {}).label || s.key;
-                        const v = parseFloat(hit[s.key]);
+                        const raw = String(hit[s.key]);
+                        /* Parse all pipe-delimited values; use worst-case for badge */
+                        const vals = raw.split("|").map(Number).filter(n => !isNaN(n));
+                        const worst = vals.length ? (s.dir === "high" ? Math.max(...vals) : Math.min(...vals)) : NaN;
                         let badge = "neutral";
-                        if (!isNaN(v)) {
-                            if (s.dir === "high") badge = v >= s.hi ? "high" : (v >= s.med ? "medium" : "low");
-                            else badge = v <= s.hi ? "high" : (v <= s.med ? "medium" : "low");
+                        if (!isNaN(worst)) {
+                            if (s.dir === "high") badge = worst >= s.hi ? "high" : (worst >= s.med ? "medium" : "low");
+                            else badge = worst <= s.hi ? "high" : (worst <= s.med ? "medium" : "low");
                         }
-                        html += `<dt>${escapeHtml(label)}</dt><dd><span class="vr-score-badge ${badge}">${escapeHtml(hit[s.key])}</span></dd>`;
+                        /* Show single value directly, multi-value as range */
+                        const display = vals.length > 1
+                            ? `${Math.min(...vals).toPrecision(3)} \u2013 ${Math.max(...vals).toPrecision(3)} (${vals.length} transcripts)`
+                            : escapeHtml(raw);
+                        html += `<dt>${escapeHtml(label)}</dt><dd><span class="vr-score-badge ${badge}">${display}</span></dd>`;
                     });
                     html += `</dl></div>`;
                 }

@@ -24,9 +24,13 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 
 try:
-    from src.qa_browser.variant_id_graph import VariantGraphData, search_variants
+    from src.qa_browser.variant_id_graph import (
+        VariantGraphData, search_variants, _variant_lookup_aliases,
+    )
 except ImportError:
-    from variant_id_graph import VariantGraphData, search_variants
+    from variant_id_graph import (
+        VariantGraphData, search_variants, _variant_lookup_aliases,
+    )
 
 # ── API endpoints ────────────────────────────────────────────────────────
 
@@ -111,22 +115,37 @@ def _detect_query_type(query: str) -> tuple[str, str]:
     if not q:
         return ("freetext", q)
 
-    # rsID: rs followed by digits
-    if re.fullmatch(r"rs\d+", q, re.I):
-        return ("rsid", q.lower())
+    # Strip common namespace prefixes the user may copy from the app
+    m_dbsnp = re.fullmatch(r"(?:dbSNP:)?(rs\d+)", q, re.I)
+    if m_dbsnp:
+        return ("rsid", m_dbsnp.group(1).lower())
 
-    # ClinVar variation ID: "ClinVarVariation:12345" or bare integer
-    m = re.fullmatch(r"(?:ClinVarVariation:)?(\d+)", q, re.I)
-    if m and len(m.group(1)) >= 2:
-        return ("clinvar_id", m.group(1))
+    # ClinVar variation ID: "ClinVarVariation:12345" or "ClinVar:12345"
+    m_cv = re.fullmatch(r"(?:ClinVar(?:Variation)?:)(\d+)", q, re.I)
+    if m_cv:
+        return ("clinvar_id", m_cv.group(1))
+
+    # Bare integer — only treat as ClinVar ID if >= 4 digits
+    # (low integers like 12 or 99 are too ambiguous)
+    m_bare = re.fullmatch(r"(\d+)", q)
+    if m_bare and len(m_bare.group(1)) >= 4:
+        return ("clinvar_id", m_bare.group(1))
 
     # HGVS notation: contains :c. or :p. or :g.
     if re.search(r":[cpg]\.", q):
         return ("hgvs", q)
 
+    # Bare protein HGVS: p.Val600Glu or p.V600E (no transcript prefix)
+    if re.match(r"p\.[A-Z]", q, re.I):
+        return ("hgvs", q)
+
     # Chromosomal HGVS: chr1:g.12345A>G
     if re.match(r"chr\d+:g\.\d+", q, re.I):
         return ("hgvs", q)
+
+    # COSMIC ID: COSM followed by digits — not a gene symbol
+    if re.fullmatch(r"COSM\d+", q, re.I):
+        return ("freetext", q)
 
     # Gene symbol: all caps, 2-10 chars, letters and digits
     if re.fullmatch(r"[A-Z][A-Z0-9]{1,9}", q):
@@ -138,14 +157,30 @@ def _detect_query_type(query: str) -> tuple[str, str]:
 # ── MyVariant.info enrichment ────────────────────────────────────────────
 
 def _dig(obj: Any, dotpath: str) -> Any:
-    """Navigate nested dicts/lists by dot-separated key path."""
+    """Navigate nested dicts/lists by dot-separated key path.
+
+    When a list of dicts is encountered mid-path, collect the value from
+    *every* element (not just the first) so that multi-RCV ClinVar records,
+    multi-transcript scores, etc. are fully preserved.
+    """
     parts = dotpath.split(".")
     current = obj
-    for part in parts:
+    for i, part in enumerate(parts):
         if isinstance(current, dict):
             current = current.get(part)
         elif isinstance(current, list) and current:
-            current = current[0].get(part) if isinstance(current[0], dict) else None
+            # Collect from all list elements, then continue digging
+            remaining = ".".join(parts[i:])
+            collected = []
+            for item in current:
+                val = _dig(item, remaining) if isinstance(item, dict) else None
+                if val is None:
+                    continue
+                if isinstance(val, list):
+                    collected.extend(val)
+                else:
+                    collected.append(val)
+            return collected if collected else None
         else:
             return None
         if current is None:
@@ -262,10 +297,50 @@ def enrich_myvariant(
 
 # ── Local graph lookup ───────────────────────────────────────────────────
 
-def _local_lookup(query: str, data: VariantGraphData) -> list[dict[str, str]]:
-    """Search the local variant graph for matching nodes."""
-    payload = search_variants(data, q=query, per_page=10)
-    return payload.get("rows", [])
+def _local_lookup(
+    query: str,
+    data: VariantGraphData,
+    cleaned: str | None = None,
+) -> list[dict[str, str]]:
+    """Search the local variant graph for matching nodes.
+
+    Uses the exact-match alias index first (``ids_to_variants``), then
+    falls back to the substring search.  Exact matches always appear
+    before substring-only matches so that e.g. ``rs334`` returns the
+    HBB sickle-cell variant ahead of ``rs334704``.
+
+    When a *cleaned* value is provided (e.g. ``"12583"`` extracted from
+    ``"ClinVar:12583"``), the alias index is also searched with the
+    cleaned form so that prefix-stripped queries still resolve locally.
+    """
+    # 1. Exact-match via indexed aliases
+    exact_ids: list[str] = []
+    for alias in _variant_lookup_aliases(query):
+        exact_ids.extend(data.ids_to_variants.get(alias, []))
+    # Also try the cleaned value if it differs from the raw query
+    if cleaned and cleaned != query:
+        for alias in _variant_lookup_aliases(cleaned):
+            exact_ids.extend(data.ids_to_variants.get(alias, []))
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    exact_nodes: list[dict[str, str]] = []
+    for vid in exact_ids:
+        if vid not in seen:
+            seen.add(vid)
+            node = data.nodes_by_id.get(vid)
+            if node:
+                exact_nodes.append(node)
+
+    # 2. Substring search as fallback (try both raw and cleaned queries)
+    for search_q in dict.fromkeys([query, cleaned] if cleaned else [query]):
+        payload = search_variants(data, q=search_q, per_page=10)
+        for row in payload.get("rows", []):
+            vid = row.get("variant_id", "")
+            if vid not in seen:
+                seen.add(vid)
+                exact_nodes.append(row)
+
+    return exact_nodes[:10]
 
 
 # ── Per-query orchestrator ───────────────────────────────────────────────
@@ -291,8 +366,9 @@ def _enrich_one(
 
     query_type, cleaned = _detect_query_type(query)
 
-    # Local graph lookup
-    local_hits = _local_lookup(query, data)
+    # Local graph lookup — pass cleaned value so prefix-stripped queries
+    # (e.g. "ClinVar:12583" → "12583") also resolve via the alias index
+    local_hits = _local_lookup(query, data, cleaned=cleaned)
 
     # MyVariant.info enrichment
     myvariant_result = None
