@@ -129,16 +129,22 @@ from src.qa_browser.target_id_graph import (
     TARGET_REVIEW_INTAKE_COLUMNS as TARGET_REVIEW_INTAKE_COLUMNS,
     append_target_review_rows,
     build_batch_review_payload,
+    build_pharos_ppi_payload,
     build_target_graph_payload,
     build_target_review_queue,
     compute_target_stats,
     compute_target_version_diff,
     export_divergences,
+    export_entity_ids,
     export_targets,
+    fetch_string_ppi,
+    invalidate_pharos_tdl_cache,
+    load_pharos_tdl_data,
     load_target_graph_data,
     load_target_version_data,
     mark_rows_resolved_by_registry_ids,
     mark_rows_resolved_by_triage,
+    match_targets_to_tdl,
     search_targets,
     validate_and_build_target_review_rows,
 )
@@ -8089,6 +8095,36 @@ def target_id_qa_download_divergences(
     )
 
 
+@app.get("/target-id-qa/api/entity-ids/{entity_type}")
+def target_id_qa_entity_ids(entity_type: str, format: str = "tsv"):
+    """Download gene/protein/transcript IDs in pipeline-native column format.
+
+    This endpoint provides the harmonized ID files in the format expected by
+    the ``target_graph`` ArangoDB build pipeline (Keith's ingestion).
+
+    Examples::
+
+        GET /target-id-qa/api/entity-ids/gene
+        GET /target-id-qa/api/entity-ids/protein?format=csv
+        GET /target-id-qa/api/entity-ids/transcript
+    """
+    entity_type = entity_type.lower().strip()
+    if entity_type not in ("gene", "protein", "transcript"):
+        raise HTTPException(status_code=400, detail=f"Unknown entity type: {entity_type!r}. Use gene, protein, or transcript.")
+    data = _load_target_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    content = export_entity_ids(data, entity_type=entity_type, fmt=fmt)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("target_release_version") or data.manifest.get("release_version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"{entity_type}_ids_{release}.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/target-id-qa/api/review-queue")
 def target_id_qa_review_queue(
     entity_type: str = "",
@@ -8392,6 +8428,63 @@ def target_id_qa_version_diff(
     baseline = load_target_version_data(from_dir)
     current = _load_target_graph() if to_dir.resolve() == Path(_target_graph_dir).resolve() else load_target_version_data(to_dir)
     return compute_target_version_diff(current, baseline)
+
+
+# ---------------------------------------------------------------------------
+# Pharos TDL + STRING PPI (Target Harmonizer)
+# ---------------------------------------------------------------------------
+
+
+def _get_target_graph_db():
+    """Get ArangoDB connection to target_graph, raising a clear HTTP error on failure."""
+    try:
+        return get_db("target_graph")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Cannot connect to target_graph ArangoDB: {exc}. "
+                   "Ensure ArangoDB credentials are configured (--credentials).",
+        ) from exc
+
+
+@app.get("/target-id-qa/api/pharos-tdl")
+async def target_pharos_tdl():
+    """Return Pharos TDL distribution for all protein targets in the loaded graph."""
+    data = _load_target_graph()
+    db = _get_target_graph_db()
+    pharos = await run_in_threadpool(load_pharos_tdl_data, db)
+    return match_targets_to_tdl(data, pharos)
+
+
+@app.post("/target-id-qa/api/pharos-tdl/refresh")
+async def target_pharos_tdl_refresh():
+    """Clear the cached Pharos TDL data and reload from ArangoDB."""
+    invalidate_pharos_tdl_cache()
+    data = _load_target_graph()
+    db = _get_target_graph_db()
+    pharos = await run_in_threadpool(load_pharos_tdl_data, db)
+    result = match_targets_to_tdl(data, pharos)
+    result["refreshed"] = True
+    return result
+
+
+@app.post("/target-id-qa/api/pharos-ppi")
+async def target_pharos_ppi(request: Request):
+    """Build a STRING PPI network colored by Pharos TDL for a gene list."""
+    body = await request.json()
+    genes = body.get("genes") or []
+    if isinstance(genes, str):
+        genes = [g.strip() for g in genes.split("\n") if g.strip()]
+    genes = sorted(set(genes))
+    if not genes:
+        raise HTTPException(status_code=400, detail="No genes provided.")
+    if len(genes) > 500:
+        raise HTTPException(status_code=400, detail="Too many genes (max 500).")
+    required_score = int(body.get("required_score", 700))
+    db = _get_target_graph_db()
+    pharos = await run_in_threadpool(load_pharos_tdl_data, db)
+    ppi_edges = await run_in_threadpool(fetch_string_ppi, genes, required_score)
+    return build_pharos_ppi_payload(pharos, genes, ppi_edges)
 
 
 # ---------------------------------------------------------------------------
