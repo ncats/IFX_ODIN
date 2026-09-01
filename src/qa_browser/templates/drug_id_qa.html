@@ -1060,28 +1060,44 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     function drCompactResultsTable(payload) {
         const rows = (payload.results || []).map(drFlattenResult);
+        const externalIds = (row) => [
+            row.unii ? `UNII ${row.unii}` : "",
+            row.chembl_id ? `ChEMBL ${row.chembl_id}` : "",
+            row.chebi_id ? `ChEBI ${row.chebi_id}` : "",
+            row.pubchem_cid ? `CID ${row.pubchem_cid}` : "",
+        ].filter(Boolean).join(" | ");
+        const liveApis = (row) => {
+            const queried = row.live_sources_queried || "";
+            const found = row.live_sources_found || "";
+            if (queried && found) return `queried: ${queried}; found: ${found}`;
+            if (queried) return `queried: ${queried}; no annotations`;
+            return "local only";
+        };
+        const annotations = (row) => [
+            row.pharos_targets ? `Pharos targets: ${row.pharos_targets}` : "",
+            row.inxight_name ? `Inxight: ${row.inxight_name}` : "",
+            row.ncats_name ? `NCATS: ${row.ncats_name}` : "",
+            row.chebi_chemical_class ? `ChEBI class: ${row.chebi_chemical_class}` : "",
+        ].filter(Boolean).join(" | ");
         const columns = [
             ["query", "Query"],
-            ["resolved_in_graph", "Graph"],
             ["drug_id", "IFXDrug"],
             ["standard_name", "Resolved Name"],
-            ["primary_id", "Primary ID"],
             ["match_score", "Score"],
-            ["unii", "UNII"],
-            ["chembl_id", "ChEMBL"],
-            ["chebi_id", "ChEBI"],
-            ["pubchem_cid", "PubChem CID"],
-            ["live_sources_queried", "Live Queried"],
-            ["live_sources_found", "Live Found"],
-            ["pharos_targets", "Pharos Targets"],
-            ["inxight_name", "Inxight Name"],
-            ["ncats_name", "NCATS Name"],
-            ["chebi_chemical_class", "ChEBI Class"],
-            ["live_source_errors", "Live Errors"],
+            ["external_ids", "Key IDs"],
+            ["live_apis", "Live APIs"],
+            ["annotations", "Annotations"],
+            ["live_api_request_failures", "Request Failures"],
         ];
         const tableRows = rows.map(row => {
             const cells = columns.map(([key]) => {
-                const value = row[key] || "";
+                const value = key === "external_ids"
+                    ? externalIds(row)
+                    : key === "live_apis"
+                    ? liveApis(row)
+                    : key === "annotations"
+                    ? annotations(row)
+                    : row[key] || "";
                 if (key === "drug_id" && value) {
                     const url = `${rootPath}/drug-id-qa?ids=${encodeURIComponent(value)}&tab=graph`;
                     return `<td><a href="${url}" style="color:var(--accent, #14b8a6);">${escapeHtml(value)}</a></td>`;
@@ -1134,7 +1150,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const extra = errors.length > 8
             ? `<div style="font-size:0.72rem;color:#991b1b;">${errors.length - 8} additional live-source errors hidden; see raw JSON.</div>`
             : "";
-        return `<div>${drSectionHead("Live Source Diagnostics")}${rows}${extra}</div>`;
+        return `<div>${drSectionHead("Live API Request Failures")}${rows}${extra}</div>`;
     }
 
     function drRenderResult(r, idx) {
@@ -1346,7 +1362,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (es.length) parts.push(`enriched: ${es.join(", ")}`);
             const failed = stats.sources_failed || {};
             const failedParts = Object.keys(failed).map(src => `${src}: ${failed[src]}`);
-            if (failedParts.length) parts.push(`live-source errors: ${failedParts.join(", ")}`);
+            if (failedParts.length) parts.push(`live API request failures: ${failedParts.join(", ")}`);
         } else if (stats.enrichment_skipped_reason === "quick_search_local_only") {
             parts.push("local search only");
         }
@@ -1416,7 +1432,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         if (foundParts.length) lines.push(`Live annotations found: ${foundParts.join(", ")}.`);
         const failed = job.sources_failed || {};
         const failedParts = Object.keys(failed).map(key => `${key}: ${failed[key]}`);
-        if (failedParts.length) lines.push(`Live-source errors so far: ${failedParts.join(", ")}.`);
+        if (failedParts.length) lines.push(`Live API request failures so far: ${failedParts.join(", ")}.`);
         return lines;
     }
     function drPollResolverJob(jobId, started) {
@@ -1591,6 +1607,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             match_strategy: best._match_strategy || "",
             query_terms: (r.query_terms || []).join("|"),
             live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
+            live_api_request_failures: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             sources_failed: (enr.sources_failed || []).join("|"),
             live_sources_queried: (enr.sources_queried || []).join("|"),
             live_sources_found: (enr.sources_found || []).join("|"),
@@ -1770,13 +1787,15 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 }
 .resolver-table-scroll {
     max-height: 34rem;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 .resolver-table-preview table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     font-size: 0.74rem;
-    white-space: nowrap;
+    white-space: normal;
 }
 .resolver-table-preview th,
 .resolver-table-preview td {
@@ -1784,6 +1803,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     border-bottom: 1px solid var(--border, #e5e7eb);
     text-align: left;
     vertical-align: top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .resolver-table-preview th {
     position: sticky;

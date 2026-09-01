@@ -215,6 +215,24 @@ def _record_source_error(
     source_errors.append(entry)
 
 
+def _append_source_failure(
+    source_errors: list[dict[str, str]],
+    source: str,
+    attempt_errors: list[dict[str, str]],
+) -> None:
+    """Collapse per-lookup failures into one per-source diagnostic for a result."""
+    if not attempt_errors:
+        return
+    lookups = _uniq_join([err.get("lookup") for err in attempt_errors], limit=4)
+    messages = _uniq_join([err.get("message") for err in attempt_errors], limit=2)
+    extra = "" if len(attempt_errors) <= 4 else f"; {len(attempt_errors) - 4} more attempts"
+    source_errors.append({
+        "source": source,
+        "lookup": lookups,
+        "message": f"{len(attempt_errors)} lookup attempt(s) failed{extra}: {messages}",
+    })
+
+
 def _clean_html(val: Any) -> str | None:
     if not val:
         return None
@@ -560,7 +578,7 @@ def enrich_ncats_resolver(
     query: str,
     session: requests.Session | None = None,
     api_key: str = "5fd5bb2a05eb6195",
-    timeout: int = 3,
+    timeout: int = 8,
     props: list[str] | None = None,
     source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
@@ -780,7 +798,7 @@ def _parse_inxight_drug_page(html: str) -> dict[str, Any]:
 def enrich_inxight(
     unii: str,
     session: requests.Session | None = None,
-    timeout: int = 3,
+    timeout: int = 6,
     source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Query Inxight/GSRS by UNII for regulatory + target context."""
@@ -791,23 +809,21 @@ def enrich_inxight(
     if not unii:
         return None
 
-    result: dict[str, Any] = {}
-
-    result["inxight_drug_url"] = f"https://drugs.ncats.io/drug/{unii}"
-
     # API search
     try:
         r = session.get(f"{INXIGHT_API}/search", params={"q": unii}, timeout=timeout)
         if r.status_code != 200:
             _record_source_error(source_errors, "inxight", unii, f"HTTP {r.status_code}")
-            return result or None
+            return None
         hits = (r.json().get("content") or [])
         if not hits:
-            return result or None
+            return None
         d = next((h for h in hits if str(h.get("approvalID", "")).upper() == unii.upper()), hits[0])
         uuid = d.get("uuid")
         if not uuid:
-            return result or None
+            return None
+
+        result: dict[str, Any] = {"inxight_drug_url": f"https://drugs.ncats.io/drug/{unii}"}
 
         # Detail
         detail_resp = session.get(f"{INXIGHT_API}({uuid})", timeout=timeout)
@@ -993,6 +1009,7 @@ def _enrich_one(
     # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
     # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
+        ncats_attempt_errors: list[dict[str, str]] = []
         seen_lookups: set[str] = set()
         ncats_lookups = [query, name, *unii_values[:1], *chembl_values[:1]]
         for lookup in ncats_lookups:
@@ -1003,7 +1020,7 @@ def _enrich_one(
                 lookup,
                 session=session,
                 props=ncats_props,
-                source_errors=source_errors,
+                source_errors=ncats_attempt_errors,
             )
             if ncats:
                 enrichment["ncats_resolver"] = ncats
@@ -1029,6 +1046,8 @@ def _enrich_one(
                     name = resolved_name
                 break
             time.sleep(delay)
+        if "ncats_resolver" not in enrichment:
+            _append_source_failure(source_errors, "ncats_resolver", ncats_attempt_errors)
 
         # Re-lookup in local graph using NCATS-resolved IDs when the
         # original query missed or matched the wrong compound (e.g.
@@ -1065,22 +1084,26 @@ def _enrich_one(
     # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
         pharos = None
+        pharos_attempt_errors: list[dict[str, str]] = []
         seen_pharos: set[str] = set()
         for lookup in [query, name, *chembl_values]:
             if not lookup or lookup in seen_pharos or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_pharos.add(lookup)
-            pharos = enrich_pharos(lookup, session=session, source_errors=source_errors)
+            pharos = enrich_pharos(lookup, session=session, source_errors=pharos_attempt_errors)
             if pharos:
                 break
         if pharos:
             enrichment["pharos"] = pharos
+        else:
+            _append_source_failure(source_errors, "pharos", pharos_attempt_errors)
         time.sleep(delay)
 
     # Inxight
     if enable_inxight and unii_values:
+        inxight_attempt_errors: list[dict[str, str]] = []
         for lookup in unii_values[:1]:
-            inxight = enrich_inxight(lookup, session=session, source_errors=source_errors)
+            inxight = enrich_inxight(lookup, session=session, source_errors=inxight_attempt_errors)
             if inxight:
                 enrichment["inxight"] = inxight
                 # Collect name candidates for openFDA
@@ -1088,15 +1111,20 @@ def _enrich_one(
                     name = inxight.get("inxight_name") or name
                 break
             time.sleep(delay)
+        if "inxight" not in enrichment:
+            _append_source_failure(source_errors, "inxight", inxight_attempt_errors)
 
     # ChEBI
     if enable_chebi and chebi_values:
+        chebi_attempt_errors: list[dict[str, str]] = []
         for lookup in chebi_values[:2]:
-            chebi = enrich_chebi(lookup, session=session, source_errors=source_errors)
+            chebi = enrich_chebi(lookup, session=session, source_errors=chebi_attempt_errors)
             if chebi:
                 enrichment["chebi"] = chebi
                 break
             time.sleep(delay)
+        if "chebi" not in enrichment:
+            _append_source_failure(source_errors, "chebi", chebi_attempt_errors)
 
     # openFDA
     if enable_openfda:
@@ -1108,9 +1136,12 @@ def _enrich_one(
             (enrichment.get("ncats_resolver") or {}).get("ncats_resolved_name"),
         ])))
         if name_candidates:
-            openfda = enrich_openfda(name_candidates, session=session, source_errors=source_errors)
+            openfda_attempt_errors: list[dict[str, str]] = []
+            openfda = enrich_openfda(name_candidates, session=session, source_errors=openfda_attempt_errors)
             if openfda:
                 enrichment["openfda"] = openfda
+            else:
+                _append_source_failure(source_errors, "openfda", openfda_attempt_errors)
 
     if source_errors:
         enrichment["source_errors"] = source_errors
