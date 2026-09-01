@@ -1006,11 +1006,26 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return `<h5 style="margin:0 0 0.25rem;font-size:0.72rem;text-transform:uppercase;color:#444;letter-spacing:0.05em;font-weight:700;">${escapeHtml(label)}</h5>`;
     }
 
+    function drSourceErrors(errors) {
+        if (!errors || !errors.length) return "";
+        const rows = errors.slice(0, 8).map(err => {
+            const lookup = err.lookup ? ` <span class="mono" style="color:#64748b;">${escapeHtml(err.lookup)}</span>` : "";
+            return `<div style="font-size:0.76rem;line-height:1.45;color:#7f1d1d;margin-bottom:0.2rem;">
+                <strong>${escapeHtml(err.source || "source")}</strong>${lookup}: ${escapeHtml(err.message || "request failed")}
+            </div>`;
+        }).join("");
+        const extra = errors.length > 8
+            ? `<div style="font-size:0.72rem;color:#991b1b;">${errors.length - 8} additional live-source errors hidden; see raw JSON.</div>`
+            : "";
+        return `<div>${drSectionHead("Live Source Diagnostics")}${rows}${extra}</div>`;
+    }
+
     function drRenderResult(r, idx) {
         const hits = r.local_hits || [];
         const best = hits[0] || {};
         const enr = r.enrichment || {};
         const queried = enr.sources_queried || [];
+        const sourceErrors = enr.source_errors || [];
         const found = r.resolved;
         const name = best.standard_name || (enr.ncats_resolver || {}).ncats_resolved_name || r.query;
         const drugId = best.drug_id || "";
@@ -1033,6 +1048,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Found", sources.length ? sources.join(" | ") : "No live-source hits");
             h += drDetailRow("Resolved via", r.resolved_via);
             if (h) details += `<div>${drSectionHead("External Lookup")}${h}</div>`;
+        }
+
+        if (sourceErrors.length) {
+            details += drSourceErrors(sourceErrors);
         }
 
         // Query parsing / local matching
@@ -1197,6 +1216,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (stats.chebi_found) es.push(`ChEBI: ${stats.chebi_found}`);
             if (stats.openfda_found) es.push(`openFDA: ${stats.openfda_found}`);
             if (es.length) parts.push(`enriched: ${es.join(", ")}`);
+            const failed = stats.sources_failed || {};
+            const failedParts = Object.keys(failed).map(src => `${src}: ${failed[src]}`);
+            if (failedParts.length) parts.push(`live-source errors: ${failedParts.join(", ")}`);
         } else if (stats.enrichment_skipped_reason === "large_batch_local_only") {
             parts.push(`large batch: live enrichment skipped above ${stats.enrichment_limit || DR_LARGE_BATCH_LOCAL_ONLY} queries`);
             parts.push("use enrichment queue below for a smaller chunk");
@@ -1393,6 +1415,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const inx = enr.inxight || {};
         const chebi = enr.chebi || {};
         const fda = enr.openfda || {};
+        const sourceErrors = enr.source_errors || [];
         const row = {
             query: r.query || "",
             resolved_in_graph: r.resolved ? "yes" : "no",
@@ -1416,6 +1439,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             matched_value: best._matched_value || "",
             match_strategy: best._match_strategy || "",
             query_terms: (r.query_terms || []).join("|"),
+            live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
+            sources_failed: (enr.sources_failed || []).join("|"),
         };
         // Dynamically add all NCATS properties
         row["ncats_name"] = ncats.ncats_resolved_name || "";

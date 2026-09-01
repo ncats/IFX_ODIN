@@ -8597,19 +8597,26 @@ async def variant_id_qa_resolve(body: dict):
     """Batch resolve + enrich variant queries against local graph and MyVariant.info."""
     queries = body.get("queries", [])
     if not queries:
-        return {"error": "No queries provided"}
+        raise HTTPException(status_code=400, detail="No queries provided")
     if len(queries) > 50:
-        return {"error": "Maximum 50 queries per request"}
+        raise HTTPException(status_code=400, detail="Maximum 50 queries per request")
     data = _load_variant_graph()
     myvariant_fields = body.get("myvariant_fields")
     if myvariant_fields is not None and not isinstance(myvariant_fields, list):
         myvariant_fields = None
+    try:
+        workers = min(int(body.get("workers", 4)), 8)
+    except (ValueError, TypeError):
+        workers = 4
+    enable_myvariant = body.get("enable_myvariant", True)
+    if isinstance(enable_myvariant, str):
+        enable_myvariant = enable_myvariant.lower() not in ("false", "0", "no", "")
     return variant_resolve_and_enrich(
         queries=queries,
         data=data,
-        enable_myvariant=body.get("enable_myvariant", True),
+        enable_myvariant=enable_myvariant,
         myvariant_fields=myvariant_fields,
-        workers=min(int(body.get("workers", 4)), 8),
+        workers=workers,
     )
 
 
@@ -8859,27 +8866,44 @@ def drug_id_qa_ncats_properties():
     return get_ncats_property_catalog()
 
 
+def _drug_resolver_payload_bool(body: dict, key: str, default: bool = True) -> bool:
+    value = body.get(key, default)
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "")
+    return bool(value)
+
+
 @app.post("/drug-id-qa/api/resolve")
 async def drug_id_qa_resolve(body: dict):
     """Batch resolve + enrich drug queries against local graph and live APIs."""
     queries = body.get("queries", [])
+    if not isinstance(queries, list):
+        queries = [queries]
+    queries = [str(query).strip() for query in queries if str(query or "").strip()]
     if not queries:
-        return {"error": "No queries provided"}
+        raise HTTPException(status_code=400, detail="No queries provided")
     if len(queries) > DRUG_RESOLVER_MAX_QUERIES:
         raise HTTPException(status_code=400, detail=f"Maximum {DRUG_RESOLVER_MAX_QUERIES} queries per request")
     data = _load_drug_graph()
     ncats_props = body.get("ncats_props")  # None → use defaults
     if ncats_props is not None and not isinstance(ncats_props, list):
         ncats_props = None
-    return resolve_and_enrich(
+    try:
+        workers = min(int(body.get("workers", 4)), 8)
+    except (TypeError, ValueError):
+        workers = 4
+    return await run_in_threadpool(
+        resolve_and_enrich,
         data,
         queries=queries,
-        enable_ncats=body.get("enable_ncats", True),
-        enable_pharos=body.get("enable_pharos", True),
-        enable_inxight=body.get("enable_inxight", True),
-        enable_openfda=body.get("enable_openfda", True),
-        enable_chebi=body.get("enable_chebi", True),
-        workers=min(int(body.get("workers", 4)), 8),
+        enable_ncats=_drug_resolver_payload_bool(body, "enable_ncats", True),
+        enable_pharos=_drug_resolver_payload_bool(body, "enable_pharos", True),
+        enable_inxight=_drug_resolver_payload_bool(body, "enable_inxight", True),
+        enable_openfda=_drug_resolver_payload_bool(body, "enable_openfda", True),
+        enable_chebi=_drug_resolver_payload_bool(body, "enable_chebi", True),
+        workers=workers,
         delay=0.15,
         ncats_props=ncats_props,
     )
@@ -8892,7 +8916,8 @@ async def drug_id_qa_resolve_quick(q: str = ""):
         return {"results": [], "stats": {"total": 0}}
     queries = [s.strip() for s in q.split("|") if s.strip()][:DRUG_RESOLVER_MAX_QUERIES]
     data = _load_drug_graph()
-    return resolve_and_enrich(
+    return await run_in_threadpool(
+        resolve_and_enrich,
         data,
         queries=queries,
         enable_ncats=False,
