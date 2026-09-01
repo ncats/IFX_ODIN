@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from html import unescape
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -1144,22 +1144,46 @@ def resolve_and_enrich(
     workers: int = 4,
     delay: float = 0.15,
     ncats_props: list[str] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Full resolve+enrich for a batch of user queries.
 
     Returns a dict with ``results`` (list, one per query) and ``stats``.
     """
+    def emit_progress(event: dict[str, Any]) -> None:
+        if not progress_callback:
+            return
+        try:
+            progress_callback(event)
+        except Exception:
+            logger.debug("Drug resolver progress callback failed", exc_info=True)
+
     # Step 1: local resolution (fast, no API)
     local_results = resolve_local(data, queries)
+    local_resolved = sum(1 for r in local_results if r.get("resolved"))
+    emit_progress({
+        "stage": "local_complete",
+        "completed": 0,
+        "total": len(local_results),
+        "local_resolved": local_resolved,
+        "message": f"Local graph resolved {local_resolved} of {len(local_results)} queries.",
+    })
 
     # If no enrichment sources enabled, return local-only
     any_enrichment = any([enable_ncats, enable_pharos, enable_inxight, enable_openfda, enable_chebi])
     if not any_enrichment:
+        emit_progress({
+            "stage": "complete",
+            "completed": len(local_results),
+            "total": len(local_results),
+            "local_resolved": local_resolved,
+            "message": "Local-only resolution complete.",
+        })
         return {
             "results": local_results,
             "stats": {
                 "total": len(queries),
-                "local_resolved": sum(1 for r in local_results if r.get("resolved")),
+                "local_resolved": local_resolved,
                 "enrichment_enabled": False,
             },
         }
@@ -1169,7 +1193,7 @@ def resolve_and_enrich(
     stats_lock = Lock()
     stats = {
         "total": len(queries),
-        "local_resolved": 0,
+        "local_resolved": local_resolved,
         "ncats_found": 0,
         "pharos_found": 0,
         "inxight_found": 0,
@@ -1179,8 +1203,17 @@ def resolve_and_enrich(
         "sources_failed": {},
         "enrichment_enabled": True,
     }
+    source_stat_keys = {
+        "ncats_resolver": "ncats_found",
+        "pharos": "pharos_found",
+        "inxight": "inxight_found",
+        "chebi": "chebi_found",
+        "openfda": "openfda_found",
+    }
+    completed = 0
 
     def worker(idx: int, local_result: dict) -> tuple[int, dict]:
+        nonlocal completed
         result = _enrich_one(
             local_result,
             enable_ncats=enable_ncats,
@@ -1193,11 +1226,9 @@ def resolve_and_enrich(
             ncats_props=ncats_props,
         )
         with stats_lock:
-            if result.get("resolved"):
-                stats["local_resolved"] += 1
             found = (result.get("enrichment") or {}).get("sources_found") or []
             for src in found:
-                key = f"{src}_found"
+                key = source_stat_keys.get(src, f"{src}_found")
                 if key in stats:
                     stats[key] += 1
             source_errors = (result.get("enrichment") or {}).get("source_errors") or []
@@ -1206,6 +1237,20 @@ def resolve_and_enrich(
             for err in source_errors:
                 src = err.get("source") or "unknown"
                 failed_counts[src] = failed_counts.get(src, 0) + 1
+            completed += 1
+            emit_progress({
+                "stage": "enriching",
+                "completed": completed,
+                "total": len(local_results),
+                "local_resolved": stats["local_resolved"],
+                "sources_found": {
+                    key.replace("_found", ""): value
+                    for key, value in stats.items()
+                    if key.endswith("_found") and value
+                },
+                "sources_failed": dict(stats["sources_failed"]),
+                "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
+            })
         return idx, result
 
     actual_workers = min(workers, len(local_results)) or 1
@@ -1224,5 +1269,33 @@ def resolve_and_enrich(
                     **local_results[idx],
                     "enrichment": {"error": str(exc)},
                 }
+                with stats_lock:
+                    completed += 1
+                    emit_progress({
+                        "stage": "enriching",
+                        "completed": completed,
+                        "total": len(local_results),
+                        "local_resolved": stats["local_resolved"],
+                        "sources_found": {
+                            key.replace("_found", ""): value
+                            for key, value in stats.items()
+                            if key.endswith("_found") and value
+                        },
+                        "sources_failed": dict(stats["sources_failed"]),
+                        "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
+                    })
 
+    emit_progress({
+        "stage": "complete",
+        "completed": len(local_results),
+        "total": len(local_results),
+        "local_resolved": stats["local_resolved"],
+        "sources_found": {
+            key.replace("_found", ""): value
+            for key, value in stats.items()
+            if key.endswith("_found") and value
+        },
+        "sources_failed": dict(stats["sources_failed"]),
+        "message": "Drug resolver enrichment complete.",
+    })
     return {"results": enriched, "stats": stats}
