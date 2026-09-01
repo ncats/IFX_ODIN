@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from html import unescape
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 from typing import Any, Callable
 
 import requests
@@ -105,6 +105,9 @@ NCATS_PROPERTY_CATALOG: list[dict[str, Any]] = [
 ]
 
 NCATS_DEFAULT_PROPS: list[str] = [p["key"] for p in NCATS_PROPERTY_CATALOG if p["default"]]
+NCATS_RESOLUTION_FALLBACK_PROPS: list[str] = [
+    "cid", "chembl", "chebi", "unii", "cas", "pt", "names", "devphase", "description",
+]
 
 # Lookup: key → catalog entry
 _NCATS_CATALOG_BY_KEY: dict[str, dict[str, Any]] = {p["key"]: p for p in NCATS_PROPERTY_CATALOG}
@@ -118,6 +121,10 @@ def get_ncats_property_catalog() -> list[dict[str, Any]]:
 
 CAS_RE = re.compile(r"^\d{2,7}-\d{2}-\d$")
 _INTERNAL_ID_RE = re.compile(r"^IFX[A-Za-z]+:")  # skip internal IDs for external API lookups
+_NCATS_RESOLVER_MAX_CONCURRENT = 1
+_NCATS_RESOLVER_RETRY_ATTEMPTS = 2
+_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS = 0.25
+_NCATS_RESOLVER_SEMAPHORE = BoundedSemaphore(_NCATS_RESOLVER_MAX_CONCURRENT)
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +274,96 @@ def _split_pipe_values(value: Any, limit: int = 6) -> list[str]:
         if part and part not in values:
             values.append(part)
     return values[:limit]
+
+
+def _add_lookup_candidate(candidates: list[str], seen: set[str], value: Any) -> None:
+    text = _clean_query_fragment(value)
+    if len(text) < 2 or _INTERNAL_ID_RE.match(text):
+        return
+    key = text.lower()
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append(text)
+
+
+def _identifier_lookup_variants(value: Any) -> list[str]:
+    """Return resolver-friendly variants for local graph identifier cells."""
+    text = _clean_query_fragment(value)
+    if not text:
+        return []
+    variants = [text]
+    if ":" not in text:
+        return variants
+
+    prefix, local_id = text.split(":", 1)
+    prefix_key = prefix.strip().lower()
+    local_id = local_id.strip()
+    if not local_id:
+        return variants
+    if prefix_key in {
+        "unii",
+        "chembl",
+        "chembl.compound",
+        "pubchem",
+        "pubchem.compound",
+        "cas",
+        "inchikey",
+    }:
+        variants.append(local_id)
+    elif prefix_key == "chebi":
+        variants.append(f"CHEBI:{local_id}")
+    return variants
+
+
+def _add_identifier_lookup_candidates(
+    candidates: list[str],
+    seen: set[str],
+    value: Any,
+    limit: int = 4,
+) -> None:
+    for item in _split_pipe_values(value, limit=limit):
+        for variant in _identifier_lookup_variants(item):
+            _add_lookup_candidate(candidates, seen, variant)
+
+
+def _add_name_lookup_candidates(candidates: list[str], seen: set[str], value: Any) -> None:
+    text = _clean_query_fragment(value)
+    if not text:
+        return
+    for variant in (text, _strip_form_words(text), _strip_salt_or_suffix(text)):
+        _add_lookup_candidate(candidates, seen, variant)
+
+
+def _ncats_lookup_candidates(
+    query: str,
+    name: str,
+    best: dict[str, Any],
+    query_terms: list[str] | None = None,
+) -> list[str]:
+    """Build robust NCATS lookups from user text plus harmonized identifiers."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    _add_name_lookup_candidates(candidates, seen, query)
+    for term in (query_terms or [])[:4]:
+        _add_name_lookup_candidates(candidates, seen, term)
+    _add_name_lookup_candidates(candidates, seen, name)
+
+    for field, limit in (
+        ("unii", 4),
+        ("inchikey", 2),
+        ("chembl_id", 4),
+        ("chebi_id", 2),
+        ("cas", 2),
+        ("pubchem_cid", 2),
+        ("source_standard_primary_id", 2),
+        ("primary_id", 2),
+        ("nodenorm_canonical_curie", 1),
+    ):
+        _add_identifier_lookup_candidates(candidates, seen, best.get(field), limit=limit)
+
+    return candidates[:14]
 
 
 def _clean_query_fragment(value: Any) -> str:
@@ -578,7 +675,7 @@ def enrich_ncats_resolver(
     query: str,
     session: requests.Session | None = None,
     api_key: str = "5fd5bb2a05eb6195",
-    timeout: int = 8,
+    timeout: int = 6,
     props: list[str] | None = None,
     source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
@@ -596,28 +693,21 @@ def enrich_ncats_resolver(
     prop_list = [p for p in prop_list if p in _NCATS_VALID_KEYS]
     if not prop_list:
         return None
-    try:
-        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(prop_list)}/"
-        params = {
-            "structure": query,
-            "standardize": "CHARGE_NORMALIZE",
-            "force": "false",
-            "apikey": api_key,
-            "useApproxMatch": "false",
-            "useContains": "false",
-        }
-        r = session.get(url, params=params, timeout=timeout)
-        if r.status_code != 200:
-            _record_source_error(source_errors, "ncats_resolver", query, f"HTTP {r.status_code}")
-            return None
-        text = r.text.strip()
+
+    fallback_props = [p for p in NCATS_RESOLUTION_FALLBACK_PROPS if p in prop_list]
+    request_groups: list[tuple[list[str], bool]] = [(prop_list, False)]
+    if fallback_props and any(p not in fallback_props for p in prop_list):
+        request_groups.append((fallback_props, True))
+
+    def parse_response(text: str, active_props: list[str], used_fallback: bool) -> dict[str, Any] | None:
+        text = text.strip()
         if not text:
             return None
         values = text.split("\n")[0].split("\t")
         if len(values) < 2:
             return None
         raw: dict[str, str] = {}
-        for i, prop in enumerate(prop_list):
+        for i, prop in enumerate(active_props):
             idx = i + 1
             if idx < len(values):
                 v = values[idx].strip()
@@ -627,9 +717,8 @@ def enrich_ncats_resolver(
         if not raw:
             return None
 
-        # Build result dict dynamically from whatever properties were requested
         result: dict[str, Any] = {}
-        for prop in prop_list:
+        for prop in active_props:
             val = raw.get(prop)
             if val is not None:
                 if prop == "description":
@@ -637,21 +726,56 @@ def enrich_ncats_resolver(
                 else:
                     result[f"ncats_{prop}"] = val
 
-        # Convenience: resolved name / all names from "names" property
         names_raw = raw.get("names", "")
         name_list = [n.strip() for n in names_raw.split("|") if n.strip()]
         if name_list:
             result["ncats_resolved_name"] = name_list[0]
             result["ncats_all_names"] = "|".join(name_list[:15])
 
-        # Provide catalog metadata so the frontend knows labels/categories
-        result["_ncats_props_requested"] = prop_list
-
+        result["_ncats_props_requested"] = active_props
+        if used_fallback:
+            result["ncats_request_note"] = "Full property request failed; returned identifier/name fallback."
         return result or None
-    except Exception as exc:
-        _record_source_error(source_errors, "ncats_resolver", query, exc)
-        logger.debug("NCATS resolver failed for %s: %s", query, exc)
-        return None
+
+    last_error: Any = None
+    for active_props, used_fallback in request_groups:
+        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(active_props)}/"
+        params = {
+            "structure": query,
+            "standardize": "CHARGE_NORMALIZE",
+            "force": "false",
+            "apikey": api_key,
+            "useApproxMatch": "false",
+            "useContains": "false",
+        }
+        for attempt in range(1, _NCATS_RESOLVER_RETRY_ATTEMPTS + 1):
+            try:
+                with _NCATS_RESOLVER_SEMAPHORE:
+                    r = session.get(url, params=params, timeout=timeout)
+                if r.status_code != 200:
+                    last_error = f"HTTP {r.status_code}"
+                    if (
+                        r.status_code in {408, 425, 429, 500, 502, 503, 504}
+                        and attempt < _NCATS_RESOLVER_RETRY_ATTEMPTS
+                    ):
+                        time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+                    break
+                result = parse_response(r.text, active_props, used_fallback)
+                if result:
+                    return result
+                return None
+            except Exception as exc:
+                last_error = exc
+                if attempt < _NCATS_RESOLVER_RETRY_ATTEMPTS:
+                    time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                logger.debug("NCATS resolver failed for %s: %s", query, exc)
+                break
+
+    if last_error is not None:
+        _record_source_error(source_errors, "ncats_resolver", query, last_error)
+    return None
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -1011,7 +1135,12 @@ def _enrich_one(
     if enable_ncats:
         ncats_attempt_errors: list[dict[str, str]] = []
         seen_lookups: set[str] = set()
-        ncats_lookups = [query, name, *unii_values[:1], *chembl_values[:1]]
+        ncats_lookups = _ncats_lookup_candidates(
+            query,
+            name,
+            best,
+            query_terms=local_result.get("query_terms") or [],
+        )
         for lookup in ncats_lookups:
             if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue

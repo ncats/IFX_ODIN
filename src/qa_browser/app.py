@@ -24,7 +24,7 @@ import urllib3
 import yaml
 from arango import ArangoClient
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine, text, inspect as sa_inspect
@@ -57,6 +57,7 @@ from src.qa_browser.disease_id_graph import (
     export_review_intake_template,
     export_search_tsv,
     export_sssom,
+    iter_sssom_bytes,
     find_concept_neighbors,
     load_baseline_data,
     load_disease_graph_data,
@@ -9133,10 +9134,10 @@ def disease_id_qa_download(filename: str):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
     media_type = "application/json" if filename.endswith(".json") else "text/tab-separated-values"
-    return StreamingResponse(
-        open(file_path, "rb"),
+    return FileResponse(
+        path=file_path,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
     )
 
 
@@ -9571,9 +9572,8 @@ def disease_id_qa_download_sssom(include_sources: str = ""):
         {s.strip() for s in include_sources.split(",") if s.strip()}
         if include_sources else None
     )
-    content = export_sssom(data, include_sources=src_set)
     return StreamingResponse(
-        io.BytesIO(content.encode("utf-8")),
+        iter_sssom_bytes(data, include_sources=src_set),
         media_type="text/tab-separated-values",
         headers={"Content-Disposition": 'attachment; filename="disease_mappings.sssom.tsv"'},
     )
@@ -10142,6 +10142,7 @@ def disease_id_qa_graph_clinical_descendants(pxref: str = "", limit: int = 80):
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     if not pxref:
         raise HTTPException(status_code=400, detail="pxref parameter required.")
+    limit = max(1, min(limit, 500))
     data = load_disease_graph_data(_disease_graph_dir)
     return build_clinical_descendant_graph_payload(data, pxref, limit=limit)
 
