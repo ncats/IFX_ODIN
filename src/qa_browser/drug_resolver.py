@@ -20,8 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from html import unescape
-from threading import Lock
-from typing import Any
+from threading import BoundedSemaphore, Lock
+from typing import Any, Callable
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -105,6 +105,9 @@ NCATS_PROPERTY_CATALOG: list[dict[str, Any]] = [
 ]
 
 NCATS_DEFAULT_PROPS: list[str] = [p["key"] for p in NCATS_PROPERTY_CATALOG if p["default"]]
+NCATS_RESOLUTION_FALLBACK_PROPS: list[str] = [
+    "cid", "chembl", "chebi", "unii", "cas", "pt", "names", "devphase", "description",
+]
 
 # Lookup: key → catalog entry
 _NCATS_CATALOG_BY_KEY: dict[str, dict[str, Any]] = {p["key"]: p for p in NCATS_PROPERTY_CATALOG}
@@ -118,6 +121,10 @@ def get_ncats_property_catalog() -> list[dict[str, Any]]:
 
 CAS_RE = re.compile(r"^\d{2,7}-\d{2}-\d$")
 _INTERNAL_ID_RE = re.compile(r"^IFX[A-Za-z]+:")  # skip internal IDs for external API lookups
+_NCATS_RESOLVER_MAX_CONCURRENT = 1
+_NCATS_RESOLVER_RETRY_ATTEMPTS = 2
+_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS = 0.25
+_NCATS_RESOLVER_SEMAPHORE = BoundedSemaphore(_NCATS_RESOLVER_MAX_CONCURRENT)
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +205,41 @@ def _shorten(val: Any, limit: int = 500) -> str | None:
     return text[:limit - 3].rstrip() + "..." if len(text) > limit else text
 
 
+def _record_source_error(
+    source_errors: list[dict[str, str]] | None,
+    source: str,
+    lookup: Any,
+    message: Any,
+) -> None:
+    """Attach compact live-source diagnostics without turning no-hit responses into errors."""
+    if source_errors is None or len(source_errors) >= 20:
+        return
+    lookup_text = str(lookup or "").strip()
+    message_text = _shorten(message, 240) or "request failed"
+    if any(err.get("source") == source and err.get("lookup") == lookup_text for err in source_errors):
+        return
+    entry = {"source": source, "lookup": lookup_text, "message": message_text}
+    source_errors.append(entry)
+
+
+def _append_source_failure(
+    source_errors: list[dict[str, str]],
+    source: str,
+    attempt_errors: list[dict[str, str]],
+) -> None:
+    """Collapse per-lookup failures into one per-source diagnostic for a result."""
+    if not attempt_errors:
+        return
+    lookups = _uniq_join([err.get("lookup") for err in attempt_errors], limit=4)
+    messages = _uniq_join([err.get("message") for err in attempt_errors], limit=2)
+    extra = "" if len(attempt_errors) <= 4 else f"; {len(attempt_errors) - 4} more attempts"
+    source_errors.append({
+        "source": source,
+        "lookup": lookups,
+        "message": f"{len(attempt_errors)} lookup attempt(s) failed{extra}: {messages}",
+    })
+
+
 def _clean_html(val: Any) -> str | None:
     if not val:
         return None
@@ -232,6 +274,96 @@ def _split_pipe_values(value: Any, limit: int = 6) -> list[str]:
         if part and part not in values:
             values.append(part)
     return values[:limit]
+
+
+def _add_lookup_candidate(candidates: list[str], seen: set[str], value: Any) -> None:
+    text = _clean_query_fragment(value)
+    if len(text) < 2 or _INTERNAL_ID_RE.match(text):
+        return
+    key = text.lower()
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append(text)
+
+
+def _identifier_lookup_variants(value: Any) -> list[str]:
+    """Return resolver-friendly variants for local graph identifier cells."""
+    text = _clean_query_fragment(value)
+    if not text:
+        return []
+    variants = [text]
+    if ":" not in text:
+        return variants
+
+    prefix, local_id = text.split(":", 1)
+    prefix_key = prefix.strip().lower()
+    local_id = local_id.strip()
+    if not local_id:
+        return variants
+    if prefix_key in {
+        "unii",
+        "chembl",
+        "chembl.compound",
+        "pubchem",
+        "pubchem.compound",
+        "cas",
+        "inchikey",
+    }:
+        variants.append(local_id)
+    elif prefix_key == "chebi":
+        variants.append(f"CHEBI:{local_id}")
+    return variants
+
+
+def _add_identifier_lookup_candidates(
+    candidates: list[str],
+    seen: set[str],
+    value: Any,
+    limit: int = 4,
+) -> None:
+    for item in _split_pipe_values(value, limit=limit):
+        for variant in _identifier_lookup_variants(item):
+            _add_lookup_candidate(candidates, seen, variant)
+
+
+def _add_name_lookup_candidates(candidates: list[str], seen: set[str], value: Any) -> None:
+    text = _clean_query_fragment(value)
+    if not text:
+        return
+    for variant in (text, _strip_form_words(text), _strip_salt_or_suffix(text)):
+        _add_lookup_candidate(candidates, seen, variant)
+
+
+def _ncats_lookup_candidates(
+    query: str,
+    name: str,
+    best: dict[str, Any],
+    query_terms: list[str] | None = None,
+) -> list[str]:
+    """Build robust NCATS lookups from user text plus harmonized identifiers."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    _add_name_lookup_candidates(candidates, seen, query)
+    for term in (query_terms or [])[:4]:
+        _add_name_lookup_candidates(candidates, seen, term)
+    _add_name_lookup_candidates(candidates, seen, name)
+
+    for field, limit in (
+        ("unii", 4),
+        ("inchikey", 2),
+        ("chembl_id", 4),
+        ("chebi_id", 2),
+        ("cas", 2),
+        ("pubchem_cid", 2),
+        ("source_standard_primary_id", 2),
+        ("primary_id", 2),
+        ("nodenorm_canonical_curie", 1),
+    ):
+        _add_identifier_lookup_candidates(candidates, seen, best.get(field), limit=limit)
+
+    return candidates[:14]
 
 
 def _clean_query_fragment(value: Any) -> str:
@@ -543,8 +675,9 @@ def enrich_ncats_resolver(
     query: str,
     session: requests.Session | None = None,
     api_key: str = "5fd5bb2a05eb6195",
-    timeout: int = 3,
+    timeout: int = 6,
     props: list[str] | None = None,
+    source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Query the NCATS chemical resolver for a single identifier.
 
@@ -560,27 +693,21 @@ def enrich_ncats_resolver(
     prop_list = [p for p in prop_list if p in _NCATS_VALID_KEYS]
     if not prop_list:
         return None
-    try:
-        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(prop_list)}/"
-        params = {
-            "structure": query,
-            "standardize": "CHARGE_NORMALIZE",
-            "force": "false",
-            "apikey": api_key,
-            "useApproxMatch": "false",
-            "useContains": "false",
-        }
-        r = session.get(url, params=params, timeout=timeout)
-        if r.status_code != 200:
-            return None
-        text = r.text.strip()
+
+    fallback_props = [p for p in NCATS_RESOLUTION_FALLBACK_PROPS if p in prop_list]
+    request_groups: list[tuple[list[str], bool]] = [(prop_list, False)]
+    if fallback_props and any(p not in fallback_props for p in prop_list):
+        request_groups.append((fallback_props, True))
+
+    def parse_response(text: str, active_props: list[str], used_fallback: bool) -> dict[str, Any] | None:
+        text = text.strip()
         if not text:
             return None
         values = text.split("\n")[0].split("\t")
         if len(values) < 2:
             return None
         raw: dict[str, str] = {}
-        for i, prop in enumerate(prop_list):
+        for i, prop in enumerate(active_props):
             idx = i + 1
             if idx < len(values):
                 v = values[idx].strip()
@@ -590,9 +717,8 @@ def enrich_ncats_resolver(
         if not raw:
             return None
 
-        # Build result dict dynamically from whatever properties were requested
         result: dict[str, Any] = {}
-        for prop in prop_list:
+        for prop in active_props:
             val = raw.get(prop)
             if val is not None:
                 if prop == "description":
@@ -600,20 +726,56 @@ def enrich_ncats_resolver(
                 else:
                     result[f"ncats_{prop}"] = val
 
-        # Convenience: resolved name / all names from "names" property
         names_raw = raw.get("names", "")
         name_list = [n.strip() for n in names_raw.split("|") if n.strip()]
         if name_list:
             result["ncats_resolved_name"] = name_list[0]
             result["ncats_all_names"] = "|".join(name_list[:15])
 
-        # Provide catalog metadata so the frontend knows labels/categories
-        result["_ncats_props_requested"] = prop_list
-
+        result["_ncats_props_requested"] = active_props
+        if used_fallback:
+            result["ncats_request_note"] = "Full property request failed; returned identifier/name fallback."
         return result or None
-    except Exception as exc:
-        logger.debug("NCATS resolver failed for %s: %s", query, exc)
-        return None
+
+    last_error: Any = None
+    for active_props, used_fallback in request_groups:
+        url = f"{NCATS_RESOLVER_BASE}/{'/'.join(active_props)}/"
+        params = {
+            "structure": query,
+            "standardize": "CHARGE_NORMALIZE",
+            "force": "false",
+            "apikey": api_key,
+            "useApproxMatch": "false",
+            "useContains": "false",
+        }
+        for attempt in range(1, _NCATS_RESOLVER_RETRY_ATTEMPTS + 1):
+            try:
+                with _NCATS_RESOLVER_SEMAPHORE:
+                    r = session.get(url, params=params, timeout=timeout)
+                if r.status_code != 200:
+                    last_error = f"HTTP {r.status_code}"
+                    if (
+                        r.status_code in {408, 425, 429, 500, 502, 503, 504}
+                        and attempt < _NCATS_RESOLVER_RETRY_ATTEMPTS
+                    ):
+                        time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+                    break
+                result = parse_response(r.text, active_props, used_fallback)
+                if result:
+                    return result
+                return None
+            except Exception as exc:
+                last_error = exc
+                if attempt < _NCATS_RESOLVER_RETRY_ATTEMPTS:
+                    time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                logger.debug("NCATS resolver failed for %s: %s", query, exc)
+                break
+
+    if last_error is not None:
+        _record_source_error(source_errors, "ncats_resolver", query, last_error)
+    return None
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -664,6 +826,7 @@ def enrich_pharos(
     name: str,
     session: requests.Session | None = None,
     timeout: int = 5,
+    source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Query Pharos GraphQL for drug-target activities."""
     if not name:
@@ -671,7 +834,7 @@ def enrich_pharos(
     session = session or _build_session()
 
     # Try cleaned name first, then raw
-    for lookup in [_clean_name_for_pharos(name), name]:
+    for lookup in list(dict.fromkeys(filter(None, [_clean_name_for_pharos(name), name]))):
         if not lookup:
             continue
         try:
@@ -681,9 +844,15 @@ def enrich_pharos(
                 timeout=timeout,
             )
             if r.status_code != 200:
+                _record_source_error(source_errors, "pharos", lookup, f"HTTP {r.status_code}")
                 continue
             data = r.json()
             if data.get("errors"):
+                messages = [
+                    str(err.get("message", err))
+                    for err in data.get("errors") or []
+                ]
+                _record_source_error(source_errors, "pharos", lookup, "; ".join(messages))
                 continue
             lig = (data.get("data") or {}).get("ligand")
             if not lig:
@@ -726,6 +895,7 @@ def enrich_pharos(
                 "pharos_target_details": targets[:50],
             }
         except Exception as exc:
+            _record_source_error(source_errors, "pharos", lookup, exc)
             logger.debug("Pharos failed for %s: %s", lookup, exc)
     return None
 
@@ -752,7 +922,8 @@ def _parse_inxight_drug_page(html: str) -> dict[str, Any]:
 def enrich_inxight(
     unii: str,
     session: requests.Session | None = None,
-    timeout: int = 3,
+    timeout: int = 6,
+    source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Query Inxight/GSRS by UNII for regulatory + target context."""
     if not unii:
@@ -762,22 +933,21 @@ def enrich_inxight(
     if not unii:
         return None
 
-    result: dict[str, Any] = {}
-
-    result["inxight_drug_url"] = f"https://drugs.ncats.io/drug/{unii}"
-
     # API search
     try:
         r = session.get(f"{INXIGHT_API}/search", params={"q": unii}, timeout=timeout)
         if r.status_code != 200:
-            return result or None
+            _record_source_error(source_errors, "inxight", unii, f"HTTP {r.status_code}")
+            return None
         hits = (r.json().get("content") or [])
         if not hits:
-            return result or None
+            return None
         d = next((h for h in hits if str(h.get("approvalID", "")).upper() == unii.upper()), hits[0])
         uuid = d.get("uuid")
         if not uuid:
-            return result or None
+            return None
+
+        result: dict[str, Any] = {"inxight_drug_url": f"https://drugs.ncats.io/drug/{unii}"}
 
         # Detail
         detail_resp = session.get(f"{INXIGHT_API}({uuid})", timeout=timeout)
@@ -820,6 +990,7 @@ def enrich_inxight(
 
         return result
     except Exception as exc:
+        _record_source_error(source_errors, "inxight", unii, exc)
         logger.debug("Inxight failed for %s: %s", unii, exc)
         return result or None
 
@@ -832,6 +1003,7 @@ def enrich_openfda(
     name_candidates: list[str],
     session: requests.Session | None = None,
     timeout: int = 3,
+    source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Search openFDA drug labels for adverse reactions and warnings."""
     candidates = list(dict.fromkeys(c.strip() for c in name_candidates if c and c.strip()))[:8]
@@ -854,6 +1026,8 @@ def enrich_openfda(
                     timeout=timeout,
                 )
                 if resp.status_code != 200:
+                    if resp.status_code == 429 or resp.status_code >= 500:
+                        _record_source_error(source_errors, "openfda", candidate, f"HTTP {resp.status_code}")
                     continue
                 results = (resp.json().get("results") or [])
                 if not results:
@@ -870,7 +1044,8 @@ def enrich_openfda(
                     "openfda_boxed_warning": _shorten(" ".join(label.get("boxed_warning") or []), 500),
                     "openfda_warnings": _shorten(" ".join(label.get("warnings") or []), 500),
                 }
-            except Exception:
+            except Exception as exc:
+                _record_source_error(source_errors, "openfda", candidate, exc)
                 continue
     return None
 
@@ -883,6 +1058,7 @@ def enrich_chebi(
     chebi_id: str,
     session: requests.Session | None = None,
     timeout: int = 3,
+    source_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Look up ChEBI chemical class hierarchy via OLS4."""
     if not chebi_id:
@@ -897,6 +1073,8 @@ def enrich_chebi(
     try:
         term_resp = session.get(f"{CHEBI_OLS_API}/ontologies/chebi/terms/{encoded}", timeout=timeout)
         if term_resp.status_code != 200:
+            if term_resp.status_code == 429 or term_resp.status_code >= 500:
+                _record_source_error(source_errors, "chebi", chebi_id, f"HTTP {term_resp.status_code}")
             return None
         term = term_resp.json()
         parent_href = ((term.get("_links") or {}).get("hierarchicalParents") or {}).get("href")
@@ -914,6 +1092,7 @@ def enrich_chebi(
             "chebi_chemical_class": "|".join(informative[:5]) if informative else None,
         }
     except Exception as exc:
+        _record_source_error(source_errors, "chebi", chebi_id, exc)
         logger.debug("ChEBI failed for %s: %s", chebi_id, exc)
         return None
 
@@ -936,6 +1115,7 @@ def _enrich_one(
     """Enrich a single local-resolved result with live API data."""
     session = _build_session()
     enrichment: dict[str, Any] = {}
+    source_errors: list[dict[str, str]] = []
     query = local_result["query"]
     hits = local_result.get("local_hits") or []
     best = hits[0] if hits else {}
@@ -953,13 +1133,24 @@ def _enrich_one(
     # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
     # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
+        ncats_attempt_errors: list[dict[str, str]] = []
         seen_lookups: set[str] = set()
-        ncats_lookups = [query, name, *unii_values[:1], *chembl_values[:1]]
+        ncats_lookups = _ncats_lookup_candidates(
+            query,
+            name,
+            best,
+            query_terms=local_result.get("query_terms") or [],
+        )
         for lookup in ncats_lookups:
             if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_lookups.add(lookup)
-            ncats = enrich_ncats_resolver(lookup, session=session, props=ncats_props)
+            ncats = enrich_ncats_resolver(
+                lookup,
+                session=session,
+                props=ncats_props,
+                source_errors=ncats_attempt_errors,
+            )
             if ncats:
                 enrichment["ncats_resolver"] = ncats
                 # Override IDs with NCATS-resolved values so downstream
@@ -984,6 +1175,8 @@ def _enrich_one(
                     name = resolved_name
                 break
             time.sleep(delay)
+        if "ncats_resolver" not in enrichment:
+            _append_source_failure(source_errors, "ncats_resolver", ncats_attempt_errors)
 
         # Re-lookup in local graph using NCATS-resolved IDs when the
         # original query missed or matched the wrong compound (e.g.
@@ -1020,22 +1213,26 @@ def _enrich_one(
     # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
         pharos = None
+        pharos_attempt_errors: list[dict[str, str]] = []
         seen_pharos: set[str] = set()
         for lookup in [query, name, *chembl_values]:
             if not lookup or lookup in seen_pharos or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_pharos.add(lookup)
-            pharos = enrich_pharos(lookup, session=session)
+            pharos = enrich_pharos(lookup, session=session, source_errors=pharos_attempt_errors)
             if pharos:
                 break
         if pharos:
             enrichment["pharos"] = pharos
+        else:
+            _append_source_failure(source_errors, "pharos", pharos_attempt_errors)
         time.sleep(delay)
 
     # Inxight
     if enable_inxight and unii_values:
+        inxight_attempt_errors: list[dict[str, str]] = []
         for lookup in unii_values[:1]:
-            inxight = enrich_inxight(lookup, session=session)
+            inxight = enrich_inxight(lookup, session=session, source_errors=inxight_attempt_errors)
             if inxight:
                 enrichment["inxight"] = inxight
                 # Collect name candidates for openFDA
@@ -1043,15 +1240,20 @@ def _enrich_one(
                     name = inxight.get("inxight_name") or name
                 break
             time.sleep(delay)
+        if "inxight" not in enrichment:
+            _append_source_failure(source_errors, "inxight", inxight_attempt_errors)
 
     # ChEBI
     if enable_chebi and chebi_values:
+        chebi_attempt_errors: list[dict[str, str]] = []
         for lookup in chebi_values[:2]:
-            chebi = enrich_chebi(lookup, session=session)
+            chebi = enrich_chebi(lookup, session=session, source_errors=chebi_attempt_errors)
             if chebi:
                 enrichment["chebi"] = chebi
                 break
             time.sleep(delay)
+        if "chebi" not in enrichment:
+            _append_source_failure(source_errors, "chebi", chebi_attempt_errors)
 
     # openFDA
     if enable_openfda:
@@ -1063,9 +1265,16 @@ def _enrich_one(
             (enrichment.get("ncats_resolver") or {}).get("ncats_resolved_name"),
         ])))
         if name_candidates:
-            openfda = enrich_openfda(name_candidates, session=session)
+            openfda_attempt_errors: list[dict[str, str]] = []
+            openfda = enrich_openfda(name_candidates, session=session, source_errors=openfda_attempt_errors)
             if openfda:
                 enrichment["openfda"] = openfda
+            else:
+                _append_source_failure(source_errors, "openfda", openfda_attempt_errors)
+
+    if source_errors:
+        enrichment["source_errors"] = source_errors
+        enrichment["sources_failed"] = sorted({err["source"] for err in source_errors if err.get("source")})
 
     enrichment["sources_queried"] = [
         s for s, enabled in [
@@ -1095,22 +1304,46 @@ def resolve_and_enrich(
     workers: int = 4,
     delay: float = 0.15,
     ncats_props: list[str] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Full resolve+enrich for a batch of user queries.
 
     Returns a dict with ``results`` (list, one per query) and ``stats``.
     """
+    def emit_progress(event: dict[str, Any]) -> None:
+        if not progress_callback:
+            return
+        try:
+            progress_callback(event)
+        except Exception:
+            logger.debug("Drug resolver progress callback failed", exc_info=True)
+
     # Step 1: local resolution (fast, no API)
     local_results = resolve_local(data, queries)
+    local_resolved = sum(1 for r in local_results if r.get("resolved"))
+    emit_progress({
+        "stage": "local_complete",
+        "completed": 0,
+        "total": len(local_results),
+        "local_resolved": local_resolved,
+        "message": f"Local graph resolved {local_resolved} of {len(local_results)} queries.",
+    })
 
     # If no enrichment sources enabled, return local-only
     any_enrichment = any([enable_ncats, enable_pharos, enable_inxight, enable_openfda, enable_chebi])
     if not any_enrichment:
+        emit_progress({
+            "stage": "complete",
+            "completed": len(local_results),
+            "total": len(local_results),
+            "local_resolved": local_resolved,
+            "message": "Local-only resolution complete.",
+        })
         return {
             "results": local_results,
             "stats": {
                 "total": len(queries),
-                "local_resolved": sum(1 for r in local_results if r.get("resolved")),
+                "local_resolved": local_resolved,
                 "enrichment_enabled": False,
             },
         }
@@ -1120,16 +1353,27 @@ def resolve_and_enrich(
     stats_lock = Lock()
     stats = {
         "total": len(queries),
-        "local_resolved": 0,
+        "local_resolved": local_resolved,
         "ncats_found": 0,
         "pharos_found": 0,
         "inxight_found": 0,
         "chebi_found": 0,
         "openfda_found": 0,
+        "source_errors": 0,
+        "sources_failed": {},
         "enrichment_enabled": True,
     }
+    source_stat_keys = {
+        "ncats_resolver": "ncats_found",
+        "pharos": "pharos_found",
+        "inxight": "inxight_found",
+        "chebi": "chebi_found",
+        "openfda": "openfda_found",
+    }
+    completed = 0
 
     def worker(idx: int, local_result: dict) -> tuple[int, dict]:
+        nonlocal completed
         result = _enrich_one(
             local_result,
             enable_ncats=enable_ncats,
@@ -1142,13 +1386,31 @@ def resolve_and_enrich(
             ncats_props=ncats_props,
         )
         with stats_lock:
-            if result.get("resolved"):
-                stats["local_resolved"] += 1
             found = (result.get("enrichment") or {}).get("sources_found") or []
             for src in found:
-                key = f"{src}_found"
+                key = source_stat_keys.get(src, f"{src}_found")
                 if key in stats:
                     stats[key] += 1
+            source_errors = (result.get("enrichment") or {}).get("source_errors") or []
+            stats["source_errors"] += len(source_errors)
+            failed_counts = stats["sources_failed"]
+            for err in source_errors:
+                src = err.get("source") or "unknown"
+                failed_counts[src] = failed_counts.get(src, 0) + 1
+            completed += 1
+            emit_progress({
+                "stage": "enriching",
+                "completed": completed,
+                "total": len(local_results),
+                "local_resolved": stats["local_resolved"],
+                "sources_found": {
+                    key.replace("_found", ""): value
+                    for key, value in stats.items()
+                    if key.endswith("_found") and value
+                },
+                "sources_failed": dict(stats["sources_failed"]),
+                "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
+            })
         return idx, result
 
     actual_workers = min(workers, len(local_results)) or 1
@@ -1167,5 +1429,33 @@ def resolve_and_enrich(
                     **local_results[idx],
                     "enrichment": {"error": str(exc)},
                 }
+                with stats_lock:
+                    completed += 1
+                    emit_progress({
+                        "stage": "enriching",
+                        "completed": completed,
+                        "total": len(local_results),
+                        "local_resolved": stats["local_resolved"],
+                        "sources_found": {
+                            key.replace("_found", ""): value
+                            for key, value in stats.items()
+                            if key.endswith("_found") and value
+                        },
+                        "sources_failed": dict(stats["sources_failed"]),
+                        "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
+                    })
 
+    emit_progress({
+        "stage": "complete",
+        "completed": len(local_results),
+        "total": len(local_results),
+        "local_resolved": stats["local_resolved"],
+        "sources_found": {
+            key.replace("_found", ""): value
+            for key, value in stats.items()
+            if key.endswith("_found") and value
+        },
+        "sources_failed": dict(stats["sources_failed"]),
+        "message": "Drug resolver enrichment complete.",
+    })
     return {"results": enriched, "stats": stats}

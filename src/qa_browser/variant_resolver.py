@@ -80,7 +80,8 @@ _SCOPES_BY_TYPE: dict[str, str] = {
     "clinvar_id": "clinvar.variant_id",
     "hgvs": "_id",
     "gene_symbol": "dbsnp.gene.symbol",
-    "freetext": "dbsnp.rsid,clinvar.variant_id,_id",
+    "cosmic": "cosmic.cosmic_id",
+    "freetext": "dbsnp.rsid,clinvar.variant_id,_id,cosmic.cosmic_id",
 }
 
 
@@ -120,8 +121,8 @@ def _detect_query_type(query: str) -> tuple[str, str]:
     if m_dbsnp:
         return ("rsid", m_dbsnp.group(1).lower())
 
-    # ClinVar variation ID: "ClinVarVariation:12345" or "ClinVar:12345"
-    m_cv = re.fullmatch(r"(?:ClinVar(?:Variation)?:)(\d+)", q, re.I)
+    # ClinVar variation ID: "ClinVarVariation:12345", "ClinVar:12345", or "ClinVarAllele:12345"
+    m_cv = re.fullmatch(r"(?:ClinVar(?:Variation|Allele)?:)(\d+)", q, re.I)
     if m_cv:
         return ("clinvar_id", m_cv.group(1))
 
@@ -131,25 +132,26 @@ def _detect_query_type(query: str) -> tuple[str, str]:
     if m_bare and len(m_bare.group(1)) >= 4:
         return ("clinvar_id", m_bare.group(1))
 
-    # HGVS notation: contains :c. or :p. or :g.
-    if re.search(r":[cpg]\.", q):
+    # HGVS notation: contains :c. :p. :g. :n. :m. :r. :o.
+    if re.search(r":\s*[cpgnmro]\.", q):
         return ("hgvs", q)
 
     # Bare protein HGVS: p.Val600Glu or p.V600E (no transcript prefix)
     if re.match(r"p\.[A-Z]", q, re.I):
         return ("hgvs", q)
 
-    # Chromosomal HGVS: chr1:g.12345A>G
-    if re.match(r"chr\d+:g\.\d+", q, re.I):
+    # Chromosomal HGVS: chr1:g.12345A>G (including chrX, chrY, chrM)
+    if re.match(r"chr[\dXYM]+:\s*g\.\d+", q, re.I):
         return ("hgvs", q)
 
-    # COSMIC ID: COSM followed by digits — not a gene symbol
-    if re.fullmatch(r"COSM\d+", q, re.I):
-        return ("freetext", q)
+    # COSMIC ID: COSM/COSV followed by digits
+    if re.fullmatch(r"COS[MV]\d+", q, re.I):
+        return ("cosmic", q.upper())
 
-    # Gene symbol: all caps, 2-10 chars, letters and digits
-    if re.fullmatch(r"[A-Z][A-Z0-9]{1,9}", q):
-        return ("gene_symbol", q)
+    # Gene symbol: starts with uppercase letter, 2-10 alphanumeric chars
+    # Accept mixed case (e.g. "Braf") and uppercase it for consistency
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,9}", q) and not q.isdigit():
+        return ("gene_symbol", q.upper())
 
     return ("freetext", q)
 
@@ -416,7 +418,7 @@ def resolve_and_enrich(
     if not fields:
         fields = list(MYVARIANT_DEFAULT_FIELDS)
 
-    results: list[dict[str, Any]] = [{}] * len(queries)
+    results: list[dict[str, Any]] = [{} for _ in range(len(queries))]
     stats_lock = Lock()
     stats = {
         "total": len(queries),

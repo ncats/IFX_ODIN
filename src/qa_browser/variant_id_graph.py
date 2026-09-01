@@ -43,6 +43,7 @@ _singleton_lock = threading.Lock()
 
 DEFAULT_VARIANT_COLUMNS = [
     "variant_id",
+    "variant_key",
     "primary_id",
     "name",
     "biolink_category",
@@ -54,16 +55,30 @@ DEFAULT_VARIANT_COLUMNS = [
     "uniprot_entry_name",
     "uniprot_feature_id",
     "protein_name",
+    "omim_gene_mim",
+    "omim_allelic_variant_id",
+    "clinvar_rcv",
+    "mutation",
     "gene_symbol",
     "gene_curie",
+    "hgnc_id",
     "assembly",
     "chromosome",
     "position",
+    "reference_allele",
+    "alternate_allele",
     "risk_allele",
+    "protein_position",
+    "reference_amino_acid",
+    "alternate_amino_acid",
+    "amino_acid_change",
     "clinical_significance",
+    "clinical_significance_class",
     "source_review_status",
     "review_status",
+    "review_strength_score",
     "source_namespaces",
+    "source_record_count",
     "equivalence_scope",
     "quality_note",
 ]
@@ -106,15 +121,20 @@ def _variant_lookup_aliases(value: str) -> set[str]:
         aliases.add(text.split(":", 1)[1])
     elif lower.startswith(("uniprotkb:", "uniprotvar:")):
         aliases.add(text.split(":", 1)[1])
-    elif re.fullmatch(r"[A-Z0-9]{1,10}-?\d*", text, re.I):
+    elif re.fullmatch(r"[A-Z]\d[A-Z0-9]{3,7}", text, re.I):
+        # UniProt accession pattern (e.g. P02649, Q9Y6K9)
         aliases.add(f"UniProtKB:{text.upper()}")
+    elif re.fullmatch(r"VAR_\d+", text, re.I):
+        # UniProt feature ID pattern (e.g. VAR_000664)
         aliases.add(f"UniProtVAR:{text.upper()}")
     return {a for a in aliases if a}
 
 
 def _add_variant_index(data: VariantGraphData, key: str, variant_id: str) -> None:
     for alias in _variant_lookup_aliases(key):
-        data.ids_to_variants[alias].append(variant_id)
+        alias_list = data.ids_to_variants[alias]
+        if variant_id not in alias_list:
+            alias_list.append(variant_id)
 
 
 def _index_node(data: VariantGraphData, node: dict[str, str]) -> None:
@@ -127,12 +147,15 @@ def _index_node(data: VariantGraphData, node: dict[str, str]) -> None:
         variant_id,
         node.get("variant_key", ""),
         node.get("primary_id", ""),
+        node.get("name", ""),
         node.get("dbsnp_id", ""),
         node.get("clinvar_variation_id", ""),
         node.get("clinvar_allele_id", ""),
+        node.get("clinvar_rcv", ""),
         node.get("uniprot_id", ""),
         node.get("uniprot_entry_name", ""),
         node.get("uniprot_feature_id", ""),
+        node.get("protein_name", ""),
         node.get("gene_symbol", ""),
     }
     for key in keys:

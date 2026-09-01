@@ -203,6 +203,8 @@
 .vr-status-badge.local_only { background:#3b82f6; color:#fff; }
 .vr-status-badge.api_only { background:#a855f7; color:#fff; }
 .vr-status-badge.not_found { background:#64748b; color:#e2e8f0; }
+.vr-status-badge.empty { background:#475569; color:#e2e8f0; }
+.vr-status-badge.error { background:#dc2626; color:#fff; }
 .resolver-checkbox { display:inline-flex; align-items:center; gap:0.3rem; font-size:0.78rem; color:var(--text); cursor:pointer; user-select:none; }
 .resolver-checkbox input[type="checkbox"] { accent-color:var(--accent,#14b8a6); width:14px; height:14px; }
 .ncats-prop-panel { border:1px solid var(--border,#e2e8f0); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.75rem; background:var(--bg-secondary,#f8fafc); }
@@ -281,7 +283,7 @@ async function runVariantSearch(page = 1) {
         per_page: 50,
     });
     const resp = await fetch(`${rootPath}/variant-id-qa/api/search?${params}`);
-    if (!resp.ok) return;
+    if (!resp.ok) { document.getElementById("variantRows").innerHTML = `<tr><td colspan="6">Search error: ${resp.status}</td></tr>`; return; }
     const data = await resp.json();
     variantLastPage = data.pages || 0;
     document.getElementById("variantRows").innerHTML = data.rows.map(row => `<tr>
@@ -308,9 +310,9 @@ async function loadVariantGraph(ids) {
         include_disagreements: document.getElementById("variantShowDisagreements")?.checked ? "true" : "false",
     });
     const resp = await fetch(`${rootPath}/variant-id-qa/api/graph?${params}`);
-    if (!resp.ok) return;
+    if (!resp.ok) { document.getElementById("variantGraphLabel").textContent = `Graph error: ${resp.status}`; return; }
     const payload = await resp.json();
-    document.getElementById("variantGraphLabel").textContent = `${payload.node_count} nodes · ${payload.edge_count} edges` + (payload.not_found.length ? ` · not found: ${payload.not_found.join(", ")}` : "");
+    document.getElementById("variantGraphLabel").textContent = `${payload.node_count} nodes · ${payload.edge_count} edges` + ((payload.not_found && payload.not_found.length) ? ` · not found: ${payload.not_found.join(", ")}` : "");
     const elements = [...payload.elements.nodes, ...payload.elements.edges];
     if (variantCy) variantCy.destroy();
     variantCy = cytoscape({
@@ -342,6 +344,8 @@ function setupVariantColumns() {
 }
 
 document.getElementById("variantSearchBtn").addEventListener("click", () => runVariantSearch(1));
+document.getElementById("variantSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runVariantSearch(1); } });
+document.getElementById("variantGeneFilter").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runVariantSearch(1); } });
 document.getElementById("variantPrevPage").addEventListener("click", () => { if (variantPage > 1) runVariantSearch(variantPage - 1); });
 document.getElementById("variantNextPage").addEventListener("click", () => { if (!variantLastPage || variantPage < variantLastPage) runVariantSearch(variantPage + 1); });
 document.getElementById("variantOpenGraph").addEventListener("click", () => loadVariantGraph());
@@ -570,7 +574,7 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
                     {key:"dbnsfp.revel.score", hi:0.5, med:0.25, dir:"high"},
                     {key:"dbnsfp.metalr.score", hi:0.5, med:0.25, dir:"high"},
                 ];
-                const scoreEntries = scoreKeys.filter(s => hit[s.key]);
+                const scoreEntries = scoreKeys.filter(s => hit[s.key] != null);
                 if (scoreEntries.length) {
                     html += `<div class="vr-section"><h5>Deleteriousness Scores</h5><dl class="vr-kv">`;
                     scoreEntries.forEach(s => {
@@ -614,25 +618,41 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
     }
 
     /* ── Export ───────────────────────────────────────────────────────── */
+    function vrStringify(v) {
+        if (v == null) return "";
+        if (typeof v === "object") return JSON.stringify(v);
+        return String(v);
+    }
+
     function vrFlattenResult(r) {
-        const flat = { query: r.query, query_type: r.query_type, status: r.status };
-        /* Local hit fields */
-        if (r.local_hits && r.local_hits.length) {
-            const best = r.local_hits[0];
-            for (const [k,v] of Object.entries(best)) flat[`local_${k}`] = v;
-        }
-        /* MyVariant fields */
-        const mv = r.myvariant;
-        if (mv) {
-            const hit = mv.hits ? mv.hits[0] : mv;
-            if (hit) {
-                for (const [k,v] of Object.entries(hit)) {
-                    if (k.startsWith("_")) continue;
-                    flat[`myvariant_${k.replace(/\./g, "_")}`] = v;
+        /* When multiple local hits or MyVariant hits exist, produce one row
+           per combination so nothing is silently dropped on export. */
+        const base = { query: r.query, query_type: r.query_type, status: r.status };
+        const localHits = (r.local_hits && r.local_hits.length) ? r.local_hits : [null];
+        const mvHits = r.myvariant
+            ? (r.myvariant.hits ? r.myvariant.hits : [r.myvariant])
+            : [null];
+
+        const rows = [];
+        localHits.forEach((lh, li) => {
+            mvHits.forEach((mh, mi) => {
+                const flat = { ...base };
+                if (localHits.length > 1) flat.local_hit_index = li + 1;
+                if (lh) {
+                    for (const [k,v] of Object.entries(lh))
+                        flat[`local_${k}`] = vrStringify(v);
                 }
-            }
-        }
-        return flat;
+                if (mh) {
+                    if (mvHits.length > 1) flat.myvariant_hit_index = mi + 1;
+                    for (const [k,v] of Object.entries(mh)) {
+                        if (k.startsWith("_")) continue;
+                        flat[`myvariant_${k.replace(/\./g, "_")}`] = vrStringify(v);
+                    }
+                }
+                rows.push(flat);
+            });
+        });
+        return rows;
     }
 
     function vrExport() {
@@ -643,13 +663,15 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
         if (fmt === "json") {
             const blob = new Blob([JSON.stringify(vrLastResults, null, 2)], {type: "application/json"});
             const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
+            const url = URL.createObjectURL(blob);
+            a.href = url;
             a.download = "variant_resolver_results.json";
             a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
             return;
         }
 
-        const rows = results.map(vrFlattenResult);
+        const rows = results.flatMap(vrFlattenResult);
         const allKeys = [...new Set(rows.flatMap(Object.keys))];
         const sep = fmt === "csv" ? "," : "\t";
         const esc = v => {
@@ -660,12 +682,17 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
         rows.forEach(row => lines.push(allKeys.map(k => esc(row[k])).join(sep)));
         const blob = new Blob([lines.join("\n")], {type: fmt === "csv" ? "text/csv" : "text/tab-separated-values"});
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        a.href = url;
         a.download = `variant_resolver_results.${fmt}`;
         a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
 
     /* ── Event wiring ────────────────────────────────────────────────── */
+    document.getElementById("vrInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); vrResolve(); }
+    });
     document.getElementById("vrResolveBtn").addEventListener("click", vrResolve);
     document.getElementById("vrClearBtn").addEventListener("click", () => {
         document.getElementById("vrInput").value = "";

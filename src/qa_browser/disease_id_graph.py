@@ -124,7 +124,10 @@ _OPEN_REVIEW_STATUSES = {"", "open"}
 
 
 def normalize_review_text(value: Any) -> str:
-    """Normalize old user-facing review vocabulary for app display."""
+    """Normalize old user-facing review vocabulary for app display.
+
+    NOTE: Keep in sync with disease_app_graph_export._review_display_text
+    """
     text = str(value or "")
     legacy_program = "R" + "DIP"
     replacements = {
@@ -305,6 +308,19 @@ def _load_app_graph_data(data_dir: Path) -> DiseaseGraphData:
             if ncats_id:
                 data.associations_by_ncats_id[ncats_id].append(row)
 
+    # Validate loaded row counts against manifest
+    if data.manifest:
+        files_meta = data.manifest.get("files", {})
+        checks = [
+            ("disease_concepts.tsv", len(data.concepts_by_pxref),
+             files_meta.get("disease_concepts.tsv", {}).get("rows")),
+            ("disease_xref_edges.tsv", sum(len(v) for v in data.edges_by_pxref.values()),
+             files_meta.get("disease_xref_edges.tsv", {}).get("rows")),
+        ]
+        for fname, actual, expected in checks:
+            if expected is not None and actual != expected:
+                print(f"WARNING: {fname} loaded {actual:,} rows, manifest says {expected:,}")
+
     return data
 
 
@@ -325,10 +341,10 @@ def _print_graph_load(label: str, data: DiseaseGraphData) -> None:
     )
 
 
-def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
+def load_disease_graph_data(data_dir: str | Path, *, force_reload: bool = False) -> DiseaseGraphData:
     """Load TSVs + manifest, build indexes, cache as module singleton."""
     global _singleton
-    if _singleton is not None:
+    if _singleton is not None and not force_reload:
         return _singleton
 
     data_dir = Path(data_dir)
@@ -336,6 +352,11 @@ def load_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
     _singleton = data
     _print_graph_load("Disease graph", data)
     return data
+
+
+def reload_disease_graph_data(data_dir: str | Path) -> DiseaseGraphData:
+    """Force-reload disease graph data, clearing the cached singleton."""
+    return load_disease_graph_data(data_dir, force_reload=True)
 
 
 def compute_dashboard_stats(data: DiseaseGraphData) -> dict[str, Any]:
@@ -575,13 +596,31 @@ def parse_disease_ids(raw: str) -> list[str]:
     return ids
 
 
+def _ensure_xref_index(data: DiseaseGraphData) -> dict[str, set[str]]:
+    """Build (or return cached) reverse index from xref_id -> set of primary_xrefs."""
+    if data._xref_to_pxrefs is None:
+        rev: dict[str, set[str]] = defaultdict(set)
+        for px, edges in data.edges_by_pxref.items():
+            for e in edges:
+                xid = e.get("xref_id", "")
+                if xid:
+                    rev[xid].add(px)
+        data._xref_to_pxrefs = dict(rev)
+    return data._xref_to_pxrefs
+
+
 def _resolve_to_pxref(data: DiseaseGraphData, query_id: str) -> str | None:
-    """Resolve a query ID to a primary_xref. Accepts primary_xref or ncats_disease_id."""
+    """Resolve a query ID to a primary_xref. Accepts primary_xref, ncats_disease_id, or xref_id."""
     if query_id in data.concepts_by_pxref:
         return query_id
     concept = data.concepts_by_ncats_id.get(query_id)
     if concept:
         return concept.get("primary_xref")
+    # Fallback: check xref reverse index (unambiguous single match only)
+    xref_to_pxrefs = _ensure_xref_index(data)
+    pxrefs = xref_to_pxrefs.get(query_id, set())
+    if len(pxrefs) == 1:
+        return next(iter(pxrefs))
     return None
 
 
@@ -2402,6 +2441,14 @@ def bulk_resolve_names(
     }
 
 
+def _any_xref_matches(pxref: str, q_lower: str, data: DiseaseGraphData) -> bool:
+    """Return True if any xref edge ID for this concept contains q_lower."""
+    for edge in data.edges_by_pxref.get(pxref, []):
+        if q_lower in edge.get("xref_id", "").lower():
+            return True
+    return False
+
+
 def _match_filters(
     pxref: str,
     concept: dict,
@@ -2422,10 +2469,14 @@ def _match_filters(
         if not _is_flagged(concept, decisions):
             return False
 
-    # Text search
+    # Text search — checks primary_xref, name, synonyms, and xref IDs
     if q_lower:
         name = concept.get("standard_name", "").lower()
-        if q_lower not in pxref.lower() and q_lower not in name:
+        synonyms = concept.get("synonyms", "").lower()
+        if (q_lower not in pxref.lower()
+                and q_lower not in name
+                and q_lower not in synonyms
+                and not _any_xref_matches(pxref, q_lower, data)):
             return False
 
     # Confidence tier
@@ -3059,22 +3110,21 @@ def _match_source_to_semapv(match_type_source: str) -> str:
     return "semapv:UnspecifiedMatching"
 
 
-def export_sssom(
+def _iter_sssom_lines(
     data: DiseaseGraphData,
     include_sources: set[str] | None = None,
-) -> str:
-    """Export xref edges as SSSOM TSV with metadata header."""
+):
+    """Yield SSSOM TSV lines one at a time."""
     version = data.manifest.get("pipeline_version", "unknown")
 
-    # Build metadata header
-    lines: list[str] = []
-    lines.append("#curie_map:")
+    # Metadata header
+    yield "#curie_map:"
     for prefix, uri in _CURIE_MAP.items():
-        lines.append(f"#  {prefix}: {uri}")
-    lines.append(f"#mapping_set_id: https://github.com/ncats/IFX_ODIN/disease-harmonizer")
-    lines.append(f"#mapping_set_version: {version}")
-    lines.append("#creator_label: TargetGraph Disease Harmonizer")
-    lines.append("")
+        yield f"#  {prefix}: {uri}"
+    yield f"#mapping_set_id: https://github.com/ncats/IFX_ODIN/disease-harmonizer"
+    yield f"#mapping_set_version: {version}"
+    yield "#creator_label: TargetGraph Disease Harmonizer"
+    yield ""
 
     # TSV header
     columns = [
@@ -3083,12 +3133,15 @@ def export_sssom(
         "mapping_justification", "confidence",
         "subject_source", "object_source", "comment",
     ]
-    lines.append("\t".join(columns))
+    yield "\t".join(columns)
+
+    # Pre-compute upper-cased source filter set once
+    upper_sources = {s.upper() for s in include_sources} if include_sources else None
 
     for pxref, concept in data.concepts_by_pxref.items():
         for edge in data.edges_by_pxref.get(pxref, []):
             ns = _normalize_ns(edge.get("xref_namespace", ""))
-            if include_sources and ns.upper() not in {s.upper() for s in include_sources}:
+            if upper_sources and ns.upper() not in upper_sources:
                 continue
             xref_id = edge.get("xref_id", "")
             if not xref_id:
@@ -3112,9 +3165,24 @@ def export_sssom(
                 ns,
                 edge.get("score_rationale", "") or edge.get("evidence_tier", "") or edge.get("agreement_level", ""),
             ]
-            lines.append("\t".join(row))
+            yield "\t".join(row)
 
-    return "\n".join(lines) + "\n"
+
+def export_sssom(
+    data: DiseaseGraphData,
+    include_sources: set[str] | None = None,
+) -> str:
+    """Export xref edges as SSSOM TSV (in-memory, for backward compat)."""
+    return "\n".join(_iter_sssom_lines(data, include_sources)) + "\n"
+
+
+def iter_sssom_bytes(
+    data: DiseaseGraphData,
+    include_sources: set[str] | None = None,
+):
+    """Yield SSSOM TSV as encoded byte chunks for streaming."""
+    for line in _iter_sssom_lines(data, include_sources):
+        yield (line + "\n").encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -4018,17 +4086,7 @@ def find_concept_neighbors(
     max_neighbors: int = 10,
 ) -> list[str]:
     """Find concepts that share xref IDs with the given concept."""
-    # Build reverse index on first call (cache on singleton)
-    if data._xref_to_pxrefs is None:
-        rev: dict[str, set[str]] = defaultdict(set)
-        for px, edges in data.edges_by_pxref.items():
-            for e in edges:
-                xid = e.get("xref_id", "")
-                if xid:
-                    rev[xid].add(px)
-        data._xref_to_pxrefs = dict(rev)
-
-    xref_to_pxrefs = data._xref_to_pxrefs
+    xref_to_pxrefs = _ensure_xref_index(data)
 
     # Get all xref_ids for this concept
     my_xrefs = {e.get("xref_id", "") for e in data.edges_by_pxref.get(pxref, []) if e.get("xref_id")}

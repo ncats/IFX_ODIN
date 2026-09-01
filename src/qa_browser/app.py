@@ -24,7 +24,7 @@ import urllib3
 import yaml
 from arango import ArangoClient
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine, text, inspect as sa_inspect
@@ -57,6 +57,7 @@ from src.qa_browser.disease_id_graph import (
     export_review_intake_template,
     export_search_tsv,
     export_sssom,
+    iter_sssom_bytes,
     find_concept_neighbors,
     load_baseline_data,
     load_disease_graph_data,
@@ -223,7 +224,10 @@ _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
 _drug_graph_dir: str = ""
 _drug_review_file: str = ""
-DRUG_RESOLVER_MAX_QUERIES = 250
+DRUG_RESOLVER_MAX_QUERIES = 2000
+_DRUG_RESOLVER_JOB_TTL_SECONDS = 3600
+_drug_resolver_jobs: dict[str, dict[str, Any]] = {}
+_drug_resolver_jobs_lock = threading.Lock()
 _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
 _drug_review_lock = threading.Lock()
@@ -8597,19 +8601,26 @@ async def variant_id_qa_resolve(body: dict):
     """Batch resolve + enrich variant queries against local graph and MyVariant.info."""
     queries = body.get("queries", [])
     if not queries:
-        return {"error": "No queries provided"}
+        raise HTTPException(status_code=400, detail="No queries provided")
     if len(queries) > 50:
-        return {"error": "Maximum 50 queries per request"}
+        raise HTTPException(status_code=400, detail="Maximum 50 queries per request")
     data = _load_variant_graph()
     myvariant_fields = body.get("myvariant_fields")
     if myvariant_fields is not None and not isinstance(myvariant_fields, list):
         myvariant_fields = None
+    try:
+        workers = min(int(body.get("workers", 4)), 8)
+    except (ValueError, TypeError):
+        workers = 4
+    enable_myvariant = body.get("enable_myvariant", True)
+    if isinstance(enable_myvariant, str):
+        enable_myvariant = enable_myvariant.lower() not in ("false", "0", "no", "")
     return variant_resolve_and_enrich(
         queries=queries,
         data=data,
-        enable_myvariant=body.get("enable_myvariant", True),
+        enable_myvariant=enable_myvariant,
         myvariant_fields=myvariant_fields,
-        workers=min(int(body.get("workers", 4)), 8),
+        workers=workers,
     )
 
 
@@ -8859,30 +8870,198 @@ def drug_id_qa_ncats_properties():
     return get_ncats_property_catalog()
 
 
+def _drug_resolver_payload_bool(body: dict, key: str, default: bool = True) -> bool:
+    value = body.get(key, default)
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "")
+    return bool(value)
+
+
+def _drug_resolver_request_payload(body: dict) -> dict[str, Any]:
+    queries = body.get("queries", [])
+    if not isinstance(queries, list):
+        queries = [queries]
+    queries = [str(query).strip() for query in queries if str(query or "").strip()]
+    if not queries:
+        raise HTTPException(status_code=400, detail="No queries provided")
+    if len(queries) > DRUG_RESOLVER_MAX_QUERIES:
+        raise HTTPException(status_code=400, detail=f"Maximum {DRUG_RESOLVER_MAX_QUERIES} queries per request")
+
+    ncats_props = body.get("ncats_props")  # None -> use defaults
+    if ncats_props is not None and not isinstance(ncats_props, list):
+        ncats_props = None
+    try:
+        workers = min(max(int(body.get("workers", 4)), 1), 8)
+    except (TypeError, ValueError):
+        workers = 4
+
+    return {
+        "queries": queries,
+        "enable_ncats": _drug_resolver_payload_bool(body, "enable_ncats", True),
+        "enable_pharos": _drug_resolver_payload_bool(body, "enable_pharos", True),
+        "enable_inxight": _drug_resolver_payload_bool(body, "enable_inxight", True),
+        "enable_openfda": _drug_resolver_payload_bool(body, "enable_openfda", True),
+        "enable_chebi": _drug_resolver_payload_bool(body, "enable_chebi", True),
+        "workers": workers,
+        "delay": 0.15,
+        "ncats_props": ncats_props,
+    }
+
+
+def _drug_resolver_source_labels(payload: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    if payload.get("enable_ncats"):
+        labels.append("NCATS Resolver")
+    if payload.get("enable_pharos"):
+        labels.append("Pharos")
+    if payload.get("enable_inxight"):
+        labels.append("Inxight/GSRS")
+    if payload.get("enable_openfda"):
+        labels.append("openFDA")
+    if payload.get("enable_chebi"):
+        labels.append("ChEBI")
+    return labels
+
+
+def _cleanup_drug_resolver_jobs() -> None:
+    cutoff = time.time() - _DRUG_RESOLVER_JOB_TTL_SECONDS
+    with _drug_resolver_jobs_lock:
+        old_ids = [
+            job_id for job_id, job in _drug_resolver_jobs.items()
+            if float(job.get("updated_epoch") or job.get("created_epoch") or 0) < cutoff
+        ]
+        for job_id in old_ids:
+            _drug_resolver_jobs.pop(job_id, None)
+
+
+def _update_drug_resolver_job(job_id: str, **updates: Any) -> None:
+    with _drug_resolver_jobs_lock:
+        job = _drug_resolver_jobs.get(job_id)
+        if job is None:
+            return
+        job.update(updates)
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        job["updated_epoch"] = time.time()
+
+
+def _run_drug_resolver_job(job_id: str, payload: dict[str, Any]) -> None:
+    source_labels = _drug_resolver_source_labels(payload)
+    source_text = ", ".join(source_labels) if source_labels else "local graph only"
+    _update_drug_resolver_job(
+        job_id,
+        status="running",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        message=f"Started local harmonizer lookup plus {source_text}.",
+    )
+
+    def progress(event: dict[str, Any]) -> None:
+        total = int(event.get("total") or 0)
+        completed = int(event.get("completed") or 0)
+        stage = str(event.get("stage") or "running")
+        if stage == "local_complete":
+            progress_pct = 5 if source_labels else 100
+        elif total:
+            progress_pct = min(99, 5 + int((completed / total) * 94))
+        else:
+            progress_pct = 0
+        _update_drug_resolver_job(
+            job_id,
+            stage=stage,
+            completed=completed,
+            total=total,
+            progress=progress_pct,
+            local_resolved=event.get("local_resolved"),
+            sources_found=event.get("sources_found") or {},
+            sources_failed=event.get("sources_failed") or {},
+            message=event.get("message") or "",
+        )
+
+    try:
+        data = _load_drug_graph()
+        result = resolve_and_enrich(data, progress_callback=progress, **payload)
+        _update_drug_resolver_job(
+            job_id,
+            status="complete",
+            stage="complete",
+            completed=len(payload.get("queries") or []),
+            total=len(payload.get("queries") or []),
+            progress=100,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            result=result,
+            message="Drug resolver enrichment complete.",
+        )
+    except Exception as exc:
+        _update_drug_resolver_job(
+            job_id,
+            status="failed",
+            stage="failed",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+            message=f"Drug resolver job failed: {exc}",
+        )
+
+
+def _enqueue_drug_resolver_job(payload: dict[str, Any]) -> dict[str, Any]:
+    _cleanup_drug_resolver_jobs()
+    job_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    source_labels = _drug_resolver_source_labels(payload)
+    job = {
+        "id": job_id,
+        "status": "queued",
+        "stage": "queued",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_epoch": time.time(),
+        "updated_at": None,
+        "updated_epoch": time.time(),
+        "started_at": None,
+        "completed_at": None,
+        "progress": 0,
+        "completed": 0,
+        "total": len(payload.get("queries") or []),
+        "local_resolved": None,
+        "sources_requested": source_labels,
+        "sources_found": {},
+        "sources_failed": {},
+        "message": "Queued drug resolver job.",
+        "error": None,
+        "result": None,
+    }
+    with _drug_resolver_jobs_lock:
+        _drug_resolver_jobs[job_id] = job
+    thread = threading.Thread(target=_run_drug_resolver_job, args=(job_id, payload), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "queued", "total": job["total"], "sources_requested": source_labels}
+
+
 @app.post("/drug-id-qa/api/resolve")
 async def drug_id_qa_resolve(body: dict):
     """Batch resolve + enrich drug queries against local graph and live APIs."""
-    queries = body.get("queries", [])
-    if not queries:
-        return {"error": "No queries provided"}
-    if len(queries) > DRUG_RESOLVER_MAX_QUERIES:
-        raise HTTPException(status_code=400, detail=f"Maximum {DRUG_RESOLVER_MAX_QUERIES} queries per request")
+    payload = _drug_resolver_request_payload(body)
     data = _load_drug_graph()
-    ncats_props = body.get("ncats_props")  # None → use defaults
-    if ncats_props is not None and not isinstance(ncats_props, list):
-        ncats_props = None
-    return resolve_and_enrich(
+    return await run_in_threadpool(
+        resolve_and_enrich,
         data,
-        queries=queries,
-        enable_ncats=body.get("enable_ncats", True),
-        enable_pharos=body.get("enable_pharos", True),
-        enable_inxight=body.get("enable_inxight", True),
-        enable_openfda=body.get("enable_openfda", True),
-        enable_chebi=body.get("enable_chebi", True),
-        workers=min(int(body.get("workers", 4)), 8),
-        delay=0.15,
-        ncats_props=ncats_props,
+        **payload,
     )
+
+
+@app.post("/drug-id-qa/api/resolve-job")
+async def drug_id_qa_resolve_job(body: dict):
+    """Run a larger drug resolver batch in the background with pollable progress."""
+    payload = _drug_resolver_request_payload(body)
+    return _enqueue_drug_resolver_job(payload)
+
+
+@app.get("/drug-id-qa/api/resolve-job/{job_id}")
+def drug_id_qa_resolve_job_status(job_id: str):
+    _cleanup_drug_resolver_jobs()
+    with _drug_resolver_jobs_lock:
+        job = _drug_resolver_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Resolver job not found")
+        return dict(job)
 
 
 @app.get("/drug-id-qa/api/resolve-quick")
@@ -8892,7 +9071,8 @@ async def drug_id_qa_resolve_quick(q: str = ""):
         return {"results": [], "stats": {"total": 0}}
     queries = [s.strip() for s in q.split("|") if s.strip()][:DRUG_RESOLVER_MAX_QUERIES]
     data = _load_drug_graph()
-    return resolve_and_enrich(
+    return await run_in_threadpool(
+        resolve_and_enrich,
         data,
         queries=queries,
         enable_ncats=False,
@@ -8954,10 +9134,10 @@ def disease_id_qa_download(filename: str):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
     media_type = "application/json" if filename.endswith(".json") else "text/tab-separated-values"
-    return StreamingResponse(
-        open(file_path, "rb"),
+    return FileResponse(
+        path=file_path,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
     )
 
 
@@ -9392,9 +9572,8 @@ def disease_id_qa_download_sssom(include_sources: str = ""):
         {s.strip() for s in include_sources.split(",") if s.strip()}
         if include_sources else None
     )
-    content = export_sssom(data, include_sources=src_set)
     return StreamingResponse(
-        io.BytesIO(content.encode("utf-8")),
+        iter_sssom_bytes(data, include_sources=src_set),
         media_type="text/tab-separated-values",
         headers={"Content-Disposition": 'attachment; filename="disease_mappings.sssom.tsv"'},
     )
@@ -9963,6 +10142,7 @@ def disease_id_qa_graph_clinical_descendants(pxref: str = "", limit: int = 80):
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     if not pxref:
         raise HTTPException(status_code=400, detail="pxref parameter required.")
+    limit = max(1, min(limit, 500))
     data = load_disease_graph_data(_disease_graph_dir)
     return build_clinical_descendant_graph_payload(data, pxref, limit=limit)
 
