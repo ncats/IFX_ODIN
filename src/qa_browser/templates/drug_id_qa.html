@@ -160,13 +160,13 @@
     <section class="variant-tab-panel" data-panel="concepts">
         <div class="variant-filter-row">
             <input id="drugSearch" type="search" placeholder="Search name, IFX ID, UNII, ChEMBL, ChEBI, PubChem, RxCUI, CAS, or InChIKey...">
-            <select id="drugSourceFilter"><option value="">All sources</option></select>
+            <select id="drugSourceFilter"><option value="">All local sources</option></select>
             <select id="drugTierFilter"><option value="">All tiers</option></select>
             <button class="btn btn-primary" id="drugSearchBtn" type="button">Search</button>
         </div>
         <div class="variant-table-wrap">
             <table class="variant-table">
-                <thead><tr><th>Drug ID</th><th>Name</th><th>Primary ID</th><th>Sources</th><th>Identity Key</th><th>Tier</th></tr></thead>
+                <thead><tr><th>Drug ID</th><th>Name</th><th>Primary ID</th><th>Local Sources</th><th>Identity Key</th><th>Local Tier</th></tr></thead>
                 <tbody id="drugRows"></tbody>
             </table>
         </div>
@@ -191,7 +191,7 @@
             <div class="variant-filter-row">
                 <input id="drugReviewSearch" type="search" placeholder="Search review rows by drug, source value, consensus value, NodeNorm CURIE, or issue...">
                 <select id="drugReviewStatus"><option value="open">Open</option><option value="resolved">Resolved / acknowledged</option><option value="stale">Stale</option><option value="all">All statuses</option></select>
-                <select id="drugReviewSource"><option value="">All sources</option></select>
+                <select id="drugReviewSource"><option value="">All source evidence</option></select>
                 <select id="drugReviewSeverity"><option value="">All severities</option></select>
                 <button class="btn btn-primary" id="drugReviewSearchBtn" type="button">Filter</button>
             </div>
@@ -249,7 +249,7 @@
             <p class="variant-muted">Filtered downloads export one row per harmonized drug/substance node. Product and target context are exposed in the graph and app edge files.</p>
             <div class="variant-filter-row">
                 <input id="drugDownloadSearch" type="search" placeholder="Search drugs...">
-                <select id="drugDownloadSource"><option value="">All sources</option></select>
+                <select id="drugDownloadSource"><option value="">All local sources</option></select>
                 <select id="drugDownloadFormat"><option value="tsv">TSV</option><option value="csv">CSV</option></select>
                 <button class="btn btn-primary" id="drugDownloadBtn" type="button">Download drugs</button>
             </div>
@@ -274,7 +274,7 @@
             <div class="api-resolver-head">
                 <h3 style="margin:0;font-size:1.1rem;">Drug Resolver</h3>
                 <span style="font-size:0.78rem;color:var(--text-muted);">
-                    Search the harmonized drug graph first; direct live enrichment is limited to 10 entries
+                    Search the harmonized drug graph first; live enrichment limits depend on selected sources
                 </span>
             </div>
 
@@ -284,7 +284,7 @@
 
             <div style="display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap;">
                 <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-                    <label style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Live sources for 10 or fewer entries:</label>
+                    <label style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Live sources for enrichment:</label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnNCats" checked><span>NCATS Resolver</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnPharos" checked><span>Pharos Targets</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnInxight" checked><span>Inxight/GSRS</span></label>
@@ -327,15 +327,17 @@
                     <span id="drugResolverEnrichQueueSummary"></span>
                 </div>
                 <div class="resolver-enrich-queue-actions">
-                    <button id="drugResolverLoadTop10Btn" class="btn btn-sm" type="button">Run 10 Pharos</button>
+                    <button id="drugResolverRunSelectedBtn" class="btn btn-sm" type="button">Run Selected Chunk</button>
+                    <button id="drugResolverRunPharosBtn" class="btn btn-sm" type="button">Run Pharos Chunk</button>
+                    <button id="drugResolverRunInxightBtn" class="btn btn-sm" type="button">Run Inxight Chunk</button>
                     <button id="drugResolverCopyQueueBtn" class="btn btn-sm" type="button">Copy IDs</button>
                 </div>
             </div>
             <p>
                 Use this after a large local search. These IFXDrug IDs pin the harmonized local hits first;
-                enrichment then uses the node's public identifiers and names for Pharos, NCATS Resolver,
-                Inxight/GSRS, ChEBI, and openFDA. Pharos enrichment runs in 10-ID chunks to avoid slow
-                or rate-limited live API requests.
+                enrichment then uses the node's public identifiers and names for the live sources selected
+                above. Pharos-only can run larger chunks; Inxight and mixed-source enrichment use smaller
+                chunks because they fan out to more live API calls per drug.
             </p>
             <textarea id="drugResolverEnrichQueueText" rows="4" readonly></textarea>
         </div>
@@ -493,7 +495,7 @@ function renderResolverSummary(stats) {
             <div><strong>${fmt(stats.nodenorm_resolved_count)}</strong><span>NodeNorm candidates</span></div>
             <div><strong>${fmt(stats.target_association_edges)}</strong><span>target context edges</span></div>
         </div>
-        <p class="variant-muted">Use the Resolver tab for pasted names or identifiers. Quick Search uses only this harmonized local graph; Resolve &amp; Enrich adds optional live context from selected services.</p>`;
+        <p class="variant-muted">Use the Resolver tab for pasted names or identifiers. Search Local Graph uses only this harmonized local graph; Search + Enrich adds optional live context from selected services.</p>`;
 }
 async function loadDrugStats() {
     try {
@@ -520,8 +522,8 @@ async function loadDrugStats() {
         renderResolverSummary(stats);
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         const tierOptions = Object.keys(stats.evidence_tier_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
-        document.getElementById("drugSourceFilter").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
-        document.getElementById("drugDownloadSource").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
+        document.getElementById("drugSourceFilter").innerHTML = `<option value="">All local sources</option>${sourceOptions}`;
+        document.getElementById("drugDownloadSource").innerHTML = `<option value="">All local sources</option>${sourceOptions}`;
         document.getElementById("drugTierFilter").innerHTML = `<option value="">All tiers</option>${tierOptions}`;
         document.getElementById("drugSourceCatalog").innerHTML = renderSourceCatalog(stats.source_versions || []);
     } catch (err) {
@@ -625,7 +627,7 @@ async function loadDrugReviewQueue(page = 1) {
     drugReviewDecisionOptions = payload.decision_options || [];
     renderDrugReviewStats(payload);
     renderDrugReviewChips(payload.issue_counts || {});
-    updateDrugReviewSelect("drugReviewSource", payload.source_counts || {}, "All sources");
+    updateDrugReviewSelect("drugReviewSource", payload.source_counts || {}, "All source evidence");
     updateDrugReviewSelect("drugReviewSeverity", payload.severity_counts || {}, "All severities");
     renderDrugReviewRows(payload.rows || []);
     document.getElementById("drugReviewPageLabel").textContent = `Page ${payload.page || 1} of ${payload.pages || 0} · ${fmt(payload.total)} review rows`;
@@ -739,8 +741,8 @@ function renderDrugDetail(data) {
             term("Drug ID", data.drug_id || data.id),
             term("Primary ID", data.primary_id),
             term("Category", data.category || data.biolink_category),
-            term("Evidence tier", data.evidence_tier),
-            term("Source namespaces", data.source_namespaces),
+            term("Local evidence tier", data.evidence_tier),
+            term("Local source evidence", data.source_namespaces),
             term("Source support", data.source_support),
             term("Identity key", data.structural_key_type),
             term("Quality flags", data.quality_flags),
@@ -840,7 +842,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drJsonWrap = document.getElementById("drugResolverJsonWrap");
     const drJsonPre = document.getElementById("drugResolverJson");
     const drBatchNotice = document.getElementById("drugResolverBatchNotice");
-    const DR_DIRECT_ENRICH_LIMIT = 10;
+    const DR_BACKEND_QUERY_LIMIT = 250;
+    const DR_MIXED_ENRICH_LIMIT = 25;
+    const DR_PHAROS_ONLY_LIMIT = 250;
+    const DR_INXIGHT_ONLY_LIMIT = 100;
 
     // ── NCATS Property Selector ──────────────────────────────────────
     let ncatsCatalog = [];  // populated from API
@@ -915,23 +920,70 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     function drQueries() { return drInput.value.split(/\n+/).map(s => s.trim()).filter(Boolean); }
+    function drSourceFlags(flags) {
+        return flags || {
+            enable_ncats: document.getElementById("drEnNCats").checked,
+            enable_pharos: document.getElementById("drEnPharos").checked,
+            enable_inxight: document.getElementById("drEnInxight").checked,
+            enable_openfda: document.getElementById("drEnFDA").checked,
+            enable_chebi: document.getElementById("drEnChEBI").checked,
+        };
+    }
+    function drSelectedLiveSources(flags) {
+        const f = drSourceFlags(flags);
+        const sources = [];
+        if (f.enable_ncats) sources.push({key: "ncats", label: "NCATS Resolver"});
+        if (f.enable_pharos) sources.push({key: "pharos", label: "Pharos"});
+        if (f.enable_inxight) sources.push({key: "inxight", label: "Inxight"});
+        if (f.enable_openfda) sources.push({key: "openfda", label: "openFDA"});
+        if (f.enable_chebi) sources.push({key: "chebi", label: "ChEBI"});
+        return sources;
+    }
+    function drOnlyLiveSource(flags, key) {
+        const sources = drSelectedLiveSources(flags);
+        return sources.length === 1 && sources[0].key === key;
+    }
+    function drLiveSourceSummary(flags) {
+        const labels = drSelectedLiveSources(flags).map(s => s.label);
+        if (!labels.length) return "no live sources";
+        if (labels.length === 1) return labels[0];
+        if (labels.length === 2) return labels.join(" + ");
+        return `${labels.slice(0, -1).join(", ")} + ${labels[labels.length - 1]}`;
+    }
+    function drCurrentEnrichmentLimit(flags) {
+        const sources = drSelectedLiveSources(flags);
+        if (!sources.length) return DR_BACKEND_QUERY_LIMIT;
+        if (drOnlyLiveSource(flags, "pharos")) return DR_PHAROS_ONLY_LIMIT;
+        if (drOnlyLiveSource(flags, "inxight")) return DR_INXIGHT_ONLY_LIMIT;
+        return DR_MIXED_ENRICH_LIMIT;
+    }
+    function drWorkerCount(flags) {
+        return drOnlyLiveSource(flags, "pharos") ? 8 : 4;
+    }
     function drUpdateBatchNotice() {
         const n = drQueries().length;
+        const limit = drCurrentEnrichmentLimit();
+        const sourceText = drLiveSourceSummary();
         if (!drBatchNotice) return;
         if (!n) {
-            drBatchNotice.textContent = `Direct live enrichment is available for ${DR_DIRECT_ENRICH_LIMIT} or fewer entries. For larger lists, search locally first and then run Pharos from the queue.`;
+            drBatchNotice.textContent = `Local graph search accepts up to ${DR_BACKEND_QUERY_LIMIT} entries. Live enrichment limits: ${DR_PHAROS_ONLY_LIMIT} Pharos-only, ${DR_INXIGHT_ONLY_LIMIT} Inxight-only, or ${DR_MIXED_ENRICH_LIMIT} mixed-source entries.`;
             drBatchNotice.className = "resolver-batch-notice";
-        } else if (n <= DR_DIRECT_ENRICH_LIMIT) {
-            drBatchNotice.textContent = `${n} entr${n === 1 ? "y" : "ies"}: Search + Enrich will call the selected live sources.`;
+        } else if (n > DR_BACKEND_QUERY_LIMIT) {
+            drBatchNotice.textContent = `${n} entries exceeds the resolver request limit of ${DR_BACKEND_QUERY_LIMIT}. Split the list before searching or enriching.`;
+            drBatchNotice.className = "resolver-batch-notice warn";
+        } else if (n <= limit) {
+            drBatchNotice.textContent = `${n} entr${n === 1 ? "y" : "ies"}: Search + Enrich will call ${sourceText}.`;
             drBatchNotice.className = "resolver-batch-notice ok";
         } else {
-            drBatchNotice.textContent = `${n} entries: use Search Local Graph first. Live enrichment runs from the queue in ${DR_DIRECT_ENRICH_LIMIT}-ID Pharos chunks.`;
+            drBatchNotice.textContent = `${n} entries: use Search Local Graph first, then enrich queued IFXDrug IDs in ${limit}-entry chunks for ${sourceText}.`;
             drBatchNotice.className = "resolver-batch-notice warn";
         }
-        drRunBtn.disabled = n > DR_DIRECT_ENRICH_LIMIT;
-        drRunBtn.title = n > DR_DIRECT_ENRICH_LIMIT
-            ? `Direct live enrichment is limited to ${DR_DIRECT_ENRICH_LIMIT} entries. Use Search Local Graph first.`
-            : `Local search plus selected live-source enrichment for ${DR_DIRECT_ENRICH_LIMIT} or fewer entries.`;
+        drRunBtn.disabled = n > DR_BACKEND_QUERY_LIMIT || n > limit;
+        drRunBtn.title = n > DR_BACKEND_QUERY_LIMIT
+            ? `Maximum ${DR_BACKEND_QUERY_LIMIT} entries per request.`
+            : n > limit
+            ? `Direct live enrichment is limited to ${limit} entries for ${sourceText}. Use Search Local Graph first.`
+            : `Local search plus ${sourceText} enrichment for up to ${limit} entries.`;
     }
     function drFlags() {
         const flags = {
@@ -1009,7 +1061,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return h;
     }
 
-    function drBadge(text, cls) { return `<span style="font-size:0.68rem;padding:0.12rem 0.45rem;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;${cls}">${escapeHtml(text)}</span>`; }
+    function drBadge(text, cls, title) {
+        const attr = title ? ` title="${escapeAttr(title)}"` : "";
+        return `<span${attr} style="font-size:0.68rem;padding:0.12rem 0.45rem;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;${cls}">${escapeHtml(text)}</span>`;
+    }
     const badgeStyles = {
         source: "background:#1e3a5f;color:#93c5fd;",
         tier: "background:#1a3a2a;color:#86efac;",
@@ -1052,11 +1107,13 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
         let badges = "";
         if (found) {
-            if (best.evidence_tier) badges += drBadge(best.evidence_tier, badgeStyles.tier);
-            (best.source_namespaces || "").split("|").slice(0, 4).filter(Boolean).forEach(s => { badges += drBadge(s, badgeStyles.source); });
+            if (best.evidence_tier) badges += drBadge(`local tier: ${best.evidence_tier}`, badgeStyles.tier, "Harmonized local graph evidence tier");
+            (best.source_namespaces || "").split("|").slice(0, 4).filter(Boolean).forEach(s => {
+                badges += drBadge(`local source: ${s}`, badgeStyles.source, "Identifier/source evidence already present in the local harmonized graph");
+            });
         }
-        sources.forEach(s => { badges += drBadge(s, badgeStyles[s] || badgeStyles.source); });
-        if (found && !queried.length) badges += drBadge("local only", badgeStyles.notfound);
+        sources.forEach(s => { badges += drBadge(`live found: ${s}`, badgeStyles[s] || badgeStyles.source, "Live enrichment source returned data for this result"); });
+        if (found && !queried.length) badges += drBadge("live not queried", badgeStyles.notfound);
         if (!found && !sources.length) badges += drBadge("not found", badgeStyles.notfound);
 
         let details = "";
@@ -1099,7 +1156,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("RxCUI", best.rxcui);
             h += drDetailRow("CAS", best.cas);
             h += drDetailRow("Approval", best.approval_status);
-            h += drDetailRow("Sources", best.source_namespaces);
+            h += drDetailRow("Local evidence tier", best.evidence_tier);
+            h += drDetailRow("Local source evidence", best.source_namespaces);
             h += drLocalHitsTable(hits);
             if (h) details += `<div>${drSectionHead("Harmonized Graph")}${h}</div>`;
         }
@@ -1239,7 +1297,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             const failedParts = Object.keys(failed).map(src => `${src}: ${failed[src]}`);
             if (failedParts.length) parts.push(`live-source errors: ${failedParts.join(", ")}`);
         } else if (stats.enrichment_skipped_reason === "large_batch_local_only") {
-            parts.push(`large batch: live enrichment skipped above ${stats.enrichment_limit || DR_DIRECT_ENRICH_LIMIT} queries`);
+            parts.push(`large batch: live enrichment skipped above ${stats.enrichment_limit || DR_MIXED_ENRICH_LIMIT} queries`);
             parts.push("use enrichment queue below for a smaller chunk");
         } else if (stats.enrichment_skipped_reason === "quick_search_local_only") {
             parts.push("local search only");
@@ -1285,10 +1343,16 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     drRunBtn.addEventListener("click", function() {
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
-        let flags = drFlags();
-        const forcedLocalOnly = queries.length > DR_DIRECT_ENRICH_LIMIT;
-        if (forcedLocalOnly) {
-            drStatus.textContent = `Search + Enrich is limited to ${DR_DIRECT_ENRICH_LIMIT} entries. Use Search Local Graph first.`;
+        const flags = drFlags();
+        const limit = drCurrentEnrichmentLimit(flags);
+        const sourceText = drLiveSourceSummary(flags);
+        if (queries.length > DR_BACKEND_QUERY_LIMIT) {
+            drStatus.textContent = `Maximum ${DR_BACKEND_QUERY_LIMIT} entries per resolver request. Split the list and try again.`;
+            drUpdateBatchNotice();
+            return;
+        }
+        if (queries.length > limit) {
+            drStatus.textContent = `Search + Enrich is limited to ${limit} entries for ${sourceText}. Use Search Local Graph first, then run queued chunks.`;
             drUpdateBatchNotice();
             return;
         }
@@ -1298,19 +1362,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         fetch(`${rootPath}/drug-id-qa/api/resolve`, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({queries, ...flags, workers: 4}),
+            body: JSON.stringify({queries, ...flags, workers: drWorkerCount(flags)}),
         })
         .then(r => { if (!r.ok) return r.json().then(p => { throw new Error(p.detail || p.error || r.statusText); }); return r.json(); })
-        .then(payload => {
-            if (forcedLocalOnly) {
-                payload.stats = {
-                    ...(payload.stats || {}),
-                    enrichment_skipped_reason: "large_batch_local_only",
-                    enrichment_limit: DR_DIRECT_ENRICH_LIMIT,
-                };
-            }
-            return payload;
-        })
         .then(drRenderAll)
         .catch(err => { drStatus.textContent = "Error: " + err.message; drResults.innerHTML = ""; })
         .finally(() => { drStopProgress(); drSetLoading(drRunBtn, false); });
@@ -1319,6 +1373,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     drLocalBtn.addEventListener("click", function() {
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
+        if (queries.length > DR_BACKEND_QUERY_LIMIT) {
+            drStatus.textContent = `Maximum ${DR_BACKEND_QUERY_LIMIT} entries per resolver request. Split the list and try again.`;
+            drUpdateBatchNotice();
+            return;
+        }
         const flags = drLocalOnlyFlags();
         drSetLoading(drLocalBtn, true);
         drResults.innerHTML = ""; drJsonWrap.style.display = "none";
@@ -1333,7 +1392,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             payload.stats = {
                 ...(payload.stats || {}),
                 enrichment_skipped_reason: "quick_search_local_only",
-                enrichment_limit: DR_DIRECT_ENRICH_LIMIT,
+                enrichment_limit: drCurrentEnrichmentLimit(),
             };
             return payload;
         })
@@ -1343,6 +1402,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     });
 
     drInput.addEventListener("input", drUpdateBatchNotice);
+    ["drEnNCats", "drEnPharos", "drEnInxight", "drEnFDA", "drEnChEBI"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("change", drUpdateBatchNotice);
+    });
     drUpdateBatchNotice();
 
     drInput.addEventListener("keydown", function(e) {
@@ -1357,7 +1420,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drEnrichQueue = document.getElementById("drugResolverEnrichQueue");
     const drEnrichQueueSummary = document.getElementById("drugResolverEnrichQueueSummary");
     const drEnrichQueueText = document.getElementById("drugResolverEnrichQueueText");
-    const drLoadTop10Btn = document.getElementById("drugResolverLoadTop10Btn");
+    const drRunSelectedBtn = document.getElementById("drugResolverRunSelectedBtn");
+    const drRunPharosBtn = document.getElementById("drugResolverRunPharosBtn");
+    const drRunInxightBtn = document.getElementById("drugResolverRunInxightBtn");
     const drCopyQueueBtn = document.getElementById("drugResolverCopyQueueBtn");
     let drEnrichQueueRows = [];
 
@@ -1398,26 +1463,30 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     function drSetEnrichmentMode(mode) {
-        if (mode !== "pharos_only") return;
-        document.getElementById("drEnNCats").checked = false;
-        document.getElementById("drEnPharos").checked = true;
-        document.getElementById("drEnInxight").checked = false;
-        document.getElementById("drEnFDA").checked = false;
-        document.getElementById("drEnChEBI").checked = false;
+        if (mode === "pharos_only" || mode === "inxight_only") {
+            document.getElementById("drEnNCats").checked = false;
+            document.getElementById("drEnPharos").checked = mode === "pharos_only";
+            document.getElementById("drEnInxight").checked = mode === "inxight_only";
+            document.getElementById("drEnFDA").checked = false;
+            document.getElementById("drEnChEBI").checked = false;
+        }
         ncatsTogglePanel();
+        drUpdateBatchNotice();
     }
 
     function drLoadQueueLimit(limit, mode, autoRun) {
         if (!drEnrichQueueRows.length) return;
         drSetEnrichmentMode(mode);
-        const text = drQueueText(drEnrichQueueRows, limit);
+        const flags = drFlags();
+        const chunkLimit = limit || drCurrentEnrichmentLimit(flags);
+        const sourceText = drLiveSourceSummary(flags);
+        const text = drQueueText(drEnrichQueueRows, chunkLimit);
         const n = text ? text.split(/\n/).filter(Boolean).length : 0;
         drInput.value = text;
         drUpdateBatchNotice();
-        const modeText = mode === "pharos_only" ? " with Pharos-only enrichment selected" : "";
         drStatus.textContent = autoRun
-            ? `Running Pharos enrichment for ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"}...`
-            : `Loaded ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"}${modeText}. Press Resolve & Enrich to query live sources.`;
+            ? `Running ${sourceText} enrichment for ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"}...`
+            : `Loaded ${n} harmonized IFXDrug ID${n === 1 ? "" : "s"} with ${sourceText} selected. Press Search + Enrich to query live sources.`;
         drInput.focus();
         if (autoRun) {
             setTimeout(() => drRunBtn.click(), 25);
@@ -1456,7 +1525,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             cas: best.cas || "",
             inchikey: best.inchikey || "",
             evidence_tier: best.evidence_tier || "",
+            local_evidence_tier: best.evidence_tier || "",
             source_namespaces: best.source_namespaces || "",
+            local_source_namespaces: best.source_namespaces || "",
             approval_status: best.approval_status || "",
             match_score: best._match_score || "",
             matched_query: best._matched_query || "",
@@ -1466,6 +1537,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             query_terms: (r.query_terms || []).join("|"),
             live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             sources_failed: (enr.sources_failed || []).join("|"),
+            live_sources_queried: (enr.sources_queried || []).join("|"),
+            live_sources_found: (enr.sources_found || []).join("|"),
         };
         // Dynamically add all NCATS properties
         row["ncats_name"] = ncats.ncats_resolved_name || "";
@@ -1540,7 +1613,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     drExportBtn.addEventListener("click", drExport);
-    drLoadTop10Btn.addEventListener("click", () => drLoadQueueLimit(10, "pharos_only", true));
+    drRunSelectedBtn.addEventListener("click", () => drLoadQueueLimit(null, "selected", true));
+    drRunPharosBtn.addEventListener("click", () => drLoadQueueLimit(DR_PHAROS_ONLY_LIMIT, "pharos_only", true));
+    drRunInxightBtn.addEventListener("click", () => drLoadQueueLimit(DR_INXIGHT_ONLY_LIMIT, "inxight_only", true));
     drCopyQueueBtn.addEventListener("click", function() {
         const text = drEnrichQueueText.value;
         if (!text) return;
