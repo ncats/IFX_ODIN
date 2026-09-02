@@ -163,9 +163,13 @@ from src.qa_browser.drug_id_graph import (
     build_drug_graph_payload,
     build_drug_review_queue,
     compute_drug_stats,
+    export_drug_sssom,
     export_drugs,
     export_drug_review_intake_template,
+    find_drug_neighbors,
+    iter_drug_sssom_bytes,
     load_drug_graph_data,
+    resolve_drug,
     search_drugs,
     summarize_drug_source_versions,
 )
@@ -8862,6 +8866,41 @@ def drug_id_qa_download_filtered(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/drug-id-qa/download/{filename}")
+def drug_id_qa_download_file(filename: str):
+    if not _drug_graph_dir:
+        raise HTTPException(status_code=500, detail="No drug graph dir configured.")
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "", filename)
+    path = Path(_drug_graph_dir) / safe_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {safe_name}")
+    return FileResponse(str(path), filename=safe_name)
+
+
+@app.get("/drug-id-qa/download-sssom")
+def drug_id_qa_download_sssom(sources: str = ""):
+    data = _load_drug_graph()
+    include_sources = [s.strip() for s in sources.split(",") if s.strip()] or None
+    content = iter_drug_sssom_bytes(data, include_sources=include_sources)
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="drug_sssom.tsv"'},
+    )
+
+
+@app.get("/drug-id-qa/api/neighbors/{drug_id:path}")
+def drug_id_qa_neighbors(drug_id: str):
+    data = _load_drug_graph()
+    return find_drug_neighbors(data, drug_id)
+
+
+@app.get("/api/v1/drug/resolve/{query_id:path}")
+def api_drug_resolve(query_id: str):
+    data = _load_drug_graph()
+    return resolve_drug(data, query_id)
 
 
 @app.get("/drug-id-qa/api/ncats-properties")
