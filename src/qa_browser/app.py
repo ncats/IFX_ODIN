@@ -8279,7 +8279,9 @@ def _candidate_target_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _target_graph_dir:
         graph_path = Path(_target_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8320,26 +8322,30 @@ def _discover_target_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "target_nodes.tsv").exists():
+            if not (graph_child / "target_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError) as exc:
-                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    logger.warning("Skipping %s: bad manifest.json: %s", graph_child, exc)
                     continue
             version = _normalize_target_version(
-                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("target_nodes.tsv", {}).get("rows"),
                 "edge_rows": manifest.get("files", {}).get("target_edges.tsv", {}).get("rows"),
@@ -8556,7 +8562,9 @@ def _candidate_variant_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _variant_graph_dir:
         graph_path = Path(_variant_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name in {"variant_app_graph", "variant_data"}:
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name in {"variant_app_graph", "variant_data"}:
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8596,25 +8604,29 @@ def _discover_variant_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "variant_nodes.tsv").exists():
+            if not (graph_child / "variant_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError):
                     continue
             version = _normalize_variant_version(
-                manifest.get("variant_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("variant_harmonizer_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("variant_nodes.tsv", {}).get("rows"),
                 "current": bool(current_path and resolved == current_path),
@@ -8855,7 +8867,9 @@ def _candidate_drug_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _drug_graph_dir:
         graph_path = Path(_drug_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name in {"drug_app_graph", "drug_data"}:
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name in {"drug_app_graph", "drug_data"}:
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8895,25 +8909,29 @@ def _discover_drug_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "drug_nodes.tsv").exists():
+            if not (graph_child / "drug_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError):
                     continue
             version = _normalize_drug_version(
-                manifest.get("drug_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("drug_harmonizer_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("drug_nodes.tsv", {}).get("rows"),
                 "current": bool(current_path and resolved == current_path),
@@ -10324,7 +10342,9 @@ def _candidate_disease_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _disease_graph_dir:
         graph_path = Path(_disease_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name == "disease_app_graph":
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name == "disease_app_graph":
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -10350,24 +10370,28 @@ def _discover_disease_versions() -> list[dict]:
 
     for root in _candidate_disease_version_roots():
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError) as exc:
-                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    logger.warning("Skipping %s: bad manifest.json: %s", graph_child, exc)
                     continue
             version = _normalize_disease_version(
-                manifest.get("pipeline_version", "") or child.name
+                manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("generated_at", ""),
                 "contract_version": manifest.get("contract_version", ""),
                 "concept_rows": manifest.get("files", {}).get("disease_concepts.tsv", {}).get("rows"),
