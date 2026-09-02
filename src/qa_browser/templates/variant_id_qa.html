@@ -24,6 +24,7 @@
         <button class="variant-tab-btn" data-tab="concepts" type="button">Concepts</button>
         <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="variant-tab-btn" data-tab="download" type="button">Download</button>
+        <button class="variant-tab-btn" data-tab="changes" type="button">Changes</button>
         <button class="variant-tab-btn" data-tab="api" type="button">API</button>
         <button class="variant-tab-btn" data-tab="resolver" type="button">Resolver</button>
     </nav>
@@ -121,6 +122,20 @@
             <div class="variant-column-grid" id="variantColumnGrid"></div>
             <button class="btn btn-primary" id="variantDownloadBtn" type="button">Download variants</button>
         </div>
+    </section>
+
+    <!-- Changes tab -->
+    <section class="variant-tab-panel" data-panel="changes">
+        <div class="changes-controls">
+            <label>From
+                <select id="changesFromVersion" class="filter-select-sm"></select>
+            </label>
+            <label>To
+                <select id="changesToVersion" class="filter-select-sm"></select>
+            </label>
+            <button type="button" class="btn btn-sm" id="changesCompareBtn">Compare versions</button>
+        </div>
+        <div id="changesContent" class="changes-loading">Loading version diff...</div>
     </section>
 
     <section class="variant-tab-panel" data-panel="api">
@@ -225,9 +240,11 @@ let variantCy = null;
 let variantStatsCache = null;
 const defaultColumns = ["variant_id", "primary_id", "name", "biolink_category", "variant_type", "dbsnp_id", "clinvar_variation_id", "clinvar_allele_id", "uniprot_id", "uniprot_feature_id", "protein_name", "protein_position", "amino_acid_change", "gene_symbol", "gene_curie", "assembly", "chromosome", "position", "risk_allele", "clinical_significance", "source_review_status", "source_namespaces", "equivalence_scope", "quality_note"];
 
+let variantChangesLoaded = false;
 function setVariantTab(tab) {
     document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
     document.querySelectorAll(".variant-tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
+    if (tab === "changes" && !variantChangesLoaded) { variantChangesLoaded = true; loadVariantChangesTab(); }
 }
 
 document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.addEventListener("click", () => setVariantTab(btn.dataset.tab)));
@@ -716,5 +733,149 @@ if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph();
     /* Also load immediately if resolver is the active tab */
     if (initialTab === "resolver") { vrFieldsLoaded = true; vrLoadFieldCatalog(); }
 })();
+
+/* == Variant Changes tab == */
+function variantFormatVersionOption(v) {
+    const date = v.updated_at ? ` (${String(v.updated_at).slice(0, 10)})` : "";
+    const current = v.current ? " current" : "";
+    return `v${v.version}${date}${current}`;
+}
+
+function variantPopulateVersionSelect(select, versions, selectedVersion) {
+    select.innerHTML = "";
+    versions.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.version;
+        opt.textContent = variantFormatVersionOption(v);
+        if (v.version === selectedVersion) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function variantDisplayVersion(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (text.startsWith("v")) return text;
+    return `v${text}`;
+}
+
+function renderVariantSourceVersionChanges(rows) {
+    if (!rows || rows.length === 0) return "";
+    let html = `<div class="changes-section expanded">`;
+    html += `<h3>Source Version Changes</h3>`;
+    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+    html += `<th>Source</th><th>From</th><th>To</th></tr></thead><tbody>`;
+    rows.forEach(row => {
+        html += `<tr>`;
+        html += `<td>${escapeHtml(row.source_name || "")}</td>`;
+        html += `<td>${escapeHtml(row.old_source_version || "")}</td>`;
+        html += `<td>${escapeHtml(row.new_source_version || "")}</td>`;
+        html += `</tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+    return html;
+}
+
+function renderVariantListTable(title, items, columns) {
+    if (!items || items.length === 0) return "";
+    let html = `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
+    html += `<h3>${escapeHtml(title)} (${items.length})</h3>`;
+    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
+    columns.forEach(([_key, label]) => { html += `<th>${escapeHtml(label)}</th>`; });
+    html += `</tr></thead><tbody>`;
+    items.forEach(item => {
+        html += `<tr>`;
+        columns.forEach(([key, _label]) => {
+            const cls = key.endsWith("_id") ? ' class="mono"' : "";
+            html += `<td${cls}>${escapeHtml(item[key] || "")}</td>`;
+        });
+        html += `</tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+    return html;
+}
+
+function renderVariantVersionDiff(diff) {
+    const s = diff.summary;
+    let html = `<div class="changes-version-label">Comparing ${escapeHtml(variantDisplayVersion(diff.baseline_version))} &rarr; ${escapeHtml(variantDisplayVersion(diff.current_version))}</div>`;
+    html += `<div class="changes-summary">`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.variants_added.toLocaleString()}</div><div class="dash-label">Variants Added</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.variants_removed.toLocaleString()}</div><div class="dash-label">Variants Removed</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${(s.name_changes || 0).toLocaleString()}</div><div class="dash-label">Name Changes</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${(s.clinical_significance_changes || 0).toLocaleString()}</div><div class="dash-label">Clinical Significance Changes</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${(s.variant_type_changes || 0).toLocaleString()}</div><div class="dash-label">Type Changes</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+    html += `</div>`;
+
+    html += renderVariantSourceVersionChanges(diff.source_version_changes);
+
+    html += renderVariantListTable("Added Variants", diff.added_variants, [
+        ["variant_id", "Variant ID"], ["primary_id", "Primary ID"], ["name", "Name"],
+        ["variant_type", "Type"], ["gene_symbol", "Gene"], ["clinical_significance", "Clinical Significance"],
+    ]);
+
+    html += renderVariantListTable("Removed Variants", diff.removed_variants, [
+        ["variant_id", "Variant ID"], ["primary_id", "Primary ID"], ["name", "Name"],
+        ["variant_type", "Type"], ["gene_symbol", "Gene"], ["clinical_significance", "Clinical Significance"],
+    ]);
+
+    html += renderVariantListTable("Name Changes", diff.name_changes, [
+        ["variant_id", "Variant ID"], ["gene_symbol", "Gene"], ["old_value", "Old Name"], ["new_value", "New Name"],
+    ]);
+
+    html += renderVariantListTable("Clinical Significance Changes", diff.clinical_significance_changes, [
+        ["variant_id", "Variant ID"], ["gene_symbol", "Gene"], ["name", "Name"],
+        ["old_value", "Old Significance"], ["new_value", "New Significance"],
+    ]);
+
+    html += renderVariantListTable("Variant Type Changes", diff.variant_type_changes, [
+        ["variant_id", "Variant ID"], ["gene_symbol", "Gene"], ["old_value", "Old Type"], ["new_value", "New Type"],
+    ]);
+
+    return html;
+}
+
+function loadVariantSelectedVersionDiff() {
+    const container = document.getElementById("changesContent");
+    const fromVersion = document.getElementById("changesFromVersion").value;
+    const toVersion = document.getElementById("changesToVersion").value;
+    container.className = "changes-loading";
+    container.textContent = "Loading version diff...";
+    const params = new URLSearchParams({ from_version: fromVersion, to_version: toVersion });
+    fetch(`${rootPath}/variant-id-qa/api/version-diff?${params}`)
+        .then(r => {
+            if (!r.ok) throw new Error(r.status === 404 ? "Version dataset not available" : "Failed to load version diff");
+            return r.json();
+        })
+        .then(diff => {
+            container.className = "";
+            container.innerHTML = renderVariantVersionDiff(diff);
+        })
+        .catch(err => {
+            container.className = "changes-unavailable";
+            container.innerHTML = escapeHtml(err.message);
+        });
+}
+
+function loadVariantChangesTab() {
+    const container = document.getElementById("changesContent");
+    fetch(`${rootPath}/variant-id-qa/api/versions`)
+        .then(r => {
+            if (!r.ok) throw new Error("No versioned variant datasets available");
+            return r.json();
+        })
+        .then(payload => {
+            const versions = payload.versions || [];
+            if (versions.length < 2) throw new Error("At least two variant graph versions are required for comparison");
+            variantPopulateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version);
+            variantPopulateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version);
+            document.getElementById("changesCompareBtn").onclick = loadVariantSelectedVersionDiff;
+            loadVariantSelectedVersionDiff();
+        })
+        .catch(err => {
+            container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
+        });
+}
 </script>
 {% endblock %}

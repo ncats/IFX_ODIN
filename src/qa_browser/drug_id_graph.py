@@ -1035,3 +1035,139 @@ def iter_drug_sssom_bytes(
     include_sources: list[str] | None = None,
 ) -> bytes:
     return export_drug_sssom(data, include_sources=include_sources).encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Version diff helpers
+# ---------------------------------------------------------------------------
+
+def load_drug_version_data(data_dir: str | Path) -> DrugGraphData:
+    """Load any versioned drug app_graph directory into a DrugGraphData."""
+    data_dir = Path(data_dir)
+    key = str(data_dir.resolve())
+    with _singleton_lock:
+        if key in _singletons:
+            return _singletons[key]
+        data = DrugGraphData()
+        manifest_path = data_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                data.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                data.manifest = {}
+        for node in _read_tsv(data_dir / "drug_nodes.tsv"):
+            _index_node(data, node)
+        data.edges = _read_tsv(data_dir / "drug_edges.tsv")
+        for edge in data.edges:
+            source_id = edge.get("source_id", "")
+            if source_id:
+                data.edges_by_drug[source_id].append(edge)
+        data.source_catalog = _read_tsv(data_dir / "drug_source_catalog.tsv")
+        data.source_update_report = _read_tsv(data_dir / "drug_source_update_report.tsv")
+        _singletons[key] = data
+        return data
+
+
+def compute_drug_version_diff(
+    current: DrugGraphData,
+    baseline: DrugGraphData,
+) -> dict[str, Any]:
+    """Compute delta between two versioned drug datasets."""
+    current_ids = set(current.nodes_by_id.keys())
+    baseline_ids = set(baseline.nodes_by_id.keys())
+
+    added_ids = sorted(current_ids - baseline_ids)
+    removed_ids = sorted(baseline_ids - current_ids)
+    shared_ids = current_ids & baseline_ids
+
+    name_changes: list[dict[str, str]] = []
+    tier_changes: list[dict[str, str]] = []
+    approval_changes: list[dict[str, str]] = []
+    inchikey_changes: list[dict[str, str]] = []
+
+    for did in sorted(shared_ids):
+        cur = current.nodes_by_id[did]
+        base = baseline.nodes_by_id[did]
+
+        for field, changes_list in [
+            ("standard_name", name_changes),
+            ("evidence_tier", tier_changes),
+            ("approval_status", approval_changes),
+            ("inchikey", inchikey_changes),
+        ]:
+            old_val = base.get(field, "")
+            new_val = cur.get(field, "")
+            if old_val != new_val:
+                changes_list.append({
+                    "drug_id": did,
+                    "standard_name": cur.get("standard_name") or base.get("standard_name", ""),
+                    "old_value": old_val,
+                    "new_value": new_val,
+                })
+
+    # Edge diffs
+    def _edge_key(e: dict[str, str]) -> tuple[str, str, str]:
+        return (e.get("source_id", ""), e.get("target_id", ""), e.get("relation_kind", ""))
+
+    current_edge_keys = {_edge_key(e) for e in current.edges}
+    baseline_edge_keys = {_edge_key(e) for e in baseline.edges}
+
+    # Source version changes
+    cur_sources = summarize_drug_source_versions(current)
+    base_sources = summarize_drug_source_versions(baseline)
+    cur_src_map = {row["name"]: row for row in cur_sources}
+    base_src_map = {row["name"]: row for row in base_sources}
+    source_version_changes = []
+    for src in sorted(set(cur_src_map) | set(base_src_map)):
+        old_v = base_src_map.get(src, {}).get("version", "")
+        new_v = cur_src_map.get(src, {}).get("version", "")
+        if old_v != new_v:
+            source_version_changes.append({
+                "source_name": src,
+                "old_source_version": old_v,
+                "new_source_version": new_v,
+            })
+
+    max_rows = 500
+    return {
+        "baseline_version": baseline.manifest.get("drug_harmonizer_version", ""),
+        "current_version": current.manifest.get("drug_harmonizer_version", ""),
+        "summary": {
+            "drugs_old": len(baseline.nodes),
+            "drugs_new": len(current.nodes),
+            "drugs_added": len(added_ids),
+            "drugs_removed": len(removed_ids),
+            "drugs_retained": len(shared_ids),
+            "edges_old": len(baseline.edges),
+            "edges_new": len(current.edges),
+            "edges_added": len(current_edge_keys - baseline_edge_keys),
+            "edges_removed": len(baseline_edge_keys - current_edge_keys),
+            "standard_name_changes": len(name_changes),
+            "evidence_tier_changes": len(tier_changes),
+            "approval_status_changes": len(approval_changes),
+            "inchikey_changes": len(inchikey_changes),
+            "source_version_changes": len(source_version_changes),
+        },
+        "added_drugs": [
+            {f: current.nodes_by_id[did].get(f, "") for f in ("drug_id", "primary_id", "standard_name", "biolink_category", "evidence_tier")}
+            for did in added_ids[:max_rows]
+        ],
+        "removed_drugs": [
+            {f: baseline.nodes_by_id[did].get(f, "") for f in ("drug_id", "primary_id", "standard_name", "biolink_category", "evidence_tier")}
+            for did in removed_ids[:max_rows]
+        ],
+        "standard_name_changes": name_changes[:max_rows],
+        "evidence_tier_changes": tier_changes[:max_rows],
+        "approval_status_changes": approval_changes[:max_rows],
+        "inchikey_changes": inchikey_changes[:max_rows],
+        "source_version_changes": source_version_changes[:max_rows],
+        "truncation": {
+            "added_drugs": {"total": len(added_ids), "shown": min(len(added_ids), max_rows)},
+            "removed_drugs": {"total": len(removed_ids), "shown": min(len(removed_ids), max_rows)},
+            "standard_name_changes": {"total": len(name_changes), "shown": min(len(name_changes), max_rows)},
+            "evidence_tier_changes": {"total": len(tier_changes), "shown": min(len(tier_changes), max_rows)},
+            "approval_status_changes": {"total": len(approval_changes), "shown": min(len(approval_changes), max_rows)},
+            "inchikey_changes": {"total": len(inchikey_changes), "shown": min(len(inchikey_changes), max_rows)},
+            "source_version_changes": {"total": len(source_version_changes), "shown": min(len(source_version_changes), max_rows)},
+        },
+    }

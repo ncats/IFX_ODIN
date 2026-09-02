@@ -153,8 +153,10 @@ from src.qa_browser.target_id_graph import (
 from src.qa_browser.variant_id_graph import (
     build_variant_graph_payload,
     compute_variant_stats,
+    compute_variant_version_diff,
     export_variants,
     load_variant_graph_data,
+    load_variant_version_data,
     search_variants,
 )
 from src.qa_browser.drug_id_graph import (
@@ -163,12 +165,14 @@ from src.qa_browser.drug_id_graph import (
     build_drug_graph_payload,
     build_drug_review_queue,
     compute_drug_stats,
+    compute_drug_version_diff,
     export_drug_sssom,
     export_drugs,
     export_drug_review_intake_template,
     find_drug_neighbors,
     iter_drug_sssom_bytes,
     load_drug_graph_data,
+    load_drug_version_data,
     resolve_drug,
     search_drugs,
     summarize_drug_source_versions,
@@ -8541,6 +8545,167 @@ def variant_id_qa_stats():
     return compute_variant_stats(data)
 
 
+# ---------------------------------------------------------------------------
+# Variant Version Diff
+# ---------------------------------------------------------------------------
+
+VARIANT_APP_GRAPH_BUNDLED_DIR = Path(__file__).resolve().parent / "data" / "variant_app_graph"
+
+
+def _candidate_variant_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _variant_graph_dir:
+        graph_path = Path(_variant_graph_dir)
+        if graph_path.name.startswith("v") or graph_path.parent.name in {"variant_app_graph", "variant_data"}:
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(VARIANT_APP_GRAPH_BUNDLED_DIR)
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            continue
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _normalize_variant_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _variant_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_variant_version(version))]
+    return tuple(parts or [0])
+
+
+def _discover_variant_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_variant_graph_dir).resolve() if _variant_graph_dir else None
+
+    for root in _candidate_variant_version_roots():
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir() or not (child / "manifest.json").exists():
+                continue
+            if not (child / "variant_nodes.tsv").exists():
+                continue
+            with open(child / "manifest.json", encoding="utf-8") as fh:
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            version = _normalize_variant_version(
+                manifest.get("variant_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+            )
+            if not version:
+                continue
+            resolved = child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": child.name,
+                "path": str(child),
+                "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
+                "node_rows": manifest.get("files", {}).get("variant_nodes.tsv", {}).get("rows"),
+                "current": bool(current_path and resolved == current_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"]:
+                version_by_key[version] = entry
+
+    if _variant_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_variant_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+
+    return sorted(version_by_key.values(), key=lambda row: _variant_version_sort_key(row["version"]))
+
+
+def _default_variant_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = ""
+    if len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _variant_version_dir(version: str) -> Path | None:
+    wanted = _normalize_variant_version(version)
+    for entry in _discover_variant_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+@app.get("/variant-id-qa/api/versions")
+def variant_id_qa_versions():
+    """List bundled/versioned variant app_graph datasets available for diffs."""
+    versions = _discover_variant_versions()
+    default_from, default_to = _default_variant_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
+@app.get("/variant-id-qa/api/version-diff")
+def variant_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned variant app_graph datasets."""
+    if not _variant_graph_dir:
+        raise HTTPException(status_code=500, detail="No --variant-graph-dir configured.")
+    versions = _discover_variant_versions()
+    default_from, default_to = _default_variant_version_pair(versions)
+    from_version = _normalize_variant_version(from_version or default_from)
+    to_version = _normalize_variant_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different variant graph versions.")
+
+    from_dir = _variant_version_dir(from_version)
+    to_dir = _variant_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Variant graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Variant graph version not found: {to_version}")
+
+    # Check for precomputed diff JSON
+    for candidate in [
+        to_dir / f"version_diff_from_v{from_version}.json",
+        to_dir.parent / f"v{to_version}" / f"version_diff_from_v{from_version}.json",
+    ]:
+        if candidate.exists():
+            with open(candidate, encoding="utf-8") as fh:
+                return json.load(fh)
+
+    baseline = load_variant_version_data(from_dir)
+    current = _load_variant_graph() if to_dir.resolve() == Path(_variant_graph_dir).resolve() else load_variant_version_data(to_dir)
+    return compute_variant_version_diff(current, baseline)
+
+
 @app.get("/variant-id-qa/api/search")
 def variant_id_qa_search(
     q: str = "",
@@ -8677,6 +8842,167 @@ def drug_id_qa_stats():
 def drug_id_qa_source_versions():
     data = _load_drug_graph()
     return {"sources": summarize_drug_source_versions(data)}
+
+
+# ---------------------------------------------------------------------------
+# Drug Version Diff
+# ---------------------------------------------------------------------------
+
+DRUG_APP_GRAPH_BUNDLED_DIR = Path(__file__).resolve().parent / "data" / "drug_app_graph"
+
+
+def _candidate_drug_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _drug_graph_dir:
+        graph_path = Path(_drug_graph_dir)
+        if graph_path.name.startswith("v") or graph_path.parent.name in {"drug_app_graph", "drug_data"}:
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(DRUG_APP_GRAPH_BUNDLED_DIR)
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            continue
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _normalize_drug_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _drug_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_drug_version(version))]
+    return tuple(parts or [0])
+
+
+def _discover_drug_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_drug_graph_dir).resolve() if _drug_graph_dir else None
+
+    for root in _candidate_drug_version_roots():
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir() or not (child / "manifest.json").exists():
+                continue
+            if not (child / "drug_nodes.tsv").exists():
+                continue
+            with open(child / "manifest.json", encoding="utf-8") as fh:
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            version = _normalize_drug_version(
+                manifest.get("drug_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+            )
+            if not version:
+                continue
+            resolved = child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": child.name,
+                "path": str(child),
+                "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
+                "node_rows": manifest.get("files", {}).get("drug_nodes.tsv", {}).get("rows"),
+                "current": bool(current_path and resolved == current_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"]:
+                version_by_key[version] = entry
+
+    if _drug_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_drug_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+
+    return sorted(version_by_key.values(), key=lambda row: _drug_version_sort_key(row["version"]))
+
+
+def _default_drug_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = ""
+    if len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _drug_version_dir(version: str) -> Path | None:
+    wanted = _normalize_drug_version(version)
+    for entry in _discover_drug_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+@app.get("/drug-id-qa/api/versions")
+def drug_id_qa_versions():
+    """List bundled/versioned drug app_graph datasets available for diffs."""
+    versions = _discover_drug_versions()
+    default_from, default_to = _default_drug_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
+@app.get("/drug-id-qa/api/version-diff")
+def drug_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned drug app_graph datasets."""
+    if not _drug_graph_dir:
+        raise HTTPException(status_code=500, detail="No --drug-graph-dir configured.")
+    versions = _discover_drug_versions()
+    default_from, default_to = _default_drug_version_pair(versions)
+    from_version = _normalize_drug_version(from_version or default_from)
+    to_version = _normalize_drug_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different drug graph versions.")
+
+    from_dir = _drug_version_dir(from_version)
+    to_dir = _drug_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Drug graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Drug graph version not found: {to_version}")
+
+    # Check for precomputed diff JSON
+    for candidate in [
+        to_dir / f"version_diff_from_v{from_version}.json",
+        to_dir.parent / f"v{to_version}" / f"version_diff_from_v{from_version}.json",
+    ]:
+        if candidate.exists():
+            with open(candidate, encoding="utf-8") as fh:
+                return json.load(fh)
+
+    baseline = load_drug_version_data(from_dir)
+    current = _load_drug_graph() if to_dir.resolve() == Path(_drug_graph_dir).resolve() else load_drug_version_data(to_dir)
+    return compute_drug_version_diff(current, baseline)
 
 
 @app.get("/drug-id-qa/api/search")
