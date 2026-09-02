@@ -136,13 +136,6 @@
                 </div>
                 <div class="bar-chart" id="drugBiolinkBars"></div>
             </section>
-            <section class="dash-chart-panel">
-                <h3>Source Update Status <button class="chart-legend-toggle" type="button" aria-label="Explain drug source update status" aria-expanded="false" aria-controls="drugSourceUpdateHelp">?</button></h3>
-                <div class="chart-legend" id="drugSourceUpdateHelp">
-                    <p>Download/transform status from the latest ODIN run. <code>xref_only</code> means identifiers are retained from other source xrefs without ingesting the full optional dataset. <code>disabled</code> means the source layer is intentionally not run in this release.</p>
-                </div>
-                <div class="bar-chart" id="drugSourceUpdateBars"></div>
-            </section>
             <section class="dash-chart-panel drug-resolver-summary">
                 <h3>Resolver Tab <button class="chart-legend-toggle" type="button" aria-label="Explain drug resolver" aria-expanded="false" aria-controls="drugResolverHelp">?</button></h3>
                 <div class="chart-legend" id="drugResolverHelp">
@@ -458,9 +451,9 @@ function renderBars(el, counts, total = null, colors = DRUG_COLORS) {
 function renderSourceCatalog(rows) {
     if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
     return `<table class="variant-table variant-source-table drug-source-table">
-        <thead><tr><th>Source</th><th>Source Version</th><th>Source Date</th><th>ODIN Download</th><th>ODIN Transform</th><th>Rows</th><th>Status</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Source</th><th>Source Version</th><th>Source Date</th><th>ODIN Download</th><th>ODIN Transform</th><th>Rows</th><th>Notes</th></tr></thead>
         <tbody>${rows.map(row => {
-            const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ");
+            const hasRows = row.transform_rows_captured || Number(row.transform_output_rows || 0) > 0;
             const notes = [row.role, row.note].filter(Boolean).join(" ");
             const sourceName = row.url ? `<a href="${escapeAttr(String(row.url).split("|")[0].trim())}" target="_blank" rel="noopener">${escapeHtml(row.name || row.source)}</a>` : escapeHtml(row.name || row.source);
             return `<tr>
@@ -469,8 +462,7 @@ function renderSourceCatalog(rows) {
                 <td>${escapeHtml(row.source_release_date || "not captured")}</td>
                 <td>${escapeHtml(row.odin_download_date || "not applicable")}</td>
                 <td>${escapeHtml(row.odin_transform_date || "not captured")}</td>
-                <td>${row.transform_output_rows ? fmt(row.transform_output_rows) : ""}</td>
-                <td>${escapeHtml(status || "recorded")}</td>
+                <td>${hasRows ? fmt(row.transform_output_rows || 0) : ""}</td>
                 <td>${escapeHtml(notes)}</td>
             </tr>`;
         }).join("")}</tbody>
@@ -489,17 +481,16 @@ function renderSourceTags(rows) {
         const version = row.version || "not captured";
         const sourceDate = row.source_release_date || "not captured";
         const downloadDate = row.odin_download_date || "not applicable";
-        const rowsText = row.transform_output_rows ? fmt(row.transform_output_rows) : "not captured";
-        const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ") || "recorded";
+        const hasRows = row.transform_rows_captured || Number(row.transform_output_rows || 0) > 0;
+        const rowsText = hasRows ? fmt(row.transform_output_rows || 0) : "not captured";
         tag.innerHTML =
             `<span class="dash-source-tag-name">${escapeHtml(row.name)}</span>` +
             `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
             `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
             `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(downloadDate)}</span>` +
-            `<span class="dash-source-tag-detail"><b>Rows</b> ${escapeHtml(rowsText)}</span>` +
-            `<span class="dash-source-tag-detail"><b>Status</b> ${escapeHtml(status)}</span>`;
+            `<span class="dash-source-tag-detail"><b>Rows</b> ${escapeHtml(rowsText)}</span>`;
         tag.title =
-            `${row.name}\nVersion: ${version}\nSource date: ${sourceDate}\nODIN download: ${downloadDate}\nRows: ${rowsText}\nStatus: ${status}` +
+            `${row.name}\nVersion: ${version}\nSource date: ${sourceDate}\nODIN download: ${downloadDate}\nRows: ${rowsText}` +
             (row.note ? `\n${row.note}` : "");
         container.appendChild(tag);
     });
@@ -536,7 +527,6 @@ async function loadDrugStats() {
         renderBars(document.getElementById("drugKeyBars"), stats.structural_key_counts, stats.total_drugs);
         renderBars(document.getElementById("drugRelationBars"), stats.relation_counts, stats.total_edges);
         renderBars(document.getElementById("drugBiolinkBars"), stats.biolink_category_counts, stats.total_drugs);
-        renderBars(document.getElementById("drugSourceUpdateBars"), stats.source_update_status_counts);
         renderResolverSummary(stats);
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         const tierOptions = Object.keys(stats.evidence_tier_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
