@@ -1,0 +1,262 @@
+{
+  "contract_version": "2.1.0",
+  "pipeline_version": "2.1.3",
+  "generated_at": "2026-09-02T15:53:07.119664+00:00",
+  "git_commit": "1a7cf49",
+  "duration_seconds": 49.12,
+  "files": {
+    "disease_concepts.tsv": {
+      "rows": 109442,
+      "key": "ncats_disease_id",
+      "alternate_key": "primary_xref",
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "primary_xref_source",
+        "standard_name",
+        "definition",
+        "synonyms",
+        "disease_type",
+        "is_rare",
+        "harmonized_to_ontology",
+        "primary_xref_grounding_type",
+        "confidence_tier",
+        "confidence_tier_original",
+        "confidence_tier_triaged",
+        "needs_review_auto_cleared",
+        "needs_review_triage_bucket",
+        "needs_review_triage_action",
+        "needs_review_problem_namespaces",
+        "needs_review_cardinality_namespaces",
+        "needs_review_obsolete_namespaces",
+        "needs_review_discordant_namespaces",
+        "authority_consensus",
+        "evidence_note",
+        "overall_quality",
+        "n_sources",
+        "primary_source_count",
+        "primary_sources",
+        "primary_conflict_count",
+        "cardinality_issue_count",
+        "primary_conflict_count_after_triage",
+        "cardinality_issue_count_after_triage",
+        "obsolete_xref_count",
+        "xref_count",
+        "has_obsolete",
+        "nodenorm_concordance",
+        "nodenorm_canonical_curie",
+        "nodenorm_canonical_label"
+      ]
+    },
+    "disease_xref_edges.tsv": {
+      "rows": 317339,
+      "key": [
+        "primary_xref",
+        "xref_id",
+        "xref_namespace"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "xref_id",
+        "xref_namespace",
+        "match_type",
+        "match_type_source",
+        "source_asserted",
+        "agreement_level",
+        "confidence_score",
+        "relation_type",
+        "xref_label",
+        "label_similarity",
+        "mapping_confidence",
+        "label_confidence",
+        "source_support",
+        "validation_support",
+        "corroboration_score",
+        "asserting_sources",
+        "validation_sources",
+        "evidence_streams",
+        "structural_confidence",
+        "xref_confidence",
+        "relation_confidence",
+        "equivalence_confidence",
+        "evidence_tier",
+        "review_tier",
+        "score_rationale",
+        "xref_is_obsolete",
+        "override_status",
+        "override_reason"
+      ]
+    },
+    "disease_hierarchy_edges.tsv": {
+      "rows": 46582,
+      "key": [
+        "parent_primary_xref",
+        "child_primary_xref"
+      ],
+      "fk": {
+        "parent_ncats_disease_id": "disease_concepts.ncats_disease_id",
+        "child_ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "parent_primary_xref",
+        "parent_ncats_disease_id",
+        "parent_label",
+        "child_primary_xref",
+        "child_ncats_disease_id",
+        "child_label",
+        "relationship_type",
+        "predicate",
+        "source"
+      ]
+    },
+    "disease_clinical_descendant_edges.tsv": {
+      "rows": 42293,
+      "key": [
+        "ncats_disease_id",
+        "anchor_xref_id",
+        "descendant_xref_id",
+        "hierarchy_source"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "disease_label",
+        "disease_type",
+        "is_rare",
+        "anchor_xref_id",
+        "anchor_xref_namespace",
+        "anchor_xref_label",
+        "anchor_match_type",
+        "anchor_asserting_sources",
+        "descendant_xref_id",
+        "descendant_xref_namespace",
+        "descendant_xref_label",
+        "relationship_to_anchor",
+        "relationship_to_disease",
+        "predicate",
+        "hierarchy_source",
+        "distance_from_anchor",
+        "distance_status",
+        "path",
+        "descendant_source_status",
+        "existing_odin_match_types",
+        "existing_odin_primary_xrefs",
+        "in_mondo_xrefs",
+        "in_yadaw_s2",
+        "in_yadaw_s3",
+        "rare_anchor",
+        "may_not_be_rare_warning",
+        "warning_reason",
+        "evidence_sources",
+        "review_status"
+      ],
+      "note": "Inferred clinical-code hierarchy candidates. These are not direct exact xrefs and should be displayed/downloaded as a separate broad/narrow relationship layer."
+    },
+    "xref_labels.tsv": {
+      "rows": 292016,
+      "key": "xref_id",
+      "columns": [
+        "xref_id",
+        "xref_namespace",
+        "preferred_label",
+        "synonyms",
+        "label_source",
+        "source_version",
+        "access_class",
+        "lookup_status",
+        "is_obsolete",
+        "obsolete_detail",
+        "source_url",
+        "fetched_at"
+      ]
+    },
+    "review_decisions.tsv": {
+      "rows": 11922,
+      "key": "decision_id",
+      "fk": {
+        "primary_xref": "disease_concepts.primary_xref"
+      },
+      "columns": [
+        "decision_id",
+        "decision_source",
+        "primary_xref",
+        "ncats_disease_id",
+        "standard_name",
+        "xref_id",
+        "xref_namespace",
+        "decision_type",
+        "scenario_id",
+        "status",
+        "auto_decision",
+        "auto_confidence",
+        "auto_rationale",
+        "resolution",
+        "resolution_detail",
+        "reviewed_by",
+        "date_found",
+        "date_resolved",
+        "source_value",
+        "consensus_value",
+        "n_sources_agree",
+        "n_sources_total",
+        "evidence_summary",
+        "priority",
+        "LLM_judgment",
+        "LLM_confidence"
+      ]
+    },
+    "disease_gene_associations.tsv": {
+      "rows": 15374,
+      "key": [
+        "ncats_disease_id",
+        "ncats_gene_id"
+      ],
+      "fk": {
+        "ncats_disease_id": "disease_concepts.ncats_disease_id"
+      },
+      "columns": [
+        "ncats_disease_id",
+        "primary_xref",
+        "ncats_gene_id",
+        "gene_public_id",
+        "subject_symbol",
+        "supporting_sources",
+        "n_supporting_sources",
+        "support_tier",
+        "support_score_raw",
+        "curated_support_count",
+        "predicates",
+        "evidence_types",
+        "evidence_labels",
+        "publications",
+        "source_subject_ids",
+        "source_disease_ids",
+        "primary_knowledge_sources",
+        "aggregator_knowledge_sources",
+        "provided_bys"
+      ]
+    }
+  },
+  "sources": {
+    "disease_ids_file": "src/data/publicdata/disease_data/v2.1.3/cleaned/nodes/disease_ids.tsv",
+    "xref_relationships_file": "src/data/publicdata/disease_data/v2.1.3/harmonized/disease_xref_relationships.tsv",
+    "xref_label_file": "src/data/publicdata/disease_data/v2.1.3/qc/xref_label_lookup.tsv",
+    "divergence_registry_file": "src/data/publicdata/disease_data/v2.1.3/qc/divergence_registry.tsv",
+    "gate_registry_file": "src/data/publicdata/disease_data/v2.1.3/qc/disease_qc_gate_registry.tsv",
+    "blocklist_file": "src/data/publicdata/disease_data/overrides/disease_blocklist.tsv",
+    "auto_blocklist_file": "src/data/publicdata/disease_data/v2.1.3/overrides/disease_blocklist_auto.tsv",
+    "overrides_file": "src/data/publicdata/disease_data/overrides/disease_overrides.yaml",
+    "hierarchy_child_to_parents_file": "src/data/publicdata/disease_data/v2.1.3/cleaned/sources/child_to_parents.json",
+    "clinical_descendant_arjun_supplement_file": "src/data/publicdata/disease_data/v2.1.3/qc/arjun_comparison/41598_2026_43020_MOESM1_ESM.xlsx",
+    "clinical_descendant_icd10cm_file": "src/data/publicdata/disease_data/v2.1.3/cleaned/sources/icd10cm_codes.csv",
+    "clinical_descendant_snomedct_file": "src/data/publicdata/disease_data/v2.1.3/cleaned/sources/snomedct_diseases.csv",
+    "gene_support_file": "src/data/publicdata/disease_data/v2.1.3/cleaned/final/harmonized_disease_gene_support.tsv"
+  }
+}

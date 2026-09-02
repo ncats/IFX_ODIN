@@ -902,3 +902,136 @@ def export_drugs(
     for row in rows:
         writer.writerow({col: row.get(col, "") for col in selected})
     return buf.getvalue()
+
+
+def reload_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
+    key = str(Path(graph_dir).resolve())
+    with _singleton_lock:
+        _singletons.pop(key, None)
+    return load_drug_graph_data(graph_dir)
+
+
+def resolve_drug(data: DrugGraphData, query_id: str) -> dict[str, Any]:
+    drug_ids, not_found = _resolve_drug_ids(data, query_id)
+    if not drug_ids:
+        return {"resolved": False, "query": query_id, "not_found": [query_id]}
+    drug_id = drug_ids[0]
+    node = data.nodes_by_id.get(drug_id, {})
+    edges = data.edges_by_drug.get(drug_id, [])
+    return {
+        "resolved": True,
+        "query": query_id,
+        "drug_id": drug_id,
+        "node": node,
+        "edges": edges,
+        "edge_count": len(edges),
+        "all_resolved_ids": drug_ids,
+    }
+
+
+def find_drug_neighbors(data: DrugGraphData, drug_id: str) -> dict[str, Any]:
+    node = data.nodes_by_id.get(drug_id)
+    if not node:
+        return {"drug_id": drug_id, "neighbors": [], "shared_ids": {}}
+    xref_ids: set[str] = set()
+    for field in ("source_ids", "xrefs"):
+        for value in _split_pipe(node.get(field, "")):
+            if value.strip():
+                xref_ids.add(value.strip())
+    for field in ("inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "cas"):
+        value = (node.get(field) or "").strip()
+        if value:
+            xref_ids.add(value)
+    neighbor_ids: set[str] = set()
+    shared_ids: dict[str, list[str]] = {}
+    for xref_id in xref_ids:
+        for alias in _drug_lookup_aliases(xref_id):
+            for hit in data.ids_to_drugs.get(alias, []):
+                if hit != drug_id:
+                    neighbor_ids.add(hit)
+                    shared_ids.setdefault(hit, [])
+                    if xref_id not in shared_ids[hit]:
+                        shared_ids[hit].append(xref_id)
+    neighbors = [data.nodes_by_id[nid] for nid in sorted(neighbor_ids) if nid in data.nodes_by_id]
+    return {"drug_id": drug_id, "neighbors": neighbors, "shared_ids": shared_ids}
+
+
+SSSOM_COLUMNS = [
+    "subject_id",
+    "subject_label",
+    "predicate_id",
+    "object_id",
+    "object_label",
+    "object_category",
+    "mapping_justification",
+    "confidence",
+    "subject_source",
+    "comment",
+]
+
+
+def _sssom_predicate(relation_kind: str) -> str:
+    if relation_kind in {"identity_xref"}:
+        return "skos:exactMatch"
+    return "skos:closeMatch"
+
+
+def _sssom_justification(relation_kind: str) -> str:
+    if relation_kind == "identity_xref":
+        return "semapv:LexicalMatching"
+    if relation_kind == "drug_target":
+        return "semapv:ManualMappingCuration"
+    return "semapv:UnspecifiedMatching"
+
+
+def _sssom_confidence(relation_kind: str, supporting_sources: str) -> str:
+    try:
+        count = int(supporting_sources or "0")
+    except ValueError:
+        count = 0
+    if relation_kind == "identity_xref" and count >= 2:
+        return "0.95"
+    if relation_kind == "identity_xref":
+        return "0.80"
+    if relation_kind == "external_identifier_xref":
+        return "0.70"
+    return "0.50"
+
+
+def export_drug_sssom(
+    data: DrugGraphData,
+    include_sources: list[str] | None = None,
+) -> str:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=SSSOM_COLUMNS, delimiter="\t", extrasaction="ignore")
+    writer.writeheader()
+    for edge in data.edges:
+        source_id = edge.get("source_id", "")
+        relation_kind = edge.get("relation_kind", "")
+        if relation_kind in {"literature_evidence", "rxnorm_product_ingredient"}:
+            continue
+        if include_sources:
+            evidence = edge.get("evidence_source", "")
+            if not any(src in evidence for src in include_sources):
+                continue
+        node = data.nodes_by_id.get(source_id, {})
+        writer.writerow({
+            "subject_id": source_id,
+            "subject_label": node.get("standard_name", ""),
+            "predicate_id": _sssom_predicate(relation_kind),
+            "object_id": edge.get("target_id", ""),
+            "object_label": edge.get("target_label", ""),
+            "object_category": edge.get("target_category", ""),
+            "mapping_justification": _sssom_justification(relation_kind),
+            "confidence": _sssom_confidence(relation_kind, edge.get("supporting_sources", "")),
+            "subject_source": node.get("source_namespaces", ""),
+            "comment": f"relation_kind={relation_kind}",
+        })
+    return buf.getvalue()
+
+
+def iter_drug_sssom_bytes(
+    data: DrugGraphData,
+    include_sources: list[str] | None = None,
+) -> bytes:
+    return export_drug_sssom(data, include_sources=include_sources).encode("utf-8")
