@@ -421,3 +421,125 @@ def export_variants(
     for row in rows:
         writer.writerow({col: row.get(col, "") for col in selected})
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Version diff helpers
+# ---------------------------------------------------------------------------
+
+def load_variant_version_data(data_dir: str | Path) -> VariantGraphData:
+    """Load any versioned variant app_graph directory into a VariantGraphData."""
+    data_dir = Path(data_dir)
+    key = str(data_dir.resolve())
+    with _singleton_lock:
+        if key in _singletons:
+            return _singletons[key]
+        data = VariantGraphData()
+        manifest_path = data_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                data.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                data.manifest = {}
+        for node in _read_tsv(data_dir / "variant_nodes.tsv"):
+            _index_node(data, node)
+        data.edges = _read_tsv(data_dir / "variant_edges.tsv")
+        for edge in data.edges:
+            source_id = edge.get("source_id", "")
+            if source_id:
+                data.edges_by_variant[source_id].append(edge)
+        data.source_catalog = _read_tsv(data_dir / "variant_source_catalog.tsv")
+        _singletons[key] = data
+        return data
+
+
+def compute_variant_version_diff(
+    current: VariantGraphData,
+    baseline: VariantGraphData,
+) -> dict[str, Any]:
+    """Compute delta between two versioned variant datasets."""
+    current_ids = set(current.nodes_by_id.keys())
+    baseline_ids = set(baseline.nodes_by_id.keys())
+
+    added_ids = sorted(current_ids - baseline_ids)
+    removed_ids = sorted(baseline_ids - current_ids)
+    shared_ids = current_ids & baseline_ids
+
+    name_changes: list[dict[str, str]] = []
+    clinical_significance_changes: list[dict[str, str]] = []
+    variant_type_changes: list[dict[str, str]] = []
+
+    for vid in sorted(shared_ids):
+        cur = current.nodes_by_id[vid]
+        base = baseline.nodes_by_id[vid]
+
+        for field, changes_list in [
+            ("name", name_changes),
+            ("clinical_significance", clinical_significance_changes),
+            ("variant_type", variant_type_changes),
+        ]:
+            old_val = base.get(field, "")
+            new_val = cur.get(field, "")
+            if old_val != new_val:
+                changes_list.append({
+                    "variant_id": vid,
+                    "gene_symbol": cur.get("gene_symbol") or base.get("gene_symbol", ""),
+                    "name": cur.get("name") or base.get("name", ""),
+                    "old_value": old_val,
+                    "new_value": new_val,
+                })
+
+    # Edge diffs
+    def _edge_key(e: dict[str, str]) -> tuple[str, str, str]:
+        return (e.get("source_id", ""), e.get("target_id", ""), e.get("relation_kind", ""))
+
+    current_edge_keys = {_edge_key(e) for e in current.edges}
+    baseline_edge_keys = {_edge_key(e) for e in baseline.edges}
+
+    # Source version changes
+    cur_src = {row.get("source", ""): row for row in current.source_catalog}
+    base_src = {row.get("source", ""): row for row in baseline.source_catalog}
+    source_version_changes = []
+    for src in sorted(set(cur_src) | set(base_src)):
+        old_v = base_src.get(src, {}).get("version", "")
+        new_v = cur_src.get(src, {}).get("version", "")
+        if old_v != new_v:
+            source_version_changes.append({
+                "source_name": src,
+                "old_source_version": old_v,
+                "new_source_version": new_v,
+            })
+
+    node_fields = ("variant_id", "primary_id", "name", "variant_type", "gene_symbol", "clinical_significance")
+    max_rows = 500
+    return {
+        "baseline_version": baseline.manifest.get("variant_harmonizer_version", ""),
+        "current_version": current.manifest.get("variant_harmonizer_version", ""),
+        "summary": {
+            "variants_old": len(baseline.nodes),
+            "variants_new": len(current.nodes),
+            "variants_added": len(added_ids),
+            "variants_removed": len(removed_ids),
+            "variants_retained": len(shared_ids),
+            "edges_old": len(baseline.edges),
+            "edges_new": len(current.edges),
+            "edges_added": len(current_edge_keys - baseline_edge_keys),
+            "edges_removed": len(baseline_edge_keys - current_edge_keys),
+            "name_changes": len(name_changes),
+            "clinical_significance_changes": len(clinical_significance_changes),
+            "variant_type_changes": len(variant_type_changes),
+            "source_version_changes": len(source_version_changes),
+        },
+        "added_variants": [
+            {f: current.nodes_by_id[vid].get(f, "") for f in node_fields}
+            for vid in added_ids[:max_rows]
+        ],
+        "removed_variants": [
+            {f: baseline.nodes_by_id[vid].get(f, "") for f in node_fields}
+            for vid in removed_ids[:max_rows]
+        ],
+        "name_changes": name_changes[:max_rows],
+        "clinical_significance_changes": clinical_significance_changes[:max_rows],
+        "variant_type_changes": variant_type_changes[:max_rows],
+        "source_version_changes": source_version_changes[:max_rows],
+    }
