@@ -1161,4 +1161,13 @@ def compute_drug_version_diff(
         "approval_status_changes": approval_changes[:max_rows],
         "inchikey_changes": inchikey_changes[:max_rows],
         "source_version_changes": source_version_changes[:max_rows],
+        "truncation": {
+            "added_drugs": {"total": len(added_ids), "shown": min(len(added_ids), max_rows)},
+            "removed_drugs": {"total": len(removed_ids), "shown": min(len(removed_ids), max_rows)},
+            "standard_name_changes": {"total": len(name_changes), "shown": min(len(name_changes), max_rows)},
+            "evidence_tier_changes": {"total": len(tier_changes), "shown": min(len(tier_changes), max_rows)},
+            "approval_status_changes": {"total": len(approval_changes), "shown": min(len(approval_changes), max_rows)},
+            "inchikey_changes": {"total": len(inchikey_changes), "shown": min(len(inchikey_changes), max_rows)},
+            "source_version_changes": {"total": len(source_version_changes), "shown": min(len(source_version_changes), max_rows)},
+        },
     }

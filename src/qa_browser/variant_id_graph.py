@@ -542,4 +542,12 @@ def compute_variant_version_diff(
         "clinical_significance_changes": clinical_significance_changes[:max_rows],
         "variant_type_changes": variant_type_changes[:max_rows],
         "source_version_changes": source_version_changes[:max_rows],
+        "truncation": {
+            "added_variants": {"total": len(added_ids), "shown": min(len(added_ids), max_rows)},
+            "removed_variants": {"total": len(removed_ids), "shown": min(len(removed_ids), max_rows)},
+            "name_changes": {"total": len(name_changes), "shown": min(len(name_changes), max_rows)},
+            "clinical_significance_changes": {"total": len(clinical_significance_changes), "shown": min(len(clinical_significance_changes), max_rows)},
+            "variant_type_changes": {"total": len(variant_type_changes), "shown": min(len(variant_type_changes), max_rows)},
+            "source_version_changes": {"total": len(source_version_changes), "shown": min(len(source_version_changes), max_rows)},
+        },
     }
