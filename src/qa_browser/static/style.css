@@ -10278,6 +10278,67 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     white-space: normal;
 }
 
+.variant-dash-version-bar .dash-source-tag {
+    border-color: rgba(124, 58, 237, 0.28);
+}
+
+.variant-dash-hero {
+    margin-bottom: 0;
+}
+
+.variant-dash-hero .dash-card {
+    text-align: left;
+}
+
+.variant-dash-hero .dash-stat {
+    color: #7c3aed;
+}
+
+.variant-provenance-panel,
+.variant-source-catalog-panel {
+    overflow: auto;
+}
+
+.variant-provenance-grid {
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.variant-provenance-grid div {
+    background: rgba(124, 58, 237, 0.05);
+    border: 1px solid rgba(124, 58, 237, 0.16);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.7rem;
+}
+
+.variant-provenance-grid span {
+    color: var(--text-muted);
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.variant-provenance-grid strong {
+    color: var(--text);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.35;
+    margin-top: 0.18rem;
+    overflow-wrap: anywhere;
+}
+
+.variant-dash-charts .variant-bar-row {
+    grid-template-columns: minmax(8rem, 16rem) minmax(0, 1fr) minmax(7.5rem, auto);
+}
+
+.variant-source-table {
+    min-width: 860px;
+}
+
 .variant-graph-layout {
     display: grid;
     gap: 1rem;
@@ -10458,6 +10519,93 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
 }
 
 .drug-explorer-shell .review-evidence {
+    color: var(--text);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.35;
+    max-width: none;
+    overflow-wrap: anywhere;
+}
+
+.variant-explorer-shell .review-header-row {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+}
+
+.variant-explorer-shell .review-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.75rem 0;
+}
+
+.variant-explorer-shell .review-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 0.38rem 0.65rem;
+}
+
+.variant-explorer-shell .review-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.variant-explorer-shell .review-pill {
+    background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-2) 32%, transparent);
+    border-radius: 999px;
+    display: inline-block;
+    font-size: 0.72rem;
+    margin-top: 0.25rem;
+    padding: 0.14rem 0.42rem;
+}
+
+.variant-explorer-shell .variant-review-table {
+    min-width: 112rem;
+    table-layout: fixed;
+}
+
+.variant-explorer-shell .variant-review-table th:nth-child(1),
+.variant-explorer-shell .variant-review-table td:nth-child(1) { width: 18rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(2),
+.variant-explorer-shell .variant-review-table td:nth-child(2) { width: 22rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(3),
+.variant-explorer-shell .variant-review-table td:nth-child(3) { width: 24rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(4),
+.variant-explorer-shell .variant-review-table td:nth-child(4) { width: 18rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(5),
+.variant-explorer-shell .variant-review-table td:nth-child(5) { width: 15rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(6),
+.variant-explorer-shell .variant-review-table td:nth-child(6) { width: 16rem; }
+.variant-explorer-shell .variant-review-table th:nth-child(7),
+.variant-explorer-shell .variant-review-table td:nth-child(7) { width: 5rem; }
+
+.variant-explorer-shell .review-decision-select,
+.variant-explorer-shell .review-resolution-input,
+.variant-explorer-shell .review-notes-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+    width: 100%;
+}
+
+.variant-explorer-shell .review-resolution-input,
+.variant-explorer-shell .review-notes-input {
+    margin-top: 0.35rem;
+    padding: 0.45rem 0.55rem;
+}
+
+.variant-explorer-shell .review-evidence {
     color: var(--text);
     display: block;
     font-family: var(--mono);
