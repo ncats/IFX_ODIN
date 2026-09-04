@@ -1331,7 +1331,7 @@ def _edge_relationship_metadata(predicate: str) -> dict[str, str]:
     return {
         "display_label": predicate.replace("biolink:", "") or "related_to",
         "relationship_label": "Related target",
-        "relationship_description": "Target relationship retained from the TargetGraph harmonizer.",
+        "relationship_description": "Target relationship retained from the IFX Harmonizers target workflow.",
         "relationship_category": "Related",
     }
 

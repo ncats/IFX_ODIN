@@ -19,11 +19,11 @@ Startup prefers the highest semantic `v*` directory that contains
 backward-compatible fallback for existing local and deployed environments.
 
 The source of truth for generating versioned target app graph bundles is the
-TargetGraph pipeline module:
+IFX Harmonizers target workflow:
 
 ```bash
 python src/code/main.py TARGETS --modules target_app_graph_export
 ```
 
-Copy a generated `v*/app_graph/` bundle from TargetGraph into this directory
+Copy a generated `v*/app_graph/` bundle from IFX Harmonizers into this directory
 only when the deployment should serve that target release.

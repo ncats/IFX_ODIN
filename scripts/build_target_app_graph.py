@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the QA Browser target harmonizer app graph bundle from TargetGraph IDs."""
+"""Build the QA Browser target harmonizer app bundle from IFX Harmonizers IDs."""
 from __future__ import annotations
 
 import argparse
@@ -449,7 +449,7 @@ def build(target_data_dir: Path, out_dir: Path) -> None:
 
     manifest = {
         "contract_version": "1.0.0",
-        "pipeline": "TargetGraph target harmonizer",
+        "pipeline": "IFX Harmonizers target workflow",
         "generated_at": datetime.now(UTC).isoformat(),
         "source_files": {key: _portable_path(path) for key, path in sources.items()},
         "files": {
