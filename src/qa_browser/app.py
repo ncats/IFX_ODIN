@@ -151,9 +151,13 @@ from src.qa_browser.target_id_graph import (
     validate_and_build_target_review_rows,
 )
 from src.qa_browser.variant_id_graph import (
+    VARIANT_REVIEW_DECISION_OPTIONS,
+    VARIANT_REVIEW_INTAKE_COLUMNS,
     build_variant_graph_payload,
+    build_variant_review_queue,
     compute_variant_stats,
     compute_variant_version_diff,
+    export_variant_review_intake_template,
     export_variants,
     load_variant_graph_data,
     load_variant_version_data,
@@ -230,6 +234,7 @@ _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
 _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
+_variant_review_file: str = ""
 _drug_graph_dir: str = ""
 _drug_review_file: str = ""
 DRUG_RESOLVER_MAX_QUERIES = 2000
@@ -239,6 +244,7 @@ _drug_resolver_jobs_lock = threading.Lock()
 _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
 _drug_review_lock = threading.Lock()
+_variant_review_lock = threading.Lock()
 _registry_usage_cache: dict = {
     "loaded_at": 0.0,
     "usage_by_registry_id": None,
@@ -8279,7 +8285,9 @@ def _candidate_target_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _target_graph_dir:
         graph_path = Path(_target_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name == "target_app_graph":
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8320,26 +8328,30 @@ def _discover_target_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "target_nodes.tsv").exists():
+            if not (graph_child / "target_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError) as exc:
-                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    logger.warning("Skipping %s: bad manifest.json: %s", graph_child, exc)
                     continue
             version = _normalize_target_version(
-                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("target_release_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("target_nodes.tsv", {}).get("rows"),
                 "edge_rows": manifest.get("files", {}).get("target_edges.tsv", {}).get("rows"),
@@ -8556,7 +8568,9 @@ def _candidate_variant_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _variant_graph_dir:
         graph_path = Path(_variant_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name in {"variant_app_graph", "variant_data"}:
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name in {"variant_app_graph", "variant_data"}:
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8596,25 +8610,29 @@ def _discover_variant_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "variant_nodes.tsv").exists():
+            if not (graph_child / "variant_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError):
                     continue
             version = _normalize_variant_version(
-                manifest.get("variant_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("variant_harmonizer_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("variant_nodes.tsv", {}).get("rows"),
                 "current": bool(current_path and resolved == current_path),
@@ -8704,6 +8722,161 @@ def variant_id_qa_version_diff(
     baseline = load_variant_version_data(from_dir)
     current = _load_variant_graph() if to_dir.resolve() == Path(_variant_graph_dir).resolve() else load_variant_version_data(to_dir)
     return compute_variant_version_diff(current, baseline)
+
+
+def _default_variant_review_file() -> str:
+    if not _variant_graph_dir:
+        return ""
+    graph_dir = Path(_variant_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "review_intake" / "variant_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "variant_app_review_decisions.tsv")
+
+
+def _resolved_variant_review_file() -> str:
+    return _variant_review_file or _default_variant_review_file()
+
+
+def _variant_review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    allowed = {opt["value"] for opt in VARIANT_REVIEW_DECISION_OPTIONS}
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        registry_id = str(raw.get("registry_id") or raw.get("Registry ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Human decision") or "").strip()
+        if not registry_id:
+            raise HTTPException(status_code=400, detail="Each variant review decision needs registry_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each variant review decision needs review_decision.")
+        if decision not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unsupported variant review_decision: {decision}")
+
+        rows.append({
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+            "Registry ID": registry_id,
+            "Variant ID": str(raw.get("variant_id") or raw.get("Variant ID") or "").strip(),
+            "Variant Key": str(raw.get("variant_key") or raw.get("Variant Key") or "").strip(),
+            "Primary ID": str(raw.get("primary_id") or raw.get("Primary ID") or "").strip(),
+            "Name": str(raw.get("name") or raw.get("Name") or "").strip(),
+            "Gene": str(raw.get("gene_symbol") or raw.get("gene_curie") or raw.get("Gene") or "").strip(),
+            "Issue type": str(raw.get("issue_type") or raw.get("Issue type") or "").strip(),
+            "Issue label": str(raw.get("issue_label") or raw.get("Issue label") or "").strip(),
+            "Review group": str(raw.get("review_group") or raw.get("Review group") or "").strip(),
+            "Severity": str(raw.get("severity") or raw.get("Severity") or "").strip(),
+            "Source": str(raw.get("source") or raw.get("Source") or "").strip(),
+            "Source value": str(raw.get("source_value") or raw.get("Source value") or "").strip(),
+            "Target ID": str(raw.get("target_id") or raw.get("Target ID") or "").strip(),
+            "Target label": str(raw.get("target_label") or raw.get("Target label") or "").strip(),
+            "Target category": str(raw.get("target_category") or raw.get("Target category") or "").strip(),
+            "Target mapping status": str(raw.get("target_mapping_status") or raw.get("Target mapping status") or "").strip(),
+            "Target mapping note": str(raw.get("target_mapping_note") or raw.get("Target mapping note") or "").strip(),
+            "Affected variants": str(raw.get("affected_variant_count") or raw.get("Affected variants") or "").strip(),
+            "Affected edges": str(raw.get("affected_edge_count") or raw.get("Affected edges") or "").strip(),
+            "Example variant IDs": str(raw.get("example_variant_ids") or raw.get("Example variant IDs") or "").strip(),
+            "Example variant keys": str(raw.get("example_variant_keys") or raw.get("Example variant keys") or "").strip(),
+            "Recommended action": str(raw.get("recommended_action") or raw.get("Recommended action") or "").strip(),
+            "Human decision": decision,
+            "Resolution": str(raw.get("resolution") or raw.get("Resolution") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No variant review decisions provided.")
+    return rows
+
+
+def _append_variant_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_variant_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No variant review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _variant_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=VARIANT_REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/variant-id-qa/api/review-queue")
+def variant_id_qa_review_queue(
+    issue_type: str = "",
+    review_group: str = "",
+    source: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_variant_graph()
+    return build_variant_review_queue(
+        data,
+        issue_type=issue_type,
+        review_group=review_group,
+        source=source,
+        severity=severity,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/variant-id-qa/download-review-template")
+def variant_id_qa_download_review_template(
+    issue_type: str = "",
+    review_group: str = "",
+    source: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    data = _load_variant_graph()
+    tsv_content = export_variant_review_intake_template(
+        data,
+        issue_type=issue_type,
+        review_group=review_group,
+        source=source,
+        severity=severity,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.StringIO(tsv_content),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="variant_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/variant-id-qa/api/review-decisions")
+async def variant_id_qa_review_decisions(payload: dict):
+    rows = _variant_review_payload_rows(payload)
+    path = _append_variant_review_rows(rows)
+    return {
+        "ok": True,
+        "saved_rows": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import with TargetGraph variant_qc.",
+    }
 
 
 @app.get("/variant-id-qa/api/search")
@@ -8855,7 +9028,9 @@ def _candidate_drug_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _drug_graph_dir:
         graph_path = Path(_drug_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name in {"drug_app_graph", "drug_data"}:
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name in {"drug_app_graph", "drug_data"}:
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -8895,25 +9070,29 @@ def _discover_drug_versions() -> list[dict]:
         if not root.is_dir():
             continue
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            if not (child / "drug_nodes.tsv").exists():
+            if not (graph_child / "drug_nodes.tsv").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError):
                     continue
             version = _normalize_drug_version(
-                manifest.get("drug_harmonizer_version", "") or manifest.get("pipeline_version", "") or child.name
+                manifest.get("drug_harmonizer_version", "") or manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
                 "node_rows": manifest.get("files", {}).get("drug_nodes.tsv", {}).get("rows"),
                 "current": bool(current_path and resolved == current_path),
@@ -10324,7 +10503,9 @@ def _candidate_disease_version_roots() -> list[Path]:
     roots: list[Path] = []
     if _disease_graph_dir:
         graph_path = Path(_disease_graph_dir)
-        if graph_path.name.startswith("v") or graph_path.parent.name == "disease_app_graph":
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name == "disease_app_graph":
             roots.append(graph_path.parent)
         else:
             roots.append(graph_path)
@@ -10350,24 +10531,28 @@ def _discover_disease_versions() -> list[dict]:
 
     for root in _candidate_disease_version_roots():
         for child in root.iterdir():
-            if not child.is_dir() or not (child / "manifest.json").exists():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
                 continue
-            with open(child / "manifest.json", encoding="utf-8") as fh:
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
                 try:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError) as exc:
-                    logger.warning("Skipping %s: bad manifest.json: %s", child, exc)
+                    logger.warning("Skipping %s: bad manifest.json: %s", graph_child, exc)
                     continue
             version = _normalize_disease_version(
-                manifest.get("pipeline_version", "") or child.name
+                manifest.get("pipeline_version", "") or manifest.get("version", "") or directory_name
             )
             if not version:
                 continue
-            resolved = child.resolve()
+            resolved = graph_child.resolve()
             entry = {
                 "version": version,
-                "directory_name": child.name,
-                "path": str(child),
+                "directory_name": directory_name,
+                "path": str(graph_child),
                 "updated_at": manifest.get("generated_at", ""),
                 "contract_version": manifest.get("contract_version", ""),
                 "concept_rows": manifest.get("files", {}).get("disease_concepts.tsv", {}).get("rows"),
@@ -13422,6 +13607,9 @@ def main():
     parser.add_argument("--variant-graph-dir",
                         default="",
                         help="Path to variant app_graph/ directory (variant_nodes.tsv + manifest.json)")
+    parser.add_argument("--variant-review-file",
+                        default="",
+                        help="Path to TargetGraph-compatible variant review intake TSV written by the Review tab")
     parser.add_argument("--drug-graph-dir",
                         default="",
                         help="Path to drug app_graph/ directory (drug_nodes.tsv + manifest.json)")
@@ -13430,7 +13618,7 @@ def main():
                         help="Path to TargetGraph-compatible drug review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _drug_graph_dir, _drug_review_file
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -13552,7 +13740,9 @@ def main():
             print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
     if _variant_graph_dir:
         print(f"Variant graph dir: {_variant_graph_dir}")
-
+    _variant_review_file = args.variant_review_file
+    if _resolved_variant_review_file():
+        print(f"Variant review intake file: {_resolved_variant_review_file()}")
 
     _drug_graph_dir = args.drug_graph_dir
     if not _drug_graph_dir:

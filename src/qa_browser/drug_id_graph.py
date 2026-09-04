@@ -237,6 +237,7 @@ def summarize_drug_source_versions(data: DrugGraphData) -> list[dict[str, Any]]:
                 "download_mode": "",
                 "download_changed": "",
                 "transform_output_rows": 0,
+                "transform_rows_captured": False,
                 "url": "",
                 "notes": [],
                 "note": "",
@@ -257,6 +258,8 @@ def summarize_drug_source_versions(data: DrugGraphData) -> list[dict[str, Any]]:
             entry["download_changed"] = str(row.get("changed") or entry["download_changed"] or "").strip()
         if row.get("transform_start") or row.get("transform_end"):
             entry["odin_transform_date"] = _first_date(entry["odin_transform_date"], row.get("transform_end"), row.get("transform_start"))
+        if str(row.get("records") or "").strip():
+            entry["transform_rows_captured"] = True
         try:
             entry["transform_output_rows"] += int(float(str(row.get("records") or "0")))
         except ValueError:
@@ -288,6 +291,8 @@ def summarize_drug_source_versions(data: DrugGraphData) -> list[dict[str, Any]]:
             records = 0
         if artifact == "transform" and records:
             entry["transform_output_rows"] = max(int(entry["transform_output_rows"]), records)
+        if artifact == "transform" and str(row.get("records") or "").strip():
+            entry["transform_rows_captured"] = True
 
     for entry in by_source.values():
         versions = entry.pop("versions", [])

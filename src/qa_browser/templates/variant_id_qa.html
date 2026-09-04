@@ -22,6 +22,7 @@
     <nav class="variant-tabs">
         <button class="variant-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
         <button class="variant-tab-btn" data-tab="concepts" type="button">Concepts</button>
+        <button class="variant-tab-btn" data-tab="review" type="button">Review</button>
         <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="variant-tab-btn" data-tab="download" type="button">Download</button>
         <button class="variant-tab-btn" data-tab="changes" type="button">Changes</button>
@@ -31,31 +32,92 @@
 
     <section class="variant-tab-panel" data-panel="dashboard">
         <div class="variant-empty" id="variantNoData" style="display:none;"></div>
-        <div class="variant-stat-grid" id="variantStats"></div>
-        <div class="variant-dashboard-grid">
-            <section class="variant-panel">
-                <h2>Source Coverage</h2>
-                <div class="variant-bars" id="variantSourceBars"></div>
-            </section>
-            <section class="variant-panel">
-                <h2>Evidence Relation Types</h2>
-                <div class="variant-bars" id="variantRelationBars"></div>
-            </section>
+
+        <div class="dash-version-bar variant-dash-version-bar">
+            <div class="dash-version-meta">
+                <span class="dash-version-label">Pipeline</span>
+                <span class="dash-version-value mono" id="variantDashPipelineVersion">{{ variant_version_display }}</span>
+            </div>
+            <div class="dash-source-tags" id="variantSourceTags">
+                <span class="dash-version-label">Source Versions:</span>
+            </div>
         </div>
-        <div class="variant-dashboard-grid">
-            <section class="variant-panel">
-                <h2>Equivalence Scope</h2>
-                <div class="variant-bars" id="variantScopeBars"></div>
-            </section>
-            <section class="variant-panel">
-                <h2>Disease / Trait Namespace</h2>
-                <div class="variant-bars" id="variantNamespaceBars"></div>
-            </section>
-        </div>
-        <section class="variant-panel">
-            <h2>Source Versions</h2>
+
+        <section class="dash-chart-panel variant-provenance-panel">
+            <h3>Release Provenance</h3>
+            <div class="variant-provenance-grid" id="variantProvenanceSummary"></div>
+        </section>
+
+        <section class="dash-chart-panel variant-source-catalog-panel">
+            <h3>Source Versions and ODIN Run Metadata</h3>
             <div class="variant-source-catalog" id="variantSourceCatalog"></div>
         </section>
+
+        <div class="dash-hero variant-dash-hero">
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashLoadedTotal">-</div>
+                <div class="dash-label">Loaded App Variants</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashFullTotal">-</div>
+                <div class="dash-label">Full Harmonized Variants</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashLoadedEdges">-</div>
+                <div class="dash-label">Loaded App Edges</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashFullEdges">-</div>
+                <div class="dash-label">Full Association Rows</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashSources">-</div>
+                <div class="dash-label">Source Streams</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashOverlapEdges">-</div>
+                <div class="dash-label">Overlap / QC Edges</div>
+            </div>
+            <div class="dash-card">
+                <div class="dash-stat" id="variantDashOpenReview">-</div>
+                <div class="dash-label">Open QC Rows</div>
+            </div>
+        </div>
+
+        <div class="dash-charts variant-dash-charts">
+            <section class="dash-chart-panel">
+                <h3>Loaded Source Coverage</h3>
+                <div class="bar-chart" id="variantSourceBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Full Source Coverage</h3>
+                <div class="bar-chart" id="variantFullSourceBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Loaded Edge Types</h3>
+                <div class="bar-chart" id="variantRelationBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Full Association Edge Types</h3>
+                <div class="bar-chart" id="variantFullRelationBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Edge Evidence Sources</h3>
+                <div class="bar-chart" id="variantEdgeSourceBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Target Mapping Provenance</h3>
+                <div class="bar-chart" id="variantMappingSourceBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Equivalence Scope</h3>
+                <div class="bar-chart" id="variantScopeBars"></div>
+            </section>
+            <section class="dash-chart-panel">
+                <h3>Disease / Trait Namespace</h3>
+                <div class="bar-chart" id="variantNamespaceBars"></div>
+            </section>
+        </div>
     </section>
 
     <section class="variant-tab-panel" data-panel="concepts">
@@ -84,6 +146,49 @@
             <button class="btn" id="variantPrevPage" type="button">Prev</button>
             <span id="variantPageLabel"></span>
             <button class="btn" id="variantNextPage" type="button">Next</button>
+        </div>
+    </section>
+
+    <section class="variant-tab-panel" data-panel="review">
+        <div class="variant-panel">
+            <div class="review-header-row">
+                <div>
+                    <h2>Variant QC Review Queue</h2>
+                    <p class="variant-muted">Rows come from TargetGraph <code>variant_qc</code>: unmapped/ambiguous disease, gene, protein, and transcript targets; dbSNP identity-scope warnings; source clinical disagreements; and weak locus anchors.</p>
+                </div>
+                <a class="btn" id="variantReviewTemplate" href="#">Download review template</a>
+            </div>
+            <div class="variant-stat-grid review-stat-grid" id="variantReviewStats"></div>
+            <div class="review-chip-row" id="variantReviewIssueChips"></div>
+            <div class="variant-filter-row">
+                <input id="variantReviewSearch" type="search" placeholder="Search review rows by variant, gene, target, source value, issue, or evidence...">
+                <select id="variantReviewStatus"><option value="open">Open review-required</option><option value="resolved">Resolved / acknowledged</option><option value="stale">Stale</option><option value="all">All loaded rows</option></select>
+                <select id="variantReviewGroup"><option value="">All review groups</option></select>
+                <select id="variantReviewSource"><option value="">All source evidence</option></select>
+                <select id="variantReviewSeverity"><option value="">All severities</option></select>
+                <button class="btn btn-primary" id="variantReviewSearchBtn" type="button">Filter</button>
+            </div>
+            <div class="variant-table-wrap">
+                <table class="variant-table review-table variant-review-table">
+                    <thead>
+                        <tr>
+                            <th>Issue</th>
+                            <th>Variant / Examples</th>
+                            <th>Target Mapping</th>
+                            <th>Evidence</th>
+                            <th>Decision</th>
+                            <th>Resolution / Notes</th>
+                            <th>Save</th>
+                        </tr>
+                    </thead>
+                    <tbody id="variantReviewRows"></tbody>
+                </table>
+            </div>
+            <div class="variant-pager">
+                <button class="btn" id="variantReviewPrevPage" type="button">Prev</button>
+                <span id="variantReviewPageLabel"></span>
+                <button class="btn" id="variantReviewNextPage" type="button">Next</button>
+            </div>
         </div>
     </section>
 
@@ -238,12 +343,18 @@ let variantPage = 1;
 let variantLastPage = 0;
 let variantCy = null;
 let variantStatsCache = null;
+let variantReviewPage = 1;
+let variantReviewLastPage = 0;
+let variantReviewIssueType = "";
+let variantReviewRowsById = {};
+let variantReviewDecisionOptions = [];
 const defaultColumns = ["variant_id", "primary_id", "name", "biolink_category", "variant_type", "dbsnp_id", "clinvar_variation_id", "clinvar_allele_id", "uniprot_id", "uniprot_feature_id", "protein_name", "protein_position", "amino_acid_change", "gene_symbol", "gene_curie", "assembly", "chromosome", "position", "risk_allele", "clinical_significance", "source_review_status", "source_namespaces", "equivalence_scope", "quality_note"];
 
 let variantChangesLoaded = false;
 function setVariantTab(tab) {
     document.querySelectorAll(".variant-tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
     document.querySelectorAll(".variant-tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === tab));
+    if (tab === "review") loadVariantReviewQueue(1);
     if (tab === "changes" && !variantChangesLoaded) { variantChangesLoaded = true; loadVariantChangesTab(); }
 }
 
@@ -252,11 +363,49 @@ setVariantTab(initialTab);
 
 function fmt(n) { return Number(n || 0).toLocaleString(); }
 function escapeHtml(v) { return String(v || "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c])); }
+function escapeAttr(v) { return escapeHtml(v); }
 
-function renderBars(el, counts) {
-    const entries = Object.entries(counts || {}).slice(0, 14);
+function renderBars(el, counts, total = 0) {
+    if (!el) return;
+    const entries = Object.entries(counts || {}).slice(0, 14).map(([label, count]) => [label, Number(count || 0)]);
     const max = Math.max(...entries.map(x => x[1]), 1);
-    el.innerHTML = entries.length ? entries.map(([label, count]) => `<div class="variant-bar-row"><span title="${escapeHtml(label)}">${escapeHtml(label || "unknown")}</span><div><i style="width:${Math.max(2, count / max * 100)}%"></i></div><code>${fmt(count)}</code></div>`).join("") : "<p class='variant-muted'>No data</p>";
+    el.innerHTML = entries.length ? entries.map(([label, count]) => {
+        const pct = total ? ` (${(count / total * 100).toFixed(1)}%)` : "";
+        return `<div class="variant-bar-row"><span title="${escapeHtml(label)}">${escapeHtml(label || "unknown")}</span><div><i style="width:${Math.max(2, count / max * 100)}%"></i></div><code>${fmt(count)}${pct}</code></div>`;
+    }).join("") : "<p class='variant-muted'>No data</p>";
+}
+
+function renderVariantSourceTags(rows) {
+    const sourceRows = rows || [];
+    const tags = sourceRows.map(row => {
+        const name = row.name || row.source || "unknown";
+        const version = row.version || row.source_version || "not captured";
+        const status = row.download_status || "not captured";
+        const rowsOut = row.output_records ? fmt(row.output_records) : "";
+        return `<span class="dash-source-tag"><span class="dash-source-tag-name">${escapeHtml(name)}</span><span class="dash-source-tag-detail"><b>${escapeHtml(version)}</b>${escapeHtml(status)}${rowsOut ? ` · ${rowsOut} rows` : ""}</span></span>`;
+    }).join("");
+    return `<span class="dash-version-label">Source Versions:</span>${tags || "<span class='variant-muted'>No source catalog</span>"}`;
+}
+
+function renderVariantProvenance(stats) {
+    const p = stats.provenance_summary || {};
+    const rows = [
+        ["Mode", p.mode || "app graph export"],
+        ["Created", p.created_at || ""],
+        ["Updated", p.updated_last || ""],
+        ["Full variants", p.full_input_nodes],
+        ["Exported variants", p.exported_nodes],
+        ["Full association rows", p.full_association_rows],
+        ["Source rows matched", p.source_rows_matching_selected_nodes],
+        ["Exported edges", p.exported_edges],
+        ["Overlap / QC edges", p.exported_overlap_edges],
+        ["Node cap", p.max_app_nodes],
+        ["Edge cap", p.max_app_edges],
+        ["Overlap cap", p.max_overlap_edges],
+    ].filter(([, value]) => value !== "" && value !== null && value !== undefined);
+    return rows.map(([label, value]) =>
+        `<div><span>${escapeHtml(label)}</span><strong>${typeof value === "number" ? fmt(value) : escapeHtml(value)}</strong></div>`
+    ).join("");
 }
 
 async function loadVariantStats() {
@@ -266,28 +415,39 @@ async function loadVariantStats() {
         const stats = await resp.json();
         variantStatsCache = stats;
         document.getElementById("variantNoData").style.display = "none";
-        document.getElementById("variantStats").innerHTML = `
-            <div><strong>${fmt(stats.total_variants)}</strong><span>Variants</span></div>
-            <div><strong>${fmt(stats.total_edges)}</strong><span>Evidence edges</span></div>
-            <div><strong>${fmt(Object.keys(stats.source_counts || {}).length)}</strong><span>Sources</span></div>
-            <div><strong>${escapeHtml((stats.manifest || {}).version || "current")}</strong><span>Release</span></div>`;
-        renderBars(document.getElementById("variantSourceBars"), stats.source_counts);
-        renderBars(document.getElementById("variantRelationBars"), stats.relation_counts);
-        renderBars(document.getElementById("variantScopeBars"), stats.equivalence_scope_counts);
-        renderBars(document.getElementById("variantNamespaceBars"), stats.object_namespace_counts);
+        const manifest = stats.manifest || {};
+        const sourceVersions = stats.source_versions || stats.source_catalog || [];
+        document.getElementById("variantDashPipelineVersion").textContent = manifest.version || "current";
+        document.getElementById("variantDashLoadedTotal").textContent = fmt(stats.total_variants);
+        document.getElementById("variantDashFullTotal").textContent = fmt(stats.full_total_variants || stats.total_variants);
+        document.getElementById("variantDashLoadedEdges").textContent = fmt(stats.total_edges);
+        document.getElementById("variantDashFullEdges").textContent = fmt(stats.full_total_edges || stats.total_edges);
+        document.getElementById("variantDashSources").textContent = fmt(sourceVersions.length || Object.keys(stats.source_counts || {}).length);
+        document.getElementById("variantDashOverlapEdges").textContent = fmt(stats.exported_overlap_edges);
+        document.getElementById("variantDashOpenReview").textContent = fmt(stats.open_review_rows || 0);
+        document.getElementById("variantSourceTags").innerHTML = renderVariantSourceTags(sourceVersions);
+        document.getElementById("variantProvenanceSummary").innerHTML = renderVariantProvenance(stats);
+        renderBars(document.getElementById("variantSourceBars"), stats.exported_source_counts || stats.source_counts, stats.total_variants);
+        renderBars(document.getElementById("variantFullSourceBars"), stats.full_source_counts || stats.source_counts, stats.full_total_variants || stats.total_variants);
+        renderBars(document.getElementById("variantRelationBars"), stats.relation_counts, stats.total_edges);
+        renderBars(document.getElementById("variantFullRelationBars"), stats.full_relation_counts || stats.relation_counts, stats.full_total_edges || stats.total_edges);
+        renderBars(document.getElementById("variantEdgeSourceBars"), stats.edge_source_counts, stats.total_edges);
+        renderBars(document.getElementById("variantMappingSourceBars"), stats.target_mapping_source_counts, stats.total_edges);
+        renderBars(document.getElementById("variantScopeBars"), stats.full_equivalence_scope_counts || stats.equivalence_scope_counts, stats.full_total_variants || stats.total_variants);
+        renderBars(document.getElementById("variantNamespaceBars"), stats.object_namespace_counts, stats.total_edges);
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         document.getElementById("variantSourceFilter").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
         document.getElementById("variantDownloadSource").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
-        document.getElementById("variantSourceCatalog").innerHTML = renderSourceCatalog(stats.source_catalog || []);
+        document.getElementById("variantSourceCatalog").innerHTML = renderSourceCatalog(sourceVersions);
     } catch (err) {
         document.getElementById("variantNoData").style.display = "block";
-        document.getElementById("variantNoData").innerHTML = "Variant app graph data is not configured yet. Run <code>python src/code/main.py VARIANTS --all</code>, then launch the QA Browser with <code>--variant-graph-dir .../variant_data/v0.1.0/app_graph</code>.";
+        document.getElementById("variantNoData").innerHTML = "Variant app graph data is not configured yet. Run <code>python src/code/main.py VARIANTS --all</code>, then launch the QA Browser with <code>--variant-graph-dir .../variant_data/v1.0.0/app_graph</code>.";
     }
 }
 
 function renderSourceCatalog(rows) {
     if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
-    return `<table class="variant-table variant-source-table"><thead><tr><th>Source</th><th>Version</th><th>Status</th><th>Records</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.source)}</td><td>${escapeHtml(row.source_version)}</td><td>${escapeHtml(row.download_status)}</td><td>${escapeHtml(row.output_records || row.source_records || "")}</td></tr>`).join("")}</tbody></table>`;
+    return `<table class="variant-table variant-source-table"><thead><tr><th>Source</th><th>Version</th><th>Status</th><th>Downloaded</th><th>Transformed</th><th>Source Rows</th><th>Output Rows</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name || row.source)}</td><td>${escapeHtml(row.version || row.source_version)}</td><td>${escapeHtml(row.download_status)}</td><td>${escapeHtml(row.odin_download_date || row.downloaded_at || "")}</td><td>${escapeHtml(row.odin_transform_date || row.transformed_at || "")}</td><td>${escapeHtml(row.source_records ? fmt(row.source_records) : "")}</td><td>${escapeHtml(row.output_records ? fmt(row.output_records) : "")}</td></tr>`).join("")}</tbody></table>`;
 }
 
 async function runVariantSearch(page = 1) {
@@ -360,11 +520,152 @@ function setupVariantColumns() {
     document.getElementById("variantColumnGrid").innerHTML = defaultColumns.map(col => `<label><input type="checkbox" value="${col}" checked> ${col}</label>`).join("");
 }
 
+function updateVariantReviewSelect(id, counts, label) {
+    const el = document.getElementById(id);
+    const current = el.value;
+    const options = Object.keys(counts || {}).filter(Boolean).map(value => `<option value="${escapeAttr(value)}">${escapeHtml(value)} (${fmt(counts[value])})</option>`).join("");
+    el.innerHTML = `<option value="">${label}</option>${options}`;
+    if (current && Object.prototype.hasOwnProperty.call(counts || {}, current)) el.value = current;
+}
+
+function variantReviewParams(page = 1) {
+    return new URLSearchParams({
+        q: document.getElementById("variantReviewSearch").value,
+        status: document.getElementById("variantReviewStatus").value,
+        review_group: document.getElementById("variantReviewGroup").value,
+        source: document.getElementById("variantReviewSource").value,
+        severity: document.getElementById("variantReviewSeverity").value,
+        issue_type: variantReviewIssueType,
+        page,
+        per_page: 50,
+    });
+}
+
+function renderVariantReviewChips(counts) {
+    const entries = Object.entries(counts || {});
+    const total = entries.reduce((sum, entry) => sum + Number(entry[1] || 0), 0);
+    const chips = [`<button class="review-chip ${variantReviewIssueType ? "" : "active"}" data-issue="" type="button">All issues <strong>${fmt(total)}</strong></button>`]
+        .concat(entries.map(([issue, count]) => `<button class="review-chip ${variantReviewIssueType === issue ? "active" : ""}" data-issue="${escapeAttr(issue)}" type="button">${escapeHtml(issue || "unknown")} <strong>${fmt(count)}</strong></button>`));
+    document.getElementById("variantReviewIssueChips").innerHTML = chips.join("");
+    document.querySelectorAll("#variantReviewIssueChips .review-chip").forEach(btn => btn.addEventListener("click", () => {
+        variantReviewIssueType = btn.dataset.issue || "";
+        loadVariantReviewQueue(1);
+    }));
+}
+
+function renderVariantReviewStats(payload) {
+    const statuses = payload.status_counts || {};
+    const severities = payload.severity_counts || {};
+    const groups = payload.review_group_counts || {};
+    const fullOpen = payload.full_open_review_rows || statuses.open || 0;
+    const loadedQueue = payload.loaded_review_queue_rows || statuses.open || 0;
+    const fullRegistry = payload.full_registry_rows || loadedQueue;
+    document.getElementById("variantReviewStats").innerHTML = `
+        <div><strong>${fmt(fullOpen)}</strong><span>Open review-required</span></div>
+        <div><strong>${fmt(loadedQueue)}</strong><span>Loaded app queue</span></div>
+        <div><strong>${fmt(fullRegistry)}</strong><span>QC observations</span></div>
+        <div><strong>${fmt((statuses.resolved || 0) + (statuses.acknowledged || 0) + (statuses.wontfix || 0))}</strong><span>Resolved / acknowledged</span></div>
+        <div><strong>${fmt(statuses.stale || 0)}</strong><span>Stale</span></div>
+        <div><strong>${fmt(Object.keys(groups).length)}</strong><span>Review groups</span></div>
+        <div><strong>${fmt(Object.keys(severities).length)}</strong><span>Severity groups</span></div>`;
+}
+
+function variantReviewDecisionSelect(row) {
+    const current = row.review_decision || "";
+    const options = [`<option value="">Choose...</option>`].concat((variantReviewDecisionOptions || []).map(opt => {
+        const selected = opt.value === current ? " selected" : "";
+        return `<option value="${escapeAttr(opt.value)}"${selected}>${escapeHtml(opt.label || opt.value)}</option>`;
+    }));
+    return `<select class="review-decision-select" data-review-id="${escapeAttr(row.app_review_id)}">${options.join("")}</select>`;
+}
+
+function renderVariantReviewRows(rows) {
+    variantReviewRowsById = {};
+    document.getElementById("variantReviewRows").innerHTML = (rows || []).map(row => {
+        variantReviewRowsById[row.app_review_id] = row;
+        const graphId = row.variant_id || String(row.example_variant_ids || "").split("|").filter(Boolean)[0] || "";
+        const graphButton = graphId ? `<button class="variant-link variant-review-graph" data-id="${escapeAttr(graphId)}" type="button">Graph</button>` : "";
+        const examples = row.example_variant_ids ? `<br><span class="variant-muted">Examples: ${escapeHtml(row.example_variant_ids)}</span>` : "";
+        const target = [row.target_id, row.target_label].filter(Boolean).join(" · ");
+        return `<tr>
+            <td><strong>${escapeHtml(row.issue_label || row.issue_type || "Review")}</strong><br><span class="review-pill">${escapeHtml(row.severity || "unknown")}</span> <span class="review-pill">${escapeHtml(row.status || "open")}</span><br><span class="variant-muted">${escapeHtml(row.review_group || "")}</span><br><code>${escapeHtml(row.registry_id)}</code></td>
+            <td><strong>${escapeHtml(row.name || row.primary_id || row.variant_id)}</strong><br><code>${escapeHtml(row.variant_id || "")}</code><br><span class="variant-muted">${escapeHtml(row.gene_symbol || row.gene_curie || "")}</span>${examples}<br><span class="variant-muted">${fmt(row.affected_variant_count || 0)} variants · ${fmt(row.affected_edge_count || 0)} edges</span><br>${graphButton}</td>
+            <td><strong>${escapeHtml(row.target_mapping_status || row.target_category || "")}</strong><br><span class="review-evidence">${escapeHtml(target || row.source_value || "")}</span><br><span class="variant-muted">${escapeHtml(row.target_mapping_note || row.recommended_action || "")}</span></td>
+            <td><strong>${escapeHtml(row.source || row.evidence_source || "source")}</strong><br><span class="review-evidence">${escapeHtml(row.source_value || row.evidence_id || "")}</span><br><span class="variant-muted">${escapeHtml(row.relation_kind || "")}</span><br><span class="variant-muted">${escapeHtml(row.quality_note || "")}</span></td>
+            <td>${variantReviewDecisionSelect(row)}<br><span class="variant-muted">${escapeHtml(row.recommended_action || "")}</span></td>
+            <td><input class="review-resolution-input" data-review-id="${escapeAttr(row.app_review_id)}" value="${escapeAttr(row.resolution || "")}" placeholder="IFX target / split hint"><textarea class="review-notes-input" data-review-id="${escapeAttr(row.app_review_id)}" rows="3" placeholder="reviewer notes">${escapeHtml(row.review_notes || "")}</textarea></td>
+            <td><button class="btn btn-sm btn-primary variant-review-save" data-review-id="${escapeAttr(row.app_review_id)}" type="button">Save</button><div class="variant-muted review-save-status" data-review-id="${escapeAttr(row.app_review_id)}"></div></td>
+        </tr>`;
+    }).join("") || `<tr><td colspan="7">No review rows match the current filters.</td></tr>`;
+    document.querySelectorAll(".variant-review-graph").forEach(btn => btn.addEventListener("click", () => {
+        document.getElementById("variantOpenIds").value = btn.dataset.id;
+        setVariantTab("graph");
+        loadVariantGraph(btn.dataset.id);
+    }));
+    document.querySelectorAll(".variant-review-save").forEach(btn => btn.addEventListener("click", () => saveVariantReviewDecision(btn.dataset.reviewId)));
+}
+
+function variantReviewField(selector, reviewId) {
+    return Array.from(document.querySelectorAll(selector)).find(el => el.dataset.reviewId === reviewId);
+}
+
+async function loadVariantReviewQueue(page = 1) {
+    variantReviewPage = page;
+    const params = variantReviewParams(page);
+    const resp = await fetch(`${rootPath}/variant-id-qa/api/review-queue?${params}`);
+    if (!resp.ok) {
+        document.getElementById("variantReviewRows").innerHTML = `<tr><td colspan="7">Unable to load review queue.</td></tr>`;
+        return;
+    }
+    const payload = await resp.json();
+    variantReviewLastPage = payload.pages || 0;
+    variantReviewDecisionOptions = payload.decision_options || [];
+    renderVariantReviewStats(payload);
+    renderVariantReviewChips(payload.issue_counts || {});
+    updateVariantReviewSelect("variantReviewGroup", payload.review_group_counts || {}, "All review groups");
+    updateVariantReviewSelect("variantReviewSource", payload.source_counts || {}, "All source evidence");
+    updateVariantReviewSelect("variantReviewSeverity", payload.severity_counts || {}, "All severities");
+    renderVariantReviewRows(payload.rows || []);
+    const capNote = payload.review_queue_truncated ? ` · prioritized ${fmt(payload.loaded_review_queue_rows || payload.total)} of ${fmt(payload.full_open_review_rows || payload.total)} open registry rows` : "";
+    document.getElementById("variantReviewPageLabel").textContent = `Page ${payload.page || 1} of ${payload.pages || 0} · ${fmt(payload.total)} review rows${capNote}`;
+    const templateParams = variantReviewParams(1);
+    templateParams.delete("page");
+    templateParams.delete("per_page");
+    document.getElementById("variantReviewTemplate").href = `${rootPath}/variant-id-qa/download-review-template?${templateParams}`;
+}
+
+async function saveVariantReviewDecision(reviewId) {
+    const row = variantReviewRowsById[reviewId];
+    if (!row) return;
+    const decision = variantReviewField(".review-decision-select", reviewId)?.value || "";
+    const resolution = variantReviewField(".review-resolution-input", reviewId)?.value || "";
+    const notes = variantReviewField(".review-notes-input", reviewId)?.value || "";
+    const statusEl = variantReviewField(".review-save-status", reviewId);
+    if (!decision) {
+        if (statusEl) statusEl.textContent = "Pick a decision first.";
+        return;
+    }
+    const resp = await fetch(`${rootPath}/variant-id-qa/api/review-decisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions: [{ ...row, review_decision: decision, resolution, notes }] }),
+    });
+    if (statusEl) statusEl.textContent = resp.ok ? "Saved to intake TSV." : "Save failed.";
+}
+
 document.getElementById("variantSearchBtn").addEventListener("click", () => runVariantSearch(1));
 document.getElementById("variantSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runVariantSearch(1); } });
 document.getElementById("variantGeneFilter").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runVariantSearch(1); } });
 document.getElementById("variantPrevPage").addEventListener("click", () => { if (variantPage > 1) runVariantSearch(variantPage - 1); });
 document.getElementById("variantNextPage").addEventListener("click", () => { if (!variantLastPage || variantPage < variantLastPage) runVariantSearch(variantPage + 1); });
+document.getElementById("variantReviewSearchBtn").addEventListener("click", () => loadVariantReviewQueue(1));
+document.getElementById("variantReviewSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loadVariantReviewQueue(1); } });
+document.getElementById("variantReviewStatus").addEventListener("change", () => loadVariantReviewQueue(1));
+document.getElementById("variantReviewGroup").addEventListener("change", () => loadVariantReviewQueue(1));
+document.getElementById("variantReviewSource").addEventListener("change", () => loadVariantReviewQueue(1));
+document.getElementById("variantReviewSeverity").addEventListener("change", () => loadVariantReviewQueue(1));
+document.getElementById("variantReviewPrevPage").addEventListener("click", () => { if (variantReviewPage > 1) loadVariantReviewQueue(variantReviewPage - 1); });
+document.getElementById("variantReviewNextPage").addEventListener("click", () => { if (!variantReviewLastPage || variantReviewPage < variantReviewLastPage) loadVariantReviewQueue(variantReviewPage + 1); });
 document.getElementById("variantOpenGraph").addEventListener("click", () => loadVariantGraph());
 document.getElementById("variantShowOverlap").addEventListener("change", () => { if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph(); });
 document.getElementById("variantShowDisagreements").addEventListener("change", () => { if (document.getElementById("variantOpenIds").value.trim()) loadVariantGraph(); });

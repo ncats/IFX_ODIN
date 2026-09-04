@@ -136,13 +136,6 @@
                 </div>
                 <div class="bar-chart" id="drugBiolinkBars"></div>
             </section>
-            <section class="dash-chart-panel">
-                <h3>Source Update Status <button class="chart-legend-toggle" type="button" aria-label="Explain drug source update status" aria-expanded="false" aria-controls="drugSourceUpdateHelp">?</button></h3>
-                <div class="chart-legend" id="drugSourceUpdateHelp">
-                    <p>Download/transform status from the latest ODIN run. <code>xref_only</code> means identifiers are retained from other source xrefs without ingesting the full optional dataset. <code>disabled</code> means the source layer is intentionally not run in this release.</p>
-                </div>
-                <div class="bar-chart" id="drugSourceUpdateBars"></div>
-            </section>
             <section class="dash-chart-panel drug-resolver-summary">
                 <h3>Resolver Tab <button class="chart-legend-toggle" type="button" aria-label="Explain drug resolver" aria-expanded="false" aria-controls="drugResolverHelp">?</button></h3>
                 <div class="chart-legend" id="drugResolverHelp">
@@ -302,11 +295,11 @@
                 </div>
                 <div class="resolver-guide-block">
                     <h4>NCATS / IFX enrichment</h4>
-                    <p>NCATS Resolver adds structure and identifier properties. Pharos adds targets, MOA, TDL, and target-family context. Inxight/GSRS adds registry, regulatory, class, and relationship annotations.</p>
+                    <p>NCATS Resolver adds structure and identifier properties. Pharos adds targets, MOA, TDL, target-family context, and target-derived disease associations that are not direct drug indications.</p>
                 </div>
                 <div class="resolver-guide-block">
-                    <h4>External annotation</h4>
-                    <p>openFDA adds label/manufacturer/route/warning context. ChEBI OLS adds ontology label, definition, and chemical-class hierarchy.</p>
+                    <h4>Direct condition / label annotation</h4>
+                    <p>Inxight/GSRS adds direct drug-condition, regulatory, approval, class, and relationship annotations. openFDA adds label indications, application numbers, manufacturer, route, pharmacologic class, and warnings.</p>
                 </div>
             </div>
 
@@ -320,7 +313,7 @@
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnNCats" checked><span>NCATS Resolver</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnPharos" checked><span>Pharos Targets</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnInxight" checked><span>Inxight/GSRS</span></label>
-                    <label class="resolver-checkbox"><input type="checkbox" id="drEnFDA"><span>openFDA Labels</span></label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="drEnFDA" checked><span>openFDA Labels</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnChEBI"><span>ChEBI Class</span></label>
                 </div>
                 <div style="display:flex;gap:0.5rem;margin-left:auto;">
@@ -458,9 +451,9 @@ function renderBars(el, counts, total = null, colors = DRUG_COLORS) {
 function renderSourceCatalog(rows) {
     if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
     return `<table class="variant-table variant-source-table drug-source-table">
-        <thead><tr><th>Source</th><th>Source Version</th><th>Source Date</th><th>ODIN Download</th><th>ODIN Transform</th><th>Rows</th><th>Status</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Source</th><th>Source Version</th><th>Source Date</th><th>ODIN Download</th><th>ODIN Transform</th><th>Rows</th><th>Notes</th></tr></thead>
         <tbody>${rows.map(row => {
-            const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ");
+            const hasRows = row.transform_rows_captured || Number(row.transform_output_rows || 0) > 0;
             const notes = [row.role, row.note].filter(Boolean).join(" ");
             const sourceName = row.url ? `<a href="${escapeAttr(String(row.url).split("|")[0].trim())}" target="_blank" rel="noopener">${escapeHtml(row.name || row.source)}</a>` : escapeHtml(row.name || row.source);
             return `<tr>
@@ -469,8 +462,7 @@ function renderSourceCatalog(rows) {
                 <td>${escapeHtml(row.source_release_date || "not captured")}</td>
                 <td>${escapeHtml(row.odin_download_date || "not applicable")}</td>
                 <td>${escapeHtml(row.odin_transform_date || "not captured")}</td>
-                <td>${row.transform_output_rows ? fmt(row.transform_output_rows) : ""}</td>
-                <td>${escapeHtml(status || "recorded")}</td>
+                <td>${hasRows ? fmt(row.transform_output_rows || 0) : ""}</td>
                 <td>${escapeHtml(notes)}</td>
             </tr>`;
         }).join("")}</tbody>
@@ -489,17 +481,16 @@ function renderSourceTags(rows) {
         const version = row.version || "not captured";
         const sourceDate = row.source_release_date || "not captured";
         const downloadDate = row.odin_download_date || "not applicable";
-        const rowsText = row.transform_output_rows ? fmt(row.transform_output_rows) : "not captured";
-        const status = [row.download_status, row.transform_status].filter(Boolean).join(" / ") || "recorded";
+        const hasRows = row.transform_rows_captured || Number(row.transform_output_rows || 0) > 0;
+        const rowsText = hasRows ? fmt(row.transform_output_rows || 0) : "not captured";
         tag.innerHTML =
             `<span class="dash-source-tag-name">${escapeHtml(row.name)}</span>` +
             `<span class="dash-source-tag-detail"><b>Version</b> ${escapeHtml(version)}</span>` +
             `<span class="dash-source-tag-detail"><b>Source date</b> ${escapeHtml(sourceDate)}</span>` +
             `<span class="dash-source-tag-detail"><b>ODIN download</b> ${escapeHtml(downloadDate)}</span>` +
-            `<span class="dash-source-tag-detail"><b>Rows</b> ${escapeHtml(rowsText)}</span>` +
-            `<span class="dash-source-tag-detail"><b>Status</b> ${escapeHtml(status)}</span>`;
+            `<span class="dash-source-tag-detail"><b>Rows</b> ${escapeHtml(rowsText)}</span>`;
         tag.title =
-            `${row.name}\nVersion: ${version}\nSource date: ${sourceDate}\nODIN download: ${downloadDate}\nRows: ${rowsText}\nStatus: ${status}` +
+            `${row.name}\nVersion: ${version}\nSource date: ${sourceDate}\nODIN download: ${downloadDate}\nRows: ${rowsText}` +
             (row.note ? `\n${row.note}` : "");
         container.appendChild(tag);
     });
@@ -536,7 +527,6 @@ async function loadDrugStats() {
         renderBars(document.getElementById("drugKeyBars"), stats.structural_key_counts, stats.total_drugs);
         renderBars(document.getElementById("drugRelationBars"), stats.relation_counts, stats.total_edges);
         renderBars(document.getElementById("drugBiolinkBars"), stats.biolink_category_counts, stats.total_drugs);
-        renderBars(document.getElementById("drugSourceUpdateBars"), stats.source_update_status_counts);
         renderResolverSummary(stats);
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         const tierOptions = Object.keys(stats.evidence_tier_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
@@ -956,7 +946,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const sources = [];
         if (f.enable_ncats) sources.push({key: "ncats", label: "NCATS Resolver"});
         if (f.enable_pharos) sources.push({key: "pharos", label: "Pharos"});
-        if (f.enable_inxight) sources.push({key: "inxight", label: "Inxight"});
+        if (f.enable_inxight) sources.push({key: "inxight", label: "Inxight/GSRS"});
         if (f.enable_openfda) sources.push({key: "openfda", label: "openFDA"});
         if (f.enable_chebi) sources.push({key: "chebi", label: "ChEBI"});
         return sources;
@@ -1051,6 +1041,30 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return h;
     }
 
+    function drRowsTable(rows, columns, id, limit) {
+        if (!rows || !rows.length) return "";
+        const shown = rows.slice(0, limit || 5);
+        const rest = rows.slice(limit || 5);
+        const headStyle = "text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;";
+        const cellStyle = "padding:0.2rem 0.4rem;vertical-align:top;";
+        const renderCell = (row, col) => {
+            const raw = row[col.key] == null ? "" : String(row[col.key]);
+            if (col.urlKey && row[col.urlKey]) {
+                const href = String(row[col.urlKey]);
+                return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener" style="color:var(--accent, #14b8a6);">${escapeHtml(raw || href)}</a>`;
+            }
+            return escapeHtml(raw);
+        };
+        const renderRows = (items) => items.map(row =>
+            `<tr>${columns.map(col => `<td style="${cellStyle}">${renderCell(row, col)}</td>`).join("")}</tr>`
+        ).join("");
+        let h = `<table style="font-size:0.72rem;border-collapse:collapse;width:100%;margin-top:0.35rem;table-layout:fixed;"><thead><tr>${columns.map(col => `<th style="${headStyle}">${escapeHtml(col.label)}</th>`).join("")}</tr></thead><tbody>${renderRows(shown)}</tbody></table>`;
+        if (rest.length) {
+            h += `<div id="${id}_extra" style="display:none;"><table style="font-size:0.72rem;border-collapse:collapse;width:100%;table-layout:fixed;"><tbody>${renderRows(rest)}</tbody></table></div><button style="background:none;border:none;color:var(--accent, #14b8a6);cursor:pointer;font-size:0.75rem;padding:0.15rem 0;" onclick="var el=document.getElementById('${id}_extra');el.style.display=el.style.display==='none'?'block':'none';this.textContent=el.style.display==='none'?'Show ${rest.length} more rows':'Collapse';">Show ${rest.length} more rows</button>`;
+        }
+        return h;
+    }
+
     function drLocalHitsTable(hits) {
         if (!hits || hits.length <= 1) return "";
         const shown = hits.slice(0, 5);
@@ -1092,7 +1106,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         };
         const annotations = (row) => [
             row.pharos_targets ? `Pharos targets: ${row.pharos_targets}` : "",
+            row.pharos_target_diseases ? `Pharos target-derived diseases: ${row.pharos_target_diseases}` : "",
             row.inxight_name ? `Inxight: ${row.inxight_name}` : "",
+            row.inxight_conditions ? `GSRS conditions: ${row.inxight_conditions}` : "",
+            row.fda_approval_tag ? `FDA: ${row.fda_approval_tag}` : "",
+            row.openfda_indications_and_usage ? `openFDA indications: ${row.openfda_indications_and_usage}` : "",
             row.ncats_name ? `NCATS: ${row.ncats_name}` : "",
             row.chebi_chemical_class ? `ChEBI class: ${row.chebi_chemical_class}` : "",
         ].filter(Boolean).join(" | ");
@@ -1280,6 +1298,20 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (pharos.pharos_target_details && pharos.pharos_target_details.length) {
                 h += drTargetsTable(pharos.pharos_target_details, `pharos_tgt_${idx}`);
             }
+            h += drDetailRow("Target-derived diseases", pharos.pharos_target_diseases);
+            h += drDetailRow("Disease association count", pharos.pharos_n_target_disease_associations);
+            h += drDetailRow("Disease evidence note", pharos.pharos_target_disease_note);
+            if (pharos.pharos_target_disease_details && pharos.pharos_target_disease_details.length) {
+                h += drRowsTable(pharos.pharos_target_disease_details, [
+                    {key: "target_symbol", label: "Target"},
+                    {key: "disease_name", label: "Disease"},
+                    {key: "mondo_id", label: "MONDO"},
+                    {key: "tinx_doid", label: "TIN-X DOID"},
+                    {key: "association_count", label: "Assoc."},
+                    {key: "source_count", label: "Sources"},
+                    {key: "has_trusted_source", label: "Trusted"},
+                ], `pharos_dis_${idx}`, 6);
+            }
             if (h) details += `<div>${drSectionHead("Pharos Targets")}${h}</div>`;
         } else if (queried.includes("pharos")) {
             details += drNotFound("Pharos Targets");
@@ -1296,10 +1328,27 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Dev Status", inx.inxight_development_status);
             h += drDetailRow("Dev Year", inx.inxight_development_status_year);
             h += drDetailRow("First Approved", inx.inxight_first_approval_year);
+            h += drDetailRow("FDA approval tag", inx.fda_approval_tag);
+            h += drDetailRow("FDA approved", inx.fda_approved);
+            h += drDetailRow("FDA approval year", inx.fda_approval_year);
+            h += drDetailRow("FDA approval source", inx.fda_approval_source_id);
+            h += drDetailRow("FDA source URL", inx.fda_approval_source_url);
+            h += drDetailRow("GSRS FDA labels", inx.fda_stitcher_labels);
+            h += drDetailRow("GSRS conditions", inx.inxight_conditions);
             h += drDetailRow("Therapeutic", inx.inxight_therapeutic_class);
             h += drDetailRow("Targets", inx.inxight_targets);
             h += drDetailRow("MOA", inx.inxight_moa_values);
             h += drDetailRow("Relationships", inx.inxight_n_relationships);
+            if (inx.inxight_condition_details && inx.inxight_condition_details.length) {
+                h += drRowsTable(inx.inxight_condition_details, [
+                    {key: "condition_name", label: "Condition"},
+                    {key: "highest_phase", label: "Phase"},
+                    {key: "modality", label: "Modality"},
+                    {key: "product_name", label: "Product"},
+                    {key: "launch_year", label: "Year"},
+                    {key: "approved_use", label: "Approved Use"},
+                ], `inx_cond_${idx}`, 6);
+            }
             if (inx.inxight_drug_url) h += `<div style="display:flex;gap:0.3rem;line-height:1.5;font-size:0.78rem;"><span style="color:#555;min-width:6rem;flex-shrink:0;font-weight:600;">Inxight Page</span><span><a href="${escapeHtml(inx.inxight_drug_url)}" target="_blank" rel="noopener" style="color:var(--accent, #14b8a6);">${escapeHtml(inx.inxight_drug_url)}</a></span></div>`;
             if (h) details += `<div>${drSectionHead("Inxight / GSRS")}${h}</div>`;
         } else if (queried.includes("inxight")) {
@@ -1324,9 +1373,19 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             let h = "";
             h += drDetailRow("Generic Name", fda.openfda_generic_name);
             h += drDetailRow("Brand Name", fda.openfda_brand_name);
+            h += drDetailRow("Substance", fda.openfda_substance_name);
+            h += drDetailRow("UNII", fda.openfda_unii);
+            h += drDetailRow("Application", fda.openfda_application_number);
+            h += drDetailRow("SPL Set", fda.openfda_spl_set_id);
+            h += drDetailRow("Effective Time", fda.openfda_effective_time);
             h += drDetailRow("Product Type", fda.openfda_product_type);
             h += drDetailRow("Route", fda.openfda_route);
             h += drDetailRow("Manufacturer", fda.openfda_manufacturer);
+            h += drDetailRow("EPC Class", fda.openfda_pharm_class_epc);
+            h += drDetailRow("MOA Class", fda.openfda_pharm_class_moa);
+            h += drDetailRow("Chemical Class", fda.openfda_pharm_class_cs);
+            if (fda.openfda_indications_and_usage) h += `<div style="margin-top:0.3rem;font-size:0.72rem;color:#111;"><span style="color:#555;font-weight:600;">Indications and Usage: </span>${escapeHtml(fda.openfda_indications_and_usage)}</div>`;
+            if (fda.openfda_purpose) h += `<div style="margin-top:0.3rem;font-size:0.72rem;color:#111;"><span style="color:#555;font-weight:600;">Purpose: </span>${escapeHtml(fda.openfda_purpose)}</div>`;
             if (fda.openfda_boxed_warning) h += `<div style="display:flex;gap:0.3rem;line-height:1.5;font-size:0.78rem;margin-top:0.3rem;"><span style="color:#fda4af;font-weight:600;min-width:6rem;flex-shrink:0;">BOXED WARNING</span><span style="font-size:0.72rem;word-break:break-word;color:#111;">${escapeHtml(fda.openfda_boxed_warning)}</span></div>`;
             if (fda.openfda_adverse_reactions) {
                 const short = fda.openfda_adverse_reactions.substring(0, 200);
@@ -1377,6 +1436,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (stats.chebi_found) es.push(`ChEBI: ${stats.chebi_found}`);
             if (stats.openfda_found) es.push(`openFDA: ${stats.openfda_found}`);
             if (es.length) parts.push(`enriched: ${es.join(", ")}`);
+            const evidence = [];
+            if (stats.pharos_target_disease_found) evidence.push(`Pharos target-disease: ${stats.pharos_target_disease_found}`);
+            if (stats.inxight_condition_found) evidence.push(`GSRS conditions: ${stats.inxight_condition_found}`);
+            if (stats.fda_approval_found) evidence.push(`FDA approval: ${stats.fda_approval_found}`);
+            if (evidence.length) parts.push(`annotations: ${evidence.join(", ")}`);
             const failed = stats.sources_failed || {};
             const failedParts = Object.keys(failed).map(src => `${src}: ${failed[src]}`);
             if (failedParts.length) parts.push(`live API request failures: ${failedParts.join(", ")}`);
@@ -1644,17 +1708,50 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         row["pharos_moa_targets"] = pharos.pharos_moa_targets || "";
         row["pharos_target_tdls"] = pharos.pharos_target_tdls || "";
         row["pharos_target_families"] = pharos.pharos_target_families || "";
+        row["pharos_n_target_disease_associations"] = pharos.pharos_n_target_disease_associations || "";
+        row["pharos_target_diseases"] = pharos.pharos_target_diseases || "";
+        row["pharos_target_disease_note"] = pharos.pharos_target_disease_note || "";
+        row["pharos_target_disease_details_json"] = pharos.pharos_target_disease_details
+            ? JSON.stringify(pharos.pharos_target_disease_details) : "";
         row["inxight_name"] = inx.inxight_name || "";
         row["inxight_substance_class"] = inx.inxight_substance_class || "";
         row["inxight_development_status"] = inx.inxight_development_status || "";
+        row["inxight_highest_development_status"] = inx.inxight_highest_development_status || "";
+        row["inxight_highest_development_year"] = inx.inxight_highest_development_year || "";
+        row["inxight_stitcher_highest_phase"] = inx.inxight_stitcher_highest_phase || "";
+        row["fda_approval_tag"] = inx.fda_approval_tag || "";
+        row["fda_approved"] = inx.fda_approved || "";
+        row["fda_approval_year"] = inx.fda_approval_year || "";
+        row["fda_approval_source_id"] = inx.fda_approval_source_id || "";
+        row["fda_approval_source_url"] = inx.fda_approval_source_url || "";
+        row["fda_approval_withdrawn"] = inx.fda_approval_withdrawn || "";
+        row["fda_stitcher_labels"] = inx.fda_stitcher_labels || "";
+        row["inxight_n_conditions"] = inx.inxight_n_conditions || "";
+        row["inxight_conditions"] = inx.inxight_conditions || "";
+        row["inxight_condition_details_json"] = inx.inxight_condition_details
+            ? JSON.stringify(inx.inxight_condition_details) : "";
         row["inxight_therapeutic_class"] = inx.inxight_therapeutic_class || "";
         row["inxight_targets"] = inx.inxight_targets || "";
         row["chebi_label"] = chebi.chebi_label || "";
         row["chebi_chemical_class"] = chebi.chebi_chemical_class || "";
         row["openfda_generic_name"] = fda.openfda_generic_name || "";
         row["openfda_brand_name"] = fda.openfda_brand_name || "";
+        row["openfda_substance_name"] = fda.openfda_substance_name || "";
+        row["openfda_unii"] = fda.openfda_unii || "";
+        row["openfda_application_number"] = fda.openfda_application_number || "";
+        row["openfda_spl_set_id"] = fda.openfda_spl_set_id || "";
+        row["openfda_effective_time"] = fda.openfda_effective_time || "";
         row["openfda_product_type"] = fda.openfda_product_type || "";
         row["openfda_route"] = fda.openfda_route || "";
+        row["openfda_manufacturer"] = fda.openfda_manufacturer || "";
+        row["openfda_pharm_class_epc"] = fda.openfda_pharm_class_epc || "";
+        row["openfda_pharm_class_moa"] = fda.openfda_pharm_class_moa || "";
+        row["openfda_pharm_class_cs"] = fda.openfda_pharm_class_cs || "";
+        row["openfda_indications_and_usage"] = fda.openfda_indications_and_usage || "";
+        row["openfda_purpose"] = fda.openfda_purpose || "";
+        row["openfda_boxed_warning"] = fda.openfda_boxed_warning || "";
+        row["openfda_warnings"] = fda.openfda_warnings || "";
+        row["openfda_adverse_reactions"] = fda.openfda_adverse_reactions || "";
         row["sources_found"] = (enr.sources_found || []).join("|");
         return row;
     }
