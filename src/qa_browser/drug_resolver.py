@@ -18,6 +18,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from html import unescape
 from threading import BoundedSemaphore, Lock
@@ -173,6 +174,23 @@ _TIER_SORT_WEIGHT = {
     "source_standard_conflict": 0.08,
 }
 
+_PHAROS_GENERIC_DISEASE_PATTERNS = (
+    "disease",
+    "disorder",
+    "neoplasm",
+    "cancer",
+    "syndrome",
+    "problem",
+)
+
+_PHAROS_TRUSTED_DISEASE_SOURCES = {
+    "DrugCentral Indication",
+    "UniProt Disease",
+    "Monarch",
+    "JensenLab Knowledge MedlinePlus",
+    "eRAM",
+}
+
 # ── HTTP session ─────────────────────────────────────────────────────────
 
 def _build_session() -> requests.Session:
@@ -255,6 +273,55 @@ def _first_year(val: Any) -> str | None:
     return m.group(1) if m else None
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"true", "1", "yes", "y"}
+
+
+def _bool_cell(value: Any) -> str:
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    text = _cv(value)
+    if not text:
+        return ""
+    if text.lower() in {"true", "1", "yes", "y"}:
+        return "TRUE"
+    if text.lower() in {"false", "0", "no", "n"}:
+        return "FALSE"
+    return text
+
+
+def _year_from_millis(value: Any) -> str | None:
+    text = _cv(value)
+    if not text:
+        return None
+    year = _first_year(text)
+    if year:
+        return year
+    try:
+        timestamp_ms = float(text)
+    except ValueError:
+        return text
+    if timestamp_ms <= 0:
+        return None
+    try:
+        return str(datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).year)
+    except (OverflowError, OSError, ValueError):
+        return text
+
+
+def _as_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"\s+\|\s+|[|;]", text) if part.strip()]
+
+
 def _uniq_join(values: list, limit: int | None = None) -> str:
     seen: list[str] = []
     for v in values:
@@ -264,6 +331,10 @@ def _uniq_join(values: list, limit: int | None = None) -> str:
     if limit is not None:
         seen = seen[:limit]
     return "|".join(seen)
+
+
+def _source_list(values: list[str], limit: int | None = None) -> str:
+    return _uniq_join(values, limit=limit)
 
 
 def _split_pipe_values(value: Any, limit: int = 6) -> list[str]:
@@ -805,6 +876,31 @@ query ligandDetails($ligid: String!) {
 }
 """
 
+_PHAROS_TARGET_DISEASES_QUERY = """
+query targetDiseases($sym: String!, $top: Int!, $tinxTop: Int!) {
+  target(q: { sym: $sym }) {
+    sym
+    diseases(top: $top) {
+      name
+      mondoID
+      associationCount
+      dids {
+        id
+        dataSources
+      }
+    }
+    tinx(top: $tinxTop) {
+      score
+      novelty
+      disease {
+        name
+        doid
+      }
+    }
+  }
+}
+"""
+
 
 def _clean_name_for_pharos(name: str | None) -> str | None:
     if not name:
@@ -820,6 +916,109 @@ def _clean_name_for_pharos(name: str | None) -> str | None:
     n = re.sub(r"^trans-|^cis-", "", n, flags=re.IGNORECASE)
     n = re.sub(r",\s*[\(\[].+$", "", n)
     return n.strip() or None
+
+
+def _is_generic_pharos_disease(name: Any) -> bool:
+    lowered = str(name or "").strip().lower()
+    return any(token in lowered for token in _PHAROS_GENERIC_DISEASE_PATTERNS)
+
+
+def _has_trusted_pharos_disease_source(data_sources: list[str]) -> bool:
+    return bool(set(data_sources) & _PHAROS_TRUSTED_DISEASE_SOURCES)
+
+
+def _fetch_pharos_target_diseases(
+    target_symbols: list[str],
+    session: requests.Session,
+    timeout: int = 6,
+    source_errors: list[dict[str, str]] | None = None,
+    top: int = 5,
+    tinx_top: int = 25,
+) -> list[dict[str, Any]]:
+    """Fetch target-derived disease associations for Pharos activity targets.
+
+    These rows are intentionally labeled target-derived because they mean:
+    drug/ligand -> target activity -> target disease association. They are not
+    direct drug indications.
+    """
+    rows: list[dict[str, Any]] = []
+    for symbol in target_symbols[:20]:
+        if not symbol:
+            continue
+        try:
+            response = session.post(
+                PHAROS_API,
+                json={
+                    "query": _PHAROS_TARGET_DISEASES_QUERY,
+                    "variables": {"sym": symbol, "top": top, "tinxTop": tinx_top},
+                },
+                timeout=timeout,
+            )
+            if response.status_code != 200:
+                _record_source_error(source_errors, "pharos_target_diseases", symbol, f"HTTP {response.status_code}")
+                continue
+            payload = response.json()
+            if payload.get("errors"):
+                messages = [str(err.get("message", err)) for err in payload.get("errors") or []]
+                _record_source_error(source_errors, "pharos_target_diseases", symbol, "; ".join(messages))
+                continue
+            target = (payload.get("data") or {}).get("target") or {}
+            tinx_by_name: dict[str, dict[str, Any]] = {}
+            for item in target.get("tinx") or []:
+                disease = item.get("disease") or {}
+                name = disease.get("name")
+                if not name:
+                    continue
+                prev = tinx_by_name.get(name)
+                score = item.get("score")
+                if prev is None or (score or float("-inf")) > (prev.get("score") or float("-inf")):
+                    tinx_by_name[name] = {
+                        "score": score,
+                        "novelty": item.get("novelty"),
+                        "doid": disease.get("doid"),
+                    }
+            for disease in target.get("diseases") or []:
+                dids = disease.get("dids") or []
+                data_sources = sorted(
+                    {
+                        src
+                        for did in dids
+                        for src in (did.get("dataSources") or [])
+                        if src
+                    }
+                )
+                disease_ids = sorted({did.get("id", "") for did in dids if did.get("id")})
+                disease_name = disease.get("name") or ""
+                tinx = tinx_by_name.get(disease_name, {})
+                rows.append({
+                    "target_symbol": target.get("sym") or symbol,
+                    "disease_name": disease_name,
+                    "mondo_id": disease.get("mondoID") or "",
+                    "tinx_doid": tinx.get("doid") or "",
+                    "tinx_score": tinx.get("score"),
+                    "tinx_novelty": tinx.get("novelty"),
+                    "association_count": disease.get("associationCount"),
+                    "source_count": len(data_sources),
+                    "data_sources": _source_list(data_sources, 8),
+                    "disease_ids": _source_list(disease_ids, 8),
+                    "has_trusted_source": _has_trusted_pharos_disease_source(data_sources),
+                    "generic_disease_name": _is_generic_pharos_disease(disease_name),
+                    "relationship_type": "drug_target_to_target_disease",
+                    "interpretation": "Target-derived Pharos disease association; not a direct drug indication.",
+                })
+        except Exception as exc:
+            _record_source_error(source_errors, "pharos_target_diseases", symbol, exc)
+            logger.debug("Pharos target disease lookup failed for %s: %s", symbol, exc)
+            continue
+    rows.sort(
+        key=lambda row: (
+            bool(row.get("generic_disease_name")),
+            -int(row.get("source_count") or 0),
+            -int(row.get("association_count") or 0),
+            str(row.get("disease_name") or "").lower(),
+        )
+    )
+    return rows[:50]
 
 
 def enrich_pharos(
@@ -880,6 +1079,16 @@ def enrich_pharos(
                     seen[sym] = entry
             targets = list(seen.values())
             moa_targets = [t for t in targets if t.get("moa")]
+            disease_rows = _fetch_pharos_target_diseases(
+                [t["symbol"] for t in targets if t.get("symbol")],
+                session=session,
+                timeout=timeout,
+                source_errors=source_errors,
+            )
+            target_disease_names = sorted(
+                {row["disease_name"] for row in disease_rows if row.get("disease_name")},
+                key=str.lower,
+            )
 
             return {
                 "pharos_name": lig.get("name"),
@@ -893,6 +1102,10 @@ def enrich_pharos(
                 "pharos_moa_targets": _uniq_join([t["symbol"] for t in moa_targets], 15),
                 "pharos_moa_values": _uniq_join(sorted(set(str(t["moa"]) for t in moa_targets if t.get("moa"))), 10),
                 "pharos_target_details": targets[:50],
+                "pharos_n_target_disease_associations": len(disease_rows),
+                "pharos_target_diseases": _uniq_join(target_disease_names, 15),
+                "pharos_target_disease_details": disease_rows,
+                "pharos_target_disease_note": "Target-derived through drug-target activity; not a direct drug indication.",
             }
         except Exception as exc:
             _record_source_error(source_errors, "pharos", lookup, exc)
@@ -900,9 +1113,169 @@ def enrich_pharos(
     return None
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# STEP 2c: INXIGHT / GSRS
-# ═════════════════════════════════════════════════════════════════════════
+def _fetch_inxight_additional(
+    uuid: str,
+    session: requests.Session,
+    timeout: int = 6,
+    source_errors: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    if not uuid:
+        return []
+    try:
+        response = session.get(f"{INXIGHT_API}({uuid})/@additional", timeout=timeout)
+        if response.status_code == 404:
+            return []
+        if response.status_code != 200:
+            _record_source_error(source_errors, "inxight_additional", uuid, f"HTTP {response.status_code}")
+            return []
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+    except Exception as exc:
+        _record_source_error(source_errors, "inxight_additional", uuid, exc)
+        logger.debug("Inxight additional lookup failed for %s: %s", uuid, exc)
+        return []
+
+
+def _first_additional_value(additional: list[dict[str, Any]], name: str) -> Any:
+    for item in additional:
+        if isinstance(item, dict) and item.get("name") == name:
+            return item.get("value")
+    return None
+
+
+def _additional_event(additional: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    value = _first_additional_value(additional, name)
+    return value if isinstance(value, dict) else {}
+
+
+def _event_is_approved(event: dict[str, Any]) -> bool:
+    status = str(event.get("status") or "").strip().lower()
+    return _truthy(event.get("approved")) or "approved" in status
+
+
+def _phase_rank(value: Any) -> int:
+    text = str(value or "").strip().upper().replace("_", " ")
+    order = {
+        "UNKNOWN": 0,
+        "PRECLINICAL": 1,
+        "PHASE I": 2,
+        "PHASE 1": 2,
+        "PHASE II": 3,
+        "PHASE 2": 3,
+        "PHASE III": 4,
+        "PHASE 3": 4,
+        "PHASE IV": 5,
+        "PHASE 4": 5,
+        "APPROVED": 6,
+        "APPROVAL": 6,
+    }
+    return order.get(text, -1)
+
+
+def _parse_inxight_conditions(additional: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in additional:
+        if not isinstance(item, dict) or item.get("name") != "Conditions":
+            continue
+        value = item.get("value") or {}
+        if not isinstance(value, dict):
+            continue
+        condition_name = _cv(value.get("label"))
+        if not condition_name:
+            continue
+        urls = [
+            *_as_values(value.get("uri")),
+            *_as_values(value.get("highestPhaseUri")),
+            *_as_values(value.get("productFDAUseUri")),
+        ]
+        rows.append({
+            "condition_name": condition_name,
+            "stitcher_id": _cv(value.get("StitcherId")),
+            "highest_phase": _cv(value.get("highestPhase")),
+            "is_highest_phase_approved": _bool_cell(value.get("isHighestPhaseApproved")),
+            "approval_source": _cv(value.get("approvalSource")),
+            "modality": _cv(value.get("modality")),
+            "product_name": _cv(value.get("productName")),
+            "approved_use": _shorten(value.get("productFDAUse"), 700),
+            "product_fda_use_uri": _cv(value.get("productFDAUseUri")),
+            "highest_phase_uri": _cv(value.get("highestPhaseUri")),
+            "launch_year": _year_from_millis(value.get("productDate")),
+            "source_urls": _uniq_join(urls, 8),
+            "relationship_type": "direct_drug_condition",
+            "source": "Inxight/GSRS @additional Conditions",
+        })
+    rows.sort(
+        key=lambda row: (
+            -_truthy(row.get("is_highest_phase_approved")),
+            -_phase_rank(row.get("highest_phase")),
+            str(row.get("condition_name") or "").lower(),
+        )
+    )
+    return rows[:50]
+
+
+def _parse_inxight_additional(additional: list[dict[str, Any]], hit: dict[str, Any]) -> dict[str, Any]:
+    if not additional:
+        return {}
+    earliest = _additional_event(additional, "Earliest Approved Event")
+    highest = _additional_event(additional, "Highest Development Event")
+    stitcher_highest = _additional_event(additional, "Stitcher Highest Phase")
+    approval_year = _cv(_first_additional_value(additional, "Approval Year")) or _cv(
+        _first_additional_value(additional, "sApproval Year")
+    )
+    labels = sorted(
+        {
+            str(item.get("value") or "").strip()
+            for item in additional
+            if isinstance(item, dict)
+            and item.get("name") == "Stitcher Label"
+            and str(item.get("value") or "").strip()
+        },
+        key=str.lower,
+    )
+    condition_rows = _parse_inxight_conditions(additional)
+    approved_event = highest if _event_is_approved(highest) else earliest if _event_is_approved(earliest) else highest or earliest
+    fda_approved = (
+        _event_is_approved(highest)
+        or _event_is_approved(earliest)
+        or "USApprovalRx" in labels
+        or str(hit.get("status") or "").strip().lower() == "approved"
+    )
+    fda_tag = _cv(approved_event.get("status"))
+    if not fda_tag and "USApprovalRx" in labels:
+        fda_tag = "US Approved Rx"
+    elif not fda_tag and "Drugs@FDA" in labels:
+        fda_tag = "Drugs@FDA record"
+    elif not fda_tag:
+        fda_tag = _cv(hit.get("status"))
+
+    condition_names = sorted(
+        {row["condition_name"] for row in condition_rows if row.get("condition_name")},
+        key=str.lower,
+    )
+    fda_labels = [label for label in labels if "FDA" in label.upper() or label.startswith("US")]
+    return {
+        "inxight_n_conditions": len(condition_rows),
+        "inxight_conditions": _uniq_join(condition_names, 15),
+        "inxight_condition_details": condition_rows,
+        "inxight_highest_development_status": _cv(highest.get("status")),
+        "inxight_highest_development_year": _cv(highest.get("year")),
+        "inxight_highest_development_source_id": _cv(highest.get("sourceID")),
+        "inxight_highest_development_source_url": _cv(highest.get("sourceURL")),
+        "inxight_stitcher_highest_phase": _cv(stitcher_highest.get("highestPhase")),
+        "fda_approval_tag": fda_tag,
+        "fda_approved": _bool_cell(fda_approved),
+        "fda_approval_year": _cv(approved_event.get("year")) or approval_year,
+        "fda_approval_source_id": _cv(approved_event.get("sourceID")),
+        "fda_approval_source_url": _cv(approved_event.get("sourceURL")),
+        "fda_approval_withdrawn": _bool_cell(approved_event.get("withdrawn")),
+        "fda_stitcher_labels": _uniq_join(fda_labels, 12),
+        "fda_earliest_approved_status": _cv(earliest.get("status")),
+        "fda_earliest_approved_year": _cv(earliest.get("year")),
+        "fda_earliest_approved_source_id": _cv(earliest.get("sourceID")),
+        "fda_earliest_approved_source_url": _cv(earliest.get("sourceURL")),
+    }
+
 
 def _parse_inxight_drug_page(html: str) -> dict[str, Any]:
     parsed: dict[str, Any] = {}
@@ -959,6 +1332,14 @@ def enrich_inxight(
         result["inxight_substance_class"] = d.get("substanceClass")
         result["inxight_status"] = d.get("status")
 
+        additional = _fetch_inxight_additional(
+            uuid,
+            session=session,
+            timeout=timeout,
+            source_errors=source_errors,
+        )
+        result.update(_parse_inxight_additional(additional, d))
+
         # Codes → therapeutic class
         codes_resp = session.get(f"{INXIGHT_API}({uuid})/codes", params={"top": 100}, timeout=timeout)
         if codes_resp.status_code == 200:
@@ -1014,6 +1395,7 @@ def enrich_openfda(
         "openfda.generic_name.exact",
         "openfda.substance_name.exact",
         "openfda.brand_name.exact",
+        "openfda.unii.exact",
         "active_ingredient",
     ]
     for candidate in candidates:
@@ -1037,9 +1419,19 @@ def enrich_openfda(
                 return {
                     "openfda_generic_name": _uniq_join(openfda.get("generic_name") or [], 3),
                     "openfda_brand_name": _uniq_join(openfda.get("brand_name") or [], 3),
+                    "openfda_substance_name": _uniq_join(openfda.get("substance_name") or [], 5),
+                    "openfda_unii": _uniq_join(openfda.get("unii") or [], 5),
+                    "openfda_application_number": _uniq_join(openfda.get("application_number") or [], 5),
+                    "openfda_spl_set_id": _uniq_join(openfda.get("spl_set_id") or [], 3),
+                    "openfda_effective_time": _cv(label.get("effective_time")),
                     "openfda_product_type": _uniq_join(openfda.get("product_type") or [], 3),
                     "openfda_route": _uniq_join(openfda.get("route") or [], 5),
                     "openfda_manufacturer": _uniq_join(openfda.get("manufacturer_name") or [], 3),
+                    "openfda_pharm_class_epc": _uniq_join(openfda.get("pharm_class_epc") or [], 5),
+                    "openfda_pharm_class_moa": _uniq_join(openfda.get("pharm_class_moa") or [], 5),
+                    "openfda_pharm_class_cs": _uniq_join(openfda.get("pharm_class_cs") or [], 5),
+                    "openfda_indications_and_usage": _shorten(" ".join(label.get("indications_and_usage") or []), 1000),
+                    "openfda_purpose": _shorten(" ".join(label.get("purpose") or []), 700),
                     "openfda_adverse_reactions": _shorten(" ".join(label.get("adverse_reactions") or []), 800),
                     "openfda_boxed_warning": _shorten(" ".join(label.get("boxed_warning") or []), 500),
                     "openfda_warnings": _shorten(" ".join(label.get("warnings") or []), 500),
@@ -1263,6 +1655,7 @@ def _enrich_one(
             (enrichment.get("inxight") or {}).get("inxight_name"),
             (enrichment.get("pharos") or {}).get("pharos_name"),
             (enrichment.get("ncats_resolver") or {}).get("ncats_resolved_name"),
+            *unii_values,
         ])))
         if name_candidates:
             openfda_attempt_errors: list[dict[str, str]] = []
@@ -1359,6 +1752,9 @@ def resolve_and_enrich(
         "inxight_found": 0,
         "chebi_found": 0,
         "openfda_found": 0,
+        "pharos_target_disease_found": 0,
+        "inxight_condition_found": 0,
+        "fda_approval_found": 0,
         "source_errors": 0,
         "sources_failed": {},
         "enrichment_enabled": True,
@@ -1391,6 +1787,16 @@ def resolve_and_enrich(
                 key = source_stat_keys.get(src, f"{src}_found")
                 if key in stats:
                     stats[key] += 1
+            enrichment = result.get("enrichment") or {}
+            pharos = enrichment.get("pharos") or {}
+            inxight = enrichment.get("inxight") or {}
+            openfda = enrichment.get("openfda") or {}
+            if int(pharos.get("pharos_n_target_disease_associations") or 0) > 0:
+                stats["pharos_target_disease_found"] += 1
+            if int(inxight.get("inxight_n_conditions") or 0) > 0:
+                stats["inxight_condition_found"] += 1
+            if inxight.get("fda_approval_tag") or inxight.get("fda_approval_source_id") or openfda.get("openfda_application_number"):
+                stats["fda_approval_found"] += 1
             source_errors = (result.get("enrichment") or {}).get("source_errors") or []
             stats["source_errors"] += len(source_errors)
             failed_counts = stats["sources_failed"]
