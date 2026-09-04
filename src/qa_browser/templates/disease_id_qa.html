@@ -8,7 +8,7 @@
             <h1>Disease Harmonizer Explorer</h1>
             <p>v<span class="mono">{{ manifest.get("pipeline_version", "\u2014") }}</span>
                &mdash; Cross-reference harmonization from MONDO, OMIM, Orphanet, MedGen,
-               DOID, GARD via TargetGraph pipeline.
+               DOID, GARD via IFX Harmonizers.
                Updated last: {{ manifest.get("generated_at", "\u2014")[:10] }}.</p>
         </div>
         <form method="get" action="{{ root_path }}/disease-id-qa" class="disease-id-form">
@@ -88,7 +88,7 @@
             <div class="dash-chart-panel">
                 <h3>Confidence Tier Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain confidence tier distribution" aria-expanded="false" aria-controls="confidenceTierHelp">?</button></h3>
                 <div class="chart-legend" id="confidenceTierHelp">
-                    <p>Concept-level status assigned by the TargetGraph disease harmonization pipeline after source merge, NodeNorm validation, obsolete xref checks, and QC decision handling.</p>
+                    <p>Concept-level status assigned by the IFX Harmonizers disease workflow after source merge, NodeNorm validation, obsolete xref checks, and QC decision handling.</p>
                     <dl>
                         <dt>single_authoritative_source</dt>
                         <dd>One authoritative source supports the concept and no unresolved disagreement is present.</dd>
@@ -168,7 +168,7 @@
             <div class="dash-chart-panel">
                 <h3>Biolink Category Distribution <button class="chart-legend-toggle" type="button" aria-label="Explain Biolink category distribution" aria-expanded="false" aria-controls="biolinkCategoryHelp">?</button></h3>
                 <div class="chart-legend" id="biolinkCategoryHelp">
-                    <p>Concept-level Biolink class used to separate true disease concepts from phenotype-like findings that enter through disease vocabularies. This is assigned during TargetGraph disease ID generation, not by NodeNorm.</p>
+                    <p>Concept-level Biolink class used to separate true disease concepts from phenotype-like findings that enter through disease vocabularies. This is assigned during IFX Harmonizers disease ID generation, not by NodeNorm.</p>
                     <dl>
                         <dt>Primary signal: MedGen/UMLS semantic type</dt>
                         <dd><code>Disease or Syndrome</code>, <code>Neoplastic Process</code>, <code>Mental or Behavioral Dysfunction</code>, <code>Congenital Abnormality</code>, <code>Acquired Abnormality</code>, and <code>Injury or Poisoning</code> map to <code>biolink:Disease</code>. <code>Finding</code>, <code>Sign or Symptom</code>, <code>Laboratory or Test Result</code>, <code>Pathologic Function</code>, <code>Anatomical Abnormality</code>, and <code>Cell or Molecular Dysfunction</code> map to <code>biolink:PhenotypicFeature</code>.</dd>
@@ -306,7 +306,7 @@
                 <p id="reviewQueueStatus">Loading...</p>
             </div>
             <div class="review-note">
-                Decisions saved here are written to a TargetGraph-compatible intake TSV. TargetGraph applies them through <code>disease_review_intake</code> so the same obsolete, stale, conflict, or expert-review decision can be replayed on future source updates.
+                Decisions saved here are written to an IFX Harmonizers review-intake TSV. The disease workflow applies them through <code>disease_review_intake</code> so the same obsolete, stale, conflict, or expert-review decision can be replayed on future source updates.
             </div>
             <div class="review-category-strip" id="reviewCategoryStrip"></div>
             <div class="review-controls">

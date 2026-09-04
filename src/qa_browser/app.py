@@ -8193,7 +8193,7 @@ def _default_target_review_file() -> str:
 
 @app.post("/target-id-qa/api/review-decisions")
 async def target_id_qa_save_review_decisions(request: Request):
-    """Append app-entered target review decisions to a TargetGraph intake TSV."""
+    """Append app-entered target review decisions to an IFX Harmonizers intake TSV."""
     data = _load_target_graph()
     if not data.review_can_write:
         raise HTTPException(status_code=403, detail="Target review decisions are disabled in public/read-only mode.")
@@ -8211,7 +8211,7 @@ async def target_id_qa_save_review_decisions(request: Request):
     return {
         "saved": len(rows),
         "review_file": path,
-        "message": "Saved review decision(s). Import with TargetGraph target_review_intake.",
+        "message": "Saved review decision(s). Import with IFX Harmonizers target_review_intake.",
     }
 
 
@@ -8875,7 +8875,7 @@ async def variant_id_qa_review_decisions(payload: dict):
         "ok": True,
         "saved_rows": len(rows),
         "review_file": path,
-        "message": "Saved review decision(s). Import with TargetGraph variant_qc.",
+        "message": "Saved review decision(s). Import with IFX Harmonizers variant_qc.",
     }
 
 
@@ -9345,7 +9345,7 @@ async def drug_id_qa_save_review_decisions(request: Request):
     return {
         "saved": len(rows),
         "review_file": path,
-        "message": "Saved review decision(s). Import on the next TargetGraph DRUGS drug_qc run.",
+        "message": "Saved review decision(s). Import on the next IFX Harmonizers DRUGS drug_qc run.",
     }
 
 
@@ -9811,7 +9811,7 @@ def disease_id_qa_download_review_template(
     status: str = "open",
     q: str = "",
 ):
-    """Download a TargetGraph-compatible review intake template for the current queue."""
+    """Download an IFX Harmonizers review intake template for the current queue."""
     if not _disease_graph_dir:
         raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
     data = load_disease_graph_data(_disease_graph_dir)
@@ -9831,7 +9831,7 @@ def disease_id_qa_download_review_template(
 
 @app.post("/disease-id-qa/api/review-decisions")
 async def disease_id_qa_save_review_decisions(request: Request):
-    """Append app-entered review decisions to a TargetGraph intake TSV."""
+    """Append app-entered review decisions to an IFX Harmonizers intake TSV."""
     payload = await request.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
@@ -9840,7 +9840,7 @@ async def disease_id_qa_save_review_decisions(request: Request):
     return {
         "saved": len(rows),
         "review_file": path,
-        "message": "Saved review decision(s). Import with TargetGraph disease_review_intake.",
+        "message": "Saved review decision(s). Import with IFX Harmonizers disease_review_intake.",
     }
 
 
@@ -13594,7 +13594,7 @@ def main():
                         help="Path to disease app_graph/ directory (TSV files + manifest.json)")
     parser.add_argument("--disease-review-file",
                         default="",
-                        help="Path to TargetGraph-compatible disease review intake TSV written by the Review tab")
+                        help="Path to IFX Harmonizers-compatible disease review intake TSV written by the Review tab")
     parser.add_argument("--baseline-graph-dir",
                         default="",
                         help="Path to baseline disease app_graph/ directory for version diff")
@@ -13609,13 +13609,13 @@ def main():
                         help="Path to variant app_graph/ directory (variant_nodes.tsv + manifest.json)")
     parser.add_argument("--variant-review-file",
                         default="",
-                        help="Path to TargetGraph-compatible variant review intake TSV written by the Review tab")
+                        help="Path to IFX Harmonizers-compatible variant review intake TSV written by the Review tab")
     parser.add_argument("--drug-graph-dir",
                         default="",
                         help="Path to drug app_graph/ directory (drug_nodes.tsv + manifest.json)")
     parser.add_argument("--drug-review-file",
                         default="",
-                        help="Path to TargetGraph-compatible drug review intake TSV written by the Review tab")
+                        help="Path to IFX Harmonizers-compatible drug review intake TSV written by the Review tab")
     args = parser.parse_args()
 
     global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file

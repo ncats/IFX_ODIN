@@ -1,7 +1,7 @@
 {
   "contract_version": "1.0.0",
   "target_release_version": "v2.2.0",
-  "pipeline": "TargetGraph target harmonizer",
+  "pipeline": "IFX Harmonizers target workflow",
   "generated_at": "2026-09-03T17:23:51.570731+00:00",
   "updated_last": "2026-09-03T17:23:51.570759+00:00",
   "pipeline_git_commit": "d080c1c",
