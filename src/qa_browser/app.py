@@ -11086,7 +11086,7 @@ async def execute_graph_view(db_name: str, view_id: str):
         return HTMLResponse("CSV graph view is missing columns metadata.", status_code=400)
 
     try:
-        rows = list(db.aql.execute(query, max_runtime=60))
+        rows = list(db.aql.execute(query, batch_size=5000, max_runtime=600))
     except Exception as exc:
         return HTMLResponse(f"Failed to execute graph view '{view_id}': {exc}", status_code=500)
 

@@ -455,6 +455,7 @@ sources:
           module: src.registry.sources.external_sources
           class: ChemblActivityDatabaseExternalSource
           credentials: src/use_cases/secrets/chembl_credentials.yaml
+          version: chembl37
   drugcentral:
     datasets:
       drug_database:

@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
+import shutil
 from typing import Optional, Union
 
 import yaml
@@ -49,6 +50,67 @@ def load_registry_credentials(path: Path) -> RegistryCredentials:
 
 def s3_uri(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{key}"
+
+
+class LocalRegistryStorage:
+    """Filesystem-backed storage with the same minimal interface as S3 storage."""
+
+    def __init__(self, root: str | Path, bucket: str = "local-registry"):
+        self.root = Path(root)
+        self._bucket = bucket
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    def _path(self, key: str) -> Path:
+        normalized = Path(key)
+        if normalized.is_absolute() or ".." in normalized.parts:
+            raise ValueError(f"Invalid local registry key: {key}")
+        return self.root / normalized
+
+    def upload_file(self, local_path: Path, key: str, content_type: Optional[str] = None) -> str:
+        del content_type
+        dest = self._path(key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        source = Path(local_path)
+        if source.resolve() != dest.resolve():
+            shutil.copy2(source, dest)
+        return s3_uri(self.bucket, key)
+
+    def download_file(self, key: str, local_path: Path) -> Path:
+        source = self._path(key)
+        if not source.exists():
+            raise FileNotFoundError(source)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        if source.resolve() != local_path.resolve():
+            shutil.copy2(source, local_path)
+        return local_path
+
+    def delete_file(self, key: str) -> None:
+        path = self._path(key)
+        if path.exists():
+            path.unlink()
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        base = self._path(prefix) if prefix else self.root
+        if not base.exists():
+            return []
+        return [
+            str(path.relative_to(self.root))
+            for path in base.rglob("*")
+            if path.is_file()
+        ]
+
+    def read_text(self, key: str) -> str:
+        return self._path(key).read_text(encoding="utf-8")
+
+    def write_text(self, key: str, text: str, content_type: str = "text/plain; charset=utf-8") -> str:
+        del content_type
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return s3_uri(self.bucket, key)
 
 
 class S3CompatibleStorage:

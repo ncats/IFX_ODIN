@@ -1,4 +1,4 @@
-from src.shared.targetgraph_parser import TargetGraphGeneParser, TargetGraphTranscriptParser
+from src.shared.targetgraph_parser import TargetGraphGeneParser, TargetGraphProteinParser, TargetGraphTranscriptParser
 
 
 def test_targetgraph_gene_parser_reads_tsv(tmp_path):
@@ -86,3 +86,25 @@ def test_targetgraph_mapping_ratio_ignores_ambiguous_multi_value():
     row = {"Total_Mapping_Ratio": "0.0833333333333333|0.25"}
 
     assert TargetGraphGeneParser.get_mapping_ratio(row) is None
+
+
+def test_targetgraph_protein_parser_preserves_exact_uniprot_isoform(tmp_path):
+    file_path = tmp_path / "protein_ids.tsv"
+    file_path.write_text("ncats_protein_id\nIFXProtein:L7LS7LZ\n")
+    parser = TargetGraphProteinParser(file_path=str(file_path))
+    row = {
+        "ncats_protein_id": "IFXProtein:L7LS7LZ",
+        "uniprot_id": "P56856",
+        "uniprot_isoform": "P56856-2",
+        "consolidated_ensembl_protein_id": "ENSP00000340939.4",
+        "consolidated_refseq_protein": "NP_001002026",
+        "consolidated_symbol": "CLDN18",
+        "uniprot_secondaryAccessions": "",
+        "uniprot_uniProtkbId": "",
+        "combined_protein_name": "Claudin-18",
+    }
+
+    equivalent_ids = [eq.id_str() for eq in parser.get_equivalent_ids(row)]
+
+    assert "UniProtKB:P56856-2" in equivalent_ids
+    assert "UniProtKB:P56856" in equivalent_ids

@@ -1,15 +1,15 @@
-source_credentials: &source_credentials ./src/use_cases/secrets/ifxdev_arangodb.yaml
+source_credentials: &source_credentials ./src/use_cases/secrets/local_arangodb.yaml
 database_name: &database_name impatient_target_graph
 
 registry:
-  credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
+  cache_dir: ./registry_cache
 
 resolvers:
   - label: tg_proteins
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
+      resolver_snapshot: target_graph:tg_proteins:deps-5d66e3c0a573
       types:
         - Protein
       no_match_behavior: Skip
@@ -43,12 +43,15 @@ input_adapters:
     class: TDLInputAdapter
     kwargs:
       database_name: *database_name
+      use_drug_count_for_tclin: false
     credentials: *source_credentials
 
   - import: ./src/input_adapters/manual/tdl_override.py
     class: TDLOverrideAdapter
     kwargs:
-      data_source: target_graph:tdl_updates:2026-09-04
+      data_source: target_graph:tdl_updates:2026-09-05
+      allowed_tdls:
+        - Tclin
 
 graph_views:
   - id: current_tdls
