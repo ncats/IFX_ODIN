@@ -153,7 +153,7 @@ def _join_unique(values: list[str] | tuple[str, ...]) -> str:
 
 
 def _nodenorm_status(concept: dict) -> str:
-    """Support both old app_graph and current TargetGraph NodeNorm column names."""
+    """Support both old app_graph and current IFX Harmonizers NodeNorm column names."""
     return (
         concept.get("nodenorm_validation_status", "")
         or concept.get("nodenorm_concordance", "")
@@ -1818,7 +1818,7 @@ def export_review_intake_template(
     q: str = "",
     limit: int = 5000,
 ) -> str:
-    """Export a TargetGraph-compatible review intake TSV template."""
+    """Export an IFX Harmonizers review intake TSV template."""
     queue = build_review_queue(
         data,
         category=category,
@@ -3123,7 +3123,7 @@ def _iter_sssom_lines(
         yield f"#  {prefix}: {uri}"
     yield f"#mapping_set_id: https://github.com/ncats/IFX_ODIN/disease-harmonizer"
     yield f"#mapping_set_version: {version}"
-    yield "#creator_label: TargetGraph Disease Harmonizer"
+    yield "#creator_label: IFX Harmonizers Disease Harmonizer"
     yield ""
 
     # TSV header

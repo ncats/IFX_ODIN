@@ -1,7 +1,6 @@
-import argparse
+from __future__ import annotations
 
-from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
-from src.use_cases.build_from_yaml import BuildGraphFromYaml
+import argparse
 
 
 def add_common_build_args(parser: argparse.ArgumentParser, build_name: str) -> argparse.ArgumentParser:
@@ -27,7 +26,9 @@ def confirm_truncate(database_name: str) -> bool:
     return response in {"y", "yes"}
 
 
-def _arango_database_exists(builder: BuildGraphFromYaml) -> bool | None:
+def _arango_database_exists(builder) -> bool | None:
+    from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
+
     for output_adapter in builder.etl.output_adapters:
         if not isinstance(output_adapter, ArangoOutputAdapter):
             continue
@@ -73,6 +74,8 @@ def run_arango_build_cli(
     post_yaml: str | None = None,
 ):
     args = parse_common_build_args(build_name)
+
+    from src.use_cases.build_from_yaml import BuildGraphFromYaml
 
     primary_builder = BuildGraphFromYaml(yaml_file=primary_yaml)
     if not prepare_primary_builder(

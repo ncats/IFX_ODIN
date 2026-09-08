@@ -213,6 +213,6 @@
   "generated_at": "2026-08-19T16:21:54.084651+00:00",
   "open_review_rows_file": "target_review_public.tsv",
   "review_mode": "public_read_only",
-  "source_qc_dir": "/Users/mainejl/Documents/Projects/ODIN/TargetGraph/TargetGraph7/src/data/publicdata/target_data/qc",
-  "source_review_file": "/Users/mainejl/Documents/Projects/ODIN/TargetGraph/TargetGraph7/src/data/publicdata/target_data/qc/review/app_completed/target_app_review_decisions.tsv"
+  "source_qc_dir": "src/data/publicdata/target_data/qc",
+  "source_review_file": "src/data/publicdata/target_data/qc/review/app_completed/target_app_review_decisions.tsv"
 }
