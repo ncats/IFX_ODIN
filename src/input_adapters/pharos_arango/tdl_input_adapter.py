@@ -10,11 +10,19 @@ from src.shared.db_credentials import DBCredentials
 
 class TDLInputAdapter(InputAdapter, ArangoAdapter):
     use_pharos_queries: bool
+    use_drug_count_for_tclin: bool
     batch_size: int = 1000
 
-    def __init__(self, credentials: DBCredentials, database_name: str, use_pharos_queries: bool = False):
+    def __init__(
+        self,
+        credentials: DBCredentials,
+        database_name: str,
+        use_pharos_queries: bool = False,
+        use_drug_count_for_tclin: bool = True,
+    ):
         ArangoAdapter.__init__(self, credentials=credentials, database_name=database_name)
         self.use_pharos_queries = use_pharos_queries
+        self.use_drug_count_for_tclin = use_drug_count_for_tclin
 
     def get_datasource_name(self) -> DataSourceName:
         return DataSourceName.PostProcessing
@@ -42,9 +50,10 @@ class TDLInputAdapter(InputAdapter, ArangoAdapter):
 
         nodes: List[Protein] = []
         for protein_id in all_protein_set:
+            drug_count = drug_counts_dict[protein_id] if self.use_drug_count_for_tclin else 0
             new_tdl = calculate_tdl_from_counts(
                 ligand_counts_dict[protein_id],
-                drug_counts_dict[protein_id],
+                drug_count,
                 go_term_counts_dict[protein_id],
                 generif_counts_dict[protein_id],
                 pm_score_values_dict[protein_id],

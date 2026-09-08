@@ -113,14 +113,15 @@ def resolve_registry_references(config_dict: dict) -> dict:
     if not registry_config:
         return config_dict
     credentials_config = registry_config.get("credentials")
-    if credentials_config is None:
-        raise ValueError("registry.credentials is required when registry config is present")
     cache_dir = Path(registry_config.get("cache_dir", DEFAULT_REGISTRY_CACHE_DIR))
-    registry = DataRegistry.from_credentials(
-        _registry_credentials_from_config(credentials_config),
-        bucket=registry_config.get("bucket"),
-        use_internal_url=registry_config.get("use_internal_url", False),
-    )
+    if credentials_config is None:
+        registry = DataRegistry.local(cache_dir=cache_dir)
+    else:
+        registry = DataRegistry.from_credentials(
+            _registry_credentials_from_config(credentials_config),
+            bucket=registry_config.get("bucket"),
+            use_internal_url=registry_config.get("use_internal_url", False),
+        )
     resolved = dict(config_dict)
     for key in ("resolvers", "input_adapters"):
         if key in resolved:

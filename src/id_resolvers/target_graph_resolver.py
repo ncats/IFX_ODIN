@@ -39,6 +39,13 @@ scores = {
 }
 
 
+def _single_manifest_file_or_legacy(data_source, legacy_file_name: str):
+    try:
+        return data_source.file()
+    except ValueError:
+        return data_source.file(legacy_file_name)
+
+
 
 class TargetGraphResolver(SqliteCacheResolver):
     name = "TargetGraph Resolver"
@@ -78,7 +85,8 @@ class TargetGraphProteinResolver(TargetGraphResolver):
     def __init__(self, resolver_snapshot, **kwargs):
         self.resolver_snapshot = resolver_snapshot
         file_paths = [str(resolver_input(resolver_snapshot, "data_source").file("protein_ids.tsv"))]
-        additional_ids = str(resolver_input(resolver_snapshot, "additional_ids_data_source").file("uniprotkb_mapping_20260507.csv"))
+        additional_ids_source = resolver_input(resolver_snapshot, "additional_ids_data_source")
+        additional_ids = str(_single_manifest_file_or_legacy(additional_ids_source, "uniprotkb_mapping_20260507.csv"))
         self.parsers = [
             TargetGraphProteinParser(file_path=path, additional_id_file_path=additional_ids)
             for path in file_paths]
@@ -133,7 +141,8 @@ class TCRDTargetResolver(TargetGraphResolver):
         gene_file_path = str(resolver_input(resolver_snapshot, "gene_data_source").file("gene_ids.tsv"))
         transcript_file_path = str(resolver_input(resolver_snapshot, "transcript_data_source").file("transcript_ids.tsv"))
         protein_file_paths = [str(resolver_input(resolver_snapshot, "protein_data_source").file("protein_ids.tsv"))]
-        additional_ids = str(resolver_input(resolver_snapshot, "uniprot_mapping_data_source").file("uniprotkb_mapping_20260507.csv"))
+        additional_ids_source = resolver_input(resolver_snapshot, "uniprot_mapping_data_source")
+        additional_ids = str(_single_manifest_file_or_legacy(additional_ids_source, "uniprotkb_mapping_20260507.csv"))
 
         self.parsers = []
         self.protein_parsers = [

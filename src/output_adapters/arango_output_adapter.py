@@ -240,7 +240,10 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             field_tuple = (field,)
             if field_tuple not in existing_fields:
                 print(f"Creating HASH index on: {field}")
-                collection.add_hash_index(fields=[field], sparse=True)
+                if hasattr(collection, "add_hash_index"):
+                    collection.add_hash_index(fields=[field], sparse=True)
+                else:
+                    collection.add_persistent_index(fields=[field], sparse=True)
 
         # Create persistent indexes for numeric fields
         for field in sorted(numerics):

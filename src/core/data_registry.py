@@ -38,9 +38,11 @@ from src.registry.manifest import (
     write_manifest,
 )
 from src.registry.storage import (
+    DEFAULT_REGISTRY_CACHE_DIR,
     DEFAULT_REGISTRY_BUCKET,
     AwsAssumeRoleCredentials,
     AwsAssumeRoleStorage,
+    LocalRegistryStorage,
     S3CompatibleStorage,
     RegistryCredentials,
     load_registry_credentials,
@@ -143,7 +145,7 @@ class DataRegistry:
 
     def __init__(
         self,
-        storage: Optional[S3CompatibleStorage | AwsAssumeRoleStorage] = None,
+        storage: Optional[S3CompatibleStorage | AwsAssumeRoleStorage | LocalRegistryStorage] = None,
         *,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
         resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
@@ -165,11 +167,12 @@ class DataRegistry:
     def local(
         cls,
         *,
+        cache_dir: str | Path = DEFAULT_REGISTRY_CACHE_DIR,
         sources_config_path: Path = REGISTRY_SOURCES_CONFIG,
         resolvers_config_path: Path = REGISTRY_RESOLVERS_CONFIG,
     ) -> "DataRegistry":
         return cls(
-            storage=None,
+            storage=LocalRegistryStorage(cache_dir),
             sources_config_path=sources_config_path,
             resolvers_config_path=resolvers_config_path,
         )

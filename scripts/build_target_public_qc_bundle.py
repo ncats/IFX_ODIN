@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build read-only target QC artifacts for the QA Browser bundle.
 
-The local TargetGraph QC registry and review intake files are internal working
+The local target harmonizer QC registry and review intake files are internal working
 artifacts. This script converts them into a compact public bundle:
 
 - aggregate reviewed/open QC counts;
@@ -56,6 +56,17 @@ PUBLIC_REVIEW_COLUMNS = [
     "review_group_description",
     "public_status_note",
 ]
+
+
+def _portable_path(path: Path) -> str:
+    text = path.as_posix()
+    marker = "/src/data/publicdata/"
+    if marker in text:
+        return "src/data/publicdata/" + text.split(marker, 1)[1]
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return text
 
 
 def _read_reviewed_registry_ids(review_file: Path) -> set[str]:
@@ -170,8 +181,8 @@ def build_public_bundle(qc_dir: Path, out_dir: Path) -> dict[str, Any]:
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "review_mode": "public_read_only",
-        "source_qc_dir": str(qc_dir),
-        "source_review_file": str(review_file),
+        "source_qc_dir": _portable_path(qc_dir),
+        "source_review_file": _portable_path(review_file),
         "open_review_rows_file": rows_path.name,
         "divergence": {
             "total_divergences": total_rows,

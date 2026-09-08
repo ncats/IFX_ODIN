@@ -1,3 +1,13 @@
+## Current Local TDL Handoff
+
+- For Jess's local `impatient_target_graph` reconstruction, read
+  `src/use_cases/pharos/impatient_target_graph_local_refresh.md` before editing
+  Pharos graph YAML, target resolvers, TDL override handling, or local registry
+  cache code.
+- The local reconstruction is scratch/test work until Jess decides whether to
+  ask Keith to review it. Do not promote local YAML or registry-cache changes to
+  production Pharos configs without explicit approval.
+
 ## Ingest Workflow Preferences
 
 - For any ingest task, start by reading `playbooks/ingest_playbook.md` for new sources or `playbooks/data_update_playbook.md` for refreshes.

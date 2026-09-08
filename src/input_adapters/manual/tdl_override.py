@@ -1,5 +1,5 @@
 import csv
-from typing import Generator, List
+from typing import Generator, List, Optional
 from src.constants import DataSourceName, Prefix
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
@@ -13,11 +13,12 @@ class TDLOverrideAdapter(InputAdapter, CSVParser):
     batch_size: int = 1000
     field_conflict_behavior: FieldConflictBehavior = FieldConflictBehavior.KeepLast
 
-    def __init__(self, data_source):
+    def __init__(self, data_source, allowed_tdls: Optional[List[str]] = None):
         InputAdapter.__init__(self)
         file_path = str(data_source.file("tdl_updates.csv"))
         CSVParser.__init__(self, file_path=file_path)
         self.version_info = data_source.version_info()
+        self.allowed_tdls = set(allowed_tdls or [])
 
     def get_all(self) -> Generator[List[Protein], None, None]:
 
@@ -27,6 +28,8 @@ class TDLOverrideAdapter(InputAdapter, CSVParser):
             for row in csv_reader:
                 uniprot_id = row['UniProt']
                 tdl = row['Target Development Level']
+                if self.allowed_tdls and tdl not in self.allowed_tdls:
+                    continue
                 equiv_id = EquivalentId(id=uniprot_id, type=Prefix.UniProtKB)
                 protein_obj = Protein(id=equiv_id.id_str(), tdl=tdl)
                 proteins.append(protein_obj)

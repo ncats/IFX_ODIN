@@ -183,17 +183,24 @@ class ChemblActivityDatabaseExternalSource(ExternalSourceProvider):
 
     def build_registration(self, *, config: Dict[str, Any]) -> ExternalSourceRegistration:
         credentials_path = _credentials_path(config)
+        connection = _safe_credentials_summary(credentials_path, "mysql")
+        configured_version = config.get("version") or config.get("schema") or connection.get("schema") or "chembl36"
+        version = _version_token(configured_version)
+        schema = connection.get("schema") or configured_version
         return ExternalSourceRegistration(
             source=self.source,
             dataset=self.dataset,
-            version="chembl36",
-            version_date=None,
-            connection=_safe_credentials_summary(credentials_path, "mysql"),
+            version=version,
+            version_date=config.get("version_date"),
+            connection=connection,
             access=_sql_access("mysql"),
             extra={
                 "version_method": {
                     "type": "database_schema_and_chembl_version_table",
-                    "description": "Configured schema is chembl36; adapters also read the ChEMBL Version table at runtime.",
+                    "description": (
+                        f"Configured registry version is {version}; credential schema is {schema}. "
+                        "Adapters also read the ChEMBL Version table at runtime."
+                    ),
                 },
             },
         )
