@@ -23,6 +23,7 @@
     <nav class="target-tabs">
         <button class="target-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
         <button class="target-tab-btn" data-tab="concepts" type="button">Concepts</button>
+        <button class="target-tab-btn" data-tab="resolver" type="button">Resolver</button>
         <button class="target-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="target-tab-btn" data-tab="review" type="button">Review</button>
         <button class="target-tab-btn" data-tab="download" type="button">Download</button>
@@ -95,6 +96,47 @@
             <span id="targetPageLabel"></span>
             <button class="btn" id="targetNextPage" type="button">Next</button>
         </div>
+    </section>
+
+    <section class="target-tab-panel" data-panel="resolver">
+        <section class="api-resolver-panel">
+            <div class="api-resolver-head">
+                <div>
+                    <h3>Target Resolver</h3>
+                    <p style="color:var(--text-muted);font-size:0.82rem;margin:0.3rem 0 0;max-width:70rem;">
+                        Resolve messy Inxight/Pharos-style target names against harmonized genes, transcripts, and proteins. The resolver classifies pathways, cell lines, organisms, molecules, and broad protein families instead of forcing them into a single IFX target ID.
+                    </p>
+                </div>
+                <div class="api-resolver-controls">
+                    <label>Type
+                        <select id="targetResolverType" class="filter-select filter-select-sm">
+                            <option value="">All</option>
+                            <option value="gene">Gene</option>
+                            <option value="protein">Protein</option>
+                            <option value="transcript">Transcript</option>
+                        </select>
+                    </label>
+                    <label>Limit
+                        <select id="targetResolverLimit" class="filter-select filter-select-sm">
+                            <option value="3">3</option>
+                            <option value="5" selected>5</option>
+                            <option value="10">10</option>
+                        </select>
+                    </label>
+                    <button id="targetResolverRun" class="btn btn-primary" type="button">Resolve</button>
+                </div>
+            </div>
+            <textarea id="targetResolverInput" class="api-resolver-input" rows="10" spellcheck="false">ALK tyrosine kinase receptor
+Bcr/Abl fusion protein
+DNA topoisomerase II alpha
+HepG2
+Apoptosis
+Trypanosoma brucei
+Vascular endothelial growth factor receptor 2</textarea>
+            <div id="targetResolverStatus" class="api-resolver-status"></div>
+            <div id="targetResolverResults" class="api-resolver-results"></div>
+            <pre id="targetResolverJson" class="api-json-preview"></pre>
+        </section>
     </section>
 
     <section class="target-tab-panel" data-panel="graph">
@@ -274,7 +316,7 @@
             </p>
             <section class="api-resolver-panel">
                 <div class="api-resolver-head">
-                    <h3>Target Resolver</h3>
+                    <h3>Target Resolver API</h3>
                     <div class="api-resolver-controls">
                         <select id="targetApiType" class="filter-select filter-select-sm">
                             <option value="">All types</option>
@@ -282,7 +324,7 @@
                             <option value="protein">Proteins</option>
                             <option value="transcript">Transcripts</option>
                         </select>
-                        <button id="targetApiResolverRun" class="btn btn-primary">Search</button>
+                        <button id="targetApiResolverRun" class="btn btn-primary">Resolve</button>
                     </div>
                 </div>
                 <textarea id="targetApiResolverInput" class="api-resolver-input" rows="3" placeholder="Enter gene symbols, IDs, or names (one per line)...">BRCA1
@@ -295,8 +337,8 @@ ABCA5</textarea>
             <div class="api-endpoint-list">
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
-                    <span class="api-endpoint-path">/target-id-qa/api/search?q=...&amp;target_type=gene&amp;page=1&amp;per_page=50</span>
-                    <div class="api-endpoint-desc">Search target nodes by symbol, name, or identifier. Supports target_type and namespace filters.</div>
+                    <span class="api-endpoint-path">/target-id-qa/api/resolve-quick?q=...&amp;limit=5&amp;target_type=protein</span>
+                    <div class="api-endpoint-desc">Resolve target names, symbols, IDs, and ambiguous target-like labels with classification warnings.</div>
                 </div>
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
@@ -2190,83 +2232,122 @@ ABCA5</textarea>
             });
     }
 
-    /* ── API tab: resolver ── */
+    /* ── Resolver tab + API tab resolver ── */
+    function renderTargetResolver(payload, resultsEl, jsonEl) {
+        const rows = payload.results || [payload];
+        let html = `<table class="api-resolver-table"><thead><tr>` +
+            `<th>Query</th><th>Classification</th><th>Best ID</th><th>Type</th><th>Symbol</th><th>Name</th><th>Score</th><th>Status</th><th>Evidence</th><th>Warnings</th>` +
+            `</tr></thead><tbody>`;
+        rows.forEach(item => {
+            const best = item.best;
+            const queryWarnings = (item.warnings || []).join(", ");
+            if (!best) {
+                html += `<tr>` +
+                    `<td>${escapeHtml(item.query)}</td>` +
+                    `<td>${escapeHtml(item.query_type || "")}</td>` +
+                    `<td colspan="8">No target candidate${queryWarnings ? ` — ${escapeHtml(queryWarnings)}` : ""}</td>` +
+                    `</tr>`;
+                return;
+            }
+            const warnings = (best.warnings || item.warnings || []).join(", ");
+            const evidence = [best.matched_field, best.matched_term].filter(Boolean).join(": ");
+            html += `<tr>` +
+                `<td>${escapeHtml(item.query)}</td>` +
+                `<td>${escapeHtml(best.query_type || item.query_type || "")}</td>` +
+                `<td class="mono"><a href="${rootPath}${escapeHtml(best.href)}">${escapeHtml(best.target_id)}</a></td>` +
+                `<td>${escapeHtml(best.target_type)}</td>` +
+                `<td>${escapeHtml(best.symbol)}</td>` +
+                `<td>${escapeHtml(best.name)}</td>` +
+                `<td>${escapeHtml(best.resolver_score)}</td>` +
+                `<td>${escapeHtml(best.match_status)}</td>` +
+                `<td>${escapeHtml(evidence)}</td>` +
+                `<td>${escapeHtml(warnings)}</td>` +
+                `</tr>`;
+            if ((item.candidates || []).length > 1) {
+                const candidates = item.candidates.slice(1, 5).map(c =>
+                    `${c.target_id} (${c.resolver_score}) ${c.symbol || c.name}`
+                ).join(" | ");
+                html += `<tr class="api-resolver-alt-row"><td></td><td colspan="9">${escapeHtml(candidates)}</td></tr>`;
+            }
+        });
+        html += `</tbody></table>`;
+        resultsEl.innerHTML = html;
+        jsonEl.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function runTargetResolverFrom(inputEl, typeEl, limitEl, runEl, statusEl, resultsEl, jsonEl) {
+        const queries = inputEl.value.split(/\n+/).map(v => v.trim()).filter(Boolean);
+        if (!queries.length) {
+            statusEl.textContent = "Enter a query.";
+            resultsEl.innerHTML = "";
+            jsonEl.textContent = "";
+            return;
+        }
+        runEl.disabled = true;
+        const originalText = runEl.textContent;
+        runEl.textContent = "Resolving...";
+        statusEl.textContent = `${queries.length} query${queries.length === 1 ? "" : "ies"}`;
+        const payload = {
+            queries,
+            limit: limitEl ? Number(limitEl.value || 5) : 5,
+            target_type: typeEl ? typeEl.value : "",
+        };
+        fetch(`${rootPath}/target-id-qa/api/resolve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        })
+            .then(r => {
+                if (!r.ok) return r.json().then(p => { throw new Error(p.detail || r.statusText); });
+                return r.json();
+            })
+            .then(payload => {
+                renderTargetResolver(payload, resultsEl, jsonEl);
+                statusEl.textContent = `${payload.count || queries.length} queries resolved`;
+            })
+            .catch(err => {
+                statusEl.textContent = err.message;
+                resultsEl.innerHTML = "";
+                jsonEl.textContent = "";
+            })
+            .finally(() => {
+                runEl.disabled = false;
+                runEl.textContent = originalText;
+            });
+    }
+
+    const targetResolverInput = document.getElementById("targetResolverInput");
+    const targetResolverType = document.getElementById("targetResolverType");
+    const targetResolverLimit = document.getElementById("targetResolverLimit");
+    const targetResolverRun = document.getElementById("targetResolverRun");
+    const targetResolverStatus = document.getElementById("targetResolverStatus");
+    const targetResolverResults = document.getElementById("targetResolverResults");
+    const targetResolverJson = document.getElementById("targetResolverJson");
+    targetResolverRun.addEventListener("click", () => runTargetResolverFrom(
+        targetResolverInput, targetResolverType, targetResolverLimit, targetResolverRun,
+        targetResolverStatus, targetResolverResults, targetResolverJson,
+    ));
+    targetResolverInput.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            targetResolverRun.click();
+        }
+    });
+
     const targetApiInput = document.getElementById("targetApiResolverInput");
     const targetApiType = document.getElementById("targetApiType");
     const targetApiRun = document.getElementById("targetApiResolverRun");
     const targetApiStatus = document.getElementById("targetApiResolverStatus");
     const targetApiResults = document.getElementById("targetApiResolverResults");
     const targetApiJson = document.getElementById("targetApiResolverJson");
-
-    function renderTargetApiResults(payload) {
-        const rows = payload.rows || [];
-        if (rows.length === 0) {
-            targetApiResults.innerHTML = `<p style="color:var(--text-muted)">No results found.</p>`;
-            targetApiJson.textContent = JSON.stringify(payload, null, 2);
-            return;
-        }
-        let html = `<table class="api-resolver-table"><thead><tr>` +
-            `<th>Target ID</th><th>Type</th><th>Symbol</th><th>Name</th><th>Primary ID</th><th>Identifiers</th>` +
-            `</tr></thead><tbody>`;
-        rows.forEach(r => {
-            const ids = (r.ids || "").split("|").slice(0, 3).join(", ");
-            const more = (r.ids || "").split("|").length > 3 ? " ..." : "";
-            html += `<tr>` +
-                `<td class="mono">${escapeHtml(r.target_id)}</td>` +
-                `<td>${escapeHtml(r.target_type)}</td>` +
-                `<td>${escapeHtml(r.symbol)}</td>` +
-                `<td>${escapeHtml(r.name)}</td>` +
-                `<td class="mono">${escapeHtml(r.primary_id)}</td>` +
-                `<td style="font-size:0.75rem">${escapeHtml(ids + more)}</td>` +
-                `</tr>`;
-        });
-        html += `</tbody></table>`;
-        targetApiResults.innerHTML = html;
-        targetApiJson.textContent = JSON.stringify(payload, null, 2);
-    }
-
-    function runTargetApiResolver() {
-        const queries = targetApiInput.value.split(/\n+/).map(v => v.trim()).filter(Boolean);
-        if (!queries.length) {
-            targetApiStatus.textContent = "Enter a query.";
-            targetApiResults.innerHTML = "";
-            targetApiJson.textContent = "";
-            return;
-        }
-        targetApiRun.disabled = true;
-        targetApiRun.textContent = "Searching...";
-        targetApiStatus.textContent = `${queries.length} query${queries.length === 1 ? "" : "ies"}`;
-
-        const targetType = targetApiType.value;
-        const q = queries.join(" | ");
-        const params = new URLSearchParams({ q, per_page: "50" });
-        if (targetType) params.set("target_type", targetType);
-
-        fetch(`${rootPath}/target-id-qa/api/search?${params}`)
-            .then(r => {
-                if (!r.ok) return r.json().then(p => { throw new Error(p.detail || r.statusText); });
-                return r.json();
-            })
-            .then(payload => {
-                renderTargetApiResults(payload);
-                targetApiStatus.textContent = `${payload.total.toLocaleString()} results`;
-            })
-            .catch(err => {
-                targetApiStatus.textContent = err.message;
-                targetApiResults.innerHTML = "";
-                targetApiJson.textContent = "";
-            })
-            .finally(() => {
-                targetApiRun.disabled = false;
-                targetApiRun.textContent = "Search";
-            });
-    }
-
-    targetApiRun.addEventListener("click", runTargetApiResolver);
+    targetApiRun.addEventListener("click", () => runTargetResolverFrom(
+        targetApiInput, targetApiType, null, targetApiRun,
+        targetApiStatus, targetApiResults, targetApiJson,
+    ));
     targetApiInput.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
             e.preventDefault();
-            runTargetApiResolver();
+            targetApiRun.click();
         }
     });
 

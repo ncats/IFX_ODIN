@@ -767,6 +767,9 @@ def _index_row(data: TargetGraphData, row: dict[str, str]) -> None:
         _index_exact(data, term, target_id)
     for term in (row.get("symbol", ""), row.get("name", "")):
         _index_tokens(data, term, target_id)
+    for alias in _split_pipe(row.get("description", "")):
+        if len(alias) <= 90:
+            _index_tokens(data, alias, target_id)
     for xref in _split_pipe(row.get("ids", "")):
         data.ids_to_targets[xref].append(target_id)
         _index_exact(data, xref, target_id)
@@ -1496,6 +1499,323 @@ def search_targets(
     start = (page - 1) * per_page
     rows = [_target_to_row(row) for row in filtered[start:start + per_page]]
     return {"rows": rows, "total": total, "page": page, "per_page": per_page, "total_pages": total_pages}
+
+
+def _resolver_norm(value: Any) -> str:
+    text = "" if value is None else str(value)
+    text = text.replace("α", " alpha ").replace("β", " beta ").replace("γ", " gamma ").replace("δ", " delta ")
+    text = text.replace("Α", " alpha ").replace("Β", " beta ").replace("Γ", " gamma ").replace("Δ", " delta ")
+    return _norm(text)
+
+
+def _resolver_tokens(value: Any) -> set[str]:
+    return {token for token in _resolver_norm(value).split() if len(token) > 1}
+
+
+def _target_query_type(query: str) -> dict[str, Any]:
+    """Classify free text before matching so non-target labels are not forced."""
+    norm = _resolver_norm(query)
+    tokens = set(norm.split())
+    warnings: list[str] = []
+    query_type = "gene_or_protein_name"
+    authoritative = True
+
+    id_patterns = [
+        r"ifx(gene|protein|transcript):[a-z0-9]+",
+        r"uniprotkb:[a-z0-9]+",
+        r"hgnc:\d+",
+        r"ncbigene:\d+",
+        r"ensembl:(ensg|ensp|enst)\d+",
+        r"refseq:(nm|nr|np|xp|xm)_\d+(\.\d+)?",
+        r"(ensg|ensp|enst)\d+",
+        r"[opq][0-9][a-z0-9]{3}[0-9](-\d+)?",
+        r"[a-nr-z][0-9]([a-z][a-z0-9]{2}[0-9]){1,2}(-\d+)?",
+        r"(nm|nr|np|xp|xm)_\d+(\.\d+)?",
+    ]
+    if any(re.fullmatch(pattern, norm) for pattern in id_patterns):
+        return {
+            "query_type": "identifier",
+            "authoritative_mapping_allowed": True,
+            "warnings": [],
+        }
+
+    if "/" in str(query) or ";" in str(query) or " fusion " in f" {norm} ":
+        query_type = "protein_complex_or_multi_target"
+        authoritative = False
+        warnings.append("multi_target_or_fusion_label")
+
+    process_terms = {
+        "apoptosis", "differentiation", "biosynthetic", "process",
+        "pathway", "response", "stress", "alkylation", "signaling",
+    }
+    if norm == "cell growth" or tokens & process_terms:
+        query_type = "biological_process_or_pathway"
+        authoritative = False
+        warnings.append("not_a_single_target_label")
+
+    if "cell line" in norm or norm in {"hepg2", "ht 1080", "a673"} or tokens & {"cells", "leukemia"}:
+        query_type = "cell_line_or_cell_context"
+        authoritative = False
+        warnings.append("cell_line_or_context_not_target")
+
+    if tokens & {"trypanosoma", "brucei"}:
+        query_type = "organism_or_pathogen"
+        authoritative = False
+        warnings.append("organism_not_human_target")
+
+    if norm in {"dna", "rna"}:
+        query_type = "molecule_or_macromolecule"
+        authoritative = False
+        warnings.append("macromolecule_not_specific_gene_or_protein")
+
+    broad_family_labels = {
+        "tubulin",
+        "d2 like dopamine receptor",
+        "retinoic acid receptor",
+        "serine threonine protein kinase raf",
+        "neurotrophic tyrosine kinase receptor",
+        "dual specificity phosphatases",
+        "dual specific phosphatases",
+    }
+    if authoritative and (
+        norm in broad_family_labels
+        or "phosphatases" in tokens
+        or ("like" in tokens and "receptor" in tokens)
+        or norm.endswith(" kinase raf")
+    ):
+        query_type = "protein_family_or_multi_target"
+        authoritative = False
+        warnings.append("family_label_may_have_multiple_targets")
+
+    return {
+        "query_type": query_type,
+        "authoritative_mapping_allowed": authoritative,
+        "warnings": sorted(set(warnings)),
+    }
+
+
+def _target_term_priority(field: str, row: dict[str, str]) -> float:
+    base = {
+        "target_id": 1.0,
+        "primary_id": 0.99,
+        "external_id": 0.98,
+        "symbol": 0.97,
+        "name": 0.92,
+        "description": 0.74,
+    }.get(field, 0.82)
+    target_type = (row.get("target_type") or "").lower()
+    if target_type == "gene" and field == "symbol":
+        base += 0.01
+    if target_type == "protein" and field == "name":
+        base += 0.01
+    return min(base, 1.0)
+
+
+def _add_target_resolver_term(
+    terms: list[dict[str, Any]],
+    seen: set[tuple[str, str, str]],
+    row: dict[str, str],
+    term: str,
+    field: str,
+) -> None:
+    term = str(term or "").strip()
+    if not term or term.lower() in {"nan", "none", "null"}:
+        return
+    norm = _resolver_norm(term)
+    if not norm:
+        return
+    key = (row.get("target_id", ""), norm, field)
+    if key in seen:
+        return
+    seen.add(key)
+    terms.append({
+        "target_id": row.get("target_id", ""),
+        "term": term,
+        "norm": norm,
+        "field": field,
+    })
+
+
+def _target_row_resolver_terms(row: dict[str, str]) -> list[dict[str, Any]]:
+    terms: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for field in ("target_id", "primary_id", "symbol", "name"):
+        _add_target_resolver_term(terms, seen, row, row.get(field, ""), field)
+    for alias in _split_pipe(row.get("description", "")):
+        if len(alias) <= 90:
+            _add_target_resolver_term(terms, seen, row, alias, "description")
+    for xref in _split_pipe(row.get("ids", "")):
+        _add_target_resolver_term(terms, seen, row, xref, "external_id")
+        if ":" in xref:
+            _add_target_resolver_term(terms, seen, row, xref.split(":", 1)[1], "external_id")
+    return terms
+
+
+def _target_lexical_score(query_norm: str, term_norm: str) -> float:
+    if not query_norm or not term_norm:
+        return 0.0
+    if query_norm == term_norm:
+        return 1.0
+    query_tokens = _resolver_tokens(query_norm)
+    term_tokens = _resolver_tokens(term_norm)
+    if not query_tokens or not term_tokens:
+        return 0.0
+    overlap = len(query_tokens & term_tokens)
+    containment = overlap / max(1, min(len(query_tokens), len(term_tokens)))
+    jaccard = overlap / max(1, len(query_tokens | term_tokens))
+    sequence = SequenceMatcher(None, query_norm, term_norm).ratio()
+    substring_score = 0.0
+    if query_norm in term_norm or term_norm in query_norm:
+        shorter = min(len(query_norm), len(term_norm))
+        longer = max(len(query_norm), len(term_norm))
+        substring_score = 0.78 + 0.18 * (shorter / max(1, longer))
+    return round(max(sequence, containment * 0.95, jaccard * 0.9, substring_score), 4)
+
+
+def _target_resolver_status(score: float, lexical: float, allowed: bool) -> str:
+    if not allowed:
+        if lexical >= 0.9:
+            return "context_match_not_authoritative"
+        return "classified_non_target"
+    if lexical >= 0.98 and score >= 0.9:
+        return "exact"
+    if score >= 0.82:
+        return "probable"
+    if score >= 0.68:
+        return "possible"
+    return "weak"
+
+
+def resolve_target_query(
+    data: TargetGraphData,
+    query: str,
+    limit: int = 8,
+    target_type: str = "",
+) -> dict[str, Any]:
+    """Resolve a free-text target label while preserving non-target classifications."""
+    query = str(query or "").strip()
+    norm = _resolver_norm(query)
+    classification = _target_query_type(query)
+    if not norm:
+        return {
+            "query": query,
+            "normalized_query": "",
+            **classification,
+            "best": None,
+            "candidates": [],
+        }
+
+    target_type = (target_type or "").strip().lower()
+    candidate_terms: dict[str, tuple[dict[str, Any], float]] = {}
+
+    direct_target_id = _resolve_target_id(data, query)
+    if direct_target_id and (not target_type or data.nodes_by_id.get(direct_target_id, {}).get("target_type", "").lower() == target_type):
+        candidate_terms[direct_target_id] = ({
+            "target_id": direct_target_id,
+            "term": query,
+            "norm": norm,
+            "field": "target_id" if direct_target_id == query else "external_id",
+        }, 1.0)
+
+    token_candidates: set[str] = set()
+    for token in _resolver_tokens(query):
+        ids = data.token_index.get(token, set())
+        if len(ids) <= 10000:
+            token_candidates.update(ids)
+    exact = data.exact_terms.get(norm, set())
+    token_candidates.update(exact)
+
+    candidate_ids = set(token_candidates) | set(candidate_terms.keys())
+    if not candidate_ids and norm:
+        # Final bounded fallback for short/noisy labels: reuse the explorer search
+        # ranking but cap work aggressively so resolver calls stay interactive.
+        candidate_ids.update(row.get("target_id", "") for row in _filter_targets(data, q=query)[:250])
+
+    for term_tid in candidate_ids:
+        row = data.nodes_by_id.get(term_tid, {})
+        if not row:
+            continue
+        if target_type and row.get("target_type", "").lower() != target_type:
+            continue
+        for term in _target_row_resolver_terms(row):
+            lexical = _target_lexical_score(norm, term.get("norm", ""))
+            if lexical < 0.58:
+                continue
+            current = candidate_terms.get(term_tid)
+            if current is None or lexical > current[1]:
+                candidate_terms[term_tid] = (term, lexical)
+
+    allowed = bool(classification.get("authoritative_mapping_allowed"))
+    candidates: list[dict[str, Any]] = []
+    for target_id, (term, lexical) in candidate_terms.items():
+        row = data.nodes_by_id.get(target_id, {})
+        if not row:
+            continue
+        if target_type and row.get("target_type", "").lower() != target_type:
+            continue
+        quality = _canonical_rank(row)
+        canonical_score = {0: 1.0, 1: 0.92, 2: 0.84, 3: 0.78}.get(quality, 0.75)
+        field_prior = _target_term_priority(term.get("field", ""), row)
+        type_prior = 1.0 - min(_type_rank(row.get("target_type", "")), 3) * 0.025
+        score = 0.84 * lexical + 0.08 * field_prior + 0.05 * canonical_score + 0.03 * type_prior
+        if not allowed:
+            score = min(score, 0.74)
+        score = max(0.0, min(1.0, score))
+        warnings = list(classification.get("warnings", []))
+        if row.get("target_type", "") == "protein" and row.get("canonical_status", "") and _canonical_rank(row) > 0:
+            warnings.append("protein_isoform_or_alternate_product")
+        if score < 0.68:
+            warnings.append("low_resolver_score")
+        candidates.append({
+            **_target_to_row(row),
+            "resolver_score": round(score, 4),
+            "lexical_score": round(lexical, 4),
+            "match_status": _target_resolver_status(score, lexical, allowed),
+            "query_type": classification.get("query_type", ""),
+            "authoritative_mapping_allowed": allowed,
+            "matched_term": term.get("term", ""),
+            "matched_field": term.get("field", ""),
+            "warnings": sorted(set(warnings)),
+            "href": f"/target-id-qa?ids={row.get('target_id', '')}&tab=graph",
+        })
+
+    candidates.sort(key=lambda row: (
+        -row["resolver_score"],
+        -row["lexical_score"],
+        _type_rank(row.get("target_type", "")),
+        _canonical_rank(row),
+        row.get("symbol", "") or row.get("name", ""),
+    ))
+    candidates = candidates[: max(1, min(limit, 50))]
+    if len(candidates) > 1 and candidates[0]["resolver_score"] - candidates[1]["resolver_score"] <= 0.03:
+        candidates[0]["warnings"] = sorted(set(candidates[0].get("warnings", []) + ["ambiguous_close_candidate"]))
+
+    return {
+        "query": query,
+        "normalized_query": norm,
+        **classification,
+        "best": candidates[0] if candidates else None,
+        "candidates": candidates,
+    }
+
+
+def bulk_resolve_targets(
+    data: TargetGraphData,
+    queries: list[str],
+    limit: int = 8,
+    target_type: str = "",
+) -> dict[str, Any]:
+    clean_queries = [str(q).strip() for q in queries if str(q).strip()]
+    limit = max(1, min(limit, 50))
+    return {
+        "count": len(clean_queries),
+        "limit": limit,
+        "target_type": target_type,
+        "results": [
+            resolve_target_query(data, query, limit=limit, target_type=target_type)
+            for query in clean_queries
+        ],
+    }
 
 
 def _is_canonical(row: dict[str, str]) -> bool:
