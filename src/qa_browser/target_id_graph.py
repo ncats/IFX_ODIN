@@ -1706,6 +1706,17 @@ def resolve_target_query(
         }
 
     target_type = (target_type or "").strip().lower()
+    allowed = bool(classification.get("authoritative_mapping_allowed"))
+    if not allowed:
+        return {
+            "query": query,
+            "normalized_query": norm,
+            **classification,
+            "best": None,
+            "candidates": [],
+            "not_mapped_reason": "classified_as_non_single_target_or_non_target",
+        }
+
     candidate_terms: dict[str, tuple[dict[str, Any], float]] = {}
 
     direct_target_id = _resolve_target_id(data, query)
@@ -1745,7 +1756,6 @@ def resolve_target_query(
             if current is None or lexical > current[1]:
                 candidate_terms[term_tid] = (term, lexical)
 
-    allowed = bool(classification.get("authoritative_mapping_allowed"))
     candidates: list[dict[str, Any]] = []
     for target_id, (term, lexical) in candidate_terms.items():
         row = data.nodes_by_id.get(target_id, {})
