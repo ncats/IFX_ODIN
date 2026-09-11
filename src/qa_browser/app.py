@@ -133,6 +133,7 @@ from src.qa_browser.target_id_graph import (
     build_pharos_ppi_payload,
     build_target_graph_payload,
     build_target_review_queue,
+    bulk_resolve_targets,
     compute_target_stats,
     compute_target_version_diff,
     export_divergences,
@@ -147,6 +148,7 @@ from src.qa_browser.target_id_graph import (
     mark_rows_resolved_by_registry_ids,
     mark_rows_resolved_by_triage,
     match_targets_to_tdl,
+    resolve_target_query,
     search_targets,
     validate_and_build_target_review_rows,
 )
@@ -8060,6 +8062,41 @@ def target_id_qa_search(
     return search_targets(data, q=q, target_type=target_type, namespace=namespace, page=page, per_page=per_page)
 
 
+@app.get("/target-id-qa/api/resolve-quick")
+def target_id_qa_resolve_quick(q: str = "", limit: int = 8, target_type: str = ""):
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="q parameter required.")
+    queries = [part.strip() for part in re.split(r"[\n|]+", q) if part.strip()]
+    data = _load_target_graph()
+    if len(queries) == 1:
+        return resolve_target_query(data, queries[0], limit=max(1, min(limit, 50)), target_type=target_type)
+    return bulk_resolve_targets(data, queries[:500], limit=max(1, min(limit, 50)), target_type=target_type)
+
+
+@app.post("/target-id-qa/api/resolve")
+async def target_id_qa_resolve(request: Request, limit: int = 8, target_type: str = ""):
+    payload = await request.json()
+    if isinstance(payload, list):
+        queries = payload
+    elif isinstance(payload, dict):
+        queries = payload.get("queries") or payload.get("targets") or payload.get("names") or []
+        limit = payload.get("limit", limit)
+        target_type = payload.get("target_type", target_type)
+    else:
+        queries = []
+    if isinstance(queries, str):
+        queries = [line.strip() for line in queries.splitlines() if line.strip()]
+    if not isinstance(queries, list) or not queries:
+        raise HTTPException(status_code=400, detail="Request body must include a queries list.")
+    data = _load_target_graph()
+    return bulk_resolve_targets(
+        data,
+        [str(q).strip() for q in queries if str(q).strip()][:500],
+        limit=max(1, min(int(limit), 50)),
+        target_type=str(target_type or ""),
+    )
+
+
 @app.get("/target-id-qa/api/graph")
 def target_id_qa_graph(ids: str = ""):
     data = _load_target_graph()
@@ -9932,6 +9969,56 @@ def disease_id_qa_download_preview(
     )
 
 
+@app.get("/disease-id-qa/api/resolve-quick")
+def disease_id_qa_resolve_quick(q: str = "", limit: int = 8, include_obsolete: bool = False):
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="q parameter required.")
+    queries = [part.strip() for part in re.split(r"[\n|]+", q) if part.strip()]
+    data = load_disease_graph_data(_disease_graph_dir)
+    if len(queries) == 1:
+        return resolve_name_candidates(
+            data,
+            queries[0],
+            limit=max(1, min(limit, 50)),
+            include_obsolete=include_obsolete,
+        )
+    return bulk_resolve_names(
+        data,
+        queries[:500],
+        limit=max(1, min(limit, 50)),
+        include_obsolete=include_obsolete,
+    )
+
+
+@app.post("/disease-id-qa/api/resolve")
+async def disease_id_qa_resolve(request: Request, limit: int = 8, include_obsolete: bool = False):
+    if not _disease_graph_dir:
+        raise HTTPException(status_code=500, detail="No --disease-graph-dir configured.")
+    payload = await request.json()
+    if isinstance(payload, list):
+        queries = payload
+    elif isinstance(payload, dict):
+        queries = payload.get("queries") or payload.get("names") or []
+        limit = payload.get("limit", limit)
+        raw_include_obsolete = payload.get("include_obsolete", include_obsolete)
+        include_obsolete = str(raw_include_obsolete).lower() in {"1", "true", "yes", "on"}
+    else:
+        queries = []
+    if isinstance(queries, str):
+        queries = [line.strip() for line in queries.splitlines() if line.strip()]
+    if not isinstance(queries, list) or not queries:
+        raise HTTPException(status_code=400, detail="Request body must include a queries list.")
+    data = load_disease_graph_data(_disease_graph_dir)
+    return bulk_resolve_names(
+        data,
+        [str(q).strip() for q in queries if str(q).strip()][:500],
+        limit=max(1, min(int(limit), 50)),
+        include_obsolete=include_obsolete,
+    )
+
+
 @app.get("/disease-id-qa/api/suggest")
 def disease_id_qa_suggest(q: str = "", limit: int = 8):
     """Return autocomplete suggestions for the search input."""
@@ -9944,7 +10031,7 @@ def disease_id_qa_suggest(q: str = "", limit: int = 8):
     suggestions = []
     seen_pxrefs: set = set()
     for cand in result.get("candidates", []):
-        pxref = cand.get("pxref", "")
+        pxref = cand.get("primary_xref") or cand.get("pxref", "")
         if pxref in seen_pxrefs:
             continue
         seen_pxrefs.add(pxref)
@@ -10120,6 +10207,49 @@ def disease_id_qa_download_sssom(include_sources: str = ""):
         iter_sssom_bytes(data, include_sources=src_set),
         media_type="text/tab-separated-values",
         headers={"Content-Disposition": 'attachment; filename="disease_mappings.sssom.tsv"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Target Explorer — Public REST API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/target/resolve-name")
+def api_resolve_target_name(q: str = "", limit: int = 10, target_type: str = ""):
+    """Resolve a free-text target name, symbol, ID, or ambiguous target-like label."""
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="q parameter required.")
+    data = _load_target_graph()
+    return resolve_target_query(
+        data,
+        q,
+        limit=max(1, min(limit, 50)),
+        target_type=target_type,
+    )
+
+
+@app.post("/api/v1/target/bulk-resolve")
+async def api_bulk_resolve_target_names(request: Request, limit: int = 8, target_type: str = ""):
+    """Resolve a list of target names, symbols, IDs, or ambiguous target-like labels."""
+    payload = await request.json()
+    if isinstance(payload, list):
+        queries = payload
+    elif isinstance(payload, dict):
+        queries = payload.get("queries") or payload.get("targets") or payload.get("names") or []
+        limit = payload.get("limit", limit)
+        target_type = payload.get("target_type", target_type)
+    else:
+        queries = []
+    if isinstance(queries, str):
+        queries = [line.strip() for line in queries.splitlines() if line.strip()]
+    if not isinstance(queries, list) or not queries:
+        raise HTTPException(status_code=400, detail="Request body must include a queries list.")
+    data = _load_target_graph()
+    return bulk_resolve_targets(
+        data,
+        [str(q).strip() for q in queries if str(q).strip()][:500],
+        limit=max(1, min(int(limit), 50)),
+        target_type=str(target_type or ""),
     )
 
 

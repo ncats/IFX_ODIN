@@ -1,0 +1,122 @@
+{
+  "mode": "compact_capped_preview",
+  "description": "The app graph contains a bounded, priority-ranked subset for QA Browser search/graph demos; full harmonized variant TSVs remain local pipeline artifacts and are not intended for IFXdev deployment.",
+  "max_app_nodes": 50000,
+  "max_app_edges": 150000,
+  "max_overlap_edges": 30000,
+  "max_overlap_edges_per_key": 25,
+  "max_edges_per_variant": 25,
+  "app_node_source_quotas": {
+    "ClinVar": 25000,
+    "GWASCatalog": 15000,
+    "UniProt": 7000,
+    "OMIM": 3000
+  },
+  "app_edge_source_quotas": {
+    "ClinVar": 75000,
+    "GWASCatalog": 45000,
+    "UniProt": 21000,
+    "OMIM": 9000
+  },
+  "full_input_nodes": 921088,
+  "exported_nodes": 50000,
+  "full_input_association_rows": 1623463,
+  "source_rows_matching_selected_nodes": 72318,
+  "exported_edges": 141387,
+  "exported_overlap_edges": 2197,
+  "overlap_relation_counts": {
+    "variant_overlap_same_dbsnp": 1388,
+    "variant_scope_warning": 809
+  },
+  "dbsnp_groups_with_overlap": 1842,
+  "selection_priority": [
+    "variants supported by multiple source streams where conservative identity keys agree",
+    "ClinVar pathogenic/likely pathogenic variants with stronger review status",
+    "UniProt natural variant protein features with public variant identifiers",
+    "variants with gene context and stable public identifiers",
+    "remaining human primary-assembly variants up to the configured cap"
+  ],
+  "total_input_nodes": 921088,
+  "full_source_counts": {
+    "GWASCatalog": 513279,
+    "ClinVar": 287423,
+    "UniProt": 87203,
+    "OMIM": 35247
+  },
+  "exported_source_counts": {
+    "ClinVar": 25000,
+    "GWASCatalog": 15000,
+    "UniProt": 7000,
+    "OMIM": 3000
+  },
+  "full_equivalence_scope_counts": {
+    "risk_allele_on_dbsnp_locus": 355076,
+    "allele_or_clinvar_variation": 287423,
+    "dbsnp_locus": 156139,
+    "protein_variant_on_dbsnp_locus": 68774,
+    "omim_allelic_variant_with_dbsnp_locus": 32765,
+    "protein_sequence_feature": 18429,
+    "omim_allelic_variant": 2482
+  },
+  "full_clinical_significance_counts": {
+    "Pathogenic": 150994,
+    "Likely pathogenic": 96690,
+    "Pathogenic/Likely pathogenic": 39308,
+    "OMIM curated allelic variant": 33684,
+    "OMIM allelic variant of uncertain significance": 773,
+    "OMIM allelic variant reported as polymorphism": 765,
+    "Pathogenic, low penetrance": 94,
+    "Likely pathogenic, low penetrance": 88,
+    "Pathogenic; other": 72,
+    "Pathogenic; drug response": 40,
+    "OMIM allelic variant with reclassification note": 25,
+    "Pathogenic; risk factor": 22,
+    "Likely pathogenic; drug response": 17,
+    "Likely pathogenic/Likely risk allele": 14,
+    "Pathogenic; Affects": 8,
+    "Pathogenic/Likely pathogenic/Pathogenic, low penetrance": 8,
+    "Pathogenic/Likely risk allele": 8,
+    "Likely pathogenic; risk factor": 5,
+    "Likely pathogenic; association": 5,
+    "Pathogenic/Likely pathogenic/Likely risk allele": 5,
+    "Pathogenic/Pathogenic, low penetrance": 5,
+    "Pathogenic/Likely pathogenic; other": 5,
+    "Likely pathogenic/Pathogenic, low penetrance": 5,
+    "Likely pathogenic/Likely pathogenic, low penetrance": 4,
+    "Pathogenic/Likely pathogenic; risk factor": 4
+  },
+  "total_input_association_rows": 1623463,
+  "full_relation_counts": {
+    "gwas_trait_association": 1095135,
+    "causal_clinical_interpretation": 404181,
+    "protein_variant_annotation": 88900,
+    "omim_allelic_variant_gene_context": 35247
+  },
+  "full_association_source_counts": {
+    "GWASCatalog": 1095135,
+    "ClinVar": 404181,
+    "UniProt": 88900,
+    "OMIM": 35247
+  },
+  "exported_association_source_counts": {
+    "ClinVar": 75000,
+    "GWASCatalog": 45000,
+    "UniProt": 18387,
+    "OMIM": 3000
+  },
+  "exported_target_mapping_counts": {
+    "mapped_to_ifx_gene": 40281,
+    "mapped_to_ifx_disease": 36583,
+    "mapped_to_ifx_gene_by_unique_symbol": 23907,
+    "unmapped_disease_or_trait": 23520,
+    "mapped_to_ifx_protein": 9197,
+    "unmapped_gene": 7881,
+    "ambiguous_disease_harmonizer_xref": 18
+  },
+  "association_support_counts": {
+    "strong_clinvar_causal": 33063,
+    "association_only": 30676,
+    "probable_causal": 2830,
+    "needs_expert_review": 367
+  }
+}
