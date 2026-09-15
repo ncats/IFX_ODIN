@@ -19,7 +19,6 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Disease
 
@@ -27,7 +26,12 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      resolver_snapshot: target_graph:tcrd_targets:deps-d6d9894c3969
+      gene_data_source: target_graph:gene_ids:2026-05-11
+      transcript_data_source: target_graph:transcript_ids:2026-05-11
+      protein_data_source: target_graph:protein_ids:2026-05-20
+      uniprot_mapping_data_source: target_graph:uniprot_mapping:2026-05-11
+      collapse_to_canonical: true
+      canonical_type: Protein
       types:
         - Protein
         - Gene
@@ -64,13 +68,13 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
     class: HarmonizomeGeneAttributeTypeAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/harmonizome_adapter.py
     class: HarmonizomeHgramCDFAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_source_tcrd/word_count.py
@@ -113,7 +117,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/drgc_resource_adapter.py
     class: DRGCResourceAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_arango/tcrd/ppi.py

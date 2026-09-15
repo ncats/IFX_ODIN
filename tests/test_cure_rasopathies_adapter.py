@@ -32,7 +32,7 @@ from src.models.cure.pasc.phenotype import Phenotype as PascPhenotype
 from src.models.cure.shared.case_report import CaseReport
 from src.models.cure.shared.patient import Patient
 from src.models.gene import Gene
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 
 
 CURE_REPORTS_FILE = "./input_files/manual/cure/reports_20260518T211409Z.jsonl"
@@ -105,12 +105,13 @@ def _materialized_dataset(tmp_path, file_name, content, *, version="registered-v
     local_dir.mkdir(parents=True)
     file_path = local_dir / file_name
     file_path.write_text(content, encoding="utf-8")
-    return MaterializedDataset(
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="cure",
         dataset="dataset",
         version=version,
-        version_date=version_date,
-        download_date="2026-06-13",
+        version_date=date.fromisoformat(version_date),
+        download_date=date(2026, 6, 13),
         snapshot_id=f"cure:dataset:{version}",
         manifest_uri=f"s3://ifx-registry/cure/dataset/{version}/manifest.yaml",
         manifest={"files": [{"path": file_name}]},
@@ -125,7 +126,8 @@ def _materialized_file_dataset(file_path):
     if version.startswith("reports_") and len(version) >= len("reports_YYYYMMDD"):
         raw_date = version.removeprefix("reports_")[:8]
         version_date = date(int(raw_date[:4]), int(raw_date[4:6]), int(raw_date[6:8]))
-    return MaterializedDataset(
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="cure",
         dataset="curated_concepts",
         version=version,
@@ -135,29 +137,6 @@ def _materialized_file_dataset(file_path):
         manifest_uri=f"s3://ifx-registry/sources/cure/curated_concepts/{version}/manifest.yaml",
         manifest={"files": [{"path": path.name}]},
         local_dir=path.parent,
-    )
-
-
-def _cure_resolver_snapshot(data_source, *, options=None):
-    return MaterializedDataset(
-        source="cure",
-        dataset="cure_id_labels",
-        version="test",
-        version_date=None,
-        download_date=None,
-        snapshot_id="cure:cure_id_labels:test",
-        manifest_uri="s3://ifx-registry/resolvers/cure/cure_id_labels/test/manifest.yaml",
-        manifest={
-            "kind": "resolver_snapshot",
-            "definition": {
-                "options": options or {},
-            },
-            "resolved_inputs": {
-                "data_source": data_source.snapshot_id,
-            },
-        },
-        local_dir=data_source.local_dir,
-        resolver_inputs={"data_source": data_source},
     )
 
 
@@ -171,8 +150,9 @@ def _cure_label_resolver(data_source=CURE_TSV_FILE, *, types, **kwargs):
     if isinstance(data_source, (str, Path)):
         data_source = _materialized_file_dataset(data_source)
     return CureIdLabelResolver(
-        resolver_snapshot=_cure_resolver_snapshot(data_source, options=options),
+        data_source=data_source,
         types=types,
+        **options,
         **kwargs,
     )
 

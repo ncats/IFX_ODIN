@@ -1,16 +1,14 @@
 import importlib.util
 import os
-from pathlib import Path
 import sys
 from typing import Any, List
 
 import yaml
 
-from src.core.data_registry import DataRegistry
+from src.core.registry_integration import RegistryIntegration
 from src.interfaces.id_resolver import IdResolver
 from src.interfaces.input_adapter import InputAdapter
 from src.interfaces.output_adapter import OutputAdapter
-from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR, RegistryCredentials, load_registry_credentials
 from src.shared.db_credentials import DBCredentials
 
 
@@ -59,52 +57,20 @@ def create_object_from_config(config: dict):
     return cls(**kwargs)
 
 
-def _registry_credentials_from_config(config_node: Any) -> RegistryCredentials:
-    if isinstance(config_node, DBCredentials):
-        return config_node
-    if isinstance(config_node, dict):
-        if "role_arn" in config_node or config_node.get("type") == "aws_assume_role":
-            from src.registry.storage import AwsAssumeRoleCredentials
-            return AwsAssumeRoleCredentials.from_yaml(config_node)
-        return DBCredentials.from_yaml(config_node)
-    return load_registry_credentials(Path(config_node))
-
-
-def _parse_data_source_ref(ref: str) -> tuple[str, str, str]:
-    return DataRegistry._parse_registry_ref(ref)
-
-
-def _materialize_registry_data_source(registry: DataRegistry, cache_dir: Path, ref: str):
-    source, dataset, version = _parse_data_source_ref(ref)
-    if hasattr(registry, "_materialize_registry_ref"):
-        return registry._materialize_registry_ref(source, dataset, version, dest=cache_dir)
-    try:
-        return registry.materialize_source_snapshot(source, dataset, version, dest=cache_dir)
-    except LookupError:
-        try:
-            return registry.materialize_derived_artifact(source, dataset, version, dest=cache_dir)
-        except LookupError:
-            return registry.materialize_external_source(source, dataset, version, dest=cache_dir)
-
-
-def _materialize_registry_resolver_snapshot(registry: DataRegistry, cache_dir: Path, ref: str):
-    source, resolver, version = _parse_data_source_ref(ref)
-    return registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir)
-
-
-def _resolve_registry_data_sources(config_node: Any, registry: DataRegistry, cache_dir: Path, parent_key: str | None = None):
+def _resolve_registry_datasets(
+    config_node: Any,
+    registry: RegistryIntegration,
+):
     if isinstance(config_node, dict):
         resolved = {}
         for key, value in config_node.items():
-            if key == "resolver_snapshot" and isinstance(value, str):
-                resolved[key] = _materialize_registry_resolver_snapshot(registry, cache_dir, value)
-            elif (key == "data_source" or key.endswith("_data_source")) and isinstance(value, str):
-                resolved[key] = _materialize_registry_data_source(registry, cache_dir, value)
+            if key == "data_source" or key.endswith("_data_source"):
+                resolved[key] = registry.resolve(value)
             else:
-                resolved[key] = _resolve_registry_data_sources(value, registry, cache_dir, key)
+                resolved[key] = _resolve_registry_datasets(value, registry)
         return resolved
     if isinstance(config_node, list):
-        return [_resolve_registry_data_sources(entry, registry, cache_dir, parent_key) for entry in config_node]
+        return [_resolve_registry_datasets(entry, registry) for entry in config_node]
     return config_node
 
 
@@ -112,20 +78,13 @@ def resolve_registry_references(config_dict: dict) -> dict:
     registry_config = config_dict.get("registry")
     if not registry_config:
         return config_dict
-    credentials_config = registry_config.get("credentials")
-    cache_dir = Path(registry_config.get("cache_dir", DEFAULT_REGISTRY_CACHE_DIR))
-    if credentials_config is None:
-        registry = DataRegistry.local(cache_dir=cache_dir)
-    else:
-        registry = DataRegistry.from_credentials(
-            _registry_credentials_from_config(credentials_config),
-            bucket=registry_config.get("bucket"),
-            use_internal_url=registry_config.get("use_internal_url", False),
-        )
+    if not isinstance(registry_config, dict):
+        raise TypeError("registry configuration must be a mapping")
+    registry = RegistryIntegration.connect(registry_config)
     resolved = dict(config_dict)
     for key in ("resolvers", "input_adapters"):
         if key in resolved:
-            resolved[key] = _resolve_registry_data_sources(resolved[key], registry, cache_dir)
+            resolved[key] = _resolve_registry_datasets(resolved[key], registry)
     return resolved
 
 class Config:
@@ -147,7 +106,7 @@ class Config:
             self.yaml_files.append(yaml_file)
             return config_dict
 
-    def _load_nested_yamls(self, config_node):
+    def _load_nested_yamls(self, config_node, parent_key=None):
         if isinstance(config_node, str) and (config_node.endswith(".yaml") or config_node.endswith(".yml")):
             nested_config = self.load_one_yaml(config_node)
             return self._load_nested_yamls(nested_config)
@@ -155,16 +114,20 @@ class Config:
             for key, value in config_node.items():
                 if isinstance(value, list):
                     for index, entry in enumerate(value):
-                        value[index] = self._load_nested_yamls(entry)
+                        value[index] = self._load_nested_yamls(entry, parent_key=key)
                 if isinstance(value, dict):
-                    config_node[key] = self._load_nested_yamls(value)
-                if isinstance(value, str) and (value.endswith(".yaml") or value.endswith(".yml")):
+                    config_node[key] = self._load_nested_yamls(value, parent_key=key)
+                if (
+                    isinstance(value, str)
+                    and (value.endswith(".yaml") or value.endswith(".yml"))
+                    and not (parent_key == "registry" and key == "credentials")
+                ):
                     nested_config = self.load_one_yaml(value)
                     config_node[key] = self._load_nested_yamls(nested_config)
         if isinstance(config_node, list):
             if isinstance(config_node, list):
                 for index, entry in enumerate(config_node):
-                    config_node[index] = self._load_nested_yamls(entry)
+                    config_node[index] = self._load_nested_yamls(entry, parent_key=parent_key)
         return config_node
 
     def __repr__(self):

@@ -1,3 +1,36 @@
+## Specialist Agent Workflow
+
+- Project-scoped specialist definitions live in `.codex/agents/`; the workflow
+  and role boundaries are summarized in `designs/ai_specialist_agents.md`.
+- Before implementing changes to a user interface, interaction, navigation,
+  information hierarchy, or user-visible workflow, delegate a read-only
+  consultation to `ux_designer`. Bring material product choices and its
+  recommended default back to the user before implementation.
+- Before implementation, delegate a read-only consultation to
+  `software_architect` when a change materially alters an ownership boundary,
+  public API contract, persistence model, dependency direction, or introduces
+  a new architectural pattern. Do not require this consultation for routine
+  extensions that follow an established design.
+- When both consultations apply, they may run in parallel. Wait for both and
+  reconcile their recommendations before editing.
+- After implementing and testing a feature or substantial refactor, delegate a
+  read-only review to `code_reviewer` before the final handoff.
+  Address Blocking and Important findings. If that causes substantive changes,
+  ask the same reviewer for one focused re-check.
+- Do not use specialist passes for documentation-only changes, trivial
+  mechanical edits, or when the user explicitly asks not to delegate. The user
+  may explicitly request any specialist at any time.
+- The primary agent remains responsible for decisions, edits, validation, and
+  the final answer. Specialists advise and return concise evidence; they do not
+  make parallel code changes.
+- Treat user feedback during development as possible evidence that a specialist
+  role should improve. When a comment reflects a reusable preference, decision
+  lens, or workflow that belongs to one of the roles, seriously evaluate it and
+  update that agent's instructions when appropriate. Keep feedback that is
+  specific to one feature in the feature's design or implementation instead of
+  overfitting a general-purpose agent. Tell the user when feedback changes an
+  agent's lasting instructions.
+
 ## Current Local TDL Handoff
 
 - For Jess's local `impatient_target_graph` reconstruction, read
@@ -31,6 +64,7 @@
 
 ## Adapter vs Resolver Boundary
 
+- Use the plain-language test: an ID resolver answers **"who is this?"**; an adapter answers **"what does this source say about it?"**
 - Adapters parse source payloads and emit graph structure using the identifiers the source actually provides.
 - Adapters may normalize identifier syntax only within the same identifier family when the transformation is lossless and source-defined, for example trimming whitespace or converting `DOID_1234` to `DOID:1234`.
 - Adapters must not perform cross-identifier reconciliation, for example symbol-to-UniProt, UniProt-isoform-to-canonical-accession, Entrez-to-Ensembl, disease-xref-to-MONDO, or source-specific IDs to IFX canonical IDs.
@@ -38,6 +72,25 @@
 - Adapters should not invent `xref` values to make downstream joins work. Canonical/equivalent `xref` content should come from resolver matches unless the source explicitly provides those exact equivalent IDs.
 - Filtering is different from resolving. Adapters should still apply source-scope filters that decide whether a row belongs in the ingest at all, such as human-only filters, evidence thresholds, or source-declared subsets.
 - If implementation feels like it needs a lookup table from one identifier family to another, stop and decide whether that lookup belongs in a resolver, a converter, or a documented post-processing step rather than inside the adapter.
+
+## Harmonizer vs Graph Builder Boundary
+
+- A harmonized or Registry-derived artifact is a versioned input, not permission to bypass the adapter/resolver boundary. Classify the artifact by what it represents before wiring it into a graph build.
+- Prefer using a harmonizer output in two explicit ways when it contains both identity mappings and harmonizer-owned annotations:
+  1. Build an `IdResolver` from its source-ID-to-preferred-ID mappings.
+  2. Use a separate adapter to ingest only the harmonizer's own scores, methods, confidence, review decisions, or other derived assertions.
+- Keep primary-source payloads independently ingestible through their source adapters. Graph configuration must remain able to include, exclude, version, filter, and model sources independently when their semantics differ.
+- Do not use a combined application, presentation, QA, or explorer graph as a drop-in replacement for primary-source adapters unless an explicit design decision transfers source selection, payload ownership, scientific policy, and provenance responsibility to that upstream product.
+- Treat these as warning signs that a proposed handoff has combined **"who"** and **"what"**:
+  - the artifact already uses preferred IFX IDs for records originating from several providers;
+  - provider rows or edges have been collapsed before the graph builder sees them;
+  - the adapter reports the harmonizer as its datasource even though its fields or evidence originated from multiple primary sources;
+  - adding a primary-source field requires changing and rebuilding the harmonizer;
+  - one adapter implicitly enables or disables several providers together.
+- Source names retained in a combined string or nested evidence blob do not replace field-level provenance or independent source selection. Information omitted upstream cannot be reconstructed by the graph builder.
+- Treat evidence-bearing relationships more strictly than preferred scalar annotations. A harmonizer may publish a preferred name, symbol, location, or similar consensus value when it also publishes the selection method, score, and evidence trail. It must not invisibly filter, sample, rank, cap, or collapse primary-source evidence edges intended for graph building. Those decisions belong in visible graph configuration or source adapters unless an explicitly approved derived-evidence contract preserves provider identity, raw endpoints, row-level evidence, and lossless source selection.
+- Separate ownership of Target Graph, Pharos, or another graph-building use case does not waive this boundary. Each use case may choose different sources and policies while still keeping identity resolution separate from source payload modeling.
+- Before implementing an adapter over a pre-resolved or multi-provider artifact, read `designs/harmonizer_graph_builder_boundary.md`, document the handoff contract, and pause for explicit architectural approval.
 
 ## Profiling And Planning Tools
 
@@ -81,7 +134,7 @@ IFX_ODIN (Ontology and Data Integration Network) is a modular ETL platform devel
 
 ## Tech Stack
 
-- **Language:** Python 3.9+
+- **Language:** Python 3.11+
 - **Workflow:** Snakemake
 - **ORM:** SQLAlchemy
 - **Data models:** dataclasses, LinkML

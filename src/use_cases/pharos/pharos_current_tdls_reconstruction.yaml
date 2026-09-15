@@ -11,7 +11,6 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
 
@@ -19,7 +18,12 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TCRDTargetResolver
     kwargs:
-      resolver_snapshot: target_graph:tcrd_targets:deps-d6d9894c3969
+      gene_data_source: target_graph:gene_ids:2026-05-11
+      transcript_data_source: target_graph:transcript_ids:2026-05-11
+      protein_data_source: target_graph:protein_ids:2026-05-20
+      uniprot_mapping_data_source: target_graph:uniprot_mapping:2026-05-11
+      collapse_to_canonical: true
+      canonical_type: Protein
       types:
         - Protein
         - Gene
@@ -41,13 +45,13 @@ input_adapters:
   - import: ./src/input_adapters/drug_central/drug_node.py
     class: DrugNodeAdapter
     kwargs:
-      data_source: drugcentral:drug_database:54
+      data_source: {kind: external_dataset_version, snapshot_id: drugcentral:drug_database:54}
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/protein_drug_edge.py
     class: ProteinDrugEdgeAdapter
     kwargs:
-      data_source: drugcentral:drug_database:54
+      data_source: {kind: external_dataset_version, snapshot_id: drugcentral:drug_database:54}
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
@@ -64,14 +68,14 @@ input_adapters:
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
     kwargs:
-      data_source: chembl:activity_database:chembl36
+      data_source: {kind: external_dataset_version, snapshot_id: chembl:activity_database:chembl36}
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: ProteinDrugEdgeAdapter
     kwargs:
-      data_source: chembl:activity_database:chembl36
+      data_source: {kind: external_dataset_version, snapshot_id: chembl:activity_database:chembl36}
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
@@ -105,7 +109,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
 output_adapters:

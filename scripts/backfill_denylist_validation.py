@@ -59,7 +59,7 @@ def main() -> None:
     if not registry_cred_path.exists():
         raise FileNotFoundError(registry_cred_path)
     with registry_cred_path.open() as handle:
-        qa_app._registry_storage_credentials = yaml.safe_load(handle)
+        qa_app._object_storage_credentials = yaml.safe_load(handle)
 
     db = qa_app.get_db("metabolite_harmonization")
     stage_collection = db.collection(qa_app._HARMONIZATION_STAGE_COLLECTION)

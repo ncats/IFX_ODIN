@@ -9,7 +9,8 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
+      data_source: target_graph:protein_ids:2026-05-20
+      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
       no_match_behavior: Skip

@@ -194,7 +194,7 @@ Tipiracil 6.14 Mg / Trifluridine 15 Mg Oral Tablet</textarea>
             const sections = (payload.results || []).map(renderResult).join("");
             results.innerHTML = sections || '<div class="cure-resolver-empty">No results.</div>';
         } catch (error) {
-            results.innerHTML = `<div class="registry-update-error">${escapeHtml(String(error))}</div>`;
+            results.innerHTML = `<div class="inline-error">${escapeHtml(String(error))}</div>`;
         } finally {
             button.disabled = false;
         }

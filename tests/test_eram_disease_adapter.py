@@ -1,5 +1,8 @@
+from datetime import date
+
 from src.constants import DataSourceName
 from src.input_adapters.pharos_mysql.eram_disease_adapter import ERAMDiseaseAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.disease import Disease, ProteinDiseaseEdge
 
 
@@ -30,9 +33,12 @@ class FakeSession:
 
 def test_eram_adapter_reports_legacy_pharos_version():
     adapter = object.__new__(ERAMDiseaseAdapter)
+    adapter.version_info = DatasourceVersionInfo(
+        version="pharos319", version_date=date(2024, 2, 15)
+    )
 
     assert adapter.get_datasource_name() == DataSourceName.OldPharos
-    assert adapter.get_version().version == "3.19"
+    assert adapter.get_version().version == "pharos319"
     assert adapter.get_version().version_date.isoformat() == "2024-02-15"
 
 

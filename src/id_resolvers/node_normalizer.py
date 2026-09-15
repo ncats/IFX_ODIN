@@ -35,14 +35,12 @@ class TranslatorNodeNormResolver(IdResolver):
     }
 
     def __init__(self,
-                 resolver_snapshot,
                  batch_size: int = 50000,
                  request_timeout: int = 120,
                  max_retries: int = 10,
                  retry_backoff_seconds: int = 60,
                  **kwargs):
         super().__init__(**kwargs)
-        self.resolver_snapshot = resolver_snapshot
         self.batch_size = batch_size
         self.request_timeout = request_timeout
         self.max_retries = max(1, max_retries)

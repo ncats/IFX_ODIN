@@ -11,7 +11,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_genes:deps-ac541015564c
+      data_source: target_graph:gene_ids:2026-05-11
       types:
         - Gene
       no_match_behavior: Skip
@@ -20,7 +20,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_transcripts:deps-aaccdb08ac83
+      data_source: target_graph:transcript_ids:2026-05-11
       types:
         - Transcript
       no_match_behavior: Skip
@@ -29,7 +29,8 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
+      data_source: target_graph:protein_ids:2026-05-20
+      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
       no_match_behavior: Skip
@@ -78,12 +79,12 @@ input_adapters:
   - import: ./src/input_adapters/drug_harmonizer/drug_nodes_and_edges.py
     class: DrugHarmonizerLigandNodeAdapter
     kwargs:
-      data_source: drug_graph:drug_nodes:2026-09-04
+      data_source: {kind: derived_snapshot, snapshot_id: drug_graph:drug_nodes:2026-09-04}
 
   - import: ./src/input_adapters/drug_harmonizer/drug_nodes_and_edges.py
     class: DrugHarmonizerProteinLigandEdgeAdapter
     kwargs:
-      data_source: drug_graph:drug_edges:2026-09-04
+      data_source: {kind: derived_snapshot, snapshot_id: drug_graph:drug_edges:2026-09-04}
 
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
     class: TotalPMScoreAdapter
@@ -98,7 +99,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/go/go_gaf.py

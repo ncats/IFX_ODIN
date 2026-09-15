@@ -1,8 +1,11 @@
+from datetime import date
+
 from src.input_adapters.mp.phenotype_terms import MPPhenotypeAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def test_mp_adapter_emits_mouse_phenotype_nodes(tmp_path):
-    mp_path = tmp_path / "mp.obo"
+    mp_path = tmp_path / "MPheno_OBO.ontology"
     mp_path.write_text(
         """format-version: 1.2
 data-version: releases/2026-05-01
@@ -22,7 +25,14 @@ name: biological_process
         encoding="utf-8",
     )
 
-    adapter = MPPhenotypeAdapter(file_path=str(mp_path))
+    adapter = MPPhenotypeAdapter(
+        registry_dataset(
+            tmp_path,
+            mp_path.name,
+            version="2026-05-01",
+            version_date=date(2026, 5, 1),
+        )
+    )
     entries = [entry for batch in adapter.get_all() for entry in batch]
 
     assert len(entries) == 2

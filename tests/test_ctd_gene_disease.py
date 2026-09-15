@@ -4,6 +4,7 @@ from pathlib import Path
 from src.input_adapters.ctd.ctd_gene_disease import CTDGeneDiseaseAdapter
 from src.models.disease import Disease, GeneDiseaseEdge
 from src.models.gene import Gene
+from tests.registry_fakes import registry_dataset
 
 
 def _write_ctd_fixture(path: Path) -> None:
@@ -16,10 +17,12 @@ XYZ\t2\tDisease Two\tOMIM:123456\ttherapeutic\t\t11111
 
 
 def test_ctd_adapter_emits_gene_disease_edges(tmp_path):
-    fixture_path = tmp_path / "ctd.tsv.gz"
+    fixture_path = tmp_path / "CTD_curated_genes_diseases.tsv.gz"
     _write_ctd_fixture(fixture_path)
 
-    adapter = CTDGeneDiseaseAdapter(file_path=str(fixture_path))
+    adapter = CTDGeneDiseaseAdapter(
+        data_source=registry_dataset(tmp_path, fixture_path.name)
+    )
     batches = list(adapter.get_all())
 
     assert len(batches) == 2
@@ -44,10 +47,13 @@ def test_ctd_adapter_emits_gene_disease_edges(tmp_path):
 
 
 def test_ctd_adapter_honors_max_rows(tmp_path):
-    fixture_path = tmp_path / "ctd.tsv.gz"
+    fixture_path = tmp_path / "CTD_curated_genes_diseases.tsv.gz"
     _write_ctd_fixture(fixture_path)
 
-    adapter = CTDGeneDiseaseAdapter(file_path=str(fixture_path), max_rows=1)
+    adapter = CTDGeneDiseaseAdapter(
+        data_source=registry_dataset(tmp_path, fixture_path.name),
+        max_rows=1,
+    )
     batches = list(adapter.get_all())
 
     diseases = batches[0]

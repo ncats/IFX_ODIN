@@ -23,7 +23,7 @@
     </section>
 
     {% if error %}
-    <div class="registry-update-error">{{ error }}</div>
+    <div class="inline-error">{{ error }}</div>
     {% endif %}
 
     {% include "metabolite_curation_cart.html" %}
@@ -45,7 +45,7 @@
     </section>
 
     {% if "force_expected_clique_assertions" in stats.stage.rule_ids %}
-    <div class="registry-update-error">
+    <div class="inline-error">
         <strong>Fallback merge rule active.</strong>
         “Give up: Make Assertions True” added {{ stats.summary.expected_clique_synthetic_edge_count|default(0, true) }} synthetic edge{{ "" if stats.summary.expected_clique_synthetic_edge_count|default(0, true) == 1 else "s" }}
         for {{ stats.summary.expected_clique_assertion_applied_count|default(0, true) }} assertion{{ "" if stats.summary.expected_clique_assertion_applied_count|default(0, true) == 1 else "s" }}.

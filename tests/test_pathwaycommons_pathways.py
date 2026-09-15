@@ -7,6 +7,7 @@ from src.input_adapters.pathwaycommons.pathwaycommons_pathways import (
 )
 from src.models.gene import Gene
 from src.models.pathway import GenePathwayEdge, Pathway
+from tests.registry_fakes import registry_dataset
 
 
 def _write_pathwaycommons_fixture(path: Path) -> None:
@@ -20,10 +21,12 @@ def _write_pathwaycommons_fixture(path: Path) -> None:
 
 
 def test_pathwaycommons_pathway_adapter_emits_filtered_pathway_nodes(tmp_path):
-    fixture_path = tmp_path / "pathwaycommons.gmt.gz"
+    fixture_path = tmp_path / "pc-hgnc.gmt.gz"
     _write_pathwaycommons_fixture(fixture_path)
 
-    adapter = PathwayCommonsPathwayAdapter(file_path=str(fixture_path))
+    adapter = PathwayCommonsPathwayAdapter(
+        registry_dataset(tmp_path, fixture_path.name)
+    )
     batches = list(adapter.get_all())
 
     assert len(batches) == 1
@@ -36,10 +39,12 @@ def test_pathwaycommons_pathway_adapter_emits_filtered_pathway_nodes(tmp_path):
 
 
 def test_pathwaycommons_gene_pathway_adapter_emits_gene_edges(tmp_path):
-    fixture_path = tmp_path / "pathwaycommons.gmt.gz"
+    fixture_path = tmp_path / "pc-hgnc.gmt.gz"
     _write_pathwaycommons_fixture(fixture_path)
 
-    adapter = PathwayCommonsGenePathwayEdgeAdapter(file_path=str(fixture_path))
+    adapter = PathwayCommonsGenePathwayEdgeAdapter(
+        registry_dataset(tmp_path, fixture_path.name)
+    )
     batches = list(adapter.get_all())
 
     assert len(batches) == 1
@@ -53,10 +58,12 @@ def test_pathwaycommons_gene_pathway_adapter_emits_gene_edges(tmp_path):
 
 
 def test_pathwaycommons_adapter_honors_max_rows(tmp_path):
-    fixture_path = tmp_path / "pathwaycommons.gmt.gz"
+    fixture_path = tmp_path / "pc-hgnc.gmt.gz"
     _write_pathwaycommons_fixture(fixture_path)
 
-    adapter = PathwayCommonsGenePathwayEdgeAdapter(file_path=str(fixture_path), max_rows=1)
+    adapter = PathwayCommonsGenePathwayEdgeAdapter(
+        registry_dataset(tmp_path, fixture_path.name), max_rows=1
+    )
     batches = list(adapter.get_all())
 
     edges = batches[0]

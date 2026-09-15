@@ -14,12 +14,12 @@ python -m src.use_cases.pharos.fetch_drug_harmonizer_ids
 python -m src.use_cases.pharos.fetch_drug_harmonizer_ids \
     --api-url http://127.0.0.1:8050 \
     --no-upload \
-    --output-dir ./registry_cache
+    --output-dir ./registry_exports
 
 After publishing, update impatient_target_graph.yaml::
 
-    data_source: drug_graph:drug_nodes:2026-09-04
-    data_source: drug_graph:drug_edges:2026-09-04
+    data_source: {kind: derived_snapshot, snapshot_id: drug_graph:drug_nodes:2026-09-04}
+    data_source: {kind: derived_snapshot, snapshot_id: drug_graph:drug_edges:2026-09-04}
 """
 
 import argparse
@@ -34,6 +34,7 @@ from requests.adapters import HTTPAdapter, Retry
 
 DEFAULT_API_URL = "https://ifxdev.ncats.nih.gov/odin-qa"
 DEFAULT_REGISTRY_CREDENTIALS = "./src/use_cases/secrets/aws_ifx_registry.yaml"
+DEFAULT_PRODUCER_REPOSITORY = "https://github.com/ncats/IFX_Harmonizers"
 REGISTRY_SOURCE = "drug_graph"
 
 FILE_TYPES = [
@@ -89,57 +90,33 @@ def read_local_file(path: Path, filename: str, output_path: Path) -> None:
 
 
 def publish_to_registry(
-    manifest_path: Path,
-    registry_credentials: str,
-):
-    from src.core.data_registry import DataRegistry
-
-    registry = DataRegistry.from_registry_credentials(registry_credentials)
-    uploaded = registry.upload_snapshot(manifest_path)
-    print(f"  -> Published to registry: {len(uploaded)} files uploaded")
-    for uri in uploaded:
-        print(f"    {uri}")
-
-
-def write_source_manifest(
-    output_dir: Path,
+    file_path: Path,
     dataset: str,
     version: str,
-    filename: str,
-    content_type: str,
-) -> Path:
-    from src.registry.manifest import build_source_snapshot_manifest, file_entry, write_manifest
+    registry_credentials: str,
+    source_url: str | None,
+    inputs: list[str],
+    producer_release: str,
+    producer_revision: str,
+):
+    from src.core.registry_publication import publish_derived_file
 
-    file_path = output_dir / dataset / version / filename
-    entry = file_entry(
-        local_path=file_path,
-        source_url=None,
-        storage_uri=None,
-        content_type=content_type,
+    result = publish_derived_file(
+        f"{REGISTRY_SOURCE}:{dataset}:{version}",
+        file_path,
+        registry_credentials,
+        inputs=inputs,
+        producer_release=producer_release,
+        producer_repository=DEFAULT_PRODUCER_REPOSITORY,
+        producer_revision=producer_revision,
+        transform_name="drug_harmonizer_export",
+        validation={"size_bytes": file_path.stat().st_size, "nonempty": file_path.stat().st_size > 0},
+        metadata={
+            "description": f"Harmonized {dataset} from Drug Harmonizer",
+            "export_url": source_url,
+        },
     )
-    manifest = build_source_snapshot_manifest(
-        source=REGISTRY_SOURCE,
-        dataset=dataset,
-        version=version,
-        version_date=version,
-        download_date=None,
-        homepage=None,
-        upstream_urls=[],
-        files=[entry],
-        downloaded_by="fetch_drug_harmonizer_ids",
-        extra={"description": f"Harmonized {dataset} from Drug Harmonizer API"},
-    )
-    manifest_path = file_path.parent / "manifest.yaml"
-    write_manifest(manifest, manifest_path)
-    return manifest_path
-
-
-def cache_source_snapshot_locally(manifest_path: Path, output_dir: Path) -> None:
-    from src.core.data_registry import DataRegistry
-
-    registry = DataRegistry.local(cache_dir=output_dir)
-    registry.upload_snapshot(manifest_path)
-    print("  -> Cached local registry snapshot")
+    print(f"  -> Published to registry: {result.snapshot_id}")
 
 
 def main():
@@ -153,8 +130,8 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default="./registry_cache",
-        help="Local directory for downloaded files (default: ./registry_cache)",
+        default="./registry_exports",
+        help="Local staging directory for downloaded files (default: ./registry_exports)",
     )
     parser.add_argument(
         "--version",
@@ -166,6 +143,14 @@ def main():
         default=DEFAULT_REGISTRY_CREDENTIALS,
         help=f"Path to registry credentials YAML (default: {DEFAULT_REGISTRY_CREDENTIALS})",
     )
+    parser.add_argument(
+        "--input",
+        action="append",
+        default=[],
+        help="Exact derived input as source=source:dataset:version (also derived= or external=); repeatable.",
+    )
+    parser.add_argument("--producer-release", help="IFX Harmonizers release that produced the export.")
+    parser.add_argument("--producer-revision", help="Full IFX Harmonizers Git commit hash.")
     parser.add_argument("--no-upload", action="store_true", help="Download files only, skip registry upload")
     parser.add_argument(
         "--file-types",
@@ -179,6 +164,8 @@ def main():
         help="Read files from this app_graph directory instead of fetching from the API.",
     )
     args = parser.parse_args()
+    if not args.no_upload and (not args.input or not args.producer_release or not args.producer_revision):
+        parser.error("upload requires --input, --producer-release, and --producer-revision")
 
     output_dir = Path(args.output_dir)
     session = _make_session()
@@ -187,6 +174,8 @@ def main():
     print(f"Version: {args.version}")
     print(f"Output: {output_dir}")
     print()
+    published_refs: list[str] = []
+    publication_failures: list[str] = []
 
     for file_type, dataset, filename, content_type in FILE_TYPES:
         if file_type not in args.file_types:
@@ -200,27 +189,42 @@ def main():
             fetch_drug_file(args.api_url, filename, session, file_path)
         print(f"  -> Saved to {file_path}")
 
-        manifest_path = write_source_manifest(
-            output_dir,
-            dataset,
-            args.version,
-            filename,
-            content_type,
-        )
-        cache_source_snapshot_locally(manifest_path, output_dir)
-
         if not args.no_upload:
             try:
-                publish_to_registry(manifest_path, args.registry_credentials)
+                source_url = None if args.local_dir else (
+                    f"{args.api_url.rstrip('/')}/drug-id-qa/download/{filename}"
+                )
+                publish_to_registry(
+                    file_path,
+                    dataset,
+                    args.version,
+                    args.registry_credentials,
+                    source_url,
+                    args.input,
+                    args.producer_release,
+                    args.producer_revision,
+                )
+                published_refs.append(f"{REGISTRY_SOURCE}:{dataset}:{args.version}")
             except Exception as exc:
                 print(f"  Warning: Registry upload failed: {exc}", file=sys.stderr)
                 print(f"    File saved locally at {file_path}", file=sys.stderr)
+                publication_failures.append(f"{dataset}: {exc}")
         print()
 
     print("Done.")
-    print(f"\nDrug graph data_source refs staged in {output_dir}:")
-    print(f"  data_source: {REGISTRY_SOURCE}:drug_nodes:{args.version}")
-    print(f"  data_source: {REGISTRY_SOURCE}:drug_edges:{args.version}")
+    if args.no_upload:
+        print(f"\nFiles were staged in {output_dir}; nothing was registered.")
+    else:
+        print("\nRegistered drug graph dataset refs:")
+        for snapshot_id in published_refs:
+            print(
+                "  data_source: {kind: derived_snapshot, snapshot_id: "
+                f"{snapshot_id}" + "}"
+            )
+        if publication_failures:
+            raise RuntimeError(
+                "Registry publication failed for: " + "; ".join(publication_failures)
+            )
 
 
 if __name__ == "__main__":

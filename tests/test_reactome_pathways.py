@@ -1,11 +1,11 @@
 import zipfile
 
 from src.input_adapters.reactome.reactome_pathways import ReactomePathwayAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def test_reactome_pathway_adapter_reads_id_from_second_gmt_column(tmp_path):
     gmt_zip_path = tmp_path / "ReactomePathways.gmt.zip"
-    version_path = tmp_path / "reactome_version.tsv"
 
     with zipfile.ZipFile(gmt_zip_path, "w") as archive:
         archive.writestr(
@@ -16,11 +16,8 @@ def test_reactome_pathway_adapter_reads_id_from_second_gmt_column(tmp_path):
             ])
         )
 
-    version_path.write_text("version\tversion_date\n95\t2025-11-27\n", encoding="utf-8")
-
     adapter = ReactomePathwayAdapter(
-        gmt_file_path=str(gmt_zip_path),
-        version_file_path=str(version_path),
+        registry_dataset(tmp_path, gmt_zip_path.name, version="95"),
     )
 
     pathways = next(adapter.get_all())

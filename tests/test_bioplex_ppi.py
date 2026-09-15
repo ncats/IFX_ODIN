@@ -1,10 +1,11 @@
+from datetime import date
+
 from src.input_adapters.bioplex.bioplex_ppi import BioPlexPPIAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def test_bioplex_adapter_preserves_probability_fields_and_canonicalizes_direction(tmp_path):
     data_path = tmp_path / "BioPlex_293T_Network_10K_Dec_2019.tsv"
-    version_path = tmp_path / "bioplex_version.tsv"
-
     data_path.write_text(
         "\n".join(
             [
@@ -14,19 +15,15 @@ def test_bioplex_adapter_preserves_probability_fields_and_canonicalizes_directio
         ),
         encoding="utf-8",
     )
-    version_path.write_text(
-        "\n".join(
-            [
-                "dataset\tfile\tversion\tversion_date",
-                "BioPlex 3.0 293T\tBioPlex_293T_Network_10K_Dec_2019.tsv\t3.0\t2024-01-19",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
     adapter = BioPlexPPIAdapter(
-        file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(
+            tmp_path,
+            data_path.name,
+            source="bioplex",
+            dataset="ppi",
+            version="3.0",
+            version_date=date(2024, 1, 19),
+        ),
     )
 
     batches = list(adapter.get_all())
@@ -41,14 +38,12 @@ def test_bioplex_adapter_preserves_probability_fields_and_canonicalizes_directio
     assert edges[0].sources == []
 
     version = adapter.get_version()
-    assert version.version == "3.0 (293T)"
+    assert version.version == "3.0"
     assert version.version_date.isoformat() == "2024-01-19"
 
 
 def test_bioplex_adapter_falls_back_to_ncbi_gene_for_unknown_uniprot(tmp_path):
     data_path = tmp_path / "BioPlex_HCT116_Network_5.5K_Dec_2019.tsv"
-    version_path = tmp_path / "bioplex_version.tsv"
-
     data_path.write_text(
         "\n".join(
             [
@@ -58,19 +53,8 @@ def test_bioplex_adapter_falls_back_to_ncbi_gene_for_unknown_uniprot(tmp_path):
         ),
         encoding="utf-8",
     )
-    version_path.write_text(
-        "\n".join(
-            [
-                "dataset\tfile\tversion\tversion_date",
-                "BioPlex 3.0 HCT116\tBioPlex_HCT116_Network_5.5K_Dec_2019.tsv\t3.0\t2024-01-19",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
     adapter = BioPlexPPIAdapter(
-        file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(tmp_path, data_path.name, version="3.0"),
     )
 
     batches = list(adapter.get_all())
@@ -97,7 +81,7 @@ def test_bioplex_adapter_honors_max_rows_on_kept_edges(tmp_path):
     )
 
     adapter = BioPlexPPIAdapter(
-        file_path=str(data_path),
+        data_source=registry_dataset(tmp_path, data_path.name, version="3.0"),
         max_rows=2,
     )
 

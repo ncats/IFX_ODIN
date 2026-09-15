@@ -26,10 +26,10 @@ python -m src.use_cases.pharos.fetch_disease_harmonizer_ids \
 After publishing, update disease_graph.yaml::
 
     # Change the version dates to match the new snapshot
-    data_source: disease_graph:disease_concepts:2026-09-01        # <- new date
-    data_source: disease_graph:disease_xref_edges:2026-09-01      # <- new date
-    data_source: disease_graph:disease_hierarchy_edges:2026-09-01  # <- new date
-    data_source: disease_graph:xref_labels:2026-09-01              # <- new date
+    data_source: {kind: derived_snapshot, snapshot_id: disease_graph:disease_concepts:2026-09-01}
+    data_source: {kind: derived_snapshot, snapshot_id: disease_graph:disease_xref_edges:2026-09-01}
+    data_source: {kind: derived_snapshot, snapshot_id: disease_graph:disease_hierarchy_edges:2026-09-01}
+    data_source: {kind: derived_snapshot, snapshot_id: disease_graph:xref_labels:2026-09-01}
 """
 
 import argparse
@@ -43,6 +43,7 @@ from requests.adapters import HTTPAdapter, Retry
 
 DEFAULT_API_URL = "https://ifxdev.ncats.nih.gov/odin-qa"
 DEFAULT_REGISTRY_CREDENTIALS = "./src/use_cases/secrets/aws_ifx_registry.yaml"
+DEFAULT_PRODUCER_REPOSITORY = "https://github.com/ncats/IFX_Harmonizers"
 REGISTRY_SOURCE = "disease_graph"
 
 # NOTE: disease_source_catalog.tsv is served from a metadata/ subdirectory,
@@ -81,44 +82,34 @@ def fetch_disease_file(api_url: str, filename: str, session: requests.Session) -
 
 
 def publish_to_registry(
-    output_dir: Path,
+    file_path: Path,
     dataset: str,
     version: str,
-    filename: str,
     registry_credentials: str,
+    source_url: str,
+    inputs: list[str],
+    producer_release: str,
+    producer_revision: str,
 ):
     """Publish a single disease file to the IFX data registry."""
-    from src.core.data_registry import DataRegistry
-    from src.registry.manifest import build_source_snapshot_manifest, file_entry, write_manifest
+    from src.core.registry_publication import publish_derived_file
 
-    file_path = output_dir / dataset / version / filename
-    content_type = "application/json" if filename.endswith(".json") else "text/tab-separated-values"
-    entry = file_entry(
-        local_path=file_path,
-        source_url=None,
-        storage_uri=None,
-        content_type=content_type,
+    result = publish_derived_file(
+        f"{REGISTRY_SOURCE}:{dataset}:{version}",
+        file_path,
+        registry_credentials,
+        inputs=inputs,
+        producer_release=producer_release,
+        producer_repository=DEFAULT_PRODUCER_REPOSITORY,
+        producer_revision=producer_revision,
+        transform_name="disease_harmonizer_export",
+        validation={"size_bytes": file_path.stat().st_size, "nonempty": file_path.stat().st_size > 0},
+        metadata={
+            "description": f"Harmonized {dataset} from Disease Harmonizer",
+            "export_url": source_url,
+        },
     )
-    manifest = build_source_snapshot_manifest(
-        source=REGISTRY_SOURCE,
-        dataset=dataset,
-        version=version,
-        version_date=version,
-        download_date=None,
-        homepage=None,
-        upstream_urls=[],
-        files=[entry],
-        downloaded_by="fetch_disease_harmonizer_ids",
-        extra={"description": f"Harmonized {dataset} from Disease Harmonizer API"},
-    )
-    manifest_path = file_path.parent / "manifest.yaml"
-    write_manifest(manifest, manifest_path)
-
-    registry = DataRegistry.from_credentials(registry_credentials)
-    uploaded = registry.upload_snapshot(manifest_path)
-    print(f"  -> Published to registry: {len(uploaded)} files uploaded")
-    for uri in uploaded:
-        print(f"    {uri}")
+    print(f"  -> Published to registry: {result.snapshot_id}")
 
 
 def main():
@@ -132,8 +123,8 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default="./registry_cache",
-        help="Local directory for downloaded files (default: ./registry_cache)",
+        default="./registry_exports",
+        help="Local staging directory for downloaded files (default: ./registry_exports)",
     )
     parser.add_argument(
         "--version",
@@ -145,6 +136,14 @@ def main():
         default=DEFAULT_REGISTRY_CREDENTIALS,
         help=f"Path to registry credentials YAML (default: {DEFAULT_REGISTRY_CREDENTIALS})",
     )
+    parser.add_argument(
+        "--input",
+        action="append",
+        default=[],
+        help="Exact derived input as source=source:dataset:version (also derived= or external=); repeatable.",
+    )
+    parser.add_argument("--producer-release", help="IFX Harmonizers release that produced the export.")
+    parser.add_argument("--producer-revision", help="Full IFX Harmonizers Git commit hash.")
     parser.add_argument(
         "--no-upload",
         action="store_true",
@@ -159,6 +158,8 @@ def main():
         help="Which file types to fetch (default: all)",
     )
     args = parser.parse_args()
+    if not args.no_upload and (not args.input or not args.producer_release or not args.producer_revision):
+        parser.error("upload requires --input, --producer-release, and --producer-revision")
 
     output_dir = Path(args.output_dir)
     session = _make_session()
@@ -167,6 +168,8 @@ def main():
     print(f"Version: {args.version}")
     print(f"Output: {output_dir}")
     print()
+    published_refs: list[str] = []
+    publication_failures: list[str] = []
 
     for file_type, dataset, filename in ENTITY_TYPES:
         if file_type not in args.file_types:
@@ -186,22 +189,37 @@ def main():
         if not args.no_upload:
             try:
                 publish_to_registry(
-                    output_dir, dataset, args.version, filename,
+                    file_path,
+                    dataset,
+                    args.version,
                     args.registry_credentials,
+                    f"{args.api_url.rstrip('/')}/disease-id-qa/download/{filename}",
+                    args.input,
+                    args.producer_release,
+                    args.producer_revision,
                 )
+                published_refs.append(f"{REGISTRY_SOURCE}:{dataset}:{args.version}")
             except Exception as exc:
                 print(f"  Warning: Registry upload failed: {exc}", file=sys.stderr)
                 print(f"    File saved locally at {file_path}", file=sys.stderr)
+                publication_failures.append(f"{dataset}: {exc}")
 
         print()
 
     print("Done.")
     if not args.no_upload:
-        print(f"\nUpdate disease_graph.yaml data_source versions to: {args.version}")
-        print("For example:")
-        for file_type, dataset, _ in ENTITY_TYPES:
-            if file_type in args.file_types:
-                print(f"  data_source: {REGISTRY_SOURCE}:{dataset}:{args.version}")
+        if published_refs:
+            print(f"\nUpdate disease_graph.yaml data_source versions to: {args.version}")
+            print("For example:")
+            for snapshot_id in published_refs:
+                print(
+                    "  data_source: {kind: derived_snapshot, snapshot_id: "
+                    f"{snapshot_id}" + "}"
+                )
+        if publication_failures:
+            raise RuntimeError(
+                "Registry publication failed for: " + "; ".join(publication_failures)
+            )
 
 
 if __name__ == "__main__":

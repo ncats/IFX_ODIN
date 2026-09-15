@@ -3,7 +3,7 @@ from pathlib import Path
 
 from src.input_adapters.chebi.chebi_obo_adapter import ChebiFullOboAdapter
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 from src.models.chebi import (
     Application,
     BiologicalRole,
@@ -144,8 +144,9 @@ def _write_chebi_obo(path: Path):
         )
 
 
-def _dataset_for_file(path: Path) -> MaterializedDataset:
-    return MaterializedDataset(
+def _dataset_for_file(path: Path) -> RegistryDataset:
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="chebi",
         dataset="ontology_full",
         version="252",

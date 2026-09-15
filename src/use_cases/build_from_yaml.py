@@ -1,7 +1,7 @@
 from src.core.config import ETL_Config
 from src.core.etl import ETL
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDatasetMetadata
 
 
 def preload_core_model_modules():
@@ -62,12 +62,13 @@ class BuildGraphFromYaml:
 
 
 def _registry_datasets_from_config(config_node) -> list[dict]:
-    datasets_by_snapshot = {}
+    datasets_by_identity = {}
 
     def visit(value, usage: str):
-        if isinstance(value, MaterializedDataset):
+        if isinstance(value, RegistryDatasetMetadata):
             metadata = value.to_metadata()
-            existing = datasets_by_snapshot.setdefault(metadata["snapshot_id"], metadata)
+            identity = (metadata["kind"], metadata["snapshot_id"])
+            existing = datasets_by_identity.setdefault(identity, metadata)
             usages = set(existing.get("usages") or [])
             usages.add(usage)
             existing["usages"] = sorted(usages)
@@ -87,4 +88,7 @@ def _registry_datasets_from_config(config_node) -> list[dict]:
         label = f"resolver:{entry.get('label') or entry.get('class')}" if isinstance(entry, dict) else "resolver"
         visit(entry, label)
 
-    return sorted(datasets_by_snapshot.values(), key=lambda item: item["snapshot_id"])
+    return sorted(
+        datasets_by_identity.values(),
+        key=lambda item: (item["kind"], item["snapshot_id"]),
+    )

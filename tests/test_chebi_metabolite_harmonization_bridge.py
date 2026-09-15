@@ -9,7 +9,7 @@ from src.models.metabolite_harmonization import (
     ChebiChemicalEntityMetaboliteIdentifierEdge,
     MetaboliteIdentifier,
 )
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 
 
 def _write_chebi_obo(path: Path):
@@ -43,8 +43,9 @@ def _write_chebi_obo(path: Path):
         )
 
 
-def _dataset_for_file(path: Path) -> MaterializedDataset:
-    return MaterializedDataset(
+def _dataset_for_file(path: Path) -> RegistryDataset:
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="chebi",
         dataset="ontology_full",
         version="252",
