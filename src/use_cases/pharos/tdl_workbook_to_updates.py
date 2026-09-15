@@ -3,7 +3,6 @@
 
 import argparse
 import csv
-import shutil
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -76,51 +75,25 @@ def convert_workbook(workbook_path: Path, output_path: Path) -> Counter:
 def register_tdl_updates(
     output_path: Path,
     registry_credentials: str,
-    registry_cache_dir: Path,
     *,
     upload: bool,
-) -> Path:
-    from src.core.data_registry import DataRegistry
-    from src.registry.manifest import build_source_snapshot_manifest, file_entry, write_manifest
+) -> str:
+    from src.core.registry_publication import publish_source_file
 
     version = datetime.fromtimestamp(output_path.stat().st_mtime).date().isoformat()
-    work_dir = registry_cache_dir / "_tdl_updates_work" / "target_graph" / "tdl_updates" / version
-    work_dir.mkdir(parents=True, exist_ok=True)
-    staged_file = work_dir / "tdl_updates.csv"
-    if output_path.resolve() != staged_file.resolve():
-        shutil.copy2(output_path, staged_file)
-
-    entry = file_entry(
-        local_path=staged_file,
-        source_url=f"manual://target_graph/tdl_updates/{output_path.name}",
-        storage_uri=None,
-        content_type="text/csv",
-    )
-    manifest = build_source_snapshot_manifest(
-        source="target_graph",
-        dataset="tdl_updates",
-        version=version,
-        version_date=version,
-        download_date=None,
-        homepage=None,
-        upstream_urls=[entry["source_url"]],
-        files=[entry],
-        downloaded_by="tdl_workbook_to_updates",
-        extra={
-            "description": "Manual Pharos TDL override file converted from Tudor/Pharos workbook.",
-            "provenance": {"converted_from": str(output_path)},
-        },
-    )
-    manifest_path = work_dir / "manifest.yaml"
-    write_manifest(manifest, manifest_path)
-
-    registry = (
-        DataRegistry.from_registry_credentials(registry_credentials)
-        if upload
-        else DataRegistry.local(cache_dir=registry_cache_dir)
-    )
-    registry.upload_snapshot(manifest_path)
-    return manifest_path
+    snapshot_id = f"target_graph:tdl_updates:{version}"
+    if upload:
+        publish_source_file(
+            snapshot_id,
+            output_path,
+            registry_credentials,
+            capture_method="manual",
+            metadata={
+                "description": "Manual Pharos TDL overrides converted from a workbook.",
+                "converted_from": str(output_path),
+            },
+        )
+    return snapshot_id
 
 
 def main() -> None:
@@ -137,17 +110,12 @@ def main() -> None:
     parser.add_argument(
         "--no-upload",
         action="store_true",
-        help="With --register, write only to the local registry cache instead of uploading.",
+        help="With --register, keep only the converted local file instead of uploading.",
     )
     parser.add_argument(
         "--registry-credentials",
         default=DEFAULT_REGISTRY_CREDENTIALS,
         help=f"Path to registry credentials YAML (default: {DEFAULT_REGISTRY_CREDENTIALS}).",
-    )
-    parser.add_argument(
-        "--registry-cache-dir",
-        default="./registry_cache",
-        help="Local registry cache/work directory for publishing.",
     )
     args = parser.parse_args()
 
@@ -161,17 +129,16 @@ def main() -> None:
         print(f"  {tdl}: {counts.get(tdl, 0):,}")
 
     if args.register:
-        manifest_path = register_tdl_updates(
+        snapshot_id = register_tdl_updates(
             output_path,
             args.registry_credentials,
-            Path(args.registry_cache_dir),
             upload=not args.no_upload,
         )
-        action = "Cached local" if args.no_upload else "Published"
+        action = "Prepared locally" if args.no_upload else "Published"
         print(f"{action} target_graph:tdl_updates from {output_path}")
-        print(f"Manifest: {manifest_path}")
-        print("Registry ref:")
-        print(f"  data_source: target_graph:tdl_updates:{manifest_path.parent.name}")
+        if not args.no_upload:
+            print("Registry ref:")
+            print(f"  data_source: {snapshot_id}")
 
 
 if __name__ == "__main__":

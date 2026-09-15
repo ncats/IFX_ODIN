@@ -1,11 +1,12 @@
 import gzip
+from datetime import date
 
 from src.input_adapters.string.string_ppi import StringPPIAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def test_string_ppi_adapter_applies_default_cutoff_and_skips_self_pairs(tmp_path):
     data_path = tmp_path / "9606.protein.links.v12.0.txt.gz"
-    version_path = tmp_path / "string_version.tsv"
 
     with gzip.open(data_path, "wt", encoding="utf-8") as handle:
         handle.write(
@@ -20,11 +21,13 @@ def test_string_ppi_adapter_applies_default_cutoff_and_skips_self_pairs(tmp_path
             )
         )
 
-    version_path.write_text("version\tversion_date\n12.0\t2025-01-15\n", encoding="utf-8")
-
     adapter = StringPPIAdapter(
-        file_path=str(data_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(
+            tmp_path,
+            data_path.name,
+            version="12.0",
+            version_date=date(2025, 1, 15),
+        ),
     )
 
     batches = list(adapter.get_all())
@@ -43,21 +46,21 @@ def test_string_ppi_adapter_applies_default_cutoff_and_skips_self_pairs(tmp_path
 
 
 def test_string_ppi_adapter_supports_explicit_cutoff_override(tmp_path):
-    data_path = tmp_path / "9606.protein.links.v12.0.txt"
+    data_path = tmp_path / "9606.protein.links.v12.0.txt.gz"
 
-    data_path.write_text(
-        "\n".join(
-            [
-                "protein1 protein2 combined_score",
-                "9606.ENSP0001 9606.ENSP0002 250",
-                "9606.ENSP0002 9606.ENSP0003 300",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    with gzip.open(data_path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "\n".join(
+                [
+                    "protein1 protein2 combined_score",
+                    "9606.ENSP0001 9606.ENSP0002 250",
+                    "9606.ENSP0002 9606.ENSP0003 300",
+                ]
+            ),
+        )
 
     adapter = StringPPIAdapter(
-        file_path=str(data_path),
+        data_source=registry_dataset(tmp_path, data_path.name),
         score_cutoff=300,
     )
 
@@ -71,24 +74,24 @@ def test_string_ppi_adapter_supports_explicit_cutoff_override(tmp_path):
 
 
 def test_string_ppi_adapter_honors_max_rows_on_kept_edges(tmp_path):
-    data_path = tmp_path / "9606.protein.links.v12.0.txt"
+    data_path = tmp_path / "9606.protein.links.v12.0.txt.gz"
 
-    data_path.write_text(
-        "\n".join(
-            [
-                "protein1 protein2 combined_score",
-                "9606.ENSP0001 9606.ENSP0002 250",
-                "9606.ENSP0002 9606.ENSP0002 900",
-                "9606.ENSP0003 9606.ENSP0004 400",
-                "9606.ENSP0004 9606.ENSP0005 500",
-                "9606.ENSP0005 9606.ENSP0006 600",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    with gzip.open(data_path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "\n".join(
+                [
+                    "protein1 protein2 combined_score",
+                    "9606.ENSP0001 9606.ENSP0002 250",
+                    "9606.ENSP0002 9606.ENSP0002 900",
+                    "9606.ENSP0003 9606.ENSP0004 400",
+                    "9606.ENSP0004 9606.ENSP0005 500",
+                    "9606.ENSP0005 9606.ENSP0006 600",
+                ]
+            ),
+        )
 
     adapter = StringPPIAdapter(
-        file_path=str(data_path),
+        data_source=registry_dataset(tmp_path, data_path.name),
         max_rows=2,
     )
 
@@ -103,19 +106,19 @@ def test_string_ppi_adapter_honors_max_rows_on_kept_edges(tmp_path):
 
 
 def test_string_ppi_adapter_canonicalizes_pair_direction(tmp_path):
-    data_path = tmp_path / "9606.protein.links.v12.0.txt"
+    data_path = tmp_path / "9606.protein.links.v12.0.txt.gz"
 
-    data_path.write_text(
-        "\n".join(
-            [
-                "protein1 protein2 combined_score",
-                "9606.ENSP9999 9606.ENSP0001 500",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    with gzip.open(data_path, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "\n".join(
+                [
+                    "protein1 protein2 combined_score",
+                    "9606.ENSP9999 9606.ENSP0001 500",
+                ]
+            ),
+        )
 
-    adapter = StringPPIAdapter(file_path=str(data_path))
+    adapter = StringPPIAdapter(registry_dataset(tmp_path, data_path.name))
 
     batches = list(adapter.get_all())
     edges = [edge for batch in batches for edge in batch]

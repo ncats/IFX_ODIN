@@ -27,7 +27,7 @@ services:
       - src/use_cases/secrets/galeradev_write.yaml
       - -m
       - src/use_cases/secrets/pharos_credentials.yaml
-      - --storage-credentials
+      - --object-storage-credentials
       - src/use_cases/secrets/aws_ifx_registry.yaml
       - --root-path
       - /odin-qa

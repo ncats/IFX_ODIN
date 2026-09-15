@@ -11,7 +11,6 @@ resolvers:
     import: ./src/id_resolvers/node_normalizer.py
     class: TranslatorNodeNormResolver
     kwargs:
-      resolver_snapshot: translator:translator_nn:deps-1bdfc6008ae1
       types:
         - Ligand
         - Disease
@@ -20,7 +19,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphGeneResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_genes:deps-ac541015564c
+      data_source: target_graph:gene_ids:2026-05-11
       types:
         - Gene
       no_match_behavior: Skip
@@ -29,7 +28,7 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphTranscriptResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_transcripts:deps-aaccdb08ac83
+      data_source: target_graph:transcript_ids:2026-05-11
       types:
         - Transcript
       no_match_behavior: Skip
@@ -38,7 +37,8 @@ resolvers:
     import: ./src/id_resolvers/target_graph_resolver.py
     class: TargetGraphProteinResolver
     kwargs:
-      resolver_snapshot: target_graph:tg_proteins:deps-e55ba5aa0f0e
+      data_source: target_graph:protein_ids:2026-05-20
+      additional_ids_data_source: target_graph:uniprot_mapping:2026-05-11
       types:
         - Protein
       no_match_behavior: Skip
@@ -47,7 +47,9 @@ resolvers:
     import: ./src/id_resolvers/hcop_ortholog_gene_resolver.py
     class: HCOPOrthologGeneResolver
     kwargs:
-      resolver_snapshot: hcop:hcop_ortholog_genes:deps-b63ab7dfb762
+      data_source: hcop:human_all_sixteen_column:2025-05-16
+      accepted_species: ["9598", "9544", "10090", "10116", "9615", "9796", "9913", "9823", "13616", "9258", "9031", "28377", "8364", "7955", "6239", "7227", "4932"]
+      drop_blank_ortholog_identity: true
       types:
         - OrthologGene
 
@@ -55,7 +57,8 @@ resolvers:
     import: ./src/id_resolvers/tissue_resolver.py
     class: TissueResolver
     kwargs:
-      resolver_snapshot: uberon:tissue_ids:deps-eb70636be2d6
+      data_source: uberon:ontology:2026-04-01
+      valid_ontologies: ["FMA", "EMAPA", "MA", "UMLS", "NCIT", "ZFA", "BTO", "CLDB", "EHDAA2", "BAMS", "neuronames", "VHOG", "MESH", "BIRNLEX", "TAO", "EHDAA", "GAID", "DHBA", "CALOHA", "EFO", "XAO", "HBA", "OpenCyc", "MBA", "galen", "FBbt", "GC_ID", "EV", "DMBA", "BM", "MAT", "MIAA", "NLXANAT", "VSAO", "AEO", "RETIRED_EHDAA2", "KUPO", "Wikipedia", "NLX", "ZFS", "UBERONTEMP", "UBERON", "TGMA", "TE", "TADS", "STID", "SPD", "SCTID", "SAO", "PHENOSCAPE", "PBA", "OGES", "OGEM", "NOID", "NIFSTD", "MURDOCH", "MPATH", "MP", "MFMO", "MAP", "ISBN", "HAO", "GOC", "GO", "FMAID", "FAO", "EVM", "ENVO", "EMAPS", "EHDA", "CP", "CL", "CARO", "BSA", "BILS", "BILA", "ANISEED", "ABA", "AAO"]
       types:
         - Tissue
 
@@ -114,7 +117,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/phipster_adapter.py
     class: PHIPSTERLegacyLiftAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/hcop/orthologs.py
@@ -198,13 +201,13 @@ input_adapters:
   - import: ./src/input_adapters/drug_central/drug_node.py
     class: DrugNodeAdapter
     kwargs:
-      data_source: drugcentral:drug_database:54
+      data_source: {kind: external_dataset_version, snapshot_id: drugcentral:drug_database:54}
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/protein_drug_edge.py
     class: ProteinDrugEdgeAdapter
     kwargs:
-      data_source: drugcentral:drug_database:54
+      data_source: {kind: external_dataset_version, snapshot_id: drugcentral:drug_database:54}
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/iuphar/ligand_node.py
@@ -221,21 +224,21 @@ input_adapters:
   - import: ./src/input_adapters/chembl/drug_node.py
     class: DrugNodeAdapter
     kwargs:
-      data_source: chembl:activity_database:chembl36
+      data_source: {kind: external_dataset_version, snapshot_id: chembl:activity_database:chembl36}
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/chembl/drug_node.py
     class: ProteinDrugEdgeAdapter
     kwargs:
-      data_source: chembl:activity_database:chembl36
+      data_source: {kind: external_dataset_version, snapshot_id: chembl:activity_database:chembl36}
       pchembl_cutoff: *pchembl_cutoff
     credentials: ./src/use_cases/secrets/chembl_credentials.yaml
 
   - import: ./src/input_adapters/drug_central/drug_indication.py
     class: DrugCentralIndicationAdapter
     kwargs:
-      data_source: drugcentral:drug_database:54
+      data_source: {kind: external_dataset_version, snapshot_id: drugcentral:drug_database:54}
     credentials: ./src/use_cases/secrets/drugcentral_credentials.yaml
 
   - import: ./src/input_adapters/jensenlab/total_pmscore.py
@@ -263,7 +266,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/idg_family_adapter.py
     class: IDGFamilyAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/go/go_gaf.py
@@ -301,7 +304,7 @@ input_adapters:
   - import: ./src/input_adapters/rdas/diseases.py
     class: RDASRareDiseaseAdapter
     kwargs:
-      data_source: rdas:diseases_graphql:rdas-diseases-graphql
+      data_source: {kind: external_dataset_version, snapshot_id: rdas:diseases_graphql:rdas-diseases-graphql}
 
   - import: ./src/input_adapters/jensenlab/diseases.py
     class: JensenLabDiseasesAdapter
@@ -312,7 +315,7 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/eram_disease_adapter.py
     class: ERAMDiseaseAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/file_uniprot/protein_adapter.py
@@ -379,25 +382,25 @@ input_adapters:
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: DTOClassParentEdgeAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/pharos_mysql/dto_adapter.py
     class: ProteinDTOClassAdapter
     kwargs:
-      data_source: legacy_pharos:pharos319_mysql:pharos319
+      data_source: {kind: external_dataset_version, snapshot_id: legacy_pharos:pharos319_mysql:pharos319}
     credentials: *legacy_pharos_credentials
 
   - import: ./src/input_adapters/surechembl/patent_families.py
     class: SureChEMBLPatentFamilyAdapter
     kwargs:
-      data_source: surechembl:patent_family_mentions:2026-06-01
+      data_source: {kind: derived_snapshot, snapshot_id: surechembl:patent_family_mentions:2026-06-01}
 
   - import: ./src/input_adapters/ncbi/publications.py
     class: NCBIPublicationAdapter

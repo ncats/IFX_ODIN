@@ -1,6 +1,7 @@
 import gzip
 
 from src.input_adapters.hcop.orthologs import HCOPOrthologAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def _write_hcop_file(path, rows):
@@ -29,7 +30,7 @@ def _write_hcop_file(path, rows):
 
 
 def test_hcop_adapter_emits_mouse_ortholog_nodes_and_edges(tmp_path):
-    hcop_path = tmp_path / "hcop.tsv.gz"
+    hcop_path = tmp_path / "human_all_hcop_sixteen_column.txt.gz"
     _write_hcop_file(hcop_path, [
         ["10090", "1017", "-", "-", "-", "CDK2", "-", "-", "12566", "ENSMUSG00000025351", "MGI:104772", "cyclin dependent kinase 2", "Cdk2", "-", "-", "OMA, Ensembl"],
         ["10090", "1017", "-", "-", "-", "CDK2", "-", "-", "12566", "ENSMUSG00000025351", "MGI:104772", "cyclin dependent kinase 2", "Cdk2", "-", "-", "OMA, Ensembl"],
@@ -38,7 +39,7 @@ def test_hcop_adapter_emits_mouse_ortholog_nodes_and_edges(tmp_path):
     ])
 
     adapter = HCOPOrthologAdapter(
-        file_path=str(hcop_path),
+        data_source=registry_dataset(tmp_path, hcop_path.name),
         accepted_species=["10090"],
         drop_blank_ortholog_identity=True,
     )
@@ -64,13 +65,13 @@ def test_hcop_adapter_emits_mouse_ortholog_nodes_and_edges(tmp_path):
 
 
 def test_hcop_adapter_falls_back_to_non_mgi_ortholog_ids(tmp_path):
-    hcop_path = tmp_path / "hcop.tsv.gz"
+    hcop_path = tmp_path / "human_all_hcop_sixteen_column.txt.gz"
     _write_hcop_file(hcop_path, [
         ["10090", "-", "ENSG00000141510", "-", "-", "-", "-", "-", "22059", "ENSMUSG00000059552", "-", "tumor protein p53", "Trp53", "-", "-", "EggNOG"],
     ])
 
     adapter = HCOPOrthologAdapter(
-        file_path=str(hcop_path),
+        data_source=registry_dataset(tmp_path, hcop_path.name),
         accepted_species=["10090"],
         drop_blank_ortholog_identity=True,
     )
@@ -84,13 +85,13 @@ def test_hcop_adapter_falls_back_to_non_mgi_ortholog_ids(tmp_path):
 
 
 def test_hcop_adapter_prefers_ncbi_gene_over_cgnc_for_chicken(tmp_path):
-    hcop_path = tmp_path / "hcop.tsv.gz"
+    hcop_path = tmp_path / "human_all_hcop_sixteen_column.txt.gz"
     _write_hcop_file(hcop_path, [
         ["9031", "1813", "-", "-", "-", "DRD2", "-", "-", "396257", "ENSGALG00000001099", "CGNC:17400", "dopamine receptor D2", "DRD2", "-", "-", "Ensembl, NCBI"],
     ])
 
     adapter = HCOPOrthologAdapter(
-        file_path=str(hcop_path),
+        data_source=registry_dataset(tmp_path, hcop_path.name),
         accepted_species=["9031"],
         drop_blank_ortholog_identity=True,
     )

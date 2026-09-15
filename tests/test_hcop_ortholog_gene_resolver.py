@@ -5,8 +5,8 @@ import pytest
 from src.id_resolvers.hcop_ortholog_gene_resolver import HCOPOrthologGeneResolver
 from src.id_resolvers.node_normalizer import TranslatorNodeNormResolver
 from src.interfaces.id_resolver import IdMatch
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 from src.models.node import Node
-from src.registry.fetchers import MaterializedDataset
 
 
 def _write_hcop_file(path, rows):
@@ -35,7 +35,8 @@ def _write_hcop_file(path, rows):
 
 
 def _dataset_for_file(path):
-    return MaterializedDataset(
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="hcop",
         dataset="human_all_sixteen_column",
         version="test",
@@ -45,32 +46,6 @@ def _dataset_for_file(path):
         manifest_uri="s3://ifx-registry/sources/hcop/human_all_sixteen_column/test/manifest.yaml",
         manifest={"files": [{"path": path.name}]},
         local_dir=path.parent,
-    )
-
-
-def _resolver_snapshot(path, *, accepted_species=None, drop_blank_ortholog_identity=True):
-    return MaterializedDataset(
-        source="hcop",
-        dataset="hcop_ortholog_genes",
-        version="test",
-        version_date=None,
-        download_date=None,
-        snapshot_id="hcop:hcop_ortholog_genes:test",
-        manifest_uri="s3://ifx-registry/resolvers/hcop/hcop_ortholog_genes/test/manifest.yaml",
-        manifest={
-            "kind": "resolver_snapshot",
-            "definition": {
-                "options": {
-                    "accepted_species": accepted_species,
-                    "drop_blank_ortholog_identity": drop_blank_ortholog_identity,
-                },
-            },
-            "resolved_inputs": {
-                "data_source": "hcop:human_all_sixteen_column:test",
-            },
-        },
-        local_dir=path.parent,
-        resolver_inputs={"data_source": _dataset_for_file(path)},
     )
 
 
@@ -84,7 +59,7 @@ def test_hcop_ortholog_gene_resolver_is_skip_only(tmp_path, monkeypatch):
     )
 
     resolver = HCOPOrthologGeneResolver(
-        resolver_snapshot=_resolver_snapshot(hcop_path),
+        data_source=_dataset_for_file(hcop_path),
         types=["OrthologGene"],
     )
 
@@ -92,7 +67,7 @@ def test_hcop_ortholog_gene_resolver_is_skip_only(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         HCOPOrthologGeneResolver(
-            resolver_snapshot=_resolver_snapshot(hcop_path),
+            data_source=_dataset_for_file(hcop_path),
             types=["OrthologGene"],
             no_match_behavior="Allow",
         )
@@ -121,11 +96,9 @@ def test_hcop_ortholog_gene_resolver_preloads_allowed_ids_from_filtered_rows(tmp
     monkeypatch.setattr(HCOPOrthologGeneResolver, "_post_to_node_normalizer", fake_post)
 
     resolver = HCOPOrthologGeneResolver(
-        resolver_snapshot=_resolver_snapshot(
-            hcop_path,
-            accepted_species=["10090"],
-            drop_blank_ortholog_identity=True,
-        ),
+        data_source=_dataset_for_file(hcop_path),
+        accepted_species=["10090"],
+        drop_blank_ortholog_identity=True,
         types=["OrthologGene"],
     )
 
@@ -149,7 +122,8 @@ def test_hcop_ortholog_gene_resolver_keeps_all_resolved_canonical_ids_from_hcop_
     monkeypatch.setattr(HCOPOrthologGeneResolver, "_post_to_node_normalizer", fake_post)
 
     resolver = HCOPOrthologGeneResolver(
-        resolver_snapshot=_resolver_snapshot(hcop_path, accepted_species=["10090"]),
+        data_source=_dataset_for_file(hcop_path),
+        accepted_species=["10090"],
         types=["OrthologGene"],
     )
 
@@ -180,7 +154,8 @@ def test_hcop_ortholog_gene_resolver_filters_node_norm_matches_to_hcop_scope(tmp
     monkeypatch.setattr(TranslatorNodeNormResolver, "resolve_internal", fake_parent_resolve)
 
     resolver = HCOPOrthologGeneResolver(
-        resolver_snapshot=_resolver_snapshot(hcop_path, accepted_species=["10090"]),
+        data_source=_dataset_for_file(hcop_path),
+        accepted_species=["10090"],
         types=["OrthologGene"],
     )
 

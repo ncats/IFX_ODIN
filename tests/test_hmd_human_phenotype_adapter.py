@@ -1,4 +1,5 @@
 from src.input_adapters.mgi.hmd_human_phenotype import HMDHumanPhenotypeAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def _write_hmd_file(path, rows):
@@ -14,7 +15,7 @@ def test_hmd_adapter_emits_mouse_phenotype_nodes_and_gene_edges(tmp_path):
         ["A4GALT", "53947", "A4galt", "MGI:3512453", "MP:0010768", ""],
     ])
 
-    adapter = HMDHumanPhenotypeAdapter(file_path=str(hmd_path))
+    adapter = HMDHumanPhenotypeAdapter(registry_dataset(tmp_path, hmd_path.name))
 
     entries = [entry for batch in adapter.get_all() for entry in batch]
     phenotype_nodes = [entry for entry in entries if entry.__class__.__name__ == "MousePhenotype"]
@@ -36,7 +37,7 @@ def test_hmd_adapter_falls_back_to_symbol_when_geneid_missing(tmp_path):
         ["A1CF", "", "A1cf", "MGI:1917115", "MP:0005376", ""],
     ])
 
-    adapter = HMDHumanPhenotypeAdapter(file_path=str(hmd_path))
+    adapter = HMDHumanPhenotypeAdapter(registry_dataset(tmp_path, hmd_path.name))
     entries = [entry for batch in adapter.get_all() for entry in batch]
     phenotype_edge = next(entry for entry in entries if entry.__class__.__name__ == "GeneMousePhenotypeEdge")
 
@@ -50,7 +51,7 @@ def test_hmd_adapter_skips_rows_without_gene_or_phenotype(tmp_path):
         ["", "", "A1cf", "MGI:1917115", "MP:0005376", ""],
     ])
 
-    adapter = HMDHumanPhenotypeAdapter(file_path=str(hmd_path))
+    adapter = HMDHumanPhenotypeAdapter(registry_dataset(tmp_path, hmd_path.name))
     entries = [entry for batch in adapter.get_all() for entry in batch]
 
     assert entries == []

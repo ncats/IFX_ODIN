@@ -27,4 +27,7 @@ def test_ppi_scores_merge_as_list_values():
 
     assert len(merged) == 1
     assert sorted(merged[0]["score"]) == [475, 477]
-    assert any(line.startswith("score\t1 entries already there\t1 entries being merged") for line in merged[0]["updates"])
+    assert any(
+        line.startswith("score\t1 entries already there\tadding [477]")
+        for line in merged[0]["updates"]
+    )

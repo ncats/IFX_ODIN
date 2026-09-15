@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.output_adapters.arango_output_adapter import ArangoOutputAdapter
 from arango.exceptions import DocumentUpdateError
 from src.shared.record_merger import FieldConflictBehavior
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 
 
 class FakeDocumentUpdateError(DocumentUpdateError):
@@ -134,15 +135,16 @@ def build_adapter(existing_nodes, collection):
 
 
 def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata():
-    resolver_snapshot = MaterializedDataset(
+    data_source = RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="target_graph",
         dataset="disease_ids",
         version="deps-test",
         version_date=None,
-        download_date="2026-06-12",
+        download_date=date(2026, 6, 12),
         snapshot_id="target_graph:disease_ids:deps-test",
-        manifest_uri="s3://ifx-registry/resolvers/target_graph/disease_ids/deps-test/manifest.yaml",
-        manifest={"kind": "resolver_snapshot", "definition": {}, "files": []},
+        manifest_uri="s3://ifx-registry/sources/target_graph/disease_ids/deps-test/manifest.yaml",
+        manifest={"kind": "source_snapshot", "files": []},
         local_dir=Path("/tmp/ifx-registry-cache/target_graph/disease_ids/deps-test"),
     )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
@@ -151,7 +153,7 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
         "import": "./src/id_resolvers/disease_resolver.py",
         "class": "DiseaseIdResolver",
         "kwargs": {
-            "resolver_snapshot": resolver_snapshot,
+            "data_source": data_source,
             "types": ["Disease"],
             "multi_match_behavior": "All",
         },
@@ -166,9 +168,9 @@ def test_arango_output_adapter_etl_metadata_includes_readable_resolver_metadata(
     disease_metadata = metadata["resolver_metadata"]["by_type"]["Disease"]
     assert metadata["resolver_metadata"]["source_yaml"] == "./src/use_cases/pharos/pharos.yaml"
     assert disease_metadata["class"] == "DiseaseIdResolver"
-    assert disease_metadata["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
-    assert disease_metadata["kwargs"]["resolver_snapshot"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
-    assert "local_dir" not in disease_metadata["resolver_snapshot"]
+    assert disease_metadata["dataset_inputs"][0]["snapshot_id"] == "target_graph:disease_ids:deps-test"
+    assert disease_metadata["kwargs"]["data_source"]["snapshot_id"] == "target_graph:disease_ids:deps-test"
+    assert "local_dir" not in disease_metadata["kwargs"]["data_source"]
     assert disease_metadata["fingerprint"]
 
 
@@ -188,25 +190,29 @@ def test_arango_output_adapter_get_metadata_skips_empty_source_combinations_and_
     assert [collection.name for collection in metadata.collections] == ["TestCollection"]
 
 
-def test_arango_output_adapter_get_metadata_rejects_malformed_nonempty_source():
+def test_arango_output_adapter_get_metadata_keeps_source_name_without_optional_metadata():
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
     adapter.metadata_store_label = "metadata_store"
     adapter.get_db = lambda: FakeMalformedMetadataDb()
 
-    with pytest.raises(ValueError):
-        adapter.get_metadata()
+    metadata = adapter.get_metadata()
+
+    source = metadata.collections[0].sources[0]
+    assert source.name == "bad-source-fragment"
+    assert source.version is None
 
 
-def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_snapshot(tmp_path):
-    resolver_snapshot = MaterializedDataset(
+def test_arango_output_adapter_resolver_metadata_serializes_registry_dataset(tmp_path):
+    data_source = RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="cure",
         dataset="cure_id_labels",
         version="deps-test",
         version_date=None,
-        download_date="2026-06-12",
+        download_date=date(2026, 6, 12),
         snapshot_id="cure:cure_id_labels:deps-test",
-        manifest_uri="s3://ifx-registry/resolvers/cure/cure_id_labels/deps-test/manifest.yaml",
-        manifest={"kind": "resolver_snapshot", "definition": {}, "files": []},
+        manifest_uri="s3://ifx-registry/sources/cure/cure_id_labels/deps-test/manifest.yaml",
+        manifest={"kind": "source_snapshot", "files": []},
         local_dir=tmp_path,
     )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
@@ -215,7 +221,7 @@ def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_sn
         "import": "./src/id_resolvers/cure_id_label_resolver.py",
         "class": "CureIdLabelResolver",
         "kwargs": {
-            "resolver_snapshot": resolver_snapshot,
+            "data_source": data_source,
             "types": ["Gene"],
         },
     }])
@@ -227,9 +233,9 @@ def test_arango_output_adapter_resolver_metadata_serializes_registry_resolver_sn
     metadata = adapter.get_etl_metadata()
 
     json.dumps(metadata)
-    snapshot_metadata = metadata["resolver_metadata"]["by_type"]["Gene"]["resolver_snapshot"]
+    snapshot_metadata = metadata["resolver_metadata"]["by_type"]["Gene"]["dataset_inputs"][0]
     assert snapshot_metadata["snapshot_id"] == "cure:cure_id_labels:deps-test"
-    assert snapshot_metadata["kind"] == "resolver_snapshot"
+    assert snapshot_metadata["kind"] == "source_snapshot"
 
 
 def test_arango_output_adapter_etl_metadata_includes_registry_datasets():
@@ -326,6 +332,20 @@ def test_arango_output_adapter_merges_existing_registry_datasets_for_post_proces
     ]
     assert merged[0]["manifest_uri"] == "s3://ifx-registry/sources/cure/case_reports/reports_20260612T182139Z/manifest.yaml"
     assert merged[0]["usages"] == ["adapter:CUREAdapter", "adapter:RasopathiesAdapter"]
+
+
+def test_arango_output_adapter_keeps_same_snapshot_id_in_separate_kinds():
+    snapshot_id = "example:records:1"
+
+    merged = ArangoOutputAdapter._merge_registry_datasets(
+        [{"kind": "source_snapshot", "snapshot_id": snapshot_id}],
+        [{"kind": "derived_snapshot", "snapshot_id": snapshot_id}],
+    )
+
+    assert [(entry["kind"], entry["snapshot_id"]) for entry in merged] == [
+        ("derived_snapshot", snapshot_id),
+        ("source_snapshot", snapshot_id),
+    ]
 
 
 def test_get_node_merge_fetch_fields_keeps_only_merge_relevant_fields():

@@ -48,6 +48,7 @@ Provide a repeatable workflow for adding a new data source to the target graph i
      - source URLs and file formats
      - version strategy
      - observed payload shape and identifier families
+     - artifact classification when the input is derived: identity map, harmonizer annotation, source-faithful normalized data, or application/presentation output
      - provisional mapping and exclusion decisions
      - open questions or risks to validate during implementation
    - This design doc is the expected written artifact from discovery.
@@ -68,6 +69,12 @@ Provide a repeatable workflow for adding a new data source to the target graph i
      - percent of source IDs that resolve at all
      - representative canonical prefixes returned by the resolver
    - Use these findings to choose what raw source ID the adapter should emit and leave canonicalization to the resolver layer whenever possible.
+   - For harmonizer-produced or other pre-resolved inputs, read `designs/harmonizer_graph_builder_boundary.md` and determine separately:
+     - which columns answer **"who is this?"** and belong in a resolver
+     - which columns are genuinely producer-owned scores, methods, confidence, or review decisions and may be ingested through a harmonizer adapter
+     - which fields or evidence originated in primary sources and should remain independently ingestible
+   - Do not treat Registry registration or an `app_graph`, QA, explorer, or presentation export as evidence that the artifact is an appropriate adapter input.
+   - If one proposed adapter would couple selection or versioning of multiple providers, pause and include that ownership change in the implementation plan for explicit approval.
 
 7) **Review data that makes it into TCRD**
    - Currently Pharos uses pharos319.
@@ -88,6 +95,8 @@ Provide a repeatable workflow for adding a new data source to the target graph i
      - `get_version` (include `version`, `version_date`, `download_date`).
    - Emit `Node` / `Relationship` models that match the schema.
    - Keep adapters focused on source parsing and structural graph emission.
+   - For harmonizer handoffs, keep identity mappings in a resolver and restrict the harmonizer adapter to assertions owned by the harmonizer. Do not re-label bundled primary-source fields as harmonizer provenance.
+   - Distinguish preferred-annotation harmonization from evidence selection. Do not consume prefiltered, sampled, capped, ranked, or collapsed evidence edges unless the design explicitly documents every selection rule and demonstrates that provider identity, raw endpoints, row-level evidence, and independent source selection remain available.
 
 10) **Map to the data model**
    - Confirm existing node/edge classes or add new ones in `src/models/`.

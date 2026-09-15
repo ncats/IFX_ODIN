@@ -3,6 +3,7 @@ from pathlib import Path
 from src.input_adapters.jensenlab.diseases import JensenLabDiseasesAdapter
 from src.models.disease import Disease, ProteinDiseaseEdge
 from src.models.protein import Protein
+from tests.registry_fakes import registry_dataset
 
 
 def _write_fixture(path: Path, content: str) -> None:
@@ -10,10 +11,9 @@ def _write_fixture(path: Path, content: str) -> None:
 
 
 def test_jensenlab_diseases_adapter_emits_diseases_and_edges(tmp_path):
-    knowledge_path = tmp_path / "knowledge.tsv"
-    experiments_path = tmp_path / "experiments.tsv"
-    textmining_path = tmp_path / "textmining.tsv"
-    version_path = tmp_path / "version.tsv"
+    knowledge_path = tmp_path / "human_disease_knowledge_filtered.tsv"
+    experiments_path = tmp_path / "human_disease_experiments_filtered.tsv"
+    textmining_path = tmp_path / "human_disease_textmining_filtered.tsv"
 
     _write_fixture(
         knowledge_path,
@@ -27,16 +27,10 @@ def test_jensenlab_diseases_adapter_emits_diseases_and_edges(tmp_path):
         textmining_path,
         "18S_rRNA\t18S_rRNA\tICD10:A01\tDisease Two\t7.244\t3.622\thttps://example.org/detail\n",
     )
-    _write_fixture(
-        version_path,
-        "version\tversion_date\n\t2026-03-17\n",
-    )
-
     adapter = JensenLabDiseasesAdapter(
-        knowledge_file_path=str(knowledge_path),
-        experiments_file_path=str(experiments_path),
-        textmining_file_path=str(textmining_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(
+            tmp_path, knowledge_path.name, experiments_path.name, textmining_path.name
+        ),
     )
 
     batches = list(adapter.get_all())
@@ -75,9 +69,9 @@ def test_jensenlab_diseases_adapter_emits_diseases_and_edges(tmp_path):
 
 
 def test_jensenlab_diseases_adapter_honors_max_rows_per_file(tmp_path):
-    knowledge_path = tmp_path / "knowledge.tsv"
-    experiments_path = tmp_path / "experiments.tsv"
-    textmining_path = tmp_path / "textmining.tsv"
+    knowledge_path = tmp_path / "human_disease_knowledge_filtered.tsv"
+    experiments_path = tmp_path / "human_disease_experiments_filtered.tsv"
+    textmining_path = tmp_path / "human_disease_textmining_filtered.tsv"
 
     _write_fixture(
         knowledge_path,
@@ -102,9 +96,9 @@ def test_jensenlab_diseases_adapter_honors_max_rows_per_file(tmp_path):
     )
 
     adapter = JensenLabDiseasesAdapter(
-        knowledge_file_path=str(knowledge_path),
-        experiments_file_path=str(experiments_path),
-        textmining_file_path=str(textmining_path),
+        data_source=registry_dataset(
+            tmp_path, knowledge_path.name, experiments_path.name, textmining_path.name
+        ),
         max_rows=1,
     )
 
@@ -118,9 +112,9 @@ def test_jensenlab_diseases_adapter_honors_max_rows_per_file(tmp_path):
 
 
 def test_jensenlab_diseases_adapter_can_filter_textmining_by_zscore(tmp_path):
-    knowledge_path = tmp_path / "knowledge.tsv"
-    experiments_path = tmp_path / "experiments.tsv"
-    textmining_path = tmp_path / "textmining.tsv"
+    knowledge_path = tmp_path / "human_disease_knowledge_filtered.tsv"
+    experiments_path = tmp_path / "human_disease_experiments_filtered.tsv"
+    textmining_path = tmp_path / "human_disease_textmining_filtered.tsv"
 
     _write_fixture(
         knowledge_path,
@@ -139,9 +133,9 @@ def test_jensenlab_diseases_adapter_can_filter_textmining_by_zscore(tmp_path):
     )
 
     adapter = JensenLabDiseasesAdapter(
-        knowledge_file_path=str(knowledge_path),
-        experiments_file_path=str(experiments_path),
-        textmining_file_path=str(textmining_path),
+        data_source=registry_dataset(
+            tmp_path, knowledge_path.name, experiments_path.name, textmining_path.name
+        ),
         textmining_min_zscore=6.0,
     )
 

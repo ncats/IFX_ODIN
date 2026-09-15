@@ -6,6 +6,7 @@ from src.interfaces.output_adapter import OutputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.protein import Protein
 from src.shared.record_merger import FieldConflictBehavior
+from tests.registry_fakes import registry_dataset
 
 
 class _OneProteinAdapter(InputAdapter):
@@ -54,7 +55,9 @@ def test_tdl_override_adapter_requests_keep_last_conflict_behavior(tmp_path):
         "UniProt,Symbol,Name,Target Development Level,new TDLs\n"
         "O00255,MEN1,Menin,Tclin,Tchem\n"
     )
-    adapter = TDLOverrideAdapter(file_path=str(tdl_file))
+    adapter = TDLOverrideAdapter(
+        data_source=registry_dataset(tmp_path, "tdl_updates.csv", version="2026-09-14")
+    )
 
     proteins = next(adapter.get_all())
 

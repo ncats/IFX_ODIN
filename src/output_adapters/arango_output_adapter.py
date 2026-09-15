@@ -18,7 +18,11 @@ from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
 
 from src.shared.db_credentials import DBCredentials
-from src.registry.storage import AwsAssumeRoleCredentials, AwsAssumeRoleStorage, S3CompatibleStorage
+from src.infrastructure.object_storage import (
+    AwsAssumeRoleCredentials,
+    AwsAssumeRoleStorage,
+    S3CompatibleStorage,
+)
 
 class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     NODE_MERGE_METADATA_FIELDS = ("_key", "id", "creation", "updates", "resolved_ids")
@@ -862,19 +866,27 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     @staticmethod
     def _merge_registry_datasets(existing_datasets=None, current_datasets=None):
-        datasets_by_snapshot = {}
+        datasets_by_identity = {}
         for dataset in (existing_datasets or []) + (current_datasets or []):
             if not isinstance(dataset, dict):
                 continue
             snapshot_id = dataset.get("snapshot_id")
+            kind = dataset.get("kind") or "source_snapshot"
             if not snapshot_id:
                 continue
-            merged = datasets_by_snapshot.setdefault(snapshot_id, {**dataset, "usages": []})
+            identity = (kind, snapshot_id)
+            merged = datasets_by_identity.setdefault(
+                identity,
+                {**dataset, "kind": kind, "usages": []},
+            )
             usages = set(merged.get("usages") or [])
             usages.update(dataset.get("usages") or [])
             merged.update({key: value for key, value in dataset.items() if value is not None})
             merged["usages"] = sorted(usages)
-        return sorted(datasets_by_snapshot.values(), key=lambda item: item["snapshot_id"])
+        return sorted(
+            datasets_by_identity.values(),
+            key=lambda item: (item["kind"], item["snapshot_id"]),
+        )
 
     def get_graph_views_metadata(self, existing_graph_views=None):
         existing_graph_views = existing_graph_views or {}

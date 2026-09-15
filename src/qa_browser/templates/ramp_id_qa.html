@@ -39,7 +39,7 @@
     </section>
 
     {% if error %}
-    <div class="registry-update-error">{{ error }}</div>
+    <div class="inline-error">{{ error }}</div>
     {% endif %}
 
     {% include "metabolite_curation_cart.html" %}
@@ -53,7 +53,7 @@
             <p>Name a pipeline, order its rules, then materialize a baseline stage plus one stage after each rule.</p>
         </div>
         {% if overview.error %}
-        <div class="registry-update-error">{{ overview.error }}</div>
+        <div class="inline-error">{{ overview.error }}</div>
         {% endif %}
         <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines" class="metabolite-id-snapshot-form">
             <div class="metabolite-id-preset-bar">

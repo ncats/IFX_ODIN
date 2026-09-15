@@ -1,11 +1,14 @@
+import gzip
 from pathlib import Path
 
 from src.input_adapters.jensenlab.tinx import TINXImportanceFileAdapter
 from src.models.disease import TINXImportanceEdge
+from tests.registry_fakes import registry_dataset
 
 
 def _write_fixture(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write(content)
 
 
 def _flatten_edge_batches(batches):
@@ -13,8 +16,8 @@ def _flatten_edge_batches(batches):
 
 
 def test_tinx_importance_adapter_emits_expected_scores(tmp_path):
-    protein_path = tmp_path / "human_textmining_mentions.tsv"
-    disease_path = tmp_path / "disease_textmining_mentions.tsv"
+    protein_path = tmp_path / "human_textmining_mentions.tsv.gz"
+    disease_path = tmp_path / "disease_textmining_mentions.tsv.gz"
 
     _write_fixture(
         protein_path,
@@ -32,8 +35,7 @@ def test_tinx_importance_adapter_emits_expected_scores(tmp_path):
     )
 
     adapter = TINXImportanceFileAdapter(
-        protein_mentions_file_path=str(protein_path),
-        disease_mentions_file_path=str(disease_path),
+        data_source=registry_dataset(tmp_path, protein_path.name, disease_path.name),
     )
 
     edges = _flatten_edge_batches(list(adapter.get_all()))
@@ -53,8 +55,8 @@ def test_tinx_importance_adapter_emits_expected_scores(tmp_path):
 
 
 def test_tinx_importance_adapter_honors_max_diseases_and_max_pairs(tmp_path):
-    protein_path = tmp_path / "human_textmining_mentions.tsv"
-    disease_path = tmp_path / "disease_textmining_mentions.tsv"
+    protein_path = tmp_path / "human_textmining_mentions.tsv.gz"
+    disease_path = tmp_path / "disease_textmining_mentions.tsv.gz"
 
     _write_fixture(
         protein_path,
@@ -72,8 +74,7 @@ def test_tinx_importance_adapter_honors_max_diseases_and_max_pairs(tmp_path):
     )
 
     adapter = TINXImportanceFileAdapter(
-        protein_mentions_file_path=str(protein_path),
-        disease_mentions_file_path=str(disease_path),
+        data_source=registry_dataset(tmp_path, protein_path.name, disease_path.name),
         max_diseases=1,
         max_pairs=1,
     )

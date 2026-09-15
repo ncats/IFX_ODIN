@@ -1,5 +1,8 @@
+from datetime import date
+
 from src.constants import DataSourceName
-from src.input_adapters.pharos_mysql.phipster_adapter import PHIPSTERLegacyLiftAdapter, PHIPSTER_VERSION
+from src.input_adapters.pharos_mysql.phipster_adapter import PHIPSTERLegacyLiftAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 
 
 class FakeQuery:
@@ -33,12 +36,15 @@ class FakeSession:
         return FakeQuery(rows)
 
 
-def test_phipster_adapter_reports_publication_version():
+def test_phipster_adapter_reports_registered_legacy_database_version():
     adapter = object.__new__(PHIPSTERLegacyLiftAdapter)
+    adapter.version_info = DatasourceVersionInfo(
+        version="pharos319", version_date=date(2024, 2, 15)
+    )
 
-    assert adapter.get_datasource_name() == DataSourceName.PHIPSTER
-    assert adapter.get_version() == PHIPSTER_VERSION
-    assert adapter.get_version().version_date.isoformat() == "2019-09-05"
+    assert adapter.get_datasource_name() == DataSourceName.OldPharos
+    assert adapter.get_version().version == "pharos319"
+    assert adapter.get_version().version_date.isoformat() == "2024-02-15"
 
 
 def test_phipster_adapter_emits_grouped_legacy_lift_objects():

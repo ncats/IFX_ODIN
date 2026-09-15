@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 import uuid
-from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Dict, Iterable, List
@@ -33,9 +32,7 @@ from starlette.concurrency import run_in_threadpool
 
 import uvicorn
 
-from src.core.data_registry import DataRegistry
-from src.registry.storage import DEFAULT_REGISTRY_CACHE_DIR
-from src.models.node import Node
+from src.qa_browser.build_provenance import extract_build_inputs
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
     REVIEW_DECISION_OPTIONS,
@@ -117,15 +114,6 @@ except ModuleNotFoundError as exc:
             "free_anomer_rejection_reason_counts": {"rdkit_unavailable": 1},
         }
 from src.qa_browser.ramp_id_graph import set_ramp_diagnosis_file
-from src.qa_browser.registry_usage import (
-    extract_registry_datasets,
-    graph_usage_filters,
-    graph_usage_styles,
-    group_by_source_dataset,
-    load_registry_graphs_cached,
-    load_graph_registry_usage_cached,
-    with_graph_usages,
-)
 from src.qa_browser.target_id_graph import (
     TARGET_REVIEW_INTAKE_COLUMNS as TARGET_REVIEW_INTAKE_COLUMNS,
     append_target_review_rows,
@@ -201,13 +189,7 @@ VARIANT_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "variant_app_graph"
 DRUG_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "drug_app_graph"
 
 
-@asynccontextmanager
-async def _app_lifespan(_app: FastAPI):
-    _start_resolver_warmup_thread()
-    yield
-
-
-app = FastAPI(title="QA Browser", lifespan=_app_lifespan)
+app = FastAPI(title="QA Browser")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount(
     "/ramp-id-qa/about",
@@ -230,7 +212,7 @@ _mysql_credentials: dict = {}
 _mysql_sources: dict = {}
 _mysql_db_engines: dict = {}
 _mysql_inspector_cache: dict = {}   # db_name -> CachableInspector data
-_registry_storage_credentials: dict = {}
+_object_storage_credentials: dict = {}
 _parquet_storage_credentials: dict = {}
 _disease_graph_dir: str = ""
 _baseline_graph_dir: str = ""
@@ -247,61 +229,12 @@ _disease_review_file: str = ""
 _disease_review_lock = threading.Lock()
 _drug_review_lock = threading.Lock()
 _variant_review_lock = threading.Lock()
-_registry_usage_cache: dict = {
-    "loaded_at": 0.0,
-    "usage_by_registry_id": None,
-    "error": None,
-}
-_registry_graph_cache: dict = {
-    "loaded_at": 0.0,
-    "graphs": None,
-    "error": None,
-}
-_registry_catalog_cache: dict = {
-    "loaded_at": {},
-    "source_snapshots": None,
-    "derived_artifacts": None,
-    "external_registrations": None,
-    "resolver_snapshots": None,
-}
-_registry_update_status_cache: dict = {
-    "checked_at": None,
-    "elapsed_seconds": None,
-    "sections": [],
-    "error": None,
-}
-REGISTRY_UPDATE_RETURN_PATHS = {
-    "sources": "/registry",
-    "resolvers": "/registry/resolvers",
-    "graphs": "/registry/graphs",
-}
-_resolver_instance_cache: dict = {}
-_resolver_instance_cache_locks: dict = {}
-_resolver_instance_cache_locks_guard = threading.Lock()
-_resolver_warmup_thread: Optional[threading.Thread] = None
-_resolver_warmup_started = False
-_resolver_warmup_status: dict = {
-    "started_at": None,
-    "completed_at": None,
-    "total": 0,
-    "warmed": 0,
-    "errors": [],
-}
 _cure_entity_resolver_cache: dict = {
     "graph_dir": None,
     "index": None,
     "loaded_at": None,
 }
 _cure_entity_resolver_lock = threading.Lock()
-_REGISTRY_USAGE_TTL_SECONDS = 60
-_REGISTRY_CATALOG_TTL_SECONDS = int(os.getenv("QA_BROWSER_REGISTRY_CATALOG_TTL_SECONDS", "300"))
-_RESOLVER_API_MAX_IDS = 1000
-_RESOLVER_WARMUP_ENABLED = os.getenv("QA_BROWSER_WARM_RESOLVERS", "1").lower() in {
-    "1", "true", "yes", "on"
-}
-_RESOLVER_WARMUP_ALL_SNAPSHOTS = os.getenv("QA_BROWSER_WARM_ALL_RESOLVER_SNAPSHOTS", "").lower() in {
-    "1", "true", "yes", "on"
-}
 _HARMONIZATION_PIPELINE_COLLECTION = "HarmonizationPipeline"
 _HARMONIZATION_PIPELINE_RUN_COLLECTION = "HarmonizationPipelineRun"
 _HARMONIZATION_STAGE_COLLECTION = "HarmonizationStage"
@@ -829,9 +762,9 @@ def _metabolite_curation_publication_time(batch: dict, key: str) -> datetime:
 
 def _load_metabolite_edge_removal_curations(storage=None, prefix: str = _METABOLITE_CURATION_PREFIX) -> dict:
     if storage is None:
-        if not _registry_storage_credentials:
-            raise RuntimeError("Registry storage credentials are required to load metabolite curations")
-        storage = _storage_from_credentials(_registry_storage_credentials, use_internal_url=False)
+        if not _object_storage_credentials:
+            raise RuntimeError("Object-storage credentials are required to load metabolite curations")
+        storage = _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
 
     keys = sorted(key for key in storage.list_keys(prefix) if key.endswith(".json"))
     loaded_batches = []
@@ -910,12 +843,12 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: str = _METABOL
 
 
 def _curation_cart_storage():
-    if not _registry_storage_credentials:
+    if not _object_storage_credentials:
         raise HTTPException(
             status_code=503,
-            detail="Registry storage credentials are required to use curation carts.",
+            detail="Object-storage credentials are required to use curation carts.",
         )
-    return _storage_from_credentials(_registry_storage_credentials, use_internal_url=False)
+    return _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
 
 
 def _curator_identity(request: Request, payload: Optional[dict] = None) -> tuple[str, str]:
@@ -5789,7 +5722,7 @@ def _get_mysql_source(source_id: str) -> dict:
 
 
 def _get_parquet_buffer(file_ref: str):
-    """Fetch a parquet file from registry object storage and return (BytesIO, size_bytes).
+    """Fetch a parquet file from object storage and return (BytesIO, size_bytes).
 
     file_ref must be an s3:// URI produced by the ETL pipeline.
     Returns (None, None) if the file cannot be fetched.
@@ -5804,8 +5737,8 @@ def _get_parquet_buffer(file_ref: str):
         credentials_options = []
         if _parquet_storage_credentials:
             credentials_options.append(("parquet storage", _parquet_storage_credentials))
-        if _registry_storage_credentials:
-            credentials_options.append(("registry storage", _registry_storage_credentials))
+        if _object_storage_credentials:
+            credentials_options.append(("object storage", _object_storage_credentials))
         if not credentials_options:
             return None, None
 
@@ -5820,7 +5753,7 @@ def _get_parquet_buffer(file_ref: str):
                 errors.append(f"{label}: {exc}")
         raise RuntimeError("; ".join(errors))
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch {file_ref} from registry object storage: {e}") from e
+        raise RuntimeError(f"Failed to fetch {file_ref} from object storage: {e}") from e
 
 
 def get_client() -> ArangoClient:
@@ -6692,767 +6625,16 @@ def _build_browser_home_context(request: Request) -> dict:
     }
 
 
-def _registry_catalog_cache_fresh(category: str, now: float) -> bool:
-    loaded_at = (_registry_catalog_cache.get("loaded_at") or {}).get(category, 0.0)
-    return (
-        _registry_catalog_cache.get(category) is not None
-        and now - loaded_at < _REGISTRY_CATALOG_TTL_SECONDS
-    )
-
-
-def _load_registry_catalog_categories(categories: List[str]) -> tuple[dict, Optional[str]]:
-    if not _registry_storage_credentials:
-        return {}, "Registry storage credentials are not configured for this QA Browser instance."
-
-    now = time.time()
-    requested = list(dict.fromkeys(categories))
-    missing = [
-        category
-        for category in requested
-        if not _registry_catalog_cache_fresh(category, now)
-    ]
-
-    if not missing:
-        return {
-            category: _registry_catalog_cache.get(category) or []
-            for category in requested
-        }, None
-
-    try:
-        def load_catalog(registry: DataRegistry):
-            loaded = {}
-            if "source_snapshots" in missing:
-                loaded["source_snapshots"] = registry.list_source_snapshots()
-            if "derived_artifacts" in missing:
-                loaded["derived_artifacts"] = registry.list_derived_artifacts()
-            if "external_registrations" in missing:
-                loaded["external_registrations"] = registry.list_external_sources()
-            if "resolver_snapshots" in missing:
-                loaded["resolver_snapshots"] = registry.list_resolver_snapshots()
-            return loaded
-
-        loaded_categories = _with_registry_endpoint_fallback(
-            load_catalog,
-            error_prefix="Loading registry catalog",
-        )
-        loaded_at = _registry_catalog_cache.setdefault("loaded_at", {})
-        cache_time = time.time()
-        for category, value in loaded_categories.items():
-            _registry_catalog_cache[category] = value
-            loaded_at[category] = cache_time
-        return {
-            category: _registry_catalog_cache.get(category) or []
-            for category in requested
-        }, None
-    except Exception as exc:
-        return {}, str(exc)
-
-
-def _load_registry_catalog() -> tuple[List[dict], List[dict], List[dict], List[dict], Optional[str]]:
-    catalog, error = _load_registry_catalog_categories([
-        "source_snapshots",
-        "derived_artifacts",
-        "external_registrations",
-        "resolver_snapshots",
-    ])
-    return (
-        catalog.get("source_snapshots", []),
-        catalog.get("derived_artifacts", []),
-        catalog.get("external_registrations", []),
-        catalog.get("resolver_snapshots", []),
-        error,
-    )
-
-
 def _storage_from_credentials(credentials_config: dict, *, use_internal_url: bool):
-    from src.registry.storage import AwsAssumeRoleCredentials
-    from src.registry.storage import AwsAssumeRoleStorage
-    from src.registry.storage import S3CompatibleStorage
+    from src.infrastructure.object_storage import AwsAssumeRoleCredentials
+    from src.infrastructure.object_storage import AwsAssumeRoleStorage
+    from src.infrastructure.object_storage import S3CompatibleStorage
     from src.shared.db_credentials import DBCredentials
 
     if "role_arn" in credentials_config or credentials_config.get("type") == "aws_assume_role":
         return AwsAssumeRoleStorage(AwsAssumeRoleCredentials.from_yaml(credentials_config))
     return S3CompatibleStorage(DBCredentials.from_yaml(credentials_config), use_internal_url=use_internal_url)
 
-
-def _registry_from_credentials(*, use_internal_url: bool):
-    if not _registry_storage_credentials:
-        raise HTTPException(status_code=503, detail="Registry storage credentials are not configured for this QA Browser instance.")
-    from src.registry.storage import AwsAssumeRoleCredentials
-    from src.shared.db_credentials import DBCredentials
-
-    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
-        credentials = AwsAssumeRoleCredentials.from_yaml(_registry_storage_credentials)
-    else:
-        credentials = DBCredentials.from_yaml(_registry_storage_credentials)
-
-    return DataRegistry.from_credentials(
-        credentials,
-        use_internal_url=use_internal_url,
-        connect_timeout=2,
-        read_timeout=10,
-    )
-
-
-def _registry_endpoint_order() -> List[bool]:
-    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
-        return [False]
-    configured = os.getenv("QA_BROWSER_STORAGE_URL_ORDER", "external,internal")
-    order = []
-    for part in configured.split(","):
-        name = part.strip().lower()
-        if name in {"internal", "internal_url", "docker"}:
-            order.append(True)
-        elif name in {"external", "url", "public"}:
-            order.append(False)
-    return order or [False, True]
-
-
-def _registry_endpoint_label(use_internal_url: bool) -> str:
-    if "role_arn" in _registry_storage_credentials or _registry_storage_credentials.get("type") == "aws_assume_role":
-        return "aws_assume_role"
-    return "internal_url" if use_internal_url else "url"
-
-
-def _with_registry_endpoint_fallback(operation, *, error_prefix: str):
-    errors = []
-    tried = []
-    for use_internal_url in _registry_endpoint_order():
-        endpoint_label = _registry_endpoint_label(use_internal_url)
-        tried.append(endpoint_label)
-        try:
-            registry = _registry_from_credentials(use_internal_url=use_internal_url)
-            return operation(registry)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            errors.append((endpoint_label, exc))
-            print(f"{error_prefix} failed using registry storage {endpoint_label}: {exc}", flush=True)
-    details = "; ".join(f"{label}: {error}" for label, error in errors)
-    raise RuntimeError(f"{error_prefix} failed using registry storage endpoints {', '.join(tried)}: {details}")
-
-
-def _load_registry_update_inputs(registry: DataRegistry, timeout: int):
-    return {
-        "source_statuses": registry.check_all_latest_registered(timeout=timeout),
-        "external_statuses": registry.check_external_registrations(),
-        "derived_statuses": registry.check_derived_artifacts(),
-        "resolver_statuses": registry.check_resolvers(),
-    }
-
-
-
-def _registry_status_category(status: dict) -> str:
-    if status.get("check_status") == "manual_unavailable":
-        return "manual"
-    if status.get("error"):
-        return "error"
-    if not status.get("registered_versions"):
-        return "missing"
-    if status.get("is_latest_registered") is True:
-        return "current"
-    if status.get("is_latest_registered") is False:
-        return "update_available"
-    return "unknown"
-
-
-def _registry_status_item_label(status: dict) -> str:
-    name = status.get("resolver") or status.get("dataset") or ""
-    source = status.get("source") or ""
-    return f"{source}:{name}" if source and name else source or name
-
-
-def _summarize_registry_status_section(label: str, statuses: List[dict]) -> dict:
-    counts = {
-        "current": 0,
-        "update_available": 0,
-        "missing": 0,
-        "manual": 0,
-        "unknown": 0,
-        "error": 0,
-    }
-    items = []
-    for status in statuses:
-        category = _registry_status_category(status)
-        counts[category] += 1
-        if category != "current":
-            detail = status.get("sync_reason") or status.get("error")
-            if not detail and category == "manual":
-                detail = status.get("manual_check_message") or "manual source check unavailable in this environment"
-            if not detail and category == "unknown":
-                detail = "latest version not available from checker"
-            items.append({
-                "label": _registry_status_item_label(status),
-                "category": category,
-                "latest_version": status.get("latest_version"),
-                "latest_version_date": status.get("latest_version_date"),
-                "latest_registered_version": status.get("latest_registered_version"),
-                "days_since_last_update": status.get("days_since_last_update"),
-                "latest_build_key": status.get("latest_build_key"),
-                "sync_reason": detail,
-                "error": status.get("error"),
-            })
-    items.sort(key=lambda item: (
-        {"update_available": 0, "missing": 1, "manual": 2, "error": 3, "unknown": 4}.get(item["category"], 5),
-        item["label"],
-    ))
-    return {
-        "label": label,
-        "total": len(statuses),
-        "counts": counts,
-        "items": items,
-    }
-
-
-def _registry_status_key(status: dict) -> Optional[tuple]:
-    source = status.get("source")
-    resolver = status.get("resolver")
-    dataset = status.get("dataset")
-    if source and resolver:
-        return "resolver", source, resolver
-    if source and dataset:
-        return "dataset", source, dataset
-    return None
-
-
-def _graph_dependency_keys(graph: dict) -> List[tuple]:
-    keys = []
-
-    def visit_dependency(dependency: dict):
-        if not isinstance(dependency, dict):
-            return
-        source = dependency.get("source")
-        dataset = dependency.get("dataset")
-        if source and dataset:
-            keys.append(("dataset", source, dataset))
-        for upstream in dependency.get("derived_from") or []:
-            visit_dependency(upstream)
-
-    for adapter in graph.get("adapters") or []:
-        for dependency in adapter.get("datasets") or []:
-            visit_dependency(dependency)
-    for resolver in graph.get("resolvers") or []:
-        snapshot = resolver.get("snapshot") or {}
-        source = snapshot.get("source")
-        resolver_name = resolver.get("name")
-        if source and resolver_name:
-            keys.append(("resolver", source, resolver_name))
-        for dependency in resolver.get("inputs") or []:
-            visit_dependency(dependency)
-    return keys
-
-
-def _graph_update_statuses(graphs: List[dict], stale_keys: set, unknown_keys: set) -> List[dict]:
-    statuses = []
-    for graph in graphs:
-        dependency_keys = set(_graph_dependency_keys(graph))
-        stale_dependency_count = len(dependency_keys & stale_keys)
-        unknown_dependency_count = len(dependency_keys & unknown_keys)
-        if stale_dependency_count:
-            is_latest_registered = False
-            sync_reason = f"{stale_dependency_count} dependency updates available"
-        elif unknown_dependency_count:
-            is_latest_registered = None
-            sync_reason = f"{unknown_dependency_count} dependencies unknown"
-        else:
-            is_latest_registered = True
-            sync_reason = None
-        statuses.append({
-            "source": "graph",
-            "dataset": graph.get("name"),
-            "registered_versions": [graph.get("run_date") or "built"],
-            "latest_registered_version": graph.get("run_date"),
-            "latest_version": None,
-            "is_latest_registered": is_latest_registered,
-            "sync_reason": sync_reason,
-            "error": None,
-        })
-    return statuses
-
-
-def _run_registry_update_checks() -> dict:
-    timeout = int(os.getenv("QA_BROWSER_REGISTRY_UPDATE_CHECK_TIMEOUT", "20"))
-    started = time.time()
-    status_inputs = _with_registry_endpoint_fallback(
-        lambda registry: _load_registry_update_inputs(registry, timeout),
-        error_prefix="Checking registry update status",
-    )
-    source_statuses = status_inputs["source_statuses"]
-    external_statuses = status_inputs["external_statuses"]
-    derived_statuses = status_inputs["derived_statuses"]
-    resolver_statuses = status_inputs["resolver_statuses"]
-    stale_keys = {
-        key
-        for status in [*source_statuses, *external_statuses, *derived_statuses, *resolver_statuses]
-        for key in [_registry_status_key(status)]
-        if key and _registry_status_category(status) in {"update_available", "missing"}
-    }
-    unknown_keys = {
-        key
-        for status in [*source_statuses, *external_statuses, *derived_statuses, *resolver_statuses]
-        for key in [_registry_status_key(status)]
-        if key and _registry_status_category(status) in {"unknown", "error"}
-    }
-    graphs, graph_error = load_registry_graphs_cached(
-        credentials=_credentials,
-        cache=_registry_graph_cache,
-        ttl_seconds=0,
-        get_sys_db=get_sys_db,
-        get_db=get_db,
-    )
-    sections = [
-        _summarize_registry_status_section(
-            "Source Snapshots",
-            source_statuses,
-        ),
-        _summarize_registry_status_section(
-            "External Sources",
-            external_statuses,
-        ),
-        _summarize_registry_status_section(
-            "Derived Artifacts",
-            derived_statuses,
-        ),
-        _summarize_registry_status_section(
-            "Resolvers",
-            resolver_statuses,
-        ),
-    ]
-    if graph_error:
-        sections.append(_summarize_registry_status_section("Graphs", [{
-            "source": "graph",
-            "dataset": "registry graphs",
-            "registered_versions": ["unknown"],
-            "is_latest_registered": None,
-            "error": graph_error,
-        }]))
-    else:
-        sections.append(_summarize_registry_status_section(
-            "Graphs",
-            _graph_update_statuses(graphs, stale_keys, unknown_keys),
-        ))
-    return {
-        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "elapsed_seconds": round(time.time() - started, 1),
-        "sections": sections,
-        "error": None,
-    }
-
-
-def _registry_update_status_context() -> dict:
-    return _registry_update_status_cache
-
-
-def _gunzip_if_needed(path: Path) -> Path:
-    if path.suffix != ".gz":
-        return path
-    output_path = path.with_suffix("")
-    if output_path.exists() and output_path.stat().st_mtime >= path.stat().st_mtime:
-        return output_path
-    tmp_path = output_path.with_name(f"{output_path.name}.tmp")
-    with gzip.open(path, "rb") as source, tmp_path.open("wb") as dest:
-        shutil.copyfileobj(source, dest)
-    tmp_path.replace(output_path)
-    return output_path
-
-
-def _materialize_ramp_sqlite_database() -> tuple[Path, dict]:
-    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", str(DEFAULT_REGISTRY_CACHE_DIR)))
-    source = "ramp"
-    dataset_name = "sqlite_database"
-    version = "3.0.7"
-    manifest_key = f"sources/{source}/{dataset_name}/{version}/manifest.yaml"
-
-    def materialize(registry: DataRegistry):
-        manifest = yaml.safe_load(registry.storage.read_text(manifest_key))
-        local_dir = cache_dir / source / dataset_name / version
-        local_dir.mkdir(parents=True, exist_ok=True)
-        for entry in manifest.get("files") or []:
-            local_path = local_dir / entry["path"]
-            if registry._local_file_matches_entry(local_path, entry):
-                continue
-            storage_uri = entry.get("storage_uri") or ""
-            if storage_uri.startswith(f"s3://{registry.storage.bucket}/"):
-                key = storage_uri.removeprefix(f"s3://{registry.storage.bucket}/")
-            else:
-                key = f"sources/{source}/{dataset_name}/{version}/{entry['path']}"
-            registry.storage.download_file(key, local_path)
-        files = manifest.get("files") or []
-        if len(files) != 1:
-            raise ValueError(f"Expected one RaMP SQLite file in {manifest_key}; found {len(files)}")
-        sqlite_path = _gunzip_if_needed(local_dir / files[0]["path"])
-        return sqlite_path, {
-            "kind": manifest.get("kind"),
-            "source": source,
-            "dataset": dataset_name,
-            "version": version,
-            "version_date": manifest.get("version_date"),
-            "download_date": manifest.get("download_date"),
-            "snapshot_id": manifest.get("snapshot_id"),
-            "manifest_uri": f"s3://{registry.storage.bucket}/{manifest_key}",
-            "local_dir": str(local_dir),
-            "files": files,
-        }
-
-    return _with_registry_endpoint_fallback(
-        materialize,
-        error_prefix="Materializing RaMP SQLite registry snapshot",
-    )
-
-
-def _list_resolver_snapshots_for_warmup() -> List[dict]:
-    return _with_registry_endpoint_fallback(
-        lambda registry: registry.list_resolver_snapshots(),
-        error_prefix="Listing resolver snapshots",
-    )
-
-
-def _latest_resolver_snapshots(resolver_snapshots: List[dict]) -> List[dict]:
-    latest_by_resolver = {}
-    for snapshot in resolver_snapshots:
-        source = snapshot.get("source")
-        resolver = snapshot.get("resolver")
-        version = snapshot.get("version")
-        if not source or not resolver or not version:
-            continue
-        key = (source, resolver)
-        current = latest_by_resolver.get(key)
-        if current is None or (
-            snapshot.get("created_at") or "",
-            snapshot.get("version") or "",
-        ) > (
-            current.get("created_at") or "",
-            current.get("version") or "",
-        ):
-            latest_by_resolver[key] = snapshot
-    return sorted(
-        latest_by_resolver.values(),
-        key=lambda snapshot: (
-            snapshot.get("source") or "",
-            snapshot.get("resolver") or "",
-            snapshot.get("created_at") or "",
-            snapshot.get("version") or "",
-        ),
-    )
-
-
-def _warm_resolver_instances_in_background():
-    _resolver_warmup_status.update({
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "completed_at": None,
-        "total": 0,
-        "warmed": 0,
-        "errors": [],
-    })
-
-    try:
-        resolver_snapshots = _list_resolver_snapshots_for_warmup()
-        if not _RESOLVER_WARMUP_ALL_SNAPSHOTS:
-            resolver_snapshots = _latest_resolver_snapshots(resolver_snapshots)
-        else:
-            resolver_snapshots = sorted(
-                resolver_snapshots,
-                key=lambda snapshot: (
-                    snapshot.get("source") or "",
-                    snapshot.get("resolver") or "",
-                    snapshot.get("created_at") or "",
-                    snapshot.get("version") or "",
-                ),
-            )
-        _resolver_warmup_status["total"] = len(resolver_snapshots)
-        scope = "all resolver snapshots" if _RESOLVER_WARMUP_ALL_SNAPSHOTS else "latest resolver snapshots"
-        print(f"Starting resolver warmup for {len(resolver_snapshots)} {scope}.")
-
-        for snapshot in resolver_snapshots:
-            source = snapshot.get("source")
-            resolver = snapshot.get("resolver")
-            version = snapshot.get("version")
-            if not source or not resolver or not version:
-                continue
-            try:
-                _get_resolver_instance_for_api(source, resolver, version)
-                _resolver_warmup_status["warmed"] += 1
-                print(f"Warmed resolver {source}:{resolver}:{version}")
-            except Exception as exc:
-                message = f"{source}:{resolver}:{version}: {exc}"
-                _resolver_warmup_status["errors"].append(message)
-                print(f"Failed to warm resolver {message}")
-    except Exception as exc:
-        message = str(exc)
-        _resolver_warmup_status["errors"].append(message)
-        print(f"Resolver warmup failed: {message}")
-    finally:
-        _resolver_warmup_status["completed_at"] = datetime.now(timezone.utc).isoformat()
-        print(
-            "Resolver warmup complete: "
-            f"{_resolver_warmup_status['warmed']}/{_resolver_warmup_status['total']} warmed, "
-            f"{len(_resolver_warmup_status['errors'])} errors."
-        )
-
-
-def _start_resolver_warmup_thread():
-    global _resolver_warmup_thread, _resolver_warmup_started
-    if not _RESOLVER_WARMUP_ENABLED:
-        print("Resolver warmup disabled by QA_BROWSER_WARM_RESOLVERS.")
-        return
-    if _resolver_warmup_started:
-        return
-    if not _registry_storage_credentials:
-        print("Resolver warmup skipped because registry storage credentials are not configured.")
-        return
-    _resolver_warmup_started = True
-    _resolver_warmup_thread = threading.Thread(
-        target=_warm_resolver_instances_in_background,
-        name="qa-browser-resolver-warmup",
-        daemon=True,
-    )
-    _resolver_warmup_thread.start()
-
-
-def _materialize_resolver_snapshot_for_api(source: str, resolver: str, version: str):
-    cache_dir = Path(os.getenv("QA_BROWSER_REGISTRY_CACHE_DIR", str(DEFAULT_REGISTRY_CACHE_DIR)))
-    try:
-        return _with_registry_endpoint_fallback(
-            lambda registry: registry.materialize_resolver_snapshot(source, resolver, version, dest=cache_dir),
-            error_prefix=f"Materializing resolver snapshot {source}/{resolver}/{version}",
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Could not materialize resolver snapshot: {exc}") from exc
-
-
-def _load_class_from_definition(definition: dict):
-    module_path = definition.get("import")
-    class_name = definition.get("class")
-    if not module_path or not class_name:
-        raise HTTPException(status_code=500, detail="Resolver snapshot definition is missing import/class metadata.")
-    abs_module_path = os.path.abspath(module_path)
-    normalized_module_path = os.path.normpath(abs_module_path)
-    module_name = (
-        "qa_resolver_import__"
-        + normalized_module_path.replace(":", "").replace(os.sep, "_").replace(".", "_")
-    )
-    module = sys.modules.get(module_name)
-    if module is None:
-        spec = importlib.util.spec_from_file_location(module_name, abs_module_path)
-        if spec is None or spec.loader is None:
-            raise HTTPException(status_code=500, detail=f"Could not load resolver module {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        try:
-            spec.loader.exec_module(module)
-        except Exception:
-            sys.modules.pop(module_name, None)
-            raise
-    return getattr(module, class_name)
-
-
-def _get_resolver_instance_for_api(source: str, resolver: str, version: str):
-    cache_key = (source, resolver, version)
-    if cache_key in _resolver_instance_cache:
-        return _resolver_instance_cache[cache_key]
-
-    with _resolver_instance_cache_locks_guard:
-        lock = _resolver_instance_cache_locks.setdefault(cache_key, threading.Lock())
-
-    with lock:
-        if cache_key in _resolver_instance_cache:
-            return _resolver_instance_cache[cache_key]
-
-        resolver_snapshot = _materialize_resolver_snapshot_for_api(source, resolver, version)
-        definition = resolver_snapshot.manifest.get("definition") or {}
-        accepted_types = list(definition.get("accepted_types") or [])
-        if not accepted_types:
-            raise HTTPException(status_code=400, detail=f"Resolver snapshot {resolver_snapshot.snapshot_id} has no accepted_types.")
-        type_sensitive = bool(definition.get("type_sensitive"))
-        resolver_class = _load_class_from_definition(definition)
-        resolver_instance = resolver_class(
-            resolver_snapshot=resolver_snapshot,
-            types=accepted_types,
-        )
-        _resolver_instance_cache[cache_key] = resolver_snapshot, resolver_instance, accepted_types, type_sensitive
-        return _resolver_instance_cache[cache_key]
-
-
-def _node_class_for_api_type(input_type: str):
-    return type(input_type, (Node,), {})
-
-
-def _nodes_for_resolver_api(input_type: str, ids: List[str]) -> List[Node]:
-    node_class = _node_class_for_api_type(input_type)
-    nodes = []
-    for value in ids:
-        node = node_class(id=value)
-        setattr(node, "name", value)
-        setattr(node, "text", value)
-        nodes.append(node)
-    return nodes
-
-
-def _serialize_id_match(match) -> dict:
-    equivalent_ids = []
-    for equivalent_id in match.equivalent_ids or []:
-        if hasattr(equivalent_id, "id_str"):
-            equivalent_ids.append(equivalent_id.id_str())
-        else:
-            equivalent_ids.append(str(equivalent_id))
-    return {
-        "input": match.input,
-        "match": match.match,
-        "equivalent_ids": equivalent_ids,
-        "context": list(match.context or []),
-    }
-
-
-def _resolve_ids_for_type(resolver_instance, input_type: str, ids: List[str]) -> List[dict]:
-    nodes = _nodes_for_resolver_api(input_type, ids)
-    raw_matches = resolver_instance.resolve_internal(nodes)
-    return [
-        {
-            "input": input_id,
-            "matches": [
-                _serialize_id_match(match)
-                for match in raw_matches.get(input_id, []) or []
-            ],
-        }
-        for input_id in ids
-    ]
-
-
-def _resolver_prefix_counts_for_api(resolver_instance) -> List[dict]:
-    counts = []
-    for row in resolver_instance.get_prefix_counts() or []:
-        if not isinstance(row, dict):
-            continue
-        prefix = str(row.get("prefix") or "").strip()
-        if not prefix:
-            continue
-        raw_count = row.get("count")
-        count = raw_count if isinstance(raw_count, int) else None
-        counts.append({"prefix": prefix, "count": count})
-    return sorted(
-        counts,
-        key=lambda row: (
-            -(row["count"] if isinstance(row.get("count"), int) else -1),
-            row["prefix"].lower(),
-        ),
-    )
-
-
-def _resolver_example_ids_for_api(resolver_instance) -> List[str]:
-    return [
-        str(example_id)
-        for example_id in resolver_instance.get_example_ids(limit=5) or []
-        if str(example_id).strip()
-    ]
-
-
-def _normalize_resolver_api_ids(payload: dict) -> List[str]:
-    raw_ids = payload.get("ids")
-    if raw_ids is None and "id" in payload:
-        raw_ids = [payload.get("id")]
-    if isinstance(raw_ids, str):
-        raw_ids = [raw_ids]
-    if not isinstance(raw_ids, list):
-        raise HTTPException(status_code=400, detail="Request body must include ids as a string or list of strings.")
-    ids = [str(value).strip() for value in raw_ids if str(value).strip()]
-    if not ids:
-        raise HTTPException(status_code=400, detail="At least one non-empty id is required.")
-    if len(ids) > _RESOLVER_API_MAX_IDS:
-        raise HTTPException(status_code=400, detail=f"At most {_RESOLVER_API_MAX_IDS} ids can be resolved in one request.")
-    return ids
-
-
-def _resolver_snapshots_for_page(
-    resolver_snapshots: List[dict],
-    source: str,
-    resolver: str,
-) -> List[dict]:
-    snapshots = [
-        snapshot
-        for snapshot in resolver_snapshots
-        if snapshot.get("source") == source and snapshot.get("resolver") == resolver
-    ]
-    return sorted(
-        snapshots,
-        key=lambda snapshot: (snapshot.get("created_at") or "", snapshot.get("version") or ""),
-        reverse=True,
-    )
-
-
-def _resolver_resolve_payload_for_api(source: str, resolver: str, version: str, payload: dict) -> dict:
-    ids = _normalize_resolver_api_ids(payload)
-    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
-    requested_type = payload.get("input_type") or payload.get("type")
-    if requested_type is not None:
-        requested_type = str(requested_type).strip()
-        if requested_type not in accepted_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"input_type must be one of {accepted_types}; got {requested_type!r}",
-            )
-        input_types = [requested_type]
-        result_specs = [(requested_type, requested_type)]
-    elif type_sensitive:
-        input_types = accepted_types
-        result_specs = [(input_type, input_type) for input_type in accepted_types]
-    else:
-        input_types = ["Any accepted type"]
-        result_specs = [(input_types[0], accepted_types[0])]
-
-    return {
-        "resolver_snapshot": resolver_snapshot.snapshot_id,
-        "source": source,
-        "resolver": resolver,
-        "version": version,
-        "accepted_types": accepted_types,
-        "type_sensitive": type_sensitive,
-        "input_types": input_types,
-        "results_by_type": {
-            result_label: _resolve_ids_for_type(resolver_instance, node_type, ids)
-            for result_label, node_type in result_specs
-        },
-    }
-
-
-def _resolver_prefix_counts_payload_for_api(source: str, resolver: str, version: str) -> dict:
-    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
-    try:
-        prefix_counts = _resolver_prefix_counts_for_api(resolver_instance)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not load resolver prefix counts: {exc}") from exc
-    return {
-        "resolver_snapshot": resolver_snapshot.snapshot_id,
-        "source": source,
-        "resolver": resolver,
-        "version": version,
-        "accepted_types": accepted_types,
-        "type_sensitive": type_sensitive,
-        "prefix_counts": prefix_counts,
-    }
-
-
-def _resolver_examples_payload_for_api(source: str, resolver: str, version: str) -> dict:
-    resolver_snapshot, resolver_instance, accepted_types, type_sensitive = _get_resolver_instance_for_api(source, resolver, version)
-    try:
-        example_ids = _resolver_example_ids_for_api(resolver_instance)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not load resolver examples: {exc}") from exc
-    return {
-        "resolver_snapshot": resolver_snapshot.snapshot_id,
-        "source": source,
-        "resolver": resolver,
-        "version": version,
-        "accepted_types": accepted_types,
-        "type_sensitive": type_sensitive,
-        "example_ids": example_ids,
-    }
-
-
-# ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -10839,240 +10021,6 @@ def disease_id_qa_provenance(pxref: str):
     return {"primary_xref": pxref, "steps": chain}
 
 
-@app.get("/registry", response_class=HTMLResponse)
-def registry_home(request: Request):
-    catalog, registry_error = _load_registry_catalog_categories([
-        "source_snapshots",
-        "derived_artifacts",
-        "external_registrations",
-    ])
-    snapshots = catalog.get("source_snapshots", [])
-    derived_artifacts = catalog.get("derived_artifacts", [])
-    external_registrations = catalog.get("external_registrations", [])
-    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
-        credentials=_credentials,
-        cache=_registry_usage_cache,
-        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
-        get_sys_db=get_sys_db,
-        get_db=get_db,
-    )
-    graph_filters = graph_usage_filters(graph_usage_by_registry_id)
-    graph_styles = graph_usage_styles(graph_filters)
-
-    snapshot_list = [
-        with_graph_usages(snapshot, graph_usage_by_registry_id)
-        for snapshot in snapshots
-    ]
-    derived_artifact_list = [
-        with_graph_usages(artifact, graph_usage_by_registry_id)
-        for artifact in derived_artifacts
-    ]
-    external_registration_list = [
-        with_graph_usages(registration, graph_usage_by_registry_id)
-        for registration in external_registrations
-    ]
-
-    grouped_source_list = []
-    grouped_derived_source_list = []
-    registry_stats = {
-        "source_count": 0,
-        "dataset_count": 0,
-        "derived_count": 0,
-        "external_count": 0,
-        "total_size": "",
-    }
-    if not registry_error:
-        grouped_source_list = group_by_source_dataset(snapshot_list, "snapshots")
-        grouped_derived_source_list = group_by_source_dataset(derived_artifact_list, "artifacts")
-        total_size_bytes = (
-            sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in snapshots)
-            + sum(artifact.get("total_size_bytes", 0) or 0 for artifact in derived_artifacts)
-        )
-        registry_stats = {
-            "source_count": len(grouped_source_list),
-            "dataset_count": sum(len(group["datasets"]) for group in grouped_source_list),
-            "derived_count": len(derived_artifacts),
-            "external_count": len(external_registrations),
-            "total_size": DataRegistry.format_size(total_size_bytes),
-        }
-
-    return templates.TemplateResponse(request, "registry_home.html", {
-        "request": request,
-        "snapshots": snapshot_list,
-        "derived_artifacts": derived_artifact_list,
-        "external_registrations": external_registration_list,
-        "grouped_sources": grouped_source_list,
-        "grouped_derived_sources": grouped_derived_source_list,
-        "registry_stats": registry_stats,
-        "registry_error": registry_error,
-        "graph_usage_error": graph_usage_error,
-        "graph_usage_filters": graph_filters,
-        "graph_usage_styles": graph_styles,
-        "registry_update_status": _registry_update_status_context(),
-    })
-
-
-@app.post("/registry/update-status", response_class=HTMLResponse)
-def registry_update_status(request: Request, return_page: str = Form("sources")):
-    try:
-        status = _run_registry_update_checks()
-    except Exception as exc:
-        status = {
-            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "elapsed_seconds": None,
-            "sections": [],
-            "error": str(exc),
-        }
-    _registry_update_status_cache.clear()
-    _registry_update_status_cache.update(status)
-    return_path = REGISTRY_UPDATE_RETURN_PATHS.get(return_page, "/registry")
-    return _redirect_to(return_path, request=request, status_code=303)
-
-
-@app.get("/registry/resolvers", response_class=HTMLResponse)
-def registry_resolvers(request: Request):
-    catalog, registry_error = _load_registry_catalog_categories(["resolver_snapshots"])
-    resolver_snapshots = catalog.get("resolver_snapshots", [])
-    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
-        credentials=_credentials,
-        cache=_registry_usage_cache,
-        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
-        get_sys_db=get_sys_db,
-        get_db=get_db,
-    )
-    graph_filters = graph_usage_filters(graph_usage_by_registry_id)
-    graph_styles = graph_usage_styles(graph_filters)
-
-    resolver_snapshot_list = [
-        with_graph_usages(snapshot, graph_usage_by_registry_id)
-        for snapshot in resolver_snapshots
-    ]
-    grouped_resolver_list = []
-    registry_stats = {
-        "source_count": 0,
-        "resolver_count": 0,
-        "snapshot_count": 0,
-        "total_size": "",
-    }
-    if not registry_error:
-        grouped_resolver_list = group_by_source_dataset(resolver_snapshot_list, "snapshots")
-        total_size_bytes = sum(snapshot.get("total_size_bytes", 0) or 0 for snapshot in resolver_snapshots)
-        registry_stats = {
-            "source_count": len(grouped_resolver_list),
-            "resolver_count": sum(len(group["datasets"]) for group in grouped_resolver_list),
-            "snapshot_count": len(resolver_snapshots),
-            "total_size": DataRegistry.format_size(total_size_bytes),
-        }
-
-    return templates.TemplateResponse(request, "registry_resolvers.html", {
-        "request": request,
-        "resolver_snapshots": resolver_snapshot_list,
-        "grouped_resolvers": grouped_resolver_list,
-        "registry_stats": registry_stats,
-        "registry_error": registry_error,
-        "graph_usage_error": graph_usage_error,
-        "graph_usage_filters": graph_filters,
-        "graph_usage_styles": graph_styles,
-        "registry_update_status": _registry_update_status_context(),
-    })
-
-
-@app.get("/registry/graphs", response_class=HTMLResponse)
-def registry_graphs(request: Request):
-    graphs, graph_error = load_registry_graphs_cached(
-        credentials=_credentials,
-        cache=_registry_graph_cache,
-        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
-        get_sys_db=get_sys_db,
-        get_db=get_db,
-    )
-    registry_stats = {
-        "graph_count": len(graphs),
-        "adapter_count": sum(len(graph.get("adapters") or []) for graph in graphs),
-        "resolver_count": sum(len(graph.get("resolvers") or []) for graph in graphs),
-        "dependency_count": sum(
-            sum(len(adapter.get("datasets") or []) for adapter in graph.get("adapters") or [])
-            + sum(
-                (1 if resolver.get("snapshot") else 0) + len(resolver.get("inputs") or [])
-                for resolver in graph.get("resolvers") or []
-            )
-            for graph in graphs
-        ),
-    }
-
-    return templates.TemplateResponse(request, "registry_graphs.html", {
-        "request": request,
-        "graphs": graphs,
-        "registry_stats": registry_stats,
-        "graph_error": graph_error,
-        "registry_update_status": _registry_update_status_context(),
-    })
-
-
-@app.get("/registry/resolvers/{source}/{resolver}", response_class=HTMLResponse)
-def registry_resolver_detail(request: Request, source: str, resolver: str, version: Optional[str] = None):
-    catalog, registry_error = _load_registry_catalog_categories(["resolver_snapshots"])
-    resolver_snapshots = catalog.get("resolver_snapshots", [])
-    graph_usage_by_registry_id, graph_usage_error = load_graph_registry_usage_cached(
-        credentials=_credentials,
-        cache=_registry_usage_cache,
-        ttl_seconds=_REGISTRY_USAGE_TTL_SECONDS,
-        get_sys_db=get_sys_db,
-        get_db=get_db,
-    )
-    graph_styles = graph_usage_styles(graph_usage_filters(graph_usage_by_registry_id))
-    resolver_snapshot_list = [
-        with_graph_usages(snapshot, graph_usage_by_registry_id)
-        for snapshot in _resolver_snapshots_for_page(resolver_snapshots, source, resolver)
-    ]
-    for snapshot in resolver_snapshot_list:
-        definition = snapshot.get("definition") or {}
-        definition["type_sensitive"] = bool(definition.get("type_sensitive"))
-    selected_snapshot = None
-    if resolver_snapshot_list:
-        selected_snapshot = next(
-            (
-                snapshot
-                for snapshot in resolver_snapshot_list
-                if snapshot.get("version") == version
-            ),
-            resolver_snapshot_list[0],
-        )
-
-    return templates.TemplateResponse(request, "registry_resolver_detail.html", {
-        "request": request,
-        "source": source,
-        "resolver": resolver,
-        "resolver_snapshots": resolver_snapshot_list,
-        "selected_snapshot": selected_snapshot,
-        "registry_error": registry_error,
-        "graph_usage_error": graph_usage_error,
-        "graph_usage_styles": graph_styles,
-    })
-
-
-@app.post("/registry/resolvers/{source}/{resolver}/{version}/resolve")
-async def registry_resolver_resolve(source: str, resolver: str, version: str, request: Request):
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
-
-    return await run_in_threadpool(_resolver_resolve_payload_for_api, source, resolver, version, payload)
-
-
-@app.get("/registry/resolvers/{source}/{resolver}/{version}/prefix-counts")
-async def registry_resolver_prefix_counts(source: str, resolver: str, version: str):
-    return await run_in_threadpool(_resolver_prefix_counts_payload_for_api, source, resolver, version)
-
-
-@app.get("/registry/resolvers/{source}/{resolver}/{version}/examples")
-async def registry_resolver_examples(source: str, resolver: str, version: str):
-    return await run_in_threadpool(_resolver_examples_payload_for_api, source, resolver, version)
-
-
 @app.get("/db/{db_name}", response_class=HTMLResponse)
 def dashboard(request: Request, db_name: str):
     db = get_db(db_name)
@@ -11093,14 +10041,14 @@ def dashboard(request: Request, db_name: str):
             pass
 
     graph_views = _get_graph_views(db)
-    registry_datasets = extract_registry_datasets(etl_meta)
+    build_inputs = extract_build_inputs(etl_meta)
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "db_name": db_name,
         "collections": collections,
         "edge_defs": edge_defs,
         "etl_meta": etl_meta,
-        "registry_datasets": registry_datasets,
+        "build_inputs": build_inputs,
         "graph_views": graph_views,
         "doc_count": None,
         "edge_count": None,
@@ -13696,9 +12644,9 @@ def main():
                         action="append",
                         default=[],
                         help="Path to a MySQL credentials YAML file; repeat to load multiple MySQL servers")
-    parser.add_argument("--storage-credentials", "-s",
+    parser.add_argument("--object-storage-credentials", "-s",
                         default=None,
-                        help="Path to registry object-storage credentials YAML file")
+                        help="Path to object-storage credentials YAML file")
     parser.add_argument("--parquet-storage-credentials",
                         default=None,
                         help="Path to object-storage credentials YAML for existing Dataset parquet files")
@@ -13748,7 +12696,7 @@ def main():
                         help="Path to IFX Harmonizers-compatible drug review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _registry_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -13784,14 +12732,14 @@ def main():
     if _demo_queries_enabled:
         _demo_module.set_mysql_credentials(_mysql_credentials)
 
-    if args.storage_credentials:
-        storage_path = Path(args.storage_credentials)
+    if args.object_storage_credentials:
+        storage_path = Path(args.object_storage_credentials)
         if storage_path.exists():
             with open(storage_path) as f:
-                _registry_storage_credentials = yaml.safe_load(f)
-            print(f"Loaded registry storage credentials from {storage_path}")
+                _object_storage_credentials = yaml.safe_load(f)
+            print(f"Loaded object-storage credentials from {storage_path}")
         else:
-            print(f"Warning: registry storage credentials file {storage_path} not found")
+            print(f"Warning: object-storage credentials file {storage_path} not found")
 
     if args.parquet_storage_credentials:
         parquet_storage_path = Path(args.parquet_storage_credentials)

@@ -2,7 +2,7 @@ import hashlib
 import json
 from copy import deepcopy
 
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDatasetMetadata
 
 
 def _canonical_json(value) -> str:
@@ -10,7 +10,7 @@ def _canonical_json(value) -> str:
 
 
 def _metadata_safe(value):
-    if isinstance(value, MaterializedDataset):
+    if isinstance(value, RegistryDatasetMetadata):
         metadata = value.to_metadata()
         _strip_local_dirs(metadata)
         return metadata
@@ -36,13 +36,12 @@ def resolver_fingerprint(resolver_config: dict) -> dict:
     label = normalized.pop("label", None)
     config_hash = hashlib.sha256(_canonical_json(normalized).encode("utf-8")).hexdigest()
     kwargs = normalized.get("kwargs", {})
-    resolver_snapshot = kwargs.get("resolver_snapshot") if isinstance(kwargs, dict) else None
     return {
         "label": label,
         "import": normalized.get("import"),
         "class": normalized.get("class"),
         "kwargs": kwargs,
-        "resolver_snapshot": resolver_snapshot,
+        "dataset_inputs": _dataset_inputs(kwargs),
         "fingerprint": config_hash,
     }
 
@@ -63,14 +62,29 @@ def _resolver_types_from_metadata(metadata: dict) -> list[str]:
     return list((metadata.get("kwargs") or {}).get("types") or [])
 
 
+def _dataset_inputs(value) -> list[dict]:
+    inputs = []
+    if isinstance(value, dict):
+        snapshot_id = value.get("snapshot_id")
+        kind = value.get("kind")
+        if isinstance(snapshot_id, str) and isinstance(kind, str):
+            inputs.append({"kind": kind, "snapshot_id": snapshot_id})
+        else:
+            for entry in value.values():
+                inputs.extend(_dataset_inputs(entry))
+    elif isinstance(value, list):
+        for entry in value:
+            inputs.extend(_dataset_inputs(entry))
+    return sorted(inputs, key=lambda item: (item["kind"], item["snapshot_id"]))
+
+
 def resolver_fingerprint_summary(fingerprints_by_type: dict | None) -> dict:
     return {
         node_type: {
             "label": metadata.get("label"),
             "import": metadata.get("import"),
             "class": metadata.get("class"),
-            "resolver_snapshot": (metadata.get("resolver_snapshot") or {}).get("snapshot_id")
-            if isinstance(metadata.get("resolver_snapshot"), dict) else None,
+            "dataset_inputs": metadata.get("dataset_inputs") or [],
             "fingerprint": metadata.get("fingerprint"),
         }
         for node_type, metadata in (fingerprints_by_type or {}).items()

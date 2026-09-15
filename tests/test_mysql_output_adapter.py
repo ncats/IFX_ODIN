@@ -1,5 +1,5 @@
 from sqlalchemy.exc import IntegrityError, OperationalError
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -8,7 +8,7 @@ from src.interfaces.metadata import CollectionMetadata, DatabaseMetadata
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.models.datasource_version_info import DataSourceDetails
 from src.output_adapters.mysql_output_adapter import MySQLOutputAdapter, TCRDOutputAdapter
-from src.registry.fetchers import MaterializedDataset
+from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 from src.shared.db_credentials import DBCredentials
 from src.shared.sqlalchemy_tables.pharos_tables_new import TDL_info
 from src.shared.sqlalchemy_tables.test_tables import AutoIncNode
@@ -252,25 +252,18 @@ def test_tcrd_output_adapter_preloads_mappings_in_pre_processing():
     assert fake_session.closed is True
 
 
-def _resolver_snapshot(version="deps-test"):
-    return MaterializedDataset(
+def _resolver_dataset(version="deps-test"):
+    return RegistryDataset(
+        kind=RegistryDatasetKind.SOURCE,
         source="target_graph",
         dataset="disease_ids",
         version=version,
         version_date=None,
-        download_date="2026-06-12",
+        download_date=date(2026, 6, 12),
         snapshot_id=f"target_graph:disease_ids:{version}",
-        manifest_uri=f"s3://ifx-registry/resolvers/target_graph/disease_ids/{version}/manifest.yaml",
-        manifest={
-            "kind": "resolver_snapshot",
-            "definition": {
-                "label": "disease_ids",
-                "import": "./src/id_resolvers/disease_resolver.py",
-                "class": "DiseaseIdResolver",
-            },
-            "files": [],
-        },
-        local_dir=Path(f"/tmp/ifx-registry-cache/resolvers/target_graph/disease_ids/{version}"),
+        manifest_uri=f"s3://ifx-registry/sources/target_graph/disease_ids/{version}/manifest.yaml",
+        manifest={"kind": "source_snapshot", "files": []},
+        local_dir=Path(f"/tmp/ifx-registry-cache/sources/target_graph/disease_ids/{version}"),
     )
 
 
@@ -280,7 +273,7 @@ def _resolver_config(class_name="DiseaseIdResolver", version="deps-test", types=
         "import": "./src/id_resolvers/disease_resolver.py",
         "class": class_name,
         "kwargs": {
-            "resolver_snapshot": _resolver_snapshot(version=version),
+            "data_source": _resolver_dataset(version=version),
             "types": types or ["Disease"],
             "multi_match_behavior": "All",
         },
@@ -335,7 +328,7 @@ def test_tcrd_output_adapter_rejects_mismatched_source_graph_resolver_metadata()
         adapter._validate_source_graph_resolver_metadata()
 
 
-def test_tcrd_output_adapter_warns_on_fingerprint_drift_with_matching_resolver_identity():
+def test_tcrd_output_adapter_rejects_fingerprint_drift():
     expected = resolver_fingerprints_by_type(_resolver_config())
     actual = resolver_fingerprints_by_type(_resolver_config())
     actual["Disease"] = {
@@ -350,11 +343,11 @@ def test_tcrd_output_adapter_warns_on_fingerprint_drift_with_matching_resolver_i
         },
     })
 
-    with pytest.warns(RuntimeWarning, match="resolver YAML identity matches"):
+    with pytest.raises(RuntimeError, match="mismatched_types=\\['Disease'\\]"):
         adapter._validate_source_graph_resolver_metadata()
 
 
-def test_tcrd_output_adapter_accepts_graph_resolver_with_broader_type_scope():
+def test_tcrd_output_adapter_rejects_graph_resolver_with_broader_type_scope():
     expected = resolver_fingerprints_by_type(_resolver_config())
     actual = resolver_fingerprints_by_type(_resolver_config(types=["Ligand", "Disease"]))
     adapter = _adapter_with_resolver_metadata(expected, {
@@ -365,7 +358,7 @@ def test_tcrd_output_adapter_accepts_graph_resolver_with_broader_type_scope():
         },
     })
 
-    with pytest.warns(RuntimeWarning, match="resolver YAML identity matches"):
+    with pytest.raises(RuntimeError, match="mismatched_types=\\['Disease'\\]"):
         adapter._validate_source_graph_resolver_metadata()
 
 

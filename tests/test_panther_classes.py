@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date
 
 from src.input_adapters.panther.panther_classes import PantherClassesAdapter
 from src.models.panther_class import (
@@ -9,6 +10,7 @@ from src.models.panther_class import (
     ProteinPantherClassEdge,
     ProteinPantherFamilyEdge,
 )
+from tests.registry_fakes import registry_dataset
 
 
 def _write_fixture(path: Path, content: str) -> None:
@@ -19,7 +21,6 @@ def test_panther_adapter_emits_family_and_class_graph(tmp_path):
     class_path = tmp_path / "Protein_Class_19.0"
     relationship_path = tmp_path / "Protein_class_relationship"
     sequence_path = tmp_path / "PTHR19.0_human"
-    version_path = tmp_path / "panther_classes_version.tsv"
 
     _write_fixture(
         class_path,
@@ -50,16 +51,16 @@ def test_panther_adapter_emits_family_and_class_graph(tmp_path):
             "\t\n"
         ),
     )
-    _write_fixture(
-        version_path,
-        "version\tversion_date\tdownload_date\n19.0\t2026-04-14\t2026-04-14\n",
-    )
-
     adapter = PantherClassesAdapter(
-        class_file_path=str(class_path),
-        relationship_file_path=str(relationship_path),
-        sequence_classification_file_path=str(sequence_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(
+            tmp_path,
+            class_path.name,
+            relationship_path.name,
+            sequence_path.name,
+            version="19.0",
+            version_date=date(2026, 4, 14),
+            download_date=date(2026, 4, 14),
+        ),
     )
 
     batches = list(adapter.get_all())

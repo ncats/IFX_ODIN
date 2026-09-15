@@ -6,6 +6,7 @@ from src.interfaces.id_resolver import IdMatch, IdResolver
 from src.input_adapters.ncbi.gene_summary import NCBIGeneSummaryAdapter
 from src.models.gene import Gene
 from src.models.protein import Protein
+from tests.registry_fakes import registry_dataset
 
 
 def _write_gene_summary(path):
@@ -19,17 +20,10 @@ def _write_gene_summary(path):
 
 def test_ncbi_gene_summary_adapter_emits_human_gene_summaries(tmp_path):
     summary_path = tmp_path / "gene_summary.gz"
-    version_path = tmp_path / "version.tsv"
     _write_gene_summary(summary_path)
-    version_path.write_text(
-        "version\tversion_date\tdownload_date\n"
-        "\t2026-05-19\t2026-05-20\n",
-        encoding="utf-8",
-    )
 
     adapter = NCBIGeneSummaryAdapter(
-        gene_summary_file_path=str(summary_path),
-        version_file_path=str(version_path),
+        registry_dataset(tmp_path, summary_path.name),
     )
 
     genes = [gene for batch in adapter.get_all() for gene in batch]
@@ -41,17 +35,16 @@ def test_ncbi_gene_summary_adapter_emits_human_gene_summaries(tmp_path):
 
 def test_ncbi_gene_summary_adapter_reads_version_metadata(tmp_path):
     summary_path = tmp_path / "gene_summary.gz"
-    version_path = tmp_path / "version.tsv"
     _write_gene_summary(summary_path)
-    version_path.write_text(
-        "version\tversion_date\tdownload_date\n"
-        "latest\t2026-05-19\t2026-05-20\n",
-        encoding="utf-8",
-    )
 
     version = NCBIGeneSummaryAdapter(
-        gene_summary_file_path=str(summary_path),
-        version_file_path=str(version_path),
+        registry_dataset(
+            tmp_path,
+            summary_path.name,
+            version="latest",
+            version_date=date(2026, 5, 19),
+            download_date=date(2026, 5, 20),
+        ),
     ).get_version()
 
     assert version.version == "latest"

@@ -1,7 +1,7 @@
 import yaml
 from pathlib import Path
 
-from src.registry.storage import load_registry_credentials
+from src.infrastructure.object_storage import load_object_storage_credentials
 from src.shared.db_credentials import DBCredentials
 from src.use_cases.arango_to_mysql import ArangoToMySqlConverter
 
@@ -19,7 +19,9 @@ with open(arango_credentials_file, "r") as file:
 with open(mysql_credentials_file, "r") as file:
     mysql_credentials = DBCredentials.from_yaml(yaml.safe_load(file))
 
-object_storage_credentials = load_registry_credentials(Path(object_storage_credentials_file))
+object_storage_credentials = load_object_storage_credentials(
+    Path(object_storage_credentials_file)
+)
 
 conv = ArangoToMySqlConverter(
     arango_credentials=arango_credentials,

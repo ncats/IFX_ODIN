@@ -2,6 +2,7 @@ import csv
 import gzip
 
 from src.input_adapters.impc.phenotypes import IMPCPhenotypeAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def _write_impc_file(path, rows):
@@ -41,7 +42,7 @@ def _write_impc_file(path, rows):
 
 
 def test_impc_adapter_emits_mouse_phenotype_nodes_and_edges(tmp_path):
-    impc_path = tmp_path / "impc.csv.gz"
+    impc_path = tmp_path / "genotype-phenotype-assertions-IMPC.csv.gz"
     _write_impc_file(impc_path, [
         {
             "marker_accession_id": "MGI:94924",
@@ -103,7 +104,7 @@ def test_impc_adapter_emits_mouse_phenotype_nodes_and_edges(tmp_path):
         },
     ])
 
-    adapter = IMPCPhenotypeAdapter(file_path=str(impc_path))
+    adapter = IMPCPhenotypeAdapter(registry_dataset(tmp_path, impc_path.name))
 
     entries = [entry for batch in adapter.get_all() for entry in batch]
     phenotype_nodes = [entry for entry in entries if entry.__class__.__name__ == "MousePhenotype"]
@@ -125,13 +126,13 @@ def test_impc_adapter_emits_mouse_phenotype_nodes_and_edges(tmp_path):
 
 
 def test_impc_adapter_skips_rows_without_marker_or_mp_term_id(tmp_path):
-    impc_path = tmp_path / "impc.csv.gz"
+    impc_path = tmp_path / "genotype-phenotype-assertions-IMPC.csv.gz"
     _write_impc_file(impc_path, [
         {"marker_accession_id": "", "mp_term_id": "MP:1", "mp_term_name": "x"},
         {"marker_accession_id": "MGI:1", "mp_term_id": "", "mp_term_name": "x"},
     ])
 
-    adapter = IMPCPhenotypeAdapter(file_path=str(impc_path))
+    adapter = IMPCPhenotypeAdapter(registry_dataset(tmp_path, impc_path.name))
 
     entries = [entry for batch in adapter.get_all() for entry in batch]
     assert entries == []

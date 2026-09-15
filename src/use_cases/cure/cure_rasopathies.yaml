@@ -8,7 +8,19 @@ resolvers:
     import: ./src/id_resolvers/cure_id_label_resolver.py
     class: CureIdLabelResolver
     kwargs:
-      resolver_snapshot: cure:cure_id_labels:deps-d498a12f9035
+      data_source: cure:curated_concepts:2026-05-14
+      label_field_by_type:
+        Gene: symbol
+      manual_label_map:
+        Gene:
+          Syngap: ["NCBIGene:8831"]
+          SYNGAP1: ["NCBIGene:8831"]
+        Drug:
+          Epidiolex: ["RXCUI:2058901"]
+          Tanganil: ["CHEBI:17786"]
+          Sertraline: ["RXCUI:36437"]
+          Sertraline 25 Mg Oral Tablet [Zoloft]: ["RXCUI:36437"]
+          Clobazam: ["RXCUI:21241"]
       types:
         - Condition
         - Drug

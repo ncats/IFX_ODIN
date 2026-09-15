@@ -2,6 +2,7 @@ import csv
 
 from src.input_adapters.pharos_linkouts.linkouts import PharosExternalLinkAdapter
 from src.models.external_link import ExternalLinkProvider, ProteinExternalLinkEdge
+from tests.registry_fakes import registry_dataset
 
 
 def _write_tsv(path, fieldnames, rows):
@@ -22,8 +23,32 @@ def _flatten(adapter):
     return [entry for batch in adapter.get_all() for entry in batch]
 
 
+def _build_adapter(tmp_path, *, canonical_only=True):
+    return PharosExternalLinkAdapter(
+        protein_data_source=registry_dataset(
+            tmp_path, "protein_ids.tsv", source="target_graph", dataset="protein_ids"
+        ),
+        glygen_data_source=registry_dataset(
+            tmp_path, "glygen_proteins.csv", source="glygen", dataset="proteins"
+        ),
+        dark_kinome_data_source=registry_dataset(
+            tmp_path, "dark_kinome_kinases.tsv", source="dark_kinome", dataset="kinases"
+        ),
+        resolute_data_source=registry_dataset(
+            tmp_path, "resolute_genes.tsv", source="resolute", dataset="genes"
+        ),
+        linkedomics_data_source=registry_dataset(
+            tmp_path, "linkedomics_genes.tsv", source="linkedomics", dataset="genes"
+        ),
+        tiga_data_source=registry_dataset(
+            tmp_path, "tiga_gene-trait_stats.tsv", source="tiga", dataset="gene_trait"
+        ),
+        canonical_only=canonical_only,
+    )
+
+
 def test_pharos_external_link_adapter_emits_providers_and_static_edges(tmp_path):
-    protein_path = tmp_path / "proteins.tsv"
+    protein_path = tmp_path / "protein_ids.tsv"
     _write_tsv(
         protein_path,
         ["ncats_protein_id", "uniprot_id", "consolidated_symbol", "is_canonical"],
@@ -49,7 +74,17 @@ def test_pharos_external_link_adapter_emits_providers_and_static_edges(tmp_path)
         ],
     )
 
-    adapter = PharosExternalLinkAdapter(protein_file_path=str(protein_path))
+    _write_csv(tmp_path / "glygen_proteins.csv", ["uniprot_canonical_ac"], [])
+    _write_tsv(tmp_path / "dark_kinome_kinases.tsv", ["symbol", "url"], [])
+    _write_tsv(
+        tmp_path / "resolute_genes.tsv",
+        ["symbol", "nextprot_ids", "ensembl_protein_ids", "url"],
+        [],
+    )
+    _write_tsv(tmp_path / "linkedomics_genes.tsv", ["symbol", "url"], [])
+    _write_tsv(tmp_path / "tiga_gene-trait_stats.tsv", ["ensemblId"], [])
+
+    adapter = _build_adapter(tmp_path)
     entries = _flatten(adapter)
 
     providers = [entry for entry in entries if isinstance(entry, ExternalLinkProvider)]
@@ -73,12 +108,12 @@ def test_pharos_external_link_adapter_emits_providers_and_static_edges(tmp_path)
 
 
 def test_pharos_external_link_adapter_preserves_source_ids_for_file_lists(tmp_path):
-    protein_path = tmp_path / "proteins.tsv"
-    glygen_path = tmp_path / "glygen.csv"
-    dark_path = tmp_path / "dark.tsv"
-    resolute_path = tmp_path / "resolute.tsv"
-    linkedomics_path = tmp_path / "linkedomics.tsv"
-    tiga_path = tmp_path / "tiga.tsv"
+    protein_path = tmp_path / "protein_ids.tsv"
+    glygen_path = tmp_path / "glygen_proteins.csv"
+    dark_path = tmp_path / "dark_kinome_kinases.tsv"
+    resolute_path = tmp_path / "resolute_genes.tsv"
+    linkedomics_path = tmp_path / "linkedomics_genes.tsv"
+    tiga_path = tmp_path / "tiga_gene-trait_stats.tsv"
 
     _write_tsv(protein_path, ["ncats_protein_id", "uniprot_id", "consolidated_symbol", "is_canonical"], [])
     _write_csv(glygen_path, ["uniprot_canonical_ac"], [{"uniprot_canonical_ac": "P31749-1"}])
@@ -91,14 +126,7 @@ def test_pharos_external_link_adapter_preserves_source_ids_for_file_lists(tmp_pa
     _write_tsv(linkedomics_path, ["symbol", "url"], [{"symbol": "A1BG", "url": "https://kb.linkedomics.org/gene/A1BG"}])
     _write_tsv(tiga_path, ["ensemblId"], [{"ensemblId": "ENSG00000149295"}, {"ensemblId": "ENSG00000149295"}])
 
-    adapter = PharosExternalLinkAdapter(
-        protein_file_path=str(protein_path),
-        glygen_file_path=str(glygen_path),
-        dark_kinome_file_path=str(dark_path),
-        resolute_file_path=str(resolute_path),
-        linkedomics_file_path=str(linkedomics_path),
-        tiga_stats_file_path=str(tiga_path),
-    )
+    adapter = _build_adapter(tmp_path)
     edges = [entry for entry in _flatten(adapter) if isinstance(entry, ProteinExternalLinkEdge)]
 
     assert [(edge.source, edge.start_node.id, edge.source_id, edge.source_id_type) for edge in edges] == [

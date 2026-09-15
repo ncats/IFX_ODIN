@@ -1,9 +1,11 @@
+from datetime import date
+
 from src.input_adapters.reactome.reactome_ppi import ReactomePPIAdapter
+from tests.registry_fakes import registry_dataset
 
 
 def test_reactome_ppi_adapter_filters_non_protein_rows_and_keeps_context_and_pmids(tmp_path):
     data_path = tmp_path / "reactome.homo_sapiens.interactions.tab-delimited.txt"
-    version_path = tmp_path / "reactome_version.tsv"
 
     data_path.write_text(
         "\n".join(
@@ -15,9 +17,14 @@ def test_reactome_ppi_adapter_filters_non_protein_rows_and_keeps_context_and_pmi
         ),
         encoding="utf-8",
     )
-    version_path.write_text("version\tversion_date\n96\t2026-03-24\n", encoding="utf-8")
-
-    adapter = ReactomePPIAdapter(file_path=str(data_path), version_file_path=str(version_path))
+    adapter = ReactomePPIAdapter(
+        registry_dataset(
+            tmp_path,
+            data_path.name,
+            version="96",
+            version_date=date(2026, 3, 24),
+        )
+    )
     edges = [edge for batch in adapter.get_all() for edge in batch]
 
     assert len(edges) == 1
@@ -44,7 +51,9 @@ def test_reactome_ppi_adapter_skips_self_pairs_and_honors_max_rows(tmp_path):
         encoding="utf-8",
     )
 
-    adapter = ReactomePPIAdapter(file_path=str(data_path), max_rows=1)
+    adapter = ReactomePPIAdapter(
+        registry_dataset(tmp_path, data_path.name), max_rows=1
+    )
     edges = [edge for batch in adapter.get_all() for edge in batch]
 
     assert len(edges) == 1
@@ -66,7 +75,7 @@ def test_reactome_ppi_adapter_dedupes_pair_plus_type_and_accumulates_contexts_an
         encoding="utf-8",
     )
 
-    adapter = ReactomePPIAdapter(file_path=str(data_path))
+    adapter = ReactomePPIAdapter(registry_dataset(tmp_path, data_path.name))
     edges = [edge for batch in adapter.get_all() for edge in batch]
 
     assert len(edges) == 1

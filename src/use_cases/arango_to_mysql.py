@@ -14,8 +14,7 @@ from sqlalchemy import MetaData, Table, Column, String, Text, Integer, Float, Bo
 from sqlalchemy.dialects.mysql import LONGBLOB
 
 from src.input_adapters.sql_adapter import MySqlAdapter
-from src.core.data_registry import DataRegistry
-from src.registry.storage import RegistryCredentials
+from src.infrastructure.object_storage import ObjectStorageCredentials, object_storage_from_credentials
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.db_credentials import DBCredentials
 
@@ -60,12 +59,12 @@ class ArangoToMySqlConverter(ArangoAdapter):
 
     def __init__(self, arango_credentials: DBCredentials, arango_db_name: str,
                  mysql_credentials: DBCredentials, mysql_db_name: str,
-                 object_storage_credentials: RegistryCredentials = None):
+                 object_storage_credentials: ObjectStorageCredentials = None):
         super().__init__(credentials=arango_credentials, database_name=arango_db_name)
         self.mysql = MySqlAdapter(mysql_credentials)
         self.mysql_db_name = mysql_db_name
         self.object_storage = (
-            DataRegistry.from_credentials(object_storage_credentials).storage
+            object_storage_from_credentials(object_storage_credentials)
             if object_storage_credentials
             else None
         )

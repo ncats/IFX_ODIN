@@ -6,6 +6,7 @@ from src.models.disease import Disease
 from src.models.gene import Gene
 from src.models.gwas_trait import GwasTrait, GwasTraitDiseaseEdge, GeneGwasTraitEdge, ProteinGwasTraitEdge
 from src.models.protein import Protein
+from tests.registry_fakes import registry_dataset
 
 
 def _write_fixture(path: Path, content: str) -> None:
@@ -13,9 +14,8 @@ def _write_fixture(path: Path, content: str) -> None:
 
 
 def test_tiga_adapter_emits_traits_and_edges(tmp_path):
-    stats_path = tmp_path / "tiga_stats.tsv"
-    provenance_path = tmp_path / "tiga_provenance.tsv"
-    version_path = tmp_path / "tiga_version.tsv"
+    stats_path = tmp_path / "tiga_gene-trait_stats.tsv"
+    provenance_path = tmp_path / "tiga_gene-trait_provenance.tsv"
 
     _write_fixture(
         stats_path,
@@ -33,15 +33,8 @@ def test_tiga_adapter_emits_traits_and_edges(tmp_path):
             "ENSG0001\thttp://example.org/EFO_0001\tGCST2\t222\tEFO_0001\n"
         ),
     )
-    _write_fixture(
-        version_path,
-        "version\tversion_date\tdownload_date\n20260120\t2026-02-28\t2026-04-28\n",
-    )
-
     adapter = TIGAAdapter(
-        stats_file_path=str(stats_path),
-        provenance_file_path=str(provenance_path),
-        version_file_path=str(version_path),
+        data_source=registry_dataset(tmp_path, stats_path.name, provenance_path.name),
     )
 
     batches = list(adapter.get_all())
@@ -81,8 +74,8 @@ def test_tiga_adapter_emits_traits_and_edges(tmp_path):
 
 
 def test_tiga_adapter_honors_max_rows(tmp_path):
-    stats_path = tmp_path / "tiga_stats.tsv"
-    provenance_path = tmp_path / "tiga_provenance.tsv"
+    stats_path = tmp_path / "tiga_gene-trait_stats.tsv"
+    provenance_path = tmp_path / "tiga_gene-trait_provenance.tsv"
 
     _write_fixture(
         stats_path,
@@ -103,8 +96,7 @@ def test_tiga_adapter_honors_max_rows(tmp_path):
     )
 
     adapter = TIGAAdapter(
-        stats_file_path=str(stats_path),
-        provenance_file_path=str(provenance_path),
+        data_source=registry_dataset(tmp_path, stats_path.name, provenance_path.name),
         max_rows=1,
     )
 

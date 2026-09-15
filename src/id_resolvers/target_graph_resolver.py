@@ -1,7 +1,6 @@
 from typing import List, Any, Generator, Optional
 
 from src.constants import Prefix
-from src.id_resolvers.resolver_snapshot import resolver_input, resolver_options
 from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
 from src.interfaces.id_resolver import IdMatch
 from src.models.node import EquivalentId
@@ -39,11 +38,11 @@ scores = {
 }
 
 
-def _single_manifest_file_or_legacy(data_source, legacy_file_name: str):
+def _dataset_file(data_source, expected_file_name: str):
     try:
         return data_source.file()
     except ValueError:
-        return data_source.file(legacy_file_name)
+        return data_source.file(expected_file_name)
 
 
 
@@ -82,11 +81,11 @@ class TargetGraphProteinResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphProteinParser]
 
-    def __init__(self, resolver_snapshot, **kwargs):
-        self.resolver_snapshot = resolver_snapshot
-        file_paths = [str(resolver_input(resolver_snapshot, "data_source").file("protein_ids.tsv"))]
-        additional_ids_source = resolver_input(resolver_snapshot, "additional_ids_data_source")
-        additional_ids = str(_single_manifest_file_or_legacy(additional_ids_source, "uniprotkb_mapping_20260507.csv"))
+    def __init__(self, data_source, additional_ids_data_source, **kwargs):
+        file_paths = [str(data_source.file("protein_ids.tsv"))]
+        additional_ids = str(
+            _dataset_file(additional_ids_data_source, "uniprotkb_mapping_20260507.csv")
+        )
         self.parsers = [
             TargetGraphProteinParser(file_path=path, additional_id_file_path=additional_ids)
             for path in file_paths]
@@ -97,9 +96,8 @@ class TargetGraphGeneResolver(TargetGraphResolver):
     name = "TargetGraph Protein Resolver"
     parsers: List[TargetGraphGeneParser]
 
-    def __init__(self, resolver_snapshot, **kwargs):
-        self.resolver_snapshot = resolver_snapshot
-        file_path = str(resolver_input(resolver_snapshot, "data_source").file("gene_ids.tsv"))
+    def __init__(self, data_source, **kwargs):
+        file_path = str(data_source.file("gene_ids.tsv"))
         self.parsers = [TargetGraphGeneParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -108,9 +106,8 @@ class TargetGraphTranscriptResolver(TargetGraphResolver):
     name = "TargetGraph Transcript Resolver"
     parsers: List[TargetGraphTranscriptParser]
 
-    def __init__(self, resolver_snapshot, **kwargs):
-        self.resolver_snapshot = resolver_snapshot
-        file_path = str(resolver_input(resolver_snapshot, "data_source").file("transcript_ids.tsv"))
+    def __init__(self, data_source, **kwargs):
+        file_path = str(data_source.file("transcript_ids.tsv"))
         self.parsers = [TargetGraphTranscriptParser(file_path=file_path)]
         TargetGraphResolver.__init__(self, **kwargs)
 
@@ -133,16 +130,23 @@ class TCRDTargetResolver(TargetGraphResolver):
             version_info.append(parser.get_version_info())
         return '\t'.join(version_info)
 
-    def __init__(self, resolver_snapshot, reviewed_only: bool = False, **kwargs):
-        self.resolver_snapshot = resolver_snapshot
-        options = resolver_options(resolver_snapshot)
-        collapse_to_canonical = options.get("collapse_to_canonical", False)
-        canonical_type = options.get("canonical_type")
-        gene_file_path = str(resolver_input(resolver_snapshot, "gene_data_source").file("gene_ids.tsv"))
-        transcript_file_path = str(resolver_input(resolver_snapshot, "transcript_data_source").file("transcript_ids.tsv"))
-        protein_file_paths = [str(resolver_input(resolver_snapshot, "protein_data_source").file("protein_ids.tsv"))]
-        additional_ids_source = resolver_input(resolver_snapshot, "uniprot_mapping_data_source")
-        additional_ids = str(_single_manifest_file_or_legacy(additional_ids_source, "uniprotkb_mapping_20260507.csv"))
+    def __init__(
+        self,
+        gene_data_source,
+        transcript_data_source,
+        protein_data_source,
+        uniprot_mapping_data_source,
+        reviewed_only: bool = False,
+        collapse_to_canonical: bool = False,
+        canonical_type: str | None = None,
+        **kwargs,
+    ):
+        gene_file_path = str(gene_data_source.file("gene_ids.tsv"))
+        transcript_file_path = str(transcript_data_source.file("transcript_ids.tsv"))
+        protein_file_paths = [str(protein_data_source.file("protein_ids.tsv"))]
+        additional_ids = str(
+            _dataset_file(uniprot_mapping_data_source, "uniprotkb_mapping_20260507.csv")
+        )
 
         self.parsers = []
         self.protein_parsers = [

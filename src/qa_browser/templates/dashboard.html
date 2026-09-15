@@ -76,8 +76,8 @@
         {% if etl_meta %}
         <div class="card">
             <h2>ETL Metadata</h2>
-            {% if registry_datasets %}
-            <h3>Registry Datasets</h3>
+            {% if build_inputs %}
+            <h3>Build Inputs</h3>
             <table>
                 <thead>
                     <tr>
@@ -89,7 +89,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for dataset in registry_datasets %}
+                    {% for dataset in build_inputs %}
                     <tr>
                         <td>{{ dataset.source }}</td>
                         <td>{{ dataset.dataset }}</td>
