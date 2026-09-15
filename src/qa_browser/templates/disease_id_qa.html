@@ -27,6 +27,7 @@
     <div class="disease-tabs" role="tablist" aria-label="Disease explorer sections">
         <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard" role="tab" aria-selected="{% if active_tab == 'dashboard' %}true{% else %}false{% endif %}" aria-controls="tab-dashboard"><i class="lucide-gauge"></i> Dashboard</button>
         <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts" role="tab" aria-selected="{% if active_tab == 'concepts' %}true{% else %}false{% endif %}" aria-controls="tab-concepts"><i class="lucide-table-2"></i> Concepts</button>
+        <button class="disease-tab-btn{% if active_tab == 'resolver' %} active{% endif %}" data-tab="resolver" role="tab" aria-selected="{% if active_tab == 'resolver' %}true{% else %}false{% endif %}" aria-controls="tab-resolver"><i class="lucide-search-check"></i> Resolver</button>
         <button class="disease-tab-btn{% if active_tab == 'review' %} active{% endif %}" data-tab="review" role="tab" aria-selected="{% if active_tab == 'review' %}true{% else %}false{% endif %}" aria-controls="tab-review"><i class="lucide-list-checks"></i> Review</button>
         <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph" role="tab" aria-selected="{% if active_tab == 'graph' %}true{% else %}false{% endif %}" aria-controls="tab-graph"><i class="lucide-network"></i> Graph</button>
         <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download" role="tab" aria-selected="{% if active_tab == 'download' %}true{% else %}false{% endif %}" aria-controls="tab-download"><i class="lucide-download"></i> Download</button>
@@ -299,6 +300,40 @@
     </div>
 
     <!-- Tab 3: Review -->
+    <div class="disease-tab-panel{% if active_tab == 'resolver' %} active{% endif %}" id="tab-resolver" role="tabpanel" aria-labelledby="tab-resolver-btn">
+        <section class="api-resolver-panel">
+            <div class="api-resolver-head">
+                <div>
+                    <h3>Disease Resolver</h3>
+                    <p style="color:var(--text-muted);font-size:0.82rem;margin:0.3rem 0 0;max-width:70rem;">
+                        Resolve disease names, synonyms, CURIEs, bare UMLS CUIs, and xref labels against the harmonized disease concept graph. Results preserve obsolete, broad, narrow, related, rare-disease, and disease/phenotype evidence so ambiguous mappings stay reviewable.
+                    </p>
+                </div>
+                <div class="api-resolver-controls">
+                    <label>Limit
+                        <select id="diseaseResolverLimit" class="filter-select filter-select-sm">
+                            <option value="3">3</option>
+                            <option value="5" selected>5</option>
+                            <option value="10">10</option>
+                        </select>
+                    </label>
+                    <label class="api-resolver-checkbox">
+                        <input type="checkbox" id="diseaseResolverObsolete">
+                        Include obsolete
+                    </label>
+                    <button id="diseaseResolverRun" class="btn btn-primary" type="button"><i class="lucide-zap"></i> Resolve</button>
+                </div>
+            </div>
+            <textarea id="diseaseResolverInput" class="api-resolver-input" rows="8" spellcheck="false">striate palmoplantar keratoderma
+MONDO:0018865
+C4707237
+adult myxoid chondrosarcoma</textarea>
+            <div id="diseaseResolverStatus" class="api-resolver-status"></div>
+            <div id="diseaseResolverResults" class="api-resolver-results"></div>
+            <pre id="diseaseResolverJson" class="api-json-preview"></pre>
+        </section>
+    </div>
+
     <div class="disease-tab-panel{% if active_tab == 'review' %} active{% endif %}" id="tab-review" role="tabpanel" aria-labelledby="tab-review-btn">
         <section class="review-panel">
             <div class="disease-id-section-header">
@@ -780,6 +815,11 @@ C4707237</textarea>
                     <span class="api-endpoint-method">GET</span>
                     <span class="api-endpoint-path">/api/v1/disease/resolve/{curie}</span>
                     <div class="api-endpoint-desc">Resolve any disease CURIE to its harmonized concept with all xrefs, decisions, and NodeNorm data.</div>
+                </div>
+                <div class="api-endpoint">
+                    <span class="api-endpoint-method">GET</span>
+                    <span class="api-endpoint-path">/disease-id-qa/api/resolve-quick?q=...&amp;limit=5</span>
+                    <div class="api-endpoint-desc">Resolve disease names, synonyms, CURIEs, bare UMLS CUIs, or xref labels using the Disease Explorer graph.</div>
                 </div>
                 <div class="api-endpoint">
                     <span class="api-endpoint-method">GET</span>
@@ -3396,6 +3436,102 @@ C4707237</textarea>
                 container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
             });
     }
+
+    /* == Resolver tab: disease name/ID resolver == */
+    const diseaseResolverInput = document.getElementById("diseaseResolverInput");
+    const diseaseResolverLimit = document.getElementById("diseaseResolverLimit");
+    const diseaseResolverObsolete = document.getElementById("diseaseResolverObsolete");
+    const diseaseResolverRun = document.getElementById("diseaseResolverRun");
+    const diseaseResolverStatus = document.getElementById("diseaseResolverStatus");
+    const diseaseResolverResults = document.getElementById("diseaseResolverResults");
+    const diseaseResolverJson = document.getElementById("diseaseResolverJson");
+
+    function renderDiseaseResolverTab(payload) {
+        const rows = payload.results || [payload];
+        let html = `<table class="api-resolver-table"><thead><tr>` +
+            `<th>Query</th><th>Best ID</th><th>Label</th><th>Score</th><th>Status</th><th>Disease Type</th><th>Evidence</th><th>Warnings</th>` +
+            `</tr></thead><tbody>`;
+        rows.forEach(item => {
+            const best = item.best;
+            if (!best) {
+                html += `<tr><td>${escapeHtml(item.query)}</td><td colspan="7">No match</td></tr>`;
+                return;
+            }
+            const warnings = (best.warnings || []).join(", ");
+            const evidence = [
+                best.matched_field,
+                best.matched_source,
+                best.matched_xref_id,
+                best.matched_xref_match_type,
+            ].filter(Boolean).join(" | ");
+            html += `<tr>` +
+                `<td>${escapeHtml(item.query)}</td>` +
+                `<td class="mono"><a href="${rootPath}${escapeHtml(best.href)}">${escapeHtml(best.primary_xref)}</a></td>` +
+                `<td>${escapeHtml(best.standard_name)}</td>` +
+                `<td>${escapeHtml(best.resolver_score)}</td>` +
+                `<td>${escapeHtml(best.match_status)}</td>` +
+                `<td>${escapeHtml(best.disease_type || "")}</td>` +
+                `<td>${escapeHtml(evidence || best.matched_term)}</td>` +
+                `<td>${escapeHtml(warnings)}</td>` +
+                `</tr>`;
+            if ((item.candidates || []).length > 1) {
+                const candidates = item.candidates.slice(1, 5).map(c =>
+                    `${c.primary_xref} (${c.resolver_score}) ${c.standard_name}`
+                ).join(" | ");
+                html += `<tr class="api-resolver-alt-row"><td></td><td colspan="7">${escapeHtml(candidates)}</td></tr>`;
+            }
+        });
+        html += `</tbody></table>`;
+        diseaseResolverResults.innerHTML = html;
+        diseaseResolverJson.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function runDiseaseResolverTab() {
+        const queries = diseaseResolverInput.value.split(/\n+/).map(v => v.trim()).filter(Boolean);
+        if (!queries.length) {
+            diseaseResolverStatus.textContent = "Enter a query.";
+            diseaseResolverResults.innerHTML = "";
+            diseaseResolverJson.textContent = "";
+            return;
+        }
+        diseaseResolverRun.disabled = true;
+        diseaseResolverRun.innerHTML = "Resolving...";
+        diseaseResolverStatus.textContent = `${queries.length} query${queries.length === 1 ? "" : "ies"}`;
+        fetch(`${rootPath}/disease-id-qa/api/resolve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                queries,
+                limit: Number(diseaseResolverLimit.value || 5),
+                include_obsolete: diseaseResolverObsolete.checked,
+            }),
+        })
+            .then(r => {
+                if (!r.ok) return r.json().then(p => { throw new Error(p.detail || r.statusText); });
+                return r.json();
+            })
+            .then(payload => {
+                renderDiseaseResolverTab(payload);
+                diseaseResolverStatus.textContent = `${payload.count || queries.length} queries resolved`;
+            })
+            .catch(err => {
+                diseaseResolverStatus.textContent = err.message;
+                diseaseResolverResults.innerHTML = "";
+                diseaseResolverJson.textContent = "";
+            })
+            .finally(() => {
+                diseaseResolverRun.disabled = false;
+                diseaseResolverRun.innerHTML = `<i class="lucide-zap"></i> Resolve`;
+            });
+    }
+
+    diseaseResolverRun.addEventListener("click", runDiseaseResolverTab);
+    diseaseResolverInput.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            runDiseaseResolverTab();
+        }
+    });
 
     /* == API tab: resolver search == */
     const apiResolverInput = document.getElementById("apiResolverInput");
