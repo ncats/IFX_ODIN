@@ -1,24 +1,21 @@
 {% extends "base.html" %}
-{% block title %}IFX ODIN workflows{% endblock %}
+{% block title %}IFX Harmonization{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<span>Explorers</span>
+{% endblock %}
 
 {% block content %}
 <div class="hero">
     <div class="hero-text">
-        <h1 class="hero-title">IFX ODIN workflows</h1>
-        <p class="hero-subtitle">Validation, browsing, and room for more.</p>
+        <h1 class="hero-title">IFX Harmonization</h1>
+        <p class="hero-subtitle">Explore identifier mappings, compare outputs, and review harmonization decisions.</p>
     </div>
 </div>
 
 <div class="engine-section">
     <div class="db-grid workflow-grid">
-        <a href="{{ root_path }}/pounce/validate" class="db-card db-card-mysql workflow-card workflow-card-pounce">
-            <div class="db-name">Pounce Submission</div>
-            <div class="db-card-footer">upload · validate · report</div>
-        </a>
-        <a href="{{ root_path }}/qa-browser" class="db-card db-card-arango workflow-card workflow-card-browser">
-            <div class="db-name">Database Browser</div>
-            <div class="db-card-footer">browse · inspect · query databases</div>
-        </a>
         <a href="{{ root_path }}/ramp-id-qa" class="db-card workflow-card workflow-card-ramp">
             <div class="db-name">Metabolite Harmonization Studio</div>
             <div class="db-card-footer">RaMP · snapshots · clique review</div>

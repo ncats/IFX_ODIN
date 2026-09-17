@@ -82,6 +82,9 @@ Preferences:
   expose migration history, implementation boundaries, team shorthand, or
   statements about what the system does not imply unless that knowledge is
   necessary for the user's decision.
+- Treat ODIN as the behind-the-scenes IFX codebase name, not a user-facing
+  product or navigation label. Use the actual product or task name in IFX
+  interfaces unless a user explicitly needs repository-level context.
 - Use **register** for the user action that adds an immutable dataset version to
   the IFX Data Registry. Reserve **publish** for internal commit mechanics or a
   true act of making source data public; do not label Registry acquisition

@@ -102,6 +102,17 @@ nav .brand {
     white-space: nowrap;
 }
 
+nav .brand:hover {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+nav .brand:focus-visible {
+    border-radius: var(--radius-sm);
+    outline: 3px solid var(--accent-glow);
+    outline-offset: 3px;
+}
+
 nav .breadcrumb {
     display: flex;
     gap: 0.4rem;
@@ -111,6 +122,22 @@ nav .breadcrumb {
 }
 
 nav .breadcrumb .sep { color: var(--border); }
+
+@media (max-width: 620px) {
+    nav {
+        flex-wrap: wrap;
+        gap: 0.45rem 0.75rem;
+        padding: 0.55rem 0.75rem;
+    }
+
+    nav .breadcrumb {
+        flex-basis: 100%;
+        order: 3;
+        overflow-x: auto;
+        padding-top: 0.15rem;
+        white-space: nowrap;
+    }
+}
 
 /* Mode switch */
 .mode-switch {

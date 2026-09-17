@@ -224,6 +224,12 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 ## Workflow Conventions
 
 - **Do not assume Git staging is the user's unit of work.** The user organizes changes in IntelliJ changelists. Prefer leaving commit grouping to the user unless they explicitly ask for staging or committing help, and be careful not to mix unrelated changelists.
+- **Keep changes in collaborator-owned repositories minimal.** When working in
+  IFX_Harmonizers or another repository primarily owned by a collaborator,
+  make the smallest boundary-preserving change needed for the approved task.
+  Preserve recognizable entry points, class names, configuration shape, file
+  paths, and workflow structure unless a change is necessary. Keep unrelated
+  refactoring or cleanup as a separate proposal.
 - **For new ingest sources**, read `playbooks/ingest_playbook.md` before doing discovery or code changes.
 - **For source refreshes**, read `playbooks/data_update_playbook.md` before investigating payload drift or changing code.
 - **For Pipeline Status Table updates**, read `playbooks/pharos_table_update_playbook.md` before changing `src/use_cases/pharos/TCRD_TODO.md`.

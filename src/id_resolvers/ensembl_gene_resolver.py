@@ -1,76 +1,102 @@
-from typing import Generator, Any
+"""Resolve human gene identifiers from a pinned Ensembl Registry snapshot."""
 
-import pandas as pd
-import requests
-import requests_cache
-from pybiomart import Server
+from __future__ import annotations
+
+import csv
+from collections.abc import Generator
+from typing import Any
 
 from src.constants import Prefix
-from src.id_resolvers.sqlite_cache_resolver import SqliteCacheResolver, MatchingPair
+from src.id_resolvers.sqlite_cache_resolver import MatchingPair, SqliteCacheResolver
 from src.models.node import EquivalentId
+
+ENSEMBL_GENE_FILE = "gene_transcript_identifiers.csv"
+RESOLVER_CONTRACT_VERSION = "1"
 
 
 class EnsemblGeneResolver(SqliteCacheResolver):
-    name = "Ensembl Gene Resolver"
-    species: str
+    """Human ENSG resolver backed only by an exact Registry data source."""
 
-    def __init__(self, species: str = 'hsapiens', **kwargs):
-        self.species = species
-        SqliteCacheResolver.__init__(self, **kwargs)
-        # pybiomart calls requests_cache.install_cache() at module import time,
-        # which globally patches requests.Session. This causes ArangoDB's
-        # python-arango client to receive stale cached responses for API calls
-        # like has_graph/has_collection. Uninstall the cache here so downstream
-        # HTTP clients are unaffected.
-        requests_cache.uninstall_cache()
+    name = "Ensembl Gene Resolver"
+
+    def __init__(self, data_source, **kwargs):
+        self.data_source = data_source
+        self.data_file = data_source.file(ENSEMBL_GENE_FILE)
+        super().__init__(**kwargs)
 
     def get_version_info(self) -> str:
-        try:
-            response = requests.get(
-                'https://rest.ensembl.org/info/software',
-                headers={'Content-Type': 'application/json'},
-                timeout=30
-            )
-            release = response.json().get('release', 'unknown')
-        except Exception:
-            release = 'unknown'
-        return f"ensembl:{self.species}:release-{release}"
-
-    def matching_ids(self) -> Generator[MatchingPair, Any, None]:
-        server = Server(host='http://www.ensembl.org', use_cache=False)
-        dataset = server.marts['ENSEMBL_MART_ENSEMBL'].datasets[f'{self.species}_gene_ensembl']
-
-        results = dataset.query(
-            attributes=['ensembl_gene_id', 'hgnc_id', 'entrezgene_id', 'hgnc_symbol'],
-            use_attr_names=True
+        return (
+            f"{self.data_source.snapshot_id}:"
+            f"ensembl-gene-resolver-{RESOLVER_CONTRACT_VERSION}"
         )
 
-        for _, row in results.iterrows():
-            ensg_raw = row.get('ensembl_gene_id')
-            if pd.isna(ensg_raw) or not ensg_raw:
-                continue
+    def matching_ids(self) -> Generator[MatchingPair, Any, None]:
+        emitted: set[MatchingPair] = set()
+        with self.data_file.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                ensembl_id = _equivalent(row.get("Gene stable ID"), Prefix.ENSEMBL)
+                if ensembl_id is None:
+                    continue
+                pairs = [MatchingPair(id=ensembl_id, match=ensembl_id, type="exact")]
 
-            ensg_id = EquivalentId(id=str(ensg_raw).strip(), type=Prefix.ENSEMBL).id_str()
-            yield MatchingPair(id=ensg_id, match=ensg_id, type='exact')
+                hgnc_id = _equivalent(row.get("HGNC ID"), Prefix.HGNC, strip_prefix="HGNC:")
+                if hgnc_id is not None:
+                    pairs.append(
+                        MatchingPair(
+                            id=ensembl_id,
+                            match=hgnc_id,
+                            type=Prefix.HGNC.value,
+                        )
+                    )
 
-            hgnc_raw = row.get('hgnc_id')
-            if pd.notna(hgnc_raw) and hgnc_raw:
-                hgnc_str = str(hgnc_raw).strip()
-                # BioMart may return "HGNC:12345" or just "12345"
-                hgnc_num = hgnc_str.removeprefix('HGNC:')
-                if hgnc_num:
-                    hgnc_id = EquivalentId(id=hgnc_num, type=Prefix.HGNC).id_str()
-                    yield MatchingPair(id=ensg_id, match=hgnc_id, type=Prefix.HGNC.value)
+                ncbi_id = _ncbi_gene(row.get("NCBI gene (formerly Entrezgene) ID"))
+                if ncbi_id is not None:
+                    pairs.append(
+                        MatchingPair(
+                            id=ensembl_id,
+                            match=ncbi_id,
+                            type=Prefix.NCBIGene.value,
+                        )
+                    )
 
-            entrez_raw = row.get('entrezgene_id')
-            if pd.notna(entrez_raw):
-                try:
-                    ncbi_id = EquivalentId(id=str(int(entrez_raw)), type=Prefix.NCBIGene).id_str()
-                    yield MatchingPair(id=ensg_id, match=ncbi_id, type=Prefix.NCBIGene.value)
-                except (ValueError, TypeError):
-                    pass
+                # The existing Harmonizers export calls BioMart's
+                # external_gene_name field "Gene name".
+                symbol = _equivalent(row.get("Gene name"), Prefix.Symbol)
+                if symbol is not None:
+                    pairs.append(
+                        MatchingPair(
+                            id=ensembl_id,
+                            match=symbol,
+                            type=Prefix.Symbol.value,
+                        )
+                    )
 
-            symbol_raw = row.get('hgnc_symbol')
-            if pd.notna(symbol_raw) and symbol_raw:
-                prefixed_symbol = EquivalentId(id=str(symbol_raw).strip(), type=Prefix.Symbol).id_str()
-                yield MatchingPair(id=ensg_id, match=prefixed_symbol, type=Prefix.Symbol.value)
+                for pair in pairs:
+                    if pair not in emitted:
+                        emitted.add(pair)
+                        yield pair
+
+
+def _equivalent(
+    raw_value: str | None,
+    prefix: Prefix,
+    *,
+    strip_prefix: str | None = None,
+) -> str | None:
+    value = (raw_value or "").strip()
+    if strip_prefix and value.startswith(strip_prefix):
+        value = value[len(strip_prefix) :]
+    if not value:
+        return None
+    return EquivalentId(id=value, type=prefix).id_str()
+
+
+def _ncbi_gene(raw_value: str | None) -> str | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        normalized = str(int(value))
+    except ValueError:
+        return None
+    return EquivalentId(id=normalized, type=Prefix.NCBIGene).id_str()
