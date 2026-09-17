@@ -21,6 +21,7 @@ resolvers:
     import: ./src/id_resolvers/ensembl_gene_resolver.py
     class: EnsemblGeneResolver
     kwargs:
+      data_source: ensembl:human_biomart:116-export1
       types:
         - Gene
 

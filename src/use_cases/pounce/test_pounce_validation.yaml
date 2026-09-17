@@ -5,6 +5,9 @@ destination_credentials: &destination_credentials ./src/use_cases/secrets/ifxdev
 object_storage_credentials: &object_storage_credentials ./src/use_cases/secrets/aws_ifx_registry.yaml
 ramp_sqlite_file: &ramp_sqlite_file ./input_files/manual/ramp/RaMP_SQLite_v3.0.12.sqlite
 
+registry:
+  credentials: *object_storage_credentials
+
 resolvers:
   - label: ramp_resolver
     import: ./src/id_resolvers/ramp_metabolite_resolver.py
@@ -18,6 +21,7 @@ resolvers:
     import: ./src/id_resolvers/ensembl_gene_resolver.py
     class: EnsemblGeneResolver
     kwargs:
+      data_source: ensembl:human_biomart:116-export1
       types:
         - Gene
 

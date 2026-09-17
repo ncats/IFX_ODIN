@@ -9,7 +9,8 @@ RUN pip install --no-cache-dir \
     fastapi uvicorn jinja2 python-multipart \
     python-arango pandas pyarrow pyyaml \
     sqlalchemy pymysql psycopg2-binary boto3 openpyxl \
-    pybiomart requests-cache ijson \
+    ijson \
+    "ifx-registry @ https://github.com/ncats/IFX_Registry/archive/refs/tags/v0.2.0.tar.gz" \
     obonet networkx rdkit
 
 COPY src ./src
