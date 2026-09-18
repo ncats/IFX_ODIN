@@ -42,4 +42,22 @@
         </a>
     </div>
 </div>
+
+{% if not root_path %}
+<div class="engine-section">
+    <div class="engine-header">
+        <h2>Local tools</h2>
+    </div>
+    <div class="db-grid workflow-grid">
+        <a href="{{ root_path }}/qa-browser" class="db-card db-card-arango workflow-card workflow-card-browser">
+            <div class="db-name">Database Browser</div>
+            <div class="db-card-footer">browse · inspect · query databases</div>
+        </a>
+        <a href="{{ root_path }}/pounce/validate" class="db-card db-card-mysql workflow-card workflow-card-pounce">
+            <div class="db-name">POUNCE Submission</div>
+            <div class="db-card-footer">upload · validate · report</div>
+        </a>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
