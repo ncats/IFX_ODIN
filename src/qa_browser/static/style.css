@@ -8901,6 +8901,30 @@ body.nerd-mode .disease-id-page [data-mode="nerd"] {
     text-decoration: none;
 }
 
+/* Pathway Harmonizer Explorer */
+.workflow-card-pathway {
+    color: #ffffff;
+    background:
+        linear-gradient(90deg, rgba(30, 15, 5, 0.88) 0%, rgba(60, 25, 8, 0.60) 44%, rgba(40, 18, 6, 0.18) 100%),
+        url("images/pathway-harmonizer.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-color: rgba(245, 158, 11, 0.36);
+}
+
+.workflow-card-pathway .db-name,
+.workflow-card-pathway .db-card-footer {
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.workflow-card-pathway:hover {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+    text-decoration: none;
+}
+
 .variant-explorer-shell {
     display: grid;
     gap: 1rem;
