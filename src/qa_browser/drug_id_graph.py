@@ -13,12 +13,25 @@ from typing import Any
 
 from fastapi import HTTPException
 
+try:
+    from rdkit import Chem, rdBase
+    from rdkit.Chem import inchi as rdkit_inchi
+except ImportError:  # pragma: no cover - RDKit is an application dependency
+    Chem = None
+    rdBase = None
+    rdkit_inchi = None
+
 
 class DrugGraphData:
     __slots__ = (
         "nodes",
         "nodes_by_id",
         "ids_to_drugs",
+        "structure_to_drugs",
+        "_structure_index_ready",
+        "_structure_index_lock",
+        "_fuzzy_name_index",
+        "_fuzzy_name_index_lock",
         "edges",
         "edges_by_drug",
         "review_queue",
@@ -34,6 +47,11 @@ class DrugGraphData:
         self.nodes: list[dict[str, str]] = []
         self.nodes_by_id: dict[str, dict[str, str]] = {}
         self.ids_to_drugs: dict[str, list[str]] = defaultdict(list)
+        self.structure_to_drugs: dict[str, list[str]] = defaultdict(list)
+        self._structure_index_ready = False
+        self._structure_index_lock = threading.Lock()
+        self._fuzzy_name_index: list[tuple[str, str, str, str]] | None = None
+        self._fuzzy_name_index_lock = threading.Lock()
         self.edges: list[dict[str, str]] = []
         self.edges_by_drug: dict[str, list[dict[str, str]]] = defaultdict(list)
         self.review_queue: list[dict[str, str]] = []
@@ -56,6 +74,9 @@ DEFAULT_DRUG_COLUMNS = [
     "drug_scope",
     "source_namespaces",
     "inchikey",
+    "smiles",
+    "inchi",
+    "molecular_formula",
     "unii",
     "pubchem_cid",
     "chembl_id",
@@ -336,6 +357,81 @@ def _add_index(data: DrugGraphData, key: str, drug_id: str) -> None:
         data.ids_to_drugs[alias].append(drug_id)
 
 
+def _smiles_structure_keys(value: str) -> dict[str, str]:
+    """Return stereo-sensitive derived lookup keys without altering source SMILES."""
+    text = str(value or "").strip()
+    if not text or Chem is None or rdkit_inchi is None:
+        return {}
+    try:
+        if rdBase is not None:
+            with rdBase.BlockLogs():
+                molecule = Chem.MolFromSmiles(text)
+                if molecule is None:
+                    return {}
+                canonical = Chem.MolToSmiles(molecule, isomericSmiles=True)
+                inchikey = rdkit_inchi.MolToInchiKey(molecule)
+        else:  # pragma: no cover
+            molecule = Chem.MolFromSmiles(text)
+        if molecule is None:
+            return {}
+        if rdBase is None:  # pragma: no cover
+            canonical = Chem.MolToSmiles(molecule, isomericSmiles=True)
+            inchikey = rdkit_inchi.MolToInchiKey(molecule)
+        return {
+            "canonical_smiles": canonical,
+            "derived_inchikey": inchikey,
+        }
+    except Exception:
+        return {}
+
+
+def resolve_smiles_drug_ids(data: DrugGraphData, value: str) -> tuple[list[str], dict[str, str]]:
+    """Resolve a SMILES query by stereo-sensitive canonical structure keys."""
+    keys = _smiles_structure_keys(value)
+    if not keys:
+        return [], {}
+    hits: list[str] = []
+    seen: set[str] = set()
+    raw_value = str(value or "").strip()
+    for drug_id in data.ids_to_drugs.get(raw_value, []):
+        node = data.nodes_by_id.get(drug_id, {})
+        if node.get("smiles", "").strip() == raw_value and drug_id not in seen:
+            seen.add(drug_id)
+            hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "exact_smiles"
+        return hits, keys
+    derived_inchikey = keys.get("derived_inchikey", "")
+    if derived_inchikey:
+        for alias in _drug_lookup_aliases(derived_inchikey):
+            for drug_id in data.ids_to_drugs.get(alias, []):
+                if drug_id not in seen:
+                    seen.add(drug_id)
+                    hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "derived_inchikey"
+        return hits, keys
+    with data._structure_index_lock:
+        if not data._structure_index_ready:
+            for node in data.nodes:
+                drug_id = node.get("drug_id", "")
+                node_keys = _smiles_structure_keys(node.get("smiles", ""))
+                canonical = node_keys.get("canonical_smiles", "")
+                if drug_id and canonical:
+                    data.structure_to_drugs[f"canonical_smiles:{canonical}"].append(drug_id)
+            data._structure_index_ready = True
+    for key_type, key_value in keys.items():
+        if key_type == "matched_via":
+            continue
+        for drug_id in data.structure_to_drugs.get(f"{key_type}:{key_value}", []):
+            if drug_id not in seen:
+                seen.add(drug_id)
+                hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "canonical_smiles"
+    return hits, keys
+
+
 def _index_node(data: DrugGraphData, node: dict[str, str]) -> None:
     drug_id = node.get("drug_id", "")
     if not drug_id:
@@ -348,7 +444,12 @@ def _index_node(data: DrugGraphData, node: dict[str, str]) -> None:
     ]
     for field in fields:
         _add_index(data, node.get(field, ""), drug_id)
-    for field in ("source_ids", "xrefs", "synonyms"):
+    # SMILES is case-sensitive structure notation, not an identifier family.
+    # Index the exact source value without UNII/CURIE shape expansion.
+    raw_smiles = str(node.get("smiles", "") or "").strip()
+    if raw_smiles:
+        data.ids_to_drugs[raw_smiles].append(drug_id)
+    for field in ("source_ids", "xrefs", "synonyms", "nodenorm_equivalent_identifiers"):
         for value in _split_pipe(node.get(field, "")):
             _add_index(data, value, drug_id)
 
@@ -394,7 +495,8 @@ def _matches_query(node: dict[str, str], q: str) -> bool:
     needle = q.lower()
     fields = [
         "drug_id", "primary_id", "standard_name", "entity_key", "synonyms", "source_ids", "xrefs",
-        "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "cas",
+        "nodenorm_equivalent_identifiers", "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id",
+        "drugcentral_id", "rxcui", "cas", "smiles", "inchi", "molecular_formula",
     ]
     return any(needle in str(node.get(field, "")).lower() for field in fields)
 

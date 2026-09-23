@@ -28,9 +28,9 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 
 try:
-    from src.qa_browser.drug_id_graph import DrugGraphData, search_drugs
+    from src.qa_browser.drug_id_graph import DrugGraphData, resolve_smiles_drug_ids, search_drugs
 except ImportError:
-    from drug_id_graph import DrugGraphData, search_drugs
+    from drug_id_graph import DrugGraphData, resolve_smiles_drug_ids, search_drugs
 
 # ── API endpoints ────────────────────────────────────────────────────────
 
@@ -535,12 +535,12 @@ def _node_search_values(node: dict[str, str]) -> list[tuple[str, str]]:
     for field in (
         "drug_id", "standard_name", "primary_id", "nodenorm_canonical_label",
         "unii", "chembl_id", "chebi_id", "pubchem_cid", "drugcentral_id",
-        "rxcui", "cas", "inchikey",
+        "rxcui", "cas", "inchikey", "smiles",
     ):
         value = str(node.get(field, "") or "").strip()
         if value:
             values.append((field, value))
-    for field in ("synonyms", "source_ids", "xrefs"):
+    for field in ("synonyms", "source_ids", "xrefs", "nodenorm_equivalent_identifiers"):
         for value in str(node.get(field, "") or "").split("|"):
             value = value.strip()
             if value:
@@ -604,11 +604,28 @@ def _rank_local_hit(row: dict[str, Any]) -> tuple[float, float, float, float]:
     return (score, tier, support, source_records)
 
 
+def _primary_name_fuzzy_index(data: DrugGraphData) -> list[tuple[str, str, str, str]]:
+    """Build a compact fuzzy index without rescanning every synonym/xref."""
+    if data._fuzzy_name_index is not None:
+        return data._fuzzy_name_index
+    with data._fuzzy_name_index_lock:
+        if data._fuzzy_name_index is None:
+            rows: list[tuple[str, str, str, str]] = []
+            for node in data.nodes:
+                drug_id = node.get("drug_id", "")
+                if not drug_id:
+                    continue
+                for field in ("standard_name", "nodenorm_canonical_label"):
+                    value = str(node.get(field, "") or "").strip()
+                    normalized = _normalize_drug_text(value, keep_bracket_text=True)
+                    if normalized:
+                        rows.append((drug_id, field, value, normalized))
+            data._fuzzy_name_index = rows
+    return data._fuzzy_name_index
+
+
 def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tuple[list[dict[str, Any]], list[str], int]:
     terms = _drug_query_candidates(query)
-    if not terms:
-        return [], [], 0
-
     candidates: dict[str, dict[str, Any]] = {}
 
     def add_hit(drug_id: str, term: str, strategy: str, base_score: float = 0.0) -> None:
@@ -627,6 +644,61 @@ def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tup
         hit["_matched_value"] = matched_value
         hit["_match_strategy"] = strategy
         candidates[drug_id] = hit
+
+    raw_query = str(query or "").strip()
+    for key in {raw_query, raw_query.lower(), raw_query.upper()}:
+        for drug_id in data.ids_to_drugs.get(key, []):
+            add_hit(drug_id, raw_query, "exact_alias", 1.0)
+
+    structure_ids, structure_keys = resolve_smiles_drug_ids(data, query)
+    if structure_ids:
+        matched_via = structure_keys.get("matched_via", "canonical_smiles")
+        strategy = {
+            "exact_smiles": "exact_smiles",
+            "derived_inchikey": "derived_inchikey",
+            "canonical_smiles": "canonical_structure",
+        }.get(matched_via, "canonical_structure")
+        for drug_id in structure_ids:
+            existing = candidates.get(drug_id)
+            if existing and existing.get("_matched_field") not in {"", "smiles"}:
+                continue
+            add_hit(drug_id, query, strategy, 1.0)
+            hit = candidates.get(drug_id)
+            if hit is not None:
+                hit["_matched_query"] = query
+                hit["_match_strategy"] = strategy
+                if matched_via == "exact_smiles":
+                    hit["_matched_field"] = "smiles"
+                    hit["_matched_value"] = raw_query
+                elif matched_via == "derived_inchikey":
+                    derived_key = structure_keys.get("derived_inchikey", "")
+                    prefixed_key = f"INCHIKEY:{derived_key}"
+                    matched_field = "derived_inchikey"
+                    matched_value = derived_key
+                    node = data.nodes_by_id.get(drug_id, {})
+                    for field in ("inchikey", "nodenorm_equivalent_identifiers", "source_ids", "xrefs"):
+                        values = _split_pipe_values(node.get(field))
+                        actual = next(
+                            (value for value in values if value.upper() in {derived_key.upper(), prefixed_key}),
+                            "",
+                        )
+                        if actual:
+                            matched_field = field
+                            matched_value = actual
+                            break
+                    hit["_matched_field"] = matched_field
+                    hit["_matched_value"] = matched_value
+                else:
+                    hit["_matched_field"] = "canonical_smiles"
+                    hit["_matched_value"] = structure_keys.get("canonical_smiles", "")
+    if structure_keys:
+        ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
+        return ranked[:limit], [query], len(ranked)
+    if candidates:
+        ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
+        return ranked[:limit], terms or [query], len(ranked)
+    if not terms:
+        return [], [], 0
 
     for term in terms:
         lookup_keys = {
@@ -653,17 +725,30 @@ def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tup
             if drug_id:
                 add_hit(drug_id, term, "substring")
 
-    if not candidates:
-        for node in data.nodes:
-            score, matched_term, matched_field, matched_value = _score_node_against_terms(node, terms)
-            if score >= 0.86:
-                hit = dict(node)
+    identifier_like = bool(
+        re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", query.strip(), re.I)
+        or re.match(r"^(?:IFXDrug|UNII|CHEMBL(?:\.COMPOUND)?|CHEBI|PUBCHEM(?:\.COMPOUND)?|RXCUI|CAS|InChIKey):", query.strip(), re.I)
+    )
+    if not candidates and not identifier_like and not structure_keys:
+        normalized_terms = [
+            (term, _normalize_drug_text(term, keep_bracket_text=True))
+            for term in terms
+        ]
+        for drug_id, matched_field, matched_value, value_norm in _primary_name_fuzzy_index(data):
+            for matched_term, term_norm in normalized_terms:
+                score = _term_value_score(term_norm, value_norm)
+                if score < 0.86:
+                    continue
+                existing = candidates.get(drug_id)
+                if existing and _floatish(existing.get("_match_score")) >= score:
+                    continue
+                hit = dict(data.nodes_by_id.get(drug_id, {}))
                 hit["_match_score"] = f"{score:.3f}"
                 hit["_matched_query"] = matched_term
                 hit["_matched_field"] = matched_field
                 hit["_matched_value"] = matched_value
-                hit["_match_strategy"] = "fuzzy_lexical"
-                candidates[node.get("drug_id", "")] = hit
+                hit["_match_strategy"] = "fuzzy_primary_name"
+                candidates[drug_id] = hit
 
     ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
     return ranked[:limit], terms, len(ranked)
@@ -683,6 +768,9 @@ def _compact_local_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "nodenorm_canonical_label",
         "nodenorm_validation_status",
         "inchikey",
+        "smiles",
+        "inchi",
+        "molecular_formula",
         "unii",
         "pubchem_cid",
         "chembl_id",

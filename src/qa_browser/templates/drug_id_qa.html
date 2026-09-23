@@ -153,7 +153,7 @@
 
     <section class="variant-tab-panel" data-panel="concepts">
         <div class="variant-filter-row">
-            <input id="drugSearch" type="search" placeholder="Search name, IFX ID, UNII, ChEMBL, ChEBI, PubChem, RxCUI, CAS, or InChIKey...">
+            <input id="drugSearch" type="search" placeholder="Search name, SMILES, IFX ID, UNII, ChEMBL, ChEBI, PubChem, RxCUI, CAS, or InChIKey...">
             <select id="drugSourceFilter"><option value="">All local sources</option></select>
             <select id="drugTierFilter"><option value="">All tiers</option></select>
             <button class="btn btn-primary" id="drugSearchBtn" type="button">Search</button>
@@ -216,7 +216,7 @@
 
     <section class="variant-tab-panel" data-panel="graph">
         <div class="variant-graph-toolbar">
-            <span id="drugGraphLabel">Enter an IFXDrug ID, name, UNII, ChEMBL, ChEBI, PubChem CID, RxCUI, CAS, or InChIKey.</span>
+            <span id="drugGraphLabel">Enter an IFXDrug ID, name, SMILES, UNII, ChEMBL, ChEBI, PubChem CID, RxCUI, CAS, or InChIKey.</span>
             <label class="drug-graph-toggle"><input type="checkbox" id="drugShowTargets" checked> Show target associations</label>
             <button class="btn btn-sm" id="drugFitGraph" type="button">Fit graph</button>
         </div>
@@ -291,7 +291,7 @@
             <div class="resolver-guide">
                 <div class="resolver-guide-block">
                     <h4>Local harmonizer</h4>
-                    <p>Resolves names and identifiers to IFXDrug IDs curated from GSRS/UNII, ChEMBL, ChEBI, DrugCentral, PubChem CIDs, RxNorm context, and NodeNorm validation.</p>
+                    <p>Resolves names, SMILES structures, and identifiers to IFXDrug IDs curated from GSRS/UNII, ChEMBL, ChEBI, DrugCentral, PubChem CIDs, RxNorm context, and NodeNorm validation.</p>
                 </div>
                 <div class="resolver-guide-block">
                     <h4>NCATS / IFX enrichment</h4>
@@ -304,7 +304,7 @@
             </div>
 
             <textarea id="drugResolverInput" class="api-resolver-input" rows="4"
-                placeholder="Enter drug names, brand names in brackets, combinations, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
+                placeholder="Enter drug names, SMILES, brand names in brackets, combinations, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
             <div id="drugResolverBatchNotice" class="resolver-batch-notice"></div>
 
             <div style="display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap;">
@@ -373,7 +373,7 @@ let drugReviewRowsById = {};
 let drugReviewDecisionOptions = [];
 let drugCy = null;
 let drugCurrentGraphIds = "{{ ids or '' }}";
-const defaultDrugColumns = ["drug_id", "primary_id", "standard_name", "biolink_category", "drug_scope", "source_namespaces", "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "approval_status", "source_support", "structural_key_type", "evidence_tier", "quality_flags"];
+const defaultDrugColumns = ["drug_id", "primary_id", "standard_name", "biolink_category", "drug_scope", "source_namespaces", "smiles", "inchikey", "molecular_formula", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "approval_status", "source_support", "structural_key_type", "evidence_tier", "quality_flags"];
 
 let drugChangesLoaded = false;
 function setDrugTab(tab) {
@@ -764,6 +764,11 @@ function renderDrugDetail(data) {
             term("DrugCentral", data.drugcentral_id),
             term("RxCUI", data.rxcui),
             term("CAS", data.cas),
+        ].join(""));
+        html += section("Structure", [
+            term("SMILES", data.smiles),
+            term("InChI", data.inchi),
+            term("Molecular formula", data.molecular_formula),
         ].join(""));
     } else {
         html += section("Node", [
@@ -1202,6 +1207,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         let badges = "";
         if (found) {
             badges += drBadge("harmonized graph hit", badgeStyles.tier, "Resolved in the local ODIN/IFXDrug harmonized graph");
+            if (hits.length > 1) badges += drBadge(`${hits.length} local matches`, badgeStyles.notfound, "Structure or identifier maps to multiple harmonized candidates");
         }
         if (sources.length) {
             badges += drBadge(`live annotations: ${sources.length}`, badgeStyles.ncats_resolver, "Selected live APIs returned annotations");
@@ -1242,6 +1248,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Drug ID", drugId);
             h += drDetailRow("Primary ID", best.primary_id);
             h += drDetailRow("InChIKey", best.inchikey);
+            h += drDetailRow("SMILES", best.smiles);
+            h += drDetailRow("InChI", best.inchi);
+            h += drDetailRow("Molecular formula", best.molecular_formula);
             h += drDetailRow("UNII", best.unii);
             h += drDetailRow("ChEMBL", best.chembl_id);
             h += drDetailRow("ChEBI", best.chebi_id);
