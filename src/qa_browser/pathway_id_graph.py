@@ -735,14 +735,17 @@ def build_cross_entity_summary(
         drug_hits: dict[str, dict[str, Any]] = {}
         for node in getattr(drug_data, "nodes", []):
             drug_id = node.get("drug_id") or node.get("ncats_drug_id", "")
-            target_edges = drug_data.edges_by_drug.get(drug_id, [])
+            target_edges = [
+                edge for edge in drug_data.edges_by_drug.get(drug_id, [])
+                if edge.get("relation_kind", "drug_target") == "drug_target"
+            ]
             target_gene_ids = {
-                edge.get("target_gene_id", "") for edge in target_edges
-                if edge.get("target_gene_id")
+                edge.get("target_id", "") for edge in target_edges
+                if str(edge.get("target_id", "")).startswith("IFXGene:")
             }
             target_symbols = {
-                edge.get("target_symbol", "").strip().upper() for edge in target_edges
-                if edge.get("target_symbol", "").strip()
+                edge.get("target_label", "").strip().upper() for edge in target_edges
+                if edge.get("target_label", "").strip()
             }
             shared_ids = gene_ids & target_gene_ids
             shared_symbols = gene_symbols & target_symbols

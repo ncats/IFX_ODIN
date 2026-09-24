@@ -49,7 +49,10 @@ def test_cross_entity_summary_uses_association_and_edge_indexes():
     )
     drug = SimpleNamespace(
         nodes=[{"drug_id": "IFXDrug:1", "standard_name": "Drug"}],
-        edges_by_drug={"IFXDrug:1": [{"target_symbol": "GENE1"}]},
+        edges_by_drug={"IFXDrug:1": [{
+            "target_id": "IFXProtein:1", "target_label": "GENE1",
+            "relation_kind": "drug_target",
+        }]},
     )
 
     result = build_cross_entity_summary(
