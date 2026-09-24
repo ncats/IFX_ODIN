@@ -126,6 +126,7 @@ _INTERNAL_ID_RE = re.compile(r"^IFX[A-Za-z]+:")  # skip internal IDs for externa
 _NCATS_RESOLVER_MAX_CONCURRENT = 1
 _NCATS_RESOLVER_RETRY_ATTEMPTS = 2
 _NCATS_RESOLVER_RETRY_BACKOFF_SECONDS = 0.25
+_NCATS_RESOLVER_BATCH_SIZE = 8
 _NCATS_RESOLVER_SEMAPHORE = BoundedSemaphore(_NCATS_RESOLVER_MAX_CONCURRENT)
 _PUBCHEM_SEMAPHORE = BoundedSemaphore(2)
 _PUBCHEM_RATE_LOCK = Lock()
@@ -879,19 +880,29 @@ def enrich_ncats_resolver(
     ``ncats_all_names`` when "names" is in the property list.
     """
     session = session or _build_session()
-    prop_list = list(props) if props else list(NCATS_DEFAULT_PROPS)
-    # Validate — silently drop unknown keys
+    prop_list = list(NCATS_DEFAULT_PROPS) if props is None else list(props)
+    invalid_props = [p for p in prop_list if p not in _NCATS_VALID_KEYS]
     prop_list = [p for p in prop_list if p in _NCATS_VALID_KEYS]
     if not prop_list:
-        return None
+        return {
+            "_ncats_props_requested": [],
+            "_ncats_props_returned": [],
+            "_ncats_props_failed": [],
+            "_ncats_props_without_values": [],
+            "_ncats_props_invalid": invalid_props,
+            "_ncats_batch_count": 0,
+            "_ncats_partial": False,
+            "_ncats_status": "skipped_no_properties",
+            "_ncats_identity_consistency": "not_applicable",
+            "ncats_request_note": "NCATS Resolver was enabled, but no valid properties were selected.",
+        }
 
-    fallback_props = [p for p in NCATS_RESOLUTION_FALLBACK_PROPS if p in prop_list]
-    request_groups: list[tuple[list[str], bool]] = [(prop_list, False)]
-    if fallback_props and any(p not in fallback_props for p in prop_list):
-        request_groups.append((fallback_props, True))
+    # Preserve catalog order and remove duplicate selections from the client.
+    selected = set(prop_list)
+    prop_list = [entry["key"] for entry in NCATS_PROPERTY_CATALOG if entry["key"] in selected]
 
-    def parse_response(text: str, active_props: list[str], used_fallback: bool) -> dict[str, Any] | None:
-        text = text.strip()
+    def parse_response(text: str, active_props: list[str]) -> dict[str, str] | None:
+        text = text.strip("\r\n")
         if not text:
             return None
         values = text.split("\n")[0].split("\t")
@@ -902,34 +913,17 @@ def enrich_ncats_resolver(
             idx = i + 1
             if idx < len(values):
                 v = values[idx].strip()
-                if v and v != "0":
+                if v:
                     v = re.sub(r"^\[NO STEREO\]\s*", "", v)
                     raw[prop] = v
-        if not raw:
-            return None
+        return raw
 
-        result: dict[str, Any] = {}
-        for prop in active_props:
-            val = raw.get(prop)
-            if val is not None:
-                if prop == "description":
-                    result[f"ncats_{prop}"] = _shorten(val, 300)
-                else:
-                    result[f"ncats_{prop}"] = val
+    batch_evidence: list[dict[str, Any]] = []
+    batch_counter = 0
 
-        names_raw = raw.get("names", "")
-        name_list = [n.strip() for n in names_raw.split("|") if n.strip()]
-        if name_list:
-            result["ncats_resolved_name"] = name_list[0]
-            result["ncats_all_names"] = "|".join(name_list[:15])
-
-        result["_ncats_props_requested"] = active_props
-        if used_fallback:
-            result["ncats_request_note"] = "Full property request failed; returned identifier/name fallback."
-        return result or None
-
-    last_error: Any = None
-    for active_props, used_fallback in request_groups:
+    def fetch_group(active_props: list[str]) -> tuple[dict[str, str] | None, str | None, int | None]:
+        nonlocal batch_counter
+        batch_counter += 1
         url = f"{NCATS_RESOLVER_BASE}/{'/'.join(active_props)}/"
         params = {
             "structure": query,
@@ -939,6 +933,7 @@ def enrich_ncats_resolver(
             "useApproxMatch": "false",
             "useContains": "false",
         }
+        last_error: Any = None
         for attempt in range(1, _NCATS_RESOLVER_RETRY_ATTEMPTS + 1):
             try:
                 with _NCATS_RESOLVER_SEMAPHORE:
@@ -951,22 +946,116 @@ def enrich_ncats_resolver(
                     ):
                         time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
                         continue
+                    continue
+                values = parse_response(r.text, active_props)
+                if values is None:
+                    last_error = "Malformed NCATS response"
                     break
-                result = parse_response(r.text, active_props, used_fallback)
-                if result:
-                    return result
-                return None
+                batch_evidence.append({
+                    "properties": list(active_props),
+                    "status": "success" if values else "no_values",
+                    "http_status": r.status_code,
+                    "attempts": attempt,
+                    "returned_properties": [p for p in active_props if values and p in values],
+                })
+                return values, None, r.status_code
             except Exception as exc:
                 last_error = exc
                 if attempt < _NCATS_RESOLVER_RETRY_ATTEMPTS:
                     time.sleep(_NCATS_RESOLVER_RETRY_BACKOFF_SECONDS * attempt)
                     continue
-                logger.debug("NCATS resolver failed for %s: %s", query, exc)
-                break
+                logger.debug("NCATS resolver batch failed for %s: %s", query, exc)
+        message = str(last_error or "No values returned")
+        batch_evidence.append({
+            "properties": list(active_props),
+            "status": "failed",
+            "error": message,
+            "attempts": _NCATS_RESOLVER_RETRY_ATTEMPTS,
+        })
+        return None, message, getattr(locals().get("r", None), "status_code", None)
 
-    if last_error is not None:
-        _record_source_error(source_errors, "ncats_resolver", query, last_error)
-    return None
+    merged: dict[str, str] = {}
+    conflicts: list[dict[str, str]] = []
+    irrecoverable: dict[str, str] = {}
+
+    def fetch_resilient(active_props: list[str]) -> None:
+        values, error, status_code = fetch_group(active_props)
+        if values is not None:
+            for prop, value in values.items():
+                if prop in merged and merged[prop] != value:
+                    conflicts.append({"property": prop, "kept": merged[prop], "discarded": value})
+                else:
+                    merged[prop] = value
+            return
+        # Catalog keys are validated before requests. Keep a failed group
+        # bounded instead of recursively multiplying calls for compound-level
+        # 4xx responses or service outages.
+        for prop in active_props:
+            irrecoverable[prop] = error or "Request failed"
+
+    for offset in range(0, len(prop_list), _NCATS_RESOLVER_BATCH_SIZE):
+        fetch_resilient(prop_list[offset:offset + _NCATS_RESOLVER_BATCH_SIZE])
+
+    returned = [prop for prop in prop_list if prop in merged]
+    failed = [prop for prop in prop_list if prop in irrecoverable]
+    without_values = [prop for prop in prop_list if prop not in merged and prop not in irrecoverable]
+    if not merged and failed:
+        if failed:
+            _record_source_error(
+                source_errors,
+                "ncats_resolver",
+                query,
+                f"All requested properties failed: {', '.join(failed)}",
+            )
+        return {
+            "_ncats_props_requested": prop_list,
+            "_ncats_props_returned": [],
+            "_ncats_props_failed": failed,
+            "_ncats_props_without_values": without_values,
+            "_ncats_props_invalid": invalid_props,
+            "_ncats_batch_count": batch_counter,
+            "_ncats_partial": False,
+            "_ncats_status": "failed",
+            "_ncats_identity_consistency": "not_verified_request_failed",
+            "_ncats_batch_evidence": batch_evidence,
+            "ncats_request_note": f"NCATS request failed for {len(failed)} selected properties.",
+        }
+
+    result: dict[str, Any] = {}
+    for prop in returned:
+        value = merged[prop]
+        result[f"ncats_{prop}"] = _shorten(value, 300) if prop == "description" else value
+    names_raw = merged.get("names", "")
+    name_list = [name.strip() for name in names_raw.split("|") if name.strip()]
+    if name_list:
+        result["ncats_resolved_name"] = name_list[0]
+        result["ncats_all_names"] = "|".join(name_list[:15])
+
+    partial = bool(failed)
+    result.update({
+        "_ncats_props_requested": prop_list,
+        "_ncats_props_returned": returned,
+        "_ncats_props_failed": failed,
+        "_ncats_props_without_values": without_values,
+        "_ncats_props_invalid": invalid_props,
+        "_ncats_batch_count": batch_counter,
+        "_ncats_partial": partial,
+        "_ncats_status": "partial" if partial else ("no_values" if not returned else "complete"),
+        "_ncats_identity_consistency": (
+            "not_applicable_single_batch" if batch_counter == 1
+            else "not_verified_across_disjoint_property_batches"
+        ),
+        "_ncats_batch_evidence": batch_evidence,
+        "_ncats_value_conflicts": conflicts,
+        "ncats_request_note": (
+            f"Partial NCATS result: {len(returned)} of {len(prop_list)} selected properties returned; "
+            f"{len(failed)} failed and {len(without_values)} had no value."
+            if partial else
+            f"NCATS returned values for {len(returned)} of {len(prop_list)} selected properties; "
+            f"{len(without_values)} had no value for this compound."
+        ),
+    })
+    return result
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -1798,8 +1887,15 @@ def _enrich_one(
     # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
     # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
-        sources_attempted.append("ncats_resolver")
+        if ncats_props == []:
+            enrichment["ncats_resolver"] = enrich_ncats_resolver(
+                query, session=session, props=[], source_errors=source_errors,
+            )
+            sources_skipped["ncats_resolver"] = "no_properties_selected"
+        else:
+            sources_attempted.append("ncats_resolver")
         ncats_attempt_errors: list[dict[str, str]] = []
+        ncats_metadata_only: dict[str, Any] | None = None
         seen_lookups: set[str] = set()
         ncats_lookups = _ncats_lookup_candidates(
             query,
@@ -1807,7 +1903,7 @@ def _enrich_one(
             best,
             query_terms=local_result.get("query_terms") or [],
         )
-        for lookup in ncats_lookups:
+        for lookup in ([] if ncats_props == [] else ncats_lookups):
             if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue
             seen_lookups.add(lookup)
@@ -1817,7 +1913,7 @@ def _enrich_one(
                 props=ncats_props,
                 source_errors=ncats_attempt_errors,
             )
-            if ncats:
+            if ncats and ncats.get("_ncats_props_returned"):
                 enrichment["ncats_resolver"] = ncats
                 # Override IDs with NCATS-resolved values so downstream
                 # lookups use the correct compound, not the local hit
@@ -1840,8 +1936,12 @@ def _enrich_one(
                 if resolved_name:
                     name = resolved_name
                 break
+            if ncats:
+                ncats_metadata_only = ncats
             time.sleep(delay)
         if "ncats_resolver" not in enrichment:
+            if ncats_metadata_only:
+                enrichment["ncats_resolver"] = ncats_metadata_only
             _append_source_failure(source_errors, "ncats_resolver", ncats_attempt_errors)
 
         # Re-lookup in local graph using NCATS-resolved IDs when the
@@ -1965,7 +2065,10 @@ def _enrich_one(
     enrichment["sources_skipped"] = sources_skipped
     enrichment["sources_found"] = [
         s for s in ["ncats_resolver", "pubchem", "pharos", "inxight", "chebi", "openfda"]
-        if s in enrichment
+        if s in enrichment and (
+            s != "ncats_resolver"
+            or bool((enrichment.get(s) or {}).get("_ncats_props_returned"))
+        )
     ]
 
     return {**local_result, "enrichment": enrichment}
