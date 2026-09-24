@@ -29,6 +29,8 @@ class PathwayGraphData:
         "review_registry_by_id",
         "manifest",
         "source_catalog",
+        "categories_by_pathway",
+        "data_version",
         "_stats",
     )
 
@@ -43,11 +45,22 @@ class PathwayGraphData:
         self.review_registry_by_id: dict[str, dict[str, str]] = {}
         self.manifest: dict[str, Any] = {}
         self.source_catalog: list[dict[str, str]] = []
+        self.categories_by_pathway: dict[str, list[str]] = {}
+        self.data_version: str = ""
         self._stats: dict[str, Any] | None = None
 
 
 _singletons: dict[str, PathwayGraphData] = {}
 _singleton_lock = threading.Lock()
+
+
+def _release_version_from_path(graph_path: Path) -> str:
+    """Return the enclosing vX.Y.Z release name for an app_graph directory."""
+    for part in reversed(graph_path.parts):
+        match = re.fullmatch(r"v?(\d+\.\d+\.\d+)", part)
+        if match:
+            return match.group(1)
+    return ""
 
 
 DEFAULT_PATHWAY_COLUMNS = [
@@ -213,6 +226,7 @@ def load_pathway_graph_data(graph_dir: str | Path) -> PathwayGraphData:
                 data.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 data.manifest = {}
+        data.data_version = _release_version_from_path(graph_path)
         for node in _read_tsv(graph_path / "pathway_nodes.tsv"):
             _index_node(data, node)
         data.edges = _read_tsv(graph_path / "pathway_edges.tsv")
@@ -236,6 +250,32 @@ def load_pathway_graph_data(graph_dir: str | Path) -> PathwayGraphData:
         return data
 
 
+def load_pathway_categories(categories_file: str | Path, data: PathwayGraphData) -> None:
+    """Load BioPlanet functional categories and map them to IFXPathway IDs."""
+    path = Path(categories_file)
+    if not path.exists():
+        return
+    # Build bioplanet_id -> [category_name, ...] lookup
+    bp_categories: dict[str, list[str]] = defaultdict(list)
+    with open(path, encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            bp_id = (row.get("pathway_id") or "").strip()
+            cat = (row.get("category_name") or "").strip()
+            if bp_id and cat and cat not in bp_categories[bp_id]:
+                bp_categories[bp_id].append(cat)
+    # Map to ncats_pathway_id via bioplanet_id on each node
+    mapped = 0
+    for node in data.nodes:
+        bp_id = node.get("bioplanet_id", "").strip()
+        if bp_id and bp_id in bp_categories:
+            ncats_id = node.get("ncats_pathway_id", "")
+            if ncats_id:
+                data.categories_by_pathway[ncats_id] = bp_categories[bp_id]
+                mapped += 1
+    # Invalidate cached stats so category_counts are recomputed
+    data._stats = None
+
+
 def _matches_query(node: dict[str, str], q: str) -> bool:
     if not q:
         return True
@@ -252,12 +292,23 @@ def _matches_query(node: dict[str, str], q: str) -> bool:
     return any(needle in str(node.get(field, "")).lower() for field in fields)
 
 
-def _matches_filters(node: dict[str, str], source: str = "", min_sources: int = 0) -> bool:
+def _matches_filters(
+    node: dict[str, str],
+    source: str = "",
+    min_sources: int = 0,
+    category: str = "",
+    categories_by_pathway: dict[str, list[str]] | None = None,
+) -> bool:
     if source and source.lower() not in node.get("source_namespaces", "").lower():
         return False
     if min_sources > 0:
         count = _safe_int(node.get("source_count"), 0)
         if count < min_sources:
+            return False
+    if category and categories_by_pathway is not None:
+        ncats_id = node.get("ncats_pathway_id", "")
+        cats = categories_by_pathway.get(ncats_id, [])
+        if category.lower() not in (c.lower() for c in cats):
             return False
     return True
 
@@ -267,15 +318,23 @@ def search_pathways(
     q: str = "",
     source: str = "",
     min_sources: int = 0,
+    category: str = "",
     page: int = 1,
     per_page: int = 50,
 ) -> dict[str, Any]:
     page = max(int(page or 1), 1)
     per_page = max(1, min(int(per_page or 50), 250))
-    rows = [
-        node for node in data.nodes
-        if _matches_query(node, q) and _matches_filters(node, source=source, min_sources=min_sources)
-    ]
+    cats = data.categories_by_pathway if data.categories_by_pathway else None
+    rows = []
+    for node in data.nodes:
+        if not _matches_query(node, q):
+            continue
+        if not _matches_filters(node, source=source, min_sources=min_sources, category=category, categories_by_pathway=cats):
+            continue
+        enriched = dict(node)
+        ncats_id = node.get("ncats_pathway_id", "")
+        enriched["categories"] = data.categories_by_pathway.get(ncats_id, [])
+        rows.append(enriched)
     total = len(rows)
     start = (page - 1) * per_page
     end = start + per_page
@@ -290,12 +349,18 @@ def search_pathways(
 
 def _summarize_pathway_source_versions(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    harmonization_sources = {"reactome", "wikipathways", "panther", "bioplanet"}
     for row in rows:
         source = str(row.get("source_name") or row.get("source") or "").strip()
         if not source:
             continue
         out.append({
             "name": source,
+            "source_role": str(row.get("source_role") or (
+                "harmonization source" if source.lower() in harmonization_sources
+                else "downloaded reference (not currently applied)" if "nodenorm" in source.lower()
+                else "enrichment source"
+            )).strip(),
             "version": str(row.get("source_version") or "not captured").strip() or "not captured",
             "download_status": str(row.get("dl_status") or "not captured").strip() or "not captured",
             "odin_download_date": _first_date(row.get("dl_timestamp")),
@@ -355,6 +420,11 @@ def compute_pathway_stats(data: PathwayGraphData) -> dict[str, Any]:
             evidence_source_counts[src] += 1
     mapping_status_counts = Counter(edge.get("mapping_status", "") or "unknown" for edge in data.edges)
 
+    category_counts: Counter[str] = Counter()
+    for cats in data.categories_by_pathway.values():
+        for cat in cats:
+            category_counts[cat] += 1
+
     source_versions = _summarize_pathway_source_versions(data.source_catalog)
     manifest = data.manifest or {}
     nodes_meta = manifest.get("nodes", {}) if isinstance(manifest.get("nodes"), dict) else {}
@@ -374,6 +444,7 @@ def compute_pathway_stats(data: PathwayGraphData) -> dict[str, Any]:
         "relation_counts": dict(relation_counts.most_common()),
         "evidence_source_counts": dict(evidence_source_counts.most_common()),
         "mapping_status_counts": dict(mapping_status_counts.most_common()),
+        "category_counts": dict(category_counts.most_common()),
         "source_catalog": data.source_catalog,
         "source_versions": source_versions,
         "manifest": manifest,
@@ -511,6 +582,185 @@ def export_pathways(
 
 
 # ---------------------------------------------------------------------------
+# Pathway resolver
+# ---------------------------------------------------------------------------
+
+
+def resolve_pathway_queries(
+    data: PathwayGraphData,
+    queries: list[str],
+) -> list[dict[str, Any]]:
+    """Resolve a list of pathway names/IDs to IFXPathway records."""
+    results: list[dict[str, Any]] = []
+    name_index: dict[str, str] | None = None  # lazy-built
+
+    for raw_query in queries:
+        query = raw_query.strip()
+        if not query:
+            continue
+        matches: list[dict[str, Any]] = []
+
+        # 1. Try exact ID resolution via existing lookup
+        resolved, _ = _resolve_pathway_ids(data, query)
+        if resolved:
+            for pid in resolved:
+                node = data.nodes_by_id.get(pid, {})
+                matches.append({
+                    "ncats_pathway_id": pid,
+                    "name": node.get("consolidated_pathway_name", ""),
+                    "source_ids": " | ".join(filter(None, [
+                        node.get("reactome_id", ""),
+                        node.get("wikipathway_id", ""),
+                        node.get("panther_id", ""),
+                        node.get("bioplanet_id", ""),
+                    ])),
+                    "match_type": "exact_id",
+                })
+
+        # 2. Try name substring match if no ID hits
+        if not matches:
+            needle = query.lower()
+            for node in data.nodes:
+                name = node.get("consolidated_pathway_name", "")
+                if needle in name.lower():
+                    pid = node.get("ncats_pathway_id", "")
+                    matches.append({
+                        "ncats_pathway_id": pid,
+                        "name": name,
+                        "source_ids": " | ".join(filter(None, [
+                            node.get("reactome_id", ""),
+                            node.get("wikipathway_id", ""),
+                            node.get("panther_id", ""),
+                            node.get("bioplanet_id", ""),
+                        ])),
+                        "match_type": "name_contains",
+                    })
+                    if len(matches) >= 10:
+                        break
+
+        results.append({
+            "query": query,
+            "resolved": len(matches) > 0,
+            "match_count": len(matches),
+            "matches": matches,
+        })
+
+    return results
+
+
+def export_pathway_resolver_results(
+    results: list[dict[str, Any]],
+    fmt: str = "tsv",
+) -> str:
+    """Export resolver results as TSV/CSV."""
+    delimiter = "," if fmt == "csv" else "\t"
+    cols = ["query", "status", "ncats_pathway_id", "name", "source_ids", "match_type"]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=cols, delimiter=delimiter)
+    writer.writeheader()
+    for result in results:
+        if not result["matches"]:
+            writer.writerow({
+                "query": result["query"],
+                "status": "not_found",
+                "ncats_pathway_id": "",
+                "name": "",
+                "source_ids": "",
+                "match_type": "not_found",
+            })
+        else:
+            for match in result["matches"]:
+                writer.writerow({
+                    "query": result["query"],
+                    "status": "resolved",
+                    **match,
+                })
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Cross-entity links
+# ---------------------------------------------------------------------------
+
+
+def build_cross_entity_summary(
+    data: PathwayGraphData,
+    pathway_id: str,
+    target_data: Any = None,
+    disease_data: Any = None,
+    drug_data: Any = None,
+) -> dict[str, Any]:
+    """Build cross-entity links for a pathway via its gene members."""
+    result: dict[str, Any] = {"disease_links": [], "drug_links": []}
+    if not pathway_id or pathway_id not in data.nodes_by_id:
+        return result
+
+    # Collect gene IDs from edges
+    gene_ids: set[str] = set()
+    gene_symbols: set[str] = set()
+    for edge in data.edges_by_pathway.get(pathway_id, []):
+        gid = edge.get("ncats_gene_id") or edge.get("target_id", "")
+        if gid:
+            gene_ids.add(gid)
+        symbol = (edge.get("gene_symbol") or edge.get("target_label") or "").strip()
+        if symbol:
+            gene_symbols.add(symbol.upper())
+
+    if not gene_ids:
+        return result
+
+    # Disease links via target_data (if available and has gene-disease edges)
+    if disease_data is not None and hasattr(disease_data, "associations_by_ncats_id"):
+        disease_hits: dict[str, dict[str, Any]] = {}
+        for node in getattr(disease_data, "nodes", []):
+            disease_id = node.get("ncats_disease_id") or node.get("mondo_id", "")
+            associations = disease_data.associations_by_ncats_id.get(disease_id, [])
+            associated_genes = {
+                assoc.get("ncats_gene_id", "") for assoc in associations
+                if assoc.get("ncats_gene_id")
+            }
+            shared = gene_ids & associated_genes
+            if shared and disease_id and disease_id not in disease_hits:
+                disease_hits[disease_id] = {
+                    "disease_id": disease_id,
+                    "name": node.get("consolidated_disease_name", "") or node.get("disease_name", ""),
+                    "shared_genes": len(shared),
+                }
+        result["disease_links"] = sorted(
+            disease_hits.values(), key=lambda x: -x["shared_genes"]
+        )[:25]
+
+    # Drug links via drug_data (if available and has target edges)
+    if drug_data is not None and hasattr(drug_data, "edges_by_drug"):
+        drug_hits: dict[str, dict[str, Any]] = {}
+        for node in getattr(drug_data, "nodes", []):
+            drug_id = node.get("drug_id") or node.get("ncats_drug_id", "")
+            target_edges = drug_data.edges_by_drug.get(drug_id, [])
+            target_gene_ids = {
+                edge.get("target_gene_id", "") for edge in target_edges
+                if edge.get("target_gene_id")
+            }
+            target_symbols = {
+                edge.get("target_symbol", "").strip().upper() for edge in target_edges
+                if edge.get("target_symbol", "").strip()
+            }
+            shared_ids = gene_ids & target_gene_ids
+            shared_symbols = gene_symbols & target_symbols
+            shared = shared_ids | shared_symbols
+            if shared and drug_id and drug_id not in drug_hits:
+                drug_hits[drug_id] = {
+                    "drug_id": drug_id,
+                    "name": node.get("standard_name", "") or node.get("consolidated_drug_name", "") or node.get("drug_name", ""),
+                    "target_gene": ", ".join(sorted(shared)[:5]),
+                }
+        result["drug_links"] = sorted(
+            drug_hits.values(), key=lambda x: x["name"]
+        )[:25]
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Version diff helpers
 # ---------------------------------------------------------------------------
 
@@ -536,6 +786,8 @@ def load_pathway_version_data(data_dir: str | Path) -> PathwayGraphData:
             if source_id:
                 data.edges_by_pathway[source_id].append(edge)
         data.source_catalog = _read_tsv(data_dir / "pathway_source_catalog.tsv")
+        # Extract data version from directory path (e.g. .../v1.0.0/app_graph → 1.0.0)
+        data.data_version = _release_version_from_path(data_dir)
         _singletons[key] = data
         return data
 
@@ -577,10 +829,26 @@ def compute_pathway_version_diff(
 
     # Edge diffs
     def _edge_key(e: dict[str, str]) -> tuple[str, str, str]:
-        return (e.get("source_id", ""), e.get("target_id", ""), e.get("relation_kind", ""))
+        return (
+            e.get("source_id", ""),
+            e.get("target_id", ""),
+            e.get("relation_kind", ""),
+        )
 
     current_edge_keys = {_edge_key(e) for e in current.edges}
     baseline_edge_keys = {_edge_key(e) for e in baseline.edges}
+    current_edge_by_key = {_edge_key(e): e for e in current.edges}
+    baseline_edge_by_key = {_edge_key(e): e for e in baseline.edges}
+    edge_evidence_changes = []
+    for key in sorted(current_edge_keys & baseline_edge_keys):
+        old_value = baseline_edge_by_key[key].get("evidence_source", "")
+        new_value = current_edge_by_key[key].get("evidence_source", "")
+        if old_value != new_value:
+            edge_evidence_changes.append({
+                "source_id": key[0], "target_id": key[1],
+                "evidence_source": new_value,
+                "old_value": old_value, "new_value": new_value,
+            })
 
     # Source version changes
     cur_src = {row.get("source_name", ""): row for row in current.source_catalog}
@@ -599,8 +867,8 @@ def compute_pathway_version_diff(
     node_fields = ("ncats_pathway_id", "consolidated_pathway_name", "biolink_category", "source_namespaces", "source_count", "similarity_score")
     max_rows = 500
     return {
-        "baseline_version": baseline.manifest.get("version", ""),
-        "current_version": current.manifest.get("version", ""),
+        "baseline_version": baseline.data_version or baseline.manifest.get("version", ""),
+        "current_version": current.data_version or current.manifest.get("version", ""),
         "summary": {
             "pathways_old": len(baseline.nodes),
             "pathways_new": len(current.nodes),
@@ -611,6 +879,7 @@ def compute_pathway_version_diff(
             "edges_new": len(current.edges),
             "edges_added": len(current_edge_keys - baseline_edge_keys),
             "edges_removed": len(baseline_edge_keys - current_edge_keys),
+            "edge_evidence_changes": len(edge_evidence_changes),
             "name_changes": len(name_changes),
             "source_namespace_changes": len(source_namespace_changes),
             "similarity_changes": len(similarity_changes),
@@ -627,6 +896,7 @@ def compute_pathway_version_diff(
         "name_changes": name_changes[:max_rows],
         "source_namespace_changes": source_namespace_changes[:max_rows],
         "similarity_changes": similarity_changes[:max_rows],
+        "edge_evidence_changes": edge_evidence_changes[:max_rows],
         "source_version_changes": source_version_changes[:max_rows],
         "truncation": {
             "added_pathways": {"total": len(added_ids), "shown": min(len(added_ids), max_rows)},
@@ -635,6 +905,7 @@ def compute_pathway_version_diff(
             "source_namespace_changes": {"total": len(source_namespace_changes), "shown": min(len(source_namespace_changes), max_rows)},
             "similarity_changes": {"total": len(similarity_changes), "shown": min(len(similarity_changes), max_rows)},
             "source_version_changes": {"total": len(source_version_changes), "shown": min(len(source_version_changes), max_rows)},
+            "edge_evidence_changes": {"total": len(edge_evidence_changes), "shown": min(len(edge_evidence_changes), max_rows)},
         },
     }
 
