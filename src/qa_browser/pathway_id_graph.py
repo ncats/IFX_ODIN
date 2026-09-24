@@ -697,20 +697,28 @@ def build_cross_entity_summary(
 
     # Collect gene IDs from edges
     gene_ids: set[str] = set()
+    gene_symbols: set[str] = set()
     for edge in data.edges_by_pathway.get(pathway_id, []):
         gid = edge.get("ncats_gene_id") or edge.get("target_id", "")
         if gid:
             gene_ids.add(gid)
+        symbol = (edge.get("gene_symbol") or edge.get("target_label") or "").strip()
+        if symbol:
+            gene_symbols.add(symbol.upper())
 
     if not gene_ids:
         return result
 
     # Disease links via target_data (if available and has gene-disease edges)
-    if disease_data is not None and hasattr(disease_data, "nodes_by_id"):
+    if disease_data is not None and hasattr(disease_data, "associations_by_ncats_id"):
         disease_hits: dict[str, dict[str, Any]] = {}
         for node in getattr(disease_data, "nodes", []):
             disease_id = node.get("ncats_disease_id") or node.get("mondo_id", "")
-            associated_genes = set(_split_pipe(node.get("associated_gene_ids", "")))
+            associations = disease_data.associations_by_ncats_id.get(disease_id, [])
+            associated_genes = {
+                assoc.get("ncats_gene_id", "") for assoc in associations
+                if assoc.get("ncats_gene_id")
+            }
             shared = gene_ids & associated_genes
             if shared and disease_id and disease_id not in disease_hits:
                 disease_hits[disease_id] = {
@@ -723,16 +731,26 @@ def build_cross_entity_summary(
         )[:25]
 
     # Drug links via drug_data (if available and has target edges)
-    if drug_data is not None and hasattr(drug_data, "nodes_by_id"):
+    if drug_data is not None and hasattr(drug_data, "edges_by_drug"):
         drug_hits: dict[str, dict[str, Any]] = {}
         for node in getattr(drug_data, "nodes", []):
-            drug_id = node.get("ncats_drug_id", "")
-            target_gene_ids = set(_split_pipe(node.get("target_gene_ids", "")))
-            shared = gene_ids & target_gene_ids
+            drug_id = node.get("drug_id") or node.get("ncats_drug_id", "")
+            target_edges = drug_data.edges_by_drug.get(drug_id, [])
+            target_gene_ids = {
+                edge.get("target_gene_id", "") for edge in target_edges
+                if edge.get("target_gene_id")
+            }
+            target_symbols = {
+                edge.get("target_symbol", "").strip().upper() for edge in target_edges
+                if edge.get("target_symbol", "").strip()
+            }
+            shared_ids = gene_ids & target_gene_ids
+            shared_symbols = gene_symbols & target_symbols
+            shared = shared_ids | shared_symbols
             if shared and drug_id and drug_id not in drug_hits:
                 drug_hits[drug_id] = {
                     "drug_id": drug_id,
-                    "name": node.get("consolidated_drug_name", "") or node.get("drug_name", ""),
+                    "name": node.get("standard_name", "") or node.get("consolidated_drug_name", "") or node.get("drug_name", ""),
                     "target_gene": ", ".join(sorted(shared)[:5]),
                 }
         result["drug_links"] = sorted(
