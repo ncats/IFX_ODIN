@@ -1,7 +1,14 @@
 import json
 import sqlite3
+import pytest
 
-from src.qa_browser.drug_id_graph import DrugGraphData, _index_node
+from src.qa_browser.drug_id_graph import (
+    DrugGraphData,
+    _index_node,
+    _validate_drug_resolver_index,
+    compute_drug_stats,
+    load_drug_graph_data,
+)
 from src.qa_browser.drug_resolver import enrich_ncats_resolver, enrich_pubchem, resolve_and_enrich, resolve_local
 
 
@@ -303,6 +310,64 @@ def test_complete_resolver_index_finds_node_outside_bounded_graph(tmp_path):
     assert result["resolved"] is True
     assert result["local_hits"][0]["drug_id"] == "IFXDrug:7WGWKYR"
     assert result["local_hits"][0]["_match_strategy"] == "complete_harmonizer_index"
+
+
+def test_external_resolver_contract_validates_checksum_and_drives_runtime_scope(tmp_path):
+    import hashlib
+
+    index = tmp_path / "drug_resolver_index.sqlite"
+    connection = sqlite3.connect(index)
+    connection.executescript("""
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE nodes (drug_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+        CREATE TABLE aliases (alias_norm TEXT NOT NULL, drug_id TEXT NOT NULL, field TEXT NOT NULL, matched_value TEXT NOT NULL);
+    """)
+    connection.executemany("INSERT INTO metadata VALUES (?, ?)", [
+        ("schema_version", "1"),
+        ("harmonizer_version", "1.4.0"),
+        ("node_count", "1304056"),
+        ("scope", "all_harmonized_drug_nodes"),
+    ])
+    connection.commit()
+    connection.close()
+    digest = hashlib.sha256(index.read_bytes()).hexdigest()
+    manifest = {
+        "version": "v1.4.0",
+        "counts": {"full_nodes_available": 1304056},
+        "external_artifacts": {"resolver_index": {
+            "harmonizer_version": "1.4.0",
+            "schema_version": "1",
+            "nodes": 1304056,
+            "scope": "all_harmonized_drug_nodes",
+            "bytes": index.stat().st_size,
+            "sha256": digest,
+        }},
+    }
+
+    metadata = _validate_drug_resolver_index(index, manifest, verify_checksum=True)
+    data = DrugGraphData()
+    data.manifest = manifest
+    data.resolver_index_path = index
+    data.resolver_index_metadata = metadata
+    data.resolver_checksum_verified = True
+    stats = compute_drug_stats(data)
+
+    assert metadata["harmonizer_version"] == "1.4.0"
+    assert stats["resolver_index_available"] is True
+    assert stats["resolver_index_nodes"] == 1304056
+    assert stats["local_lookup_scope"] == "complete_identity_lookup"
+    assert stats["resolver_checksum_verified"] is True
+
+
+def test_drug_bundle_loader_rejects_manifest_count_mismatch(tmp_path):
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "counts": {"nodes": 2, "edges": 0},
+    }))
+    (tmp_path / "drug_nodes.tsv").write_text("drug_id\tstandard_name\nIFXDrug:1\tOne\n")
+    (tmp_path / "drug_edges.tsv").write_text("source_id\ttarget_id\n")
+
+    with pytest.raises(Exception, match="node count mismatch"):
+        load_drug_graph_data(tmp_path)
 
 
 def test_complete_index_resolves_equivalent_smiles_through_derived_inchikey(tmp_path):

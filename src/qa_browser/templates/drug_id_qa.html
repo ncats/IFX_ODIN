@@ -10,8 +10,17 @@
         <div>
             <h1>Drug Harmonizer Explorer</h1>
             <p class="variant-explorer-release"><span class="mono">{{ drug_version_display }}</span>
-                &mdash; Substance identity and product-context harmonization from GSRS, ChEBI, DrugCentral, ChEMBL, RxNorm, PubChem, and UniChem.
+                &mdash; Substance identity and product-context harmonization from GSRS, ChEBI, DrugCentral, ChEMBL, IUPHAR/BPS, RxNorm, PubChem, and UniChem.
                 Updated last: {{ drug_updated_last }}.</p>
+            {% if manifest.get('scope', {}).get('primary_graph_is_complete') == false %}
+            <p class="variant-explorer-release">This deployed graph is the release's prioritized preview
+                ({{ "{:,}".format(manifest.get('counts', {}).get('nodes', 0)) }} of
+                {{ "{:,}".format(manifest.get('counts', {}).get('full_nodes_available', 0)) }} harmonized nodes).
+                {% if drug_resolver_index_available %}The complete version-matched local identity index is connected.
+                {% else %}Lookup is preview-only because the version-matched external resolver index is not connected.{% endif %}
+                Dashboard, Concepts, Graph, and Download statistics describe the preview, which prioritizes curated drugs,
+                target-linked ligands, ChEMBL/GSRS/ChEBI coverage, drug-typed records, and multi-source identity evidence.</p>
+            {% endif %}
         </div>
         <div class="variant-open-box">
             <textarea id="drugOpenIds" rows="3" spellcheck="false" placeholder="ibuprofen | UNII:R16CO5Y76E | CHEMBL.COMPOUND:CHEMBL25 | PubChem:2244">{{ selected_ids }}</textarea>
@@ -322,7 +331,7 @@
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnChEBI"><span>ChEBI Class</span></label>
                 </div>
                 <div style="display:flex;gap:0.5rem;margin-left:auto;">
-                    <button id="drugResolverLocalBtn" class="btn" type="button" title="Resolve only against the local harmonized graph">Local Only</button>
+                    <button id="drugResolverLocalBtn" class="btn" type="button" title="Search the complete local index when connected, then the bundled preview; make no live API calls">Local Only</button>
                     <button id="drugResolverRunBtn" class="btn btn-primary" type="button" title="Resolve locally, then enrich from selected live APIs">Resolve + Enrich</button>
                 </div>
             </div>
@@ -373,6 +382,7 @@
 
 <script>
 const rootPath = "{{ root_path }}";
+const drugCompleteIndexAvailable = {{ "true" if drug_resolver_index_available else "false" }};
 const initialTab = "{{ active_tab }}" || "dashboard";
 let drugPage = 1;
 let drugLastPage = 0;
@@ -510,11 +520,12 @@ function renderResolverSummary(stats) {
     if (!el) return;
     el.innerHTML = `
         <div class="clinical-descendant-kpis">
-            <div><strong>${fmt(stats.total_drugs)}</strong><span>local searchable nodes</span></div>
+            <div><strong>${fmt(stats.total_drugs)}</strong><span>bundled preview nodes</span></div>
+            <div><strong>${stats.resolver_index_available ? fmt(stats.resolver_index_nodes) : "Not connected"}</strong><span>complete local identity index</span></div>
             <div><strong>${fmt(stats.nodenorm_resolved_count)}</strong><span>NodeNorm candidates</span></div>
             <div><strong>${fmt(stats.target_association_edges)}</strong><span>target context edges</span></div>
         </div>
-        <p class="variant-muted">Use the Resolver tab for pasted names or identifiers. Local Only uses the harmonized graph without live APIs; Resolve + Enrich adds annotations from the selected services.</p>`;
+        <p class="variant-muted">Local Only searches the complete version-matched identity index when connected, then the bundled preview, and makes no live API calls. Resolve + Enrich adds annotations from the selected services. A preview-only miss does not exclude membership in the full ${fmt(stats.full_total_drugs)}-node release.</p>`;
 }
 async function loadDrugStats() {
     try {
@@ -985,7 +996,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const sourceText = drLiveSourceSummary();
         if (!drBatchNotice) return;
         if (!n) {
-            drBatchNotice.textContent = `Resolve + Enrich searches the local harmonized graph first, then calls the selected live APIs for annotations. Up to ${DR_BACKEND_QUERY_LIMIT} entries are accepted per request.`;
+            drBatchNotice.textContent = `Resolve + Enrich searches the complete local index when connected, then the bundled preview, before calling selected live APIs for annotations. Up to ${DR_BACKEND_QUERY_LIMIT} entries are accepted per request.`;
             drBatchNotice.className = "resolver-batch-notice";
         } else if (n > DR_BACKEND_QUERY_LIMIT) {
             drBatchNotice.textContent = `${n} entries exceeds the resolver request limit of ${DR_BACKEND_QUERY_LIMIT}. Split the list before searching or enriching.`;
@@ -1237,16 +1248,40 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
         let badges = "";
         if (found) {
-            badges += drBadge("local harmonizer hit", badgeStyles.tier, "Resolved in the complete local ODIN/IFXDrug harmonizer index");
+            const completeIndexHit = String(best._match_strategy || "").startsWith("complete_harmonizer_index");
+            badges += drBadge(
+                completeIndexHit ? "matched via complete local index" : "matched via bundled preview only",
+                badgeStyles.tier,
+                completeIndexHit
+                    ? "Resolved in the complete version-matched ODIN/IFXDrug harmonizer index"
+                    : "Resolved in the bounded app-graph preview; complete local lookup requires the version-matched resolver index"
+            );
+            if (completeIndexHit) {
+                badges += drBadge(
+                    best._in_graph_bundle === "yes" ? "included in bundled preview" : "not in bundled preview",
+                    badgeStyles.notfound,
+                    "Graph membership is separate from the complete identity lookup path"
+                );
+            }
             if (hits.length > 1) badges += drBadge(`${hits.length} local matches`, badgeStyles.notfound, "Structure or identifier maps to multiple harmonized candidates");
         }
-        if (!found && pubchem) badges += drBadge("PubChem candidate — not in harmonized graph", badgeStyles.pubchem);
+        if (!found && pubchem) badges += drBadge(
+            drugCompleteIndexAvailable
+                ? "PubChem candidate — no complete-index match"
+                : "PubChem candidate — not found in bundled preview",
+            badgeStyles.pubchem
+        );
         if (sources.length) {
             badges += drBadge(`live source hits: ${sources.length}`, badgeStyles.ncats_resolver, "Selected live APIs returned results");
         }
         if (queried.length && !sources.length) badges += drBadge("no live annotations", badgeStyles.notfound);
         if (found && !queried.length) badges += drBadge("local only", badgeStyles.notfound);
-        if (!found && !sources.length) badges += drBadge("not found", badgeStyles.notfound);
+        if (!found && !sources.length) badges += drBadge(
+            drugCompleteIndexAvailable
+                ? "no match in complete local identity index"
+                : "not found in bundled preview; full-release membership unknown",
+            badgeStyles.notfound
+        );
 
         let details = "";
 
@@ -1283,7 +1318,12 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
                     {key: "pubchem_smiles", label: "SMILES"},
                 ], `pubchem_candidates_${idx}`, 10);
             }
-            if (h) details += `<div>${drSectionHead(found ? "PubChem Lookup" : "PubChem Candidate (External — Not Harmonized)")}${h}</div>`;
+            const pubchemHeading = found
+                ? "PubChem Lookup"
+                : drugCompleteIndexAvailable
+                ? "PubChem Candidate (No Complete-Index Match)"
+                : "PubChem Candidate (Not Found in Bundled Preview)";
+            if (h) details += `<div>${drSectionHead(pubchemHeading)}${h}</div>`;
         } else if (skipped.pubchem) {
             details += `<div>${drSectionHead("PubChem")}<div style="font-size:0.78rem;color:#64748b;">Skipped — local harmonizer already resolved this query.</div></div>`;
         } else if (queried.includes("pubchem") && !sourceErrors.some(err => err.source === "pubchem")) {
@@ -1997,12 +2037,13 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 function drugFormatVersionOption(v) {
     const date = v.updated_at ? ` (${String(v.updated_at).slice(0, 10)})` : "";
     const current = v.current ? " current" : "";
-    return `v${v.version}${date}${current}`;
+    const diffOnly = v.diff_only ? " audited diff baseline" : "";
+    return `v${v.version}${date}${current}${diffOnly}`;
 }
 
-function drugPopulateVersionSelect(select, versions, selectedVersion) {
+function drugPopulateVersionSelect(select, versions, selectedVersion, allowDiffOnly = true) {
     select.innerHTML = "";
-    versions.forEach(v => {
+    versions.filter(v => allowDiffOnly || !v.diff_only).forEach(v => {
         const opt = document.createElement("option");
         opt.value = v.version;
         opt.textContent = drugFormatVersionOption(v);
@@ -2174,8 +2215,8 @@ function loadDrugChangesTab() {
         .then(payload => {
             const versions = payload.versions || [];
             if (versions.length < 2) throw new Error("At least two drug graph versions are required for comparison");
-            drugPopulateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version);
-            drugPopulateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version);
+            drugPopulateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version, true);
+            drugPopulateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version, false);
             document.getElementById("changesCompareBtn").onclick = loadDrugSelectedVersionDiff;
             loadDrugSelectedVersionDiff();
         })
