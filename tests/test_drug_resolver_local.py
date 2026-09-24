@@ -9,7 +9,13 @@ from src.qa_browser.drug_id_graph import (
     compute_drug_stats,
     load_drug_graph_data,
 )
-from src.qa_browser.drug_resolver import enrich_ncats_resolver, enrich_pubchem, resolve_and_enrich, resolve_local
+from src.qa_browser.drug_resolver import (
+    _reconcile_live_identity,
+    enrich_ncats_resolver,
+    enrich_pubchem,
+    resolve_and_enrich,
+    resolve_local,
+)
 
 
 def _data(*nodes):
@@ -83,6 +89,20 @@ def test_ncats_transient_batch_failure_is_not_recursively_split():
     assert len(session.groups) == 2  # two retries, no recursive property fan-out
 
 
+def test_ncats_failed_first_batch_circuit_breaks_remaining_property_batches():
+    props = [
+        "cid", "chembl", "chebi", "unii", "cas", "pt", "names", "devphase",
+        "description", "moa", "drugbankmoa", "npcmoa", "ptargets", "cns", "drug", "hbd", "hba",
+    ]
+    session = _NCATSSession(fail_property="chebi", fail_status=503)
+
+    result = enrich_ncats_resolver("aspirin", session=session, props=props)
+
+    assert len(session.groups) == 2  # first batch retried once; later batches were not attempted
+    assert result["_ncats_status"] == "failed"
+    assert result["_ncats_props_failed"] == props
+
+
 def test_ncats_blank_200_response_is_no_values_not_failed():
     result = enrich_ncats_resolver(
         "aspirin", session=_NCATSSession(blank=True), props=["cid", "chembl"],
@@ -130,6 +150,36 @@ def test_ncats_metadata_only_result_tries_next_lookup_and_is_not_found(monkeypat
     assert len(calls) >= 2
     assert result["enrichment"]["ncats_resolver"]["ncats_cid"] == "2244"
     assert result["enrichment"]["sources_found"] == ["ncats_resolver"]
+
+
+def test_ncats_failed_lookup_circuit_breaks_candidate_variants(monkeypatch):
+    calls = []
+
+    def fake_ncats(lookup, **kwargs):
+        calls.append(lookup)
+        return {
+            "_ncats_status": "failed",
+            "_ncats_props_requested": ["cid"],
+            "_ncats_props_returned": [],
+            "_ncats_props_failed": ["cid"],
+            "_ncats_props_without_values": [],
+            "_ncats_identity_consistency": "not_verified_request_failed",
+        }
+
+    monkeypatch.setattr("src.qa_browser.drug_resolver.enrich_ncats_resolver", fake_ncats)
+    resolve_and_enrich(
+        DrugGraphData(),
+        ["aspirin hydrochloride tablet"],
+        enable_ncats=True,
+        enable_pubchem=False,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+        ncats_props=["cid"],
+    )
+
+    assert calls == ["aspirin hydrochloride tablet"]
 
 
 def test_ncats_explicit_empty_selection_is_skipped_not_queried_or_found():
@@ -210,7 +260,8 @@ def test_name_and_smiles_collision_returns_both_interpretations():
 
     result = resolve_local(data, ["NO"])[0]
 
-    assert result["resolved"] is True
+    assert result["resolved"] is False
+    assert result["local_match_status"] == "ambiguous_multiple_matches"
     assert {hit["drug_id"] for hit in result["local_hits"]} == {
         "IFXDrug:NITRIC_OXIDE",
         "IFXDrug:HYDROXYLAMINE",
@@ -526,7 +577,12 @@ def test_pubchem_relookup_uses_exact_local_cid(monkeypatch):
     result = payload["results"][0]
     assert result["resolved"] is True
     assert result["local_hits"][0]["drug_id"] == "IFXDrug:7WGWKYR"
-    assert result["resolved_via"] == "PubChem exact identifier→PUBCHEM.COMPOUND:116814"
+    assert result["resolved_via"] == "pubchem exact identity bridge→IFXDrug:7WGWKYR"
+    assert result["initial_local_status"] == "no_match"
+    assert result["bridge_relookup"]["status"] == "reconciled_exact_unique"
+    assert payload["stats"]["local_resolved_initial"] == 0
+    assert payload["stats"]["bridge_resolved"] == 1
+    assert payload["stats"]["local_resolved_final"] == 1
 
 
 def test_pubchem_name_candidates_never_auto_resolve(monkeypatch):
@@ -556,6 +612,312 @@ def test_pubchem_name_candidates_never_auto_resolve(monkeypatch):
 
     assert result["resolved"] is False
     assert result["local_hits"] == []
+
+
+def test_pubchem_returned_name_is_candidate_only(monkeypatch):
+    data = _data({
+        "drug_id": "IFXDrug:NAME_ONLY",
+        "standard_name": "PubChem preferred title",
+        "source_namespaces": "PubChem|GSRS",
+    })
+    monkeypatch.setattr(
+        "src.qa_browser.drug_resolver.enrich_pubchem",
+        lambda *args, **kwargs: {
+            "pubchem_cid": "999",
+            "pubchem_title": "PubChem preferred title",
+            "candidates": [{
+                "pubchem_cid": "999",
+                "pubchem_title": "PubChem preferred title",
+                "pubchem_inchikey": "AAAAAAAAAAAAAA-UHFFFAOYSA-N",
+            }],
+        },
+    )
+
+    result = resolve_and_enrich(
+        data,
+        ["unmatched name"],
+        enable_ncats=False,
+        enable_pubchem=True,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+    )["results"][0]
+
+    assert result["resolved"] is False
+    assert result["local_hits"] == []
+    assert result["bridge_relookup"]["status"] == "candidate_only_name"
+    assert result["bridge_relookup"]["name_candidates"][0]["local_drug_ids"] == ["IFXDrug:NAME_ONLY"]
+
+
+def test_pubchem_exact_structure_bridge_uses_returned_smiles(monkeypatch):
+    data = _data({
+        "drug_id": "IFXDrug:STRUCTURE",
+        "standard_name": "structure match",
+        "smiles": "CC(=O)Oc1ccccc1C(=O)O",
+    })
+    monkeypatch.setattr(
+        "src.qa_browser.drug_resolver.enrich_pubchem",
+        lambda *args, **kwargs: {
+            "pubchem_cid": "2244",
+            "pubchem_inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+            "pubchem_smiles": "O=C(O)c1ccccc1OC(C)=O",
+            "candidates": [{
+                "pubchem_cid": "2244",
+                "pubchem_inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+                "pubchem_smiles": "O=C(O)c1ccccc1OC(C)=O",
+            }],
+        },
+    )
+
+    result = resolve_and_enrich(
+        data,
+        ["PUBCHEM.COMPOUND:2244"],
+        enable_ncats=False,
+        enable_pubchem=True,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+    )["results"][0]
+
+    assert result["resolved"] is True
+    assert result["local_hits"][0]["drug_id"] == "IFXDrug:STRUCTURE"
+    assert result["bridge_relookup"]["status"] == "reconciled_exact_unique"
+
+
+def test_ncats_exact_identifier_bridge_rechecks_local_harmonizer(monkeypatch):
+    data = _data({
+        "drug_id": "IFXDrug:NCATS_BRIDGE",
+        "standard_name": "NCATS bridge match",
+        "unii": "ABC123DEF4",
+    })
+
+    def fake_ncats(lookup, **kwargs):
+        return {
+            "_ncats_status": "complete",
+            "_ncats_props_requested": ["chembl", "unii"],
+            "_ncats_props_returned": ["chembl", "unii"],
+            "_ncats_props_failed": [],
+            "_ncats_props_without_values": [],
+            "_ncats_identity_consistency": "not_applicable_single_batch",
+            "ncats_chembl": "CHEMBL999999",
+            "ncats_unii": "ABC123DEF4",
+        }
+
+    monkeypatch.setattr("src.qa_browser.drug_resolver.enrich_ncats_resolver", fake_ncats)
+    result = resolve_and_enrich(
+        data,
+        ["CHEMBL.COMPOUND:CHEMBL999999"],
+        enable_ncats=True,
+        enable_pubchem=False,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+        ncats_props=["unii"],
+    )["results"][0]
+
+    assert result["resolved"] is True
+    assert result["local_hits"][0]["drug_id"] == "IFXDrug:NCATS_BRIDGE"
+    assert result["bridge_relookup"]["status"] == "reconciled_exact_unique"
+    assert result["bridge_relookup"]["evidence"][0]["source"] == "ncats_resolver"
+
+
+def test_external_identifier_conflict_is_not_auto_resolved():
+    data = _data(
+        {
+            "drug_id": "IFXDrug:CID_MATCH",
+            "standard_name": "CID match",
+            "pubchem_cid": "12345",
+        },
+        {
+            "drug_id": "IFXDrug:UNII_MATCH",
+            "standard_name": "UNII match",
+            "unii": "ABC123DEF4",
+        },
+    )
+    local_result = {
+        "query": "external identifier",
+        "local_hits": [],
+        "resolved": False,
+        "total_local_matches": 0,
+        "local_match_status": "no_match",
+        "initial_local_status": "no_match",
+    }
+
+    result = _reconcile_live_identity(
+        data,
+        local_result,
+        [
+            {"source": "pubchem", "namespace": "pubchem_cid", "value": "12345", "lookup": "PUBCHEM.COMPOUND:12345"},
+            {"source": "ncats_resolver", "namespace": "unii", "value": "ABC123DEF4", "lookup": "UNII:ABC123DEF4"},
+        ],
+        [],
+    )
+
+    assert result["resolved"] is False
+    assert result["bridge_relookup"]["status"] == "identifier_conflict"
+    assert result["bridge_relookup"]["matched_drug_ids"] == ["IFXDrug:CID_MATCH", "IFXDrug:UNII_MATCH"]
+    assert {row["standard_name"] for row in result["bridge_relookup"]["matched_candidates"]} == {
+        "CID match", "UNII match",
+    }
+
+
+@pytest.mark.parametrize(
+    ("namespace", "lookup", "name_collision"),
+    [
+        ("unii", "UNII:ABC123DEF4", "UNII:ABC123DEF4"),
+        ("smiles", "NO", "NO"),
+    ],
+)
+def test_external_identity_does_not_resolve_name_collision(namespace, lookup, name_collision):
+    data = _data({
+        "drug_id": "IFXDrug:NAME_COLLISION",
+        "standard_name": name_collision,
+    })
+    result = _reconcile_live_identity(
+        data,
+        {
+            "query": lookup,
+            "local_hits": [],
+            "resolved": False,
+            "total_local_matches": 0,
+            "local_match_status": "no_match",
+            "initial_local_status": "no_match",
+        },
+        [{"source": "ncats_resolver", "namespace": namespace, "value": lookup, "lookup": lookup}],
+        [],
+    )
+
+    assert result["resolved"] is False
+    assert result["bridge_relookup"]["matched_drug_ids"] == []
+
+
+@pytest.mark.parametrize(
+    ("namespace", "lookup", "wrong_xref"),
+    [
+        ("pubchem_cid", "PUBCHEM.COMPOUND:12345", "CHEBI:12345"),
+        ("pubchem_cid", "PUBCHEM.COMPOUND:12345", "RXCUI:12345"),
+        ("chebi", "CHEBI:12345", "PUBCHEM.COMPOUND:12345"),
+        ("chebi", "CHEBI:12345", "DrugCentral:12345"),
+    ],
+)
+def test_external_identity_preserves_numeric_identifier_namespace(namespace, lookup, wrong_xref):
+    data = _data({
+        "drug_id": "IFXDrug:WRONG_NAMESPACE",
+        "standard_name": "numeric namespace collision",
+        "xrefs": wrong_xref,
+    })
+    result = _reconcile_live_identity(
+        data,
+        {
+            "query": lookup,
+            "local_hits": [],
+            "resolved": False,
+            "total_local_matches": 0,
+            "local_match_status": "no_match",
+            "initial_local_status": "no_match",
+        },
+        [{"source": "pubchem", "namespace": namespace, "value": lookup, "lookup": lookup}],
+        [],
+    )
+
+    assert result["resolved"] is False
+    assert result["bridge_relookup"]["matched_drug_ids"] == []
+
+
+def test_ncats_stereochemical_identity_mismatch_never_bridges(monkeypatch):
+    data = _data({
+        "drug_id": "IFXDrug:WRONG_STEREO",
+        "standard_name": "wrong stereoisomer",
+        "inchikey": "XGDFITZJGKUSDK-UDYGKFQRSA-N",
+        "unii": "BY7Y2JX7NQ",
+        "pubchem_cid": "11957481",
+    })
+
+    def fake_ncats(lookup, **kwargs):
+        return {
+            "_ncats_status": "complete",
+            "_ncats_props_requested": ["cid", "unii", "inchikey"],
+            "_ncats_props_returned": ["cid", "unii", "inchikey"],
+            "_ncats_props_failed": [],
+            "_ncats_props_without_values": [],
+            "_ncats_identity_consistency": "not_applicable_single_batch",
+            "ncats_cid": "11957481",
+            "ncats_unii": "BY7Y2JX7NQ",
+            "ncats_inchikey": "XGDFITZJGKUSDK-UDYGKFQRSA-N",
+        }
+
+    monkeypatch.setattr("src.qa_browser.drug_resolver.enrich_ncats_resolver", fake_ncats)
+    result = resolve_and_enrich(
+        data,
+        ["XGDFITZJGKUSDK-NNNATCHMSA-N"],
+        enable_ncats=True,
+        enable_pubchem=False,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+    )["results"][0]
+
+    assert result["resolved"] is False
+    assert result["bridge_relookup"]["status"] == "provider_identity_mismatch"
+    assert result["bridge_relookup"]["matched_drug_ids"] == []
+
+
+def test_ncats_identity_projection_is_independent_of_selected_annotations(monkeypatch):
+    data = _data({
+        "drug_id": "IFXDrug:IDENTITY_PROJECTION",
+        "standard_name": "identity projection match",
+        "unii": "ABC123DEF4",
+    })
+    calls = []
+
+    def fake_ncats(lookup, **kwargs):
+        props = kwargs.get("props") or []
+        calls.append(list(props))
+        if props == ["description"]:
+            return {
+                "_ncats_status": "complete",
+                "_ncats_props_requested": props,
+                "_ncats_props_returned": props,
+                "_ncats_props_failed": [],
+                "_ncats_props_without_values": [],
+                "_ncats_identity_consistency": "not_applicable_single_batch",
+                "ncats_description": "annotation only",
+            }
+        return {
+            "_ncats_status": "complete",
+            "_ncats_props_requested": props,
+            "_ncats_props_returned": ["chembl", "unii"],
+            "_ncats_props_failed": [],
+            "_ncats_props_without_values": [],
+            "_ncats_identity_consistency": "not_applicable_single_batch",
+            "ncats_chembl": "CHEMBL999999",
+            "ncats_unii": "ABC123DEF4",
+        }
+
+    monkeypatch.setattr("src.qa_browser.drug_resolver.enrich_ncats_resolver", fake_ncats)
+    payload = resolve_and_enrich(
+        data,
+        ["CHEMBL999999"],
+        enable_ncats=True,
+        enable_pubchem=False,
+        enable_pharos=False,
+        enable_inxight=False,
+        enable_openfda=False,
+        enable_chebi=False,
+        ncats_props=["description"],
+    )
+    result = payload["results"][0]
+
+    assert ["description"] in calls
+    assert ["cid", "chembl", "chebi", "unii", "smiles", "inchikey"] in calls
+    assert result["resolved"] is True
+    assert result["local_hits"][0]["drug_id"] == "IFXDrug:IDENTITY_PROJECTION"
+    assert "ncats_resolver" in result["enrichment"]["sources_queried"]
+    assert "ncats_resolver" in result["enrichment"]["sources_found"]
 
 
 def test_pubchem_mismatched_inchikey_never_auto_resolves(monkeypatch):

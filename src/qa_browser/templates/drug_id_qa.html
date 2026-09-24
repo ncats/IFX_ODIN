@@ -1100,8 +1100,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return h;
     }
 
-    function drLocalHitsTable(hits) {
-        if (!hits || hits.length <= 1) return "";
+    function drLocalHitsTable(hits, showSingle) {
+        if (!hits || !hits.length || (!showSingle && hits.length <= 1)) return "";
         const shown = hits.slice(0, 5);
         let h = `<table style="font-size:0.72rem;border-collapse:collapse;width:100%;margin-top:0.45rem;"><thead><tr>` +
             `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Candidate</th>` +
@@ -1235,12 +1235,13 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     function drRenderResult(r, idx) {
         const hits = r.local_hits || [];
-        const best = hits[0] || {};
+        const best = r.resolved ? (hits[0] || {}) : {};
         const enr = r.enrichment || {};
         const queried = enr.sources_queried || [];
         const skipped = enr.sources_skipped || {};
         const sourceErrors = enr.source_errors || [];
         const pubchem = enr.pubchem || null;
+        const bridge = r.bridge_relookup || null;
         const found = r.resolved;
         const name = best.standard_name || (enr.ncats_resolver || {}).ncats_resolved_name || (enr.pubchem || {}).pubchem_title || r.query;
         const drugId = best.drug_id || "";
@@ -1265,6 +1266,18 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             }
             if (hits.length > 1) badges += drBadge(`${hits.length} local matches`, badgeStyles.notfound, "Structure or identifier maps to multiple harmonized candidates");
         }
+        if (bridge && bridge.status === "reconciled_exact_unique") badges += drBadge("local match via external ID", badgeStyles.pubchem, "An exact live identifier or structure was rechecked against the local harmonizer");
+        if (bridge && bridge.status === "reconciled_corroborated") badges += drBadge("corroborated external bridge", badgeStyles.pubchem, "Multiple live sources converged on one IFXDrug");
+        if (bridge && bridge.status === "identifier_conflict") badges += drBadge("external identifier conflict — review", badgeStyles.openfda);
+        if (bridge && bridge.status === "ambiguous_local_mapping") badges += drBadge("external ID maps to multiple local records — review", badgeStyles.openfda);
+        if (bridge && bridge.status === "provider_identity_mismatch") badges += drBadge("provider identity mismatch — not resolved", badgeStyles.openfda);
+        if (bridge && bridge.status === "provider_identity_unverified") badges += drBadge("provider identity unverified — not resolved", badgeStyles.notfound);
+        if (bridge && bridge.status === "candidate_only_name") badges += drBadge("name candidate only — not resolved", badgeStyles.notfound);
+        if (!found && hits.length) badges += drBadge(
+            `${r.total_local_matches || hits.length} local candidate${(r.total_local_matches || hits.length) === 1 ? "" : "s"} — not resolved`,
+            badgeStyles.notfound,
+            "Non-unique or non-asserting local matches are shown for review but were not selected as the resolved identity"
+        );
         if (!found && pubchem) badges += drBadge(
             drugCompleteIndexAvailable
                 ? "PubChem candidate — no complete-index match"
@@ -1276,7 +1289,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         }
         if (queried.length && !sources.length) badges += drBadge("no live annotations", badgeStyles.notfound);
         if (found && !queried.length) badges += drBadge("local only", badgeStyles.notfound);
-        if (!found && !sources.length) badges += drBadge(
+        if (!found && !hits.length && !sources.length) badges += drBadge(
             drugCompleteIndexAvailable
                 ? "no match in complete local identity index"
                 : "not found in bundled preview; full-release membership unknown",
@@ -1291,6 +1304,37 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Found", sources.length ? sources.join(" | ") : "No live-source hits");
             h += drDetailRow("Resolved via", r.resolved_via);
             if (h) details += `<div>${drSectionHead("External Lookup")}${h}</div>`;
+        }
+
+        if (bridge) {
+            const evidence = bridge.evidence || [];
+            const candidates = [
+                ...(bridge.matched_candidates || []),
+                ...(bridge.name_candidates || []).flatMap(item => item.local_candidates || []),
+            ];
+            const candidateTotal = Number(bridge.candidate_total || candidates.length);
+            let h = "";
+            h += drDetailRow("Original local lookup", r.initial_local_status || "no match");
+            h += drDetailRow("Relookup status", String(bridge.status || "").replaceAll("_", " "));
+            h += drDetailRow("Lookup scope", String(bridge.lookup_scope || "").replaceAll("_", " "));
+            h += drDetailRow("Identity path", evidence.map(item => `${item.source || "provider"} ${item.namespace || "identifier"} ${item.value || ""} → ${(item.local_drug_ids || []).join(", ") || "no exact local match"}`).join(" | "));
+            h += drDetailRow("Selected IFXDrug", bridge.selected_drug_id);
+            h += drDetailRow("Bridge candidates", candidates.slice(0, 10).map(item => `${item.standard_name || ""} (${item.drug_id || ""})`).join(" | "));
+            if (candidateTotal) h += drDetailRow(
+                "Candidates shown",
+                bridge.candidate_list_truncated
+                    ? `${Math.min(candidates.length, 10)} of at least ${candidateTotal}`
+                    : `${Math.min(candidates.length, 10)} of ${candidateTotal}`
+            );
+            if (h) details += `<div>${drSectionHead("External-to-Local Reconciliation")}${h}</div>`;
+        }
+
+        if (!found && hits.length) {
+            const totalCandidates = r.total_local_matches || hits.length;
+            details += `<div>${drSectionHead("Local Candidates — Not Resolved")}` +
+                `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.35rem;">These local matches are non-unique or non-asserting candidates and were not selected as the resolved identity. Showing ${hits.length} of ${totalCandidates}.</div>` +
+                drLocalHitsTable(hits, true) +
+                `</div>`;
         }
 
         if (sourceErrors.length) {
@@ -1766,6 +1810,13 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     const drCoreExportColumns = [
         ["query", "Query"], ["result_status", "Result Status"], ["resolved_via", "Resolved Via"],
+        ["initial_local_status", "Original Local Status"], ["resolution_path", "Resolution Path"],
+        ["bridge_source", "Bridge Source"], ["bridge_identifier", "Bridge Identifier"],
+        ["local_relookup_status", "Local Relookup Status"], ["local_lookup_scope", "Local Lookup Scope"],
+        ["bridge_candidate_ids", "Bridge Candidate IFXDrug IDs"], ["bridge_candidate_names", "Bridge Candidate Names"],
+        ["local_candidate_ids", "Original Local Candidate IDs"], ["local_candidate_names", "Original Local Candidate Names"],
+        ["local_candidates_shown", "Original Local Candidates Shown"], ["local_candidate_list_truncated", "Original Local Candidate List Truncated"],
+        ["bridge_candidates_shown", "Bridge Candidates Shown"], ["bridge_candidate_list_truncated", "Bridge Candidate List Truncated"],
         ["drug_id", "IFXDrug ID"], ["standard_name", "Preferred Name"], ["primary_id", "Primary ID"],
         ["unii", "UNII"], ["chembl_id", "ChEMBL ID"], ["chebi_id", "ChEBI ID"],
         ["pubchem_cid", "PubChem CID"], ["drugcentral_id", "DrugCentral ID"], ["rxcui", "RxCUI"],
@@ -1805,8 +1856,12 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     function drFlattenResult(r) {
-        const best = (r.local_hits || [])[0] || {};
+        const candidateHits = r.local_hits || [];
+        const best = r.resolved ? (candidateHits[0] || {}) : {};
         const enr = r.enrichment || {};
+        const bridge = r.bridge_relookup || {};
+        const bridgeEvidence = bridge.evidence || [];
+        const bridgeNameCandidates = bridge.name_candidates || [];
         const ncats = enr.ncats_resolver || {};
         const pharos = enr.pharos || {};
         const inx = enr.inxight || {};
@@ -1814,9 +1869,40 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const fda = enr.openfda || {};
         const pubchem = enr.pubchem || {};
         const sourceErrors = enr.source_errors || [];
+        const unresolvedLocalStatus = r.local_match_status === "ambiguous_multiple_matches"
+            ? "ambiguous_local_candidates_review_required"
+            : r.local_match_status === "candidate_only"
+            ? "local_candidate_only_not_resolved"
+            : "";
+        const resultStatus = r.resolved
+            ? (bridge.selected_drug_id ? "local_match_via_external_bridge" : "direct_local_match")
+            : (bridge.status || unresolvedLocalStatus || (pubchem.pubchem_cid ? "external_candidate_only_no_local_match" : "not_found"));
+        const bridgeMatchedCandidates = bridge.matched_candidates || [];
+        const nameOnlyCandidates = bridgeNameCandidates.flatMap(item => item.local_candidates || []);
+        const bridgeCandidatesById = new Map();
+        for (const candidate of [...bridgeMatchedCandidates, ...nameOnlyCandidates]) {
+            const key = candidate.drug_id || candidate.standard_name || "";
+            if (key && !bridgeCandidatesById.has(key)) bridgeCandidatesById.set(key, candidate);
+        }
+        const allBridgeCandidates = [...bridgeCandidatesById.values()].slice(0, 10);
         const row = {
             query: r.query || "",
-            result_status: r.resolved ? "resolved_in_local_harmonizer" : (pubchem.pubchem_cid ? "pubchem_candidate_not_in_local_graph" : "not_found"),
+            result_status: resultStatus,
+            initial_local_status: r.initial_local_status || (r.resolved ? "matched" : "no_match"),
+            resolution_path: r.resolution_path || (r.resolved ? "direct_local_match" : "unresolved"),
+            bridge_source: [...new Set(bridgeEvidence.map(item => item.source || "").filter(Boolean))].join("|"),
+            bridge_identifier: bridgeEvidence.map(item => `${item.namespace || "identifier"}:${item.value || ""}`).join("|"),
+            local_relookup_status: bridge.status || "not_attempted",
+            local_lookup_scope: bridge.lookup_scope || (drugCompleteIndexAvailable ? "complete_identity_index" : "bundled_preview"),
+            bridge_candidate_ids: [...new Set(allBridgeCandidates.map(candidate => candidate.drug_id || "").filter(Boolean))].join("|"),
+            bridge_candidate_names: [...new Set(allBridgeCandidates.map(candidate => candidate.standard_name || "").filter(Boolean))].join("|"),
+            local_candidate_ids: r.resolved ? "" : candidateHits.map(hit => hit.drug_id || "").filter(Boolean).join("|"),
+            local_candidate_names: r.resolved ? "" : candidateHits.map(hit => hit.standard_name || "").filter(Boolean).join("|"),
+            local_candidates_shown: r.resolved ? 0 : candidateHits.length,
+            local_candidate_list_truncated: !r.resolved && Number(r.total_local_matches || 0) > candidateHits.length ? "yes" : "no",
+            bridge_candidates_shown: allBridgeCandidates.length,
+            bridge_candidate_list_truncated: bridge.candidate_list_truncated ? "yes" : "no",
+            bridge_trace_json: Object.keys(bridge).length ? JSON.stringify(bridge) : "",
             local_harmonizer_resolved: r.resolved ? "yes" : "no",
             resolved_in_graph: r.resolved && best._in_graph_bundle !== "no" ? "yes" : "no",
             resolved_via: r.resolved_via || "",
@@ -1852,9 +1938,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             local_matched_field: best._matched_field || "",
             local_matched_value: best._matched_value || "",
             local_match_strategy: best._match_strategy || "",
-            local_match_count: r.total_local_matches || (r.local_hits || []).length,
-            local_match_status: (r.total_local_matches || (r.local_hits || []).length) > 1 ? "ambiguous_multiple_matches" : ((r.local_hits || []).length ? "single_match" : "no_match"),
-            alternate_local_ids: (r.local_hits || []).slice(1).map(hit => hit.drug_id || "").filter(Boolean).join("|"),
+            local_match_count: r.total_local_matches || candidateHits.length,
+            local_match_status: r.local_match_status || ((r.total_local_matches || candidateHits.length) > 1 ? "ambiguous_multiple_matches" : (candidateHits.length ? "candidate_only" : "no_match")),
+            alternate_local_ids: r.resolved ? candidateHits.slice(1).map(hit => hit.drug_id || "").filter(Boolean).join("|") : "",
             query_terms: (r.query_terms || []).join("|"),
             live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             live_api_request_failures: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),

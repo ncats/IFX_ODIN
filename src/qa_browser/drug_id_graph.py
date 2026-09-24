@@ -677,6 +677,145 @@ def query_drug_resolver_index(
     return rows
 
 
+def query_exact_drug_identity(
+    data: DrugGraphData,
+    value: str,
+    namespace: str,
+    limit: int = 25,
+) -> list[dict[str, str]]:
+    """Return exact identifier/structure matches without name or fuzzy search.
+
+    This is intentionally narrower than the interactive resolver.  It is used
+    when a live identity service returns an identifier for an initially
+    unmatched query, so a provider response cannot silently promote a
+    substring/name candidate to an IFXDrug identity.
+    """
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return []
+
+    namespace = str(namespace or "").strip().lower()
+    matches: dict[str, dict[str, str]] = {}
+
+    namespace_fields = {
+        "pubchem_cid": ("pubchem_cid", "source_standard_primary_id", "source_ids", "xrefs"),
+        "inchikey": ("inchikey", "source_standard_primary_id", "source_ids", "xrefs"),
+        "unii": ("unii", "source_standard_primary_id", "source_ids", "xrefs"),
+        "chembl": ("chembl_id", "source_standard_primary_id", "source_ids", "xrefs"),
+        "chebi": ("chebi_id", "source_standard_primary_id", "source_ids", "xrefs"),
+        "name": ("standard_name", "synonyms"),
+    }
+    direct_fields = {
+        "pubchem_cid": "pubchem_cid",
+        "inchikey": "inchikey",
+        "unii": "unii",
+        "chembl": "chembl_id",
+        "chebi": "chebi_id",
+    }
+
+    def canonical_identity(candidate: str, allow_bare: bool) -> str:
+        text = str(candidate or "").strip()
+        if namespace == "pubchem_cid":
+            match = re.fullmatch(r"(?:PUBCHEM(?:\.COMPOUND)?|CID):(\d+)", text, re.I)
+            if match:
+                return match.group(1)
+            return text if allow_bare and re.fullmatch(r"\d+", text) else ""
+        if namespace == "chebi":
+            match = re.fullmatch(r"CHEBI:(\d+)", text, re.I)
+            if match:
+                return match.group(1)
+            return text if allow_bare and re.fullmatch(r"\d+", text) else ""
+        if namespace == "chembl":
+            match = re.fullmatch(r"(?:CHEMBL(?:\.COMPOUND)?:)?(CHEMBL\d+)", text, re.I)
+            return match.group(1).upper() if match else ""
+        if namespace == "unii":
+            pattern = r"(?:UNII:)?([A-Z0-9]{10})" if allow_bare else r"UNII:([A-Z0-9]{10})"
+            match = re.fullmatch(pattern, text, re.I)
+            return match.group(1).upper() if match else ""
+        if namespace == "inchikey":
+            match = re.fullmatch(r"(?:INCHIKEY:)?([A-Z]{14}-[A-Z]{10}-[A-Z])", text, re.I)
+            return match.group(1).upper() if match else ""
+        return text.casefold() if namespace == "name" else ""
+
+    def exact_node_match(node: dict[str, str]) -> tuple[str, str] | None:
+        if namespace == "smiles":
+            query_key = structure_keys.get("derived_inchikey", "").upper()
+            if not query_key:
+                return None
+            for candidate in _split_pipe(node.get("inchikey", "")):
+                local = candidate.split(":", 1)[-1].upper()
+                if local == query_key:
+                    return "inchikey", candidate
+            node_smiles = str(node.get("smiles") or "").strip()
+            node_key = _smiles_structure_keys(node_smiles).get("derived_inchikey", "").upper()
+            if node_key and node_key == query_key:
+                return "smiles", node_smiles
+            return None
+        fields = namespace_fields.get(namespace, ())
+        wanted = canonical_identity(raw_value, allow_bare=True)
+        if not wanted:
+            return None
+        for field in fields:
+            raw = str(node.get(field) or "").strip()
+            values = _split_pipe(raw) if field in {"source_ids", "xrefs", "synonyms"} else [raw]
+            for candidate in values:
+                allow_bare = field == direct_fields.get(namespace) or namespace == "name"
+                if canonical_identity(candidate, allow_bare=allow_bare) == wanted:
+                    return field, candidate
+        return None
+
+    def add(node: dict[str, str], field: str, matched_value: str, strategy: str) -> None:
+        drug_id = str(node.get("drug_id") or "")
+        if not drug_id or drug_id in matches:
+            return
+        hit = dict(node)
+        hit["_match_score"] = "1.000"
+        hit["_matched_query"] = raw_value
+        hit["_matched_field"] = field
+        hit["_matched_value"] = matched_value
+        hit["_match_strategy"] = strategy
+        hit["_in_graph_bundle"] = "yes" if drug_id in data.nodes_by_id else "no"
+        matches[drug_id] = hit
+
+    structure_keys = _smiles_structure_keys(raw_value) if namespace == "smiles" else {}
+    index_terms = [raw_value]
+    if structure_keys.get("derived_inchikey"):
+        index_terms.append(structure_keys["derived_inchikey"])
+    for node in query_drug_resolver_index(data, index_terms, limit=limit):
+        node.pop("_resolver_index_field", None)
+        node.pop("_resolver_index_value", None)
+        node.pop("_resolver_index_alias", None)
+        exact_match = exact_node_match(node)
+        if not exact_match:
+            continue
+        field, matched_value = exact_match
+        add(node, field, matched_value, "complete_harmonizer_index_exact_bridge")
+
+    for alias in _drug_lookup_aliases(raw_value):
+        for drug_id in data.ids_to_drugs.get(alias, []):
+            node = data.nodes_by_id.get(drug_id)
+            if not node:
+                continue
+            exact_match = exact_node_match(node)
+            if exact_match:
+                field, matched_value = exact_match
+                strategy = "bundled_exact_structure_bridge" if namespace == "smiles" else "bundled_exact_bridge"
+                add(node, field, matched_value, strategy)
+
+    if structure_keys:
+        structure_ids, _ = resolve_smiles_drug_ids(data, raw_value)
+        for drug_id in structure_ids:
+            node = data.nodes_by_id.get(drug_id)
+            if not node:
+                continue
+            exact_match = exact_node_match(node)
+            if exact_match:
+                field, matched_value = exact_match
+                add(node, field, matched_value, "bundled_exact_structure_bridge")
+
+    return list(matches.values())[:limit]
+
+
 def _matches_query(node: dict[str, str], q: str) -> bool:
     if not q:
         return True
