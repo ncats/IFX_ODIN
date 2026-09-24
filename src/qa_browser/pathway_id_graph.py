@@ -358,7 +358,7 @@ def _summarize_pathway_source_versions(rows: list[dict[str, str]]) -> list[dict[
             "name": source,
             "source_role": str(row.get("source_role") or (
                 "harmonization source" if source.lower() in harmonization_sources
-                else "identifier normalization" if "nodenorm" in source.lower()
+                else "downloaded reference (not currently applied)" if "nodenorm" in source.lower()
                 else "enrichment source"
             )).strip(),
             "version": str(row.get("source_version") or "not captured").strip() or "not captured",
