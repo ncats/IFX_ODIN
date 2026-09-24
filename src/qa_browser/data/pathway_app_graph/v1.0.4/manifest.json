@@ -1,0 +1,21 @@
+{
+  "entity": "pathways",
+  "name": "Pathway Harmonizer Explorer",
+  "version": "1.0.4",
+  "generated_at": "2026-09-24T15:58:09.997150+00:00",
+  "git_commit": "b4928e4",
+  "nodes": {
+    "file": "pathway_nodes.tsv",
+    "count": 4534
+  },
+  "edges": {
+    "file": "pathway_edges.tsv",
+    "count": 279941
+  },
+  "source_catalog": "pathway_source_catalog.tsv",
+  "notes": [
+    "Pathway nodes are harmonized across Reactome, WikiPathways, PANTHER, and BioPlanet.",
+    "PathwayCommons enriches pathway-gene memberships; NodeNorm is downloaded as reference data but is not currently applied downstream.",
+    "Pathway-gene edges are resolved through target-harmonizer gene and protein crosswalks and retain all supporting source names."
+  ]
+}
