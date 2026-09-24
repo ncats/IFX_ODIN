@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import re
+import sqlite3
 import threading
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -40,6 +41,7 @@ class DrugGraphData:
         "manifest",
         "source_catalog",
         "source_update_report",
+        "resolver_index_path",
         "_stats",
     )
 
@@ -60,6 +62,7 @@ class DrugGraphData:
         self.manifest: dict[str, Any] = {}
         self.source_catalog: list[dict[str, str]] = []
         self.source_update_report: list[dict[str, str]] = []
+        self.resolver_index_path: Path | None = None
         self._stats: dict[str, Any] | None = None
 
 
@@ -454,11 +457,17 @@ def _index_node(data: DrugGraphData, node: dict[str, str]) -> None:
             _add_index(data, value, drug_id)
 
 
-def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
+def load_drug_graph_data(
+    graph_dir: str | Path,
+    resolver_index_path: str | Path | None = None,
+    require_resolver_index: bool = False,
+    verify_resolver_checksum: bool = False,
+) -> DrugGraphData:
     graph_path = Path(graph_dir)
     if not graph_path.exists():
         raise HTTPException(status_code=500, detail=f"Drug graph dir does not exist: {graph_path}")
-    key = str(graph_path.resolve())
+    explicit_resolver = Path(resolver_index_path).resolve() if resolver_index_path else None
+    key = f"{graph_path.resolve()}::{explicit_resolver or ''}::{verify_resolver_checksum}"
     with _singleton_lock:
         if key in _singletons:
             return _singletons[key]
@@ -469,6 +478,19 @@ def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
                 data.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 data.manifest = {}
+        files = data.manifest.get("files") or {}
+        resolver_declared = "resolver_index" in files
+        resolver_name = files.get("resolver_index", "drug_resolver_index.sqlite")
+        if isinstance(resolver_name, dict):
+            resolver_name = resolver_name.get("path") or resolver_name.get("name") or "drug_resolver_index.sqlite"
+        resolver_path = explicit_resolver or (graph_path / str(resolver_name)).resolve()
+        if not explicit_resolver and not resolver_path.is_relative_to(graph_path.resolve()):
+            raise HTTPException(status_code=500, detail="Drug resolver index path escapes the graph directory")
+        if resolver_path.exists():
+            _validate_drug_resolver_index(resolver_path, data.manifest, verify_checksum=verify_resolver_checksum)
+            data.resolver_index_path = resolver_path
+        elif require_resolver_index or resolver_declared:
+            raise HTTPException(status_code=500, detail=f"Configured drug resolver index is missing: {resolver_path}")
         for node in _read_tsv(graph_path / "drug_nodes.tsv"):
             _index_node(data, node)
         data.edges = _read_tsv(graph_path / "drug_edges.tsv")
@@ -487,6 +509,105 @@ def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
         data.source_update_report = _read_tsv(graph_path / "drug_source_update_report.tsv")
         _singletons[key] = data
         return data
+
+
+def _validate_drug_resolver_index(path: Path, manifest: dict[str, Any], verify_checksum: bool = False) -> None:
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"metadata", "nodes", "aliases"}.issubset(tables):
+                raise ValueError("required tables are missing")
+            metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+        finally:
+            connection.close()
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid drug resolver index {path}: {exc}") from exc
+    if metadata.get("schema_version") != "1":
+        raise HTTPException(status_code=500, detail=f"Unsupported drug resolver index schema: {metadata.get('schema_version') or 'missing'}")
+    if not metadata.get("harmonizer_version"):
+        raise HTTPException(status_code=500, detail="Drug resolver index is missing harmonizer_version metadata")
+    counts = manifest.get("counts") or {}
+    expected_bytes = counts.get("resolver_index_bytes")
+    if expected_bytes not in (None, "") and path.stat().st_size != int(expected_bytes):
+        raise HTTPException(status_code=500, detail="Drug resolver index byte size does not match its manifest")
+    expected_sha256 = str(counts.get("resolver_index_sha256") or "").lower()
+    if verify_checksum and expected_sha256:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != expected_sha256:
+            raise HTTPException(status_code=500, detail="Drug resolver index SHA-256 does not match its manifest")
+    manifest_version = str(manifest.get("version") or "").lstrip("v")
+    index_version = str(metadata.get("harmonizer_version") or "").lstrip("v")
+    if manifest_version and index_version and manifest_version != index_version:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Drug resolver index version v{index_version} does not match graph v{manifest_version}",
+        )
+
+
+def query_drug_resolver_index(
+    data: DrugGraphData,
+    values: list[str],
+    limit: int = 25,
+) -> list[dict[str, str]]:
+    """Return exact matches from the complete harmonizer resolver artifact."""
+    path = data.resolver_index_path
+    if not path or not path.exists():
+        return []
+    lookup_values: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        for normalized in (value.casefold(), f"smiles:{value}"):
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                lookup_values.append(normalized)
+    if not lookup_values:
+        return []
+    placeholders = ",".join("?" for _ in lookup_values)
+    sql = f"""
+        WITH matches AS (
+            SELECT n.payload, a.field, a.matched_value, a.alias_norm, a.drug_id,
+                   CASE WHEN a.field = 'drug_id' THEN 0
+                        WHEN a.field IN ('inchikey', 'unii', 'pubchem_cid', 'chembl_id', 'chebi_id') THEN 1
+                        WHEN a.field = 'smiles' THEN 2
+                        WHEN a.field = 'standard_name' THEN 3 ELSE 4 END AS field_priority
+            FROM aliases a JOIN nodes n ON n.drug_id = a.drug_id
+            WHERE a.alias_norm IN ({placeholders})
+        ), ranked AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY drug_id ORDER BY field_priority, field, matched_value
+            ) AS match_rank
+            FROM matches
+        )
+        SELECT payload, field, matched_value, alias_norm
+        FROM ranked
+        WHERE match_rank = 1
+        ORDER BY field_priority, drug_id
+        LIMIT ?
+    """
+    rows: list[dict[str, str]] = []
+    matched_ids: set[str] = set()
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+    try:
+        for payload, field, matched_value, alias_norm in connection.execute(sql, [*lookup_values, limit]):
+            node = json.loads(payload)
+            drug_id = str(node.get("drug_id", ""))
+            if not drug_id or drug_id in matched_ids:
+                continue
+            matched_ids.add(drug_id)
+            node["_resolver_index_field"] = field
+            node["_resolver_index_value"] = matched_value
+            node["_resolver_index_alias"] = alias_norm
+            rows.append(node)
+            if len(rows) >= limit:
+                break
+    finally:
+        connection.close()
+    return rows
 
 
 def _matches_query(node: dict[str, str], q: str) -> bool:

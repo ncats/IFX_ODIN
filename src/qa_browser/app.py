@@ -237,6 +237,8 @@ _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
 _variant_review_file: str = ""
 _drug_graph_dir: str = ""
+_drug_resolver_index: str = ""
+_verify_drug_resolver_checksum: bool = False
 _drug_review_file: str = ""
 _pathway_graph_dir: str = ""
 _pathway_review_file: str = ""
@@ -7196,7 +7198,12 @@ def _variant_updated_last(manifest: dict[str, Any]) -> str:
 def _load_drug_graph():
     if not _drug_graph_dir:
         raise HTTPException(status_code=500, detail="No --drug-graph-dir configured.")
-    return load_drug_graph_data(_drug_graph_dir)
+    return load_drug_graph_data(
+        _drug_graph_dir,
+        resolver_index_path=_drug_resolver_index or None,
+        require_resolver_index=bool(_drug_resolver_index),
+        verify_resolver_checksum=_verify_drug_resolver_checksum,
+    )
 
 
 def _drug_manifest_snapshot() -> dict[str, Any]:
@@ -8683,10 +8690,11 @@ def _drug_resolver_request_payload(body: dict) -> dict[str, Any]:
     return {
         "queries": queries,
         "enable_ncats": _drug_resolver_payload_bool(body, "enable_ncats", True),
-        "enable_pharos": _drug_resolver_payload_bool(body, "enable_pharos", True),
-        "enable_inxight": _drug_resolver_payload_bool(body, "enable_inxight", True),
-        "enable_openfda": _drug_resolver_payload_bool(body, "enable_openfda", True),
-        "enable_chebi": _drug_resolver_payload_bool(body, "enable_chebi", True),
+        "enable_pubchem": _drug_resolver_payload_bool(body, "enable_pubchem", True),
+        "enable_pharos": _drug_resolver_payload_bool(body, "enable_pharos", False),
+        "enable_inxight": _drug_resolver_payload_bool(body, "enable_inxight", False),
+        "enable_openfda": _drug_resolver_payload_bool(body, "enable_openfda", False),
+        "enable_chebi": _drug_resolver_payload_bool(body, "enable_chebi", False),
         "workers": workers,
         "delay": 0.15,
         "ncats_props": ncats_props,
@@ -8697,6 +8705,8 @@ def _drug_resolver_source_labels(payload: dict[str, Any]) -> list[str]:
     labels: list[str] = []
     if payload.get("enable_ncats"):
         labels.append("NCATS Resolver")
+    if payload.get("enable_pubchem"):
+        labels.append("PubChem (local misses)")
     if payload.get("enable_pharos"):
         labels.append("Pharos")
     if payload.get("enable_inxight"):
@@ -8859,6 +8869,7 @@ async def drug_id_qa_resolve_quick(q: str = ""):
         data,
         queries=queries,
         enable_ncats=False,
+        enable_pubchem=False,
         enable_pharos=False,
         enable_inxight=False,
         enable_openfda=False,
@@ -13155,6 +13166,12 @@ def main():
     parser.add_argument("--drug-graph-dir",
                         default="",
                         help="Path to drug app_graph/ directory (drug_nodes.tsv + manifest.json)")
+    parser.add_argument("--drug-resolver-index",
+                        default="",
+                        help="Path to the version-matched complete drug_resolver_index.sqlite sidecar")
+    parser.add_argument("--verify-drug-resolver-checksum",
+                        action="store_true",
+                        help="Verify the complete drug resolver sidecar SHA-256 at startup (recommended for staging/release checks)")
     parser.add_argument("--drug-review-file",
                         default="",
                         help="Path to IFX Harmonizers-compatible drug review intake TSV written by the Review tab")
@@ -13166,7 +13183,7 @@ def main():
                         help="Path to IFX Harmonizers-compatible pathway review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file, _pathway_graph_dir, _pathway_review_file
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_resolver_index, _verify_drug_resolver_checksum, _drug_review_file, _pathway_graph_dir, _pathway_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -13293,6 +13310,8 @@ def main():
         print(f"Variant review intake file: {_resolved_variant_review_file()}")
 
     _drug_graph_dir = args.drug_graph_dir
+    _drug_resolver_index = args.drug_resolver_index
+    _verify_drug_resolver_checksum = args.verify_drug_resolver_checksum
     if not _drug_graph_dir:
         bundled_dir = DRUG_APP_GRAPH_BUNDLED_DIR
         versions = _versioned_app_graph_dirs(bundled_dir, "drug_nodes.tsv")
@@ -13305,6 +13324,8 @@ def main():
             print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
     if _drug_graph_dir:
         print(f"Drug graph dir: {_drug_graph_dir}")
+    if _drug_resolver_index:
+        print(f"Drug resolver index: {_drug_resolver_index}")
     _drug_review_file = args.drug_review_file
     if _resolved_drug_review_file():
         print(f"Drug review intake file: {_resolved_drug_review_file()}")
