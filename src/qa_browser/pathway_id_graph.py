@@ -740,12 +740,19 @@ def build_cross_entity_summary(
                 if edge.get("relation_kind", "drug_target") == "drug_target"
             ]
             target_gene_ids = {
-                edge.get("target_id", "") for edge in target_edges
-                if str(edge.get("target_id", "")).startswith("IFXGene:")
+                edge.get("target_gene_id") or edge.get("target_id", "")
+                for edge in target_edges
+                if edge.get("target_gene_id")
+                or str(edge.get("target_id", "")).startswith("IFXGene:")
             }
             target_symbols = {
-                edge.get("target_label", "").strip().upper() for edge in target_edges
-                if edge.get("target_label", "").strip()
+                (edge.get("target_symbol") or edge.get("target_label", "")).strip().upper()
+                for edge in target_edges
+                if edge.get("target_symbol")
+                or (
+                    edge.get("target_category") == "biolink:Gene"
+                    and edge.get("target_label", "").strip()
+                )
             }
             shared_ids = gene_ids & target_gene_ids
             shared_symbols = gene_symbols & target_symbols
