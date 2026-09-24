@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import re
+import sqlite3
 import threading
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -13,12 +14,25 @@ from typing import Any
 
 from fastapi import HTTPException
 
+try:
+    from rdkit import Chem, rdBase
+    from rdkit.Chem import inchi as rdkit_inchi
+except ImportError:  # pragma: no cover - RDKit is an application dependency
+    Chem = None
+    rdBase = None
+    rdkit_inchi = None
+
 
 class DrugGraphData:
     __slots__ = (
         "nodes",
         "nodes_by_id",
         "ids_to_drugs",
+        "structure_to_drugs",
+        "_structure_index_ready",
+        "_structure_index_lock",
+        "_fuzzy_name_index",
+        "_fuzzy_name_index_lock",
         "edges",
         "edges_by_drug",
         "review_queue",
@@ -27,6 +41,7 @@ class DrugGraphData:
         "manifest",
         "source_catalog",
         "source_update_report",
+        "resolver_index_path",
         "_stats",
     )
 
@@ -34,6 +49,11 @@ class DrugGraphData:
         self.nodes: list[dict[str, str]] = []
         self.nodes_by_id: dict[str, dict[str, str]] = {}
         self.ids_to_drugs: dict[str, list[str]] = defaultdict(list)
+        self.structure_to_drugs: dict[str, list[str]] = defaultdict(list)
+        self._structure_index_ready = False
+        self._structure_index_lock = threading.Lock()
+        self._fuzzy_name_index: list[tuple[str, str, str, str]] | None = None
+        self._fuzzy_name_index_lock = threading.Lock()
         self.edges: list[dict[str, str]] = []
         self.edges_by_drug: dict[str, list[dict[str, str]]] = defaultdict(list)
         self.review_queue: list[dict[str, str]] = []
@@ -42,6 +62,7 @@ class DrugGraphData:
         self.manifest: dict[str, Any] = {}
         self.source_catalog: list[dict[str, str]] = []
         self.source_update_report: list[dict[str, str]] = []
+        self.resolver_index_path: Path | None = None
         self._stats: dict[str, Any] | None = None
 
 
@@ -56,6 +77,9 @@ DEFAULT_DRUG_COLUMNS = [
     "drug_scope",
     "source_namespaces",
     "inchikey",
+    "smiles",
+    "inchi",
+    "molecular_formula",
     "unii",
     "pubchem_cid",
     "chembl_id",
@@ -336,6 +360,81 @@ def _add_index(data: DrugGraphData, key: str, drug_id: str) -> None:
         data.ids_to_drugs[alias].append(drug_id)
 
 
+def _smiles_structure_keys(value: str) -> dict[str, str]:
+    """Return stereo-sensitive derived lookup keys without altering source SMILES."""
+    text = str(value or "").strip()
+    if not text or Chem is None or rdkit_inchi is None:
+        return {}
+    try:
+        if rdBase is not None:
+            with rdBase.BlockLogs():
+                molecule = Chem.MolFromSmiles(text)
+                if molecule is None:
+                    return {}
+                canonical = Chem.MolToSmiles(molecule, isomericSmiles=True)
+                inchikey = rdkit_inchi.MolToInchiKey(molecule)
+        else:  # pragma: no cover
+            molecule = Chem.MolFromSmiles(text)
+        if molecule is None:
+            return {}
+        if rdBase is None:  # pragma: no cover
+            canonical = Chem.MolToSmiles(molecule, isomericSmiles=True)
+            inchikey = rdkit_inchi.MolToInchiKey(molecule)
+        return {
+            "canonical_smiles": canonical,
+            "derived_inchikey": inchikey,
+        }
+    except Exception:
+        return {}
+
+
+def resolve_smiles_drug_ids(data: DrugGraphData, value: str) -> tuple[list[str], dict[str, str]]:
+    """Resolve a SMILES query by stereo-sensitive canonical structure keys."""
+    keys = _smiles_structure_keys(value)
+    if not keys:
+        return [], {}
+    hits: list[str] = []
+    seen: set[str] = set()
+    raw_value = str(value or "").strip()
+    for drug_id in data.ids_to_drugs.get(raw_value, []):
+        node = data.nodes_by_id.get(drug_id, {})
+        if node.get("smiles", "").strip() == raw_value and drug_id not in seen:
+            seen.add(drug_id)
+            hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "exact_smiles"
+        return hits, keys
+    derived_inchikey = keys.get("derived_inchikey", "")
+    if derived_inchikey:
+        for alias in _drug_lookup_aliases(derived_inchikey):
+            for drug_id in data.ids_to_drugs.get(alias, []):
+                if drug_id not in seen:
+                    seen.add(drug_id)
+                    hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "derived_inchikey"
+        return hits, keys
+    with data._structure_index_lock:
+        if not data._structure_index_ready:
+            for node in data.nodes:
+                drug_id = node.get("drug_id", "")
+                node_keys = _smiles_structure_keys(node.get("smiles", ""))
+                canonical = node_keys.get("canonical_smiles", "")
+                if drug_id and canonical:
+                    data.structure_to_drugs[f"canonical_smiles:{canonical}"].append(drug_id)
+            data._structure_index_ready = True
+    for key_type, key_value in keys.items():
+        if key_type == "matched_via":
+            continue
+        for drug_id in data.structure_to_drugs.get(f"{key_type}:{key_value}", []):
+            if drug_id not in seen:
+                seen.add(drug_id)
+                hits.append(drug_id)
+    if hits:
+        keys["matched_via"] = "canonical_smiles"
+    return hits, keys
+
+
 def _index_node(data: DrugGraphData, node: dict[str, str]) -> None:
     drug_id = node.get("drug_id", "")
     if not drug_id:
@@ -348,16 +447,27 @@ def _index_node(data: DrugGraphData, node: dict[str, str]) -> None:
     ]
     for field in fields:
         _add_index(data, node.get(field, ""), drug_id)
-    for field in ("source_ids", "xrefs", "synonyms"):
+    # SMILES is case-sensitive structure notation, not an identifier family.
+    # Index the exact source value without UNII/CURIE shape expansion.
+    raw_smiles = str(node.get("smiles", "") or "").strip()
+    if raw_smiles:
+        data.ids_to_drugs[raw_smiles].append(drug_id)
+    for field in ("source_ids", "xrefs", "synonyms", "nodenorm_equivalent_identifiers"):
         for value in _split_pipe(node.get(field, "")):
             _add_index(data, value, drug_id)
 
 
-def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
+def load_drug_graph_data(
+    graph_dir: str | Path,
+    resolver_index_path: str | Path | None = None,
+    require_resolver_index: bool = False,
+    verify_resolver_checksum: bool = False,
+) -> DrugGraphData:
     graph_path = Path(graph_dir)
     if not graph_path.exists():
         raise HTTPException(status_code=500, detail=f"Drug graph dir does not exist: {graph_path}")
-    key = str(graph_path.resolve())
+    explicit_resolver = Path(resolver_index_path).resolve() if resolver_index_path else None
+    key = f"{graph_path.resolve()}::{explicit_resolver or ''}::{verify_resolver_checksum}"
     with _singleton_lock:
         if key in _singletons:
             return _singletons[key]
@@ -368,6 +478,19 @@ def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
                 data.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 data.manifest = {}
+        files = data.manifest.get("files") or {}
+        resolver_declared = "resolver_index" in files
+        resolver_name = files.get("resolver_index", "drug_resolver_index.sqlite")
+        if isinstance(resolver_name, dict):
+            resolver_name = resolver_name.get("path") or resolver_name.get("name") or "drug_resolver_index.sqlite"
+        resolver_path = explicit_resolver or (graph_path / str(resolver_name)).resolve()
+        if not explicit_resolver and not resolver_path.is_relative_to(graph_path.resolve()):
+            raise HTTPException(status_code=500, detail="Drug resolver index path escapes the graph directory")
+        if resolver_path.exists():
+            _validate_drug_resolver_index(resolver_path, data.manifest, verify_checksum=verify_resolver_checksum)
+            data.resolver_index_path = resolver_path
+        elif require_resolver_index or resolver_declared:
+            raise HTTPException(status_code=500, detail=f"Configured drug resolver index is missing: {resolver_path}")
         for node in _read_tsv(graph_path / "drug_nodes.tsv"):
             _index_node(data, node)
         data.edges = _read_tsv(graph_path / "drug_edges.tsv")
@@ -388,13 +511,113 @@ def load_drug_graph_data(graph_dir: str | Path) -> DrugGraphData:
         return data
 
 
+def _validate_drug_resolver_index(path: Path, manifest: dict[str, Any], verify_checksum: bool = False) -> None:
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"metadata", "nodes", "aliases"}.issubset(tables):
+                raise ValueError("required tables are missing")
+            metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+        finally:
+            connection.close()
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid drug resolver index {path}: {exc}") from exc
+    if metadata.get("schema_version") != "1":
+        raise HTTPException(status_code=500, detail=f"Unsupported drug resolver index schema: {metadata.get('schema_version') or 'missing'}")
+    if not metadata.get("harmonizer_version"):
+        raise HTTPException(status_code=500, detail="Drug resolver index is missing harmonizer_version metadata")
+    counts = manifest.get("counts") or {}
+    expected_bytes = counts.get("resolver_index_bytes")
+    if expected_bytes not in (None, "") and path.stat().st_size != int(expected_bytes):
+        raise HTTPException(status_code=500, detail="Drug resolver index byte size does not match its manifest")
+    expected_sha256 = str(counts.get("resolver_index_sha256") or "").lower()
+    if verify_checksum and expected_sha256:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != expected_sha256:
+            raise HTTPException(status_code=500, detail="Drug resolver index SHA-256 does not match its manifest")
+    manifest_version = str(manifest.get("version") or "").lstrip("v")
+    index_version = str(metadata.get("harmonizer_version") or "").lstrip("v")
+    if manifest_version and index_version and manifest_version != index_version:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Drug resolver index version v{index_version} does not match graph v{manifest_version}",
+        )
+
+
+def query_drug_resolver_index(
+    data: DrugGraphData,
+    values: list[str],
+    limit: int = 25,
+) -> list[dict[str, str]]:
+    """Return exact matches from the complete harmonizer resolver artifact."""
+    path = data.resolver_index_path
+    if not path or not path.exists():
+        return []
+    lookup_values: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        for normalized in (value.casefold(), f"smiles:{value}"):
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                lookup_values.append(normalized)
+    if not lookup_values:
+        return []
+    placeholders = ",".join("?" for _ in lookup_values)
+    sql = f"""
+        WITH matches AS (
+            SELECT n.payload, a.field, a.matched_value, a.alias_norm, a.drug_id,
+                   CASE WHEN a.field = 'drug_id' THEN 0
+                        WHEN a.field IN ('inchikey', 'unii', 'pubchem_cid', 'chembl_id', 'chebi_id') THEN 1
+                        WHEN a.field = 'smiles' THEN 2
+                        WHEN a.field = 'standard_name' THEN 3 ELSE 4 END AS field_priority
+            FROM aliases a JOIN nodes n ON n.drug_id = a.drug_id
+            WHERE a.alias_norm IN ({placeholders})
+        ), ranked AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY drug_id ORDER BY field_priority, field, matched_value
+            ) AS match_rank
+            FROM matches
+        )
+        SELECT payload, field, matched_value, alias_norm
+        FROM ranked
+        WHERE match_rank = 1
+        ORDER BY field_priority, drug_id
+        LIMIT ?
+    """
+    rows: list[dict[str, str]] = []
+    matched_ids: set[str] = set()
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+    try:
+        for payload, field, matched_value, alias_norm in connection.execute(sql, [*lookup_values, limit]):
+            node = json.loads(payload)
+            drug_id = str(node.get("drug_id", ""))
+            if not drug_id or drug_id in matched_ids:
+                continue
+            matched_ids.add(drug_id)
+            node["_resolver_index_field"] = field
+            node["_resolver_index_value"] = matched_value
+            node["_resolver_index_alias"] = alias_norm
+            rows.append(node)
+            if len(rows) >= limit:
+                break
+    finally:
+        connection.close()
+    return rows
+
+
 def _matches_query(node: dict[str, str], q: str) -> bool:
     if not q:
         return True
     needle = q.lower()
     fields = [
         "drug_id", "primary_id", "standard_name", "entity_key", "synonyms", "source_ids", "xrefs",
-        "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "cas",
+        "nodenorm_equivalent_identifiers", "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id",
+        "drugcentral_id", "rxcui", "cas", "smiles", "inchi", "molecular_formula",
     ]
     return any(needle in str(node.get(field, "")).lower() for field in fields)
 

@@ -28,9 +28,9 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 
 try:
-    from src.qa_browser.drug_id_graph import DrugGraphData, search_drugs
+    from src.qa_browser.drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, resolve_smiles_drug_ids, search_drugs
 except ImportError:
-    from drug_id_graph import DrugGraphData, search_drugs
+    from drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, resolve_smiles_drug_ids, search_drugs
 
 # ── API endpoints ────────────────────────────────────────────────────────
 
@@ -39,6 +39,7 @@ PHAROS_API = "https://pharos-api.ncats.io/graphql"
 INXIGHT_API = "https://drugs.ncats.io/api/v1/substances"
 CHEBI_OLS_API = "https://www.ebi.ac.uk/ols4/api"
 OPENFDA_LABEL_API = "https://api.fda.gov/drug/label.json"
+PUBCHEM_PUG_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound"
 
 NCATS_PROPS = [
     "smiles", "tpsa", "logp", "logd", "hbd", "hba", "drug", "cns",
@@ -126,6 +127,10 @@ _NCATS_RESOLVER_MAX_CONCURRENT = 1
 _NCATS_RESOLVER_RETRY_ATTEMPTS = 2
 _NCATS_RESOLVER_RETRY_BACKOFF_SECONDS = 0.25
 _NCATS_RESOLVER_SEMAPHORE = BoundedSemaphore(_NCATS_RESOLVER_MAX_CONCURRENT)
+_PUBCHEM_SEMAPHORE = BoundedSemaphore(2)
+_PUBCHEM_RATE_LOCK = Lock()
+_PUBCHEM_LAST_REQUEST_AT = 0.0
+_PUBCHEM_MIN_REQUEST_INTERVAL_SECONDS = 0.2
 
 logger = logging.getLogger(__name__)
 
@@ -535,12 +540,12 @@ def _node_search_values(node: dict[str, str]) -> list[tuple[str, str]]:
     for field in (
         "drug_id", "standard_name", "primary_id", "nodenorm_canonical_label",
         "unii", "chembl_id", "chebi_id", "pubchem_cid", "drugcentral_id",
-        "rxcui", "cas", "inchikey",
+        "rxcui", "cas", "inchikey", "smiles",
     ):
         value = str(node.get(field, "") or "").strip()
         if value:
             values.append((field, value))
-    for field in ("synonyms", "source_ids", "xrefs"):
+    for field in ("synonyms", "source_ids", "xrefs", "nodenorm_equivalent_identifiers"):
         for value in str(node.get(field, "") or "").split("|"):
             value = value.strip()
             if value:
@@ -604,11 +609,28 @@ def _rank_local_hit(row: dict[str, Any]) -> tuple[float, float, float, float]:
     return (score, tier, support, source_records)
 
 
+def _primary_name_fuzzy_index(data: DrugGraphData) -> list[tuple[str, str, str, str]]:
+    """Build a compact fuzzy index without rescanning every synonym/xref."""
+    if data._fuzzy_name_index is not None:
+        return data._fuzzy_name_index
+    with data._fuzzy_name_index_lock:
+        if data._fuzzy_name_index is None:
+            rows: list[tuple[str, str, str, str]] = []
+            for node in data.nodes:
+                drug_id = node.get("drug_id", "")
+                if not drug_id:
+                    continue
+                for field in ("standard_name", "nodenorm_canonical_label"):
+                    value = str(node.get(field, "") or "").strip()
+                    normalized = _normalize_drug_text(value, keep_bracket_text=True)
+                    if normalized:
+                        rows.append((drug_id, field, value, normalized))
+            data._fuzzy_name_index = rows
+    return data._fuzzy_name_index
+
+
 def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tuple[list[dict[str, Any]], list[str], int]:
     terms = _drug_query_candidates(query)
-    if not terms:
-        return [], [], 0
-
     candidates: dict[str, dict[str, Any]] = {}
 
     def add_hit(drug_id: str, term: str, strategy: str, base_score: float = 0.0) -> None:
@@ -627,6 +649,86 @@ def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tup
         hit["_matched_value"] = matched_value
         hit["_match_strategy"] = strategy
         candidates[drug_id] = hit
+
+    raw_query = str(query or "").strip()
+    full_index_terms = [raw_query]
+    derived_structure = _smiles_structure_keys(raw_query)
+    if derived_structure.get("derived_inchikey"):
+        full_index_terms.append(derived_structure["derived_inchikey"])
+    complete_hits = query_drug_resolver_index(data, full_index_terms, limit=limit)
+    for node in complete_hits:
+        drug_id = node.get("drug_id", "")
+        if not drug_id:
+            continue
+        field = node.pop("_resolver_index_field", "")
+        matched_value = node.pop("_resolver_index_value", "")
+        node.pop("_resolver_index_alias", None)
+        hit = dict(node)
+        hit["_match_score"] = "1.000"
+        hit["_matched_query"] = raw_query
+        hit["_matched_field"] = field
+        hit["_matched_value"] = matched_value
+        hit["_match_strategy"] = (
+            "complete_harmonizer_index_derived_inchikey"
+            if matched_value.upper().endswith(derived_structure.get("derived_inchikey", "").upper())
+            and derived_structure.get("derived_inchikey")
+            else "complete_harmonizer_index"
+        )
+        hit["_in_graph_bundle"] = "yes" if drug_id in data.nodes_by_id else "no"
+        candidates[drug_id] = hit
+    for key in {raw_query, raw_query.lower(), raw_query.upper()}:
+        for drug_id in data.ids_to_drugs.get(key, []):
+            add_hit(drug_id, raw_query, "exact_alias", 1.0)
+
+    structure_ids, structure_keys = resolve_smiles_drug_ids(data, query)
+    if structure_ids:
+        matched_via = structure_keys.get("matched_via", "canonical_smiles")
+        strategy = {
+            "exact_smiles": "exact_smiles",
+            "derived_inchikey": "derived_inchikey",
+            "canonical_smiles": "canonical_structure",
+        }.get(matched_via, "canonical_structure")
+        for drug_id in structure_ids:
+            existing = candidates.get(drug_id)
+            if existing and existing.get("_matched_field") not in {"", "smiles"}:
+                continue
+            add_hit(drug_id, query, strategy, 1.0)
+            hit = candidates.get(drug_id)
+            if hit is not None:
+                hit["_matched_query"] = query
+                hit["_match_strategy"] = strategy
+                if matched_via == "exact_smiles":
+                    hit["_matched_field"] = "smiles"
+                    hit["_matched_value"] = raw_query
+                elif matched_via == "derived_inchikey":
+                    derived_key = structure_keys.get("derived_inchikey", "")
+                    prefixed_key = f"INCHIKEY:{derived_key}"
+                    matched_field = "derived_inchikey"
+                    matched_value = derived_key
+                    node = data.nodes_by_id.get(drug_id, {})
+                    for field in ("inchikey", "nodenorm_equivalent_identifiers", "source_ids", "xrefs"):
+                        values = _split_pipe_values(node.get(field))
+                        actual = next(
+                            (value for value in values if value.upper() in {derived_key.upper(), prefixed_key}),
+                            "",
+                        )
+                        if actual:
+                            matched_field = field
+                            matched_value = actual
+                            break
+                    hit["_matched_field"] = matched_field
+                    hit["_matched_value"] = matched_value
+                else:
+                    hit["_matched_field"] = "canonical_smiles"
+                    hit["_matched_value"] = structure_keys.get("canonical_smiles", "")
+    if structure_keys:
+        ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
+        return ranked[:limit], [query], len(ranked)
+    if candidates:
+        ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
+        return ranked[:limit], terms or [query], len(ranked)
+    if not terms:
+        return [], [], 0
 
     for term in terms:
         lookup_keys = {
@@ -653,17 +755,30 @@ def _resolve_local_hits(data: DrugGraphData, query: str, limit: int = 10) -> tup
             if drug_id:
                 add_hit(drug_id, term, "substring")
 
-    if not candidates:
-        for node in data.nodes:
-            score, matched_term, matched_field, matched_value = _score_node_against_terms(node, terms)
-            if score >= 0.86:
-                hit = dict(node)
+    identifier_like = bool(
+        re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", query.strip(), re.I)
+        or re.match(r"^(?:IFXDrug|UNII|CHEMBL(?:\.COMPOUND)?|CHEBI|PUBCHEM(?:\.COMPOUND)?|RXCUI|CAS|InChIKey):", query.strip(), re.I)
+    )
+    if not candidates and not identifier_like and not structure_keys:
+        normalized_terms = [
+            (term, _normalize_drug_text(term, keep_bracket_text=True))
+            for term in terms
+        ]
+        for drug_id, matched_field, matched_value, value_norm in _primary_name_fuzzy_index(data):
+            for matched_term, term_norm in normalized_terms:
+                score = _term_value_score(term_norm, value_norm)
+                if score < 0.86:
+                    continue
+                existing = candidates.get(drug_id)
+                if existing and _floatish(existing.get("_match_score")) >= score:
+                    continue
+                hit = dict(data.nodes_by_id.get(drug_id, {}))
                 hit["_match_score"] = f"{score:.3f}"
                 hit["_matched_query"] = matched_term
                 hit["_matched_field"] = matched_field
                 hit["_matched_value"] = matched_value
-                hit["_match_strategy"] = "fuzzy_lexical"
-                candidates[node.get("drug_id", "")] = hit
+                hit["_match_strategy"] = "fuzzy_primary_name"
+                candidates[drug_id] = hit
 
     ranked = sorted(candidates.values(), key=_rank_local_hit, reverse=True)
     return ranked[:limit], terms, len(ranked)
@@ -683,6 +798,9 @@ def _compact_local_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "nodenorm_canonical_label",
         "nodenorm_validation_status",
         "inchikey",
+        "smiles",
+        "inchi",
+        "molecular_formula",
         "unii",
         "pubchem_cid",
         "chembl_id",
@@ -702,8 +820,10 @@ def _compact_local_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "_matched_field",
         "_matched_value",
         "_match_strategy",
+        "_in_graph_bundle",
     ]
     compact = {field: hit.get(field, "") for field in fields if hit.get(field, "")}
+    compact.setdefault("_in_graph_bundle", "yes")
     if len(str(compact.get("definition", ""))) > 220:
         compact["definition"] = _shorten(compact["definition"], 220) or ""
     if len(str(compact.get("_matched_value", ""))) > 220:
@@ -1489,6 +1609,125 @@ def enrich_chebi(
         return None
 
 
+def _smiles_structure_query(value: str) -> bool:
+    if CAS_RE.fullmatch(value) or re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", value, re.I):
+        return False
+    if re.match(r"^[A-Za-z][A-Za-z0-9.]*:\S+$", value):
+        return False
+    return any(char in value for char in "[]=#()@+/\\") or bool(
+        re.fullmatch(r"[BCNOFPSIclbr0-9@+\-\[\]()=#\\/.]+", value)
+    )
+
+
+def enrich_pubchem(
+    query: str,
+    session: requests.Session | None = None,
+    timeout: int = 6,
+    source_errors: list[dict[str, str]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve PubChem candidates without minting an IFXDrug identifier."""
+    text = str(query or "").strip()
+    if not text or _INTERNAL_ID_RE.match(text):
+        return None
+    if re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", text, re.I):
+        namespace, value = "inchikey", text.upper()
+    elif re.match(r"^(?:PUBCHEM(?:\.COMPOUND)?|CID):\s*\d+$", text, re.I):
+        namespace, value = "cid", re.search(r"\d+$", text).group(0)
+    elif _smiles_structure_query(text):
+        namespace, value = "smiles", text
+    else:
+        namespace, value = "name", text
+    property_path = "property/Title,IUPACName,MolecularFormula,MolecularWeight,SMILES,ConnectivitySMILES,InChI,InChIKey/JSON"
+    encoded = requests.utils.quote(value, safe="")
+    url = f"{PUBCHEM_PUG_BASE}/{namespace}/{encoded}/{property_path}"
+    session = session or _build_session()
+    try:
+        with _PUBCHEM_SEMAPHORE:
+            response = None
+            for attempt in range(2):
+                global _PUBCHEM_LAST_REQUEST_AT
+                with _PUBCHEM_RATE_LOCK:
+                    wait_for_slot = (
+                        _PUBCHEM_LAST_REQUEST_AT
+                        + _PUBCHEM_MIN_REQUEST_INTERVAL_SECONDS
+                        - time.monotonic()
+                    )
+                    if wait_for_slot > 0:
+                        time.sleep(wait_for_slot)
+                    _PUBCHEM_LAST_REQUEST_AT = time.monotonic()
+                if namespace == "smiles":
+                    url = f"{PUBCHEM_PUG_BASE}/smiles/{property_path}"
+                    response = session.post(url, data={"smiles": value}, timeout=timeout)
+                else:
+                    response = session.get(url, timeout=timeout)
+                if response.status_code not in {429, 500, 502, 503, 504} or attempt == 1:
+                    break
+                retry_after = response.headers.get("Retry-After", "") if getattr(response, "headers", None) else ""
+                try:
+                    wait_seconds = min(max(float(retry_after), 0.1), 2.0)
+                except (TypeError, ValueError):
+                    wait_seconds = 0.25
+                time.sleep(wait_seconds)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        records = ((response.json().get("PropertyTable") or {}).get("Properties") or [])
+        candidates = []
+        for record in records[:10]:
+            cid = str(record.get("CID") or "")
+            candidates.append({
+                "pubchem_cid": cid,
+                "pubchem_title": record.get("Title") or "",
+                "pubchem_iupac_name": record.get("IUPACName") or "",
+                "pubchem_molecular_formula": record.get("MolecularFormula") or "",
+                "pubchem_molecular_weight": record.get("MolecularWeight") or "",
+                "pubchem_smiles": record.get("SMILES") or record.get("ConnectivitySMILES") or "",
+                "pubchem_inchi": record.get("InChI") or "",
+                "pubchem_inchikey": record.get("InChIKey") or "",
+                "pubchem_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}" if cid else "",
+            })
+        if not candidates:
+            return None
+        return {
+            "query_namespace": namespace,
+            "request_endpoint": url,
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "candidate_count": len(records),
+            "candidates_returned": len(candidates),
+            "candidates": candidates,
+            **candidates[0],
+        }
+    except Exception as exc:
+        _record_source_error(source_errors, "pubchem", query, exc)
+        return None
+
+
+def _pubchem_exact_relookup_terms(query: str, pubchem: dict[str, Any]) -> list[str]:
+    """Return safe local bridge terms only when PubChem confirms the query exactly."""
+    text = str(query or "").strip()
+    requested_cid = ""
+    requested_key = ""
+    if re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", text, re.I):
+        requested_key = text.upper()
+    else:
+        cid_match = re.fullmatch(r"(?:PUBCHEM(?:\.COMPOUND)?|CID):(\d+)", text, re.I)
+        if cid_match:
+            requested_cid = cid_match.group(1)
+        else:
+            requested_key = _smiles_structure_keys(text).get("derived_inchikey", "").upper()
+    if not requested_cid and not requested_key:
+        return []
+    terms: list[str] = []
+    for candidate in pubchem.get("candidates") or []:
+        cid = str(candidate.get("pubchem_cid") or "")
+        inchikey = str(candidate.get("pubchem_inchikey") or "").upper()
+        if requested_cid and cid == requested_cid:
+            terms.extend([f"PUBCHEM.COMPOUND:{cid}", inchikey])
+        elif requested_key and inchikey == requested_key:
+            terms.extend([f"PUBCHEM.COMPOUND:{cid}" if cid else "", inchikey])
+    return list(dict.fromkeys(term for term in terms if term))
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # ORCHESTRATOR
 # ═════════════════════════════════════════════════════════════════════════
@@ -1500,6 +1739,7 @@ def _enrich_one(
     enable_inxight: bool,
     enable_openfda: bool,
     enable_chebi: bool,
+    enable_pubchem: bool,
     delay: float,
     graph_data: "DrugGraphData | None" = None,
     ncats_props: list[str] | None = None,
@@ -1508,6 +1748,8 @@ def _enrich_one(
     session = _build_session()
     enrichment: dict[str, Any] = {}
     source_errors: list[dict[str, str]] = []
+    sources_attempted: list[str] = []
+    sources_skipped: dict[str, str] = {}
     query = local_result["query"]
     hits = local_result.get("local_hits") or []
     best = hits[0] if hits else {}
@@ -1521,10 +1763,42 @@ def _enrich_one(
     chebi_id = chebi_values[0] if chebi_values else ""
     chembl_id = chembl_values[0] if chembl_values else ""
 
+    if enable_pubchem and not best:
+        sources_attempted.append("pubchem")
+        pubchem = enrich_pubchem(query, session=session, source_errors=source_errors)
+        if pubchem:
+            enrichment["pubchem"] = pubchem
+            if graph_data:
+                exact_terms = _pubchem_exact_relookup_terms(query, pubchem)
+                for term in [value for value in exact_terms if value]:
+                    retry = resolve_local(graph_data, [term])[0]
+                    if retry.get("local_hits"):
+                        local_result = {
+                            **local_result,
+                            "local_hits": retry["local_hits"],
+                            "resolved": True,
+                            "total_local_matches": retry.get("total_local_matches", len(retry["local_hits"])),
+                            "resolved_via": f"PubChem exact identifier→{term}",
+                        }
+                        best = retry["local_hits"][0]
+                        name = best.get("standard_name") or name
+                        break
+    elif enable_pubchem:
+        sources_skipped["pubchem"] = "local_harmonizer_resolved"
+
+    # A PubChem exact-identifier bridge may have replaced the local hit.
+    unii_values = _split_pipe_values(best.get("unii"))
+    chebi_values = _split_pipe_values(best.get("chebi_id"))
+    chembl_values = _split_pipe_values(best.get("chembl_id"))
+    unii = unii_values[0] if unii_values else ""
+    chebi_id = chebi_values[0] if chebi_values else ""
+    chembl_id = chembl_values[0] if chembl_values else ""
+
     # NCATS Resolver — try original query FIRST so a user-typed name
     # (e.g. "prednisolone") isn't overshadowed by a fuzzy local-graph hit
     # (e.g. Cortisol which has "PREDNISOLONE IMPURITY A" as a synonym).
     if enable_ncats:
+        sources_attempted.append("ncats_resolver")
         ncats_attempt_errors: list[dict[str, str]] = []
         seen_lookups: set[str] = set()
         ncats_lookups = _ncats_lookup_candidates(
@@ -1604,6 +1878,7 @@ def _enrich_one(
 
     # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
+        sources_attempted.append("pharos")
         pharos = None
         pharos_attempt_errors: list[dict[str, str]] = []
         seen_pharos: set[str] = set()
@@ -1622,6 +1897,7 @@ def _enrich_one(
 
     # Inxight
     if enable_inxight and unii_values:
+        sources_attempted.append("inxight")
         inxight_attempt_errors: list[dict[str, str]] = []
         for lookup in unii_values[:1]:
             inxight = enrich_inxight(lookup, session=session, source_errors=inxight_attempt_errors)
@@ -1634,9 +1910,12 @@ def _enrich_one(
             time.sleep(delay)
         if "inxight" not in enrichment:
             _append_source_failure(source_errors, "inxight", inxight_attempt_errors)
+    elif enable_inxight:
+        sources_skipped["inxight"] = "no_unii_available"
 
     # ChEBI
     if enable_chebi and chebi_values:
+        sources_attempted.append("chebi")
         chebi_attempt_errors: list[dict[str, str]] = []
         for lookup in chebi_values[:2]:
             chebi = enrich_chebi(lookup, session=session, source_errors=chebi_attempt_errors)
@@ -1646,9 +1925,12 @@ def _enrich_one(
             time.sleep(delay)
         if "chebi" not in enrichment:
             _append_source_failure(source_errors, "chebi", chebi_attempt_errors)
+    elif enable_chebi:
+        sources_skipped["chebi"] = "no_chebi_id_available"
 
     # openFDA
     if enable_openfda:
+        sources_attempted.append("openfda")
         name_candidates = list(dict.fromkeys(filter(None, [
             name,
             _clean_name_for_pharos(name),
@@ -1669,17 +1951,20 @@ def _enrich_one(
         enrichment["source_errors"] = source_errors
         enrichment["sources_failed"] = sorted({err["source"] for err in source_errors if err.get("source")})
 
-    enrichment["sources_queried"] = [
+    enrichment["sources_selected"] = [
         s for s, enabled in [
             ("ncats_resolver", enable_ncats),
             ("pharos", enable_pharos),
             ("inxight", enable_inxight),
             ("chebi", enable_chebi),
             ("openfda", enable_openfda),
+            ("pubchem", enable_pubchem),
         ] if enabled
     ]
+    enrichment["sources_queried"] = sources_attempted
+    enrichment["sources_skipped"] = sources_skipped
     enrichment["sources_found"] = [
-        s for s in ["ncats_resolver", "pharos", "inxight", "chebi", "openfda"]
+        s for s in ["ncats_resolver", "pubchem", "pharos", "inxight", "chebi", "openfda"]
         if s in enrichment
     ]
 
@@ -1694,6 +1979,7 @@ def resolve_and_enrich(
     enable_inxight: bool = True,
     enable_openfda: bool = True,
     enable_chebi: bool = True,
+    enable_pubchem: bool = False,
     workers: int = 4,
     delay: float = 0.15,
     ncats_props: list[str] | None = None,
@@ -1723,7 +2009,7 @@ def resolve_and_enrich(
     })
 
     # If no enrichment sources enabled, return local-only
-    any_enrichment = any([enable_ncats, enable_pharos, enable_inxight, enable_openfda, enable_chebi])
+    any_enrichment = any([enable_ncats, enable_pubchem, enable_pharos, enable_inxight, enable_openfda, enable_chebi])
     if not any_enrichment:
         emit_progress({
             "stage": "complete",
@@ -1748,6 +2034,7 @@ def resolve_and_enrich(
         "total": len(queries),
         "local_resolved": local_resolved,
         "ncats_found": 0,
+        "pubchem_found": 0,
         "pharos_found": 0,
         "inxight_found": 0,
         "chebi_found": 0,
@@ -1761,6 +2048,7 @@ def resolve_and_enrich(
     }
     source_stat_keys = {
         "ncats_resolver": "ncats_found",
+        "pubchem": "pubchem_found",
         "pharos": "pharos_found",
         "inxight": "inxight_found",
         "chebi": "chebi_found",
@@ -1777,6 +2065,7 @@ def resolve_and_enrich(
             enable_inxight=enable_inxight,
             enable_openfda=enable_openfda,
             enable_chebi=enable_chebi,
+            enable_pubchem=enable_pubchem,
             delay=delay,
             graph_data=data,
             ncats_props=ncats_props,
@@ -1851,6 +2140,7 @@ def resolve_and_enrich(
                         "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
                     })
 
+    stats["local_resolved"] = sum(1 for result in enriched if result.get("resolved"))
     emit_progress({
         "stage": "complete",
         "completed": len(local_results),

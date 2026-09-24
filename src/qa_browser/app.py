@@ -171,6 +171,22 @@ from src.qa_browser.drug_id_graph import (
     search_drugs,
     summarize_drug_source_versions,
 )
+from src.qa_browser.pathway_id_graph import (
+    PATHWAY_REVIEW_DECISION_OPTIONS,
+    PATHWAY_REVIEW_INTAKE_COLUMNS,
+    build_batch_pathway_review_payload,
+    load_pathway_graph_data,
+    mark_pathway_rows_resolved,
+    search_pathways,
+    compute_pathway_stats,
+    build_pathway_graph_payload,
+    build_pathway_review_queue,
+    export_pathways,
+    export_pathway_review_intake_template,
+    load_pathway_version_data,
+    compute_pathway_version_diff,
+    DEFAULT_PATHWAY_COLUMNS,
+)
 from src.qa_browser.drug_resolver import get_ncats_property_catalog, resolve_and_enrich
 from src.qa_browser.variant_resolver import (
     resolve_and_enrich as variant_resolve_and_enrich,
@@ -187,6 +203,7 @@ DISEASE_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "disease_app_graph"
 TARGET_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "target_app_graph"
 VARIANT_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "variant_app_graph"
 DRUG_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "drug_app_graph"
+PATHWAY_APP_GRAPH_BUNDLED_DIR = BASE_DIR / "data" / "pathway_app_graph"
 
 
 app = FastAPI(title="QA Browser")
@@ -220,7 +237,12 @@ _target_graph_dir: str = ""
 _variant_graph_dir: str = ""
 _variant_review_file: str = ""
 _drug_graph_dir: str = ""
+_drug_resolver_index: str = ""
+_verify_drug_resolver_checksum: bool = False
 _drug_review_file: str = ""
+_pathway_graph_dir: str = ""
+_pathway_review_file: str = ""
+_pathway_review_lock = threading.Lock()
 DRUG_RESOLVER_MAX_QUERIES = 2000
 _DRUG_RESOLVER_JOB_TTL_SECONDS = 3600
 _drug_resolver_jobs: dict[str, dict[str, Any]] = {}
@@ -7176,7 +7198,12 @@ def _variant_updated_last(manifest: dict[str, Any]) -> str:
 def _load_drug_graph():
     if not _drug_graph_dir:
         raise HTTPException(status_code=500, detail="No --drug-graph-dir configured.")
-    return load_drug_graph_data(_drug_graph_dir)
+    return load_drug_graph_data(
+        _drug_graph_dir,
+        resolver_index_path=_drug_resolver_index or None,
+        require_resolver_index=bool(_drug_resolver_index),
+        verify_resolver_checksum=_verify_drug_resolver_checksum,
+    )
 
 
 def _drug_manifest_snapshot() -> dict[str, Any]:
@@ -8663,10 +8690,11 @@ def _drug_resolver_request_payload(body: dict) -> dict[str, Any]:
     return {
         "queries": queries,
         "enable_ncats": _drug_resolver_payload_bool(body, "enable_ncats", True),
-        "enable_pharos": _drug_resolver_payload_bool(body, "enable_pharos", True),
-        "enable_inxight": _drug_resolver_payload_bool(body, "enable_inxight", True),
-        "enable_openfda": _drug_resolver_payload_bool(body, "enable_openfda", True),
-        "enable_chebi": _drug_resolver_payload_bool(body, "enable_chebi", True),
+        "enable_pubchem": _drug_resolver_payload_bool(body, "enable_pubchem", True),
+        "enable_pharos": _drug_resolver_payload_bool(body, "enable_pharos", False),
+        "enable_inxight": _drug_resolver_payload_bool(body, "enable_inxight", False),
+        "enable_openfda": _drug_resolver_payload_bool(body, "enable_openfda", False),
+        "enable_chebi": _drug_resolver_payload_bool(body, "enable_chebi", False),
         "workers": workers,
         "delay": 0.15,
         "ncats_props": ncats_props,
@@ -8677,6 +8705,8 @@ def _drug_resolver_source_labels(payload: dict[str, Any]) -> list[str]:
     labels: list[str] = []
     if payload.get("enable_ncats"):
         labels.append("NCATS Resolver")
+    if payload.get("enable_pubchem"):
+        labels.append("PubChem (local misses)")
     if payload.get("enable_pharos"):
         labels.append("Pharos")
     if payload.get("enable_inxight"):
@@ -8839,11 +8869,456 @@ async def drug_id_qa_resolve_quick(q: str = ""):
         data,
         queries=queries,
         enable_ncats=False,
+        enable_pubchem=False,
         enable_pharos=False,
         enable_inxight=False,
         enable_openfda=False,
         enable_chebi=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Pathway Harmonizer Explorer
+# ---------------------------------------------------------------------------
+
+PATHWAY_APP_GRAPH_BUNDLED_DIR = Path(__file__).resolve().parent / "data" / "pathway_app_graph"
+
+
+def _load_pathway_graph():
+    if not _pathway_graph_dir:
+        raise HTTPException(status_code=500, detail="No --pathway-graph-dir configured.")
+    return load_pathway_graph_data(_pathway_graph_dir)
+
+
+def _pathway_manifest_snapshot() -> dict[str, Any]:
+    if not _pathway_graph_dir:
+        return {}
+    manifest_path = Path(_pathway_graph_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _pathway_version_display(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("version") or "—"
+    text = str(raw).strip()
+    if not text or text == "—":
+        return "—"
+    if text.startswith("v"):
+        return text
+    return f"v{text}"
+
+
+def _pathway_updated_last(manifest: dict[str, Any]) -> str:
+    raw = manifest.get("updated_last") or manifest.get("generated_at") or "—"
+    text = str(raw).strip()
+    return text[:10] if text and text != "—" else "—"
+
+
+@app.get("/pathway-id-qa", response_class=HTMLResponse)
+def pathway_id_qa(request: Request, ids: str = "", tab: str = ""):
+    selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
+    default_tab = "graph" if selected_ids else "dashboard"
+    manifest = _pathway_manifest_snapshot()
+    return templates.TemplateResponse(request, "pathway_id_qa.html", {
+        "request": request,
+        "selected_ids": selected_ids,
+        "active_tab": tab or default_tab,
+        "manifest": manifest,
+        "pathway_version_display": _pathway_version_display(manifest),
+        "pathway_updated_last": _pathway_updated_last(manifest),
+        "pathway_columns": DEFAULT_PATHWAY_COLUMNS,
+    })
+
+
+@app.get("/pathway-id-qa/api/stats")
+def pathway_id_qa_stats():
+    data = _load_pathway_graph()
+    return compute_pathway_stats(data)
+
+
+@app.get("/pathway-id-qa/api/search")
+def pathway_id_qa_search(
+    q: str = "",
+    source: str = "",
+    min_sources: int = 0,
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_pathway_graph()
+    return search_pathways(data, q=q, source=source, min_sources=min_sources, page=page, per_page=per_page)
+
+
+@app.get("/pathway-id-qa/api/graph")
+def pathway_id_qa_graph(ids: str = ""):
+    data = _load_pathway_graph()
+    return build_pathway_graph_payload(data, ids)
+
+
+@app.get("/pathway-id-qa/download-filtered")
+def pathway_id_qa_download_filtered(
+    q: str = "",
+    source: str = "",
+    min_sources: int = 0,
+    columns: str = "",
+    format: str = "tsv",
+):
+    data = _load_pathway_graph()
+    fmt = "csv" if format == "csv" else "tsv"
+    selected_columns = [col.strip() for col in columns.split(",") if col.strip()]
+    content = export_pathways(data, q=q, source=source, min_sources=min_sources, fmt=fmt, columns=selected_columns)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    release = data.manifest.get("version") or "current"
+    release = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(release)).strip("_") or "current"
+    filename = f"ODIN_{release}_pathways.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pathway Version Diff
+# ---------------------------------------------------------------------------
+
+
+def _candidate_pathway_version_roots() -> list[Path]:
+    roots: list[Path] = []
+    if _pathway_graph_dir:
+        graph_path = Path(_pathway_graph_dir)
+        if graph_path.name == "app_graph" and graph_path.parent.name.startswith("v"):
+            roots.append(graph_path.parent.parent)
+        elif graph_path.name.startswith("v") or graph_path.parent.name in {"pathway_app_graph", "pathway_data"}:
+            roots.append(graph_path.parent)
+        else:
+            roots.append(graph_path)
+    roots.append(PATHWAY_APP_GRAPH_BUNDLED_DIR)
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            continue
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return unique
+
+
+def _normalize_pathway_version(version: str) -> str:
+    text = (version or "").strip()
+    if text.startswith("v."):
+        text = text[2:]
+    elif text.startswith("v"):
+        text = text[1:]
+    return text
+
+
+def _pathway_version_sort_key(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", _normalize_pathway_version(version))]
+    return tuple(parts or [0])
+
+
+def _discover_pathway_versions() -> list[dict]:
+    version_by_key: dict[str, dict] = {}
+    current_path = Path(_pathway_graph_dir).resolve() if _pathway_graph_dir else None
+
+    for root in _candidate_pathway_version_roots():
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            graph_child = child
+            directory_name = child.name
+            if child.is_dir() and not (child / "manifest.json").exists() and (child / "app_graph" / "manifest.json").exists():
+                graph_child = child / "app_graph"
+            if not graph_child.is_dir() or not (graph_child / "manifest.json").exists():
+                continue
+            if not (graph_child / "pathway_nodes.tsv").exists():
+                continue
+            with open(graph_child / "manifest.json", encoding="utf-8") as fh:
+                try:
+                    manifest = json.load(fh)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            version = _normalize_pathway_version(
+                manifest.get("version", "") or directory_name
+            )
+            if not version:
+                continue
+            resolved = graph_child.resolve()
+            entry = {
+                "version": version,
+                "directory_name": directory_name,
+                "path": str(graph_child),
+                "updated_at": manifest.get("updated_last") or manifest.get("generated_at", ""),
+                "node_rows": manifest.get("nodes", {}).get("count") if isinstance(manifest.get("nodes"), dict) else None,
+                "current": bool(current_path and resolved == current_path),
+            }
+            existing = version_by_key.get(version)
+            if existing is None or entry["current"]:
+                version_by_key[version] = entry
+
+    if _pathway_graph_dir and not any(v.get("current") for v in version_by_key.values()):
+        graph_dir_name = Path(_pathway_graph_dir).name
+        for entry in version_by_key.values():
+            if entry["directory_name"] == graph_dir_name:
+                entry["current"] = True
+                break
+
+    return sorted(version_by_key.values(), key=lambda row: _pathway_version_sort_key(row["version"]))
+
+
+def _default_pathway_version_pair(versions: list[dict]) -> tuple[str, str]:
+    if not versions:
+        return "", ""
+    current = next((v["version"] for v in versions if v.get("current")), versions[-1]["version"])
+    baseline = ""
+    if len(versions) >= 2:
+        current_index = next(
+            (idx for idx, v in enumerate(versions) if v["version"] == current),
+            len(versions) - 1,
+        )
+        baseline_index = max(0, current_index - 1)
+        baseline = versions[baseline_index]["version"]
+    return baseline, current
+
+
+def _pathway_version_dir(version: str) -> Path | None:
+    wanted = _normalize_pathway_version(version)
+    for entry in _discover_pathway_versions():
+        if entry["version"] == wanted:
+            return Path(entry["path"])
+    return None
+
+
+@app.get("/pathway-id-qa/api/versions")
+def pathway_id_qa_versions():
+    """List bundled/versioned pathway app_graph datasets available for diffs."""
+    versions = _discover_pathway_versions()
+    default_from, default_to = _default_pathway_version_pair(versions)
+    return {
+        "versions": versions,
+        "default_from_version": default_from,
+        "default_to_version": default_to,
+    }
+
+
+@app.get("/pathway-id-qa/api/version-diff")
+def pathway_id_qa_version_diff(
+    from_version: Optional[str] = None,
+    to_version: Optional[str] = None,
+):
+    """Compute delta between two versioned pathway app_graph datasets."""
+    if not _pathway_graph_dir:
+        raise HTTPException(status_code=500, detail="No --pathway-graph-dir configured.")
+    versions = _discover_pathway_versions()
+    default_from, default_to = _default_pathway_version_pair(versions)
+    from_version = _normalize_pathway_version(from_version or default_from)
+    to_version = _normalize_pathway_version(to_version or default_to)
+    if not from_version or not to_version:
+        raise HTTPException(status_code=404, detail="No version pair available for comparison.")
+    if from_version == to_version:
+        raise HTTPException(status_code=400, detail="Choose two different pathway graph versions.")
+
+    from_dir = _pathway_version_dir(from_version)
+    to_dir = _pathway_version_dir(to_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Pathway graph version not found: {from_version}")
+    if to_dir is None:
+        raise HTTPException(status_code=404, detail=f"Pathway graph version not found: {to_version}")
+
+    # Check for precomputed diff JSON
+    for candidate in [
+        to_dir / f"version_diff_from_v{from_version}.json",
+        to_dir.parent / f"v{to_version}" / f"version_diff_from_v{from_version}.json",
+    ]:
+        if candidate.exists():
+            with open(candidate, encoding="utf-8") as fh:
+                return json.load(fh)
+
+    baseline = load_pathway_version_data(from_dir)
+    current = _load_pathway_graph() if to_dir.resolve() == Path(_pathway_graph_dir).resolve() else load_pathway_version_data(to_dir)
+    return compute_pathway_version_diff(current, baseline)
+
+
+# ---------------------------------------------------------------------------
+# Pathway review helpers & routes
+# ---------------------------------------------------------------------------
+
+def _default_pathway_review_file() -> str:
+    if not _pathway_graph_dir:
+        return ""
+    graph_dir = Path(_pathway_graph_dir)
+    if graph_dir.name == "app_graph":
+        return str(graph_dir.parent / "review_intake" / "pathway_app_review_decisions.tsv")
+    return str(graph_dir / "review_intake" / "pathway_app_review_decisions.tsv")
+
+
+def _resolved_pathway_review_file() -> str:
+    return _pathway_review_file or _default_pathway_review_file()
+
+
+def _pathway_review_payload_rows(payload: dict) -> list[dict[str, str]]:
+    raw_rows = payload.get("decisions") or payload.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if not isinstance(raw_rows, list):
+        raise HTTPException(status_code=400, detail="decisions must be a list.")
+
+    reviewed_by = str(payload.get("reviewed_by") or os.getenv("USER") or "app_review").strip()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    allowed = {opt["value"] for opt in PATHWAY_REVIEW_DECISION_OPTIONS}
+    rows: list[dict[str, str]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        pathway_id = str(raw.get("ncats_pathway_id") or raw.get("Pathway ID") or "").strip()
+        decision = str(raw.get("review_decision") or raw.get("Human decision") or "").strip()
+        if not pathway_id:
+            raise HTTPException(status_code=400, detail="Each pathway review decision needs ncats_pathway_id.")
+        if not decision:
+            raise HTTPException(status_code=400, detail="Each pathway review decision needs review_decision.")
+        if decision not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unsupported pathway review_decision: {decision}")
+        rows.append({
+            "App review ID": str(raw.get("app_review_id") or raw.get("App review ID") or uuid.uuid4()).strip(),
+            "Pathway ID": pathway_id,
+            "Pathway Name": str(raw.get("pathway_name") or raw.get("Pathway Name") or "").strip(),
+            "Scenario": str(raw.get("scenario") or raw.get("Scenario") or "").strip(),
+            "Severity": str(raw.get("severity") or raw.get("Severity") or "").strip(),
+            "Detail": str(raw.get("detail") or raw.get("Detail") or "").strip(),
+            "Status": str(raw.get("status") or raw.get("Status") or "").strip(),
+            "Human decision": decision,
+            "Resolution": str(raw.get("resolution") or raw.get("Resolution") or "").strip(),
+            "Reviewer notes": str(raw.get("notes") or raw.get("Reviewer notes") or "").strip(),
+            "Reviewed by": reviewed_by,
+            "Reviewed at": reviewed_at,
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No pathway review decisions provided.")
+    return rows
+
+
+def _append_pathway_review_rows(rows: list[dict[str, str]]) -> str:
+    review_file = _resolved_pathway_review_file()
+    if not review_file:
+        raise HTTPException(status_code=500, detail="No pathway review file configured.")
+    path = Path(review_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _pathway_review_lock:
+        exists = path.exists() and path.stat().st_size > 0
+        with open(path, "a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=PATHWAY_REVIEW_INTAKE_COLUMNS,
+                delimiter="\t",
+                extrasaction="ignore",
+            )
+            if not exists:
+                writer.writeheader()
+            writer.writerows(rows)
+    return str(path)
+
+
+@app.get("/pathway-id-qa/api/review-queue")
+def pathway_id_qa_review_queue(
+    scenario: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+    page: int = 1,
+    per_page: int = 50,
+):
+    data = _load_pathway_graph()
+    return build_pathway_review_queue(
+        data,
+        scenario=scenario,
+        severity=severity,
+        status=status,
+        q=q,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/pathway-id-qa/download-review-template")
+def pathway_id_qa_download_review_template(
+    scenario: str = "",
+    severity: str = "",
+    status: str = "open",
+    q: str = "",
+):
+    data = _load_pathway_graph()
+    tsv_content = export_pathway_review_intake_template(
+        data,
+        scenario=scenario,
+        severity=severity,
+        status=status,
+        q=q,
+    )
+    return StreamingResponse(
+        io.BytesIO(tsv_content.encode("utf-8")),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="pathway_review_intake_template.tsv"'},
+    )
+
+
+@app.post("/pathway-id-qa/api/review-decisions")
+async def pathway_id_qa_save_review_decisions(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    rows = _pathway_review_payload_rows(payload)
+    path = _append_pathway_review_rows(rows)
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": "Saved review decision(s). Import on the next IFX Harmonizers PATHWAYS pathway_qc run.",
+    }
+
+
+@app.post("/pathway-id-qa/api/batch-review")
+async def pathway_id_qa_batch_review(request: Request):
+    """Batch-apply a review decision to all items matching a scenario."""
+    data = _load_pathway_graph()
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    scenario = str(payload.get("scenario") or "").strip()
+    decision = str(payload.get("review_decision") or "").strip()
+    if not scenario:
+        raise HTTPException(status_code=400, detail="scenario is required.")
+    if not decision:
+        raise HTTPException(status_code=400, detail="review_decision is required.")
+    rows = build_batch_pathway_review_payload(
+        data,
+        scenario=scenario,
+        review_decision=decision,
+        severity=str(payload.get("severity") or ""),
+        status=str(payload.get("status") or "open"),
+        reviewed_by=str(payload.get("reviewed_by") or ""),
+    )
+    if not rows:
+        return {"saved": 0, "message": "No matching items found."}
+    path = _append_pathway_review_rows(rows)
+    mark_pathway_rows_resolved(
+        data,
+        scenario=scenario,
+        severity=str(payload.get("severity") or ""),
+        status=str(payload.get("status") or "open"),
+    )
+    return {
+        "saved": len(rows),
+        "review_file": path,
+        "message": f"Batch-applied '{decision}' to {len(rows):,} {scenario} items.",
+    }
 
 
 @app.get("/disease-id-qa", response_class=HTMLResponse)
@@ -12691,12 +13166,24 @@ def main():
     parser.add_argument("--drug-graph-dir",
                         default="",
                         help="Path to drug app_graph/ directory (drug_nodes.tsv + manifest.json)")
+    parser.add_argument("--drug-resolver-index",
+                        default="",
+                        help="Path to the version-matched complete drug_resolver_index.sqlite sidecar")
+    parser.add_argument("--verify-drug-resolver-checksum",
+                        action="store_true",
+                        help="Verify the complete drug resolver sidecar SHA-256 at startup (recommended for staging/release checks)")
     parser.add_argument("--drug-review-file",
                         default="",
                         help="Path to IFX Harmonizers-compatible drug review intake TSV written by the Review tab")
+    parser.add_argument("--pathway-graph-dir",
+                        default="",
+                        help="Path to pathway app_graph/ directory (pathway_nodes.tsv + manifest.json)")
+    parser.add_argument("--pathway-review-file",
+                        default="",
+                        help="Path to IFX Harmonizers-compatible pathway review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_review_file
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_resolver_index, _verify_drug_resolver_checksum, _drug_review_file, _pathway_graph_dir, _pathway_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -12823,6 +13310,8 @@ def main():
         print(f"Variant review intake file: {_resolved_variant_review_file()}")
 
     _drug_graph_dir = args.drug_graph_dir
+    _drug_resolver_index = args.drug_resolver_index
+    _verify_drug_resolver_checksum = args.verify_drug_resolver_checksum
     if not _drug_graph_dir:
         bundled_dir = DRUG_APP_GRAPH_BUNDLED_DIR
         versions = _versioned_app_graph_dirs(bundled_dir, "drug_nodes.tsv")
@@ -12835,9 +13324,28 @@ def main():
             print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
     if _drug_graph_dir:
         print(f"Drug graph dir: {_drug_graph_dir}")
+    if _drug_resolver_index:
+        print(f"Drug resolver index: {_drug_resolver_index}")
     _drug_review_file = args.drug_review_file
     if _resolved_drug_review_file():
         print(f"Drug review intake file: {_resolved_drug_review_file()}")
+
+    _pathway_graph_dir = args.pathway_graph_dir
+    if not _pathway_graph_dir:
+        bundled_dir = PATHWAY_APP_GRAPH_BUNDLED_DIR
+        versions = _versioned_app_graph_dirs(bundled_dir, "pathway_nodes.tsv")
+        current_dir = bundled_dir / "current"
+        if versions:
+            _pathway_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled pathway data: {_pathway_graph_dir}")
+        elif current_dir.is_dir():
+            _pathway_graph_dir = str(current_dir)
+            print(f"Auto-detected bundled pathway data: {_pathway_graph_dir}")
+    if _pathway_graph_dir:
+        print(f"Pathway graph dir: {_pathway_graph_dir}")
+    _pathway_review_file = args.pathway_review_file
+    if _resolved_pathway_review_file():
+        print(f"Pathway review intake file: {_resolved_pathway_review_file()}")
 
     print(f"Starting QA Browser at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, root_path=args.root_path)
