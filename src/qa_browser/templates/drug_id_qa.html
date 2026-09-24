@@ -348,12 +348,17 @@
         </div>
 
         <div id="drugResolverExportRow" style="display:none;margin-bottom:0.75rem;gap:0.5rem;align-items:center;">
-            <select id="drugResolverExportFormat" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+            <select id="drugResolverExportContent" aria-label="Export content" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+                <option value="selected">Selected annotations (human-readable)</option>
+                <option value="core">Core results (compact)</option>
+                <option value="json">Complete resolver payload (JSON)</option>
+            </select>
+            <select id="drugResolverExportFormat" aria-label="Export file format" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
                 <option value="tsv">TSV</option>
                 <option value="csv">CSV</option>
-                <option value="json">JSON</option>
             </select>
             <button id="drugResolverExportBtn" class="btn btn-sm" type="button">Export Results</button>
+            <span style="font-size:0.72rem;color:var(--text-muted);">Tables omit nested evidence; JSON retains the complete payload.</span>
         </div>
         <div id="drugResolverResults" style="margin-bottom:1rem;"></div>
 
@@ -871,6 +876,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     // ── NCATS Property Selector ──────────────────────────────────────
     let ncatsCatalog = [];  // populated from API
+    let ncatsCatalogLoaded = false;
+    let drLastRequestedNcatsProps = [];
     const ncatsPropPanel = document.getElementById("ncatsPropPanel");
     const ncatsPropGrid = document.getElementById("ncatsPropGrid");
     const ncatsPropCount = document.getElementById("ncatsPropCount");
@@ -931,8 +938,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     // Fetch catalog on load
     fetch(`${rootPath}/drug-id-qa/api/ncats-properties`)
         .then(r => r.json())
-        .then(catalog => { ncatsBuildPanel(catalog); ncatsTogglePanel(); })
-        .catch(() => { ncatsPropPanel.style.display = "none"; });
+        .then(catalog => { ncatsBuildPanel(catalog); ncatsCatalogLoaded = true; ncatsTogglePanel(); })
+        .catch(() => { ncatsCatalogLoaded = false; ncatsPropPanel.style.display = "none"; });
 
     // Build label lookup from catalog (key → {label, category})
     function ncatsCatalogLookup() {
@@ -1012,6 +1019,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         };
         if (flags.enable_ncats) {
             flags.ncats_props = ncatsGetSelected();
+            drLastRequestedNcatsProps = flags.ncats_props.slice();
+        } else {
+            drLastRequestedNcatsProps = [];
         }
         return flags;
     }
@@ -1337,6 +1347,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             }
             // Show all_names if present
             h += drDetailRow("All Names", ncats.ncats_all_names);
+            h += drDetailRow("Retrieval status", String(ncats._ncats_status || (ncats._ncats_partial ? "partial" : "complete")).replaceAll("_", " "));
+            h += drDetailRow("Cross-batch identity check", ncats._ncats_identity_consistency);
+            h += drDetailRow("Properties without values", (ncats._ncats_props_without_values || []).join(" | "));
+            h += drDetailRow("Failed properties", (ncats._ncats_props_failed || []).join(" | "));
+            h += drDetailRow("Retrieval note", ncats.ncats_request_note);
             if (h) details += `<div>${drSectionHead("NCATS Resolver")}${h}</div>`;
         } else if (queried.includes("ncats_resolver")) {
             details += drNotFound("NCATS Resolver");
@@ -1633,6 +1648,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
         const flags = drFlags();
+        if (flags.enable_ncats && !ncatsCatalogLoaded) {
+            drStatus.textContent = "NCATS property catalog is unavailable. Disable NCATS Resolver or reload the page before enriching.";
+            return;
+        }
         if (queries.length > DR_BACKEND_QUERY_LIMIT) {
             drStatus.textContent = `Maximum ${DR_BACKEND_QUERY_LIMIT} entries per resolver request. Split the list and try again.`;
             drUpdateBatchNotice();
@@ -1703,6 +1722,47 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drExportRow = document.getElementById("drugResolverExportRow");
     const drExportBtn = document.getElementById("drugResolverExportBtn");
     const drExportFmt = document.getElementById("drugResolverExportFormat");
+    const drExportContent = document.getElementById("drugResolverExportContent");
+
+    const drCoreExportColumns = [
+        ["query", "Query"], ["result_status", "Result Status"], ["resolved_via", "Resolved Via"],
+        ["drug_id", "IFXDrug ID"], ["standard_name", "Preferred Name"], ["primary_id", "Primary ID"],
+        ["unii", "UNII"], ["chembl_id", "ChEMBL ID"], ["chebi_id", "ChEBI ID"],
+        ["pubchem_cid", "PubChem CID"], ["drugcentral_id", "DrugCentral ID"], ["rxcui", "RxCUI"],
+        ["cas", "CAS"], ["inchikey", "InChIKey"], ["local_harmonizer_smiles", "SMILES"],
+        ["matched_field", "Matched Field"], ["matched_value", "Matched Value"],
+        ["match_strategy", "Match Strategy"], ["match_score", "Ranking Score"],
+        ["evidence_tier", "Evidence Tier"], ["approval_status", "Approval Status"],
+        ["source_namespaces", "Local Source Evidence"], ["local_harmonizer_in_graph_bundle", "In Graph Bundle"],
+        ["local_match_count", "Local Match Count"], ["local_match_status", "Local Match Status"],
+        ["alternate_local_ids", "Alternate Local IFXDrug IDs"],
+    ];
+
+    const drProviderExportColumns = {
+        pubchem: ["pubchem_candidate_cid", "pubchem_candidate_title", "pubchem_candidate_inchikey", "pubchem_candidate_smiles", "pubchem_candidate_formula", "pubchem_candidate_molecular_weight", "pubchem_candidate_count", "pubchem_candidate_url"],
+        pharos: ["pharos_name", "pharos_isdrug", "pharos_n_targets", "pharos_targets", "pharos_moa_targets", "pharos_target_tdls", "pharos_target_families", "pharos_n_target_disease_associations", "pharos_target_diseases"],
+        inxight: ["inxight_name", "inxight_substance_class", "inxight_development_status", "inxight_highest_development_status", "fda_approved", "fda_approval_year", "inxight_n_conditions", "inxight_conditions", "inxight_therapeutic_class", "inxight_targets"],
+        chebi: ["chebi_label", "chebi_chemical_class"],
+        openfda: ["openfda_generic_name", "openfda_brand_name", "openfda_unii", "openfda_application_number", "openfda_product_type", "openfda_route", "openfda_manufacturer"],
+    };
+
+    function drHumanLabel(key) {
+        const names = {
+            live_sources_selected: "Live Sources Selected", live_sources_queried: "Live Sources Queried",
+            live_sources_found: "Live Sources Found", sources_failed: "Live Sources Failed",
+            live_sources_skipped: "Live Sources Skipped", live_source_errors: "Warnings",
+            ncats_name: "NCATS Resolved Name", ncats_status: "NCATS Retrieval Status",
+            ncats_requested_count: "NCATS Properties Requested", ncats_returned_count: "NCATS Properties Returned",
+            ncats_failed_count: "NCATS Properties Failed", ncats_missing_properties: "NCATS Properties Without Values",
+            ncats_failed_properties: "NCATS Failed Properties", details_available_in_json: "Nested Details Available in JSON",
+            ncats_identity_consistency: "NCATS Cross-batch Identity Check",
+        };
+        if (names[key]) return names[key];
+        const ncatsKey = key.startsWith("ncats_") ? key.slice(6) : "";
+        const meta = ncatsCatalog.find(item => item.key === ncatsKey);
+        if (meta) return "NCATS " + meta.label;
+        return key.split("_").map(part => part ? part[0].toUpperCase() + part.slice(1) : "").join(" ");
+    }
 
     function drFlattenResult(r) {
         const best = (r.local_hits || [])[0] || {};
@@ -1752,6 +1812,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             local_matched_field: best._matched_field || "",
             local_matched_value: best._matched_value || "",
             local_match_strategy: best._match_strategy || "",
+            local_match_count: r.total_local_matches || (r.local_hits || []).length,
+            local_match_status: (r.total_local_matches || (r.local_hits || []).length) > 1 ? "ambiguous_multiple_matches" : ((r.local_hits || []).length ? "single_match" : "no_match"),
+            alternate_local_ids: (r.local_hits || []).slice(1).map(hit => hit.drug_id || "").filter(Boolean).join("|"),
             query_terms: (r.query_terms || []).join("|"),
             live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             live_api_request_failures: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
@@ -1778,7 +1841,17 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         row["pubchem_candidates_json"] = pubchem.candidates ? JSON.stringify(pubchem.candidates) : "";
         // Dynamically add all NCATS properties
         row["ncats_name"] = ncats.ncats_resolved_name || "";
+        row["ncats_all_names"] = ncats.ncats_all_names || "";
         const requested = ncats._ncats_props_requested || [];
+        const requestedEffective = requested.length ? requested : drLastRequestedNcatsProps;
+        row["ncats_status"] = ncats._ncats_status || (requested.length ? (ncats._ncats_partial ? "partial" : "complete") : "not_queried");
+        row["ncats_requested_count"] = requestedEffective.length;
+        row["ncats_returned_count"] = (ncats._ncats_props_returned || []).length;
+        row["ncats_failed_count"] = (ncats._ncats_props_failed || []).length;
+        row["ncats_missing_properties"] = (ncats._ncats_props_without_values || []).join("|");
+        row["ncats_failed_properties"] = (ncats._ncats_props_failed || []).join("|");
+        row["ncats_identity_consistency"] = ncats._ncats_identity_consistency || "";
+        row["details_available_in_json"] = "yes";
         for (const key of requested) {
             if (key === "names") continue;
             row["ncats_" + key] = ncats["ncats_" + key] || "";
@@ -1842,8 +1915,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     function drExport() {
         if (!drLastPayload || !drLastPayload.results) return;
         const fmt = drExportFmt.value;
+        const content = drExportContent.value;
 
-        if (fmt === "json") {
+        if (content === "json") {
             // Export the full raw payload as JSON
             const blob = new Blob([JSON.stringify(drLastPayload, null, 2)], {type: "application/json"});
             const url = URL.createObjectURL(blob);
@@ -1860,16 +1934,48 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const rows = drLastPayload.results.map(drFlattenResult);
         if (!rows.length) return;
         const sep = fmt === "csv" ? "," : "\t";
-        // Union of all keys across all rows to handle varying NCATS properties
-        const colSet = new Set();
-        for (const row of rows) for (const k of Object.keys(row)) colSet.add(k);
-        const cols = Array.from(colSet);
+        const columns = drCoreExportColumns.slice();
+        if (content === "selected") {
+            columns.push(
+                ["live_sources_selected", "Live Sources Selected"], ["live_sources_queried", "Live Sources Queried"],
+                ["live_sources_found", "Live Sources Found"], ["sources_failed", "Live Sources Failed"],
+                ["live_sources_skipped", "Live Sources Skipped"], ["live_source_errors", "Warnings"],
+                ["details_available_in_json", "Nested Details Available in JSON"],
+            );
+            const selectedSources = new Set();
+            const requestedNcats = new Set(drLastRequestedNcatsProps);
+            for (const result of drLastPayload.results) {
+                const enrichment = result.enrichment || {};
+                for (const source of enrichment.sources_selected || []) selectedSources.add(source);
+                for (const key of (enrichment.ncats_resolver || {})._ncats_props_requested || []) requestedNcats.add(key);
+            }
+            if (selectedSources.has("ncats_resolver")) {
+                for (const key of ["ncats_status", "ncats_requested_count", "ncats_returned_count", "ncats_failed_count", "ncats_missing_properties", "ncats_failed_properties", "ncats_identity_consistency", "ncats_name"]) {
+                    columns.push([key, drHumanLabel(key)]);
+                }
+                for (const meta of ncatsCatalog) {
+                    if (requestedNcats.has(meta.key)) {
+                        const key = meta.key === "names" ? "ncats_all_names" : "ncats_" + meta.key;
+                        const label = meta.key === "names" ? "NCATS Names (first 15; complete list in JSON)" : "NCATS " + meta.label;
+                        columns.push([key, label]);
+                    }
+                }
+            }
+            for (const source of ["pubchem", "pharos", "inxight", "chebi", "openfda"]) {
+                if (selectedSources.has(source)) {
+                    for (const key of drProviderExportColumns[source]) columns.push([key, drHumanLabel(key)]);
+                }
+            }
+        }
         const escCell = (v) => {
-            const s = String(v).replace(/\r?\n/g, " ");
-            return (fmt === "csv" && (s.includes(",") || s.includes('"') || s.includes("\n")))
+            let s = String(v).replace(/\r?\n/g, " ").replace(/\t/g, " ");
+            if (/^[=+\-@]/.test(s)) s = "'" + s;
+            return (fmt === "csv" && (s.includes(",") || s.includes('"')))
                 ? '"' + s.replace(/"/g, '""') + '"' : s;
         };
-        const lines = [cols.join(sep)].concat(rows.map(r => cols.map(c => escCell(r[c] != null ? r[c] : "")).join(sep)));
+        const lines = [columns.map(([_key, label]) => escCell(label)).join(sep)].concat(
+            rows.map(row => columns.map(([key]) => escCell(row[key] != null ? row[key] : "")).join(sep))
+        );
         const blob = new Blob([lines.join("\n")], {type: fmt === "csv" ? "text/csv" : "text/tab-separated-values"});
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1882,6 +1988,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     drExportBtn.addEventListener("click", drExport);
+    drExportContent.addEventListener("change", () => {
+        drExportFmt.disabled = drExportContent.value === "json";
+    });
 })();
 
 /* == Drug Changes tab == */
@@ -1934,6 +2043,35 @@ function renderDrugSourceVersionChanges(rows) {
     return html;
 }
 
+function renderDrugRemovalExplanation(diff) {
+    const explanation = ((diff.change_explanations || {}).removed_drugs) || null;
+    if (!explanation) {
+        return `<div class="api-resolver-panel" style="margin-bottom:1rem;"><strong>Why did these identities change?</strong><p style="margin:0.4rem 0 0;color:var(--text-muted);">A structured explanation is unavailable for this older or live-preview comparison.</p></div>`;
+    }
+    const counts = explanation.reason_counts || {};
+    const countLabels = {
+        source_quality_filter_exclusion: "Lost qualifying support after source quality filtering",
+        identity_component_consolidation: "Consolidated into a current IFXDrug identity",
+        equivalent_current_identity_retained: "Current equivalent indicated by NodeNorm validation; curator review suggested",
+        identity_mapping_ambiguous: "Multiple current identities; curator review required",
+        reason_unavailable: "Needs review",
+    };
+    const items = Object.entries(counts).map(([code, count]) =>
+        `<li><strong>${Number(count).toLocaleString()}</strong> — ${escapeHtml(countLabels[code] || code)}</li>`
+    ).join("");
+    const coverage = explanation.coverage || {};
+    const coverageText = coverage.total != null
+        ? `${Number(coverage.classified || 0).toLocaleString()} of ${Number(coverage.total || 0).toLocaleString()} identities classified`
+        : "";
+    return `<div class="api-resolver-panel" style="margin-bottom:1rem;">
+        <strong>Why did these identities change?</strong>
+        <p style="margin:0.4rem 0;">${escapeHtml(explanation.headline || "")}</p>
+        <p style="margin:0.4rem 0;color:var(--text-muted);">${escapeHtml(explanation.description || "")}</p>
+        ${coverageText ? `<p style="margin:0.4rem 0;color:var(--text-muted);">Coverage: ${escapeHtml(coverageText)}.</p>` : ""}
+        ${items ? `<ul style="margin:0.45rem 0 0;padding-left:1.25rem;">${items}</ul>` : ""}
+    </div>`;
+}
+
 function renderDrugListTable(title, items, columns) {
     if (!items || items.length === 0) return "";
     let html = `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
@@ -1956,15 +2094,21 @@ function renderDrugListTable(title, items, columns) {
 function renderDrugVersionDiff(diff) {
     const s = diff.summary;
     let html = `<div class="changes-version-label">Comparing ${escapeHtml(drugDisplayVersion(diff.baseline_version))} &rarr; ${escapeHtml(drugDisplayVersion(diff.current_version))}</div>`;
+    const warnings = diff.comparison_warnings || [];
+    if (warnings.length) {
+        html += `<div class="resolver-batch-notice warn" style="margin-bottom:1rem;">${warnings.map(escapeHtml).join(" ")}</div>`;
+    }
     html += `<div class="changes-summary">`;
     html += `<div class="dash-card"><div class="dash-stat">${s.drugs_added.toLocaleString()}</div><div class="dash-label">Drugs Added</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.drugs_removed.toLocaleString()}</div><div class="dash-label">Drugs Removed</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.drugs_removed.toLocaleString()}</div><div class="dash-label">Identities No Longer Current</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.standard_name_changes || 0).toLocaleString()}</div><div class="dash-label">Name Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.evidence_tier_changes || 0).toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.approval_status_changes || 0).toLocaleString()}</div><div class="dash-label">Approval Status Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
     html += `</div>`;
+
+    html += renderDrugRemovalExplanation(diff);
 
     html += renderDrugSourceVersionChanges(diff.source_version_changes);
 
@@ -1973,9 +2117,10 @@ function renderDrugVersionDiff(diff) {
         ["biolink_category", "Category"], ["evidence_tier", "Tier"],
     ]);
 
-    html += renderDrugListTable("Removed Drugs", diff.removed_drugs, [
+    html += renderDrugListTable("Retired or Consolidated Identities", diff.removed_drugs, [
         ["drug_id", "Drug ID"], ["primary_id", "Primary ID"], ["standard_name", "Name"],
-        ["biolink_category", "Category"], ["evidence_tier", "Tier"],
+        ["outcome", "Outcome"], ["reason", "Explanation"], ["source_evidence_summary", "Source Evidence"],
+        ["current_identity", "Current Identity"],
     ]);
 
     html += renderDrugListTable("Name Changes", diff.standard_name_changes, [

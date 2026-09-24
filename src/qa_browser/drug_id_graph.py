@@ -1358,6 +1358,24 @@ def compute_drug_version_diff(
 
     max_rows = 500
     return {
+        "diff_schema_version": "2.0",
+        "diff_origin": "live_preview",
+        "comparison_scope": "preview_fallback",
+        "comparison_warnings": [
+            "This comparison was computed from bounded app preview files because no precomputed harmonizer release diff was available."
+        ],
+        "change_explanations": {
+            "removed_drugs": {
+                "status": "unavailable",
+                "headline": "A causal explanation is unavailable for this live-preview comparison.",
+                "description": "Use a precomputed harmonizer release diff for source-rejection and identity-consolidation evidence.",
+                "coverage": {"classified": 0, "total": len(removed_ids)},
+                "reason_counts": {"reason_unavailable": len(removed_ids)} if removed_ids else {},
+                "method_version": "unavailable_live_preview",
+                "evidence_artifacts": [],
+                "caveats": ["The app does not infer removal causes from labels or fuzzy matches."],
+            },
+        },
         "baseline_version": baseline.manifest.get("drug_harmonizer_version", ""),
         "current_version": current.manifest.get("drug_harmonizer_version", ""),
         "summary": {
