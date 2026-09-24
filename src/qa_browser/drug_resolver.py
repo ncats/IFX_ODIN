@@ -28,9 +28,9 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 
 try:
-    from src.qa_browser.drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, resolve_smiles_drug_ids, search_drugs
+    from src.qa_browser.drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, query_exact_drug_identity, resolve_smiles_drug_ids, search_drugs
 except ImportError:
-    from drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, resolve_smiles_drug_ids, search_drugs
+    from drug_id_graph import DrugGraphData, _smiles_structure_keys, query_drug_resolver_index, query_exact_drug_identity, resolve_smiles_drug_ids, search_drugs
 
 # ── API endpoints ────────────────────────────────────────────────────────
 
@@ -127,6 +127,7 @@ _NCATS_RESOLVER_MAX_CONCURRENT = 1
 _NCATS_RESOLVER_RETRY_ATTEMPTS = 2
 _NCATS_RESOLVER_RETRY_BACKOFF_SECONDS = 0.25
 _NCATS_RESOLVER_BATCH_SIZE = 8
+_NCATS_RESOLVER_MAX_LOOKUPS_PER_QUERY = 4
 _NCATS_RESOLVER_SEMAPHORE = BoundedSemaphore(_NCATS_RESOLVER_MAX_CONCURRENT)
 _PUBCHEM_SEMAPHORE = BoundedSemaphore(2)
 _PUBCHEM_RATE_LOCK = Lock()
@@ -422,10 +423,7 @@ def _ncats_lookup_candidates(
     candidates: list[str] = []
     seen: set[str] = set()
 
-    _add_name_lookup_candidates(candidates, seen, query)
-    for term in (query_terms or [])[:4]:
-        _add_name_lookup_candidates(candidates, seen, term)
-    _add_name_lookup_candidates(candidates, seen, name)
+    _add_lookup_candidate(candidates, seen, query)
 
     for field, limit in (
         ("unii", 4),
@@ -440,7 +438,12 @@ def _ncats_lookup_candidates(
     ):
         _add_identifier_lookup_candidates(candidates, seen, best.get(field), limit=limit)
 
-    return candidates[:14]
+    _add_name_lookup_candidates(candidates, seen, query)
+    for term in (query_terms or [])[:3]:
+        _add_name_lookup_candidates(candidates, seen, term)
+    _add_name_lookup_candidates(candidates, seen, name)
+
+    return candidates[:_NCATS_RESOLVER_MAX_LOOKUPS_PER_QUERY]
 
 
 def _clean_query_fragment(value: Any) -> str:
@@ -849,12 +852,31 @@ def resolve_local(data: DrugGraphData, queries: list[str]) -> list[dict[str, Any
             results.append({"query": q, "local_hits": [], "resolved": False})
             continue
         hits, query_terms, total = _resolve_local_hits(data, q, limit=5)
+        asserting_strategies = {
+            "exact_alias",
+            "exact_smiles",
+            "derived_inchikey",
+            "canonical_structure",
+            "complete_harmonizer_index",
+            "complete_harmonizer_index_derived_inchikey",
+        }
+        resolved = (
+            total == 1
+            and len(hits) == 1
+            and str(hits[0].get("_match_strategy") or "") in asserting_strategies
+        )
         results.append({
             "query": q,
             "query_terms": query_terms,
             "local_hits": [_compact_local_hit(hit) for hit in hits],
-            "resolved": len(hits) > 0,
+            "resolved": resolved,
             "total_local_matches": total,
+            "local_match_status": (
+                "single_asserting_match" if resolved
+                else "candidate_only" if total == 1
+                else "ambiguous_multiple_matches" if total > 1
+                else "no_match"
+            ),
         })
     return results
 
@@ -978,7 +1000,7 @@ def enrich_ncats_resolver(
     conflicts: list[dict[str, str]] = []
     irrecoverable: dict[str, str] = {}
 
-    def fetch_resilient(active_props: list[str]) -> None:
+    def fetch_resilient(active_props: list[str]) -> bool:
         values, error, status_code = fetch_group(active_props)
         if values is not None:
             for prop, value in values.items():
@@ -986,15 +1008,21 @@ def enrich_ncats_resolver(
                     conflicts.append({"property": prop, "kept": merged[prop], "discarded": value})
                 else:
                     merged[prop] = value
-            return
+            return True
         # Catalog keys are validated before requests. Keep a failed group
         # bounded instead of recursively multiplying calls for compound-level
         # 4xx responses or service outages.
         for prop in active_props:
             irrecoverable[prop] = error or "Request failed"
+        return False
 
     for offset in range(0, len(prop_list), _NCATS_RESOLVER_BATCH_SIZE):
-        fetch_resilient(prop_list[offset:offset + _NCATS_RESOLVER_BATCH_SIZE])
+        active = prop_list[offset:offset + _NCATS_RESOLVER_BATCH_SIZE]
+        if fetch_resilient(active):
+            continue
+        for prop in prop_list[offset + len(active):]:
+            irrecoverable[prop] = "Not attempted after an earlier NCATS batch failed"
+        break
 
     returned = [prop for prop in prop_list if prop in merged]
     failed = [prop for prop in prop_list if prop in irrecoverable]
@@ -1817,6 +1845,284 @@ def _pubchem_exact_relookup_terms(query: str, pubchem: dict[str, Any]) -> list[s
     return list(dict.fromkeys(term for term in terms if term))
 
 
+def _bridge_identifier(namespace: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    key = namespace.lower()
+    if key == "pubchem_cid":
+        local = re.sub(r"^(?:PUBCHEM(?:\.COMPOUND)?|CID):", "", text, flags=re.I)
+        return f"PUBCHEM.COMPOUND:{local}" if re.fullmatch(r"[1-9]\d*", local) else ""
+    if key == "inchikey":
+        local = re.sub(r"^INCHIKEY:", "", text, flags=re.I).upper()
+        return local if re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", local) else ""
+    if key == "unii":
+        local = re.sub(r"^UNII:", "", text, flags=re.I).upper()
+        return f"UNII:{local}" if re.fullmatch(r"[A-Z0-9]{10}", local) else ""
+    if key == "chembl":
+        local = re.sub(r"^CHEMBL(?:\.COMPOUND)?:", "", text, flags=re.I)
+        local = local.upper()
+        return f"CHEMBL.COMPOUND:{local}" if re.fullmatch(r"CHEMBL\d+", local) else ""
+    if key == "chebi":
+        local = re.sub(r"^CHEBI:", "", text, flags=re.I)
+        return f"CHEBI:{local}" if re.fullmatch(r"\d+", local) else ""
+    if key == "smiles":
+        return text if _smiles_structure_keys(text) else ""
+    return ""
+
+
+def _pubchem_bridge_evidence(query: str, pubchem: dict[str, Any]) -> list[dict[str, str]]:
+    """Build identity evidence only after PubChem exactly confirms the input."""
+    exact_terms = set(_pubchem_exact_relookup_terms(query, pubchem))
+    if not exact_terms:
+        return []
+    evidence: list[dict[str, str]] = []
+    for candidate in pubchem.get("candidates") or []:
+        cid = str(candidate.get("pubchem_cid") or "")
+        inchikey = str(candidate.get("pubchem_inchikey") or "").upper()
+        candidate_terms = {term for term in (f"PUBCHEM.COMPOUND:{cid}" if cid else "", inchikey) if term}
+        if not candidate_terms.intersection(exact_terms):
+            continue
+        for namespace, value in (
+            ("pubchem_cid", cid),
+            ("inchikey", inchikey),
+            ("smiles", candidate.get("pubchem_smiles")),
+        ):
+            lookup = _bridge_identifier(namespace, value)
+            if lookup:
+                evidence.append({
+                    "source": "pubchem",
+                    "namespace": namespace,
+                    "value": str(value),
+                    "lookup": lookup,
+                    "provider_record_id": cid,
+                })
+        break
+    return evidence
+
+
+def _classify_identity_query(query: str) -> tuple[str, str]:
+    text = str(query or "").strip()
+    if re.fullmatch(r"[A-Z]{14}-[A-Z]{10}-[A-Z]", text, re.I):
+        return "inchikey", text.upper()
+    patterns = (
+        ("pubchem_cid", r"^(?:PUBCHEM(?:\.COMPOUND)?|CID):(\d+)$"),
+        ("unii", r"^UNII:([A-Z0-9]{10})$"),
+        ("chembl", r"^CHEMBL(?:\.COMPOUND)?:(CHEMBL\d+)$"),
+        ("chebi", r"^CHEBI:(\d+)$"),
+        ("inchikey", r"^INCHIKEY:([A-Z]{14}-[A-Z]{10}-[A-Z])$"),
+        ("cas", r"^CAS:(\d{2,7}-\d{2}-\d)$"),
+    )
+    for namespace, pattern in patterns:
+        match = re.fullmatch(pattern, text, re.I)
+        if match:
+            return namespace, match.group(1).upper()
+    if re.fullmatch(r"CHEMBL\d+", text, re.I):
+        return "chembl", text.upper()
+    if re.fullmatch(r"[A-Z0-9]{10}", text) and re.search(r"\d", text):
+        return "unii", text
+    if CAS_RE.fullmatch(text):
+        return "cas", text
+    if re.fullmatch(r"NCGC\d+(?:-\d+)?", text, re.I):
+        return "ncgc", text.upper()
+    structure = _smiles_structure_keys(text)
+    if structure.get("derived_inchikey"):
+        return "smiles", structure["derived_inchikey"].upper()
+    return "", ""
+
+
+def _identity_preserving_query(query: str) -> bool:
+    return bool(_classify_identity_query(query)[0])
+
+
+def _ncats_bridge_evidence(query: str, ncats: dict[str, Any]) -> list[dict[str, str]]:
+    """Return NCATS identity evidence when one coherent exact lookup produced it."""
+    query_namespace, query_identity = _classify_identity_query(query)
+    if not query_namespace:
+        return []
+    if ncats.get("_ncats_lookup_origin") != "original_query":
+        return []
+    if ncats.get("_ncats_identity_consistency") not in {"not_applicable_single_batch", "verified"}:
+        return []
+    returned_by_namespace = {
+        "pubchem_cid": _split_pipe_values(ncats.get("ncats_cid"), limit=4),
+        "inchikey": [value.upper() for value in _split_pipe_values(ncats.get("ncats_inchikey"), limit=4)],
+        "unii": [value.upper() for value in _split_pipe_values(ncats.get("ncats_unii"), limit=4)],
+        "chembl": [re.sub(r"^CHEMBL(?:\.COMPOUND)?:", "", value, flags=re.I).upper() for value in _split_pipe_values(ncats.get("ncats_chembl"), limit=4)],
+        "chebi": [re.sub(r"^CHEBI:", "", value, flags=re.I) for value in _split_pipe_values(ncats.get("ncats_chebi"), limit=4)],
+        "cas": _split_pipe_values(ncats.get("ncats_cas"), limit=4),
+    }
+    identity_confirmed = query_identity in returned_by_namespace.get(query_namespace, [])
+    if query_namespace == "smiles":
+        returned_keys = set(returned_by_namespace["inchikey"])
+        for returned_smiles in _split_pipe_values(ncats.get("ncats_smiles"), limit=4):
+            derived = _smiles_structure_keys(returned_smiles).get("derived_inchikey", "").upper()
+            if derived:
+                returned_keys.add(derived)
+        identity_confirmed = query_identity in returned_keys
+    # CAS and NCGC can nominate a provider record, but are not sufficient
+    # harmonized identity assertions for an automatic IFXDrug bridge.
+    if query_namespace in {"cas", "ncgc"}:
+        ncats["_bridge_identity_status"] = "provider_identity_unverified"
+        return []
+    if not identity_confirmed:
+        ncats["_bridge_identity_status"] = "provider_identity_mismatch"
+        return []
+    ncats["_bridge_identity_status"] = "provider_identity_confirmed"
+    evidence: list[dict[str, str]] = []
+    for namespace, key in (
+        ("pubchem_cid", "ncats_cid"),
+        ("inchikey", "ncats_inchikey"),
+        ("unii", "ncats_unii"),
+        ("chembl", "ncats_chembl"),
+        ("chebi", "ncats_chebi"),
+        ("smiles", "ncats_smiles"),
+    ):
+        for value in _split_pipe_values(ncats.get(key), limit=4):
+            lookup = _bridge_identifier(namespace, value)
+            if lookup:
+                evidence.append({
+                    "source": "ncats_resolver",
+                    "namespace": namespace,
+                    "value": value,
+                    "lookup": lookup,
+                    "provider_record_id": str(ncats.get("ncats_cid") or ""),
+                })
+    return evidence
+
+
+def _reconcile_live_identity(
+    graph_data: DrugGraphData,
+    local_result: dict[str, Any],
+    evidence: list[dict[str, str]],
+    name_candidates: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Perform one exact, read-only local relookup and retain its full trace."""
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in evidence:
+        key = (item.get("source", ""), item.get("namespace", ""), item.get("lookup", ""))
+        if not key[2] or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= 8:
+            break
+
+    trace: list[dict[str, Any]] = []
+    hits_by_id: dict[str, dict[str, Any]] = {}
+    sources_by_id: dict[str, set[str]] = {}
+    for item in deduped:
+        matches = query_exact_drug_identity(
+            graph_data,
+            item["lookup"],
+            namespace=item.get("namespace", ""),
+            limit=11,
+        )
+        ids = [str(hit.get("drug_id") or "") for hit in matches if hit.get("drug_id")]
+        trace.append({
+            **item,
+            "local_drug_ids": ids,
+            "local_matches_truncated": len(matches) > 10,
+            "local_matches": [
+                {
+                    "drug_id": str(hit.get("drug_id") or ""),
+                    "matched_field": str(hit.get("_matched_field") or ""),
+                    "matched_value": str(hit.get("_matched_value") or ""),
+                    "match_strategy": str(hit.get("_match_strategy") or ""),
+                    "evidence_role": "asserting_identity",
+                }
+                for hit in matches[:10] if hit.get("drug_id")
+            ],
+        })
+        for hit in matches:
+            drug_id = str(hit.get("drug_id") or "")
+            if not drug_id:
+                continue
+            hits_by_id.setdefault(drug_id, hit)
+            sources_by_id.setdefault(drug_id, set()).add(item.get("source", ""))
+
+    candidate_trace: list[dict[str, Any]] = []
+    for item in name_candidates[:3]:
+        matches = query_exact_drug_identity(
+            graph_data,
+            item.get("value", ""),
+            namespace="name",
+            limit=11,
+        )
+        candidate_trace.append({
+            **item,
+            "local_drug_ids": [str(hit.get("drug_id") or "") for hit in matches if hit.get("drug_id")],
+            "local_matches_truncated": len(matches) > 10,
+            "local_candidates": [
+                {
+                    "drug_id": str(hit.get("drug_id") or ""),
+                    "standard_name": str(hit.get("standard_name") or ""),
+                    "source_namespaces": str(hit.get("source_namespaces") or ""),
+                }
+                for hit in matches[:10] if hit.get("drug_id")
+            ],
+        })
+
+    match_ids = sorted(hits_by_id)
+    bridge_candidate_ids = set(match_ids)
+    for item in candidate_trace:
+        bridge_candidate_ids.update(item.get("local_drug_ids") or [])
+    scope = "complete_identity_index" if graph_data.resolver_index_path else "bundled_preview"
+    bridge: dict[str, Any] = {
+        "trigger": "initial_local_miss",
+        "status": "provider_candidate_only",
+        "lookup_scope": scope,
+        "evidence": trace,
+        "name_candidates": candidate_trace,
+        "matched_drug_ids": match_ids,
+        "candidate_total": len(bridge_candidate_ids),
+        "candidate_list_truncated": (
+            len(bridge_candidate_ids) > 10
+            or any(item.get("local_matches_truncated") for item in [*trace, *candidate_trace])
+        ),
+        "matched_candidates": [
+            {
+                "drug_id": drug_id,
+                "standard_name": str(hits_by_id[drug_id].get("standard_name") or ""),
+                "source_namespaces": str(hits_by_id[drug_id].get("source_namespaces") or ""),
+            }
+            for drug_id in match_ids[:10]
+        ],
+    }
+    if len(match_ids) == 1:
+        drug_id = match_ids[0]
+        hit = hits_by_id[drug_id]
+        supporting_sources = sorted(source for source in sources_by_id.get(drug_id, set()) if source)
+        bridge["status"] = "reconciled_corroborated" if len(supporting_sources) > 1 else "reconciled_exact_unique"
+        bridge["selected_drug_id"] = drug_id
+        bridge["sources"] = supporting_sources
+        source_label = "+".join(supporting_sources) or "external"
+        return {
+            **local_result,
+            "local_hits": [_compact_local_hit(hit)],
+            "resolved": True,
+            "total_local_matches": 1,
+            "local_match_status": "single_asserting_bridge_match",
+            "resolved_via": f"{source_label} exact identity bridge→{drug_id}",
+            "resolution_path": f"local_match_via_{source_label}",
+            "bridge_relookup": bridge,
+        }
+    if len(match_ids) > 1:
+        bridge["status"] = (
+            "ambiguous_local_mapping"
+            if any(len(item.get("local_drug_ids") or []) > 1 for item in trace)
+            else "identifier_conflict"
+        )
+    elif any(item.get("local_drug_ids") for item in candidate_trace):
+        bridge["status"] = "candidate_only_name"
+    return {
+        **local_result,
+        "resolution_path": bridge["status"],
+        "bridge_relookup": bridge,
+    }
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # ORCHESTRATOR
 # ═════════════════════════════════════════════════════════════════════════
@@ -1841,7 +2147,17 @@ def _enrich_one(
     sources_skipped: dict[str, str] = {}
     query = local_result["query"]
     hits = local_result.get("local_hits") or []
-    best = hits[0] if hits else {}
+    best = hits[0] if local_result.get("resolved") and hits else {}
+    initially_unmatched = not bool(local_result.get("resolved"))
+    bridge_allowed = local_result.get("local_match_status") != "ambiguous_multiple_matches"
+    local_result = {
+        **local_result,
+        "initial_local_status": (
+            local_result.get("local_match_status")
+            or ("no_match" if initially_unmatched else "matched")
+        ),
+        "resolution_path": "unresolved" if initially_unmatched else "direct_local_match",
+    }
 
     # Determine lookup keys from local hit or raw query
     name = best.get("standard_name") or query
@@ -1852,26 +2168,11 @@ def _enrich_one(
     chebi_id = chebi_values[0] if chebi_values else ""
     chembl_id = chembl_values[0] if chembl_values else ""
 
-    if enable_pubchem and not best:
+    if enable_pubchem and initially_unmatched:
         sources_attempted.append("pubchem")
         pubchem = enrich_pubchem(query, session=session, source_errors=source_errors)
         if pubchem:
             enrichment["pubchem"] = pubchem
-            if graph_data:
-                exact_terms = _pubchem_exact_relookup_terms(query, pubchem)
-                for term in [value for value in exact_terms if value]:
-                    retry = resolve_local(graph_data, [term])[0]
-                    if retry.get("local_hits"):
-                        local_result = {
-                            **local_result,
-                            "local_hits": retry["local_hits"],
-                            "resolved": True,
-                            "total_local_matches": retry.get("total_local_matches", len(retry["local_hits"])),
-                            "resolved_via": f"PubChem exact identifier→{term}",
-                        }
-                        best = retry["local_hits"][0]
-                        name = best.get("standard_name") or name
-                        break
     elif enable_pubchem:
         sources_skipped["pubchem"] = "local_harmonizer_resolved"
 
@@ -1903,6 +2204,8 @@ def _enrich_one(
             best,
             query_terms=local_result.get("query_terms") or [],
         )
+        if _identity_preserving_query(query):
+            ncats_lookups = [query]
         for lookup in ([] if ncats_props == [] else ncats_lookups):
             if not lookup or lookup in seen_lookups or _INTERNAL_ID_RE.match(lookup):
                 continue
@@ -1914,6 +2217,8 @@ def _enrich_one(
                 source_errors=ncats_attempt_errors,
             )
             if ncats and ncats.get("_ncats_props_returned"):
+                ncats["_ncats_lookup"] = lookup
+                ncats["_ncats_lookup_origin"] = "original_query" if lookup == query else "derived_lookup"
                 enrichment["ncats_resolver"] = ncats
                 # Override IDs with NCATS-resolved values so downstream
                 # lookups use the correct compound, not the local hit
@@ -1938,43 +2243,85 @@ def _enrich_one(
                 break
             if ncats:
                 ncats_metadata_only = ncats
+                if ncats.get("_ncats_status") == "failed":
+                    break
             time.sleep(delay)
         if "ncats_resolver" not in enrichment:
             if ncats_metadata_only:
                 enrichment["ncats_resolver"] = ncats_metadata_only
             _append_source_failure(source_errors, "ncats_resolver", ncats_attempt_errors)
 
-        # Re-lookup in local graph using NCATS-resolved IDs when the
-        # original query missed or matched the wrong compound (e.g.
-        # NCGC00256577-01 → prednisolone UNII 9PHQ9Y1OLM → IFXDrug).
-        if graph_data and enrichment.get("ncats_resolver"):
-            ncats_ids = enrichment["ncats_resolver"]
-            relookup_terms = [v for v in [
-                *_split_pipe_values(ncats_ids.get("ncats_unii")),
-                *_split_pipe_values(ncats_ids.get("ncats_chembl")),
-                *_split_pipe_values(ncats_ids.get("ncats_chebi")),
-                ncats_ids.get("ncats_resolved_name"),
-            ] if v]
-            # Only re-lookup if the original local hit seems wrong or absent
-            need_relookup = (
-                not best  # no local hit at all
-                or (best.get("unii") and ncats_ids.get("ncats_unii")
-                    and best["unii"] != ncats_ids["ncats_unii"])  # wrong compound
+        # Identity reconciliation must not depend on which annotation columns
+        # the user selected. Fetch one coherent, bounded identity projection
+        # for an initially unmatched identifier/structure query.
+        if initially_unmatched and _identity_preserving_query(query):
+            current_ncats = enrichment.get("ncats_resolver") or {}
+            if not _ncats_bridge_evidence(query, current_ncats):
+                identity_errors: list[dict[str, str]] = []
+                identity_ncats = enrich_ncats_resolver(
+                    query,
+                    session=session,
+                    props=["cid", "chembl", "chebi", "unii", "smiles", "inchikey"],
+                    source_errors=identity_errors,
+                )
+                if identity_ncats and identity_ncats.get("_ncats_props_returned"):
+                    identity_ncats["_ncats_lookup"] = query
+                    identity_ncats["_ncats_lookup_origin"] = "original_query"
+                    enrichment["ncats_identity_bridge"] = identity_ncats
+                    if "ncats_resolver" not in sources_attempted:
+                        sources_attempted.append("ncats_resolver")
+                    if sources_skipped.pop("ncats_resolver", None):
+                        sources_skipped["ncats_resolver_annotations"] = "no_properties_selected_identity_projection_queried"
+                else:
+                    _append_source_failure(source_errors, "ncats_resolver_identity", identity_errors)
+
+    # One bounded second pass: strong external identifiers/structures may
+    # reconcile an initial miss, while names only nominate exact candidates.
+    if graph_data and initially_unmatched and bridge_allowed:
+        bridge_evidence: list[dict[str, str]] = []
+        name_candidates: list[dict[str, str]] = []
+        pubchem = enrichment.get("pubchem") or {}
+        ncats = enrichment.get("ncats_identity_bridge") or enrichment.get("ncats_resolver") or {}
+        if pubchem:
+            bridge_evidence.extend(_pubchem_bridge_evidence(query, pubchem))
+            if pubchem.get("pubchem_title"):
+                name_candidates.append({
+                    "source": "pubchem",
+                    "namespace": "name",
+                    "value": str(pubchem["pubchem_title"]),
+                })
+        if ncats:
+            bridge_evidence.extend(_ncats_bridge_evidence(query, ncats))
+            if ncats.get("ncats_resolved_name"):
+                name_candidates.append({
+                    "source": "ncats_resolver",
+                    "namespace": "name",
+                    "value": str(ncats["ncats_resolved_name"]),
+                })
+        if bridge_evidence or name_candidates or ncats.get("_bridge_identity_status"):
+            local_result = _reconcile_live_identity(
+                graph_data,
+                local_result,
+                bridge_evidence,
+                name_candidates,
             )
-            if need_relookup and relookup_terms:
-                for term in relookup_terms:
-                    retry = resolve_local(graph_data, [term])
-                    retry_hits = (retry[0].get("local_hits") or []) if retry else []
-                    if retry_hits:
-                        local_result = {
-                            **local_result,
-                            "local_hits": retry_hits,
-                            "resolved": True,
-                            "total_local_matches": retry[0].get("total_local_matches", len(retry_hits)),
-                            "resolved_via": f"NCATS→{term}",
-                        }
-                        best = retry_hits[0]
-                        break
+            if (
+                local_result.get("bridge_relookup", {}).get("status") == "provider_candidate_only"
+                and ncats.get("_bridge_identity_status") in {
+                    "provider_identity_mismatch", "provider_identity_unverified",
+                }
+            ):
+                local_result["bridge_relookup"]["status"] = ncats["_bridge_identity_status"]
+                local_result["resolution_path"] = ncats["_bridge_identity_status"]
+            hits = local_result.get("local_hits") or []
+            best = hits[0] if local_result.get("resolved") and hits else {}
+            name = best.get("standard_name") or name
+            unii_values = _split_pipe_values(best.get("unii"))
+            chebi_values = _split_pipe_values(best.get("chebi_id"))
+            chembl_values = _split_pipe_values(best.get("chembl_id"))
+            unii = unii_values[0] if unii_values else ""
+            chebi_id = chebi_values[0] if chebi_values else ""
+            chembl_id = chembl_values[0] if chembl_values else ""
 
     # Pharos — try original query first, then resolved name, then ChEMBL
     if enable_pharos:
@@ -2065,9 +2412,13 @@ def _enrich_one(
     enrichment["sources_skipped"] = sources_skipped
     enrichment["sources_found"] = [
         s for s in ["ncats_resolver", "pubchem", "pharos", "inxight", "chebi", "openfda"]
-        if s in enrichment and (
+        if (
+            s in enrichment
+            or (s == "ncats_resolver" and "ncats_identity_bridge" in enrichment)
+        ) and (
             s != "ncats_resolver"
-            or bool((enrichment.get(s) or {}).get("_ncats_props_returned"))
+            or bool((enrichment.get("ncats_resolver") or {}).get("_ncats_props_returned"))
+            or bool((enrichment.get("ncats_identity_bridge") or {}).get("_ncats_props_returned"))
         )
     ]
 
@@ -2126,6 +2477,9 @@ def resolve_and_enrich(
             "stats": {
                 "total": len(queries),
                 "local_resolved": local_resolved,
+                "local_resolved_initial": local_resolved,
+                "bridge_resolved": 0,
+                "local_resolved_final": local_resolved,
                 "enrichment_enabled": False,
             },
         }
@@ -2136,6 +2490,9 @@ def resolve_and_enrich(
     stats = {
         "total": len(queries),
         "local_resolved": local_resolved,
+        "local_resolved_initial": local_resolved,
+        "bridge_resolved": 0,
+        "local_resolved_final": local_resolved,
         "ncats_found": 0,
         "pubchem_found": 0,
         "pharos_found": 0,
@@ -2243,7 +2600,15 @@ def resolve_and_enrich(
                         "message": f"Enriched {completed} of {len(local_results)} resolved rows.",
                     })
 
-    stats["local_resolved"] = sum(1 for result in enriched if result.get("resolved"))
+    final_resolved = sum(1 for result in enriched if result.get("resolved"))
+    bridge_resolved = sum(
+        1 for result in enriched
+        if (result.get("bridge_relookup") or {}).get("selected_drug_id")
+        and result.get("resolved")
+    )
+    stats["local_resolved"] = final_resolved
+    stats["local_resolved_final"] = final_resolved
+    stats["bridge_resolved"] = bridge_resolved
     emit_progress({
         "stage": "complete",
         "completed": len(local_results),

@@ -42,6 +42,8 @@ class DrugGraphData:
         "source_catalog",
         "source_update_report",
         "resolver_index_path",
+        "resolver_index_metadata",
+        "resolver_checksum_verified",
         "_stats",
     )
 
@@ -63,6 +65,8 @@ class DrugGraphData:
         self.source_catalog: list[dict[str, str]] = []
         self.source_update_report: list[dict[str, str]] = []
         self.resolver_index_path: Path | None = None
+        self.resolver_index_metadata: dict[str, str] = {}
+        self.resolver_checksum_verified = False
         self._stats: dict[str, Any] | None = None
 
 
@@ -156,10 +160,15 @@ DRUG_REVIEW_INTAKE_COLUMNS = [
 ]
 
 
-def _read_tsv(path: Path) -> list[dict[str, str]]:
+def _read_tsv(path: Path, *, omit_empty: bool = False) -> list[dict[str, str]]:
     if not path.exists():
         return []
     with open(path, encoding="utf-8", newline="") as fh:
+        if omit_empty:
+            return [
+                {k: v for k, v in row.items() if v not in (None, "")}
+                for row in csv.DictReader(fh, delimiter="\t")
+            ]
         return [{k: (v or "") for k, v in row.items()} for row in csv.DictReader(fh, delimiter="\t")]
 
 
@@ -215,7 +224,7 @@ DRUG_SOURCE_ROLES = {
     "ChEBI": "Ontology and chemical classification source",
     "GSRS": "NCATS substance registry / UNII source",
     "RxNorm": "RXCUI xref layer; full product context currently xref-only",
-    "UniChem": "Planned cross-reference enrichment; disabled until batch-file ingestion",
+    "UniChem": "Cross-reference validation and enrichment; not an independent identity override",
     "DrugCentral": "Drug identity, approval, and target-interaction context",
     "NCATS Inxight Drugs": "GSRS/Inxight activity and target context",
     "NodeNorm Chemical": "Validator/canonical CURIE service, not an asserting source",
@@ -487,19 +496,45 @@ def load_drug_graph_data(
         if not explicit_resolver and not resolver_path.is_relative_to(graph_path.resolve()):
             raise HTTPException(status_code=500, detail="Drug resolver index path escapes the graph directory")
         if resolver_path.exists():
-            _validate_drug_resolver_index(resolver_path, data.manifest, verify_checksum=verify_resolver_checksum)
+            data.resolver_index_metadata = _validate_drug_resolver_index(
+                resolver_path,
+                data.manifest,
+                verify_checksum=verify_resolver_checksum,
+            )
             data.resolver_index_path = resolver_path
+            external = (data.manifest.get("external_artifacts") or {}).get("resolver_index") or {}
+            expected_sha256 = external.get("sha256") or (data.manifest.get("counts") or {}).get("resolver_index_sha256")
+            data.resolver_checksum_verified = bool(verify_resolver_checksum and expected_sha256)
         elif require_resolver_index or resolver_declared:
             raise HTTPException(status_code=500, detail=f"Configured drug resolver index is missing: {resolver_path}")
-        for node in _read_tsv(graph_path / "drug_nodes.tsv"):
+        for node in _read_tsv(graph_path / "drug_nodes.tsv", omit_empty=True):
             _index_node(data, node)
-        data.edges = _read_tsv(graph_path / "drug_edges.tsv")
+        data.edges = _read_tsv(graph_path / "drug_edges.tsv", omit_empty=True)
+        counts = data.manifest.get("counts") or {}
+        expected_nodes = counts.get("nodes")
+        expected_edges = counts.get("edges")
+        if expected_nodes not in (None, "") and len(data.nodes) != int(expected_nodes):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Drug bundle node count mismatch: manifest declares {expected_nodes}, "
+                    f"loaded {len(data.nodes)}. Verify release packaging and Git LFS hydration."
+                ),
+            )
+        if expected_edges not in (None, "") and len(data.edges) != int(expected_edges):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Drug bundle edge count mismatch: manifest declares {expected_edges}, "
+                    f"loaded {len(data.edges)}. Verify release packaging and Git LFS hydration."
+                ),
+            )
         for edge in data.edges:
             source_id = edge.get("source_id", "")
             if source_id:
                 data.edges_by_drug[source_id].append(edge)
-        data.review_queue = _read_tsv(graph_path / "drug_review_queue.tsv")
-        data.review_registry = _read_tsv(graph_path / "drug_divergence_registry.tsv")
+        data.review_queue = _read_tsv(graph_path / "drug_review_queue.tsv", omit_empty=True)
+        data.review_registry = _read_tsv(graph_path / "drug_divergence_registry.tsv", omit_empty=True)
         data.review_registry_by_id = {
             row.get("registry_id", ""): row
             for row in data.review_registry
@@ -511,7 +546,11 @@ def load_drug_graph_data(
         return data
 
 
-def _validate_drug_resolver_index(path: Path, manifest: dict[str, Any], verify_checksum: bool = False) -> None:
+def _validate_drug_resolver_index(
+    path: Path,
+    manifest: dict[str, Any],
+    verify_checksum: bool = False,
+) -> dict[str, str]:
     try:
         connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
         try:
@@ -523,15 +562,17 @@ def _validate_drug_resolver_index(path: Path, manifest: dict[str, Any], verify_c
             connection.close()
     except (sqlite3.Error, ValueError) as exc:
         raise HTTPException(status_code=500, detail=f"Invalid drug resolver index {path}: {exc}") from exc
-    if metadata.get("schema_version") != "1":
+    external = (manifest.get("external_artifacts") or {}).get("resolver_index") or {}
+    expected_schema = str(external.get("schema_version") or "1")
+    if metadata.get("schema_version") != expected_schema:
         raise HTTPException(status_code=500, detail=f"Unsupported drug resolver index schema: {metadata.get('schema_version') or 'missing'}")
     if not metadata.get("harmonizer_version"):
         raise HTTPException(status_code=500, detail="Drug resolver index is missing harmonizer_version metadata")
     counts = manifest.get("counts") or {}
-    expected_bytes = counts.get("resolver_index_bytes")
+    expected_bytes = external.get("bytes") or counts.get("resolver_index_bytes")
     if expected_bytes not in (None, "") and path.stat().st_size != int(expected_bytes):
         raise HTTPException(status_code=500, detail="Drug resolver index byte size does not match its manifest")
-    expected_sha256 = str(counts.get("resolver_index_sha256") or "").lower()
+    expected_sha256 = str(external.get("sha256") or counts.get("resolver_index_sha256") or "").lower()
     if verify_checksum and expected_sha256:
         digest = hashlib.sha256()
         with path.open("rb") as stream:
@@ -546,6 +587,32 @@ def _validate_drug_resolver_index(path: Path, manifest: dict[str, Any], verify_c
             status_code=500,
             detail=f"Drug resolver index version v{index_version} does not match graph v{manifest_version}",
         )
+    expected_version = str(external.get("harmonizer_version") or "").lstrip("v")
+    if expected_version and index_version != expected_version:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Drug resolver index version v{index_version} does not match external artifact v{expected_version}",
+        )
+    expected_nodes = external.get("nodes")
+    actual_nodes = metadata.get("node_count")
+    if expected_nodes not in (None, "") and str(actual_nodes or "") != str(expected_nodes):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Drug resolver index node count {actual_nodes or 'missing'} does not match "
+                f"external artifact count {expected_nodes}"
+            ),
+        )
+    expected_scope = str(external.get("scope") or "")
+    if expected_scope and metadata.get("scope") != expected_scope:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Drug resolver index scope {metadata.get('scope') or 'missing'} does not match "
+                f"external artifact scope {expected_scope}"
+            ),
+        )
+    return metadata
 
 
 def query_drug_resolver_index(
@@ -608,6 +675,145 @@ def query_drug_resolver_index(
     finally:
         connection.close()
     return rows
+
+
+def query_exact_drug_identity(
+    data: DrugGraphData,
+    value: str,
+    namespace: str,
+    limit: int = 25,
+) -> list[dict[str, str]]:
+    """Return exact identifier/structure matches without name or fuzzy search.
+
+    This is intentionally narrower than the interactive resolver.  It is used
+    when a live identity service returns an identifier for an initially
+    unmatched query, so a provider response cannot silently promote a
+    substring/name candidate to an IFXDrug identity.
+    """
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return []
+
+    namespace = str(namespace or "").strip().lower()
+    matches: dict[str, dict[str, str]] = {}
+
+    namespace_fields = {
+        "pubchem_cid": ("pubchem_cid", "source_standard_primary_id", "source_ids", "xrefs"),
+        "inchikey": ("inchikey", "source_standard_primary_id", "source_ids", "xrefs"),
+        "unii": ("unii", "source_standard_primary_id", "source_ids", "xrefs"),
+        "chembl": ("chembl_id", "source_standard_primary_id", "source_ids", "xrefs"),
+        "chebi": ("chebi_id", "source_standard_primary_id", "source_ids", "xrefs"),
+        "name": ("standard_name", "synonyms"),
+    }
+    direct_fields = {
+        "pubchem_cid": "pubchem_cid",
+        "inchikey": "inchikey",
+        "unii": "unii",
+        "chembl": "chembl_id",
+        "chebi": "chebi_id",
+    }
+
+    def canonical_identity(candidate: str, allow_bare: bool) -> str:
+        text = str(candidate or "").strip()
+        if namespace == "pubchem_cid":
+            match = re.fullmatch(r"(?:PUBCHEM(?:\.COMPOUND)?|CID):(\d+)", text, re.I)
+            if match:
+                return match.group(1)
+            return text if allow_bare and re.fullmatch(r"\d+", text) else ""
+        if namespace == "chebi":
+            match = re.fullmatch(r"CHEBI:(\d+)", text, re.I)
+            if match:
+                return match.group(1)
+            return text if allow_bare and re.fullmatch(r"\d+", text) else ""
+        if namespace == "chembl":
+            match = re.fullmatch(r"(?:CHEMBL(?:\.COMPOUND)?:)?(CHEMBL\d+)", text, re.I)
+            return match.group(1).upper() if match else ""
+        if namespace == "unii":
+            pattern = r"(?:UNII:)?([A-Z0-9]{10})" if allow_bare else r"UNII:([A-Z0-9]{10})"
+            match = re.fullmatch(pattern, text, re.I)
+            return match.group(1).upper() if match else ""
+        if namespace == "inchikey":
+            match = re.fullmatch(r"(?:INCHIKEY:)?([A-Z]{14}-[A-Z]{10}-[A-Z])", text, re.I)
+            return match.group(1).upper() if match else ""
+        return text.casefold() if namespace == "name" else ""
+
+    def exact_node_match(node: dict[str, str]) -> tuple[str, str] | None:
+        if namespace == "smiles":
+            query_key = structure_keys.get("derived_inchikey", "").upper()
+            if not query_key:
+                return None
+            for candidate in _split_pipe(node.get("inchikey", "")):
+                local = candidate.split(":", 1)[-1].upper()
+                if local == query_key:
+                    return "inchikey", candidate
+            node_smiles = str(node.get("smiles") or "").strip()
+            node_key = _smiles_structure_keys(node_smiles).get("derived_inchikey", "").upper()
+            if node_key and node_key == query_key:
+                return "smiles", node_smiles
+            return None
+        fields = namespace_fields.get(namespace, ())
+        wanted = canonical_identity(raw_value, allow_bare=True)
+        if not wanted:
+            return None
+        for field in fields:
+            raw = str(node.get(field) or "").strip()
+            values = _split_pipe(raw) if field in {"source_ids", "xrefs", "synonyms"} else [raw]
+            for candidate in values:
+                allow_bare = field == direct_fields.get(namespace) or namespace == "name"
+                if canonical_identity(candidate, allow_bare=allow_bare) == wanted:
+                    return field, candidate
+        return None
+
+    def add(node: dict[str, str], field: str, matched_value: str, strategy: str) -> None:
+        drug_id = str(node.get("drug_id") or "")
+        if not drug_id or drug_id in matches:
+            return
+        hit = dict(node)
+        hit["_match_score"] = "1.000"
+        hit["_matched_query"] = raw_value
+        hit["_matched_field"] = field
+        hit["_matched_value"] = matched_value
+        hit["_match_strategy"] = strategy
+        hit["_in_graph_bundle"] = "yes" if drug_id in data.nodes_by_id else "no"
+        matches[drug_id] = hit
+
+    structure_keys = _smiles_structure_keys(raw_value) if namespace == "smiles" else {}
+    index_terms = [raw_value]
+    if structure_keys.get("derived_inchikey"):
+        index_terms.append(structure_keys["derived_inchikey"])
+    for node in query_drug_resolver_index(data, index_terms, limit=limit):
+        node.pop("_resolver_index_field", None)
+        node.pop("_resolver_index_value", None)
+        node.pop("_resolver_index_alias", None)
+        exact_match = exact_node_match(node)
+        if not exact_match:
+            continue
+        field, matched_value = exact_match
+        add(node, field, matched_value, "complete_harmonizer_index_exact_bridge")
+
+    for alias in _drug_lookup_aliases(raw_value):
+        for drug_id in data.ids_to_drugs.get(alias, []):
+            node = data.nodes_by_id.get(drug_id)
+            if not node:
+                continue
+            exact_match = exact_node_match(node)
+            if exact_match:
+                field, matched_value = exact_match
+                strategy = "bundled_exact_structure_bridge" if namespace == "smiles" else "bundled_exact_bridge"
+                add(node, field, matched_value, strategy)
+
+    if structure_keys:
+        structure_ids, _ = resolve_smiles_drug_ids(data, raw_value)
+        for drug_id in structure_ids:
+            node = data.nodes_by_id.get(drug_id)
+            if not node:
+                continue
+            exact_match = exact_node_match(node)
+            if exact_match:
+                field, matched_value = exact_match
+                add(node, field, matched_value, "bundled_exact_structure_bridge")
+
+    return list(matches.values())[:limit]
 
 
 def _matches_query(node: dict[str, str], q: str) -> bool:
@@ -699,9 +905,15 @@ def compute_drug_stats(data: DrugGraphData) -> dict[str, Any]:
     total_drugs = len(data.nodes)
     nodenorm_resolved_count = total_drugs - int(nodenorm_counts.get("not_normalized", 0))
     full_total = int(data.manifest.get("counts", {}).get("full_nodes_available") or total_drugs)
+    external_resolver = (data.manifest.get("external_artifacts") or {}).get("resolver_index") or {}
+    resolver_index_available = bool(data.resolver_index_path and data.resolver_index_path.exists())
     data._stats = {
         "total_drugs": total_drugs,
         "full_total_drugs": full_total,
+        "resolver_index_available": resolver_index_available,
+        "resolver_index_nodes": int(external_resolver.get("nodes") or full_total),
+        "resolver_checksum_verified": data.resolver_checksum_verified,
+        "local_lookup_scope": "complete_identity_lookup" if resolver_index_available else "preview_only",
         "total_edges": len(data.edges),
         "multi_source_count": multi_source_count,
         "multi_source_percent": (multi_source_count / total_drugs * 100) if total_drugs else 0,

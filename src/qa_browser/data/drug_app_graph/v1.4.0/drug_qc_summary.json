@@ -1,0 +1,45 @@
+{
+  "nodes": 1304056,
+  "xref_edges": 449758,
+  "registry_rows": 15577,
+  "open_review_rows": 15377,
+  "resolved_or_acknowledged_rows": 0,
+  "nodenorm_canonical_changed_rows": 739762,
+  "status_counts": {
+    "open": 15377,
+    "stale": 200
+  },
+  "issue_counts": {
+    "multiple_inchikey_values": 3753,
+    "source_standard_conflict": 11824
+  },
+  "evidence_tier_counts": {
+    "source_standard_single_source_identity": 1172252,
+    "high_confidence_identity": 17403,
+    "source_standard_multi_source_identity": 109672,
+    "source_standard_conflict": 4705,
+    "needs_expert_review": 24
+  },
+  "source_counts": {
+    "ChEBI": 207868,
+    "GSRS": 172730,
+    "PubChem": 128224,
+    "ChEMBL": 942772,
+    "IUPHAR": 10664,
+    "DrugCentralTempOverlay": 2914,
+    "UniChem": 4169,
+    "DrugCentral": 3833,
+    "RxNorm": 7500
+  },
+  "nodenorm_validation_counts": {
+    "canonical_matches_source_standard": 283256,
+    "canonical_from_equivalent_identifier": 739762,
+    "not_normalized": 281038
+  },
+  "xref_edge_kind_counts": {
+    "external_identifier_xref": 213691,
+    "identity_xref": 199727,
+    "literature_evidence": 36259,
+    "source_provenance_xref": 81
+  }
+}

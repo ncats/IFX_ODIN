@@ -170,6 +170,7 @@ from src.qa_browser.drug_id_graph import (
     resolve_drug,
     search_drugs,
     summarize_drug_source_versions,
+    _validate_drug_resolver_index,
 )
 from src.qa_browser.pathway_id_graph import (
     PATHWAY_REVIEW_DECISION_OPTIONS,
@@ -8241,9 +8242,16 @@ def drug_id_qa(request: Request, ids: str = "", tab: str = ""):
     selected_ids = " | ".join([part for part in re.split(r"[\s,|]+", ids or "") if part])
     default_tab = "graph" if selected_ids else "dashboard"
     manifest = _drug_manifest_snapshot()
+    resolver_index_available = False
     try:
-        drug_total = f"{len(_load_drug_graph().nodes):,}"
+        drug_data = _load_drug_graph()
+        drug_total = f"{len(drug_data.nodes):,}"
+        resolver_index_available = bool(
+            drug_data.resolver_index_path and drug_data.resolver_index_path.exists()
+        )
     except Exception:
+        if _drug_resolver_index:
+            raise
         drug_total = "412,000+"
     return templates.TemplateResponse(request, "drug_id_qa.html", {
         "request": request,
@@ -8253,6 +8261,7 @@ def drug_id_qa(request: Request, ids: str = "", tab: str = ""):
         "drug_version_display": _drug_version_display(manifest),
         "drug_updated_last": _drug_updated_last(manifest),
         "drug_total_drugs": drug_total,
+        "drug_resolver_index_available": resolver_index_available,
     })
 
 
@@ -8349,8 +8358,29 @@ def _discover_drug_versions() -> list[dict]:
                 "current": bool(current_path and resolved == current_path),
             }
             existing = version_by_key.get(version)
-            if existing is None or entry["current"]:
+            if existing is None or existing.get("diff_only") or entry["current"]:
                 version_by_key[version] = entry
+
+            # A compact audited release diff can preserve the prior release
+            # comparison without bundling another large preview graph.
+            for diff_path in graph_child.glob("version_diff_from_v*.json"):
+                try:
+                    diff = json.loads(diff_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, ValueError):
+                    continue
+                baseline_version = _normalize_drug_version(str(diff.get("baseline_version") or ""))
+                if not baseline_version or baseline_version in version_by_key:
+                    continue
+                summary = diff.get("summary") or {}
+                version_by_key[baseline_version] = {
+                    "version": baseline_version,
+                    "directory_name": "audited diff baseline",
+                    "path": "",
+                    "updated_at": diff.get("generated_at", ""),
+                    "node_rows": summary.get("drugs_old"),
+                    "current": False,
+                    "diff_only": True,
+                }
 
     if _drug_graph_dir and not any(v.get("current") for v in version_by_key.values()):
         graph_dir_name = Path(_drug_graph_dir).name
@@ -8381,7 +8411,7 @@ def _drug_version_dir(version: str) -> Path | None:
     wanted = _normalize_drug_version(version)
     for entry in _discover_drug_versions():
         if entry["version"] == wanted:
-            return Path(entry["path"])
+            return Path(entry["path"]) if entry.get("path") else None
     return None
 
 
@@ -8414,10 +8444,7 @@ def drug_id_qa_version_diff(
     if from_version == to_version:
         raise HTTPException(status_code=400, detail="Choose two different drug graph versions.")
 
-    from_dir = _drug_version_dir(from_version)
     to_dir = _drug_version_dir(to_version)
-    if from_dir is None:
-        raise HTTPException(status_code=404, detail=f"Drug graph version not found: {from_version}")
     if to_dir is None:
         raise HTTPException(status_code=404, detail=f"Drug graph version not found: {to_version}")
 
@@ -8430,6 +8457,9 @@ def drug_id_qa_version_diff(
             with open(candidate, encoding="utf-8") as fh:
                 return json.load(fh)
 
+    from_dir = _drug_version_dir(from_version)
+    if from_dir is None:
+        raise HTTPException(status_code=404, detail=f"Drug graph version not found: {from_version}")
     baseline = load_drug_version_data(from_dir)
     current = _load_drug_graph() if to_dir.resolve() == Path(_drug_graph_dir).resolve() else load_drug_version_data(to_dir)
     return compute_drug_version_diff(current, baseline)
@@ -10352,19 +10382,40 @@ def _disease_version_sort_key(version: str) -> tuple[int, ...]:
     return tuple(parts or [0])
 
 
-def _versioned_app_graph_dirs(root: Path, required_file: str) -> list[Path]:
+def _versioned_app_graph_dirs(
+    root: Path,
+    required_file: str,
+    release_fields: tuple[str, ...] = ("version",),
+) -> list[Path]:
+    """Return valid app-graph directories ordered by manifest semantic version.
+
+    Release directories may be named ``vX.Y.Z`` or ``current``. The manifest
+    is authoritative so a newer ``current`` release is not ignored merely
+    because older version-named directories are also bundled.
+    """
     if not root.is_dir():
         return []
-    return sorted(
-        [
-            d for d in root.iterdir()
-            if d.is_dir()
-            and d.name.startswith("v")
-            and (d / "manifest.json").exists()
-            and (d / required_file).exists()
-        ],
-        key=lambda path: _disease_version_sort_key(path.name),
-    )
+
+    releases_by_version: dict[tuple[int, ...], Path] = {}
+    for path in root.iterdir():
+        if not path.is_dir() or not (path / required_file).exists():
+            continue
+        try:
+            manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        raw_version = next(
+            (manifest.get(key) for key in release_fields if manifest.get(key)),
+            path.name if path.name.startswith("v") else "",
+        )
+        if not raw_version:
+            continue
+        version_key = _disease_version_sort_key(str(raw_version))
+        existing = releases_by_version.get(version_key)
+        if existing is None or path.name == "current":
+            releases_by_version[version_key] = path
+
+    return [releases_by_version[key] for key in sorted(releases_by_version)]
 
 
 def _candidate_disease_version_roots() -> list[Path]:
@@ -13330,14 +13381,14 @@ def main():
     _disease_graph_dir = args.disease_graph_dir
     if not _disease_graph_dir:
         bundled_dir = DISEASE_APP_GRAPH_BUNDLED_DIR
-        if bundled_dir.is_dir():
-            versions = sorted(
-                [d.name for d in bundled_dir.iterdir() if d.is_dir()],
-                key=_disease_version_sort_key,
-            )
-            if versions:
-                _disease_graph_dir = str(bundled_dir / versions[-1])
-                print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "disease_concepts.tsv",
+            ("disease_harmonizer_version", "disease_release_version", "pipeline_version", "version"),
+        )
+        if versions:
+            _disease_graph_dir = str(versions[-1])
+            print(f"Auto-detected bundled disease data: {_disease_graph_dir}")
     if _disease_graph_dir:
         print(f"Disease graph dir: {_disease_graph_dir}")
     _disease_review_file = args.disease_review_file
@@ -13347,28 +13398,28 @@ def main():
     _baseline_graph_dir = args.baseline_graph_dir
     if not _baseline_graph_dir:
         bundled_dir = DISEASE_APP_GRAPH_BUNDLED_DIR
-        if bundled_dir.is_dir():
-            versions = sorted(
-                [d.name for d in bundled_dir.iterdir() if d.is_dir()],
-                key=_disease_version_sort_key,
-            )
-            # Use the second-highest version as baseline (highest is current)
-            if len(versions) >= 2:
-                _baseline_graph_dir = str(bundled_dir / versions[-2])
-                print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "disease_concepts.tsv",
+            ("disease_harmonizer_version", "disease_release_version", "pipeline_version", "version"),
+        )
+        # Use the second-highest version as baseline (highest is current)
+        if len(versions) >= 2:
+            _baseline_graph_dir = str(versions[-2])
+            print(f"Auto-detected baseline disease data: {_baseline_graph_dir}")
     if _baseline_graph_dir:
         print(f"Baseline graph dir: {_baseline_graph_dir}")
 
     _target_graph_dir = args.target_graph_dir
     if not _target_graph_dir:
         bundled_dir = TARGET_APP_GRAPH_BUNDLED_DIR
-        versions = _versioned_app_graph_dirs(bundled_dir, "target_nodes.tsv")
-        current_dir = bundled_dir / "current"
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "target_nodes.tsv",
+            ("target_release_version", "target_harmonizer_version", "version"),
+        )
         if versions:
             _target_graph_dir = str(versions[-1])
-            print(f"Auto-detected bundled target data: {_target_graph_dir}")
-        elif current_dir.is_dir():
-            _target_graph_dir = str(current_dir)
             print(f"Auto-detected bundled target data: {_target_graph_dir}")
     if _target_graph_dir:
         print(f"Target graph dir: {_target_graph_dir}")
@@ -13379,13 +13430,13 @@ def main():
     _variant_graph_dir = args.variant_graph_dir
     if not _variant_graph_dir:
         bundled_dir = VARIANT_APP_GRAPH_BUNDLED_DIR
-        versions = _versioned_app_graph_dirs(bundled_dir, "variant_nodes.tsv")
-        current_dir = bundled_dir / "current"
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "variant_nodes.tsv",
+            ("variant_harmonizer_version", "variant_release_version", "version"),
+        )
         if versions:
             _variant_graph_dir = str(versions[-1])
-            print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
-        elif current_dir.is_dir():
-            _variant_graph_dir = str(current_dir)
             print(f"Auto-detected bundled variant data: {_variant_graph_dir}")
     if _variant_graph_dir:
         print(f"Variant graph dir: {_variant_graph_dir}")
@@ -13398,18 +13449,29 @@ def main():
     _verify_drug_resolver_checksum = args.verify_drug_resolver_checksum
     if not _drug_graph_dir:
         bundled_dir = DRUG_APP_GRAPH_BUNDLED_DIR
-        versions = _versioned_app_graph_dirs(bundled_dir, "drug_nodes.tsv")
-        current_dir = bundled_dir / "current"
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "drug_nodes.tsv",
+            ("drug_harmonizer_version", "drug_release_version", "version"),
+        )
         if versions:
             _drug_graph_dir = str(versions[-1])
-            print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
-        elif current_dir.is_dir():
-            _drug_graph_dir = str(current_dir)
             print(f"Auto-detected bundled drug data: {_drug_graph_dir}")
     if _drug_graph_dir:
         print(f"Drug graph dir: {_drug_graph_dir}")
     if _drug_resolver_index:
         print(f"Drug resolver index: {_drug_resolver_index}")
+        resolver_metadata = _validate_drug_resolver_index(
+            Path(_drug_resolver_index),
+            _drug_manifest_snapshot(),
+            verify_checksum=_verify_drug_resolver_checksum,
+        )
+        print(
+            "Validated drug resolver index: "
+            f"v{str(resolver_metadata.get('harmonizer_version', '')).lstrip('v')}, "
+            f"{resolver_metadata.get('node_count', 'unknown')} nodes, "
+            f"scope={resolver_metadata.get('scope', 'unknown')}"
+        )
     _drug_review_file = args.drug_review_file
     if _resolved_drug_review_file():
         print(f"Drug review intake file: {_resolved_drug_review_file()}")
@@ -13417,13 +13479,13 @@ def main():
     _pathway_graph_dir = args.pathway_graph_dir
     if not _pathway_graph_dir:
         bundled_dir = PATHWAY_APP_GRAPH_BUNDLED_DIR
-        versions = _versioned_app_graph_dirs(bundled_dir, "pathway_nodes.tsv")
-        current_dir = bundled_dir / "current"
+        versions = _versioned_app_graph_dirs(
+            bundled_dir,
+            "pathway_nodes.tsv",
+            ("pathway_harmonizer_version", "version", "pipeline_version"),
+        )
         if versions:
             _pathway_graph_dir = str(versions[-1])
-            print(f"Auto-detected bundled pathway data: {_pathway_graph_dir}")
-        elif current_dir.is_dir():
-            _pathway_graph_dir = str(current_dir)
             print(f"Auto-detected bundled pathway data: {_pathway_graph_dir}")
     if _pathway_graph_dir:
         print(f"Pathway graph dir: {_pathway_graph_dir}")
