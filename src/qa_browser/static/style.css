@@ -6345,13 +6345,22 @@ tr.has-cart-review > td {
 }
 
 .changes-section h3 {
-    cursor: pointer;
     font-size: 0.88rem;
     margin: 0 0 0.5rem;
-    user-select: none;
 }
 
-.changes-section h3::before {
+.changes-section-toggle {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-align: left;
+}
+
+.changes-section-toggle::before {
     content: "\25B6";
     display: inline-block;
     font-size: 0.65rem;
@@ -6359,7 +6368,7 @@ tr.has-cart-review > td {
     transition: transform 0.15s;
 }
 
-.changes-section.expanded h3::before {
+.changes-section.expanded .changes-section-toggle::before {
     transform: rotate(90deg);
 }
 
@@ -6418,8 +6427,37 @@ tr.has-cart-review > td {
 .changes-version-label {
     color: var(--text-muted);
     font-size: 0.82rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
+
+.changes-prose {
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--text-primary, #333);
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--surface-muted, #f7f8fa);
+    border-radius: var(--radius-sm, 4px);
+    border-left: 3px solid var(--accent, #4a8ff7);
+}
+
+.changes-intro {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+}
+
+.changes-table-scroll { overflow-x: auto; }
+
+.changes-section-desc {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin: 0 0 0.5rem;
+    line-height: 1.4;
+}
+
+.status-updated { color: var(--green, #2a7); font-weight: 500; }
+.status-skipped { color: var(--text-muted, #999); }
 
 /* ── Modal overlay ───────────────────────────────────────────────────────── */
 

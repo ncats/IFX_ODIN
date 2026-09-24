@@ -176,10 +176,14 @@ from src.qa_browser.pathway_id_graph import (
     PATHWAY_REVIEW_INTAKE_COLUMNS,
     build_batch_pathway_review_payload,
     load_pathway_graph_data,
+    load_pathway_categories,
     mark_pathway_rows_resolved,
+    resolve_pathway_queries,
+    export_pathway_resolver_results,
     search_pathways,
     compute_pathway_stats,
     build_pathway_graph_payload,
+    build_cross_entity_summary,
     build_pathway_review_queue,
     export_pathways,
     export_pathway_review_intake_template,
@@ -241,6 +245,7 @@ _drug_resolver_index: str = ""
 _verify_drug_resolver_checksum: bool = False
 _drug_review_file: str = ""
 _pathway_graph_dir: str = ""
+_pathway_categories_file: str = ""
 _pathway_review_file: str = ""
 _pathway_review_lock = threading.Lock()
 DRUG_RESOLVER_MAX_QUERIES = 2000
@@ -8946,12 +8951,13 @@ def pathway_id_qa_stats():
 def pathway_id_qa_search(
     q: str = "",
     source: str = "",
+    category: str = "",
     min_sources: int = 0,
     page: int = 1,
     per_page: int = 50,
 ):
     data = _load_pathway_graph()
-    return search_pathways(data, q=q, source=source, min_sources=min_sources, page=page, per_page=per_page)
+    return search_pathways(data, q=q, source=source, min_sources=min_sources, category=category, page=page, per_page=per_page)
 
 
 @app.get("/pathway-id-qa/api/graph")
@@ -8980,6 +8986,75 @@ def pathway_id_qa_download_filtered(
         io.StringIO(content),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pathway Resolver
+# ---------------------------------------------------------------------------
+
+
+@app.post("/pathway-id-qa/api/resolve")
+async def pathway_id_qa_resolve(request: Request):
+    """Resolve pathway names/IDs to IFXPathway records."""
+    data = _load_pathway_graph()
+    payload = await request.json()
+    queries = payload.get("queries", [])
+    if not isinstance(queries, list):
+        raise HTTPException(status_code=400, detail="queries must be a list of strings")
+    results = resolve_pathway_queries(data, queries[:500])
+    return {"results": results, "total": len(results)}
+
+
+@app.post("/pathway-id-qa/download-resolver-results")
+async def pathway_id_qa_download_resolver_results(
+    request: Request,
+    format: str = "tsv",
+):
+    """Download resolver results as TSV/CSV."""
+    data = _load_pathway_graph()
+    form = await request.form()
+    raw_queries = str(form.get("queries", ""))
+    queries = [q.strip() for q in raw_queries.split("\n") if q.strip()]
+    results = resolve_pathway_queries(data, queries[:500])
+    fmt = "csv" if format == "csv" else "tsv"
+    content = export_pathway_resolver_results(results, fmt=fmt)
+    media_type = "text/csv" if fmt == "csv" else "text/tab-separated-values"
+    filename = f"pathway_resolver_results.{fmt}"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pathway Cross-Entity Links
+# ---------------------------------------------------------------------------
+
+
+@app.get("/pathway-id-qa/api/cross-links")
+def pathway_id_qa_cross_links(pathway_id: str = ""):
+    """Return disease and drug connections for a pathway via its gene members."""
+    data = _load_pathway_graph()
+    # Try to get other entity data if loaded
+    disease_data = None
+    drug_data = None
+    try:
+        if _disease_graph_dir:
+            disease_data = load_disease_graph_data(_disease_graph_dir)
+    except Exception:
+        pass
+    try:
+        if _drug_graph_dir:
+            from src.qa_browser.drug_id_graph import load_drug_graph_data
+            drug_data = load_drug_graph_data(_drug_graph_dir)
+    except Exception:
+        pass
+    return build_cross_entity_summary(
+        data, pathway_id,
+        disease_data=disease_data,
+        drug_data=drug_data,
     )
 
 
@@ -9047,9 +9122,12 @@ def _discover_pathway_versions() -> list[dict]:
                     manifest = json.load(fh)
                 except (json.JSONDecodeError, ValueError):
                     continue
-            version = _normalize_pathway_version(
-                manifest.get("version", "") or directory_name
-            )
+            # The enclosing vX.Y.Z directory is the release identity. Older
+            # pathway packages incorrectly wrote a fixed app-schema version
+            # (0.1.0) into every manifest, so the directory must take priority.
+            version = _normalize_pathway_version(directory_name)
+            if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                version = _normalize_pathway_version(manifest.get("version", ""))
             if not version:
                 continue
             resolved = graph_child.resolve()
@@ -9134,18 +9212,21 @@ def pathway_id_qa_version_diff(
     if to_dir is None:
         raise HTTPException(status_code=404, detail=f"Pathway graph version not found: {to_version}")
 
-    # Check for precomputed diff JSON
-    for candidate in [
-        to_dir / f"version_diff_from_v{from_version}.json",
-        to_dir.parent / f"v{to_version}" / f"version_diff_from_v{from_version}.json",
-    ]:
-        if candidate.exists():
-            with open(candidate, encoding="utf-8") as fh:
-                return json.load(fh)
-
+    # Prefer the versioned release artifact owned by the harmonizer. Dynamic
+    # computation remains a compatibility fallback for older packages.
+    precomputed = to_dir / f"version_diff_from_v{from_version}.json"
+    if precomputed.is_file():
+        try:
+            payload = json.loads(precomputed.read_text(encoding="utf-8"))
+            if payload.get("diff_schema_version") == "1.0" and payload.get("summary"):
+                return payload
+        except (OSError, json.JSONDecodeError):
+            pass
     baseline = load_pathway_version_data(from_dir)
     current = _load_pathway_graph() if to_dir.resolve() == Path(_pathway_graph_dir).resolve() else load_pathway_version_data(to_dir)
-    return compute_pathway_version_diff(current, baseline)
+    diff = compute_pathway_version_diff(current, baseline)
+    diff["computed_fallback"] = True
+    return diff
 
 
 # ---------------------------------------------------------------------------
@@ -13178,12 +13259,15 @@ def main():
     parser.add_argument("--pathway-graph-dir",
                         default="",
                         help="Path to pathway app_graph/ directory (pathway_nodes.tsv + manifest.json)")
+    parser.add_argument("--pathway-categories-file",
+                        default="",
+                        help="Path to bioplanet_categories.csv for functional category annotations")
     parser.add_argument("--pathway-review-file",
                         default="",
                         help="Path to IFX Harmonizers-compatible pathway review intake TSV written by the Review tab")
     args = parser.parse_args()
 
-    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_resolver_index, _verify_drug_resolver_checksum, _drug_review_file, _pathway_graph_dir, _pathway_review_file
+    global _credentials, _mysql_credentials, _mysql_sources, _minio_credentials, _object_storage_credentials, _parquet_storage_credentials, _disease_graph_dir, _disease_review_file, _baseline_graph_dir, _target_graph_dir, _target_qc_dir, _variant_graph_dir, _variant_review_file, _drug_graph_dir, _drug_resolver_index, _verify_drug_resolver_checksum, _drug_review_file, _pathway_graph_dir, _pathway_categories_file, _pathway_review_file
     templates.env.globals["root_path"] = args.root_path.rstrip("/")
     cred_path = Path(args.credentials)
     if cred_path.exists():
@@ -13343,6 +13427,14 @@ def main():
             print(f"Auto-detected bundled pathway data: {_pathway_graph_dir}")
     if _pathway_graph_dir:
         print(f"Pathway graph dir: {_pathway_graph_dir}")
+    _pathway_categories_file = args.pathway_categories_file
+    if _pathway_graph_dir and _pathway_categories_file:
+        try:
+            data = load_pathway_graph_data(_pathway_graph_dir)
+            load_pathway_categories(_pathway_categories_file, data)
+            print(f"Loaded pathway categories: {len(data.categories_by_pathway)} pathways mapped")
+        except Exception as exc:
+            print(f"Warning: could not load pathway categories: {exc}")
     _pathway_review_file = args.pathway_review_file
     if _resolved_pathway_review_file():
         print(f"Pathway review intake file: {_resolved_pathway_review_file()}")

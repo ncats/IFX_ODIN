@@ -22,6 +22,7 @@
     <nav class="variant-tabs">
         <button class="variant-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
         <button class="variant-tab-btn" data-tab="concepts" type="button">Search</button>
+        <button class="variant-tab-btn" data-tab="resolver" type="button">Resolver</button>
         <button class="variant-tab-btn nerd-only" data-tab="review" type="button">Review</button>
         <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="variant-tab-btn" data-tab="download" type="button">Export</button>
@@ -36,19 +37,35 @@
         <div class="dash-hero pathway-dash-hero">
             <div class="dash-card">
                 <div class="dash-stat" id="pathwayDashTotal">-</div>
-                <div class="dash-label">Total Pathways</div>
+                <div class="dash-label">Total Pathways
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain total pathways" aria-expanded="false" aria-controls="pathwayTotalHelp">?</button></div>
+                <div class="chart-legend" id="pathwayTotalHelp">
+                    <p>Unique pathway concepts after cross-source deduplication. Each IFXPathway record consolidates identical/near-identical pathways found in Reactome, WikiPathways, PANTHER, BioPlanet, and PathwayCommons.</p>
+                </div>
             </div>
             <div class="dash-card">
                 <div class="dash-stat" id="pathwayDashEdges">-</div>
-                <div class="dash-label">Gene-member Edges</div>
+                <div class="dash-label">Gene-member Edges
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain gene-member edges" aria-expanded="false" aria-controls="pathwayEdgesHelp">?</button></div>
+                <div class="chart-legend" id="pathwayEdgesHelp">
+                    <p>Pathway-to-gene associations resolved through the target harmonizer crosswalk. Each edge connects an IFXPathway to an IFXGene with full provenance.</p>
+                </div>
             </div>
             <div class="dash-card">
                 <div class="dash-stat" id="pathwayDashMultiSource">-</div>
-                <div class="dash-label">Multi-source Pathways</div>
+                <div class="dash-label">Multi-source Pathways
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain multi-source pathways" aria-expanded="false" aria-controls="pathwayMultiSourceHelp">?</button></div>
+                <div class="chart-legend" id="pathwayMultiSourceHelp">
+                    <p>Pathways identified in 2+ independent databases. Higher multi-source rates indicate stronger cross-database harmonization.</p>
+                </div>
             </div>
             <div class="dash-card">
                 <div class="dash-stat" id="pathwayDashSources">-</div>
-                <div class="dash-label">Source Streams</div>
+                <div class="dash-label">Harmonization Sources
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain source streams" aria-expanded="false" aria-controls="pathwaySourcesHelp">?</button></div>
+                <div class="chart-legend" id="pathwaySourcesHelp">
+                    <p>Number of pathway content sources used to form harmonized pathway nodes. Enrichment and identifier-normalization inputs are listed separately below.</p>
+                </div>
             </div>
         </div>
 
@@ -57,40 +74,73 @@
                 <span class="dash-version-label">Pipeline</span>
                 <span class="dash-version-value mono">{{ pathway_version_display }}</span>
             </div>
-            <div class="dash-source-tags" id="pathwaySourceTags">
-                <span class="dash-version-label">Source Versions:</span>
-            </div>
         </div>
 
         <section class="dash-chart-panel pathway-source-catalog-panel">
-            <h3>Source Versions</h3>
+            <h3>Inputs and Versions
+                <button class="chart-legend-toggle" type="button" aria-label="Explain source versions" aria-expanded="false" aria-controls="pathwaySourceVersionsHelp">?</button></h3>
+            <div class="chart-legend" id="pathwaySourceVersionsHelp">
+                <p>Inputs used by this release and their roles. “Reused cached file” means the remote data were unchanged and the existing local download was used; it does not mean the source was omitted. Record counts are distinct pathway definitions for content sources and normalized concepts for NodeNorm.</p>
+            </div>
             <div id="pathwaySourceCatalog"></div>
         </section>
 
         <div class="dash-charts pathway-dash-charts">
             <section class="dash-chart-panel">
-                <h3>Source Coverage</h3>
+                <h3>Source Coverage
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain source coverage" aria-expanded="false" aria-controls="pathwaySourceCoverageHelp">?</button></h3>
+                <div class="chart-legend" id="pathwaySourceCoverageHelp">
+                    <p>Number of IFXPathway records contributed by each source. A pathway may appear in multiple sources.</p>
+                </div>
                 <div class="bar-chart" id="pathwaySourceBars"></div>
             </section>
             <section class="dash-chart-panel">
-                <h3>Source Count Distribution</h3>
+                <h3>Source Count Distribution
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain source count distribution" aria-expanded="false" aria-controls="pathwaySourceCountHelp">?</button></h3>
+                <div class="chart-legend" id="pathwaySourceCountHelp">
+                    <p>How many sources contributed to each pathway. '1' means single-source (no cross-source match found).</p>
+                </div>
                 <div class="bar-chart" id="pathwaySourceCountBars"></div>
             </section>
             <section class="dash-chart-panel">
-                <h3>Similarity Score Distribution</h3>
+                <h3>Similarity Score Distribution
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain similarity score distribution" aria-expanded="false" aria-controls="pathwaySimilarityHelp">?</button></h3>
+                <div class="chart-legend" id="pathwaySimilarityHelp">
+                    <p>Jaccard similarity of gene member sets between merged source records. 0 = single-source, 1.0 = identical gene sets.</p>
+                </div>
                 <div class="bar-chart" id="pathwaySimilarityBars"></div>
             </section>
             <section class="dash-chart-panel">
-                <h3>Gene Member Distribution</h3>
+                <h3>Gene Member Distribution
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain gene member distribution" aria-expanded="false" aria-controls="pathwayGeneMemberHelp">?</button></h3>
+                <div class="chart-legend" id="pathwayGeneMemberHelp">
+                    <p>Number of gene participants per pathway. '0' means no gene edges were resolved through the crosswalk.</p>
+                </div>
                 <div class="bar-chart" id="pathwayGeneMemberBars"></div>
             </section>
             <section class="dash-chart-panel">
-                <h3>Edge Evidence Sources</h3>
+                <h3>Edge Evidence Sources
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain edge evidence sources" aria-expanded="false" aria-controls="pathwayEvidenceHelp">?</button></h3>
+                <div class="chart-legend" id="pathwayEvidenceHelp">
+                    <p>Which sources contributed the gene-member edge data.</p>
+                </div>
                 <div class="bar-chart" id="pathwayEvidenceBars"></div>
             </section>
             <section class="dash-chart-panel">
-                <h3>Mapping Status</h3>
+                <h3>Mapping Status
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain mapping status" aria-expanded="false" aria-controls="pathwayMappingHelp">?</button></h3>
+                <div class="chart-legend" id="pathwayMappingHelp">
+                    <p>Whether gene identifiers from source data resolved to known IFXGene/IFXProtein records.</p>
+                </div>
                 <div class="bar-chart" id="pathwayMappingBars"></div>
+            </section>
+            <section class="dash-chart-panel" id="pathwayCategoryChartPanel" style="display:none;">
+                <h3>Functional Categories
+                    <button class="chart-legend-toggle" type="button" aria-label="Explain functional categories" aria-expanded="false" aria-controls="pathwayCategoryHelp">?</button></h3>
+                <div class="chart-legend" id="pathwayCategoryHelp">
+                    <p>BioPlanet functional category assignments. Each pathway may belong to multiple categories. Only pathways with a BioPlanet source ID have categories.</p>
+                </div>
+                <div class="bar-chart" id="pathwayCategoryBars"></div>
             </section>
         </div>
     </section>
@@ -100,6 +150,7 @@
         <div class="variant-filter-row">
             <input id="pathwaySearch" type="search" placeholder="Search pathway name, IFXPathway ID, Reactome, WikiPathway, PANTHER, BioPlanet...">
             <select id="pathwaySourceFilter"><option value="">All sources</option></select>
+            <select id="pathwayCategoryFilter"><option value="">All categories</option></select>
             <select id="pathwayMinSources">
                 <option value="0">Any source count</option>
                 <option value="2">2+ sources</option>
@@ -118,6 +169,7 @@
                         <th>Sources</th>
                         <th>Similarity</th>
                         <th>Genes</th>
+                        <th>Categories</th>
                     </tr>
                 </thead>
                 <tbody id="pathwayRows"></tbody>
@@ -127,6 +179,53 @@
             <button class="btn" id="pathwayPrevPage" type="button">Prev</button>
             <span id="pathwayPageLabel"></span>
             <button class="btn" id="pathwayNextPage" type="button">Next</button>
+        </div>
+    </section>
+
+    <!-- Resolver -->
+    <section class="variant-tab-panel" data-panel="resolver">
+        <div class="api-resolver-panel" style="margin-bottom:1.5rem;">
+            <div class="api-resolver-head">
+                <h3 style="margin:0;font-size:1.1rem;">Pathway Resolver</h3>
+                <span style="font-size:0.78rem;color:var(--text-muted);">
+                    Resolve pathway names, IDs, and identifiers to IFXPathway records
+                </span>
+            </div>
+            <div class="resolver-guide">
+                <div class="resolver-guide-block">
+                    <h4>Supported inputs</h4>
+                    <p>IFXPathway IDs, Reactome IDs (R-HSA-...), WikiPathway IDs (WP...), PANTHER IDs (P00000), BioPlanet IDs (bioplanet_...), or pathway names (partial match supported).</p>
+                </div>
+            </div>
+            <textarea id="pathwayResolverInput" class="api-resolver-input" rows="5"
+                placeholder="Enter pathway names or IDs, one per line...&#10;R-HSA-1640170&#10;WP561&#10;cell cycle&#10;apoptosis"></textarea>
+            <div style="display:flex;gap:0.5rem;margin:0.75rem 0;">
+                <button id="pathwayResolverRunBtn" class="btn btn-primary" type="button">Resolve</button>
+            </div>
+            <div id="pathwayResolverStatus" class="api-resolver-status" style="min-height:1.2rem;"></div>
+        </div>
+        <div id="pathwayResolverExportRow" style="display:none;margin-bottom:0.75rem;gap:0.5rem;align-items:center;">
+            <select id="pathwayResolverExportFormat" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+                <option value="tsv">TSV</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+            </select>
+            <button id="pathwayResolverExportBtn" class="btn btn-sm" type="button">Export Results</button>
+        </div>
+        <div class="variant-table-wrap">
+            <table class="variant-table" id="pathwayResolverTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Query</th>
+                        <th>Status</th>
+                        <th>IFXPathway ID</th>
+                        <th>Name</th>
+                        <th>Source IDs</th>
+                        <th>Match Type</th>
+                    </tr>
+                </thead>
+                <tbody id="pathwayResolverRows"></tbody>
+            </table>
         </div>
     </section>
 
@@ -221,14 +320,15 @@
 
     <!-- Versions -->
     <section class="variant-tab-panel" data-panel="changes">
+        <p class="changes-intro">Compare two pipeline releases to see what changed. The diff reports observed changes; it does not infer their cause.</p>
         <div class="changes-controls">
-            <label>From
+            <label>Baseline
                 <select id="pathwayChangesFromVersion" class="filter-select-sm"></select>
             </label>
-            <label>To
+            <label>Current
                 <select id="pathwayChangesToVersion" class="filter-select-sm"></select>
             </label>
-            <button type="button" class="btn btn-sm" id="pathwayChangesCompareBtn">Compare versions</button>
+            <button type="button" class="btn btn-sm" id="pathwayChangesCompareBtn">Compare</button>
         </div>
         <div id="pathwayChangesContent" class="changes-loading">Loading version diff...</div>
     </section>
@@ -246,6 +346,8 @@
             <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/pathway-id-qa/api/review-queue?status=open&amp;scenario=singleton_pathway</span><div class="api-endpoint-desc">Paginated QC review queue with scenario, severity, and status filters.</div></div>
             <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/pathway-id-qa/download-review-template</span><div class="api-endpoint-desc">Download filtered review data as a TSV intake template.</div></div>
             <div class="api-endpoint"><span class="api-endpoint-method">POST</span><span class="api-endpoint-path">/pathway-id-qa/api/review-decisions</span><div class="api-endpoint-desc">Save review decisions to the pathway review-intake TSV.</div></div>
+            <div class="api-endpoint"><span class="api-endpoint-method">POST</span><span class="api-endpoint-path">/pathway-id-qa/api/resolve</span><div class="api-endpoint-desc">Resolve pathway names/IDs to IFXPathway records. Body: {"queries": ["cell cycle", "R-HSA-1640170"]}.</div></div>
+            <div class="api-endpoint"><span class="api-endpoint-method">GET</span><span class="api-endpoint-path">/pathway-id-qa/api/cross-links?pathway_id=IFXPathway:XXX</span><div class="api-endpoint-desc">Disease and drug connections for a pathway via its gene members.</div></div>
         </div>
     </section>
 </div>
@@ -320,14 +422,52 @@ function pathwaySourceIds(row) {
     const ids = [];
     if (row.reactome_id) ids.push(`<a href="https://reactome.org/content/detail/${encodeURIComponent(row.reactome_id)}" target="_blank" rel="noopener">${escapeHtml(row.reactome_id)}</a>`);
     if (row.wikipathway_id) ids.push(`<a href="https://www.wikipathways.org/pathways/${encodeURIComponent(row.wikipathway_id)}" target="_blank" rel="noopener">${escapeHtml(row.wikipathway_id)}</a>`);
-    if (row.panther_id) ids.push(escapeHtml(row.panther_id));
-    if (row.bioplanet_id) ids.push(escapeHtml(row.bioplanet_id));
+    if (row.panther_id) ids.push(`<a href="https://www.pantherdb.org/pathway/pathwayDiagram.jsp?catAccession=${encodeURIComponent(row.panther_id)}" target="_blank" rel="noopener">${escapeHtml(row.panther_id)}</a>`);
+    if (row.bioplanet_id) ids.push(`<a href="https://tripod.nih.gov/bioplanet/#/pathway/${encodeURIComponent(row.bioplanet_id)}" target="_blank" rel="noopener">${escapeHtml(row.bioplanet_id)}</a>`);
     return ids.join(" · ") || "—";
 }
 
 function renderSourceCatalog(rows) {
     if (!rows.length) return "<p class='variant-muted'>No source catalog yet.</p>";
-    return `<table class="variant-table variant-source-table"><thead><tr><th>Source</th><th>Version</th><th>Status</th><th>Downloaded</th><th>Transformed</th><th>Records</th></tr></thead><tbody>${rows.map(row => `<tr><td>${pathwaySourceBadge(row.name || row.source_name)}</td><td>${escapeHtml(row.version || row.source_version)}</td><td>${escapeHtml(row.download_status || row.dl_status || "")}</td><td>${escapeHtml(row.odin_download_date || row.dl_timestamp || "")}</td><td>${escapeHtml(row.odin_transform_date || row.tf_timestamp || "")}</td><td>${escapeHtml(row.transform_records ? fmt(row.transform_records) : (row.tf_records || ""))}</td></tr>`).join("")}</tbody></table>`;
+    function fmtDate(d) {
+        if (!d) return "\u2014";
+        return escapeHtml(String(d).slice(0, 10));
+    }
+    function fmtStatus(s) {
+        if (!s || s === "not captured") return "\u2014";
+        const label = s === "skipped" ? "Reused cached file" : s;
+        const cls = s === "updated" ? "status-updated" : (s === "skipped" ? "status-skipped" : "");
+        return `<span class="${cls}" title="Raw pipeline status: ${escapeHtml(s)}">${escapeHtml(label)}</span>`;
+    }
+    function fmtRecords(row) {
+        const n = row.transform_records || row.tf_records;
+        if (!n || n === "0" || n === 0) return "\u2014";
+        return typeof n === "number" ? n.toLocaleString() : escapeHtml(String(n));
+    }
+    function fmtVersion(row) {
+        const v = row.version || row.source_version || "";
+        const url = row.url || row.dl_url || "";
+        if (!v || v === "not captured") return "\u2014";
+        if (url && /^https?:\/\//i.test(url)) {
+            const source = row.name || row.source_name || "Source";
+            return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" aria-label="${escapeHtml(source)} ${escapeHtml(v)} source page (opens in a new tab)">${escapeHtml(v)} <span aria-hidden="true">↗</span></a>`;
+        }
+        return escapeHtml(v);
+    }
+    let html = `<div class="changes-table-scroll"><table class="variant-table variant-source-table"><caption class="sr-only">Pathway harmonizer inputs and versions</caption><thead><tr><th scope="col">Input</th><th scope="col">Role</th><th scope="col">Version</th><th scope="col">Download</th><th scope="col">Downloaded</th><th scope="col">Transformed</th><th scope="col">Records</th></tr></thead><tbody>`;
+    rows.forEach(row => {
+        html += `<tr>`;
+        html += `<td>${pathwaySourceBadge(row.name || row.source_name)}</td>`;
+        html += `<td>${escapeHtml(row.source_role || "Source")}</td>`;
+        html += `<td>${fmtVersion(row)}</td>`;
+        html += `<td>${fmtStatus(row.download_status || row.dl_status)}</td>`;
+        html += `<td>${fmtDate(row.odin_download_date || row.dl_timestamp)}</td>`;
+        html += `<td>${fmtDate(row.odin_transform_date || row.tf_timestamp)}</td>`;
+        html += `<td style="text-align:right">${fmtRecords(row)}</td>`;
+        html += `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    return html;
 }
 
 async function loadPathwayStats() {
@@ -340,10 +480,9 @@ async function loadPathwayStats() {
         document.getElementById("pathwayDashTotal").textContent = fmt(stats.total_pathways);
         document.getElementById("pathwayDashEdges").textContent = fmt(stats.total_edges);
         document.getElementById("pathwayDashMultiSource").textContent = `${fmt(stats.multi_source_count)} (${stats.multi_source_percent.toFixed(1)}%)`;
-        document.getElementById("pathwayDashSources").textContent = fmt((stats.source_versions || []).length || Object.keys(stats.source_counts || {}).length);
+        const contentSources = (stats.source_versions || []).filter(row => !row.source_role || row.source_role === "harmonization source");
+        document.getElementById("pathwayDashSources").textContent = fmt(contentSources.length || Object.keys(stats.source_counts || {}).length);
         const sourceVersions = stats.source_versions || [];
-        const tags = sourceVersions.map(row => `<span class="dash-source-tag">${pathwaySourceBadge(row.name)} <span class="dash-source-tag-detail"><b>${escapeHtml(row.version)}</b></span></span>`).join("");
-        document.getElementById("pathwaySourceTags").innerHTML = `<span class="dash-version-label">Source Versions:</span>${tags || "<span class='variant-muted'>No source catalog</span>"}`;
         document.getElementById("pathwaySourceCatalog").innerHTML = renderSourceCatalog(sourceVersions);
         renderBars(document.getElementById("pathwaySourceBars"), stats.source_counts, stats.total_pathways);
         renderBars(document.getElementById("pathwaySourceCountBars"), stats.source_count_distribution, stats.total_pathways);
@@ -351,9 +490,16 @@ async function loadPathwayStats() {
         renderBars(document.getElementById("pathwayGeneMemberBars"), stats.gene_member_distribution, stats.total_pathways);
         renderBars(document.getElementById("pathwayEvidenceBars"), stats.evidence_source_counts, stats.total_edges);
         renderBars(document.getElementById("pathwayMappingBars"), stats.mapping_status_counts, stats.total_edges);
+        const catCounts = stats.category_counts || {};
+        if (Object.keys(catCounts).length) {
+            document.getElementById("pathwayCategoryChartPanel").style.display = "";
+            renderBars(document.getElementById("pathwayCategoryBars"), catCounts);
+        }
         const sourceOptions = Object.keys(stats.source_counts || {}).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         document.getElementById("pathwaySourceFilter").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
         document.getElementById("pathwayDownloadSource").innerHTML = `<option value="">All sources</option>${sourceOptions}`;
+        const catOptions = Object.keys(catCounts).sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+        document.getElementById("pathwayCategoryFilter").innerHTML = `<option value="">All categories</option>${catOptions}`;
     } catch (err) {
         document.getElementById("pathwayNoData").style.display = "block";
         document.getElementById("pathwayNoData").innerHTML = "Pathway app graph data is not configured yet. Run <code>python src/code/main.py PATHWAYS --all</code>, then launch the QA Browser with <code>--pathway-graph-dir .../pathway_data/v1.0.0/app_graph</code>.";
@@ -365,12 +511,13 @@ async function runPathwaySearch(page = 1) {
     const params = new URLSearchParams({
         q: document.getElementById("pathwaySearch").value,
         source: document.getElementById("pathwaySourceFilter").value,
+        category: document.getElementById("pathwayCategoryFilter").value,
         min_sources: document.getElementById("pathwayMinSources").value,
         page,
         per_page: 50,
     });
     const resp = await fetch(`${rootPath}/pathway-id-qa/api/search?${params}`);
-    if (!resp.ok) { document.getElementById("pathwayRows").innerHTML = `<tr><td colspan="6">Search error: ${resp.status}</td></tr>`; return; }
+    if (!resp.ok) { document.getElementById("pathwayRows").innerHTML = `<tr><td colspan="7">Search error: ${resp.status}</td></tr>`; return; }
     const data = await resp.json();
     pathwayLastPage = data.pages || 0;
     document.getElementById("pathwayRows").innerHTML = data.rows.map(row => `<tr>
@@ -380,7 +527,8 @@ async function runPathwaySearch(page = 1) {
         <td>${(row.source_namespaces || "").split("|").map(s => pathwaySourceBadge(s.trim())).join("")}</td>
         <td>${pathwaySimilarityBadge(row.similarity_score)}</td>
         <td>${escapeHtml(row.gene_member_count || "0")}</td>
-    </tr>`).join("") || `<tr><td colspan="6">No pathways found.</td></tr>`;
+        <td style="font-size:0.75rem;">${(row.categories || []).map(c => `<span class="pathway-source-badge bioplanet" style="margin:0.1rem;">${escapeHtml(c)}</span>`).join("") || ""}</td>
+    </tr>`).join("") || `<tr><td colspan="7">No pathways found.</td></tr>`;
     document.getElementById("pathwayPageLabel").textContent = `Page ${data.page || 1} of ${data.pages || 0} · ${fmt(data.total)} pathways`;
     document.querySelectorAll(".variant-link").forEach(btn => btn.addEventListener("click", () => {
         document.getElementById("pathwayOpenIds").value = btn.dataset.id;
@@ -421,10 +569,50 @@ function renderPathwayDetail(data) {
         let val = escapeHtml(data[k]);
         if (k === "reactome_id" && data[k]) val = `<a href="https://reactome.org/content/detail/${encodeURIComponent(data[k])}" target="_blank">${val}</a>`;
         if (k === "wikipathway_id" && data[k]) val = `<a href="https://www.wikipathways.org/pathways/${encodeURIComponent(data[k])}" target="_blank">${val}</a>`;
+        if (k === "panther_id" && data[k]) val = `<a href="https://www.pantherdb.org/pathway/pathwayDiagram.jsp?catAccession=${encodeURIComponent(data[k])}" target="_blank">${val}</a>`;
+        if (k === "bioplanet_id" && data[k]) val = `<a href="https://tripod.nih.gov/bioplanet/#/pathway/${encodeURIComponent(data[k])}" target="_blank">${val}</a>`;
         html += `<dt>${escapeHtml(k)}</dt><dd>${val}</dd>`;
     });
     html += `</dl>`;
-    document.getElementById("pathwayGraphDetail").innerHTML = html;
+    // Cross-entity links (load async if this is a pathway node)
+    if (data.node_type === "pathway" && data.ncats_pathway_id) {
+        html += `<div id="pathwayCrossLinks" style="margin-top:1rem;"><p class="variant-muted" style="font-size:0.78rem;">Loading cross-entity links...</p></div>`;
+        document.getElementById("pathwayGraphDetail").innerHTML = html;
+        loadPathwayCrossLinks(data.ncats_pathway_id);
+    } else {
+        document.getElementById("pathwayGraphDetail").innerHTML = html;
+    }
+}
+
+async function loadPathwayCrossLinks(pathwayId) {
+    const el = document.getElementById("pathwayCrossLinks");
+    if (!el) return;
+    try {
+        const resp = await fetch(`${rootPath}/pathway-id-qa/api/cross-links?pathway_id=${encodeURIComponent(pathwayId)}`);
+        if (!resp.ok) { el.innerHTML = ""; return; }
+        const links = await resp.json();
+        let html = "";
+        if (links.disease_links && links.disease_links.length) {
+            html += `<h3 style="font-size:0.9rem;margin:0.75rem 0 0.25rem;">Related Diseases</h3><ul style="font-size:0.78rem;margin:0;padding-left:1.2rem;">`;
+            for (const d of links.disease_links.slice(0, 15)) {
+                html += `<li><strong>${escapeHtml(d.name || d.disease_id)}</strong> <span class="variant-muted">(${d.shared_genes} shared genes)</span></li>`;
+            }
+            html += `</ul>`;
+        }
+        if (links.drug_links && links.drug_links.length) {
+            html += `<h3 style="font-size:0.9rem;margin:0.75rem 0 0.25rem;">Related Drugs</h3><ul style="font-size:0.78rem;margin:0;padding-left:1.2rem;">`;
+            for (const d of links.drug_links.slice(0, 15)) {
+                html += `<li><strong>${escapeHtml(d.name || d.drug_id)}</strong> <span class="variant-muted">(via ${escapeHtml(d.target_gene)})</span></li>`;
+            }
+            html += `</ul>`;
+        }
+        if (!html) {
+            html = `<p class="variant-muted" style="font-size:0.78rem;">No cross-entity links found (disease/drug data may not be loaded).</p>`;
+        }
+        el.innerHTML = html;
+    } catch (err) {
+        el.innerHTML = "";
+    }
 }
 
 function setupPathwayColumns() {
@@ -635,12 +823,23 @@ function pathwayPopulateVersionSelect(select, versions, selectedVersion) {
     });
 }
 
-function renderPathwayListTable(title, items, columns) {
+function togglePathwayChangeSection(button) {
+    const section = button.closest(".changes-section");
+    const expanded = section.classList.toggle("expanded");
+    button.setAttribute("aria-expanded", String(expanded));
+}
+
+function renderPathwayListTable(title, items, columns, description, truncation) {
     if (!items || items.length === 0) return "";
-    let html = `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
-    html += `<h3>${escapeHtml(title)} (${items.length})</h3>`;
-    html += `<div class="changes-section-body"><table class="changes-table"><thead><tr>`;
-    columns.forEach(([_key, label]) => { html += `<th>${escapeHtml(label)}</th>`; });
+    const shown = truncation?.shown ?? items.length;
+    const total = truncation?.total ?? items.length;
+    const sectionId = `pathway-change-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const countLabel = shown < total ? `showing ${shown.toLocaleString()} of ${total.toLocaleString()}` : total.toLocaleString();
+    let html = `<section class="changes-section">`;
+    html += `<h3><button type="button" class="changes-section-toggle" aria-expanded="false" aria-controls="${sectionId}" onclick="togglePathwayChangeSection(this)">${escapeHtml(title)} <span class="variant-muted">(${countLabel})</span></button></h3>`;
+    if (description) html += `<p class="changes-section-desc">${description}</p>`;
+    html += `<div class="changes-section-body" id="${sectionId}"><table class="changes-table"><caption class="sr-only">${escapeHtml(title)}</caption><thead><tr>`;
+    columns.forEach(([_key, label]) => { html += `<th scope="col">${escapeHtml(label)}</th>`; });
     html += `</tr></thead><tbody>`;
     items.forEach(item => {
         html += `<tr>`;
@@ -650,44 +849,88 @@ function renderPathwayListTable(title, items, columns) {
         });
         html += `</tr>`;
     });
-    html += `</tbody></table></div></div>`;
+    html += `</tbody></table></div></section>`;
     return html;
 }
 
 function renderPathwayVersionDiff(diff) {
     const s = diff.summary;
-    let html = `<div class="changes-version-label">Comparing ${escapeHtml(pathwayDisplayVersion(diff.baseline_version))} &rarr; ${escapeHtml(pathwayDisplayVersion(diff.current_version))}</div>`;
+    const fromV = escapeHtml(pathwayDisplayVersion(diff.baseline_version));
+    const toV = escapeHtml(pathwayDisplayVersion(diff.current_version));
+
+    let html = `<div class="changes-version-label">${fromV} &rarr; ${toV}</div>`;
+
+    /* ---- Plain-language summary ---- */
+    const parts = [];
+    const netPathways = (s.pathways_added || 0) - (s.pathways_removed || 0);
+    if (netPathways > 0) parts.push(`${netPathways.toLocaleString()} new pathways (net)`);
+    else if (netPathways < 0) parts.push(`${Math.abs(netPathways).toLocaleString()} fewer pathways (net)`);
+    else if (s.pathways_added) parts.push(`pathways reshuffled (${s.pathways_added.toLocaleString()} added, ${s.pathways_removed.toLocaleString()} removed)`);
+    else parts.push("no change in pathway count");
+
+    const netEdges = (s.edges_added || 0) - (s.edges_removed || 0);
+    if (netEdges > 0) parts.push(`${netEdges.toLocaleString()} new gene-member edges (net)`);
+    else if (netEdges < 0) parts.push(`${Math.abs(netEdges).toLocaleString()} fewer gene-member edges (net)`);
+    else if (s.edges_added) parts.push(`edges reshuffled (${s.edges_added.toLocaleString()} added, ${s.edges_removed.toLocaleString()} removed)`);
+
+    if (s.name_changes) parts.push(`${s.name_changes.toLocaleString()} pathway names updated`);
+    if (s.source_namespace_changes) parts.push(`${s.source_namespace_changes.toLocaleString()} pathways changed source membership`);
+    if (s.source_version_changes) parts.push(`${s.source_version_changes} upstream source version${s.source_version_changes > 1 ? "s" : ""} changed`);
+    if (s.edge_evidence_changes) parts.push(`${s.edge_evidence_changes.toLocaleString()} retained memberships changed supporting-source evidence`);
+
+    html += `<p class="changes-prose">${parts.join("; ")}.</p>`;
+
+    /* ---- KPI cards ---- */
     html += `<div class="changes-summary">`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.pathways_added.toLocaleString()}</div><div class="dash-label">Pathways Added</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.pathways_removed.toLocaleString()}</div><div class="dash-label">Pathways Removed</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${(s.name_changes || 0).toLocaleString()}</div><div class="dash-label">Name Changes</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${(s.pathways_old || 0).toLocaleString()} &rarr; ${(s.pathways_new || 0).toLocaleString()}</div><div class="dash-label">Total Pathways</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${(s.edges_old || 0).toLocaleString()} &rarr; ${(s.edges_new || 0).toLocaleString()}</div><div class="dash-label">Gene-Member Edges</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat" style="color:var(--green,#2a7)">${s.pathways_added.toLocaleString()}</div><div class="dash-label">Pathways Added</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat" style="color:var(--red,#c55)">${s.pathways_removed.toLocaleString()}</div><div class="dash-label">Pathways Removed</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat" style="color:var(--green,#2a7)">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat" style="color:var(--red,#c55)">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
     html += `</div>`;
 
+    /* ---- Source version changes ---- */
     if (diff.source_version_changes && diff.source_version_changes.length) {
-        html += `<div class="changes-section expanded"><h3>Source Version Changes</h3><div class="changes-section-body"><table class="changes-table"><thead><tr><th>Source</th><th>From</th><th>To</th></tr></thead><tbody>`;
-        diff.source_version_changes.forEach(row => { html += `<tr><td>${escapeHtml(row.source_name)}</td><td>${escapeHtml(row.old_source_version)}</td><td>${escapeHtml(row.new_source_version)}</td></tr>`; });
-        html += `</tbody></table></div></div>`;
+        html += `<section class="changes-section expanded"><h3>Input Version Differences</h3>`;
+        html += `<p class="changes-section-desc">The recorded input version differs between the two releases.</p>`;
+        html += `<div class="changes-section-body"><table class="changes-table"><caption class="sr-only">Input version differences</caption><thead><tr><th scope="col">Input</th><th scope="col">Previous Version</th><th scope="col">Current Version</th></tr></thead><tbody>`;
+        diff.source_version_changes.forEach(row => { html += `<tr><td>${pathwaySourceBadge(row.source_name)}</td><td>${escapeHtml(row.old_source_version || "\u2014")}</td><td>${escapeHtml(row.new_source_version || "\u2014")}</td></tr>`; });
+        html += `</tbody></table></div></section>`;
+    } else {
+        html += `<p class="variant-muted" style="margin:0.5rem 0">All upstream source versions are unchanged between these releases.</p>`;
     }
 
-    html += renderPathwayListTable("Added Pathways", diff.added_pathways, [
-        ["ncats_pathway_id", "Pathway ID"], ["consolidated_pathway_name", "Name"],
-        ["source_namespaces", "Sources"], ["source_count", "Source Count"], ["similarity_score", "Similarity"],
-    ]);
+    /* ---- Detail tables ---- */
+    html += renderPathwayListTable("New Pathways", diff.added_pathways, [
+        ["ncats_pathway_id", "ID"], ["consolidated_pathway_name", "Pathway Name"],
+        ["source_namespaces", "Found In"], ["source_count", "# Sources"], ["similarity_score", "Similarity"],
+    ], "Pathways present in the current release but not in the baseline. Review source membership and harmonization evidence to determine why.", diff.truncation?.added_pathways);
+
     html += renderPathwayListTable("Removed Pathways", diff.removed_pathways, [
-        ["ncats_pathway_id", "Pathway ID"], ["consolidated_pathway_name", "Name"],
-        ["source_namespaces", "Sources"], ["source_count", "Source Count"], ["similarity_score", "Similarity"],
-    ]);
-    html += renderPathwayListTable("Name Changes", diff.name_changes, [
-        ["ncats_pathway_id", "Pathway ID"], ["old_value", "Old Name"], ["new_value", "New Name"],
-    ]);
-    html += renderPathwayListTable("Source Namespace Changes", diff.source_namespace_changes, [
-        ["ncats_pathway_id", "Pathway ID"], ["consolidated_pathway_name", "Name"], ["old_value", "Old Sources"], ["new_value", "New Sources"],
-    ]);
-    html += renderPathwayListTable("Similarity Score Changes", diff.similarity_changes, [
-        ["ncats_pathway_id", "Pathway ID"], ["consolidated_pathway_name", "Name"], ["old_value", "Old Score"], ["new_value", "New Score"],
-    ]);
+        ["ncats_pathway_id", "ID"], ["consolidated_pathway_name", "Pathway Name"],
+        ["source_namespaces", "Was In"], ["source_count", "# Sources"], ["similarity_score", "Similarity"],
+    ], "Pathways present in the baseline but not in the current release. The diff alone does not establish why they were removed.", diff.truncation?.removed_pathways);
+
+    html += renderPathwayListTable("Renamed Pathways", diff.name_changes, [
+        ["ncats_pathway_id", "ID"], ["old_value", "Previous Name"], ["new_value", "Current Name"],
+    ], "Pathways whose preferred display name differs between releases. This can reflect input data or harmonization policy changes.", diff.truncation?.name_changes);
+
+    html += renderPathwayListTable("Cross-Source Matching Changes", diff.source_namespace_changes, [
+        ["ncats_pathway_id", "ID"], ["consolidated_pathway_name", "Pathway"],
+        ["old_value", "Previously Matched In"], ["new_value", "Now Matched In"],
+    ], "Pathways where the set of contributing harmonization sources changed, including either additions or removals.", diff.truncation?.source_namespace_changes);
+
+    html += renderPathwayListTable("Pathway Name Similarity Changes", diff.similarity_changes, [
+        ["ncats_pathway_id", "ID"], ["consolidated_pathway_name", "Pathway"],
+        ["old_value", "Previous Score"], ["new_value", "Current Score"],
+    ], "Pathways whose average name-embedding cosine similarity changed (0 = less similar, 1 = identical embedding direction).", diff.truncation?.similarity_changes);
+
+    html += renderPathwayListTable("Membership Evidence Changes", diff.edge_evidence_changes, [
+        ["source_id", "Pathway ID"], ["target_id", "Gene ID"],
+        ["old_value", "Previous Supporting Sources"], ["new_value", "Current Supporting Sources"],
+    ], "Pathway-gene memberships retained in both releases whose supporting source set changed.", diff.truncation?.edge_evidence_changes);
+
     return html;
 }
 
@@ -732,5 +975,98 @@ function loadPathwayChangesTab() {
             container.innerHTML = `<div class="changes-unavailable">${escapeHtml(err.message)}</div>`;
         });
 }
+
+/* == Pathway Resolver == */
+let pathwayResolverResults = null;
+async function loadPathwayResolver() {
+    const raw = document.getElementById("pathwayResolverInput").value.trim();
+    if (!raw) return;
+    const queries = raw.split("\n").map(l => l.trim()).filter(Boolean);
+    document.getElementById("pathwayResolverStatus").textContent = `Resolving ${queries.length} queries...`;
+    try {
+        const resp = await fetch(`${rootPath}/pathway-id-qa/api/resolve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ queries }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        pathwayResolverResults = data.results || [];
+        const resolved = pathwayResolverResults.filter(r => r.resolved).length;
+        document.getElementById("pathwayResolverStatus").textContent = `${resolved} of ${pathwayResolverResults.length} queries resolved`;
+        document.getElementById("pathwayResolverTable").style.display = "";
+        document.getElementById("pathwayResolverExportRow").style.display = "flex";
+        const tbody = document.getElementById("pathwayResolverRows");
+        let html = "";
+        for (const result of pathwayResolverResults) {
+            if (!result.matches.length) {
+                html += `<tr><td>${escapeHtml(result.query)}</td><td><span class="review-pill" style="background:#ef4444;color:#fff;">not found</span></td><td colspan="4"></td></tr>`;
+            } else {
+                for (const m of result.matches) {
+                    html += `<tr>
+                        <td>${escapeHtml(result.query)}</td>
+                        <td><span class="review-pill" style="background:#22c55e;color:#111;">resolved</span></td>
+                        <td><button class="variant-link" data-id="${escapeHtml(m.ncats_pathway_id)}">${escapeHtml(m.ncats_pathway_id)}</button></td>
+                        <td>${escapeHtml(m.name)}</td>
+                        <td class="mono" style="font-size:0.78rem;">${escapeHtml(m.source_ids)}</td>
+                        <td>${escapeHtml(m.match_type)}</td>
+                    </tr>`;
+                }
+            }
+        }
+        tbody.innerHTML = html || `<tr><td colspan="6">No results</td></tr>`;
+        tbody.querySelectorAll(".variant-link").forEach(btn => btn.addEventListener("click", () => {
+            document.getElementById("pathwayOpenIds").value = btn.dataset.id;
+            setPathwayTab("graph");
+            loadPathwayGraph(btn.dataset.id);
+        }));
+    } catch (err) {
+        document.getElementById("pathwayResolverStatus").textContent = `Error: ${err.message}`;
+    }
+}
+
+function exportPathwayResolverResults() {
+    if (!pathwayResolverResults) return;
+    const fmt = document.getElementById("pathwayResolverExportFormat").value;
+    if (fmt === "json") {
+        const blob = new Blob([JSON.stringify(pathwayResolverResults, null, 2)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `pathway_resolver_results.json`;
+        a.click();
+        return;
+    }
+    const params = new URLSearchParams({ format: fmt });
+    // POST to download endpoint
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = `${rootPath}/pathway-id-qa/download-resolver-results?${params}`;
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "queries";
+    input.value = pathwayResolverResults.map(r => r.query).join("\n");
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+}
+
+document.getElementById("pathwayResolverRunBtn").addEventListener("click", loadPathwayResolver);
+document.getElementById("pathwayResolverExportBtn").addEventListener("click", exportPathwayResolverResults);
+document.getElementById("pathwayResolverInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); loadPathwayResolver(); }
+});
+
+/* == Help tooltip toggles == */
+document.querySelectorAll(".chart-legend-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const targetId = btn.getAttribute("aria-controls");
+        const legend = targetId ? document.getElementById(targetId) : null;
+        if (!legend) return;
+        const expanded = !legend.classList.contains("expanded");
+        legend.classList.toggle("expanded", expanded);
+        btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+});
 </script>
 {% endblock %}
