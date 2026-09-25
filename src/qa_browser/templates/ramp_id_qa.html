@@ -79,7 +79,7 @@
                 <section>
                     <h3>Available Rules</h3>
                     <div class="metabolite-id-rule-list metabolite-id-rule-list-available" data-rule-list="available">
-                        {% for group_label in ["Pruning", "Merging", "Chemistry-based merging", "Cleanup"] %}
+                        {% for group_label in ["Curation", "Pruning", "Merging", "Chemistry-based merging", "Cleanup"] %}
                         <div class="metabolite-id-rule-group">
                             <h4>{{ group_label }}</h4>
                             <div class="metabolite-id-rule-group-list">
@@ -297,6 +297,12 @@
 
     document.addEventListener("metabolite-curation-cart:changed", (event) => {
         setPendingEdgeRemovals(event.detail?.operations || []);
+        if (selectedCliqueCy) {
+            const selectedNode = selectedCliqueCy.nodes(":selected").first();
+            if (selectedNode.length) {
+                renderDetails(selectedCliqueCy.container(), selectedNode.data(), false);
+            }
+        }
     });
     setPendingEdgeRemovals(window.metaboliteCurationCartOperations || []);
 
@@ -944,7 +950,13 @@
                 snapshotGraph.is_singleton_bucket ? "Single ID" : snapshotGraph.clique_key,
             ];
             if (snapshotGraph.display_truncated) {
-                parts.push(`showing first ${Number(snapshotGraph.display_member_count || 0).toLocaleString()}`);
+                const centers = snapshotGraph.display_center_ids || [];
+                const centeredOn = centers.length ? ` centered on ${centers.join(", ")}` : "";
+                parts.push(`showing ${Number(snapshotGraph.display_member_count || 0).toLocaleString()}${centeredOn}`);
+                parts.push(`representative subset of all ${Number(snapshotGraph.clique_size || 0).toLocaleString()} members`);
+            }
+            if (snapshotGraph.edge_display_truncated) {
+                parts.push(`showing ${Number(snapshotGraph.display_edge_count || 0).toLocaleString()} evidence edges`);
             }
             subtitle.textContent = parts.filter(Boolean).join(" · ");
         }
@@ -1178,7 +1190,7 @@
         const preset = form.querySelector(".metabolite-id-rule-preset");
         if (builder) {
             const rules = JSON.parse(builder.dataset.rules || "[]");
-            const preferredGroupOrder = ["Pruning", "Merging", "Chemistry-based merging", "Cleanup"];
+            const preferredGroupOrder = ["Curation", "Pruning", "Merging", "Chemistry-based merging", "Cleanup"];
             const groupOrder = [
                 ...preferredGroupOrder,
                 ...rules.map((rule) => rule.group || "Other").filter((group, index, groups) => (

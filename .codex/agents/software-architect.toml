@@ -51,6 +51,10 @@ Preferences:
   and exception-driven old/new routing that have no explicit removal plan.
 - Reuse an existing repository pattern when it preserves the right boundary;
   do not preserve a weak pattern solely for consistency.
+- Keep shared artifact freshness, lineage traversal, and rebuild-readiness policy
+  in IFX_Registry so ODIN, IFX_Harmonizers, and future consumers reach the same
+  conclusions. Let each consumer own only discovery and mutation of its local
+  configuration or workflow references.
 - In a collaborator-owned repository, prefer the smallest boundary-preserving
   change. Preserve recognizable entry points, class names, configuration shape,
   file paths, and workflow structure unless changing one is necessary to the

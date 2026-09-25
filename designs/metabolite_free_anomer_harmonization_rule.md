@@ -31,10 +31,6 @@ The rule adds synthetic, auditable `IFX Harmonization Rule` edges to the stage.
 It does not change source structures or overwrite documented or derived
 InChIKeys.
 
-The same RDKit key-generation helper is also used by the
-[carbohydrate family conflict validation](metabolite_carbohydrate_family_validation.md),
-which checks complete stage cliques for incompatible carbohydrate families.
-
 ## Why these forms can be merged
 
 A compound with a free cyclic hemiacetal or hemiketal hydroxyl can open to a

@@ -17,6 +17,8 @@
     const assertionRationale = container.querySelector("[data-assertion-rationale]");
     const assertionAdd = container.querySelector("[data-assertion-add]");
     const identityStorageKey = "metaboliteHarmonizationCurator";
+    const noticeStorageKey = "metaboliteHarmonizationCurationNotice";
+    const startupNotice = sessionStorage.getItem(noticeStorageKey) || "";
     let cart = {operations: [], operation_count: 0};
     let loadTimer = null;
 
@@ -59,18 +61,42 @@
 
     function renderCart() {
         const operations = cart.operations || [];
+        const decisionCount = operations.reduce((count, operation) => count + (
+            operation.action === "set_properties"
+                ? Object.keys(operation.values || {}).length + (operation.remove_overrides || []).length
+                : 1
+        ), 0);
         counts.forEach((count) => {
-            count.textContent = String(operations.length);
+            count.textContent = String(decisionCount);
         });
         publish.disabled = operations.length === 0;
         if (!operations.length) {
-            items.innerHTML = '<p class="metabolite-curation-cart-empty">Your cart is empty. Add an edge decision or expected-clique assertion.</p>';
+            items.innerHTML = '<p class="metabolite-curation-cart-empty">No pending changes. Add an annotation, edge decision, or validation assertion.</p>';
             return;
         }
         items.innerHTML = operations.map((operation) => `
-            <article class="metabolite-curation-cart-item">
+            <article class="metabolite-curation-cart-item" data-curation-type="${escapeHtml(operation.curation_type || "")}">
                 <div>
-                    ${operation.action === "assert_same_clique" ? `
+                    <small>${escapeHtml((operation.curation_type || "curation").replaceAll("_", " "))}</small>
+                    ${operation.action === "set_properties" ? `
+                        <strong>Update properties</strong>
+                        <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
+                        <ul class="metabolite-curation-property-list">
+                            ${Object.entries(operation.values || {}).map(([name, value]) =>
+                                `<li>${escapeHtml(name.replaceAll("_", " "))}: <strong>${value === null ? "set no value" : escapeHtml(String(value))}</strong></li>`
+                            ).join("")}
+                            ${(operation.remove_overrides || []).map((name) =>
+                                `<li>${escapeHtml(name.replaceAll("_", " "))}: <strong>restore graph value</strong></li>`
+                            ).join("")}
+                        </ul>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : ["set_property", "unset_property"].includes(operation.action) ? `
+                        <strong>${operation.action === "unset_property"
+                            ? "Use detected generic-structure status"
+                            : `Mark as ${operation.value ? "generic" : "not generic"}`}</strong>
+                        <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : operation.action === "assert_same_clique" ? `
                         <strong>Expected same clique: ${escapeHtml(operation.name)}</strong>
                         <span class="metabolite-curation-member-ids">${(operation.member_ids || []).map((id) => `<code>${escapeHtml(id)}</code>`).join(" ")}</span>
                         ${operation.rationale ? `<small>${escapeHtml(operation.rationale)}</small>` : ""}
@@ -85,7 +111,7 @@
                         ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
                     `}
                 </div>
-                <button type="button" class="btn" data-curation-remove-id="${escapeHtml(operation.operation_id)}">Remove</button>
+                <button type="button" class="btn" data-curation-remove-id="${escapeHtml(operation.operation_id)}" data-curation-remove-type="${escapeHtml(operation.curation_type || "")}">Remove</button>
             </article>
         `).join("");
     }
@@ -131,9 +157,10 @@
         try {
             const params = new URLSearchParams(identityPayload());
             acceptCart(await api(`/ramp-id-qa/api/curation-cart?${params}`));
-            status.textContent = cart.operations?.length
+            status.textContent = startupNotice || (cart.operations?.length
                 ? "Draft autosaved in S3. It will survive a browser refresh."
-                : "Cart loaded. New curations will be autosaved in S3.";
+                : "Cart loaded. New curations will be autosaved in S3.");
+            if (startupNotice) sessionStorage.removeItem(noticeStorageKey);
         } catch (error) {
             status.textContent = error.message;
         }
@@ -197,6 +224,64 @@
         }
     }
 
+    async function addPropertyDecisions(identifier, values, removeOverrides, note, button) {
+        const pending = (cart.operations || []).find((operation) =>
+            operation.curation_type === "metabolite_annotations"
+            && ["set_properties", "set_property", "unset_property"].includes(operation.action)
+            && operation.target?.id === identifier
+        );
+        if (!Object.keys(values || {}).length && !(removeOverrides || []).length) {
+            if (!pending) {
+                return;
+            }
+            openCart();
+            if (!curatorInput.value.trim()) {
+                status.textContent = "Enter your curator name or email before changing this annotation.";
+                curatorInput.focus();
+                return;
+            }
+            status.textContent = "Removing the pending annotation from your review changes…";
+            if (button) button.disabled = true;
+            try {
+                acceptCart(await api(`/ramp-id-qa/api/curation-cart/items/${encodeURIComponent(pending.operation_id)}`, {
+                    method: "DELETE",
+                    body: JSON.stringify({...identityPayload(), curation_type: pending.curation_type}),
+                }));
+                status.textContent = "Pending annotation removed; the published state is unchanged.";
+            } catch (error) {
+                status.textContent = error.message;
+            } finally {
+                if (button) button.disabled = false;
+            }
+            return;
+        }
+        openCart();
+        if (!curatorInput.value.trim()) {
+            status.textContent = "Enter your curator name or email before adding this annotation.";
+            curatorInput.focus();
+            return;
+        }
+        status.textContent = "Saving property changes to your review changes…";
+        if (button) button.disabled = true;
+        try {
+            acceptCart(await api("/ramp-id-qa/api/curation-cart/items", {
+                method: "POST",
+                body: JSON.stringify({
+                    ...identityPayload(), action: "set_properties", target_id: identifier,
+                    values: values || {}, remove_overrides: removeOverrides || [],
+                    replace_target: true, note: note || "",
+                }),
+            }));
+            status.textContent = "Added and autosaved. This decision is pending until publication.";
+        } catch (error) {
+            status.textContent = error.message;
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    window.addMetabolitePropertyCurations = addPropertyDecisions;
+
     async function addAssertionRetirement(assertionId, button) {
         openCart();
         if (!curatorInput.value.trim()) {
@@ -259,13 +344,72 @@
         status.textContent = "Removing curation from your cart…";
         api(`/ramp-id-qa/api/curation-cart/items/${encodeURIComponent(removeButton.dataset.curationRemoveId)}`, {
             method: "DELETE",
-            body: JSON.stringify(identityPayload()),
+            body: JSON.stringify({...identityPayload(), curation_type: removeButton.dataset.curationRemoveType}),
         }).then((nextCart) => {
             acceptCart(nextCart);
             status.textContent = "Removed and autosaved.";
         }).catch((error) => {
             status.textContent = error.message;
         });
+    });
+
+    document.addEventListener("change", (event) => {
+        const actionSelect = event.target.closest("[data-property-action]");
+        if (!actionSelect) return;
+        const row = actionSelect.closest("[data-curatable-property]");
+        const valueWrap = row?.querySelector("[data-property-value-wrap]");
+        if (valueWrap) valueWrap.classList.toggle("is-hidden", actionSelect.value !== "set");
+    });
+
+    document.addEventListener("submit", (event) => {
+        const form = event.target.closest("[data-metabolite-property-form]");
+        if (!form) return;
+        event.preventDefault();
+        const values = {};
+        const removeOverrides = [];
+        let validationError = "";
+        form.querySelectorAll("[data-curatable-property]").forEach((row) => {
+            const name = row.dataset.propertyName;
+            const type = row.dataset.propertyType;
+            const action = row.querySelector("[data-property-action]")?.value || "no_change";
+            if (action === "no_change" && row.dataset.pendingAction === "set") {
+                values[name] = JSON.parse(row.dataset.pendingValue);
+            } else if (action === "no_change" && row.dataset.pendingAction === "remove_override") {
+                removeOverrides.push(name);
+            } else if (action === "set_null") {
+                values[name] = null;
+            } else if (action === "remove_override") {
+                removeOverrides.push(name);
+            } else if (action === "set") {
+                const rawValue = row.querySelector("[data-property-value]")?.value ?? "";
+                if (["integer", "number"].includes(type) && rawValue.trim() === "") {
+                    validationError = `${name.replaceAll("_", " ")} requires a number.`;
+                    return;
+                }
+                const parsedValue = type === "boolean" ? rawValue === "true"
+                    : type === "integer" ? Number(rawValue)
+                    : type === "number" ? Number(rawValue)
+                    : rawValue;
+                if ((type === "integer" && !Number.isInteger(parsedValue))
+                    || (type === "number" && !Number.isFinite(parsedValue))) {
+                    validationError = `${name.replaceAll("_", " ")} has an invalid value.`;
+                    return;
+                }
+                values[name] = parsedValue;
+            }
+        });
+        if (validationError) {
+            status.textContent = validationError;
+            return;
+        }
+        const submitButton = form.querySelector('button[type="submit"]');
+        addPropertyDecisions(
+            form.dataset.curationTargetId,
+            values,
+            removeOverrides,
+            form.querySelector("[data-property-note]")?.value || "",
+            submitButton,
+        );
     });
 
     document.addEventListener("keydown", (event) => {
@@ -285,6 +429,16 @@
                     description: batchDescription.value.trim(),
                 }),
             });
+            if (result.partial) {
+                const publishedTypes = (result.published || []).map((item) => item.curation_type.replaceAll("_", " ")).join(", ");
+                const remainingTypes = (result.remaining_types || [result.failed_type || "remaining type"])
+                    .map((item) => String(item).replaceAll("_", " ")).join(", ");
+                const message = `Partially published ${publishedTypes}. Still pending: ${remainingTypes}. ${result.error}. Review and retry the remaining changes.`;
+                sessionStorage.setItem(noticeStorageKey, message);
+                document.dispatchEvent(new CustomEvent("metabolite-curations:published", {detail: result}));
+                window.location.reload();
+                return;
+            }
             const identity = identityPayload();
             acceptCart({
                 curator: {id: identity.curator, name: identity.curator_name},
@@ -294,10 +448,13 @@
             batchName.value = "";
             batchDescription.value = "";
             defaultBatchName();
-            const hasGraphChanges = publishedOperations.some((operation) => ["remove_edge", "retain_edge"].includes(operation.action));
+            const hasGraphChanges = publishedOperations.some((operation) => ["remove_edge", "retain_edge", "set_properties", "set_property", "unset_property"].includes(operation.action));
             status.textContent = hasGraphChanges
-                ? `Published ${result.operation_count} item${result.operation_count === 1 ? "" : "s"}. Sync affected pipelines to apply edge decisions.`
+                ? `Published ${result.operation_count} item${result.operation_count === 1 ? "" : "s"} in ${result.batch_count} typed batch${result.batch_count === 1 ? "" : "es"}. Sync affected pipelines to apply them.`
                 : `Published ${result.operation_count} assertion item${result.operation_count === 1 ? "" : "s"}. Validation views now use the new assertion set.`;
+            sessionStorage.setItem(noticeStorageKey, status.textContent);
+            document.dispatchEvent(new CustomEvent("metabolite-curations:published", {detail: result}));
+            setTimeout(() => window.location.reload(), 900);
         } catch (error) {
             status.textContent = error.message;
             renderCart();

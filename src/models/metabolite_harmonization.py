@@ -72,6 +72,8 @@ class MetaboliteChemProps:
 @search(text_fields=["id", "names", "synonyms"])
 class MetaboliteIdentifier(Node):
     prefix: Optional[str] = None
+    # Graph-derived baseline; generic field curations may replace this value.
+    is_generic_structure: Optional[bool] = None
     names: List[MetaboliteName] = field(default_factory=list)
     synonyms: List[MetaboliteName] = field(default_factory=list)
     chem_props: List[MetaboliteChemProps] = field(default_factory=list)

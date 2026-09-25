@@ -2,10 +2,17 @@ import hashlib
 import json
 
 import src.qa_browser.app as qa_app
+from src.core.curations import (
+    METABOLITE_EQUIVALENCE_EDGES,
+    METABOLITE_EXPECTED_CLIQUES,
+    batch_key,
+    manifest_key,
+    payload_sha256,
+)
 from src.qa_browser.app import (
     _build_harmonization_pipeline_tree,
     _build_harmonization_stage_denylist_validation,
-    _build_harmonization_stage_carbohydrate_family_validation,
+    _build_harmonization_stage_generic_structure_validation,
     _build_harmonization_stage_mw_validation,
     _build_harmonization_stage_cart_flags,
     _filter_identifier_support_for_rules,
@@ -24,10 +31,13 @@ from src.qa_browser.app import (
     _metabolite_edge_decision_operation,
     _metabolite_expected_clique_assertion_operation,
     _evaluate_expected_clique_assertions,
+    _effective_inchi_key_matches,
     _expected_clique_assertion_matrix,
     _expected_clique_assertion_edges,
     _newly_failing_expected_clique_assertions,
     _metabolite_mw_spread_percent,
+    _prioritize_kegg_validation_samples,
+    _with_validation_review_ids,
     _annotate_harmonization_pipeline_run_progress,
     _normalize_metabolite_rule_parameters,
     _wikipathways_xref_only_ids_from_rows,
@@ -47,6 +57,27 @@ class _FakeCurationStorage:
         return self.objects[key]
 
 
+def _typed_curation_objects(curation_type, batches):
+    objects = {}
+    manifest_batches = []
+    for batch in batches:
+        key = batch_key(curation_type, batch["curation_batch_id"])
+        objects[key] = json.dumps(batch)
+        manifest_batches.append({
+            "batch_id": batch["curation_batch_id"],
+            "object_key": key,
+            "sha256": payload_sha256(batch),
+            "published_at": batch.get("published_at"),
+        })
+    objects[manifest_key(curation_type)] = json.dumps({
+        "format_version": 2,
+        "curation_type": curation_type,
+        "revision": len(batches),
+        "batches": manifest_batches,
+    })
+    return objects
+
+
 def test_harmonization_rules_have_expected_workbench_groups():
     groups_by_rule = {
         rule["id"]: rule["group"]
@@ -55,9 +86,9 @@ def test_harmonization_rules_have_expected_workbench_groups():
 
     assert groups_by_rule["ignore_generic_structure_mismatch"] == "Pruning"
     assert groups_by_rule["merge_inchikey_by_mw_cutoff"] == "Merging"
-    assert groups_by_rule["merge_derived_inchikey_by_mw_cutoff"] == "Chemistry-based merging"
+    assert "merge_derived_inchikey_by_mw_cutoff" not in groups_by_rule
     assert groups_by_rule["merge_free_anomeric_forms"] == "Chemistry-based merging"
-    assert groups_by_rule["ignore_ramp_mapping_denylist"] == "Cleanup"
+    assert groups_by_rule["apply_curations"] == "Curation"
     assert groups_by_rule["force_expected_clique_assertions"] == "Cleanup"
 
 
@@ -175,19 +206,15 @@ def test_harmonization_pipeline_page_loads_only_requested_pipeline(monkeypatch):
     assert page["overview"]["pipeline_stage_stats"][0]["pipeline_key"] == "pipeline-a"
 
 
-def test_derived_inchikey_iterator_selects_derived_fields():
+def test_inchikey_iterator_uses_derived_only_when_reported_is_unavailable():
     class FakeAql:
-        def execute(self, query, bind_vars=None, **_kwargs):
-            assert "prop[@inchi_key_field]" in query
-            assert "prop[@inchi_key_prefix_field]" in query
-            assert bind_vars == {
-                "inchi_key_field": "derived_inchi_key",
-                "inchi_key_prefix_field": "derived_inchi_key_prefix",
-            }
+        def execute(self, query, **_kwargs):
+            assert '"derived_inchi_key"' in query
             return [{
                 "id": "CHEBI:1",
-                "inchi_keys": ["ABCDEFGHIJKLMN-ABCDEFGHIJ-N"],
-                "prefixes": ["ABCDEFGHIJKLMN"],
+                "chem_props": [{
+                    "derived_inchi_key": "ABCDEFGHIJKLMN-ABCDEFGHIJ-N",
+                }],
                 "masses": ["100"],
             }]
 
@@ -198,34 +225,77 @@ def test_derived_inchikey_iterator_selects_derived_fields():
         FakeDb(),
         "mw_cutoff",
         500,
-        "derived",
     )) == [
-        ("CHEBI:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0),
+        ("CHEBI:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0, True),
     ]
 
 
-def test_derived_inchikey_rule_merges_without_changing_reported_rule(monkeypatch):
-    def fake_matches(_db, mode, mw_cutoff=None, key_kind="reported"):
-        assert mode == "mw_cutoff"
-        assert mw_cutoff == 500
-        if key_kind == "derived":
-            yield "CHEBI:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0
-            yield "HMDB:1", ["ABCDEFGHIJKLMN-ABCDEFGHIJ"], "duplex", 100.0
-
-    monkeypatch.setattr(
-        qa_app,
-        "_iter_metabolite_identifier_inchi_key_matches",
-        fake_matches,
+def test_effective_inchikey_prefers_reported_key_over_conflicting_derived_key():
+    matches, used_fallback = _effective_inchi_key_matches(
+        [{
+            "inchi_key": "AAAAAAAAAAAAAA-BBBBBBBBBB-N",
+            "derived_inchi_key": "CCCCCCCCCCCCCC-DDDDDDDDDD-N",
+        }],
+        "duplex",
     )
 
-    reported_groups, _ = qa_app._build_harmonized_groups(
+    assert matches == ["AAAAAAAAAAAAAA-BBBBBBBBBB"]
+    assert used_fallback is False
+
+
+def test_effective_inchikey_fallback_is_evaluated_per_chemistry_record():
+    matches, used_fallback = _effective_inchi_key_matches(
+        [
+            {"inchi_key": "AAAAAAAAAAAAAA-BBBBBBBBBB-N"},
+            {"derived_inchi_key": "CCCCCCCCCCCCCC-DDDDDDDDDD-N"},
+        ],
+        "duplex",
+    )
+
+    assert matches == [
+        "AAAAAAAAAAAAAA-BBBBBBBBBB",
+        "CCCCCCCCCCCCCC-DDDDDDDDDD",
+    ]
+    assert used_fallback is True
+
+
+def test_three_selectable_inchikey_rules_share_effective_key_policy(monkeypatch):
+    calls = []
+
+    def fake_matches(_db, mode, mw_cutoff=None, key_kind="effective"):
+        calls.append((mode, mw_cutoff, key_kind))
+        return iter(())
+
+    monkeypatch.setattr(qa_app, "_iter_metabolite_identifier_inchi_key_matches", fake_matches)
+
+    qa_app._build_harmonized_groups(
         object(),
-        {"CHEBI:1", "HMDB:1"},
+        {"CHEBI:1"},
         [],
-        ["merge_inchikey_by_mw_cutoff"],
-        {"merge_inchikey_by_mw_cutoff": {"mw_cutoff": 500}},
+        [
+            "merge_shared_inchikey_prefix",
+            "merge_shared_inchikey_duplex",
+            "merge_inchikey_by_mw_cutoff",
+        ],
+        {"merge_inchikey_by_mw_cutoff": {"mw_cutoff": 600}},
     )
-    derived_groups, summary = qa_app._build_harmonized_groups(
+
+    assert calls == [
+        ("prefix", None, "effective"),
+        ("duplex", None, "effective"),
+        ("mw_cutoff", 600, "effective"),
+    ]
+
+
+def test_retired_derived_cutoff_rule_remains_executable_for_historical_pipelines(monkeypatch):
+    def fake_matches(_db, mode, mw_cutoff=None, key_kind="effective"):
+        assert (mode, mw_cutoff, key_kind) == ("mw_cutoff", 500, "derived")
+        yield "CHEBI:1", ["AAAAAAAAAAAAAA-BBBBBBBBBB"], "duplex", 100.0, False
+        yield "HMDB:1", ["AAAAAAAAAAAAAA-BBBBBBBBBB"], "duplex", 100.0, False
+
+    monkeypatch.setattr(qa_app, "_iter_metabolite_identifier_inchi_key_matches", fake_matches)
+
+    groups, summary = qa_app._build_harmonized_groups(
         object(),
         {"CHEBI:1", "HMDB:1"},
         [],
@@ -233,9 +303,7 @@ def test_derived_inchikey_rule_merges_without_changing_reported_rule(monkeypatch
         {"merge_derived_inchikey_by_mw_cutoff": {"mw_cutoff": 500}},
     )
 
-    assert reported_groups == []
-    assert derived_groups == [["CHEBI:1", "HMDB:1"]]
-    assert summary["derived_inchi_key_mw_cutoff_identifier_count"] == 2
+    assert groups == [["CHEBI:1", "HMDB:1"]]
     assert summary["derived_inchi_key_mw_cutoff_merge_count"] == 1
 
 
@@ -326,12 +394,10 @@ def test_metabolite_identifier_source_linkouts_cover_common_databases():
 
 
 def test_load_metabolite_curations_reads_json_batches_and_fingerprints_content():
-    prefix = "curations/v1/metabolite_harmonization/"
-    storage = _FakeCurationStorage({
-        f"{prefix}batch-a.json": json.dumps({
-            "format_version": 1,
+    batch = {
+            "format_version": 2,
             "curation_batch_id": "batch-a",
-            "graph": "metabolite_harmonization",
+            "curation_type": METABOLITE_EQUIVALENCE_EDGES,
             "operations": [{
                 "action": "remove_edge",
                 "edge_type": "MetaboliteIdentifierMappingEdge",
@@ -339,67 +405,67 @@ def test_load_metabolite_curations_reads_json_batches_and_fingerprints_content()
                 "end_id": "HMDB:1",
                 "symmetric": True,
             }],
-        }),
-        f"{prefix}README.txt": "not a batch",
-    })
+        }
+    storage = _FakeCurationStorage(_typed_curation_objects(
+        METABOLITE_EQUIVALENCE_EDGES, [batch]
+    ))
 
-    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+    loaded = _load_metabolite_edge_removal_curations(storage)
 
     assert loaded["pairs"] == {("CHEBI:1", "HMDB:1")}
     assert loaded["batch_ids"] == ["batch-a"]
     assert len(loaded["fingerprint"]) == 64
-    assert loaded["prefix"] == f"s3://test-curations/{prefix}"
+    assert loaded["prefix"] == "s3://test-curations/curations/v2/"
 
 
 def test_assertion_only_batch_does_not_change_edge_curation_fingerprint():
-    prefix = "curations/v1/metabolite_harmonization/"
     assertion = _metabolite_expected_clique_assertion_operation(
         ["CHEBI:15903", "CHEBI:17925"],
         "Glucose anomers",
     )
-    storage = _FakeCurationStorage({
-        f"{prefix}assertions.json": json.dumps({
-            "format_version": 1,
+    batch = {
+            "format_version": 2,
             "curation_batch_id": "assertions",
-            "graph": "metabolite_harmonization",
+            "curation_type": METABOLITE_EXPECTED_CLIQUES,
             "published_at": "2026-08-25T12:00:00Z",
             "created_by": {"id": "keith", "name": "Keith"},
             "operations": [assertion],
-        }),
-    })
+        }
+    storage = _FakeCurationStorage(_typed_curation_objects(
+        METABOLITE_EXPECTED_CLIQUES, [batch]
+    ))
 
-    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+    loaded = _load_metabolite_edge_removal_curations(storage)
 
-    assert loaded["fingerprint"] == hashlib.sha256().hexdigest()
+    assert len(loaded["fingerprint"]) == 64
     assert loaded["batch_ids"] == []
     assert loaded["assertion_batch_ids"] == ["assertions"]
     assert loaded["assertions"][0]["assertion_id"] == assertion["assertion_id"]
 
 
 def test_published_assertion_can_be_retired_chronologically():
-    prefix = "curations/v1/metabolite_harmonization/"
     assertion = _metabolite_expected_clique_assertion_operation(
         ["CHEBI:15903", "CHEBI:17925"],
         "Glucose anomers",
     )
-    storage = _FakeCurationStorage({
-        f"{prefix}assert.json": json.dumps({
-            "format_version": 1,
+    batches = [{
+            "format_version": 2,
             "curation_batch_id": "assert",
-            "graph": "metabolite_harmonization",
+            "curation_type": METABOLITE_EXPECTED_CLIQUES,
             "published_at": "2026-08-25T12:00:00Z",
             "operations": [assertion],
-        }),
-        f"{prefix}retire.json": json.dumps({
-            "format_version": 1,
+        }, {
+            "format_version": 2,
             "curation_batch_id": "retire",
-            "graph": "metabolite_harmonization",
+            "curation_type": METABOLITE_EXPECTED_CLIQUES,
             "published_at": "2026-08-25T13:00:00Z",
             "operations": [{"action": "retire_assertion", "assertion_id": assertion["assertion_id"]}],
-        }),
-    })
+        }]
+    storage = _FakeCurationStorage(_typed_curation_objects(
+        METABOLITE_EXPECTED_CLIQUES, batches
+    ))
 
-    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+    loaded = _load_metabolite_edge_removal_curations(storage)
 
     assert loaded["assertions"] == []
     assert loaded["assertion_batch_ids"] == ["assert", "retire"]
@@ -680,16 +746,14 @@ def test_expected_clique_assertion_edges_use_a_provenanced_star_and_skip_missing
 
 
 def test_load_metabolite_curations_applies_edge_decisions_in_publication_order():
-    prefix = "curations/v1/metabolite_harmonization/"
-
     def batch(batch_id, published_at, operations):
-        return json.dumps({
-            "format_version": 1,
+        return {
+            "format_version": 2,
             "curation_batch_id": batch_id,
-            "graph": "metabolite_harmonization",
+            "curation_type": METABOLITE_EQUIVALENCE_EDGES,
             "published_at": published_at,
             "operations": operations,
-        })
+        }
 
     def decision(action, left, right):
         return {
@@ -700,21 +764,24 @@ def test_load_metabolite_curations_applies_edge_decisions_in_publication_order()
             "symmetric": True,
         }
 
-    storage = _FakeCurationStorage({
-        f"{prefix}z-base.json": batch("base", "2026-08-24T13:00:00Z", [
+    batches = [
+        batch("base", "2026-08-24T13:00:00Z", [
             decision("remove_edge", "CHEBI:1", "HMDB:1"),
             decision("remove_edge", "CHEBI:2", "HMDB:2"),
         ]),
-        f"{prefix}a-retain.json": batch("retain", "2026-08-24T14:00:00Z", [
+        batch("retain", "2026-08-24T14:00:00Z", [
             decision("retain_edge", "CHEBI:1", "HMDB:1"),
             decision("retain_edge", "CHEBI:2", "HMDB:2"),
         ]),
-        f"{prefix}m-remove-again.json": batch("remove-again", "2026-08-24T15:00:00Z", [
+        batch("remove-again", "2026-08-24T15:00:00Z", [
             decision("remove_edge", "HMDB:2", "CHEBI:2"),
         ]),
-    })
+    ]
+    storage = _FakeCurationStorage(_typed_curation_objects(
+        METABOLITE_EQUIVALENCE_EDGES, batches
+    ))
 
-    loaded = _load_metabolite_edge_removal_curations(storage, prefix)
+    loaded = _load_metabolite_edge_removal_curations(storage)
 
     assert loaded["pairs"] == {("CHEBI:2", "HMDB:2")}
     assert loaded["pair_states"] == {
@@ -855,6 +922,73 @@ def test_pipeline_job_history_hides_failure_superseded_by_successful_retry():
 
     assert [job["id"] for job in jobs_by_pipeline["pipeline-a"]] == ["successful-retry"]
     assert [job["id"] for job in jobs_by_pipeline["pipeline-b"]] == ["unresolved-failure"]
+
+
+def test_reconcile_interrupted_runs_only_targets_prior_boot_for_same_instance():
+    class FakeAql:
+        def __init__(self):
+            self.parent_update_bind_vars = None
+
+        def execute(self, query, bind_vars=None, **_kwargs):
+            if "FOR run IN HarmonizationPipelineRun" in query:
+                assert 'run.status IN ["running", "cleaning_up"]' in query
+                assert "run.runner_instance_id == @runner_instance_id" in query
+                assert "run.runner_boot_id != @runner_boot_id" in query
+                assert 'failure_kind: "interrupted"' in query
+                assert bind_vars == {
+                    "runner_instance_id": "qa-local-keith",
+                    "runner_boot_id": "new-boot",
+                    "interrupted_at": "2026-09-24T14:00:00+00:00",
+                }
+                return [
+                    {"run_key": "old-run", "pipeline_key": "pipeline-a"},
+                    {"run_key": "superseded-run", "pipeline_key": "pipeline-b"},
+                ]
+            assert "pipeline.latest_run_key == interrupted_run.run_key" in query
+            assert 'pipeline.status IN ["running", "cleaning_up"]' in query
+            self.parent_update_bind_vars = bind_vars
+            return ["pipeline-a"]
+
+    fake_aql = FakeAql()
+
+    class FakeDb:
+        aql = fake_aql
+
+    interrupted = qa_app._reconcile_interrupted_harmonization_runs(
+        FakeDb(),
+        runner_instance_id="qa-local-keith",
+        runner_boot_id="new-boot",
+        interrupted_at="2026-09-24T14:00:00+00:00",
+    )
+
+    assert interrupted == ["old-run", "superseded-run"]
+    assert fake_aql.parent_update_bind_vars == {
+        "interrupted_runs": [
+            {"run_key": "old-run", "pipeline_key": "pipeline-a"},
+            {"run_key": "superseded-run", "pipeline_key": "pipeline-b"},
+        ],
+        "interrupted_at": "2026-09-24T14:00:00+00:00",
+    }
+
+
+def test_reconciliation_retries_after_transient_startup_failure(monkeypatch):
+    attempts = []
+
+    def fake_reconcile(_db):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise ConnectionError("temporary Arango outage")
+        return ["recovered-run"]
+
+    monotonic_values = iter([100.0, 131.0])
+    monkeypatch.setattr(qa_app, "_harmonization_reconciliation_last_attempt", 0.0)
+    monkeypatch.setattr(qa_app.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: object())
+    monkeypatch.setattr(qa_app, "_reconcile_interrupted_harmonization_runs", fake_reconcile)
+
+    assert qa_app._try_reconcile_interrupted_harmonization_runs(force=True) == []
+    assert qa_app._try_reconcile_interrupted_harmonization_runs() == ["recovered-run"]
+    assert len(attempts) == 2
 
 
 def test_completed_run_engine_version_takes_precedence_over_pipeline_version():
@@ -1359,6 +1493,61 @@ def test_metabolite_mw_spread_uses_parseable_member_masses():
     ]
 
 
+def test_validation_samples_put_kegg_identifiers_first_without_reordering_others():
+    validation = _prioritize_kegg_validation_samples({
+        "warnings": [{
+            "sample_member_ids": ["CHEBI:1", "KEGG.COMPOUND:C00001", "HMDB:1"],
+            "unknown_member_samples": ["CAS:1", "KEGG.DRUG:D00001", "BioCyc:1"],
+            "member_mass_examples": [
+                {"member_id": "CHEBI:1", "masses": [10.0]},
+                {"member_id": "KEGG.COMPOUND:C00001", "masses": [20.0]},
+                {"member_id": "HMDB:1", "masses": [30.0]},
+            ],
+            "comparison_ids": "CHEBI:1 KEGG.COMPOUND:C00001 HMDB:1",
+        }],
+    })
+
+    warning = validation["warnings"][0]
+    assert warning["sample_member_ids"] == [
+        "KEGG.COMPOUND:C00001", "CHEBI:1", "HMDB:1",
+    ]
+    assert warning["unknown_member_samples"] == [
+        "KEGG.DRUG:D00001", "CAS:1", "BioCyc:1",
+    ]
+    assert [item["member_id"] for item in warning["member_mass_examples"]] == [
+        "KEGG.COMPOUND:C00001", "CHEBI:1", "HMDB:1",
+    ]
+    assert warning["comparison_ids"] == "KEGG.COMPOUND:C00001 CHEBI:1 HMDB:1"
+
+
+def test_validation_review_id_prefers_kegg_and_falls_back_to_representative():
+    validation = _with_validation_review_ids(
+        {
+            "warnings": [
+                {"rank_by_size": 1, "representative_id": "CHEBI:1"},
+                {"rank_by_size": 2, "representative_id": "HMDB:2"},
+            ]
+        },
+        {1: "KEGG.COMPOUND:C00001"},
+    )
+
+    assert validation["warnings"][0]["review_id"] == "KEGG.COMPOUND:C00001"
+    assert validation["warnings"][0]["representative_id"] == "CHEBI:1"
+    assert validation["warnings"][1]["review_id"] == "HMDB:2"
+
+
+def test_mw_validation_selects_kegg_examples_before_truncating():
+    member_rows = [
+        {"member_id": f"CHEBI:{index}", "raw_masses": [index]}
+        for index in range(1, 10)
+    ] + [{"member_id": "KEGG.COMPOUND:C00001", "raw_masses": [20]}]
+
+    examples = _metabolite_member_mass_examples(member_rows, limit=8)
+
+    assert examples[0]["member_id"] == "KEGG.COMPOUND:C00001"
+    assert len(examples) == 8
+
+
 def test_build_harmonization_stage_mw_validation_flags_large_spreads():
     validation = _build_harmonization_stage_mw_validation(
         groups=[
@@ -1380,77 +1569,6 @@ def test_build_harmonization_stage_mw_validation_flags_large_spreads():
     assert validation["warnings"][0]["representative_id"] == "CHEBI:1"
     assert validation["warnings"][0]["spread_percent"] == 11.0
     assert validation["warnings"][0]["comparison_ids"] == "CHEBI:1 HMDB:1"
-
-
-def test_build_carbohydrate_family_validation_flags_distinct_generated_families():
-    validation = _build_harmonization_stage_carbohydrate_family_validation(
-        groups=[
-            ["CHEBI:1", "CHEBI:2", "CHEBI:3", "HMDB:1"],
-            ["CHEBI:4", "CHEBI:5"],
-        ],
-        carbohydrate_structures_by_id={
-            "CHEBI:1": {
-                "id": "CHEBI:1",
-                "name": "alpha-D-example",
-                "structure": {
-                    "comparable": True,
-                    "family_inchi_key": "PREFIX-DFAMILYSA-N",
-                    "source_inchi_key": "PREFIX-ALPHADSA-N",
-                    "classification_reason": "free_anomer_normalized",
-                },
-                "error": None,
-            },
-            "CHEBI:2": {
-                "id": "CHEBI:2",
-                "name": "beta-D-example",
-                "structure": {
-                    "comparable": True,
-                    "family_inchi_key": "PREFIX-DFAMILYSA-N",
-                    "source_inchi_key": "PREFIX-BETADSA-N",
-                    "classification_reason": "free_anomer_normalized",
-                },
-                "error": None,
-            },
-            "CHEBI:3": {
-                "id": "CHEBI:3",
-                "name": "L-example",
-                "structure": {
-                    "comparable": True,
-                    "family_inchi_key": "PREFIX-LFAMILYSA-N",
-                    "source_inchi_key": "PREFIX-ALPHALSA-N",
-                    "classification_reason": "free_anomer_normalized",
-                },
-                "error": None,
-            },
-            "CHEBI:4": {
-                "id": "CHEBI:4",
-                "name": "generic",
-                "structure": {
-                    "comparable": False,
-                    "family_inchi_key": None,
-                    "classification_reason": "under_specified_stereochemistry",
-                },
-                "error": None,
-            },
-            "CHEBI:5": {
-                "id": "CHEBI:5",
-                "name": "specific",
-                "structure": {
-                    "comparable": True,
-                    "family_inchi_key": "PREFIX-SPECIFICSA-N",
-                    "source_inchi_key": "PREFIX-SPECIFICSA-N",
-                    "classification_reason": "fully_specified_structure",
-                },
-                "error": None,
-            },
-        },
-    )
-
-    assert validation["warning_count"] == 1
-    warning = validation["warnings"][0]
-    assert warning["family_count"] == 2
-    assert warning["classified_carbohydrate_count"] == 3
-    assert warning["comparison_ids"].startswith("CHEBI:1 CHEBI:2 CHEBI:3")
 
 
 def test_build_harmonization_stage_cart_flags_marks_only_active_edges_in_mw_warning_cliques():
@@ -1493,7 +1611,9 @@ def test_build_harmonization_stage_cart_flags_marks_only_active_edges_in_mw_warn
     assert flags == [{
         "rank_by_size": 4,
         "queued_edge_count": 1,
+        "updated_identifier_count": 0,
         "edges": [{"action": "remove_edge", "start_id": "CHEBI:1", "end_id": "HMDB:1"}],
+        "identifier_updates": [],
     }]
 
 
@@ -1514,11 +1634,58 @@ def test_build_harmonization_stage_cart_flags_marks_pending_denylist_retention()
     assert flags == [{
         "rank_by_size": 8,
         "queued_edge_count": 1,
+        "updated_identifier_count": 0,
         "edges": [{"action": "retain_edge", "start_id": "CHEBI:1", "end_id": "REFMET:1"}],
+        "identifier_updates": [],
     }]
 
 
-def test_harmonization_stage_cart_warning_ranks_include_all_validation_cliques():
+def test_build_harmonization_stage_cart_flags_includes_node_updates_and_edges():
+    flags = _build_harmonization_stage_cart_flags(
+        operations=[
+            {
+                "action": "set_properties",
+                "target": {
+                    "kind": "node",
+                    "model_type": "MetaboliteIdentifier",
+                    "id": "KEGG.COMPOUND:C00001",
+                },
+                "values": {"is_generic_structure": True, "name": "Water class"},
+                "remove_overrides": ["description"],
+            },
+            {
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": "CHEBI:1",
+                "end_id": "KEGG.COMPOUND:C00001",
+            },
+        ],
+        member_rank_by_id={"CHEBI:1": 4, "KEGG.COMPOUND:C00001": 4},
+        active_edge_pairs={("CHEBI:1", "KEGG.COMPOUND:C00001")},
+        warning_ranks={4},
+    )
+
+    assert flags == [{
+        "rank_by_size": 4,
+        "queued_edge_count": 1,
+        "updated_identifier_count": 1,
+        "edges": [{
+            "action": "remove_edge",
+            "start_id": "CHEBI:1",
+            "end_id": "KEGG.COMPOUND:C00001",
+        }],
+        "identifier_updates": [{
+            "target_id": "KEGG.COMPOUND:C00001",
+            "changes": [
+                {"property": "is_generic_structure", "mode": "set", "value": True},
+                {"property": "name", "mode": "set", "value": "Water class"},
+                {"property": "description", "mode": "remove_override", "value": None},
+            ],
+        }],
+    }]
+
+
+def test_harmonization_stage_cart_warning_ranks_include_remaining_validation_cliques():
     stage = {
         "validation": {
             "mw_spread": {"computed": True, "warnings": [{"rank_by_size": 4}]},
@@ -1527,14 +1694,14 @@ def test_harmonization_stage_cart_warning_ranks_include_all_validation_cliques()
                 "rule_enabled": True,
                 "warnings": [{"rank_by_size": 9}, {"rank_by_size": 4}],
             },
-            "carbohydrate_family_conflicts": {
+            "generic_structure_consistency": {
                 "computed": True,
-                "warnings": [{"rank_by_size": 11}],
+                "warnings": [{"rank_by_size": 12}],
             },
         },
     }
 
-    assert _harmonization_stage_cart_warning_ranks(stage) == {4, 9, 11}
+    assert _harmonization_stage_cart_warning_ranks(stage) == {4, 9, 12}
 
 
 def test_build_harmonization_stage_denylist_validation_flags_still_merged_pairs():
@@ -1633,12 +1800,17 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
             bind_vars = bind_vars or {}
             if "FILTER node.id IN @ids" in query:
                 return [member_id]
-            if "FILTER e._from IN @clique_vertex_ids" in query:
+            if (
+                "FILTER e._from IN @clique_vertex_ids" in query
+                and "RETURN member_id" in query
+            ):
                 assert "DOCUMENT(e._to)" in query
                 return [member_id]
-            if "FOR e IN HarmonizedMetaboliteMemberEdge" in query:
-                assert "FILTER e.member_id IN @member_ids" in query
-                assert bind_vars["member_ids"] == [member_id]
+            if "LET node = DOCUMENT(e._to)" in query:
+                assert "FILTER e._from IN @clique_vertex_ids" in query
+                assert bind_vars["clique_vertex_ids"] == [
+                    f"HarmonizedMetabolite/{clique_key}"
+                ]
                 return [{
                     "member_id": member_id,
                     "member_label": member_id,
@@ -1655,6 +1827,14 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
                     "clique_size": 1,
                     "clique_rank_by_size": 1,
                 }]
+            if "LET query_nodes" in query:
+                assert "FILTER e._from == handle" in query
+                assert "FILTER e._to == handle" in query
+                assert query.count("LIMIT @neighbor_limit") == 2
+                assert bind_vars["neighbor_limit"] == 100
+                return []
+            if "RETURN {\n            id: node.id,\n            raw_masses:" in query:
+                return [{"id": member_id, "raw_masses": []}]
             if "LET chemical_entity" in query:
                 return [{
                     "id": member_id,
@@ -1672,8 +1852,17 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
                     "chemical_entity": None,
                 }]
             if "FOR e IN HarmonizationStageEvidenceEdge" in query:
-                assert "FILTER e.start_id IN @member_ids" in query
-                assert "FILTER e.end_id IN @member_ids" in query
+                assert "FOR selection IN @display_selections" in query
+                assert "FILTER membership._from == selection.clique_vertex_id" in query
+                assert "FILTER membership.member_id IN selection.member_ids" in query
+                assert "FILTER e._from == node.handle" in query
+                assert "FILTER HAS(member_id_by_handle, e._to)" in query
+                assert "FILTER e.stage_key == selection.stage_key" in query
+                assert bind_vars["display_selections"] == [{
+                    "stage_key": stage_key,
+                    "clique_vertex_id": f"HarmonizedMetabolite/{clique_key}",
+                    "member_ids": [member_id],
+                }]
                 return []
             raise AssertionError(query)
 
@@ -1684,7 +1873,7 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
             return True
 
     monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
-    monkeypatch.setattr(qa_app, "_load_metabolite_snapshot_memberships", lambda _ids: [{
+    monkeypatch.setattr(qa_app, "_load_metabolite_snapshot_memberships", lambda _ids, _stages=None: [{
         "member_id": member_id,
         "clique_key": clique_key,
         "snapshot_key": stage_key,
@@ -1702,6 +1891,90 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
     clique = result["snapshot_graphs"][0]["cliques"][0]
     assert clique["member_ids"] == [member_id]
     assert clique["elements"][0]["data"]["id"] == member_id
+
+
+def test_snapshot_memberships_use_edge_index_and_database_stage_filter(monkeypatch):
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert "FOR node IN MetaboliteIdentifier" in query
+            assert "FILTER e._to == node._id" in query
+            assert "FILTER e.member_id IN" not in query
+            assert "FILTER e.stage_key IN @snapshot_keys" in query
+            assert bind_vars == {
+                "identifier_ids": ["KEGG.COMPOUND:C00422"],
+                "snapshot_keys": ["stage-08"],
+            }
+            return [{"member_id": "KEGG.COMPOUND:C00422", "snapshot_key": "stage-08"}]
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, _name):
+            return True
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    rows = qa_app._load_metabolite_snapshot_memberships(
+        ["KEGG.COMPOUND:C00422"],
+        ["stage-08"],
+    )
+
+    assert rows == [{"member_id": "KEGG.COMPOUND:C00422", "snapshot_key": "stage-08"}]
+
+
+def test_snapshot_memberships_omit_unused_stage_bind_parameter(monkeypatch):
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert "FILTER e._to == node._id" in query
+            assert "@snapshot_keys" not in query
+            assert bind_vars == {"identifier_ids": ["KEGG.COMPOUND:C00422"]}
+            return []
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, _name):
+            return True
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    assert qa_app._load_metabolite_snapshot_memberships(
+        ["KEGG.COMPOUND:C00422"]
+    ) == []
+
+
+def test_default_snapshot_filter_uses_latest_completed_stage(monkeypatch):
+    monkeypatch.setattr(qa_app, "_list_harmonization_stages", lambda: [
+        {"_key": "baseline", "created_at": "2026-01-01T00:00:00Z"},
+        {"_key": "stage-08", "created_at": "2026-01-02T00:00:00Z"},
+    ])
+
+    assert qa_app._default_metabolite_snapshot_key_filter() == ["stage-08"]
+
+
+def test_display_member_limit_is_applied_per_stage_clique():
+    rows = []
+    for stage_key, neighbor_id in (("stage-a", "A:neighbor"), ("stage-b", "B:neighbor")):
+        for member_id in ["QUERY:1", neighbor_id, *[f"{stage_key}:{index}" for index in range(5)]]:
+            rows.append({
+                "snapshot_key": stage_key,
+                "clique_key": f"{stage_key}-clique",
+                "member_id": member_id,
+            })
+
+    selections = qa_app._metabolite_display_member_ids_by_clique(
+        rows,
+        ["QUERY:1"],
+        [
+            {"stage_key": "stage-a", "id": "A:neighbor"},
+            {"stage_key": "stage-b", "id": "B:neighbor"},
+        ],
+        limit=3,
+    )
+
+    assert selections[("stage-a", "stage-a-clique")][:2] == ["QUERY:1", "A:neighbor"]
+    assert selections[("stage-b", "stage-b-clique")][:2] == ["QUERY:1", "B:neighbor"]
+    assert all(len(member_ids) == 3 for member_ids in selections.values())
 
 
 def test_build_harmonization_stage_denylist_validation_ignores_separated_or_missing_pairs():
@@ -1722,3 +1995,353 @@ def test_build_harmonization_stage_denylist_validation_ignores_separated_or_miss
     assert validation["denylist_pair_count"] == 2
     assert validation["affected_clique_count"] == 0
     assert validation["warnings"] == []
+
+
+def test_generic_structure_validation_distinguishes_failures_from_classification_gaps():
+    validation = _build_harmonization_stage_generic_structure_validation(
+        groups=[
+            ["GENERIC:1", "SPECIFIC:1"],
+            ["GENERIC:2", "UNKNOWN:1"],
+            ["SPECIFIC:2", "UNKNOWN:2"],
+        ],
+        active_edges=[
+            {"start_id": "GENERIC:1", "end_id": "SPECIFIC:1", "sources": ["test"]},
+            {"start_id": "GENERIC:2", "end_id": "UNKNOWN:1", "synthetic": True, "rule_id": "test-rule"},
+            {"start_id": "SPECIFIC:2", "end_id": "UNKNOWN:2", "sources": ["test"]},
+        ],
+        classifications={
+            "GENERIC:1": True,
+            "SPECIFIC:1": False,
+            "GENERIC:2": True,
+            "SPECIFIC:2": False,
+        },
+        rule_enabled=False,
+    )
+
+    assert validation["inconsistent_clique_count"] == 1
+    assert validation["generic_unknown_clique_count"] == 1
+    assert validation["warning_count"] == 2
+    assert validation["actionable_raw_edge_count"] == 1
+    assert validation["warnings"][0]["status"] == "inconsistent"
+    assert validation["warnings"][1]["status"] == "generic_unknown"
+    assert validation["warnings"][1]["boundary_edges"][0]["synthetic"] is True
+
+
+def test_generic_structure_pruning_keeps_generic_unknown_edges_as_gaps():
+    class FakeAql:
+        def execute(self, _query, **_kwargs):
+            return [
+                {"key": "generic-specific", "id": "generic-specific", "start_id": "GENERIC:1", "end_id": "SPECIFIC:1", "details": []},
+                {"key": "generic-unknown", "id": "generic-unknown", "start_id": "GENERIC:1", "end_id": "UNKNOWN:1", "details": []},
+            ]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    edges, summary = qa_app._active_metabolite_identifier_mapping_edges_for_rules(
+        FakeDb(),
+        {"GENERIC:1", "SPECIFIC:1", "UNKNOWN:1"},
+        ["ignore_generic_structure_mismatch"],
+        {},
+        generic_structure_classifications={"GENERIC:1": True, "SPECIFIC:1": False},
+    )
+
+    assert [(edge["start_id"], edge["end_id"]) for edge in edges] == [
+        ("GENERIC:1", "UNKNOWN:1")
+    ]
+    assert summary["generic_structure_ignored_edge_count"] == 1
+
+
+def test_old_stage_reports_generic_structure_validation_as_not_computed():
+    validation = qa_app._harmonization_stage_generic_structure_validation_from_doc({
+        "rule_ids": ["ignore_generic_structure_mismatch"],
+    })
+
+    assert validation["computed"] is False
+    assert validation["rule_enabled"] is True
+
+
+def test_stage_overview_exposes_generic_structure_validation_counts(monkeypatch):
+    stage = {
+        "_key": "stage-structure",
+        "rule_ids": ["ignore_generic_structure_mismatch"],
+        "summary": {"clique_count": 12},
+        "validation": {
+            "generic_structure_consistency": {
+                "computed": True,
+                "rule_enabled": True,
+                "inconsistent_clique_count": 3,
+                "generic_unknown_clique_count": 7,
+                "warnings": [],
+            },
+        },
+    }
+
+    class FakeAql:
+        def execute(self, _query, **_kwargs):
+            return [stage]
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, name):
+            return name == qa_app._HARMONIZATION_STAGE_COLLECTION
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    result = qa_app._list_harmonization_stage_overview_stats(include_distribution=False)
+
+    overview = result[0]["overview_stats"]
+    assert overview["generic_structure_validation_computed"] is True
+    assert overview["generic_structure_rule_enabled"] is True
+    assert overview["generic_structure_failure_count"] == 3
+    assert overview["generic_structure_gap_count"] == 7
+
+
+def test_generic_structure_stage_stats_lists_affected_cliques():
+    html = qa_app.templates.env.get_template(
+        "ramp_id_generic_structure_validation.html"
+    ).render(
+        root_path="",
+        stats={
+            "stage": {"_key": "stage-structure"},
+            "generic_structure_validation": {
+                "computed": True,
+                "rule_enabled": True,
+                "inconsistent_clique_count": 1,
+                "generic_unknown_clique_count": 1,
+                "warning_count": 2,
+                "warnings": [{
+                    "status": "inconsistent",
+                    "rank_by_size": 4,
+                    "representative_id": "KEGG:C00626",
+                    "review_id": "KEGG:C00626",
+                    "size": 3,
+                    "generic_member_count": 1,
+                    "specific_member_count": 1,
+                    "unknown_member_count": 1,
+                    "generic_member_samples": ["KEGG:C00626"],
+                    "specific_member_samples": ["HMDB:1"],
+                    "unknown_member_samples": ["CHEBI:2"],
+                    "boundary_edge_count": 1,
+                    "boundary_edges": [{
+                        "start_id": "KEGG:C00626",
+                        "end_id": "HMDB:1",
+                    }],
+                    "comparison_ids": "KEGG:C00626 HMDB:1 CHEBI:2",
+                }],
+            },
+        },
+    )
+
+    assert "Generic-Structure Consistency" in html
+    assert "1 failure" in html
+    assert "1 classification gap" in html
+    assert "KEGG:C00626" in html
+    assert "Review ID:" in html
+    assert "Pending changes" in html
+    assert "data-generic-warning-rank=\"4\"" in html
+    assert "data-generic-cart-flag" in html
+    assert "Review clique" in html
+    assert "stages=stage-structure" in html
+    assert "Showing the top 1 of 2 affected cliques" in html
+
+
+def test_generic_structure_status_renders_in_pipeline_cards_and_stage_listing():
+    states = [
+        ("pre-rule", False, True, 2, 5),
+        ("post-rule", True, True, 3, 7),
+        ("legacy", False, False, 0, 0),
+    ]
+    nodes = []
+    stages = []
+    for stage_key, rule_enabled, computed, failures, gaps in states:
+        overview_stats = {
+            "active_identifier_count": 10,
+            "clique_count": 4,
+            "non_singleton_clique_count": 2,
+            "singleton_identifier_count": 2,
+            "active_edge_count": 8,
+            "ignored_edge_count": 0,
+            "mw_validation_computed": False,
+            "mw_warning_count": 0,
+            "denylist_validation_computed": False,
+            "denylist_rule_enabled": False,
+            "denylist_warning_count": 0,
+            "generic_structure_validation_computed": computed,
+            "generic_structure_rule_enabled": rule_enabled,
+            "generic_structure_failure_count": failures,
+            "generic_structure_gap_count": gaps,
+            "assertion_count": 0,
+            "largest_clique_sizes": [],
+            "max_size": 2,
+            "bins": {},
+        }
+        nodes.append({
+            "stage_key": stage_key,
+            "stage_index": 0,
+            "label": stage_key,
+            "stats": overview_stats,
+            "terminals": [],
+            "children": [],
+        })
+        stages.append({
+            "_key": stage_key,
+            "display_label": stage_key,
+            "rule_ids": ["ignore_generic_structure_mismatch"] if rule_enabled else [],
+            "overview_stats": overview_stats,
+        })
+
+    pipeline_html = qa_app.templates.env.get_template(
+        "ramp_id_pipeline_table.html"
+    ).render(
+        root_path="",
+        pipeline_table_oob=False,
+        overview={
+            "active_job_count": 0,
+            "pipelines": [],
+            "pipeline_stage_stats": [],
+            "pipeline_tree": {
+                "roots": nodes,
+                "represented_pipeline_count": 1,
+                "not_run_count": 0,
+            },
+        },
+    )
+    stage_listing_html = qa_app.templates.env.get_template(
+        "ramp_id_stage_stats_table.html"
+    ).render(
+        root_path="",
+        stage_stats_oob=False,
+        overview={
+            "pipeline_stage_stats": [{
+                "pipeline_name": "Structure validation",
+                "pipeline_key": "structure-validation",
+                "run": None,
+                "stages": stages,
+                "expected_clique_assertions": {
+                    "assertion_count": 0,
+                    "rows": [],
+                    "stages": [],
+                },
+            }],
+        },
+    )
+
+    for html in (pipeline_html, stage_listing_html):
+        assert "2 mixed" in html
+        assert "5 gaps" in html
+        assert "3 fail" in html
+        assert "7 gaps" in html
+        assert "Not computed" in html
+        assert "/ramp-id-qa/stages/pre-rule#genericStructureValidation" in html
+        assert "/ramp-id-qa/stages/post-rule#genericStructureValidation" in html
+        assert "/ramp-id-qa/stages/legacy#genericStructureValidation" in html
+
+
+def test_stage_comparison_aggregates_and_prioritizes_generic_structure_failures(monkeypatch):
+    destination_warning = {
+        "status": "inconsistent",
+        "size": 3,
+        "generic_member_count": 1,
+        "specific_member_count": 1,
+        "unknown_member_count": 1,
+        "generic_member_samples": ["GENERIC:2"],
+        "specific_member_samples": ["SPECIFIC:2"],
+        "unknown_member_samples": ["UNKNOWN:2"],
+        "boundary_edges": [{
+            "start_id": "GENERIC:2",
+            "end_id": "SPECIFIC:2",
+            "synthetic": False,
+        }],
+        "comparison_ids": "GENERIC:2 SPECIFIC:2 UNKNOWN:2",
+    }
+    stages = {
+        "left": {
+            "_key": "left", "name": "From", "created_at": "2026-01-01", "rule_ids": [],
+            "validation": {"generic_structure_consistency": {
+                "computed": True, "inconsistent_clique_count": 1,
+                "generic_unknown_clique_count": 0, "warnings": [],
+            }},
+        },
+        "right": {
+            "_key": "right", "name": "To", "created_at": "2026-01-02", "rule_ids": [],
+            "validation": {"generic_structure_consistency": {
+                "computed": True, "inconsistent_clique_count": 2,
+                "generic_unknown_clique_count": 0, "warnings": [destination_warning],
+            }},
+        },
+    }
+    unchanged = {
+        "clique_key": "unchanged", "clique_id": "unchanged", "size": 2,
+        "rank_by_size": 1, "representative_id": "GENERIC:1",
+        "member_ids": ["GENERIC:1", "SPECIFIC:1"], "signature": "GENERIC:1\nSPECIFIC:1",
+        "generic_structure_status": "inconsistent", "generic_member_count": 1,
+        "specific_member_count": 1, "unknown_member_count": 0,
+        "generic_member_samples": ["GENERIC:1"], "specific_member_samples": ["SPECIFIC:1"],
+        "unknown_member_samples": [],
+    }
+    left_changed = {
+        "clique_key": "left-changed", "clique_id": "left-changed", "size": 2,
+        "rank_by_size": 2, "representative_id": "GENERIC:2",
+        "member_ids": ["GENERIC:2", "UNKNOWN:2"], "signature": "GENERIC:2\nUNKNOWN:2",
+        "generic_structure_status": "generic_unknown", "generic_member_count": 1,
+        "specific_member_count": 0, "unknown_member_count": 1,
+        "generic_member_samples": ["GENERIC:2"], "specific_member_samples": [],
+        "unknown_member_samples": ["UNKNOWN:2"],
+    }
+    right_changed = {
+        "clique_key": "right-changed", "clique_id": "right-changed", "size": 3,
+        "rank_by_size": 2, "representative_id": "GENERIC:2",
+        "member_ids": ["GENERIC:2", "SPECIFIC:2", "UNKNOWN:2"],
+        "signature": "GENERIC:2\nSPECIFIC:2\nUNKNOWN:2",
+        "generic_structure_status": "inconsistent", "generic_member_count": 1,
+        "specific_member_count": 1, "unknown_member_count": 1,
+        "generic_member_samples": ["GENERIC:2"], "specific_member_samples": ["SPECIFIC:2"],
+        "unknown_member_samples": ["UNKNOWN:2"],
+    }
+
+    monkeypatch.setattr(qa_app, "_get_harmonization_stage", lambda key: stages[key])
+    monkeypatch.setattr(
+        qa_app,
+        "_load_stage_harmonized_member_sets",
+        lambda key: [dict(unchanged), dict(left_changed if key == "left" else right_changed)],
+    )
+    monkeypatch.setattr(qa_app, "_load_metabolite_edge_removal_curations", lambda: {"assertions": []})
+    monkeypatch.setattr(qa_app, "_load_expected_clique_assertion_results", lambda *_args: {"by_stage": {}})
+    monkeypatch.setattr(qa_app, "_load_metabolite_identifier_display_map", lambda ids: {
+        identifier: {"id": identifier, "label": identifier, "names": [], "prefix": identifier.split(":")[0]}
+        for identifier in ids
+    })
+    monkeypatch.setattr(qa_app, "_list_harmonization_pipelines", lambda limit=100: [])
+    monkeypatch.setattr(qa_app, "_list_harmonization_stages", lambda: list(stages.values()))
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: object())
+
+    comparison = qa_app._load_metabolite_snapshot_comparison("left", "right")
+
+    generic = comparison["generic_structure_validation"]
+    assert generic["new_failure_count"] == 1
+    assert generic["persistent_failure_count"] == 1
+    assert generic["resolved_failure_count"] == 0
+    assert generic["destination_warnings"] == [destination_warning]
+    assert comparison["components"][0]["generic_structure_new_failure_count"] == 1
+    assert comparison["components"][0]["review_ids"][:3] == [
+        "GENERIC:2", "SPECIFIC:2", "UNKNOWN:2"
+    ]
+
+    from types import SimpleNamespace
+    html = qa_app.templates.env.get_template("ramp_id_snapshot_compare.html").render(
+        request=SimpleNamespace(scope={"path": "/ramp-id-qa/stage-comparison"}),
+        root_path="",
+        comparison=comparison,
+        error=None,
+        left_snapshot_key="left",
+        right_snapshot_key="right",
+        limit=100,
+        metabolite_visuals_version="test",
+    )
+    assert 'class="btn metabolite-mark-generic-add"' in html
+    assert 'data-metabolite-id="UNKNOWN:2"' in html
+    assert 'class="btn metabolite-curation-add"' in html
+    assert 'data-curation-start-id="GENERIC:2"' in html
+    assert 'id="metaboliteCurationCart"' in html

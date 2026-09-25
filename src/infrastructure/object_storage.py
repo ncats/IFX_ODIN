@@ -137,8 +137,11 @@ class S3CompatibleStorage:
         self.client().download_file(self.bucket, key, str(local_path))
         return local_path
 
-    def delete_file(self, key: str) -> None:
-        self.client().delete_object(Bucket=self.bucket, Key=key)
+    def delete_file(self, key: str, *, if_match: Optional[str] = None) -> None:
+        request = {"Bucket": self.bucket, "Key": key}
+        if if_match:
+            request["IfMatch"] = if_match
+        self.client().delete_object(**request)
 
     def list_keys(self, prefix: str = "") -> list[str]:
         paginator = self.client().get_paginator("list_objects_v2")
@@ -152,19 +155,31 @@ class S3CompatibleStorage:
         response = self.client().get_object(Bucket=self.bucket, Key=key)
         return response["Body"].read().decode("utf-8")
 
+    def read_text_with_etag(self, key: str) -> tuple[str, str]:
+        response = self.client().get_object(Bucket=self.bucket, Key=key)
+        return response["Body"].read().decode("utf-8"), str(response.get("ETag") or "")
+
     def write_text(
         self,
         key: str,
         text: str,
         content_type: str = "text/plain; charset=utf-8",
+        *,
+        if_match: Optional[str] = None,
+        if_none_match: Optional[str] = None,
     ) -> str:
         self.ensure_bucket()
-        self.client().put_object(
+        request = dict(
             Bucket=self.bucket,
             Key=key,
             Body=text.encode("utf-8"),
             ContentType=content_type,
         )
+        if if_match:
+            request["IfMatch"] = if_match
+        if if_none_match:
+            request["IfNoneMatch"] = if_none_match
+        self.client().put_object(**request)
         return s3_uri(self.bucket, key)
 
 
@@ -242,8 +257,11 @@ class AwsAssumeRoleStorage:
         self.client().download_file(self.bucket, key, str(local_path))
         return local_path
 
-    def delete_file(self, key: str) -> None:
-        self.client().delete_object(Bucket=self.bucket, Key=key)
+    def delete_file(self, key: str, *, if_match: Optional[str] = None) -> None:
+        request = {"Bucket": self.bucket, "Key": key}
+        if if_match:
+            request["IfMatch"] = if_match
+        self.client().delete_object(**request)
 
     def list_keys(self, prefix: str = "") -> list[str]:
         paginator = self.client().get_paginator("list_objects_v2")
@@ -257,17 +275,29 @@ class AwsAssumeRoleStorage:
         response = self.client().get_object(Bucket=self.bucket, Key=key)
         return response["Body"].read().decode("utf-8")
 
+    def read_text_with_etag(self, key: str) -> tuple[str, str]:
+        response = self.client().get_object(Bucket=self.bucket, Key=key)
+        return response["Body"].read().decode("utf-8"), str(response.get("ETag") or "")
+
     def write_text(
         self,
         key: str,
         text: str,
         content_type: str = "text/plain; charset=utf-8",
+        *,
+        if_match: Optional[str] = None,
+        if_none_match: Optional[str] = None,
     ) -> str:
         self.ensure_bucket()
-        self.client().put_object(
+        request = dict(
             Bucket=self.bucket,
             Key=key,
             Body=text.encode("utf-8"),
             ContentType=content_type,
         )
+        if if_match:
+            request["IfMatch"] = if_match
+        if if_none_match:
+            request["IfNoneMatch"] = if_none_match
+        self.client().put_object(**request)
         return s3_uri(self.bucket, key)

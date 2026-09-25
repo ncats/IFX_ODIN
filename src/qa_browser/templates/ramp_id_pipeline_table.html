@@ -10,7 +10,10 @@
                 <div title="Metabolites in this stage snapshot"><dt>Metabolites</dt><dd>{{ "{:,}".format(node.stats.clique_count|default(0, true)) }}</dd></div>
                 <div class="{% if node.stats.mw_warning_count %}has-alerts{% endif %}" title="Molecular-weight validation alerts"><dt>MW</dt><dd>{% if node.stats.mw_validation_computed %}{{ "{:,}".format(node.stats.mw_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
                 <div class="{% if node.stats.denylist_rule_enabled and node.stats.denylist_warning_count %}has-alerts{% endif %}" title="{% if node.stats.denylist_rule_enabled %}Denylist validation alerts{% else %}Denylist rule not applied at this stage{% endif %}"><dt>Deny</dt><dd>{% if node.stats.denylist_rule_enabled and node.stats.denylist_validation_computed %}{{ "{:,}".format(node.stats.denylist_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
-                <div class="{% if node.stats.carbohydrate_family_warning_count %}has-alerts{% endif %}" title="Carbohydrate family conflict alerts"><dt>Carb</dt><dd>{% if node.stats.carbohydrate_family_validation_computed %}{{ "{:,}".format(node.stats.carbohydrate_family_warning_count|default(0, true)) }}{% else %}—{% endif %}</dd></div>
+                <div class="{% if node.stats.generic_structure_rule_enabled and node.stats.generic_structure_failure_count %}has-alerts{% elif node.stats.generic_structure_validation_computed and node.stats.generic_structure_gap_count %}has-warnings{% endif %}" title="Generic-structure consistency validation">
+                    <dt>Structure</dt>
+                    <dd><a href="{{ root_path }}/ramp-id-qa/stages/{{ node.stage_key }}#genericStructureValidation" target="_blank" rel="noopener noreferrer">{% if not node.stats.generic_structure_validation_computed %}Not computed{% elif node.stats.generic_structure_rule_enabled %}{{ "{:,}".format(node.stats.generic_structure_failure_count|default(0, true)) }} fail · {{ "{:,}".format(node.stats.generic_structure_gap_count|default(0, true)) }} gaps{% else %}{{ "{:,}".format(node.stats.generic_structure_failure_count|default(0, true)) }} mixed · {{ "{:,}".format(node.stats.generic_structure_gap_count|default(0, true)) }} gaps{% endif %}</a></dd>
+                </div>
                 <div title="Expected-clique assertion results"><dt>Assertions</dt><dd class="metabolite-id-pipeline-tree-assertions{% if node.stats.assertion_count|default(0, true) %} {{ 'is-fail' if node.stats.assertion_failure_count else 'is-pass' }}{% endif %}">{% if not node.stats.assertion_count|default(0, true) %}None{% elif node.stats.assertion_failure_count %}{{ "{:,}".format(node.stats.assertion_failure_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} fail{% else %}{{ "{:,}".format(node.stats.assertion_pass_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} pass{% endif %}</dd></div>
             </dl>
             {% endif %}
@@ -70,7 +73,7 @@
                     {% endif %}
                     {% if pipeline.engine_version_changed %}
                     <div class="metabolite-id-curation-sync-warning">
-                        Harmonization validations have changed: Re-run to rebuild
+                        Harmonization rules have changed: Re-run to rebuild
                     </div>
                     {% endif %}
                     {% if pipeline.needs_curation_sync %}

@@ -1,5 +1,9 @@
 # Metabolite Harmonization Curation Design
 
+> This document records the original metabolite-specific workflow. The shared
+> typed storage and application contract now lives in
+> `designs/generic_curation_design.md`.
+
 ## Purpose
 
 The Harmonization Studio needs a durable way for experts to record decisions

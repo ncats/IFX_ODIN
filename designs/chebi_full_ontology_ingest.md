@@ -171,6 +171,33 @@ Convenience fields copied from source annotations:
 - `inchi_key`
 - `wurcs`
 
+ChEBI's mass properties require an additional semantic check for generic
+structures before they are copied into the `mass` and `monoisotopic_mass`
+convenience fields. ChEBI emits partial, "excluding R groups" masses for many
+generalized formulas and does not attach that qualifier to the individual OBO
+property value. For unresolved formulas or wildcard structures, the adapter:
+
+- omits both convenience masses when the formula contains an unresolved
+  `R`/`X` group, wildcard, or polymer multiplier;
+- independently checks average and monoisotopic masses against a complete
+  elemental formula, including dot-separated salts and hydrates, using RDKit's
+  periodic table;
+- retains only matching values within a fixed 0.5 Da tolerance, which allows
+  harmless reporting differences while remaining below the approximately
+  1.008 Da change caused by one hydrogen atom; and
+- omits masses for wildcard structures without a verifiable aggregate formula;
+  and leaves values unchanged when non-generic formula syntax cannot be
+  interpreted confidently.
+
+The same policy is applied to both full-ontology `ChemicalEntity` convenience
+fields and the ChEBI SDF-derived `MetaboliteIdentifier.chem_props` used by
+metabolite harmonization.
+
+This preserves useful aggregate-formula masses for generic structures such as
+sum-composition lipids while preventing partial scaffold masses from entering
+harmonization molecular-weight validation. The original OBO property objects
+remain on the ChEBI node for source-level traceability.
+
 These fields do not perform identifier reconciliation. Search metadata is
 limited to `id`, `name`, and `inchi_key`. Facets are limited to `subsets` and
 `is_obsolete` plus inherited source metadata. High-cardinality fields such as

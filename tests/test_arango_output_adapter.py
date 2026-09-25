@@ -1,9 +1,15 @@
 import json
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from src.core.curations import (
+    METABOLITE_ANNOTATIONS,
+    METABOLITE_EQUIVALENCE_EDGES,
+    property_decisions_from_operation,
+)
 from src.models.protein import Protein
 from src.models.test_models import TestEdge, TestNode
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
@@ -479,3 +485,287 @@ def test_update_many_with_backoff_splits_on_document_update_error():
     adapter.update_many_with_backoff(collection, records, label="Protein", kind="node")
 
     assert [len(call["docs"]) for call in collection.update_calls] == [4, 2, 1, 1, 2, 1, 1]
+
+
+class CurationAql:
+    def __init__(self, lookup_rows, edge_rows=None, fail_on_update_number=None):
+        self.lookup_rows = lookup_rows
+        self.edge_rows = ["edge-1"] if edge_rows is None else edge_rows
+        self.fail_on_update_number = fail_on_update_number
+        self.update_count = 0
+        self.calls = []
+
+    def execute(self, query, bind_vars=None, **kwargs):
+        self.calls.append({"query": query, "bind_vars": bind_vars or {}})
+        if "FILTER d.id" in query:
+            return FakeCursor(self.lookup_rows)
+        if "RETURN e._key" in query:
+            return FakeCursor(self.edge_rows)
+        if "UPDATE @target_key" in query:
+            self.update_count += 1
+            if self.update_count == self.fail_on_update_number:
+                raise RuntimeError("simulated mutation failure")
+        return FakeCursor(["updated"])
+
+
+class CurationCollection:
+    def __init__(self):
+        self.deleted = []
+
+    def delete_many(self, keys):
+        self.deleted.append(keys)
+
+
+class CurationDb:
+    def __init__(self, lookup_rows, edge_rows=None, fail_on_update_number=None):
+        self.aql = CurationAql(
+            lookup_rows,
+            edge_rows=edge_rows,
+            fail_on_update_number=fail_on_update_number,
+        )
+        self.edge_collection = CurationCollection()
+        self.committed = False
+        self.aborted = False
+
+    def has_collection(self, _name):
+        return True
+
+    def collection(self, _name):
+        return self.edge_collection
+
+    def begin_transaction(self, write):
+        self.transaction_collections = write
+        return self
+
+    def commit_transaction(self):
+        self.committed = True
+
+    def abort_transaction(self):
+        self.aborted = True
+
+
+def curation_snapshot(curation_type, operation):
+    resolved = SimpleNamespace(operation=operation, batch_id="batch-1")
+    property_decisions = property_decisions_from_operation(
+        curation_type,
+        operation,
+        batch_id="batch-1",
+        published_at="2026-09-24T12:00:00Z",
+        published_by={"id": "keith"},
+    )
+    return SimpleNamespace(
+        active_operations=[] if property_decisions else [resolved],
+        active_property_decisions=list(property_decisions),
+        metadata=lambda: {"curation_type": curation_type, "manifest_revision": 1},
+    )
+
+
+def test_apply_property_curation_checks_unique_target_before_updating():
+    db = CurationDb([{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": {}}])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "set_property",
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00001",
+        },
+        "property": "is_generic_structure",
+        "value": True,
+    }
+
+    result = adapter.apply_curation_snapshots({
+        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
+    })
+
+    assert result["applied"] == 1
+    assert len(db.aql.calls) == 2
+    assert "FILTER d.id" in db.aql.calls[0]["query"]
+    assert "UPDATE @target_key" in db.aql.calls[1]["query"]
+    assert db.aql.calls[1]["bind_vars"]["patch"] == {"is_generic_structure": True}
+    assert "keepNull: true" in db.aql.calls[1]["query"]
+    assert db.committed is True
+
+
+def test_apply_property_curation_preserves_explicit_null():
+    db = CurationDb([{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": {}}])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00001",
+        },
+        "values": {"is_generic_structure": None},
+        "remove_overrides": [],
+    }
+
+    adapter.apply_curation_snapshots({
+        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
+    })
+
+    update = db.aql.calls[1]
+    assert update["bind_vars"]["patch"] == {"is_generic_structure": None}
+    assert "keepNull: true" in update["query"]
+
+
+def test_restore_property_override_preflights_target_without_mutating_it():
+    db = CurationDb([
+        {"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None},
+        {"key": "node-2", "id": "KEGG.COMPOUND:C00001", "previous": None},
+    ])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "unset_property",
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00001",
+        },
+        "property": "is_generic_structure",
+    }
+
+    with pytest.raises(RuntimeError, match="matched 2 documents"):
+        adapter.apply_curation_snapshots({
+            METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
+        })
+
+    assert len(db.aql.calls) == 1
+    assert not any("UPDATE @target_key" in call["query"] for call in db.aql.calls)
+
+
+def test_restore_property_override_reports_restored_after_unique_preflight():
+    db = CurationDb([{
+        "key": "node-1",
+        "id": "KEGG.COMPOUND:C00001",
+        "previous": {"is_generic_structure": True},
+    }])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "unset_property",
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00001",
+        },
+        "property": "is_generic_structure",
+    }
+
+    result = adapter.apply_curation_snapshots({
+        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
+    })
+
+    assert len(db.aql.calls) == 1
+    assert result["reports"][0]["status"] == "restored"
+    assert result["reports"][0]["previous"] is True
+
+
+def test_apply_edge_removal_deletes_the_resolved_edge_key():
+    db = CurationDb([])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "remove_edge",
+        "edge_type": "MetaboliteIdentifierMappingEdge",
+        "start_id": "CHEBI:1",
+        "end_id": "HMDB:1",
+        "symmetric": True,
+    }
+
+    adapter.apply_curation_snapshots({
+        METABOLITE_EQUIVALENCE_EDGES: curation_snapshot(
+            METABOLITE_EQUIVALENCE_EDGES,
+            operation,
+        ),
+    })
+
+    assert db.edge_collection.deleted == [["edge-1"]]
+
+
+def test_apply_curations_preflights_all_targets_before_any_mutation():
+    db = CurationDb(
+        [{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None}],
+        edge_rows=[],
+    )
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    property_operation = {
+        "action": "set_property",
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00001",
+        },
+        "property": "is_generic_structure",
+        "value": True,
+    }
+    edge_operation = {
+        "action": "remove_edge",
+        "edge_type": "MetaboliteIdentifierMappingEdge",
+        "start_id": "CHEBI:1",
+        "end_id": "HMDB:1",
+        "symmetric": True,
+    }
+
+    with pytest.raises(RuntimeError, match="is missing"):
+        adapter.apply_curation_snapshots({
+            METABOLITE_ANNOTATIONS: curation_snapshot(
+                METABOLITE_ANNOTATIONS, property_operation
+            ),
+            METABOLITE_EQUIVALENCE_EDGES: curation_snapshot(
+                METABOLITE_EQUIVALENCE_EDGES, edge_operation
+            ),
+        })
+
+    assert not any("UPDATE @target_key" in call["query"] for call in db.aql.calls)
+    assert db.edge_collection.deleted == []
+
+
+def test_apply_curations_aborts_transaction_when_a_later_mutation_fails():
+    db = CurationDb(
+        [{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None}],
+        fail_on_update_number=2,
+    )
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.get_db = lambda: db
+    operations = [
+        {
+                "action": "set_property",
+                "target": {
+                    "kind": "node",
+                    "model_type": "MetaboliteIdentifier",
+                    "id": identifier,
+                },
+                "property": "is_generic_structure",
+                "value": value,
+            }
+        for identifier, value in [
+            ("KEGG.COMPOUND:C00001", True),
+            ("KEGG.COMPOUND:C00002", False),
+        ]
+    ]
+    snapshot = SimpleNamespace(
+        active_operations=[],
+        active_property_decisions=[
+            property_decisions_from_operation(
+                METABOLITE_ANNOTATIONS,
+                operation,
+                batch_id="batch-1",
+                published_at="2026-09-24T12:00:00Z",
+                published_by=None,
+            )[0]
+            for operation in operations
+        ],
+        metadata=lambda: {"curation_type": METABOLITE_ANNOTATIONS},
+    )
+
+    with pytest.raises(RuntimeError, match="simulated mutation failure"):
+        adapter.apply_curation_snapshots({METABOLITE_ANNOTATIONS: snapshot})
+
+    assert db.aborted is True
+    assert db.committed is False

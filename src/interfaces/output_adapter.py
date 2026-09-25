@@ -23,6 +23,14 @@ class OutputAdapter(ABC):
     def do_pre_processing(self) -> None:
         pass
 
+    def supports_curations(self) -> bool:
+        return False
+
+    def apply_curation_snapshots(self, snapshots: dict) -> dict:
+        if snapshots:
+            raise RuntimeError(f"{type(self).__name__} does not support configured curations")
+        return {"applied": 0}
+
     @abstractmethod
     def create_or_truncate_datastore(self, truncate_tables: bool = None) -> bool:
         pass

@@ -3,13 +3,20 @@ services:
     build:
       context: ..
       dockerfile: qa-browser-container/Dockerfile
+      ssh:
+        - default=${IFX_REGISTRY_SSH_KEY:-${HOME}/.ssh/id_ed25519}
     container_name: qa_browser
     ports:
       - "8046:8050"
     volumes:
-      - ../src/use_cases/secrets:/app/src/use_cases/secrets:ro
+      - ../src/use_cases/secrets/ifxdev_arangodb.yaml:/app/src/use_cases/secrets/ifxdev_arangodb.yaml:ro
+      - ../src/use_cases/secrets/galeradev_write.yaml:/app/src/use_cases/secrets/galeradev_write.yaml:ro
+      - ../src/use_cases/secrets/pharos_credentials.yaml:/app/src/use_cases/secrets/pharos_credentials.yaml:ro
+      - ../src/use_cases/secrets/aws_ifx_registry.yaml:/app/src/use_cases/secrets/aws_ifx_registry.yaml:ro
+      - ../src/use_cases/secrets/smtp.yaml:/app/src/use_cases/secrets/smtp.yaml:ro
       - ../input_files:/app/input_files
     environment:
+      QA_BROWSER_RUNNER_INSTANCE_ID: "${QA_BROWSER_RUNNER_INSTANCE_ID:-qa-browser-local-${USER:-unknown}}"
       QA_BROWSER_JIRA_URL: "https://ncats-nih.atlassian.net"
       QA_BROWSER_JIRA_USER: ""
       QA_BROWSER_JIRA_API_TOKEN: ""

@@ -163,6 +163,8 @@
         {% endif %}
     </section>
 
+    {% include "ramp_id_generic_structure_validation.html" %}
+
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>MW Validation</h2>
@@ -180,17 +182,17 @@
             Flags harmonized metabolites where the available molecular weight or monoisotopic mass values differ by more
             than {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}%.
         </p>
-        <p class="metabolite-id-mw-cart-summary" data-mw-cart-summary hidden></p>
+        <p class="metabolite-id-pending-summary" data-cart-summary="mw" hidden></p>
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
                     <th>Spread</th>
                     <th>Size</th>
-                    <th>Representative</th>
+                    <th>Review ID</th>
                     <th>MW Range</th>
                     <th>Examples</th>
-                    <th>Cart Review</th>
+                    <th>Pending changes</th>
                     <th>Review</th>
                 </tr>
                 </thead>
@@ -199,7 +201,7 @@
                 <tr data-mw-warning-rank="{{ warning.rank_by_size }}">
                     <td>{{ "%.1f"|format(warning.spread_percent) }}%</td>
                     <td>{{ "{:,}".format(warning.size) }}</td>
-                    <td class="mono">{{ warning.representative_id }}</td>
+                    <td class="mono">{{ warning.review_id }}</td>
                     <td>{{ warning.mass_label }}</td>
                     <td>
                         <div class="metabolite-id-member-list">
@@ -208,7 +210,7 @@
                         {% endfor %}
                         </div>
                     </td>
-                    <td><span class="metabolite-id-mw-cart-flag" data-mw-cart-flag hidden></span></td>
+                    <td><div class="metabolite-id-pending-flags" data-mw-cart-flag hidden></div></td>
                     <td>
                         <button type="button" class="btn metabolite-id-mw-review-toggle"
                                 data-mw-review-toggle
@@ -251,79 +253,6 @@
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
-            <h2>Carbohydrate Family Validation</h2>
-            {% if stats.carbohydrate_family_validation.computed %}
-            <p>
-                {{ "{:,}".format(stats.carbohydrate_family_validation.warning_count) }} conflicting clique{{ "" if stats.carbohydrate_family_validation.warning_count == 1 else "s" }}.
-            </p>
-            {% else %}
-            <p>Not computed for this stage.</p>
-            {% endif %}
-        </div>
-        {% if stats.carbohydrate_family_validation.computed %}
-        <p>
-            Flags cliques containing more than one comparable ChEBI carbohydrate family. Full InChIKeys are generated
-            from ChEBI SMILES with RDKit; exactly one free anomeric center is normalized, while all other stereochemistry
-            is preserved. Under-specified structures do not create conflicts by themselves.
-        </p>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                <tr>
-                    <th>Families</th>
-                    <th>Clique Size</th>
-                    <th>Generated Family Keys and ChEBI Members</th>
-                    <th>Unclassified</th>
-                    <th>Review</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for warning in stats.carbohydrate_family_validation.warnings %}
-                <tr>
-                    <td>{{ warning.family_count }}</td>
-                    <td>{{ "{:,}".format(warning.size) }}</td>
-                    <td>
-                        {% for family in warning.families %}
-                        <div class="metabolite-id-member-list metabolite-id-carbohydrate-family-bucket">
-                            <strong class="mono">{{ family.family_inchi_key }}</strong>
-                            {% for member in family.members %}
-                            <span><span class="mono">{{ member.id }}</span>{% if member.name %} — {{ member.name }}{% endif %}</span>
-                            {% endfor %}
-                        </div>
-                        {% endfor %}
-                    </td>
-                    <td>
-                        <div class="metabolite-id-member-list">
-                        {% for member in warning.unclassified_carbohydrates %}
-                            <span><span class="mono">{{ member.id }}</span>{% if member.name %} — {{ member.name }}{% endif %} ({{ member.reason|replace("_", " ") }})</span>
-                        {% else %}
-                            <span>None</span>
-                        {% endfor %}
-                        </div>
-                    </td>
-                    <td>
-                        <a class="metabolite-id-compare-review-link" target="_blank" rel="noopener"
-                           href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&stages={{ stats.stage._key|urlencode }}">
-                            Open clique
-                        </a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="5">No incompatible carbohydrate families were found in this stage.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% if stats.carbohydrate_family_validation.warning_count > stats.carbohydrate_family_validation.warnings|length %}
-        <p>Showing the top {{ stats.carbohydrate_family_validation.warnings|length }} of {{ stats.carbohydrate_family_validation.warning_count }} conflicting cliques.</p>
-        {% endif %}
-        {% else %}
-        <p>Carbohydrate family validation is computed for newly materialized stages.</p>
-        {% endif %}
-    </section>
-
-    <section class="ramp-id-table-section">
-        <div class="ramp-id-section-header">
             <h2>Denylist Validation</h2>
             {% if stats.denylist_validation.computed and stats.denylist_validation.rule_enabled %}
             <p>
@@ -343,6 +272,7 @@
             same harmonized metabolite through some other path. Each one means either the curation is no longer valid, or
             another edge/identifier needs to be added to the denylist to fully separate them.
         </p>
+        <p class="metabolite-id-pending-summary" data-cart-summary="denylist" hidden></p>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -350,7 +280,7 @@
                     <th>Denylisted Pairs In This Clique</th>
                     <th>Size</th>
                     <th>Members</th>
-                    <th>Cart Review</th>
+                    <th>Pending changes</th>
                     <th>Review</th>
                 </tr>
                 </thead>
@@ -372,7 +302,7 @@
                         {% endfor %}
                         </div>
                     </td>
-                    <td><span class="metabolite-id-mw-cart-flag" data-denylist-cart-flag hidden></span></td>
+                    <td><div class="metabolite-id-pending-flags" data-denylist-cart-flag hidden></div></td>
                     <td>
                         {% if warning.pairs %}
                         {% set review_ids = warning.pairs[0].left_id ~ " " ~ warning.pairs[0].right_id %}
@@ -494,8 +424,9 @@
 </div>
 
 <script src="{{ root_path }}/static/metabolite_curation_cart.js"></script>
-{% if stats and (stats.mw_validation.computed or stats.denylist_validation.computed) %}
+{% if stats and (stats.mw_validation.computed or stats.denylist_validation.computed or stats.generic_structure_validation.computed) %}
 <script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script src="{{ root_path }}/static/metabolite_harmonization_visuals.js?v={{ metabolite_visuals_version }}"></script>
 <script>
 (function () {
     const rootPath = {{ root_path|tojson }};
@@ -647,48 +578,90 @@
     }
 
     function loadCartFlags() {
-        document.querySelectorAll("[data-mw-warning-rank], [data-denylist-warning-rank]").forEach((row) => {
-            row.classList.remove("has-cart-review");
-            const badge = row.querySelector("[data-mw-cart-flag], [data-denylist-cart-flag]");
-            if (badge) badge.hidden = true;
+        const sections = [
+            {row: "[data-mw-warning-rank]", rank: "mwWarningRank", flag: "[data-mw-cart-flag]", summary: "mw"},
+            {row: "[data-denylist-warning-rank]", rank: "denylistWarningRank", flag: "[data-denylist-cart-flag]", summary: "denylist"},
+            {row: "[data-generic-warning-rank]", rank: "genericWarningRank", flag: "[data-generic-cart-flag]", summary: "generic"},
+        ];
+        sections.forEach((section) => {
+            document.querySelectorAll(section.row).forEach((row) => {
+                row.classList.remove("has-pending-changes");
+                const container = row.querySelector(section.flag);
+                if (container) {
+                    container.replaceChildren();
+                    container.hidden = true;
+                    container.removeAttribute("title");
+                    container.removeAttribute("aria-label");
+                    container.removeAttribute("tabindex");
+                }
+            });
+            const summary = document.querySelector(`[data-cart-summary="${section.summary}"]`);
+            if (summary) summary.hidden = true;
         });
-        const summary = document.querySelector("[data-mw-cart-summary]");
-        if (summary) summary.hidden = true;
+
+        function changeLabel(change) {
+            const property = String(change.property || "property").replaceAll("_", " ");
+            if (change.mode === "remove_override") return `${property}: use detected value`;
+            const value = typeof change.value === "string" ? change.value : JSON.stringify(change.value);
+            return `${property}: ${value}`;
+        }
+
+        function renderPendingFlags(container, flag) {
+            const idCount = Number(flag.updated_identifier_count || 0);
+            const edgeCount = Number(flag.queued_edge_count || 0);
+            const details = [
+                ...(flag.identifier_updates || []).map((update) =>
+                    `${update.target_id} — ${(update.changes || []).map(changeLabel).join(", ")}`
+                ),
+                ...(flag.edges || []).map((edge) =>
+                    `${edge.action === "retain_edge" ? "Retain" : "Remove"} edge: ${edge.start_id} ↔ ${edge.end_id}`
+                ),
+            ];
+            if (idCount) {
+                const badge = document.createElement("span");
+                badge.className = "metabolite-id-pending-flag";
+                badge.textContent = `${idCount} ID update${idCount === 1 ? "" : "s"}`;
+                container.appendChild(badge);
+            }
+            if (edgeCount) {
+                const badge = document.createElement("span");
+                badge.className = "metabolite-id-pending-flag";
+                badge.textContent = `${edgeCount} edge decision${edgeCount === 1 ? "" : "s"}`;
+                container.appendChild(badge);
+            }
+            if (!idCount && !edgeCount) return false;
+            const detailText = details.join("\n");
+            container.title = detailText;
+            container.setAttribute("aria-label", detailText);
+            container.tabIndex = 0;
+            container.hidden = false;
+            return true;
+        }
+
         return fetch(cartFlagUrl())
         .then((response) => response.ok ? response.json() : null)
         .then((payload) => {
             if (!payload) return;
             const flags = new Map((payload.flags || []).map((flag) => [String(flag.rank_by_size), flag]));
-            let displayedFlagCount = 0;
-            document.querySelectorAll("[data-mw-warning-rank]").forEach((row) => {
-                const flag = flags.get(row.dataset.mwWarningRank);
-                if (!flag) return;
-                displayedFlagCount += 1;
-                const badge = row.querySelector("[data-mw-cart-flag]");
-                const edgeCount = Number(flag.queued_edge_count || 0);
-                badge.textContent = `Reviewed: ${edgeCount} pending curation${edgeCount === 1 ? "" : "s"}`;
-                badge.title = (flag.edges || [])
-                    .map((edge) => `${edge.action === "retain_edge" ? "Retain" : "Remove"}: ${edge.start_id} ↔ ${edge.end_id}`)
-                    .join("\n");
-                badge.hidden = false;
-                row.classList.add("has-cart-review");
+            sections.forEach((section) => {
+                let warningCount = 0;
+                let idCount = 0;
+                let edgeCount = 0;
+                document.querySelectorAll(section.row).forEach((row) => {
+                    const flag = flags.get(row.dataset[section.rank]);
+                    const container = row.querySelector(section.flag);
+                    if (!flag || !container || !renderPendingFlags(container, flag)) return;
+                    warningCount += 1;
+                    idCount += Number(flag.updated_identifier_count || 0);
+                    edgeCount += Number(flag.queued_edge_count || 0);
+                    row.classList.add("has-pending-changes");
+                });
+                const summary = document.querySelector(`[data-cart-summary="${section.summary}"]`);
+                if (summary && warningCount) {
+                    summary.textContent = `${warningCount} displayed warning${warningCount === 1 ? "" : "s"} contain pending cart changes: ${idCount} ID update${idCount === 1 ? "" : "s"} and ${edgeCount} edge decision${edgeCount === 1 ? "" : "s"}.`;
+                    summary.hidden = false;
+                }
             });
-            document.querySelectorAll("[data-denylist-warning-rank]").forEach((row) => {
-                const flag = flags.get(row.dataset.denylistWarningRank);
-                if (!flag) return;
-                const badge = row.querySelector("[data-denylist-cart-flag]");
-                const edgeCount = Number(flag.queued_edge_count || 0);
-                badge.textContent = `Reviewed: ${edgeCount} pending curation${edgeCount === 1 ? "" : "s"}`;
-                badge.title = (flag.edges || [])
-                    .map((edge) => `${edge.action === "retain_edge" ? "Retain" : "Remove"}: ${edge.start_id} ↔ ${edge.end_id}`)
-                    .join("\n");
-                badge.hidden = false;
-                row.classList.add("has-cart-review");
-            });
-            if (summary && displayedFlagCount) {
-                summary.textContent = `${displayedFlagCount} displayed MW warning${displayedFlagCount === 1 ? "" : "s"} have curation edges queued in your current cart.`;
-                summary.hidden = false;
-            }
         })
         .catch(() => {});
     }
@@ -706,6 +679,18 @@
         const title = panel.querySelector("[data-mw-review-title]");
         const subtitle = panel.querySelector("[data-mw-review-subtitle]");
         const details = panel.querySelector("[data-mw-review-details]");
+        if (window.MetaboliteHarmonizationVisuals?.selectionDetails) {
+            const rendered = window.MetaboliteHarmonizationVisuals.selectionDetails(data, isEdge);
+            title.textContent = rendered.title;
+            subtitle.textContent = rendered.subtitle;
+            const edgeAction = isEdge ? `
+                <section class="metabolite-curation-action"><button type="button" class="btn metabolite-curation-add"
+                    data-curation-start-id="${escapeHtml(data.start_id || data.source)}"
+                    data-curation-end-id="${escapeHtml(data.end_id || data.target)}">Add curation: Remove this Edge</button></section>` : "";
+            details.innerHTML = `${edgeAction}${rendered.html}`;
+            updatePendingRemovalVisuals();
+            return;
+        }
         title.textContent = data.label || data.node_label || data.id || "Selection";
         subtitle.textContent = isEdge ? `${data.start_id || data.source} → ${data.end_id || data.target}` : (data.kind || data.prefix || "Metabolite identifier");
         if (isEdge) {
@@ -848,6 +833,10 @@
     document.addEventListener("metabolite-curation-cart:changed", (event) => {
         acceptCartOperations(event.detail?.operations || []);
         loadCartFlags();
+        if (activeCy && activePanel) {
+            const selectedNode = activeCy.nodes(":selected").first();
+            if (selectedNode.length) renderDetails(activePanel, selectedNode.data(), false);
+        }
     });
     acceptCartOperations(window.metaboliteCurationCartOperations || []);
     loadCartFlags();

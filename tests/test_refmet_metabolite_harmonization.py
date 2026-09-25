@@ -4,6 +4,7 @@ import json
 from src.input_adapters.metabolite_harmonization.refmet import RefMetMetaboliteEquivalenceAdapter
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteIdentifierMappingEdge
+from src.shared.metabolite_generic_structure import classify_generic_structure
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -44,6 +45,18 @@ def test_refmet_adapter_emits_nodes_names_and_edges(tmp_path: Path):
     assert primary.prefix == "REFMET"
     assert primary.names[0].value == "Acutumidine"
     assert primary.names[0].source == "RefMet"
+    assert len(primary.chem_props) == 1
+    assert primary.chem_props[0].source == "RefMet"
+    assert primary.chem_props[0].source_id == "REFMET:RM0108606"
+    assert primary.chem_props[0].molecular_formula == "C18H22ClNO6"
+    assert primary.chem_props[0].monoisotopic_mass == "383.113567"
+    assert primary.chem_props[0].inchi_key == "SBALNGLYQFMKPR-NQTWQHAWSA-N"
+    assert primary.chem_props[0].inchi_key_prefix == "SBALNGLYQFMKPR"
+    assert classify_generic_structure([{
+        "source": primary.chem_props[0].source,
+        "source_id": primary.chem_props[0].source_id,
+        "formula": primary.chem_props[0].molecular_formula,
+    }]) is False
     assert nodes_by_id["PUBCHEM.COMPOUND:442840"].prefix == "PUBCHEM.COMPOUND"
 
     expected_node_ids = {
@@ -96,6 +109,27 @@ def test_refmet_records_are_json_serializable_after_output_conversion(tmp_path: 
     assert primary["names"] == [
         {"value": "Acutumidine", "source": "RefMet", "source_field": "refmet_name"}
     ]
+    assert primary["chem_props"] == [{
+        "source": "RefMet",
+        "source_id": "REFMET:RM0108606",
+        "iso_smiles": None,
+        "canonical_smiles": None,
+        "isomeric_smiles": None,
+        "inchi_key_prefix": "SBALNGLYQFMKPR",
+        "inchi_key": "SBALNGLYQFMKPR-NQTWQHAWSA-N",
+        "derived_inchi_key_prefix": None,
+        "derived_inchi_key": None,
+        "derived_inchi_key_input_field": None,
+        "derived_inchi_key_method": None,
+        "derived_inchi_key_method_version": None,
+        "derived_inchi_key_error": None,
+        "inchi": None,
+        "mw": None,
+        "monoisotopic_mass": "383.113567",
+        "common_name": None,
+        "iupac_name": None,
+        "molecular_formula": "C18H22ClNO6",
+    }]
     assert chebi_edge["details"] == [
         {"source": "RefMet", "source_field": "chebi_id", "source_id": "REFMET:RM0108606"}
     ]
@@ -109,3 +143,22 @@ def test_refmet_adapter_honors_max_records(tmp_path: Path):
     records = _records(adapter)
     assert any(isinstance(record, MetaboliteIdentifier) and record.id == "REFMET:RM0108606" for record in records)
     assert not any(isinstance(record, MetaboliteIdentifier) and record.id == "REFMET:RM0108637" for record in records)
+
+
+def test_refmet_adapter_omits_empty_chem_props(tmp_path: Path):
+    csv_path = tmp_path / "refmet.csv"
+    csv_path.write_text(
+        "refmet_id,refmet_name,formula,exactmass,inchi_key\n"
+        "RM0000001,Unknown chemistry,,,\n",
+        encoding="utf-8",
+    )
+
+    primary = next(
+        record
+        for record in _records(
+            RefMetMetaboliteEquivalenceAdapter(refmet_csv_file=str(csv_path))
+        )
+        if isinstance(record, MetaboliteIdentifier)
+    )
+
+    assert primary.chem_props == []

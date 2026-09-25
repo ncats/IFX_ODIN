@@ -1,4 +1,11 @@
-<article class="metabolite-id-compare-card{% if component.newly_failing_assertion_count %} has-new-assertion-failure{% endif %}">
+<article class="metabolite-id-compare-card{% if component.newly_failing_assertion_count %} has-new-assertion-failure{% endif %}{% if component.generic_structure_destination_failure_count %} has-new-assertion-failure{% endif %}">
+    {% if component.generic_structure_destination_failure_count or component.generic_structure_destination_gap_count %}
+    <div class="metabolite-id-compare-assertion-alert">
+        <strong>Destination generic-structure {{ "failure" if component.generic_structure_destination_failure_count else "classification gap" }}</strong>
+        <span>{{ component.generic_structure_destination_failure_count }} mixed generic/specific clique{{ "" if component.generic_structure_destination_failure_count == 1 else "s" }} · {{ component.generic_structure_destination_gap_count }} generic/unclassified gap{{ "" if component.generic_structure_destination_gap_count == 1 else "s" }}</span>
+        <span>Inspect a node to mark its persisted field generic, or inspect a real edge to queue its removal. Changes remain drafts until published.</span>
+    </div>
+    {% endif %}
     {% if component.newly_failing_assertions %}
     <div class="metabolite-id-compare-assertion-alert">
         <strong>New expected-clique failure</strong>

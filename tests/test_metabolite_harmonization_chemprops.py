@@ -12,6 +12,7 @@ from src.input_adapters.metabolite_harmonization.chemprops import (
 )
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.metabolite_harmonization import MetaboliteIdentifier
+from src.shared.metabolite_generic_structure import classify_generic_structure
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -29,6 +30,23 @@ def _sdf_record(title: str, tags: dict) -> str:
         "  TEST",
         "",
         "  0  0  0     0  0            999 V2000",
+        "M  END",
+        "",
+    ]
+    for key, value in tags.items():
+        lines.extend([f"> <{key}>", value, ""])
+    lines.append("$$$$")
+    return "\n".join(lines) + "\n"
+
+
+def _sdf_record_with_mol_block(title: str, atom_lines: list[str], bond_lines: list[str], tags: dict) -> str:
+    lines = [
+        title,
+        "  TEST",
+        "",
+        f"{len(atom_lines):>3}{len(bond_lines):>3}  0     0  0            999 V2000",
+        *atom_lines,
+        *bond_lines,
         "M  END",
         "",
     ]
@@ -110,6 +128,32 @@ def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
     assert node.chem_props[0].derived_inchi_key == "JDHILDINMRGULE-LURJTMIESA-N"
 
 
+def test_chebi_chemprops_adapter_omits_partial_generic_structure_masses(tmp_path: Path):
+    gz_path = tmp_path / "chebi_3_stars.sdf.gz"
+    sdf = _sdf_record(
+        "CHEBI:21494",
+        {
+            "ChEBI ID": "CHEBI:21494",
+            "SMILES": "*NOC(C)=O",
+            "MASS": "74.059",
+            "MONOISOTOPIC_MASS": "74.0242",
+            "ChEBI NAME": "N-acetoxyarylamine",
+            "FORMULA": "C2H4NO2R",
+        },
+    )
+    with gzip.open(gz_path, "wt", encoding="utf-8") as handle:
+        handle.write(sdf)
+
+    props = _records(
+        ChebiMetaboliteChemPropsAdapter(chebi_sdf_file=str(gz_path))
+    )[0].chem_props[0]
+
+    assert props.mw is None
+    assert props.monoisotopic_mass is None
+    assert props.molecular_formula == "C2H4NO2R"
+    assert props.iso_smiles == "*NOC(C)=O"
+
+
 def test_lipidmaps_chemprops_adapter_emits_chemprops(tmp_path: Path):
     zip_path = tmp_path / "LMSD.sdf.zip"
     sdf = _sdf_record(
@@ -136,6 +180,118 @@ def test_lipidmaps_chemprops_adapter_emits_chemprops(tmp_path: Path):
     assert node.chem_props[0].monoisotopic_mass == "102.031695"
     assert node.chem_props[0].common_name == "3-methyl pyruvic acid"
     assert node.chem_props[0].derived_inchi_key == "TYEYBOSBBBHJIV-UHFFFAOYSA-N"
+
+
+def test_lipidmaps_chemprops_derives_wildcard_smiles_from_generic_mol_block(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    sdf = _sdf_record_with_mol_block(
+        "LMGP04050000",
+        [
+            "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    1.0000    0.0000    0.0000 R   0  0  0  0  0  0  0  0  0  0  0  0",
+        ],
+        ["  1  2  1  0  0  0  0"],
+        {"LM_ID": "LMGP04050000", "NAME": "LPG"},
+    )
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    node = _records(LipidMapsMetaboliteChemPropsAdapter(sdf_zip_file=str(zip_path)))[0]
+    props = node.chem_props[0]
+
+    assert "*" in props.canonical_smiles
+    assert props.iso_smiles is None
+    assert props.derived_inchi_key is None
+    assert props.derived_inchi_key_input_field == "sdf_mol_block"
+    assert props.derived_inchi_key_error == "query_structure_not_supported"
+    assert classify_generic_structure([{"smiles": props.canonical_smiles}]) is True
+
+
+def test_lipidmaps_chemprops_derives_smiles_and_inchi_key_from_concrete_mol_block(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    sdf = _sdf_record_with_mol_block(
+        "LMFA00000003",
+        [
+            "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0",
+        ],
+        [
+            "  1  2  1  0  0  0  0",
+            "  2  3  1  0  0  0  0",
+        ],
+        {"LM_ID": "LMFA00000003", "NAME": "ethanol"},
+    )
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    node = _records(LipidMapsMetaboliteChemPropsAdapter(sdf_zip_file=str(zip_path)))[0]
+    props = node.chem_props[0]
+
+    assert props.canonical_smiles == "CCO"
+    assert props.derived_inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert props.derived_inchi_key_prefix == "LFQSCWFLJHTTHZ"
+    assert props.derived_inchi_key_input_field == "sdf_mol_block"
+    assert props.derived_inchi_key_error is None
+
+
+def test_lipidmaps_tagged_smiles_takes_precedence_over_mol_block(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    sdf = _sdf_record_with_mol_block(
+        "LMFA00000004",
+        ["    0.0000    0.0000    0.0000 R   0  0  0  0  0  0  0  0  0  0  0  0"],
+        [],
+        {"LM_ID": "LMFA00000004", "SMILES": "CCO"},
+    )
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    props = _records(LipidMapsMetaboliteChemPropsAdapter(sdf_zip_file=str(zip_path)))[0].chem_props[0]
+
+    assert props.iso_smiles == "CCO"
+    assert props.canonical_smiles is None
+    assert props.derived_inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert props.derived_inchi_key_input_field == "iso_smiles"
+
+
+def test_lipidmaps_zero_atom_mol_block_remains_unknown_without_derivation_error(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    sdf = _sdf_record("LMSP0502AB00", {"LM_ID": "LMSP0502AB00"})
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    props = _records(LipidMapsMetaboliteChemPropsAdapter(sdf_zip_file=str(zip_path)))[0].chem_props[0]
+
+    assert props.canonical_smiles is None
+    assert props.derived_inchi_key is None
+    assert props.derived_inchi_key_input_field is None
+    assert props.derived_inchi_key_error is None
+
+
+def test_lipidmaps_malformed_nonempty_mol_block_records_failure(tmp_path: Path):
+    zip_path = tmp_path / "LMSD.sdf.zip"
+    sdf = "\n".join([
+        "LMFA00000005",
+        "  TEST",
+        "",
+        "  1  0  0     0  0            999 V2000",
+        "M  END",
+        "",
+        "> <LM_ID>",
+        "LMFA00000005",
+        "",
+        "$$$$",
+        "",
+    ])
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    props = _records(LipidMapsMetaboliteChemPropsAdapter(sdf_zip_file=str(zip_path)))[0].chem_props[0]
+
+    assert props.canonical_smiles is None
+    assert props.derived_inchi_key is None
+    assert props.derived_inchi_key_input_field == "sdf_mol_block"
+    assert props.derived_inchi_key_error == "mol_parse_failed"
 
 
 def test_pubchem_chemprops_adapter_emits_chemprops(tmp_path: Path):

@@ -113,6 +113,17 @@ value is stored separately as `derived_inchi_key` and
 toolkit version, and any calculation error. A derived key never overwrites or
 masquerades as a source-reported key.
 
+LipidMaps records may carry a molecular drawing in the SDF mol block while
+omitting the `SMILES`, `INCHI`, `INCHI_KEY`, and formula tags. When a reported
+SMILES tag is absent, the LipidMaps chemistry adapter converts a nonempty mol
+block to canonical isomeric SMILES and stores it in `canonical_smiles`. This is
+normal adapter parsing of the versioned LipidMaps payload, so its datasource
+provenance is supplied by the framework. Fully specified mol blocks also
+produce a `derived_inchi_key` with `sdf_mol_block` recorded as its input.
+Generic/query atoms such as `R`, `R#`, and `R1` are preserved as SMILES
+wildcards, make the generic-structure classifier return true, and intentionally
+do not produce an InChIKey. Zero-atom mol blocks remain unclassified.
+
 The current ChEBI three-star SDF uses uppercase property tags including
 `INCHIKEY`, `INCHI`, `MONOISOTOPIC_MASS`, `ChEBI NAME`, and `FORMULA`. Older
 three-star payloads used the mixed-case tags `InChIKey`, `InChI`,

@@ -4,6 +4,7 @@ import json
 
 from src.input_adapters.metabolite_harmonization.expasy import ExpasyEnzymeClassAdapter
 from src.input_adapters.metabolite_harmonization.rhea import RheaReactionAdapter
+from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite_harmonization import (
     MetaboliteIdentifier,
     ProteinIdentifier,
@@ -148,14 +149,30 @@ def test_rhea_reaction_adapter_emits_active_reactions_and_context_edges(tmp_path
             },
             handle,
         )
+    rdf_gz = tmp_path / "rhea.rdf.gz"
+    with gzip.open(rdf_gz, "wb") as handle:
+        handle.write(rdf.read_bytes())
+
+    class RegistryDataset:
+        def file(self, name: str) -> Path:
+            return {
+                "rhea.rdf.gz": rdf_gz,
+                "rhea-directions.tsv": directions,
+                "rhea2ec.tsv": rhea2ec,
+                "rhea2uniprot_sprot.tsv": sprot,
+                "rhea2uniprot_trembl.tsv.gz": trembl,
+            }[name]
+
+        def version_info(self) -> DatasourceVersionInfo:
+            return DatasourceVersionInfo(
+                version="142",
+                version_date=None,
+                download_date=None,
+            )
 
     records = _records(
         RheaReactionAdapter(
-            rdf_file=str(rdf),
-            directions_file=str(directions),
-            rhea2ec_file=str(rhea2ec),
-            rhea2uniprot_sprot_file=str(sprot),
-            rhea2uniprot_trembl_file=str(trembl),
+            data_source=RegistryDataset(),
             uniprot_human_file=str(uniprot),
         )
     )
