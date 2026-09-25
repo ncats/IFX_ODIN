@@ -10,8 +10,17 @@
         <div>
             <h1>Drug Harmonizer Explorer</h1>
             <p class="variant-explorer-release"><span class="mono">{{ drug_version_display }}</span>
-                &mdash; Substance identity and product-context harmonization from GSRS, ChEBI, DrugCentral, ChEMBL, RxNorm, PubChem, and UniChem.
+                &mdash; Substance identity and product-context harmonization from GSRS, ChEBI, DrugCentral, ChEMBL, IUPHAR/BPS, RxNorm, PubChem, and UniChem.
                 Updated last: {{ drug_updated_last }}.</p>
+            {% if manifest.get('scope', {}).get('primary_graph_is_complete') == false %}
+            <p class="variant-explorer-release">This deployed graph is the release's prioritized preview
+                ({{ "{:,}".format(manifest.get('counts', {}).get('nodes', 0)) }} of
+                {{ "{:,}".format(manifest.get('counts', {}).get('full_nodes_available', 0)) }} harmonized nodes).
+                {% if drug_resolver_index_available %}The complete version-matched local identity index is connected.
+                {% else %}Lookup is preview-only because the version-matched external resolver index is not connected.{% endif %}
+                Dashboard, Concepts, Graph, and Download statistics describe the preview, which prioritizes curated drugs,
+                target-linked ligands, ChEMBL/GSRS/ChEBI coverage, drug-typed records, and multi-source identity evidence.</p>
+            {% endif %}
         </div>
         <div class="variant-open-box">
             <textarea id="drugOpenIds" rows="3" spellcheck="false" placeholder="ibuprofen | UNII:R16CO5Y76E | CHEMBL.COMPOUND:CHEMBL25 | PubChem:2244">{{ selected_ids }}</textarea>
@@ -22,7 +31,7 @@
     <nav class="variant-tabs">
         <button class="variant-tab-btn" data-tab="dashboard" type="button">Dashboard</button>
         <button class="variant-tab-btn" data-tab="concepts" type="button">Concepts</button>
-        <button class="variant-tab-btn" data-tab="review" type="button">Review</button>
+        <button class="variant-tab-btn nerd-only" data-tab="review" type="button">Review</button>
         <button class="variant-tab-btn" data-tab="graph" type="button">Graph</button>
         <button class="variant-tab-btn" data-tab="resolver" type="button">Resolver</button>
         <button class="variant-tab-btn" data-tab="download" type="button">Download</button>
@@ -153,7 +162,7 @@
 
     <section class="variant-tab-panel" data-panel="concepts">
         <div class="variant-filter-row">
-            <input id="drugSearch" type="search" placeholder="Search name, IFX ID, UNII, ChEMBL, ChEBI, PubChem, RxCUI, CAS, or InChIKey...">
+            <input id="drugSearch" type="search" placeholder="Search name, SMILES, IFX ID, UNII, ChEMBL, ChEBI, PubChem, RxCUI, CAS, or InChIKey...">
             <select id="drugSourceFilter"><option value="">All local sources</option></select>
             <select id="drugTierFilter"><option value="">All tiers</option></select>
             <button class="btn btn-primary" id="drugSearchBtn" type="button">Search</button>
@@ -171,7 +180,7 @@
         </div>
     </section>
 
-    <section class="variant-tab-panel" data-panel="review">
+    <section class="variant-tab-panel nerd-only" data-panel="review">
         <div class="variant-panel">
             <div class="review-header-row">
                 <div>
@@ -216,7 +225,7 @@
 
     <section class="variant-tab-panel" data-panel="graph">
         <div class="variant-graph-toolbar">
-            <span id="drugGraphLabel">Enter an IFXDrug ID, name, UNII, ChEMBL, ChEBI, PubChem CID, RxCUI, CAS, or InChIKey.</span>
+            <span id="drugGraphLabel">Enter an IFXDrug ID, name, SMILES, UNII, ChEMBL, ChEBI, PubChem CID, RxCUI, CAS, or InChIKey.</span>
             <label class="drug-graph-toggle"><input type="checkbox" id="drugShowTargets" checked> Show target associations</label>
             <button class="btn btn-sm" id="drugFitGraph" type="button">Fit graph</button>
         </div>
@@ -291,7 +300,7 @@
             <div class="resolver-guide">
                 <div class="resolver-guide-block">
                     <h4>Local harmonizer</h4>
-                    <p>Resolves names and identifiers to IFXDrug IDs curated from GSRS/UNII, ChEMBL, ChEBI, DrugCentral, PubChem CIDs, RxNorm context, and NodeNorm validation.</p>
+                    <p>Resolves names, SMILES structures, and identifiers to IFXDrug IDs curated from GSRS/UNII, ChEMBL, ChEBI, DrugCentral, PubChem CIDs, RxNorm context, and NodeNorm validation.</p>
                 </div>
                 <div class="resolver-guide-block">
                     <h4>NCATS / IFX enrichment</h4>
@@ -301,23 +310,28 @@
                     <h4>Direct condition / label annotation</h4>
                     <p>Inxight/GSRS adds direct drug-condition, regulatory, approval, class, and relationship annotations. openFDA adds label indications, application numbers, manufacturer, route, pharmacologic class, and warnings.</p>
                 </div>
+                <div class="resolver-guide-block">
+                    <h4>External PubChem fallback</h4>
+                    <p>PubChem is called only for local misses. Its candidates remain external and never create or mutate an IFXDrug record; only an exact CID or full structure key can reconnect to an existing local identity.</p>
+                </div>
             </div>
 
             <textarea id="drugResolverInput" class="api-resolver-input" rows="4"
-                placeholder="Enter drug names, brand names in brackets, combinations, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
+                placeholder="Enter drug names, SMILES, brand names in brackets, combinations, UNII, ChEMBL ID, InChIKey, PubChem CID, CAS, RxCUI, NCGC ID, or any identifier — one per line..."></textarea>
             <div id="drugResolverBatchNotice" class="resolver-batch-notice"></div>
 
             <div style="display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap;">
                 <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-                    <label style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Live sources for enrichment:</label>
+                    <label style="font-size:0.78rem;color:var(--text-muted);font-weight:600;">Live lookup and enrichment:</label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnNCats" checked><span>NCATS Resolver</span></label>
-                    <label class="resolver-checkbox"><input type="checkbox" id="drEnPharos" checked><span>Pharos Targets</span></label>
-                    <label class="resolver-checkbox"><input type="checkbox" id="drEnInxight" checked><span>Inxight/GSRS</span></label>
-                    <label class="resolver-checkbox"><input type="checkbox" id="drEnFDA" checked><span>openFDA Labels</span></label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="drEnPubChem" checked><span>PubChem (local misses)</span></label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="drEnPharos"><span>Pharos Targets</span></label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="drEnInxight"><span>Inxight/GSRS</span></label>
+                    <label class="resolver-checkbox"><input type="checkbox" id="drEnFDA"><span>openFDA Labels</span></label>
                     <label class="resolver-checkbox"><input type="checkbox" id="drEnChEBI"><span>ChEBI Class</span></label>
                 </div>
                 <div style="display:flex;gap:0.5rem;margin-left:auto;">
-                    <button id="drugResolverLocalBtn" class="btn" type="button" title="Resolve only against the local harmonized graph">Local Only</button>
+                    <button id="drugResolverLocalBtn" class="btn" type="button" title="Search the complete local index when connected, then the bundled preview; make no live API calls">Local Only</button>
                     <button id="drugResolverRunBtn" class="btn btn-primary" type="button" title="Resolve locally, then enrich from selected live APIs">Resolve + Enrich</button>
                 </div>
             </div>
@@ -343,12 +357,17 @@
         </div>
 
         <div id="drugResolverExportRow" style="display:none;margin-bottom:0.75rem;gap:0.5rem;align-items:center;">
-            <select id="drugResolverExportFormat" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+            <select id="drugResolverExportContent" aria-label="Export content" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
+                <option value="selected">Selected annotations (human-readable)</option>
+                <option value="core">Core results (compact)</option>
+                <option value="json">Complete resolver payload (JSON)</option>
+            </select>
+            <select id="drugResolverExportFormat" aria-label="Export file format" style="font-size:0.78rem;padding:0.25rem 0.5rem;">
                 <option value="tsv">TSV</option>
                 <option value="csv">CSV</option>
-                <option value="json">JSON</option>
             </select>
             <button id="drugResolverExportBtn" class="btn btn-sm" type="button">Export Results</button>
+            <span style="font-size:0.72rem;color:var(--text-muted);">Tables omit nested evidence; JSON retains the complete payload.</span>
         </div>
         <div id="drugResolverResults" style="margin-bottom:1rem;"></div>
 
@@ -363,6 +382,7 @@
 
 <script>
 const rootPath = "{{ root_path }}";
+const drugCompleteIndexAvailable = {{ "true" if drug_resolver_index_available else "false" }};
 const initialTab = "{{ active_tab }}" || "dashboard";
 let drugPage = 1;
 let drugLastPage = 0;
@@ -373,7 +393,7 @@ let drugReviewRowsById = {};
 let drugReviewDecisionOptions = [];
 let drugCy = null;
 let drugCurrentGraphIds = "{{ ids or '' }}";
-const defaultDrugColumns = ["drug_id", "primary_id", "standard_name", "biolink_category", "drug_scope", "source_namespaces", "inchikey", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "approval_status", "source_support", "structural_key_type", "evidence_tier", "quality_flags"];
+const defaultDrugColumns = ["drug_id", "primary_id", "standard_name", "biolink_category", "drug_scope", "source_namespaces", "smiles", "inchikey", "molecular_formula", "unii", "pubchem_cid", "chembl_id", "chebi_id", "drugcentral_id", "rxcui", "approval_status", "source_support", "structural_key_type", "evidence_tier", "quality_flags"];
 
 let drugChangesLoaded = false;
 function setDrugTab(tab) {
@@ -500,11 +520,12 @@ function renderResolverSummary(stats) {
     if (!el) return;
     el.innerHTML = `
         <div class="clinical-descendant-kpis">
-            <div><strong>${fmt(stats.total_drugs)}</strong><span>local searchable nodes</span></div>
+            <div><strong>${fmt(stats.total_drugs)}</strong><span>bundled preview nodes</span></div>
+            <div><strong>${stats.resolver_index_available ? fmt(stats.resolver_index_nodes) : "Not connected"}</strong><span>complete local identity index</span></div>
             <div><strong>${fmt(stats.nodenorm_resolved_count)}</strong><span>NodeNorm candidates</span></div>
             <div><strong>${fmt(stats.target_association_edges)}</strong><span>target context edges</span></div>
         </div>
-        <p class="variant-muted">Use the Resolver tab for pasted names or identifiers. Local Only uses the harmonized graph without live APIs; Resolve + Enrich adds annotations from the selected services.</p>`;
+        <p class="variant-muted">Local Only searches the complete version-matched identity index when connected, then the bundled preview, and makes no live API calls. Resolve + Enrich adds annotations from the selected services. A preview-only miss does not exclude membership in the full ${fmt(stats.full_total_drugs)}-node release.</p>`;
 }
 async function loadDrugStats() {
     try {
@@ -765,6 +786,11 @@ function renderDrugDetail(data) {
             term("RxCUI", data.rxcui),
             term("CAS", data.cas),
         ].join(""));
+        html += section("Structure", [
+            term("SMILES", data.smiles),
+            term("InChI", data.inchi),
+            term("Molecular formula", data.molecular_formula),
+        ].join(""));
     } else {
         html += section("Node", [
             term("ID", data.id),
@@ -861,6 +887,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     // ── NCATS Property Selector ──────────────────────────────────────
     let ncatsCatalog = [];  // populated from API
+    let ncatsCatalogLoaded = false;
+    let drLastRequestedNcatsProps = [];
     const ncatsPropPanel = document.getElementById("ncatsPropPanel");
     const ncatsPropGrid = document.getElementById("ncatsPropGrid");
     const ncatsPropCount = document.getElementById("ncatsPropCount");
@@ -921,8 +949,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     // Fetch catalog on load
     fetch(`${rootPath}/drug-id-qa/api/ncats-properties`)
         .then(r => r.json())
-        .then(catalog => { ncatsBuildPanel(catalog); ncatsTogglePanel(); })
-        .catch(() => { ncatsPropPanel.style.display = "none"; });
+        .then(catalog => { ncatsBuildPanel(catalog); ncatsCatalogLoaded = true; ncatsTogglePanel(); })
+        .catch(() => { ncatsCatalogLoaded = false; ncatsPropPanel.style.display = "none"; });
 
     // Build label lookup from catalog (key → {label, category})
     function ncatsCatalogLookup() {
@@ -935,6 +963,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     function drSourceFlags(flags) {
         return flags || {
             enable_ncats: document.getElementById("drEnNCats").checked,
+            enable_pubchem: document.getElementById("drEnPubChem").checked,
             enable_pharos: document.getElementById("drEnPharos").checked,
             enable_inxight: document.getElementById("drEnInxight").checked,
             enable_openfda: document.getElementById("drEnFDA").checked,
@@ -945,6 +974,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const f = drSourceFlags(flags);
         const sources = [];
         if (f.enable_ncats) sources.push({key: "ncats", label: "NCATS Resolver"});
+        if (f.enable_pubchem) sources.push({key: "pubchem", label: "PubChem (local misses)"});
         if (f.enable_pharos) sources.push({key: "pharos", label: "Pharos"});
         if (f.enable_inxight) sources.push({key: "inxight", label: "Inxight/GSRS"});
         if (f.enable_openfda) sources.push({key: "openfda", label: "openFDA"});
@@ -966,7 +996,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const sourceText = drLiveSourceSummary();
         if (!drBatchNotice) return;
         if (!n) {
-            drBatchNotice.textContent = `Resolve + Enrich searches the local harmonized graph first, then calls the selected live APIs for annotations. Up to ${DR_BACKEND_QUERY_LIMIT} entries are accepted per request.`;
+            drBatchNotice.textContent = `Resolve + Enrich searches the complete local index when connected, then the bundled preview, before calling selected live APIs for annotations. Up to ${DR_BACKEND_QUERY_LIMIT} entries are accepted per request.`;
             drBatchNotice.className = "resolver-batch-notice";
         } else if (n > DR_BACKEND_QUERY_LIMIT) {
             drBatchNotice.textContent = `${n} entries exceeds the resolver request limit of ${DR_BACKEND_QUERY_LIMIT}. Split the list before searching or enriching.`;
@@ -992,6 +1022,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     function drFlags() {
         const flags = {
             enable_ncats: document.getElementById("drEnNCats").checked,
+            enable_pubchem: document.getElementById("drEnPubChem").checked,
             enable_pharos: document.getElementById("drEnPharos").checked,
             enable_inxight: document.getElementById("drEnInxight").checked,
             enable_openfda: document.getElementById("drEnFDA").checked,
@@ -999,6 +1030,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         };
         if (flags.enable_ncats) {
             flags.ncats_props = ncatsGetSelected();
+            drLastRequestedNcatsProps = flags.ncats_props.slice();
+        } else {
+            drLastRequestedNcatsProps = [];
         }
         return flags;
     }
@@ -1006,6 +1040,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     function drLocalOnlyFlags() {
         return {
             enable_ncats: false,
+            enable_pubchem: false,
             enable_pharos: false,
             enable_inxight: false,
             enable_openfda: false,
@@ -1065,8 +1100,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         return h;
     }
 
-    function drLocalHitsTable(hits) {
-        if (!hits || hits.length <= 1) return "";
+    function drLocalHitsTable(hits, showSingle) {
+        if (!hits || !hits.length || (!showSingle && hits.length <= 1)) return "";
         const shown = hits.slice(0, 5);
         let h = `<table style="font-size:0.72rem;border-collapse:collapse;width:100%;margin-top:0.45rem;"><thead><tr>` +
             `<th style="text-transform:uppercase;font-size:0.65rem;color:var(--text-secondary, #475569);font-weight:600;text-align:left;padding:0.2rem 0.4rem;">Candidate</th>` +
@@ -1096,12 +1131,19 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             row.chembl_id ? `ChEMBL ${row.chembl_id}` : "",
             row.chebi_id ? `ChEBI ${row.chebi_id}` : "",
             row.pubchem_cid ? `CID ${row.pubchem_cid}` : "",
+            row.pubchem_candidate_cid ? `External PubChem CID ${row.pubchem_candidate_cid}` : "",
         ].filter(Boolean).join(" | ");
         const liveApis = (row) => {
+            const selected = row.live_sources_selected || "";
             const queried = row.live_sources_queried || "";
+            const skipped = row.live_sources_skipped || "";
             const found = row.live_sources_found || "";
-            if (queried && found) return `queried: ${queried}; found: ${found}`;
-            if (queried) return `queried: ${queried}; no annotations`;
+            const parts = [];
+            if (selected) parts.push(`selected: ${selected}`);
+            if (queried) parts.push(`queried: ${queried}`);
+            if (skipped) parts.push(`skipped: ${skipped}`);
+            if (found) parts.push(`found: ${found}`);
+            if (parts.length) return parts.join("; ");
             return "local only";
         };
         const annotations = (row) => [
@@ -1116,6 +1158,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         ].filter(Boolean).join(" | ");
         const columns = [
             ["query", "Query"],
+            ["result_status", "Status"],
             ["drug_id", "IFXDrug"],
             ["standard_name", "Resolved Name"],
             ["match_score", "Score"],
@@ -1126,14 +1169,15 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         ];
         const tableRows = rows.map(row => {
             const cells = columns.map(([key]) => {
-                const value = key === "external_ids"
+                let value = key === "external_ids"
                     ? externalIds(row)
                     : key === "live_apis"
                     ? liveApis(row)
                     : key === "annotations"
                     ? annotations(row)
                     : row[key] || "";
-                if (key === "drug_id" && value) {
+                if (key === "standard_name" && !value) value = row.pubchem_candidate_title || "";
+                if (key === "drug_id" && value && row.local_harmonizer_in_graph_bundle !== "no") {
                     const url = `${rootPath}/drug-id-qa?ids=${encodeURIComponent(value)}&tab=graph`;
                     return `<td><a href="${url}" style="color:var(--accent, #14b8a6);">${escapeHtml(value)}</a></td>`;
                 }
@@ -1167,6 +1211,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         openfda: "background:#5e1f2e;color:#fda4af;",
         chebi: "background:#1f4e3b;color:#6ee7b7;",
         ncats_resolver: "background:#1f3d5e;color:#7dd3fc;",
+        pubchem: "background:#fef3c7;color:#92400e;",
         notfound: "background:#3b3b3b;color:#a3a3a3;",
     };
 
@@ -1190,25 +1235,66 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
 
     function drRenderResult(r, idx) {
         const hits = r.local_hits || [];
-        const best = hits[0] || {};
+        const best = r.resolved ? (hits[0] || {}) : {};
         const enr = r.enrichment || {};
         const queried = enr.sources_queried || [];
+        const skipped = enr.sources_skipped || {};
         const sourceErrors = enr.source_errors || [];
+        const pubchem = enr.pubchem || null;
+        const bridge = r.bridge_relookup || null;
         const found = r.resolved;
-        const name = best.standard_name || (enr.ncats_resolver || {}).ncats_resolved_name || r.query;
+        const name = best.standard_name || (enr.ncats_resolver || {}).ncats_resolved_name || (enr.pubchem || {}).pubchem_title || r.query;
         const drugId = best.drug_id || "";
         const sources = enr.sources_found || [];
 
         let badges = "";
         if (found) {
-            badges += drBadge("harmonized graph hit", badgeStyles.tier, "Resolved in the local ODIN/IFXDrug harmonized graph");
+            const completeIndexHit = String(best._match_strategy || "").startsWith("complete_harmonizer_index");
+            badges += drBadge(
+                completeIndexHit ? "matched via complete local index" : "matched via bundled preview only",
+                badgeStyles.tier,
+                completeIndexHit
+                    ? "Resolved in the complete version-matched ODIN/IFXDrug harmonizer index"
+                    : "Resolved in the bounded app-graph preview; complete local lookup requires the version-matched resolver index"
+            );
+            if (completeIndexHit) {
+                badges += drBadge(
+                    best._in_graph_bundle === "yes" ? "included in bundled preview" : "not in bundled preview",
+                    badgeStyles.notfound,
+                    "Graph membership is separate from the complete identity lookup path"
+                );
+            }
+            if (hits.length > 1) badges += drBadge(`${hits.length} local matches`, badgeStyles.notfound, "Structure or identifier maps to multiple harmonized candidates");
         }
+        if (bridge && bridge.status === "reconciled_exact_unique") badges += drBadge("local match via external ID", badgeStyles.pubchem, "An exact live identifier or structure was rechecked against the local harmonizer");
+        if (bridge && bridge.status === "reconciled_corroborated") badges += drBadge("corroborated external bridge", badgeStyles.pubchem, "Multiple live sources converged on one IFXDrug");
+        if (bridge && bridge.status === "identifier_conflict") badges += drBadge("external identifier conflict — review", badgeStyles.openfda);
+        if (bridge && bridge.status === "ambiguous_local_mapping") badges += drBadge("external ID maps to multiple local records — review", badgeStyles.openfda);
+        if (bridge && bridge.status === "provider_identity_mismatch") badges += drBadge("provider identity mismatch — not resolved", badgeStyles.openfda);
+        if (bridge && bridge.status === "provider_identity_unverified") badges += drBadge("provider identity unverified — not resolved", badgeStyles.notfound);
+        if (bridge && bridge.status === "candidate_only_name") badges += drBadge("name candidate only — not resolved", badgeStyles.notfound);
+        if (!found && hits.length) badges += drBadge(
+            `${r.total_local_matches || hits.length} local candidate${(r.total_local_matches || hits.length) === 1 ? "" : "s"} — not resolved`,
+            badgeStyles.notfound,
+            "Non-unique or non-asserting local matches are shown for review but were not selected as the resolved identity"
+        );
+        if (!found && pubchem) badges += drBadge(
+            drugCompleteIndexAvailable
+                ? "PubChem candidate — no complete-index match"
+                : "PubChem candidate — not found in bundled preview",
+            badgeStyles.pubchem
+        );
         if (sources.length) {
-            badges += drBadge(`live annotations: ${sources.length}`, badgeStyles.ncats_resolver, "Selected live APIs returned annotations");
+            badges += drBadge(`live source hits: ${sources.length}`, badgeStyles.ncats_resolver, "Selected live APIs returned results");
         }
         if (queried.length && !sources.length) badges += drBadge("no live annotations", badgeStyles.notfound);
         if (found && !queried.length) badges += drBadge("local only", badgeStyles.notfound);
-        if (!found && !sources.length) badges += drBadge("not found", badgeStyles.notfound);
+        if (!found && !hits.length && !sources.length) badges += drBadge(
+            drugCompleteIndexAvailable
+                ? "no match in complete local identity index"
+                : "not found in bundled preview; full-release membership unknown",
+            badgeStyles.notfound
+        );
 
         let details = "";
 
@@ -1220,8 +1306,72 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             if (h) details += `<div>${drSectionHead("External Lookup")}${h}</div>`;
         }
 
+        if (bridge) {
+            const evidence = bridge.evidence || [];
+            const candidates = [
+                ...(bridge.matched_candidates || []),
+                ...(bridge.name_candidates || []).flatMap(item => item.local_candidates || []),
+            ];
+            const candidateTotal = Number(bridge.candidate_total || candidates.length);
+            let h = "";
+            h += drDetailRow("Original local lookup", r.initial_local_status || "no match");
+            h += drDetailRow("Relookup status", String(bridge.status || "").replaceAll("_", " "));
+            h += drDetailRow("Lookup scope", String(bridge.lookup_scope || "").replaceAll("_", " "));
+            h += drDetailRow("Identity path", evidence.map(item => `${item.source || "provider"} ${item.namespace || "identifier"} ${item.value || ""} → ${(item.local_drug_ids || []).join(", ") || "no exact local match"}`).join(" | "));
+            h += drDetailRow("Selected IFXDrug", bridge.selected_drug_id);
+            h += drDetailRow("Bridge candidates", candidates.slice(0, 10).map(item => `${item.standard_name || ""} (${item.drug_id || ""})`).join(" | "));
+            if (candidateTotal) h += drDetailRow(
+                "Candidates shown",
+                bridge.candidate_list_truncated
+                    ? `${Math.min(candidates.length, 10)} of at least ${candidateTotal}`
+                    : `${Math.min(candidates.length, 10)} of ${candidateTotal}`
+            );
+            if (h) details += `<div>${drSectionHead("External-to-Local Reconciliation")}${h}</div>`;
+        }
+
+        if (!found && hits.length) {
+            const totalCandidates = r.total_local_matches || hits.length;
+            details += `<div>${drSectionHead("Local Candidates — Not Resolved")}` +
+                `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.35rem;">These local matches are non-unique or non-asserting candidates and were not selected as the resolved identity. Showing ${hits.length} of ${totalCandidates}.</div>` +
+                drLocalHitsTable(hits, true) +
+                `</div>`;
+        }
+
         if (sourceErrors.length) {
             details += drSourceErrors(sourceErrors);
+        }
+
+        if (pubchem) {
+            let h = "";
+            h += drDetailRow("Candidate count", pubchem.candidate_count);
+            h += drDetailRow("CID", pubchem.pubchem_cid);
+            h += drDetailRow("Title", pubchem.pubchem_title);
+            h += drDetailRow("IUPAC name", pubchem.pubchem_iupac_name);
+            h += drDetailRow("InChIKey", pubchem.pubchem_inchikey);
+            h += drDetailRow("SMILES", pubchem.pubchem_smiles);
+            h += drDetailRow("Formula", pubchem.pubchem_molecular_formula);
+            h += drDetailRow("Molecular weight", pubchem.pubchem_molecular_weight);
+            h += drDetailRow("Matched by", pubchem.query_namespace);
+            h += drDetailRow("Retrieved", pubchem.retrieved_at);
+            if (pubchem.pubchem_url) h += `<div style="font-size:0.78rem;"><strong>PubChem</strong> <a href="${escapeAttr(pubchem.pubchem_url)}" target="_blank" rel="noopener">${escapeHtml(pubchem.pubchem_url)}</a></div>`;
+            if (pubchem.candidates && pubchem.candidates.length > 1) {
+                h += drRowsTable(pubchem.candidates, [
+                    {key: "pubchem_cid", label: "CID"},
+                    {key: "pubchem_title", label: "Title"},
+                    {key: "pubchem_inchikey", label: "InChIKey"},
+                    {key: "pubchem_smiles", label: "SMILES"},
+                ], `pubchem_candidates_${idx}`, 10);
+            }
+            const pubchemHeading = found
+                ? "PubChem Lookup"
+                : drugCompleteIndexAvailable
+                ? "PubChem Candidate (No Complete-Index Match)"
+                : "PubChem Candidate (Not Found in Bundled Preview)";
+            if (h) details += `<div>${drSectionHead(pubchemHeading)}${h}</div>`;
+        } else if (skipped.pubchem) {
+            details += `<div>${drSectionHead("PubChem")}<div style="font-size:0.78rem;color:#64748b;">Skipped — local harmonizer already resolved this query.</div></div>`;
+        } else if (queried.includes("pubchem") && !sourceErrors.some(err => err.source === "pubchem")) {
+            details += drNotFound("PubChem");
         }
 
         // Query parsing / local matching
@@ -1242,6 +1392,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Drug ID", drugId);
             h += drDetailRow("Primary ID", best.primary_id);
             h += drDetailRow("InChIKey", best.inchikey);
+            h += drDetailRow("SMILES", best.smiles);
+            h += drDetailRow("InChI", best.inchi);
+            h += drDetailRow("Molecular formula", best.molecular_formula);
             h += drDetailRow("UNII", best.unii);
             h += drDetailRow("ChEMBL", best.chembl_id);
             h += drDetailRow("ChEBI", best.chebi_id);
@@ -1253,7 +1406,8 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             h += drDetailRow("Local evidence tier", best.evidence_tier);
             h += drDetailRow("Local source evidence", best.source_namespaces);
             h += drLocalHitsTable(hits);
-            if (h) details += `<div>${drSectionHead("Harmonized Graph")}${h}</div>`;
+            h += drDetailRow("In graph display bundle", best._in_graph_bundle);
+            if (h) details += `<div>${drSectionHead("Local Harmonizer")}${h}</div>`;
         }
 
         // NCATS Resolver — dynamically render all returned properties
@@ -1277,6 +1431,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             }
             // Show all_names if present
             h += drDetailRow("All Names", ncats.ncats_all_names);
+            h += drDetailRow("Retrieval status", String(ncats._ncats_status || (ncats._ncats_partial ? "partial" : "complete")).replaceAll("_", " "));
+            h += drDetailRow("Cross-batch identity check", ncats._ncats_identity_consistency);
+            h += drDetailRow("Properties without values", (ncats._ncats_props_without_values || []).join(" | "));
+            h += drDetailRow("Failed properties", (ncats._ncats_props_failed || []).join(" | "));
+            h += drDetailRow("Retrieval note", ncats.ncats_request_note);
             if (h) details += `<div>${drSectionHead("NCATS Resolver")}${h}</div>`;
         } else if (queried.includes("ncats_resolver")) {
             details += drNotFound("NCATS Resolver");
@@ -1396,7 +1555,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             details += drNotFound("openFDA Drug Label");
         }
 
-        const graphLink = drugId ? `<a href="${rootPath}/drug-id-qa?ids=${encodeURIComponent(drugId)}&tab=graph" style="font-size:0.72rem;color:var(--accent, #14b8a6);margin-left:0.5rem;" title="View in graph">View graph</a>` : "";
+        const graphLink = drugId && best._in_graph_bundle !== "no" ? `<a href="${rootPath}/drug-id-qa?ids=${encodeURIComponent(drugId)}&tab=graph" style="font-size:0.72rem;color:var(--accent, #14b8a6);margin-left:0.5rem;" title="View in graph">View graph</a>` : "";
 
         return `<div class="api-resolver-panel" style="margin-bottom:0.5rem;color:#111;">
             <div style="display:flex;align-items:baseline;gap:0.75rem;margin-bottom:0.4rem;flex-wrap:wrap;">
@@ -1427,10 +1586,11 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         drResults.innerHTML = results.length > DR_COMPACT_RESULTS_THRESHOLD
             ? drCompactResultsTable(payload)
             : results.map((r, i) => drRenderResult(r, i)).join("");
-        const parts = [`${stats.total} quer${stats.total === 1 ? "y" : "ies"}`, `${stats.local_resolved || 0} found in graph`];
+        const parts = [`${stats.total} quer${stats.total === 1 ? "y" : "ies"}`, `${stats.local_resolved || 0} found in local harmonizer`];
         if (stats.enrichment_enabled) {
             const es = [];
             if (stats.ncats_found) es.push(`NCATS: ${stats.ncats_found}`);
+            if (stats.pubchem_found) es.push(`PubChem: ${stats.pubchem_found}`);
             if (stats.pharos_found) es.push(`Pharos: ${stats.pharos_found}`);
             if (stats.inxight_found) es.push(`Inxight: ${stats.inxight_found}`);
             if (stats.chebi_found) es.push(`ChEBI: ${stats.chebi_found}`);
@@ -1474,27 +1634,17 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         drProgressLog.innerHTML = (lines || []).filter(Boolean).map(line => `<div>${escapeHtml(line)}</div>`).join("");
     }
     function drStartProgress(queries, flags) {
-        const steps = ["Searching local graph..."];
-        if (flags.enable_ncats)   steps.push("Calling NCATS Resolver...");
-        if (flags.enable_pharos)  steps.push("Calling Pharos Targets...");
-        if (flags.enable_inxight) steps.push("Calling Inxight / GSRS...");
-        if (flags.enable_chebi)   steps.push("Calling ChEBI...");
-        if (flags.enable_openfda) steps.push("Calling openFDA Labels...");
-        steps.push("Assembling results...");
-        let idx = 0;
         const n = queries.length;
         const started = Date.now();
         const sourceText = drLiveSourceSummary(flags);
         function tick() {
-            const step = steps[Math.min(Math.floor(idx / 3), steps.length - 1)];
-            const pct = Math.min(92, 8 + idx * 3);
+            const pct = 12;
             drStatus.textContent = `Resolving ${n} quer${n === 1 ? "y" : "ies"} with ${sourceText}.`;
-            drSetProgress(pct, `${step} elapsed ${drElapsed(started)}s`, [
+            drSetProgress(pct, `Waiting for selected live APIs… elapsed ${drElapsed(started)}s`, [
                 "Local harmonizer lookup runs first.",
                 drSelectedLiveSources(flags).length ? `Selected live APIs: ${sourceText}.` : "No live APIs selected.",
                 n > DR_LARGE_BATCH_WARN ? "Large batches may take several minutes while live annotations accumulate." : "",
             ]);
-            idx++;
         }
         tick();
         drProgressTimer = setInterval(tick, 1000);
@@ -1582,6 +1732,10 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const queries = drQueries();
         if (!queries.length) { drStatus.textContent = "Enter at least one query."; return; }
         const flags = drFlags();
+        if (flags.enable_ncats && !ncatsCatalogLoaded) {
+            drStatus.textContent = "NCATS property catalog is unavailable. Disable NCATS Resolver or reload the page before enriching.";
+            return;
+        }
         if (queries.length > DR_BACKEND_QUERY_LIMIT) {
             drStatus.textContent = `Maximum ${DR_BACKEND_QUERY_LIMIT} entries per resolver request. Split the list and try again.`;
             drUpdateBatchNotice();
@@ -1637,7 +1791,7 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     });
 
     drInput.addEventListener("input", drUpdateBatchNotice);
-    ["drEnNCats", "drEnPharos", "drEnInxight", "drEnFDA", "drEnChEBI"].forEach(id => {
+    ["drEnNCats", "drEnPubChem", "drEnPharos", "drEnInxight", "drEnFDA", "drEnChEBI"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener("change", drUpdateBatchNotice);
     });
@@ -1652,19 +1806,112 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     const drExportRow = document.getElementById("drugResolverExportRow");
     const drExportBtn = document.getElementById("drugResolverExportBtn");
     const drExportFmt = document.getElementById("drugResolverExportFormat");
+    const drExportContent = document.getElementById("drugResolverExportContent");
+
+    const drCoreExportColumns = [
+        ["query", "Query"], ["result_status", "Result Status"], ["resolved_via", "Resolved Via"],
+        ["initial_local_status", "Original Local Status"], ["resolution_path", "Resolution Path"],
+        ["bridge_source", "Bridge Source"], ["bridge_identifier", "Bridge Identifier"],
+        ["local_relookup_status", "Local Relookup Status"], ["local_lookup_scope", "Local Lookup Scope"],
+        ["bridge_candidate_ids", "Bridge Candidate IFXDrug IDs"], ["bridge_candidate_names", "Bridge Candidate Names"],
+        ["local_candidate_ids", "Original Local Candidate IDs"], ["local_candidate_names", "Original Local Candidate Names"],
+        ["local_candidates_shown", "Original Local Candidates Shown"], ["local_candidate_list_truncated", "Original Local Candidate List Truncated"],
+        ["bridge_candidates_shown", "Bridge Candidates Shown"], ["bridge_candidate_list_truncated", "Bridge Candidate List Truncated"],
+        ["drug_id", "IFXDrug ID"], ["standard_name", "Preferred Name"], ["primary_id", "Primary ID"],
+        ["unii", "UNII"], ["chembl_id", "ChEMBL ID"], ["chebi_id", "ChEBI ID"],
+        ["pubchem_cid", "PubChem CID"], ["drugcentral_id", "DrugCentral ID"], ["rxcui", "RxCUI"],
+        ["cas", "CAS"], ["inchikey", "InChIKey"], ["local_harmonizer_smiles", "SMILES"],
+        ["matched_field", "Matched Field"], ["matched_value", "Matched Value"],
+        ["match_strategy", "Match Strategy"], ["match_score", "Ranking Score"],
+        ["evidence_tier", "Evidence Tier"], ["approval_status", "Approval Status"],
+        ["source_namespaces", "Local Source Evidence"], ["local_harmonizer_in_graph_bundle", "In Graph Bundle"],
+        ["local_match_count", "Local Match Count"], ["local_match_status", "Local Match Status"],
+        ["alternate_local_ids", "Alternate Local IFXDrug IDs"],
+    ];
+
+    const drProviderExportColumns = {
+        pubchem: ["pubchem_candidate_cid", "pubchem_candidate_title", "pubchem_candidate_inchikey", "pubchem_candidate_smiles", "pubchem_candidate_formula", "pubchem_candidate_molecular_weight", "pubchem_candidate_count", "pubchem_candidate_url"],
+        pharos: ["pharos_name", "pharos_isdrug", "pharos_n_targets", "pharos_targets", "pharos_moa_targets", "pharos_target_tdls", "pharos_target_families", "pharos_n_target_disease_associations", "pharos_target_diseases"],
+        inxight: ["inxight_name", "inxight_substance_class", "inxight_development_status", "inxight_highest_development_status", "fda_approved", "fda_approval_year", "inxight_n_conditions", "inxight_conditions", "inxight_therapeutic_class", "inxight_targets"],
+        chebi: ["chebi_label", "chebi_chemical_class"],
+        openfda: ["openfda_generic_name", "openfda_brand_name", "openfda_unii", "openfda_application_number", "openfda_product_type", "openfda_route", "openfda_manufacturer"],
+    };
+
+    function drHumanLabel(key) {
+        const names = {
+            live_sources_selected: "Live Sources Selected", live_sources_queried: "Live Sources Queried",
+            live_sources_found: "Live Sources Found", sources_failed: "Live Sources Failed",
+            live_sources_skipped: "Live Sources Skipped", live_source_errors: "Warnings",
+            ncats_name: "NCATS Resolved Name", ncats_status: "NCATS Retrieval Status",
+            ncats_requested_count: "NCATS Properties Requested", ncats_returned_count: "NCATS Properties Returned",
+            ncats_failed_count: "NCATS Properties Failed", ncats_missing_properties: "NCATS Properties Without Values",
+            ncats_failed_properties: "NCATS Failed Properties", details_available_in_json: "Nested Details Available in JSON",
+            ncats_identity_consistency: "NCATS Cross-batch Identity Check",
+        };
+        if (names[key]) return names[key];
+        const ncatsKey = key.startsWith("ncats_") ? key.slice(6) : "";
+        const meta = ncatsCatalog.find(item => item.key === ncatsKey);
+        if (meta) return "NCATS " + meta.label;
+        return key.split("_").map(part => part ? part[0].toUpperCase() + part.slice(1) : "").join(" ");
+    }
 
     function drFlattenResult(r) {
-        const best = (r.local_hits || [])[0] || {};
+        const candidateHits = r.local_hits || [];
+        const best = r.resolved ? (candidateHits[0] || {}) : {};
         const enr = r.enrichment || {};
+        const bridge = r.bridge_relookup || {};
+        const bridgeEvidence = bridge.evidence || [];
+        const bridgeNameCandidates = bridge.name_candidates || [];
         const ncats = enr.ncats_resolver || {};
         const pharos = enr.pharos || {};
         const inx = enr.inxight || {};
         const chebi = enr.chebi || {};
         const fda = enr.openfda || {};
+        const pubchem = enr.pubchem || {};
         const sourceErrors = enr.source_errors || [];
+        const unresolvedLocalStatus = r.local_match_status === "ambiguous_multiple_matches"
+            ? "ambiguous_local_candidates_review_required"
+            : r.local_match_status === "candidate_only"
+            ? "local_candidate_only_not_resolved"
+            : "";
+        const resultStatus = r.resolved
+            ? (bridge.selected_drug_id ? "local_match_via_external_bridge" : "direct_local_match")
+            : (bridge.status || unresolvedLocalStatus || (pubchem.pubchem_cid ? "external_candidate_only_no_local_match" : "not_found"));
+        const bridgeMatchedCandidates = bridge.matched_candidates || [];
+        const nameOnlyCandidates = bridgeNameCandidates.flatMap(item => item.local_candidates || []);
+        const bridgeCandidatesById = new Map();
+        for (const candidate of [...bridgeMatchedCandidates, ...nameOnlyCandidates]) {
+            const key = candidate.drug_id || candidate.standard_name || "";
+            if (key && !bridgeCandidatesById.has(key)) bridgeCandidatesById.set(key, candidate);
+        }
+        const allBridgeCandidates = [...bridgeCandidatesById.values()].slice(0, 10);
         const row = {
             query: r.query || "",
-            resolved_in_graph: r.resolved ? "yes" : "no",
+            result_status: resultStatus,
+            initial_local_status: r.initial_local_status || (r.resolved ? "matched" : "no_match"),
+            resolution_path: r.resolution_path || (r.resolved ? "direct_local_match" : "unresolved"),
+            bridge_source: [...new Set(bridgeEvidence.map(item => item.source || "").filter(Boolean))].join("|"),
+            bridge_identifier: bridgeEvidence.map(item => `${item.namespace || "identifier"}:${item.value || ""}`).join("|"),
+            local_relookup_status: bridge.status || "not_attempted",
+            local_lookup_scope: bridge.lookup_scope || (drugCompleteIndexAvailable ? "complete_identity_index" : "bundled_preview"),
+            bridge_candidate_ids: [...new Set(allBridgeCandidates.map(candidate => candidate.drug_id || "").filter(Boolean))].join("|"),
+            bridge_candidate_names: [...new Set(allBridgeCandidates.map(candidate => candidate.standard_name || "").filter(Boolean))].join("|"),
+            local_candidate_ids: r.resolved ? "" : candidateHits.map(hit => hit.drug_id || "").filter(Boolean).join("|"),
+            local_candidate_names: r.resolved ? "" : candidateHits.map(hit => hit.standard_name || "").filter(Boolean).join("|"),
+            local_candidates_shown: r.resolved ? 0 : candidateHits.length,
+            local_candidate_list_truncated: !r.resolved && Number(r.total_local_matches || 0) > candidateHits.length ? "yes" : "no",
+            bridge_candidates_shown: allBridgeCandidates.length,
+            bridge_candidate_list_truncated: bridge.candidate_list_truncated ? "yes" : "no",
+            bridge_trace_json: Object.keys(bridge).length ? JSON.stringify(bridge) : "",
+            local_harmonizer_resolved: r.resolved ? "yes" : "no",
+            resolved_in_graph: r.resolved && best._in_graph_bundle !== "no" ? "yes" : "no",
+            resolved_via: r.resolved_via || "",
+            local_harmonizer_drug_id: best.drug_id || "",
+            local_harmonizer_standard_name: best.standard_name || "",
+            local_harmonizer_primary_id: best.primary_id || "",
+            local_harmonizer_inchikey: best.inchikey || "",
+            local_harmonizer_smiles: best.smiles || "",
+            local_harmonizer_in_graph_bundle: best._in_graph_bundle || "",
             drug_id: best.drug_id || "",
             standard_name: best.standard_name || "",
             primary_id: best.primary_id || "",
@@ -1686,16 +1933,51 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
             matched_field: best._matched_field || "",
             matched_value: best._matched_value || "",
             match_strategy: best._match_strategy || "",
+            local_match_score: best._match_score || "",
+            local_matched_query: best._matched_query || "",
+            local_matched_field: best._matched_field || "",
+            local_matched_value: best._matched_value || "",
+            local_match_strategy: best._match_strategy || "",
+            local_match_count: r.total_local_matches || candidateHits.length,
+            local_match_status: r.local_match_status || ((r.total_local_matches || candidateHits.length) > 1 ? "ambiguous_multiple_matches" : (candidateHits.length ? "candidate_only" : "no_match")),
+            alternate_local_ids: r.resolved ? candidateHits.slice(1).map(hit => hit.drug_id || "").filter(Boolean).join("|") : "",
             query_terms: (r.query_terms || []).join("|"),
             live_source_errors: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             live_api_request_failures: sourceErrors.map(err => `${err.source || ""}:${err.lookup || ""}:${err.message || ""}`).join("|"),
             sources_failed: (enr.sources_failed || []).join("|"),
             live_sources_queried: (enr.sources_queried || []).join("|"),
+            live_sources_selected: (enr.sources_selected || []).join("|"),
+            live_sources_skipped: Object.entries(enr.sources_skipped || {}).map(([source, reason]) => `${source}:${reason}`).join("|"),
             live_sources_found: (enr.sources_found || []).join("|"),
         };
+        row["pubchem_candidate_cid"] = pubchem.pubchem_cid || "";
+        row["pubchem_candidate_title"] = pubchem.pubchem_title || "";
+        row["pubchem_candidate_iupac_name"] = pubchem.pubchem_iupac_name || "";
+        row["pubchem_candidate_inchikey"] = pubchem.pubchem_inchikey || "";
+        row["pubchem_candidate_smiles"] = pubchem.pubchem_smiles || "";
+        row["pubchem_candidate_formula"] = pubchem.pubchem_molecular_formula || "";
+        row["pubchem_candidate_molecular_weight"] = pubchem.pubchem_molecular_weight || "";
+        row["pubchem_candidate_count"] = pubchem.candidate_count || "";
+        row["pubchem_candidates_returned"] = pubchem.candidates_returned || "";
+        row["pubchem_query_namespace"] = pubchem.query_namespace || "";
+        row["pubchem_request_endpoint"] = pubchem.request_endpoint || "";
+        row["pubchem_retrieved_at"] = pubchem.retrieved_at || "";
+        row["pubchem_candidate_url"] = pubchem.pubchem_url || "";
+        row["pubchem_candidate_inchi"] = pubchem.pubchem_inchi || "";
+        row["pubchem_candidates_json"] = pubchem.candidates ? JSON.stringify(pubchem.candidates) : "";
         // Dynamically add all NCATS properties
         row["ncats_name"] = ncats.ncats_resolved_name || "";
+        row["ncats_all_names"] = ncats.ncats_all_names || "";
         const requested = ncats._ncats_props_requested || [];
+        const requestedEffective = requested.length ? requested : drLastRequestedNcatsProps;
+        row["ncats_status"] = ncats._ncats_status || (requested.length ? (ncats._ncats_partial ? "partial" : "complete") : "not_queried");
+        row["ncats_requested_count"] = requestedEffective.length;
+        row["ncats_returned_count"] = (ncats._ncats_props_returned || []).length;
+        row["ncats_failed_count"] = (ncats._ncats_props_failed || []).length;
+        row["ncats_missing_properties"] = (ncats._ncats_props_without_values || []).join("|");
+        row["ncats_failed_properties"] = (ncats._ncats_props_failed || []).join("|");
+        row["ncats_identity_consistency"] = ncats._ncats_identity_consistency || "";
+        row["details_available_in_json"] = "yes";
         for (const key of requested) {
             if (key === "names") continue;
             row["ncats_" + key] = ncats["ncats_" + key] || "";
@@ -1759,8 +2041,9 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     function drExport() {
         if (!drLastPayload || !drLastPayload.results) return;
         const fmt = drExportFmt.value;
+        const content = drExportContent.value;
 
-        if (fmt === "json") {
+        if (content === "json") {
             // Export the full raw payload as JSON
             const blob = new Blob([JSON.stringify(drLastPayload, null, 2)], {type: "application/json"});
             const url = URL.createObjectURL(blob);
@@ -1777,16 +2060,48 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
         const rows = drLastPayload.results.map(drFlattenResult);
         if (!rows.length) return;
         const sep = fmt === "csv" ? "," : "\t";
-        // Union of all keys across all rows to handle varying NCATS properties
-        const colSet = new Set();
-        for (const row of rows) for (const k of Object.keys(row)) colSet.add(k);
-        const cols = Array.from(colSet);
+        const columns = drCoreExportColumns.slice();
+        if (content === "selected") {
+            columns.push(
+                ["live_sources_selected", "Live Sources Selected"], ["live_sources_queried", "Live Sources Queried"],
+                ["live_sources_found", "Live Sources Found"], ["sources_failed", "Live Sources Failed"],
+                ["live_sources_skipped", "Live Sources Skipped"], ["live_source_errors", "Warnings"],
+                ["details_available_in_json", "Nested Details Available in JSON"],
+            );
+            const selectedSources = new Set();
+            const requestedNcats = new Set(drLastRequestedNcatsProps);
+            for (const result of drLastPayload.results) {
+                const enrichment = result.enrichment || {};
+                for (const source of enrichment.sources_selected || []) selectedSources.add(source);
+                for (const key of (enrichment.ncats_resolver || {})._ncats_props_requested || []) requestedNcats.add(key);
+            }
+            if (selectedSources.has("ncats_resolver")) {
+                for (const key of ["ncats_status", "ncats_requested_count", "ncats_returned_count", "ncats_failed_count", "ncats_missing_properties", "ncats_failed_properties", "ncats_identity_consistency", "ncats_name"]) {
+                    columns.push([key, drHumanLabel(key)]);
+                }
+                for (const meta of ncatsCatalog) {
+                    if (requestedNcats.has(meta.key)) {
+                        const key = meta.key === "names" ? "ncats_all_names" : "ncats_" + meta.key;
+                        const label = meta.key === "names" ? "NCATS Names (first 15; complete list in JSON)" : "NCATS " + meta.label;
+                        columns.push([key, label]);
+                    }
+                }
+            }
+            for (const source of ["pubchem", "pharos", "inxight", "chebi", "openfda"]) {
+                if (selectedSources.has(source)) {
+                    for (const key of drProviderExportColumns[source]) columns.push([key, drHumanLabel(key)]);
+                }
+            }
+        }
         const escCell = (v) => {
-            const s = String(v).replace(/\r?\n/g, " ");
-            return (fmt === "csv" && (s.includes(",") || s.includes('"') || s.includes("\n")))
+            let s = String(v).replace(/\r?\n/g, " ").replace(/\t/g, " ");
+            if (/^[=+\-@]/.test(s)) s = "'" + s;
+            return (fmt === "csv" && (s.includes(",") || s.includes('"')))
                 ? '"' + s.replace(/"/g, '""') + '"' : s;
         };
-        const lines = [cols.join(sep)].concat(rows.map(r => cols.map(c => escCell(r[c] != null ? r[c] : "")).join(sep)));
+        const lines = [columns.map(([_key, label]) => escCell(label)).join(sep)].concat(
+            rows.map(row => columns.map(([key]) => escCell(row[key] != null ? row[key] : "")).join(sep))
+        );
         const blob = new Blob([lines.join("\n")], {type: fmt === "csv" ? "text/csv" : "text/tab-separated-values"});
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1799,18 +2114,22 @@ if (document.getElementById("drugOpenIds").value.trim()) loadDrugGraph(document.
     }
 
     drExportBtn.addEventListener("click", drExport);
+    drExportContent.addEventListener("change", () => {
+        drExportFmt.disabled = drExportContent.value === "json";
+    });
 })();
 
 /* == Drug Changes tab == */
 function drugFormatVersionOption(v) {
     const date = v.updated_at ? ` (${String(v.updated_at).slice(0, 10)})` : "";
     const current = v.current ? " current" : "";
-    return `v${v.version}${date}${current}`;
+    const diffOnly = v.diff_only ? " audited diff baseline" : "";
+    return `v${v.version}${date}${current}${diffOnly}`;
 }
 
-function drugPopulateVersionSelect(select, versions, selectedVersion) {
+function drugPopulateVersionSelect(select, versions, selectedVersion, allowDiffOnly = true) {
     select.innerHTML = "";
-    versions.forEach(v => {
+    versions.filter(v => allowDiffOnly || !v.diff_only).forEach(v => {
         const opt = document.createElement("option");
         opt.value = v.version;
         opt.textContent = drugFormatVersionOption(v);
@@ -1851,6 +2170,35 @@ function renderDrugSourceVersionChanges(rows) {
     return html;
 }
 
+function renderDrugRemovalExplanation(diff) {
+    const explanation = ((diff.change_explanations || {}).removed_drugs) || null;
+    if (!explanation) {
+        return `<div class="api-resolver-panel" style="margin-bottom:1rem;"><strong>Why did these identities change?</strong><p style="margin:0.4rem 0 0;color:var(--text-muted);">A structured explanation is unavailable for this older or live-preview comparison.</p></div>`;
+    }
+    const counts = explanation.reason_counts || {};
+    const countLabels = {
+        source_quality_filter_exclusion: "Lost qualifying support after source quality filtering",
+        identity_component_consolidation: "Consolidated into a current IFXDrug identity",
+        equivalent_current_identity_retained: "Current equivalent indicated by NodeNorm validation; curator review suggested",
+        identity_mapping_ambiguous: "Multiple current identities; curator review required",
+        reason_unavailable: "Needs review",
+    };
+    const items = Object.entries(counts).map(([code, count]) =>
+        `<li><strong>${Number(count).toLocaleString()}</strong> — ${escapeHtml(countLabels[code] || code)}</li>`
+    ).join("");
+    const coverage = explanation.coverage || {};
+    const coverageText = coverage.total != null
+        ? `${Number(coverage.classified || 0).toLocaleString()} of ${Number(coverage.total || 0).toLocaleString()} identities classified`
+        : "";
+    return `<div class="api-resolver-panel" style="margin-bottom:1rem;">
+        <strong>Why did these identities change?</strong>
+        <p style="margin:0.4rem 0;">${escapeHtml(explanation.headline || "")}</p>
+        <p style="margin:0.4rem 0;color:var(--text-muted);">${escapeHtml(explanation.description || "")}</p>
+        ${coverageText ? `<p style="margin:0.4rem 0;color:var(--text-muted);">Coverage: ${escapeHtml(coverageText)}.</p>` : ""}
+        ${items ? `<ul style="margin:0.45rem 0 0;padding-left:1.25rem;">${items}</ul>` : ""}
+    </div>`;
+}
+
 function renderDrugListTable(title, items, columns) {
     if (!items || items.length === 0) return "";
     let html = `<div class="changes-section" onclick="this.classList.toggle('expanded')">`;
@@ -1873,15 +2221,21 @@ function renderDrugListTable(title, items, columns) {
 function renderDrugVersionDiff(diff) {
     const s = diff.summary;
     let html = `<div class="changes-version-label">Comparing ${escapeHtml(drugDisplayVersion(diff.baseline_version))} &rarr; ${escapeHtml(drugDisplayVersion(diff.current_version))}</div>`;
+    const warnings = diff.comparison_warnings || [];
+    if (warnings.length) {
+        html += `<div class="resolver-batch-notice warn" style="margin-bottom:1rem;">${warnings.map(escapeHtml).join(" ")}</div>`;
+    }
     html += `<div class="changes-summary">`;
     html += `<div class="dash-card"><div class="dash-stat">${s.drugs_added.toLocaleString()}</div><div class="dash-label">Drugs Added</div></div>`;
-    html += `<div class="dash-card"><div class="dash-stat">${s.drugs_removed.toLocaleString()}</div><div class="dash-label">Drugs Removed</div></div>`;
+    html += `<div class="dash-card"><div class="dash-stat">${s.drugs_removed.toLocaleString()}</div><div class="dash-label">Identities No Longer Current</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.standard_name_changes || 0).toLocaleString()}</div><div class="dash-label">Name Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.evidence_tier_changes || 0).toLocaleString()}</div><div class="dash-label">Tier Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${(s.approval_status_changes || 0).toLocaleString()}</div><div class="dash-label">Approval Status Changes</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${s.edges_added.toLocaleString()}</div><div class="dash-label">Edges Added</div></div>`;
     html += `<div class="dash-card"><div class="dash-stat">${s.edges_removed.toLocaleString()}</div><div class="dash-label">Edges Removed</div></div>`;
     html += `</div>`;
+
+    html += renderDrugRemovalExplanation(diff);
 
     html += renderDrugSourceVersionChanges(diff.source_version_changes);
 
@@ -1890,9 +2244,10 @@ function renderDrugVersionDiff(diff) {
         ["biolink_category", "Category"], ["evidence_tier", "Tier"],
     ]);
 
-    html += renderDrugListTable("Removed Drugs", diff.removed_drugs, [
+    html += renderDrugListTable("Retired or Consolidated Identities", diff.removed_drugs, [
         ["drug_id", "Drug ID"], ["primary_id", "Primary ID"], ["standard_name", "Name"],
-        ["biolink_category", "Category"], ["evidence_tier", "Tier"],
+        ["outcome", "Outcome"], ["reason", "Explanation"], ["source_evidence_summary", "Source Evidence"],
+        ["current_identity", "Current Identity"],
     ]);
 
     html += renderDrugListTable("Name Changes", diff.standard_name_changes, [
@@ -1946,8 +2301,8 @@ function loadDrugChangesTab() {
         .then(payload => {
             const versions = payload.versions || [];
             if (versions.length < 2) throw new Error("At least two drug graph versions are required for comparison");
-            drugPopulateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version);
-            drugPopulateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version);
+            drugPopulateVersionSelect(document.getElementById("changesFromVersion"), versions, payload.default_from_version, true);
+            drugPopulateVersionSelect(document.getElementById("changesToVersion"), versions, payload.default_to_version, false);
             document.getElementById("changesCompareBtn").onclick = loadDrugSelectedVersionDiff;
             loadDrugSelectedVersionDiff();
         })

@@ -223,6 +223,23 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
 
 ## Workflow Conventions
 
+- **Always load the latest harmonizer release.** For every versioned entity
+  explorer (disease, target, drug, variant, and pathway), discover all valid
+  bundled releases and select the highest semantic version when no explicit
+  graph directory is configured. Explicit CLI/deployment configuration retains
+  precedence. A
+  legacy `current/` directory must not override a newer versioned release, and
+  a newer `current/` manifest must not be ignored because older `v*` folders
+  exist.
+- **Complete the release handoff.** After a successful harmonizer release,
+  compare its app-ready package with the IFX_ODIN bundle and update the bundle
+  or deployment configuration in the same body of work. Verify manifest
+  version, required files, row counts, release diffs, and source catalog.
+- **Never relabel stale data.** The version shown in the UI must match the data
+  actually loaded. If a version-matched large resolver/index must be mounted
+  outside Git, fail or clearly report the missing deployment artifact rather
+  than silently presenting bounded preview coverage as complete.
+
 - **Do not assume Git staging is the user's unit of work.** The user organizes changes in IntelliJ changelists. Prefer leaving commit grouping to the user unless they explicitly ask for staging or committing help, and be careful not to mix unrelated changelists.
 - **Keep changes in collaborator-owned repositories minimal.** When working in
   IFX_Harmonizers or another repository primarily owned by a collaborator,

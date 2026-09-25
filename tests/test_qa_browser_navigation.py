@@ -19,12 +19,13 @@ def test_harmonization_home_lists_only_harmonizer_destinations():
         style_version="test",
     )
 
-    assert rendered.count('class="db-card workflow-card') == 6
+    assert rendered.count('class="db-card workflow-card') == 7
     assert "Metabolite Harmonization Studio" in rendered
     assert "Disease Harmonizer Explorer" in rendered
     assert "Target Harmonizer Explorer" in rendered
     assert "Variant Harmonizer Explorer" in rendered
     assert "Drug Harmonizer Explorer" in rendered
+    assert "Pathway Harmonizer Explorer" in rendered
     assert "CURE-ID Entity Resolver" in rendered
     assert 'href="/odin-qa/cure-entity-resolver"' in rendered
     assert "Pounce Submission" not in rendered
@@ -38,7 +39,7 @@ def test_standalone_home_adds_local_tools():
         style_version="test",
     )
 
-    assert rendered.count('class="db-card ') == 8
+    assert rendered.count('class="db-card ') == 9
     assert "Local tools" in rendered
     assert 'href="/qa-browser"' in rendered
     assert 'href="/pounce/validate"' in rendered

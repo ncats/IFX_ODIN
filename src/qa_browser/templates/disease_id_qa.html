@@ -28,7 +28,7 @@
         <button class="disease-tab-btn{% if active_tab == 'dashboard' %} active{% endif %}" data-tab="dashboard" role="tab" aria-selected="{% if active_tab == 'dashboard' %}true{% else %}false{% endif %}" aria-controls="tab-dashboard"><i class="lucide-gauge"></i> Dashboard</button>
         <button class="disease-tab-btn{% if active_tab == 'concepts' %} active{% endif %}" data-tab="concepts" role="tab" aria-selected="{% if active_tab == 'concepts' %}true{% else %}false{% endif %}" aria-controls="tab-concepts"><i class="lucide-table-2"></i> Concepts</button>
         <button class="disease-tab-btn{% if active_tab == 'resolver' %} active{% endif %}" data-tab="resolver" role="tab" aria-selected="{% if active_tab == 'resolver' %}true{% else %}false{% endif %}" aria-controls="tab-resolver"><i class="lucide-search-check"></i> Resolver</button>
-        <button class="disease-tab-btn{% if active_tab == 'review' %} active{% endif %}" data-tab="review" role="tab" aria-selected="{% if active_tab == 'review' %}true{% else %}false{% endif %}" aria-controls="tab-review"><i class="lucide-list-checks"></i> Review</button>
+        <button class="disease-tab-btn nerd-only{% if active_tab == 'review' %} active{% endif %}" data-tab="review" role="tab" aria-selected="{% if active_tab == 'review' %}true{% else %}false{% endif %}" aria-controls="tab-review"><i class="lucide-list-checks"></i> Review</button>
         <button class="disease-tab-btn{% if active_tab == 'graph' %} active{% endif %}" data-tab="graph" role="tab" aria-selected="{% if active_tab == 'graph' %}true{% else %}false{% endif %}" aria-controls="tab-graph"><i class="lucide-network"></i> Graph</button>
         <button class="disease-tab-btn{% if active_tab == 'download' %} active{% endif %}" data-tab="download" role="tab" aria-selected="{% if active_tab == 'download' %}true{% else %}false{% endif %}" aria-controls="tab-download"><i class="lucide-download"></i> Download</button>
         <button class="disease-tab-btn{% if active_tab == 'changes' %} active{% endif %}" data-tab="changes" role="tab" aria-selected="{% if active_tab == 'changes' %}true{% else %}false{% endif %}" aria-controls="tab-changes"><i class="lucide-git-compare-arrows"></i> Changes</button>
@@ -334,7 +334,7 @@ adult myxoid chondrosarcoma</textarea>
         </section>
     </div>
 
-    <div class="disease-tab-panel{% if active_tab == 'review' %} active{% endif %}" id="tab-review" role="tabpanel" aria-labelledby="tab-review-btn">
+    <div class="disease-tab-panel nerd-only{% if active_tab == 'review' %} active{% endif %}" id="tab-review" role="tabpanel" aria-labelledby="tab-review-btn">
         <section class="review-panel">
             <div class="disease-id-section-header">
                 <h2>Review Queue</h2>
