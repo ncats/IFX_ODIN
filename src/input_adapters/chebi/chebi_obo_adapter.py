@@ -31,6 +31,7 @@ from src.models.chebi import (
     Xref,
 )
 from src.models.datasource_version_info import DatasourceVersionInfo
+from src.shared.chebi_mass import chebi_formula_masses, validated_chebi_mass_values
 
 
 CHEBI_PROPERTY_FIELD_MAP = {
@@ -70,6 +71,7 @@ CHEBI_STRUCTURE_PROPERTY_IDS = {
     "chemrof:inchi_string",
     "chemrof:smiles_string",
 }
+
 CHEBI_CHEMICAL_ENTITY_RELATIONSHIP_PREDICATES = {
     "RO:0018038",
     "RO:0018033",
@@ -378,7 +380,32 @@ class ChebiFullOboAdapter(InputAdapter):
             field_name = CHEBI_PROPERTY_FIELD_MAP.get(prop.predicate)
             if field_name and values[field_name] is None:
                 values[field_name] = prop.value
+        values["mass"], values["monoisotopic_mass"] = cls._validated_mass_values(
+            values["formula"],
+            values["mass"],
+            values["monoisotopic_mass"],
+            values["smiles"],
+        )
         return values
+
+    @classmethod
+    def _validated_mass_values(
+        cls,
+        formula: Optional[str],
+        mass: Optional[str],
+        monoisotopic_mass: Optional[str],
+        smiles: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[str]]:
+        return validated_chebi_mass_values(
+            formula,
+            mass,
+            monoisotopic_mass,
+            smiles,
+        )
+
+    @staticmethod
+    def _formula_masses(formula: str) -> Optional[tuple[float, float]]:
+        return chebi_formula_masses(formula)
 
     @staticmethod
     def _split_comment(value: str) -> tuple[str, Optional[str]]:

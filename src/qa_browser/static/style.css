@@ -2192,7 +2192,7 @@ details summary:hover { color: var(--accent); }
     border-top: 1px solid rgba(100, 116, 139, 0.28);
     display: grid;
     gap: 0.25rem 0.4rem;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     margin: 0.3rem 0 0;
     padding-top: 0.35rem;
 }
@@ -2224,6 +2224,20 @@ details summary:hover { color: var(--accent); }
 
 .metabolite-id-pipeline-tree-stats .has-alerts dd {
     color: #b91c1c;
+}
+
+.metabolite-id-pipeline-tree-stats .has-warnings dd,
+.metabolite-id-stage-stats-grid-cell.has-validation-gaps a {
+    color: #a16207;
+}
+
+.metabolite-id-pipeline-tree-stats dd a {
+    color: inherit;
+}
+
+.metabolite-id-stage-stats-grid-cell.has-validation-failures a {
+    color: #b91c1c;
+    font-weight: 800;
 }
 
 .metabolite-id-pipeline-tree-assertions.is-pass {
@@ -2526,6 +2540,109 @@ details summary:hover { color: var(--accent); }
     min-width: 0;
 }
 
+.metabolite-generic-classification {
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 12px;
+    background: #f8fafc;
+}
+
+.metabolite-property-curation form {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.metabolite-property-state-error {
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 8px;
+    color: #9a3412;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin: 0;
+    padding: 0.7rem;
+}
+
+.metabolite-property-editor {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: grid;
+    gap: 0.6rem;
+    margin: 0;
+    min-width: 0;
+    padding: 0.75rem;
+}
+
+.metabolite-property-editor legend {
+    font-weight: 700;
+    padding: 0 0.25rem;
+}
+
+.metabolite-property-state {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metabolite-property-state span,
+.metabolite-property-controls label,
+.metabolite-property-curation form > label {
+    display: grid;
+    font-size: 0.78rem;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.metabolite-property-state strong {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.metabolite-property-controls {
+    align-items: end;
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metabolite-property-controls select,
+.metabolite-property-controls input,
+.metabolite-property-curation form > label input {
+    width: 100%;
+}
+
+.metabolite-property-controls .is-hidden {
+    display: none;
+}
+
+.metabolite-curation-property-list {
+    margin: 0.25rem 0;
+    padding-left: 1.2rem;
+}
+
+@media (max-width: 560px) {
+    .metabolite-property-state,
+    .metabolite-property-controls {
+        grid-template-columns: 1fr;
+    }
+}
+
+.metabolite-generic-curation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 8px;
+}
+
+.metabolite-generic-curation-actions .btn.is-selected {
+    border-color: #4f46e5;
+    background: #eef2ff;
+    box-shadow: 0 0 0 2px rgb(79 70 229 / 14%);
+}
+
 .metabolite-curation-add.is-pending,
 .metabolite-curation-add.is-pending:disabled {
     background: rgba(245, 158, 11, 0.16);
@@ -2566,17 +2683,23 @@ details summary:hover { color: var(--accent); }
     padding-bottom: 0.65rem;
 }
 
-.metabolite-id-mw-cart-summary {
+.metabolite-id-pending-summary {
     color: #fbbf24;
     font-weight: 600;
 }
 
-.metabolite-id-mw-cart-summary[hidden],
-.metabolite-id-mw-cart-flag[hidden] {
+.metabolite-id-pending-summary[hidden],
+.metabolite-id-pending-flags[hidden] {
     display: none;
 }
 
-.metabolite-id-mw-cart-flag {
+.metabolite-id-pending-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.metabolite-id-pending-flag {
     background: rgba(245, 158, 11, 0.16);
     border: 1px solid #d97706;
     border-radius: 999px;
@@ -2588,8 +2711,12 @@ details summary:hover { color: var(--accent); }
     white-space: nowrap;
 }
 
-tr.has-cart-review > td {
+tr.has-pending-changes > td {
     background: rgba(245, 158, 11, 0.035);
+}
+
+tr.has-pending-changes > td:first-child {
+    box-shadow: inset 3px 0 #d97706;
 }
 
 .metabolite-id-mw-review-row[hidden],
@@ -2812,8 +2939,8 @@ tr.has-cart-review > td {
     border: 1px solid var(--border);
     border-radius: 8px;
     display: grid;
-    grid-template-columns: 5rem minmax(12rem, 2fr) minmax(4rem, 0.45fr) repeat(4, minmax(6.5rem, 0.75fr)) minmax(7.5rem, 0.85fr) minmax(6.5rem, 0.75fr) repeat(3, minmax(7.5rem, 0.85fr)) minmax(14rem, 1.7fr) minmax(7rem, 0.9fr);
-    min-width: 106rem;
+    grid-template-columns: 5rem minmax(12rem, 2fr) minmax(4rem, 0.45fr) repeat(4, minmax(6.5rem, 0.75fr)) minmax(7.5rem, 0.85fr) repeat(2, minmax(6.5rem, 0.75fr)) repeat(2, minmax(7.5rem, 0.85fr)) minmax(14rem, 1.7fr) minmax(7rem, 0.9fr);
+    min-width: 105rem;
 }
 
 #metaboliteIdMaterializedStageStats,
@@ -3668,12 +3795,6 @@ tr.has-cart-review > td {
 .metabolite-id-member-list span {
     color: var(--text-muted);
     font-size: 0.82rem;
-}
-
-.metabolite-id-carbohydrate-family-bucket + .metabolite-id-carbohydrate-family-bucket {
-    border-top: 1px solid var(--border);
-    margin-top: 0.65rem;
-    padding-top: 0.65rem;
 }
 
 .metabolite-id-compare-card-header dl {

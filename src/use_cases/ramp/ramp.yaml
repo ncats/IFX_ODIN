@@ -38,12 +38,12 @@ input_adapters:
   - import: ./src/input_adapters/metabolite_harmonization/wikipathways.py
     class: WikiPathwaysMetaboliteEquivalenceAdapter
     kwargs:
-      data_source: wikipathways:rdf_wp:2026-06-10
+      data_source: wikipathways:rdf_wp:2026-09-10
 
   - import: ./src/input_adapters/metabolite_harmonization/wikipathways.py
     class: WikiPathwaysPathwayContextAdapter
     kwargs:
-      data_source: wikipathways:rdf_wp:2026-06-10
+      data_source: wikipathways:rdf_wp:2026-09-10
 
   - import: ./src/input_adapters/metabolite_harmonization/pfocr_pathways.py
     class: PfocrPathwayContextAdapter
@@ -53,28 +53,28 @@ input_adapters:
   - import: ./src/input_adapters/metabolite_harmonization/expasy.py
     class: ExpasyEnzymeClassAdapter
     kwargs:
-      data_source: expasy:enzyme:2026-06-10
+      data_source: expasy:enzyme:2026-09-02
 
   - import: ./src/input_adapters/metabolite_harmonization/rhea.py
     class: RheaReactionAdapter
     kwargs:
-      data_source: rhea:reaction_bundle:141
-      uniprot_data_source: uniprot:human:2026_02
+      data_source: rhea:reaction_bundle:142
+      uniprot_data_source: uniprot:human:2026_03
 
   - import: ./src/input_adapters/metabolite_harmonization/lipidmaps.py
     class: LipidMapsMetaboliteEquivalenceAdapter
     kwargs:
-      data_source: lipidmaps:lmsd_sdf:2026-06-30
+      data_source: lipidmaps:lmsd_sdf:2026-09-18
 
   - import: ./src/input_adapters/metabolite_harmonization/lipidmaps_classes.py
     class: LipidMapsMetaboliteClassificationAdapter
     kwargs:
-      data_source: lipidmaps:lmsd_sdf:2026-06-30
+      data_source: lipidmaps:lmsd_sdf:2026-09-18
 
   - import: ./src/input_adapters/metabolite_harmonization/refmet.py
     class: RefMetMetaboliteEquivalenceAdapter
     kwargs:
-      data_source: refmet:metabolites_csv:sha256-f40f14165725
+      data_source: refmet:metabolites_csv:sha256-ef152c85ded4
 
   - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
     class: HmdbMetaboliteChemPropsAdapter
@@ -84,27 +84,34 @@ input_adapters:
   - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
     class: ChebiMetaboliteChemPropsAdapter
     kwargs:
-      data_source: chebi:three_star_sdf:2026-05-01
+      data_source: chebi:three_star_sdf:2026-09-09
 
   - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
     class: LipidMapsMetaboliteChemPropsAdapter
     kwargs:
-      data_source: lipidmaps:lmsd_sdf:2026-06-30
+      data_source: lipidmaps:lmsd_sdf:2026-09-18
 
   - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
     class: PubchemMetaboliteChemPropsAdapter
     kwargs:
-      data_source: {kind: derived_snapshot, snapshot_id: pubchem:cid_molecular_info:deps-31c7bedefb74}
+      data_source: {kind: derived_snapshot, snapshot_id: pubchem:cid_molecular_info:deps-acde65d60ba9}
 
   - import: ./src/input_adapters/chebi/chebi_obo_adapter.py
     class: ChebiFullOboAdapter
     kwargs:
-      data_source: chebi:ontology_full:252
+      data_source: chebi:ontology_full:255
 
   - import: ./src/input_adapters/metabolite_harmonization/chebi_bridge.py
     class: ChebiMetaboliteIdentifierBridgeAdapter
     kwargs:
-      data_source: chebi:ontology_full:252
+      data_source: chebi:ontology_full:255
+
+post_adapters:
+  - import: ./src/input_adapters/metabolite_harmonization/generic_structure.py
+    class: MetaboliteGenericStructureAdapter
+    kwargs:
+      database_name: *database_name
+    credentials: *source_credentials
 
 output_adapters:
   - import: ./src/output_adapters/arango_output_adapter.py

@@ -63,3 +63,86 @@ def test_tdl_override_adapter_requests_keep_last_conflict_behavior(tmp_path):
 
     assert adapter.get_field_conflict_behavior() == FieldConflictBehavior.KeepLast
     assert proteins == [Protein(id="UniProtKB:O00255", tdl="Tclin")]
+
+
+def test_etl_runs_input_then_post_adapters_then_curations_then_output_postprocessing():
+    events = []
+
+    class InputPhaseAdapter(_OneProteinAdapter):
+        def get_all(self):
+            events.append("input")
+            yield [Protein(id="IFXProtein:P1", name="source")]
+
+    class PostPhaseAdapter(_OneProteinAdapter):
+        def get_all(self):
+            events.append("post")
+            yield [Protein(id="IFXProtein:P1", name="derived")]
+
+    class LifecycleOutput(_RecordingOutputAdapter):
+        def apply_curation_snapshots(self, snapshots):
+            assert snapshots == {"test": "snapshot"}
+            events.append("curations")
+
+        def do_post_processing(self, clean_edges=True):
+            events.append("output_postprocessing")
+
+    output = LifecycleOutput()
+    etl = ETL(
+        input_adapters=[InputPhaseAdapter()],
+        post_adapters=[PostPhaseAdapter()],
+        output_adapters=[output],
+        curation_snapshots={"test": "snapshot"},
+    )
+
+    etl.do_etl(run_id="lifecycle-test")
+
+    assert events == ["input", "post", "curations", "output_postprocessing"]
+    assert [call["field_conflict_behavior"] for call in output.store_calls] == [
+        FieldConflictBehavior.KeepLast,
+        FieldConflictBehavior.KeepLast,
+    ]
+
+
+def test_etl_rejects_resume_when_curations_need_a_clean_baseline():
+    etl = ETL(
+        input_adapters=[],
+        output_adapters=[_RecordingOutputAdapter()],
+        curation_snapshots={"metabolite_annotations": object()},
+    )
+
+    try:
+        etl.do_etl(do_post_processing=False, resume=True, run_id="unsafe-resume")
+    except RuntimeError as exc:
+        assert "Run a clean build" in str(exc)
+    else:
+        raise AssertionError("Expected resume with curations to fail safely")
+
+
+def test_etl_resume_accepts_legacy_input_checkpoint_and_reruns_post_adapter():
+    events = []
+
+    class ShouldBeSkipped(_OneProteinAdapter):
+        def get_all(self):
+            raise AssertionError("completed input adapter should be skipped")
+
+    class RerunPost(_OneProteinAdapter):
+        def get_all(self):
+            events.append("post")
+            yield [Protein(id="IFXProtein:P1", name="recalculated")]
+
+    input_adapter = ShouldBeSkipped()
+
+    class CheckpointOutput(_RecordingOutputAdapter):
+        def get_completed_adapter_names(self, run_id):
+            assert run_id == "resume-test"
+            return {input_adapter.get_name(), f"post:{RerunPost().get_name()}"}
+
+    etl = ETL(
+        input_adapters=[input_adapter],
+        post_adapters=[RerunPost()],
+        output_adapters=[CheckpointOutput()],
+    )
+
+    etl.do_etl(do_post_processing=False, resume=True, run_id="resume-test")
+
+    assert events == ["post"]

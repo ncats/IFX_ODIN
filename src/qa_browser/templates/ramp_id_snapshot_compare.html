@@ -21,6 +21,8 @@
     <div class="inline-error">{{ error }}</div>
     {% endif %}
 
+    {% include "metabolite_curation_cart.html" %}
+
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>Compare Stages</h2>
@@ -52,6 +54,56 @@
     </section>
 
     {% if comparison.left_snapshot and comparison.right_snapshot %}
+    <section class="ramp-id-table-section" aria-label="Generic structure consistency comparison">
+        <div class="ramp-id-section-header">
+            <h2>Generic Structure Consistency</h2>
+            {% if comparison.generic_structure_validation.computed %}
+            <p>Generic + specific is a failure. Generic + unclassified is a classification gap.</p>
+            {% else %}
+            <p>Not computed for one or both selected stages. Rebuild those stages with the current engine to compare this validation.</p>
+            {% endif %}
+        </div>
+        {% if comparison.generic_structure_validation.computed %}
+        <dl class="ramp-id-stats">
+            <div><dt>Failures From → To</dt><dd>{{ comparison.generic_structure_validation.left.inconsistent_clique_count }} → {{ comparison.generic_structure_validation.right.inconsistent_clique_count }}</dd></div>
+            <div><dt>New Failures</dt><dd>{{ comparison.generic_structure_validation.new_failure_count }}</dd></div>
+            <div><dt>Still Failing</dt><dd>{{ comparison.generic_structure_validation.persistent_failure_count }}</dd></div>
+            <div><dt>Resolved Failures</dt><dd>{{ comparison.generic_structure_validation.resolved_failure_count }}</dd></div>
+            <div><dt>Gaps From → To</dt><dd>{{ comparison.generic_structure_validation.left.generic_unknown_clique_count }} → {{ comparison.generic_structure_validation.right.generic_unknown_clique_count }}</dd></div>
+            <div><dt>New Gaps</dt><dd>{{ comparison.generic_structure_validation.new_gap_count }}</dd></div>
+        </dl>
+        {% if comparison.generic_structure_validation.destination_warnings %}
+        <details class="metabolite-id-compare-text-details">
+            <summary>Review destination failures and gaps, including unchanged cliques</summary>
+            <div class="metabolite-id-compare-list">
+            {% for warning in comparison.generic_structure_validation.destination_warnings %}
+                <div class="metabolite-id-compare-clique">
+                    <strong>{{ "Failure" if warning.status == "inconsistent" else "Classification gap" }} · {{ warning.size }} IDs</strong>
+                    <span>generic {{ warning.generic_member_count }} · specific {{ warning.specific_member_count }} · unknown {{ warning.unknown_member_count }}</span>
+                    <span class="mono">{{ warning.generic_member_samples|join("  ") }}{% if warning.specific_member_samples %}  {{ warning.specific_member_samples|join("  ") }}{% endif %}{% if warning.unknown_member_samples %}  {{ warning.unknown_member_samples|join("  ") }}{% endif %}</span>
+                    {% if warning.unknown_member_samples %}
+                    <span class="metabolite-id-compare-actions">
+                        {% for member_id in warning.unknown_member_samples %}
+                        <button type="button" class="btn metabolite-mark-generic-add" data-metabolite-id="{{ member_id }}">Mark {{ member_id }} generic</button>
+                        {% endfor %}
+                    </span>
+                    {% endif %}
+                    {% for edge in warning.boundary_edges if warning.status == "inconsistent" and not edge.synthetic %}
+                    <span class="metabolite-id-compare-actions">
+                        <button type="button" class="btn metabolite-curation-add"
+                            data-curation-start-id="{{ edge.start_id }}"
+                            data-curation-end-id="{{ edge.end_id }}">Queue removal: {{ edge.start_id }} ↔ {{ edge.end_id }}</button>
+                    </span>
+                    {% endfor %}
+                    {% if warning.comparison_ids %}<a href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&stages={{ comparison.right_snapshot._key|urlencode }}" target="_blank" rel="noopener noreferrer">Review identifiers and queue curations ↗</a>{% endif %}
+                </div>
+            {% endfor %}
+            </div>
+        </details>
+        {% endif %}
+        {% endif %}
+    </section>
+
     <section class="ramp-id-overview metabolite-id-overview">
         <div>
             <h2>Pipeline Stage Comparison</h2>
@@ -153,7 +205,7 @@
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <h2>Changed Clique Components</h2>
-            <p>Showing {{ comparison.components|length }} of {{ "{:,}".format(comparison.changed_component_count) }} unique changed component{{ "" if comparison.changed_component_count == 1 else "s" }}. Assertion failures, recombinations, and non-trivial transitions are prioritized.</p>
+            <p>Showing {{ comparison.components|length }} of {{ "{:,}".format(comparison.changed_component_count) }} unique changed component{{ "" if comparison.changed_component_count == 1 else "s" }}. Generic-structure failures, assertion failures, recombinations, and non-trivial transitions are prioritized.</p>
         </div>
         <div class="metabolite-id-compare-list">
             {% for component in comparison.components %}
@@ -171,6 +223,7 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
 <script src="{{ root_path }}/static/cytoscape.min.js"></script>
+<script src="{{ root_path }}/static/metabolite_curation_cart.js"></script>
 <script src="{{ root_path }}/static/metabolite_harmonization_visuals.js?v={{ metabolite_visuals_version }}"></script>
 <script>
 (function () {
@@ -217,7 +270,14 @@
             };
         panel.querySelector("[data-compare-graph-title]").textContent = rendered.title;
         panel.querySelector("[data-compare-graph-subtitle]").textContent = rendered.subtitle;
-        panel.querySelector("[data-compare-graph-details]").innerHTML = rendered.html;
+        const isCuratableRawEdge = isEdge && !data.synthetic && (data.raw_edge_key || data.raw_edge_id);
+        const edgeAction = isCuratableRawEdge ? `<section class="metabolite-curation-action">
+            <button type="button" class="btn metabolite-curation-add"
+                data-curation-start-id="${escapeHtml(data.start_id || data.source)}"
+                data-curation-end-id="${escapeHtml(data.end_id || data.target)}">Add curation: Remove this edge</button>
+            <small>This is added to Review changes; publish, sync, and rerun to test it.</small>
+        </section>` : (isEdge && data.synthetic ? `<section class="metabolite-curation-action"><small>Synthetic rule edge; change the source rule or assertion instead of curating a nonexistent mapping edge.</small></section>` : "");
+        panel.querySelector("[data-compare-graph-details]").innerHTML = `${edgeAction}${rendered.html}`;
     }
 
     function renderClique(panel, payload, node) {
@@ -309,6 +369,19 @@
                 if (panel.dataset.loaded === "true") panel.querySelector("[data-compare-visualization-loading]").hidden = true;
             }
         });
+    });
+
+    document.addEventListener("click", (event) => {
+        const button = event.target.closest(".metabolite-mark-generic-add");
+        if (!button || typeof window.addMetabolitePropertyCurations !== "function") return;
+        event.preventDefault();
+        window.addMetabolitePropertyCurations(
+            button.dataset.metaboliteId,
+            {is_generic_structure: true},
+            [],
+            "Queued from generic-structure consistency validation",
+            button,
+        );
     });
 })();
 </script>

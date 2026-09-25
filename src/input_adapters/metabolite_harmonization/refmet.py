@@ -7,6 +7,7 @@ from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.models.metabolite_harmonization import (
+    MetaboliteChemProps,
     MetaboliteIdentifier,
     MetaboliteIdentifierMappingDetail,
     MetaboliteIdentifierMappingEdge,
@@ -145,6 +146,9 @@ class RefMetMetaboliteEquivalenceAdapter(InputAdapter):
                 yield {
                     "refmet_id": normalized.get("refmet_id"),
                     "refmet_name": normalized.get("refmet_name"),
+                    "formula": normalized.get("formula"),
+                    "exactmass": normalized.get("exactmass"),
+                    "inchi_key": normalized.get("inchi_key"),
                     "xrefs": {
                         field: self._unique_clean_values([normalized.get(field)])
                         for field in ID_FIELD_PREFIXES
@@ -156,7 +160,29 @@ class RefMetMetaboliteEquivalenceAdapter(InputAdapter):
 
     @classmethod
     def _primary_node(cls, primary_id: str, record: Dict) -> MetaboliteIdentifier:
-        return MetaboliteIdentifier(id=primary_id, names=cls._names(record))
+        return MetaboliteIdentifier(
+            id=primary_id,
+            names=cls._names(record),
+            chem_props=cls._chem_props(primary_id, record),
+        )
+
+    @classmethod
+    def _chem_props(cls, primary_id: str, record: Dict) -> List[MetaboliteChemProps]:
+        formula = cls._clean_text(record.get("formula"))
+        exactmass = cls._clean_text(record.get("exactmass"))
+        inchi_key = cls._clean_text(record.get("inchi_key"))
+        if not any((formula, exactmass, inchi_key)):
+            return []
+        return [
+            MetaboliteChemProps(
+                source="RefMet",
+                source_id=primary_id,
+                inchi_key_prefix=(inchi_key.split("-", 1)[0] if inchi_key else None),
+                inchi_key=inchi_key,
+                monoisotopic_mass=exactmass,
+                molecular_formula=formula,
+            )
+        ]
 
     @staticmethod
     def _names(record: Dict) -> List[MetaboliteName]:

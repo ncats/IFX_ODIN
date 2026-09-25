@@ -18,6 +18,7 @@ from src.models.chebi import (
     IsSubstituentGroupFromEdge,
     Role,
     Term,
+    Property,
 )
 from src.models.node import Node
 
@@ -266,3 +267,116 @@ def test_chebi_term_qa_browser_metadata_keeps_high_cardinality_fields_out_of_fac
     assert "charge" not in category_facets
     assert category_facets == {"sources", "subsets", "is_obsolete"}
     assert search_fields == {"id", "name", "inchi_key"}
+
+
+def test_chebi_mass_fields_reject_partial_r_group_masses():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "CO2R2"),
+        Property("chemrof:mass", "44.01"),
+        Property("chemrof:monoisotopic_mass", "43.98983"),
+    ])
+
+    assert values["mass"] is None
+    assert values["monoisotopic_mass"] is None
+
+
+def test_chebi_mass_fields_validate_each_reported_value_against_complete_formula():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "C63H104O6"),
+        Property("chemrof:mass", "173.101"),
+        Property("chemrof:monoisotopic_mass", "956.78329"),
+        Property("chemrof:smiles_string", "*C(=O)OCC(COC(*)=O)OC(*)=O"),
+    ])
+
+    assert values["mass"] is None
+    assert values["monoisotopic_mass"] == "956.78329"
+
+
+def test_chebi_mass_fields_keep_formula_consistent_generic_structure_masses():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "C63H96O6"),
+        Property("chemrof:mass", "949.435"),
+        Property("chemrof:monoisotopic_mass", "948.72069"),
+        Property("chemrof:smiles_string", "[1*]C(=O)OCC(COC([3*])=O)OC([2*])=O"),
+    ])
+
+    assert values["mass"] == "949.435"
+    assert values["monoisotopic_mass"] == "948.72069"
+
+
+def test_chebi_mass_fields_validate_complete_multicomponent_formula():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "CuSO4.5H2O"),
+        Property("chemrof:mass", "249.685"),
+        Property("chemrof:monoisotopic_mass", "248.93415"),
+    ])
+
+    assert values["mass"] == "249.685"
+    assert values["monoisotopic_mass"] == "248.93415"
+
+
+def test_chebi_mass_fields_reject_generic_structure_without_verifiable_formula():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:mass", "1641.488"),
+        Property("chemrof:monoisotopic_mass", "1640.59217"),
+        Property("chemrof:smiles_string", "[1*]OC[C@H]1O[C@@H](*)[C@@H](O)[C@@H]1O"),
+    ])
+
+    assert values["mass"] is None
+    assert values["monoisotopic_mass"] is None
+
+
+def test_chebi_mass_fields_recognize_r_token_smiles_as_generic():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "C2H6O"),
+        Property("chemrof:mass", "31.034"),
+        Property("chemrof:monoisotopic_mass", "30.01056"),
+        Property("chemrof:smiles_string", "C([R])O"),
+    ])
+
+    assert values["mass"] is None
+    assert values["monoisotopic_mass"] is None
+
+
+def test_chebi_mass_fields_preserve_non_generic_values_with_unsupported_formula():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "(CH2)6"),
+        Property("chemrof:mass", "84.162"),
+        Property("chemrof:monoisotopic_mass", "84.0939"),
+    ])
+
+    assert values["mass"] == "84.162"
+    assert values["monoisotopic_mass"] == "84.0939"
+
+
+def test_chebi_mass_fields_use_subatomic_change_tolerance():
+    calculated_mass, calculated_monoisotopic_mass = ChebiFullOboAdapter._formula_masses("H2O")
+
+    within_tolerance = ChebiFullOboAdapter._validated_mass_values(
+        "H2O",
+        str(calculated_mass + 0.49),
+        str(calculated_monoisotopic_mass - 0.49),
+        "*O",
+    )
+    outside_tolerance = ChebiFullOboAdapter._validated_mass_values(
+        "H2O",
+        str(calculated_mass + 0.51),
+        str(calculated_monoisotopic_mass - 0.51),
+        "*O",
+    )
+
+    assert within_tolerance[0] is not None
+    assert within_tolerance[1] is not None
+    assert outside_tolerance == (None, None)
+
+
+def test_chebi_mass_fields_do_not_reinterpret_non_generic_source_masses():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "He"),
+        Property("chemrof:mass", "3.01603"),
+        Property("chemrof:monoisotopic_mass", "3.01548"),
+        Property("chemrof:smiles_string", "[3He+]"),
+    ])
+
+    assert values["mass"] == "3.01603"
+    assert values["monoisotopic_mass"] == "3.01548"

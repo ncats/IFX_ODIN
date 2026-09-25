@@ -82,7 +82,7 @@ def resolve_registry_references(config_dict: dict) -> dict:
         raise TypeError("registry configuration must be a mapping")
     registry = RegistryIntegration.connect(registry_config)
     resolved = dict(config_dict)
-    for key in ("resolvers", "input_adapters"):
+    for key in ("resolvers", "input_adapters", "post_adapters"):
         if key in resolved:
             resolved[key] = _resolve_registry_datasets(resolved[key], registry)
     return resolved
@@ -164,3 +164,7 @@ class ETL_Config(Config):
 
     def create_input_adapters(self) -> List[InputAdapter]:
         return self.create_object_list('input_adapters', False)
+
+    def create_post_adapters(self) -> List[InputAdapter]:
+        """Create graph-dependent adapters that run after primary ingestion."""
+        return self.create_object_list('post_adapters', False)

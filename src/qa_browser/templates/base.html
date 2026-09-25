@@ -14,7 +14,11 @@
 </head>
 <body>
     <nav>
+        {% if root_path %}
         <a class="brand" href="/" aria-label="Return to the Informatics Development Sandbox">IFX Sandbox</a>
+        {% else %}
+        <a class="brand" href="/" aria-label="Return to local tools">IFX ODIN</a>
+        {% endif %}
         <div class="breadcrumb">
             {% set route_path = request.scope.get("path", "") %}
             {% set is_frontpage_tool = route_path.startswith("/pounce/")
@@ -24,7 +28,11 @@
                 or route_path.startswith("/demo/")
                 or route_path.startswith("/cure-entity-resolver") %}
             {% if is_frontpage_tool %}
+            {% if root_path %}
             <a href="/">Home</a>
+            {% else %}
+            <a href="{{ root_path }}/">Local tools</a>
+            {% endif %}
             {% else %}
             <a href="{{ root_path }}/">Harmonization</a>
             {% endif %}

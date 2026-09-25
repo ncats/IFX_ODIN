@@ -7,3 +7,4 @@ orphans
 .idea
 .coverage
 coverage.xml
+src/use_cases/secrets/

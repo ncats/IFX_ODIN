@@ -1,5 +1,11 @@
 from src.core.config import ETL_Config
+from src.core.curations import resolve_curation_types
 from src.core.etl import ETL
+from src.infrastructure.object_storage import (
+    AwsAssumeRoleCredentials,
+    object_storage_from_credentials,
+)
+from src.shared.db_credentials import DBCredentials
 from src.interfaces.resolver_metadata import resolver_fingerprints_by_type
 from src.models.registry_dataset import RegistryDatasetMetadata
 
@@ -45,6 +51,8 @@ class BuildGraphFromYaml:
             if hasattr(output_adapter, "set_registry_dataset_metadata"):
                 output_adapter.set_registry_dataset_metadata(registry_datasets)
         input_adapters = self.configuration.create_input_adapters()
+        post_adapters = self.configuration.create_post_adapters()
+        curation_snapshots = self._resolve_curations(output_adapters)
         resolver_map = {}
         for resolver in self.configuration.resolvers.values():
             for type in resolver.types:
@@ -52,7 +60,41 @@ class BuildGraphFromYaml:
                     raise Exception(f"It only makes sense to have one resolver for each type. Resolver for {type} already exists", resolver_map[type], resolver)
                 resolver_map[type] = resolver
 
-        self.etl = ETL(input_adapters=input_adapters, output_adapters=output_adapters, resolver_map=resolver_map)
+        self.etl = ETL(
+            input_adapters=input_adapters,
+            post_adapters=post_adapters,
+            output_adapters=output_adapters,
+            resolver_map=resolver_map,
+            curation_snapshots=curation_snapshots,
+        )
+
+    def _resolve_curations(self, output_adapters) -> dict:
+        config = self.configuration.config_dict.get("curations")
+        if not config:
+            return {}
+        if isinstance(config, list):
+            curation_types = config
+            credentials_config = self.configuration.config_dict.get("object_storage_credentials")
+        elif isinstance(config, dict):
+            curation_types = config.get("types") or []
+            credentials_config = config.get("credentials")
+        else:
+            raise TypeError("curations must be a list of types or a mapping")
+        if not curation_types:
+            return {}
+        unsupported = [adapter for adapter in output_adapters if not adapter.supports_curations()]
+        if unsupported:
+            names = ", ".join(type(adapter).__name__ for adapter in unsupported)
+            raise RuntimeError(f"Configured curations are not supported by output adapter(s): {names}")
+        if not isinstance(credentials_config, dict):
+            raise ValueError("curations.credentials must resolve to an object-storage credential mapping")
+        credentials = (
+            AwsAssumeRoleCredentials.from_yaml(credentials_config)
+            if "role_arn" in credentials_config or credentials_config.get("type") == "aws_assume_role"
+            else DBCredentials.from_yaml(credentials_config)
+        )
+        storage = object_storage_from_credentials(credentials)
+        return resolve_curation_types(storage, curation_types, allow_missing=False)
 
     def prepare_datastore(self, truncate_tables: bool = True):
         self.etl.create_or_truncate_datastores(truncate_tables=truncate_tables)
@@ -83,6 +125,9 @@ def _registry_datasets_from_config(config_node) -> list[dict]:
 
     for entry in config_node.get("input_adapters", []) or []:
         label = f"adapter:{entry.get('class')}" if isinstance(entry, dict) else "adapter"
+        visit(entry, label)
+    for entry in config_node.get("post_adapters", []) or []:
+        label = f"post_adapter:{entry.get('class')}" if isinstance(entry, dict) else "post_adapter"
         visit(entry, label)
     for entry in config_node.get("resolvers", []) or []:
         label = f"resolver:{entry.get('label') or entry.get('class')}" if isinstance(entry, dict) else "resolver"

@@ -10,6 +10,10 @@ from typing import Type, List, get_origin, get_args, Union
 
 from arango.exceptions import DocumentInsertError, DocumentUpdateError
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
+from src.core.curations import (
+    METABOLITE_ANNOTATIONS,
+    METABOLITE_EQUIVALENCE_EDGES,
+)
 from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
 from src.interfaces.output_adapter import OutputAdapter
 from src.interfaces.resolver_metadata import resolver_fingerprint_summary
@@ -34,6 +38,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         self._resolver_fingerprints_by_type = {}
         self._resolver_source_yaml = None
         self._registry_datasets = []
+        self._curation_metadata = []
+        self._curation_application_reports = []
         self.object_storage = self._object_storage_from_credentials(object_storage_credentials)
         super().__init__(credentials=credentials, database_name=database_name)
 
@@ -55,6 +61,166 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
 
     def set_registry_dataset_metadata(self, registry_datasets=None):
         self._registry_datasets = registry_datasets or []
+
+    def supports_curations(self) -> bool:
+        return True
+
+    def apply_curation_snapshots(self, snapshots: dict) -> dict:
+        db = self.get_db()
+        plans = []
+        reports = []
+        property_decisions_by_target = {}
+        # Resolve every target before performing the first write. A missing or
+        # ambiguous target therefore fails without leaving an earlier curation applied.
+        for curation_type, snapshot in snapshots.items():
+            if curation_type not in {METABOLITE_ANNOTATIONS, METABOLITE_EQUIVALENCE_EDGES}:
+                raise RuntimeError(
+                    f"Arango graph builds do not support applying {curation_type!r}"
+                )
+            for decision in snapshot.active_property_decisions:
+                target = decision.target
+                target_key = (
+                    curation_type,
+                    target["model_type"],
+                    target["id"],
+                )
+                property_decisions_by_target.setdefault(target_key, []).append(decision)
+
+            for resolved in snapshot.active_operations:
+                operation = resolved.operation
+                action = operation["action"]
+                edge_type = operation["edge_type"]
+                if not db.has_collection(edge_type):
+                    raise RuntimeError(f"Curation target collection does not exist: {edge_type}")
+                matches = list(db.aql.execute(
+                    f"""
+                    FOR e IN `{edge_type}`
+                      FILTER (e.start_id == @left AND e.end_id == @right)
+                         OR (@symmetric AND e.start_id == @right AND e.end_id == @left)
+                      RETURN e._key
+                    """,
+                    bind_vars={
+                        "left": operation["start_id"],
+                        "right": operation["end_id"],
+                        "symmetric": operation.get("symmetric") is True,
+                    },
+                    max_runtime=120,
+                ))
+                if not matches:
+                    raise RuntimeError(
+                        f"Curation target edge {edge_type}:{operation['start_id']}→{operation['end_id']} is missing"
+                    )
+                plans.append({
+                    "kind": "edge",
+                    "collection_name": edge_type,
+                    "keys": matches,
+                    "delete": action == "remove_edge",
+                    "report": {
+                        "curation_type": curation_type,
+                        "batch_id": resolved.batch_id,
+                        "operation_id": operation.get("operation_id"),
+                        "action": action,
+                        "target_count": len(matches),
+                        "status": "applied" if action == "remove_edge" else "retained",
+                    },
+                })
+
+        for (curation_type, collection_name, target_id), decisions in property_decisions_by_target.items():
+            if not db.has_collection(collection_name):
+                raise RuntimeError(
+                    f"Curation target collection does not exist: {collection_name}"
+                )
+            property_names = [decision.property_name for decision in decisions]
+            rows = list(db.aql.execute(
+                f"""
+                FOR d IN `{collection_name}`
+                  FILTER d.id == @target_id
+                  LIMIT 2
+                  RETURN {{key: d._key, id: d.id, previous: KEEP(d, @property_names)}}
+                """,
+                bind_vars={
+                    "target_id": target_id,
+                    "property_names": property_names,
+                },
+                max_runtime=120,
+            ))
+            if len(rows) != 1:
+                raise RuntimeError(
+                    f"Curation target {collection_name}:{target_id} matched {len(rows)} documents"
+                )
+            previous = rows[0].get("previous") or {}
+            set_decisions = [decision for decision in decisions if decision.mode == "set"]
+            reports.extend({
+                "curation_type": curation_type,
+                "batch_id": decision.batch_id,
+                "operation_id": decision.source_operation.get("operation_id"),
+                "action": "remove_override",
+                "target": decision.target,
+                "property": decision.property_name,
+                "previous": previous.get(decision.property_name),
+                "result": None,
+                "status": "restored",
+            } for decision in decisions if decision.mode == "remove_override")
+            if set_decisions:
+                plans.append({
+                    "kind": "property",
+                    "collection_name": collection_name,
+                    "target_key": rows[0]["key"],
+                    "patch": {
+                        decision.property_name: decision.value
+                        for decision in set_decisions
+                    },
+                    "reports": [{
+                    "curation_type": curation_type,
+                    "batch_id": decision.batch_id,
+                    "operation_id": decision.source_operation.get("operation_id"),
+                    "action": "set_property",
+                    "target": decision.target,
+                    "property": decision.property_name,
+                    "previous": previous.get(decision.property_name),
+                    "result": decision.value,
+                    "status": "applied",
+                    } for decision in set_decisions],
+                })
+        transaction = db.begin_transaction(
+            write=sorted({plan["collection_name"] for plan in plans})
+        ) if plans else None
+        write_db = transaction or db
+        try:
+            for plan in plans:
+                if plan["kind"] == "property":
+                    updated = list(write_db.aql.execute(
+                        f"""
+                        UPDATE @target_key WITH @patch IN `{plan['collection_name']}`
+                          OPTIONS {{keepNull: true}}
+                          RETURN NEW._key
+                        """,
+                        bind_vars={
+                            "target_key": plan["target_key"],
+                            "patch": plan["patch"],
+                        },
+                        max_runtime=120,
+                    ))
+                    if len(updated) != 1:
+                        raise RuntimeError(
+                            f"Curation target disappeared during application: "
+                            f"{plan['collection_name']}:{plan['target_key']}"
+                        )
+                elif plan["delete"]:
+                    write_db.collection(plan["collection_name"]).delete_many(plan["keys"])
+                reports.extend(plan.get("reports") or [plan["report"]])
+            if transaction is not None:
+                transaction.commit_transaction()
+        except Exception:
+            if transaction is not None:
+                transaction.abort_transaction()
+            raise
+        self._curation_metadata = [snapshot.metadata() for snapshot in snapshots.values()]
+        self._curation_application_reports = reports
+        return {
+            "applied": sum(report["status"] == "applied" for report in reports),
+            "reports": reports,
+        }
 
     @staticmethod
     def _introspect_dataclass(cls) -> dict:
@@ -833,6 +999,8 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 "summary": resolver_fingerprint_summary(resolver_fingerprints_by_type),
             },
             "registry_datasets": getattr(self, "_registry_datasets", []),
+            "curations": getattr(self, "_curation_metadata", []),
+            "curation_application_reports": getattr(self, "_curation_application_reports", []),
             "runner": os.getenv("USER", "unknown"),
             "git_info": git_info,
             "hostname": socket.gethostname(),

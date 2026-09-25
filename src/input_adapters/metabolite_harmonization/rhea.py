@@ -41,7 +41,10 @@ class RheaReactionAdapter(InputAdapter):
         max_records: Optional[int] = None,
     ):
         if data_source is not None:
-            rdf_file = str(data_source.file("rhea.rdf"))
+            try:
+                rdf_file = str(data_source.file("rhea.rdf.gz"))
+            except FileNotFoundError:
+                rdf_file = str(data_source.file("rhea.rdf"))
             directions_file = str(data_source.file("rhea-directions.tsv"))
             rhea2ec_file = str(data_source.file("rhea2ec.tsv"))
             rhea2uniprot_sprot_file = str(data_source.file("rhea2uniprot_sprot.tsv"))
@@ -120,7 +123,11 @@ class RheaReactionAdapter(InputAdapter):
 
     def _load_reactions(self) -> Tuple[Dict[str, Dict], Dict[str, Dict[str, str]]]:
         graph = Graph()
-        graph.parse(self.rdf_file, format="application/rdf+xml")
+        if self.rdf_file.suffix == ".gz":
+            with gzip.open(self.rdf_file, "rb") as handle:
+                graph.parse(handle, format="application/rdf+xml")
+        else:
+            graph.parse(self.rdf_file, format="application/rdf+xml")
         reactions = self._parse_reaction_rdf(graph)
         master_to_variants = self._parse_direction_rows()
         self._apply_direction_rows(reactions, master_to_variants)

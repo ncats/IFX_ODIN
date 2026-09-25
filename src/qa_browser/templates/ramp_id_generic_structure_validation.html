@@ -1,0 +1,70 @@
+{% set validation = stats.generic_structure_validation %}
+<section class="ramp-id-table-section" id="genericStructureValidation">
+    <div class="ramp-id-section-header">
+        <h2>Generic-Structure Consistency</h2>
+        {% if validation.computed %}
+        <p>
+            {% if validation.rule_enabled %}
+            {{ "{:,}".format(validation.inconsistent_clique_count) }} failure{{ "" if validation.inconsistent_clique_count == 1 else "s" }}
+            {% else %}
+            {{ "{:,}".format(validation.inconsistent_clique_count) }} mixed clique{{ "" if validation.inconsistent_clique_count == 1 else "s" }}
+            {% endif %}
+            · {{ "{:,}".format(validation.generic_unknown_clique_count) }} classification gap{{ "" if validation.generic_unknown_clique_count == 1 else "s" }}
+        </p>
+        {% else %}
+        <p>Not computed for this stage.</p>
+        {% endif %}
+    </div>
+    {% if validation.computed %}
+    <p>
+        {% if validation.rule_enabled %}
+        A failure is a clique that still contains both explicitly generic and explicitly specific structures after the separation rule.
+        {% else %}
+        A mixed clique contains both explicitly generic and explicitly specific structures; this is observational because the separation rule is not active yet.
+        {% endif %}
+        A classification gap contains a generic structure together with identifiers whose structure class is still unknown.
+    </p>
+    <p>Pending changes do not alter this saved stage. Publish them and rerun the pipeline to evaluate their effect.</p>
+    <p class="metabolite-id-pending-summary" data-cart-summary="generic" hidden></p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Issue</th><th>Clique</th><th>Classifications</th><th>Example IDs</th><th>Boundary evidence</th><th>Pending changes</th><th>Review</th></tr></thead>
+            <tbody>
+            {% for warning in validation.warnings %}
+            <tr data-generic-warning-rank="{{ warning.rank_by_size }}">
+                <td>
+                    {% if warning.status == "inconsistent" %}
+                    <span class="metabolite-assertion-status metabolite-assertion-status-{{ 'split' if validation.rule_enabled else 'missing' }}">{{ "Failure" if validation.rule_enabled else "Mixed" }}</span>
+                    {% else %}
+                    <span class="metabolite-assertion-status metabolite-assertion-status-missing">Classification gap</span>
+                    {% endif %}
+                </td>
+                <td><strong>#{{ warning.rank_by_size }}</strong><div>{{ "{:,}".format(warning.size) }} IDs</div><div>Review ID: <span class="mono">{{ warning.review_id }}</span></div></td>
+                <td>{{ warning.generic_member_count }} generic<br>{{ warning.specific_member_count }} specific<br>{{ warning.unknown_member_count }} unknown</td>
+                <td>
+                    {% if warning.generic_member_samples %}<div><strong>Generic:</strong> <span class="mono">{{ warning.generic_member_samples|join(", ") }}</span></div>{% endif %}
+                    {% if warning.specific_member_samples %}<div><strong>Specific:</strong> <span class="mono">{{ warning.specific_member_samples|join(", ") }}</span></div>{% endif %}
+                    {% if warning.unknown_member_samples %}<div><strong>Unknown:</strong> <span class="mono">{{ warning.unknown_member_samples|join(", ") }}</span></div>{% endif %}
+                </td>
+                <td>
+                    {{ warning.boundary_edge_count }} direct boundar{{ "y" if warning.boundary_edge_count == 1 else "ies" }}
+                    {% for edge in warning.boundary_edges[:3] %}
+                    <div class="mono">{{ edge.start_id }} ↔ {{ edge.end_id }}</div>
+                    {% endfor %}
+                </td>
+                <td><div class="metabolite-id-pending-flags" data-generic-cart-flag hidden></div></td>
+                <td><a class="btn btn-secondary btn-sm" href="{{ root_path }}/ramp-id-qa?id={{ warning.comparison_ids|urlencode }}&stages={{ stats.stage._key|urlencode }}" target="_blank" rel="noopener">Review clique</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No generic-structure consistency issues for this stage.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if validation.warning_count > validation.warnings|length %}
+    <p>Showing the top {{ validation.warnings|length }} of {{ "{:,}".format(validation.warning_count) }} affected cliques.</p>
+    {% endif %}
+    {% else %}
+    <p>Re-run the pipeline to store this validation for the stage.</p>
+    {% endif %}
+</section>

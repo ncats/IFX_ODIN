@@ -25,9 +25,9 @@
                 <div class="metabolite-id-stage-stats-grid-header">Cliques</div>
                 <div class="metabolite-id-stage-stats-grid-header">Singletons</div>
                 <div class="metabolite-id-stage-stats-grid-header">Active Edges</div>
+                <div class="metabolite-id-stage-stats-grid-header">Structure</div>
                 <div class="metabolite-id-stage-stats-grid-header">MW Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Denylist Alerts</div>
-                <div class="metabolite-id-stage-stats-grid-header">Carb Alerts</div>
                 <div class="metabolite-id-stage-stats-grid-header">Assertions</div>
                 <div class="metabolite-id-stage-stats-grid-header">Size Distribution</div>
                 <div class="metabolite-id-stage-stats-grid-header">Largest</div>
@@ -55,6 +55,17 @@
                     <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
                     {% endif %}
                 </div>
+                <div class="metabolite-id-stage-stats-grid-cell {% if stage_summary.generic_structure_rule_enabled and stage_summary.generic_structure_failure_count %}has-validation-failures{% elif stage_summary.generic_structure_validation_computed and stage_summary.generic_structure_gap_count %}has-validation-gaps{% endif %}">
+                    <a href="{{ root_path }}/ramp-id-qa/stages/{{ stage._key }}#genericStructureValidation" target="_blank" rel="noopener noreferrer">
+                    {% if not stage_summary.generic_structure_validation_computed %}
+                    <span title="This stage was materialized before generic-structure validation was stored.">Not computed</span>
+                    {% elif stage_summary.generic_structure_rule_enabled %}
+                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} fail<br>{{ "{:,}".format(stage_summary.generic_structure_gap_count|default(0, true)) }} gaps
+                    {% else %}
+                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} mixed<br>{{ "{:,}".format(stage_summary.generic_structure_gap_count|default(0, true)) }} gaps
+                    {% endif %}
+                    </a>
+                </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
                     {% if stage_summary.mw_validation_computed %}
                     {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
@@ -69,13 +80,6 @@
                     <span title="The 'Ignore RaMP mapping denylist' rule is not enabled for this stage.">Rule not enabled</span>
                     {% else %}
                     {{ "{:,}".format(stage_summary.denylist_warning_count|default(0, true)) }}
-                    {% endif %}
-                </div>
-                <div class="metabolite-id-stage-stats-grid-cell">
-                    {% if stage_summary.carbohydrate_family_validation_computed %}
-                    {{ "{:,}".format(stage_summary.carbohydrate_family_warning_count|default(0, true)) }}
-                    {% else %}
-                    <span title="This stage was materialized before carbohydrate-family validation was stored.">Not computed</span>
                     {% endif %}
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
