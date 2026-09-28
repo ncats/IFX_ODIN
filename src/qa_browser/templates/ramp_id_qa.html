@@ -44,8 +44,81 @@
 
     {% include "metabolite_curation_cart.html" %}
 
+    {% if denylist_pair_review %}
+    <section class="ramp-id-table-section metabolite-denylist-pair-review" aria-label="Published deny-list pair review">
+        <div class="ramp-id-section-header">
+            <div>
+                <h2>Deny-list Pair Review</h2>
+                <p>
+                    <code>{{ denylist_pair_review.pair.left_id }}</code> ↔
+                    <code>{{ denylist_pair_review.pair.right_id }}</code>
+                </p>
+            </div>
+            {% if denylist_pair_review.is_active_removal %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-split">Published decision: Remove equivalence</span>
+            {% elif denylist_pair_review.active_action == "retain_edge" %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-pass">Published decision: Retain equivalence</span>
+            {% else %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-missing">No active published decision</span>
+            {% endif %}
+        </div>
+        {% if denylist_pair_review.decision %}
+        <p>
+            {% if denylist_pair_review.decision.batch_id %}Batch <code>{{ denylist_pair_review.decision.batch_id }}</code>{% endif %}
+            {% if denylist_pair_review.decision.published_at %} · published {{ denylist_pair_review.decision.published_at }}{% endif %}
+            {% if denylist_pair_review.decision.published_by %} by {{ denylist_pair_review.decision.published_by.name|default(denylist_pair_review.decision.published_by.id, true) }}{% endif %}
+            {% if denylist_pair_review.decision.note %} · {{ denylist_pair_review.decision.note }}{% endif %}
+        </p>
+        {% endif %}
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Stage</th><th>Effect in this run</th><th>Endpoint groups</th></tr></thead>
+                <tbody>
+                {% for state in denylist_pair_review.stage_states %}
+                <tr>
+                    <td><strong>{{ state.stage_name }}</strong><div class="mono">{{ state.stage_key }}</div></td>
+                    <td>{% if state.found_count < 2 %}Evidence unavailable{% elif state.together %}Together{% else %}Separated{% endif %}</td>
+                    <td>
+                        {% for membership in state.memberships %}
+                        <div><code>{{ membership.identifier }}</code> — {% if not membership.clique_key %}not found{% elif membership.is_singleton %}singleton{% else %}{{ membership.clique_size }} members{% endif %}</div>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if denylist_pair_review.retain_allowed %}
+        <section class="metabolite-curation-action">
+            <button type="button" class="btn metabolite-curation-add"
+                    data-curation-action="retain_edge"
+                    data-curation-start-id="{{ denylist_pair_review.pair.left_id }}"
+                    data-curation-end-id="{{ denylist_pair_review.pair.right_id }}">
+                Queue retain decision
+            </button>
+            <small>This saves a draft. The graph changes only after publication and a pipeline rerun.</small>
+        </section>
+        {% else %}
+        <p>This link is read-only because the pair is not currently an active published removal.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
     {% if not query_id and overview %}
     {% include "ramp_id_pipeline_table.html" %}
+
+    <section class="ramp-id-table-section" aria-label="Open published deny-list pair">
+        <div class="ramp-id-section-header">
+            <div>
+                <h2>Review a Published Deny-list Pair</h2>
+                <p>Open a stable evidence page for a pair, including its published decision and before/after clique membership.</p>
+            </div>
+        </div>
+        <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form metabolite-id-search">
+            <input name="denylist_pair" spellcheck="false" placeholder="CHEBI:123 | HMDB:HMDB0000123" required>
+            <button type="submit" class="btn">Review pair</button>
+        </form>
+    </section>
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
@@ -207,8 +280,15 @@
             {% else %}
             <p>Select a bar in the Sankey plot to inspect that clique.</p>
             {% endif %}
+            <p class="metabolite-id-graph-legend">
+                <strong>Current structure classification</strong>
+                <span class="is-generic"><i aria-hidden="true"></i>Generic</span>
+                <span class="is-specific"><i aria-hidden="true"></i>Specific / non-generic</span>
+                <span class="is-unknown"><i aria-hidden="true"></i>Unknown</span>
+            </p>
             {% if denylist_review %}
             <p class="metabolite-id-graph-legend">
+                <strong>Review overlays</strong>
                 <span class="is-denylisted"><i aria-hidden="true"></i>Published denylist pair</span>
                 <span class="is-pending"><i aria-hidden="true"></i>Pending cart removal</span>
             </p>
@@ -247,6 +327,7 @@
     const snapshotGraphs = {{ result.snapshot_graphs|tojson }};
     const sankeyPlots = {{ result.snapshot_sankeys|tojson }};
     const denylistReview = {{ (denylist_review or {})|tojson }};
+    const denylistPairReview = {{ (denylist_pair_review or {})|tojson }};
     let selectedCliqueCy = null;
     let pendingEdgeDecisionActions = new Map();
 
@@ -698,21 +779,26 @@
         if (!records || !records.length) {
             return "";
         }
-        const rows = records.map((prop) => `
+        const rows = records.map((prop) => {
+            const components = (prop.structure_components || []).map((component, index) =>
+                `<div><strong>Component ${index + 1}</strong>: ${escapeHtml(component.molecular_formula || "formula unavailable")} · MW ${escapeHtml(component.mw || "—")} · mono ${escapeHtml(component.monoisotopic_mass || "—")} · charge ${escapeHtml(component.formal_charge ?? "—")}</div>`
+            ).join("");
+            return `
             <tr>
                 <td>${escapeHtml(prop.source || "")}</td>
                 <td><code>${escapeHtml(prop.source_id || "")}</code></td>
                 <td>${escapeHtml(prop.formula || "")}</td>
-                <td>${escapeHtml(prop.mw || "")}</td>
-                <td>${escapeHtml(prop.monoisotopic_mass || "")}</td>
+                <td>${escapeHtml(prop.mw || "")} ${prop.calculated_mw ? `<small>calculated ${escapeHtml(prop.calculated_mw)}</small>` : ""}</td>
+                <td>${escapeHtml(prop.monoisotopic_mass || "")} ${prop.calculated_monoisotopic_mass ? `<small>calculated ${escapeHtml(prop.calculated_monoisotopic_mass)}</small>` : ""}</td>
+                <td>${components || escapeHtml(prop.structure_calculation_error || "—")}</td>
             </tr>
-        `).join("");
+        `}).join("");
         return `
             <section class="metabolite-id-detail-section">
                 <h4>Chemical Property Records</h4>
                 <div class="metabolite-id-detail-table-wrap">
                     <table class="ramp-id-table">
-                        <thead><tr><th>Source</th><th>Source ID</th><th>Formula</th><th>MW</th><th>Mono Mass</th></tr></thead>
+                        <thead><tr><th>Source</th><th>Source ID</th><th>Formula</th><th>MW</th><th>Mono Mass</th><th>Structure Components</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
@@ -996,6 +1082,9 @@
                 { selector: ".prefix-pubchem-compound", style: { "background-color": "#9333ea" }},
                 { selector: ".prefix-kegg-compound", style: { "background-color": "#d97706" }},
                 { selector: ".prefix-refmet", style: { "background-color": "#dc2626" }},
+                { selector: ".generic-structure-generic", style: { "shape": "rectangle" }},
+                { selector: ".generic-structure-specific", style: { "shape": "ellipse", "border-style": "solid" }},
+                { selector: ".generic-structure-unknown", style: { "shape": "ellipse", "border-style": "dotted", "border-width": 3 }},
                 { selector: ".has-structure", style: {
                     "background-color": "#ffffff",
                     "background-image": "data(structure_image)",
@@ -1007,8 +1096,10 @@
                     "background-image-crossorigin": "null",
                 }},
                 { selector: ".selected-query", style: {
-                    "border-color": "#f59e0b",
-                    "border-width": 5,
+                    "underlay-color": "#f59e0b",
+                    "underlay-opacity": 1,
+                    "underlay-padding": 5,
+                    "underlay-shape": "ellipse",
                     "width": 82,
                     "height": 82,
                 }},
@@ -1050,8 +1141,10 @@
                     "z-index": 20,
                 }},
                 { selector: ".denylist-review-node", style: {
-                    "border-color": "#dc2626",
-                    "border-width": 6,
+                    "underlay-color": "#dc2626",
+                    "underlay-opacity": 1,
+                    "underlay-padding": 6,
+                    "underlay-shape": "ellipse",
                 }},
                 { selector: ".denylist-review-edge", style: {
                     "line-color": "#dc2626",
@@ -1073,7 +1166,12 @@
                     "width": 7,
                     "label": "pending retention",
                 }},
-                { selector: ":selected", style: { "border-width": 5, "border-color": "#f59e0b" }},
+                { selector: ":selected", style: {
+                    "underlay-color": "#f59e0b",
+                    "underlay-opacity": 1,
+                    "underlay-padding": 5,
+                    "underlay-shape": "ellipse",
+                }},
             ],
         });
         selectedCliqueCy.on("tap", "node", (event) => renderDetails(container, event.target.data(), false));
@@ -1096,7 +1194,12 @@
         });
     }
 
-    if (snapshotGraphs.length === 1 && (snapshotGraphs[0].cliques || []).length === 1) {
+    if (denylistPairReview.focus?.stage_key && denylistPairReview.focus?.clique_key) {
+        renderSelectedSnapshotClique({
+            snapshot_key: denylistPairReview.focus.stage_key,
+            clique_key: denylistPairReview.focus.clique_key,
+        });
+    } else if (snapshotGraphs.length === 1 && (snapshotGraphs[0].cliques || []).length === 1) {
         const onlyClique = snapshotGraphs[0].cliques[0];
         renderSelectedSnapshotClique({
             snapshot_key: snapshotGraphs[0].snapshot_key,

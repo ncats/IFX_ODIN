@@ -4,15 +4,22 @@ from typing import Dict, Generator, Iterable, List, Optional
 import csv
 import gzip
 import zipfile
+import xml.etree.ElementTree as ET
 
 from src.constants import DataSourceName
 from src.interfaces.input_adapter import InputAdapter
 from src.models.datasource_version_info import DatasourceVersionInfo
-from src.models.metabolite_harmonization import MetaboliteIdentifier, MetaboliteChemProps
+from src.models.metabolite_harmonization import (
+    MetaboliteChemProps,
+    MetaboliteIdentifier,
+    MetaboliteStructureComponent,
+)
 from src.shared.chebi_mass import validated_chebi_mass_values
+from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
 
 
 HMDB_STRUCTURES_SDF_MEMBER = "structures.sdf"
+HMDB_METABOLITES_XML_MEMBER = "hmdb_metabolites.xml"
 LIPIDMAPS_SDF_MEMBER = "structures.sdf"
 DERIVED_INCHI_KEY_METHOD = "rdkit.Chem.inchi.MolToInchiKey"
 SDF_MOL_BLOCK_INPUT_FIELD = "sdf_mol_block"
@@ -46,7 +53,9 @@ class HmdbMetaboliteChemPropsAdapter(_ChemPropsAdapter):
     def __init__(
         self,
         data_source=None,
+        metabolites_data_source=None,
         structures_zip_file: Optional[str] = None,
+        metabolites_zip_file: Optional[str] = None,
         max_records: Optional[int] = None,
     ):
         if data_source is not None:
@@ -56,7 +65,14 @@ class HmdbMetaboliteChemPropsAdapter(_ChemPropsAdapter):
             self.version_info = DatasourceVersionInfo(version=None, version_date=None, download_date=None)
         if structures_zip_file is None:
             raise ValueError("HmdbMetaboliteChemPropsAdapter requires data_source or structures_zip_file")
+        if metabolites_data_source is not None:
+            metabolites_zip_file = str(
+                metabolites_data_source.file("hmdb_metabolites.zip")
+            )
         self.structures_zip_file = Path(structures_zip_file)
+        self.metabolites_zip_file = (
+            Path(metabolites_zip_file) if metabolites_zip_file is not None else None
+        )
         self.max_records = max_records
 
     def get_datasource_name(self) -> DataSourceName:
@@ -67,12 +83,16 @@ class HmdbMetaboliteChemPropsAdapter(_ChemPropsAdapter):
 
     def _iter_nodes(self) -> Iterable[MetaboliteIdentifier]:
         count = 0
+        sdf_source_ids: set[str] = set()
         with zipfile.ZipFile(self.structures_zip_file) as archive:
             with archive.open(HMDB_STRUCTURES_SDF_MEMBER) as handle:
                 for record in _iter_sdf_tag_records(handle):
                     source_id = _prefixed_id("HMDB", record.get("DATABASE_ID"))
                     if source_id is None:
                         continue
+                    if source_id in sdf_source_ids:
+                        continue
+                    sdf_source_ids.add(source_id)
                     inchi_key = _clean_text(record.get("INCHI_KEY"))
                     yield MetaboliteIdentifier(
                         id=source_id,
@@ -91,6 +111,38 @@ class HmdbMetaboliteChemPropsAdapter(_ChemPropsAdapter):
                             )
                         ],
                     )
+                    count += 1
+                    if self.max_records is not None and count >= self.max_records:
+                        return
+        if (
+            self.metabolites_zip_file is None
+            or (self.max_records is not None and count >= self.max_records)
+        ):
+            return
+
+        xml_source_ids: set[str] = set()
+        with zipfile.ZipFile(self.metabolites_zip_file) as archive:
+            with archive.open(HMDB_METABOLITES_XML_MEMBER) as handle:
+                for _event, elem in ET.iterparse(handle, events=("end",)):
+                    if _xml_local_name(elem.tag) != "metabolite":
+                        continue
+                    values = {
+                        _xml_local_name(child.tag): _clean_text(child.text)
+                        for child in list(elem)
+                    }
+                    elem.clear()
+                    source_id = _prefixed_id("HMDB", values.get("accession"))
+                    if (
+                        source_id is None
+                        or source_id in sdf_source_ids
+                        or source_id in xml_source_ids
+                    ):
+                        continue
+                    xml_source_ids.add(source_id)
+                    props = _hmdb_xml_chem_props(source_id, values)
+                    if props is None:
+                        continue
+                    yield MetaboliteIdentifier(id=source_id, chem_props=[props])
                     count += 1
                     if self.max_records is not None and count >= self.max_records:
                         return
@@ -341,6 +393,36 @@ def _clean_text(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
+def _xml_local_name(tag: str) -> str:
+    return tag.split("}", 1)[-1]
+
+
+def _hmdb_xml_chem_props(
+    source_id: str,
+    values: Dict[str, Optional[str]],
+) -> Optional[MetaboliteChemProps]:
+    smiles = _clean_text(values.get("smiles"))
+    inchi_key = _clean_text(values.get("inchikey"))
+    inchi = _clean_text(values.get("inchi"))
+    mw = _clean_text(values.get("average_molecular_weight"))
+    monoisotopic_mass = _clean_text(values.get("monisotopic_molecular_weight"))
+    molecular_formula = _clean_text(values.get("chemical_formula"))
+    if not any((smiles, inchi_key, inchi, mw, monoisotopic_mass, molecular_formula)):
+        return None
+    return _metabolite_chem_props(
+        source="HMDB",
+        source_id=source_id,
+        iso_smiles=smiles,
+        inchi_key_prefix=_inchi_key_prefix(inchi_key),
+        inchi_key=inchi_key,
+        inchi=inchi,
+        mw=mw,
+        monoisotopic_mass=monoisotopic_mass,
+        common_name=_clean_text(values.get("name")),
+        molecular_formula=molecular_formula,
+    )
+
+
 def _record_text(record: Dict[str, str], *field_names: str) -> Optional[str]:
     return _first_clean(*(record.get(field_name) for field_name in field_names))
 
@@ -378,6 +460,17 @@ def _metabolite_chem_props(
     precomputed_inchi_key_derivation: Optional[dict] = None,
     **values,
 ) -> MetaboliteChemProps:
+    structure_candidates = (
+        ("iso_smiles", _clean_text(values.get("iso_smiles"))),
+        ("isomeric_smiles", _clean_text(values.get("isomeric_smiles"))),
+        ("canonical_smiles", _clean_text(values.get("canonical_smiles"))),
+    )
+    structure_input_field, structure_smiles = next(
+        ((field_name, value) for field_name, value in structure_candidates if value),
+        (None, None),
+    )
+    structure_values = calculate_smiles_chemistry(structure_smiles, structure_input_field)
+    component_values = structure_values.pop("structure_components", [])
     derived_values = (
         precomputed_inchi_key_derivation
         if precomputed_inchi_key_derivation is not None
@@ -387,7 +480,15 @@ def _metabolite_chem_props(
             canonical_smiles=values.get("canonical_smiles"),
         )
     )
-    return MetaboliteChemProps(**values, **derived_values)
+    return MetaboliteChemProps(
+        **values,
+        **derived_values,
+        **structure_values,
+        structure_components=[
+            MetaboliteStructureComponent(**component)
+            for component in component_values
+        ],
+    )
 
 
 def _derive_lipidmaps_mol_chemistry(mol_block: str) -> tuple[Optional[str], dict]:

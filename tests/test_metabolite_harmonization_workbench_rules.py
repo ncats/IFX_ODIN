@@ -1,5 +1,9 @@
+import asyncio
 import hashlib
 import json
+
+import pytest
+from fastapi import HTTPException
 
 import src.qa_browser.app as qa_app
 from src.core.curations import (
@@ -17,9 +21,11 @@ from src.qa_browser.app import (
     _build_harmonization_stage_cart_flags,
     _filter_identifier_support_for_rules,
     _harmonization_denylist_review_from_stage,
+    _build_harmonization_denylist_pair_review,
     _harmonization_stage_cart_warning_ranks,
     _harmonization_jobs_by_pipeline_key,
     _load_metabolite_edge_removal_curations,
+    _load_metabolite_identifier_mass_values,
     _materialize_harmonization_stage,
     _metabolite_edge_removal_pairs_from_curation_batch,
     _annotate_harmonization_pipeline_curation_status,
@@ -40,6 +46,8 @@ from src.qa_browser.app import (
     _with_validation_review_ids,
     _annotate_harmonization_pipeline_run_progress,
     _normalize_metabolite_rule_parameters,
+    _normalize_harmonization_denylist_pair,
+    _default_metabolite_denylist_pair_stage_filter,
     _wikipathways_xref_only_ids_from_rows,
 )
 
@@ -1493,6 +1501,56 @@ def test_metabolite_mw_spread_uses_parseable_member_masses():
     ]
 
 
+def test_mass_profile_loader_keeps_channels_and_component_metadata_separate():
+    class FakeAql:
+        def execute(self, query, **_kwargs):
+            if "FOR d IN MetaboliteIdentifier" in query:
+                return [{
+                    "id": "HMDB:1",
+                    "chemistry": [{
+                        "source": "HMDB",
+                        "source_id": "HMDB:1",
+                        "average": [135.45, 135.46],
+                        "monoisotopic": [134.94, None],
+                        "components": [{
+                            "mw": "100.0",
+                            "monoisotopic_mass": "99.9",
+                            "molecular_formula": "C5H8O2",
+                            "smiles": "CCCCC(=O)O",
+                        }],
+                    }],
+                }]
+            if "FOR d IN ChemicalEntity" in query:
+                return [{"id": "CHEBI:1", "raw_masses": [100.0, 99.9]}]
+            raise AssertionError(query)
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, name):
+            return name in {"MetaboliteIdentifier", "ChemicalEntity"}
+
+    profiles = _load_metabolite_identifier_mass_values(FakeDb())
+
+    assert profiles["HMDB:1"]["whole"] == {
+        "average": [135.45, 135.46],
+        "monoisotopic": [134.94],
+    }
+    assert profiles["HMDB:1"]["components"] == [{
+        "source": "HMDB",
+        "source_id": "HMDB:1",
+        "component_index": 0,
+        "average": 100.0,
+        "monoisotopic": 99.9,
+        "molecular_formula": "C5H8O2",
+        "smiles": "CCCCC(=O)O",
+    }]
+    assert profiles["CHEBI:1"]["whole"] == {
+        "average": [100.0],
+        "monoisotopic": [99.9],
+    }
+
+
 def test_validation_samples_put_kegg_identifiers_first_without_reordering_others():
     validation = _prioritize_kegg_validation_samples({
         "warnings": [{
@@ -1790,6 +1848,159 @@ def test_denylist_review_selects_all_pairs_for_the_affected_clique():
     assert _harmonization_denylist_review_from_stage(stage, 3) is None
 
 
+def test_denylist_pair_review_is_stable_and_focuses_first_shared_clique():
+    pair = _normalize_harmonization_denylist_pair(
+        "HMDB:HMDB0000001 | KEGG.COMPOUND:C00001"
+    )
+    result = {
+        "snapshot_graphs": [
+            {
+                "snapshot_key": "baseline",
+                "snapshot_name": "Baseline",
+                "cliques": [{
+                    "clique_key": "baseline-clique",
+                    "clique_size": 5,
+                    "member_ids": [*pair, "CHEBI:1"],
+                }],
+            },
+            {
+                "snapshot_key": "curated",
+                "snapshot_name": "After curations",
+                "cliques": [
+                    {
+                        "clique_key": "left-clique",
+                        "clique_size": 2,
+                        "member_ids": [pair[0], "CHEBI:1"],
+                    },
+                    {
+                        "clique_key": "right-clique",
+                        "clique_size": 1,
+                        "is_singleton_bucket": True,
+                        "member_ids": [pair[1]],
+                    },
+                ],
+            },
+        ],
+    }
+    curation_state = {
+        "pair_states": {pair: "remove_edge"},
+        "pair_decisions": {pair: {
+            "action": "remove_edge",
+            "batch_id": "batch-1",
+            "published_at": "2026-09-01T00:00:00Z",
+            "published_by": {"id": "keith", "name": "Keith"},
+            "note": "MW mismatch",
+        }},
+    }
+
+    review = _build_harmonization_denylist_pair_review(pair, result, curation_state)
+
+    assert pair == ("HMDB:HMDB0000001", "KEGG.COMPOUND:C00001")
+    assert review["retain_allowed"] is True
+    assert review["decision"]["batch_id"] == "batch-1"
+    assert review["focus"] == {
+        "stage_key": "baseline",
+        "clique_key": "baseline-clique",
+    }
+    assert review["stage_states"][0]["together"] is True
+    assert review["stage_states"][1]["together"] is False
+
+
+def test_denylist_pair_review_is_read_only_without_active_remove():
+    pair = ("CHEBI:1", "HMDB:1")
+
+    review = _build_harmonization_denylist_pair_review(
+        pair,
+        {"snapshot_graphs": []},
+        {"pair_states": {pair: "retain_edge"}, "pair_decisions": {}},
+    )
+
+    assert review["active_action"] == "retain_edge"
+    assert review["retain_allowed"] is False
+
+
+def test_retain_cart_api_rejects_pair_without_active_published_removal(monkeypatch):
+    monkeypatch.setattr(qa_app, "_curator_identity", lambda _request, _payload: ("keith", "Keith"))
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_edge_removal_curations",
+        lambda: {"pair_states": {("CHEBI:1", "HMDB:1"): "retain_edge"}},
+    )
+
+    class FakeRequest:
+        async def json(self):
+            return {
+                "action": "retain_edge",
+                "start_id": "CHEBI:1",
+                "end_id": "HMDB:1",
+            }
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(qa_app.ramp_id_qa_add_curation_cart_item(FakeRequest()))
+
+    assert exc.value.status_code == 409
+    assert "no longer an active published removal" in exc.value.detail
+
+
+def test_denylist_pair_review_template_shows_provenance_and_retain_action():
+    html = qa_app.templates.env.get_template("ramp_id_qa.html").render(
+        request={"scope": {"path": "/ramp-id-qa"}},
+        root_path="",
+        query_id="CHEBI:1 HMDB:1",
+        selected_snapshot_keys=["baseline", "curated"],
+        denylist_pair="CHEBI:1|HMDB:1",
+        denylist_pair_review={
+            "pair": {"left_id": "CHEBI:1", "right_id": "HMDB:1"},
+            "active_action": "remove_edge",
+            "is_active_removal": True,
+            "retain_allowed": True,
+            "decision": {
+                "batch_id": "batch-1",
+                "published_at": "2026-09-01T00:00:00Z",
+                "published_by": {"id": "keith", "name": "Keith"},
+                "note": "salt difference",
+            },
+            "stage_states": [{
+                "stage_key": "baseline",
+                "stage_name": "Baseline",
+                "together": True,
+                "found_count": 2,
+                "memberships": [
+                    {"identifier": "CHEBI:1", "clique_key": "c1", "clique_size": 2},
+                    {"identifier": "HMDB:1", "clique_key": "c1", "clique_size": 2},
+                ],
+            }],
+            "focus": {"stage_key": "baseline", "clique_key": "c1"},
+        },
+        denylist_review=None,
+        result={"snapshot_graphs": [], "snapshot_sankeys": []},
+        overview=None,
+        error=None,
+    )
+
+    assert "Deny-list Pair Review" in html
+    assert "batch-1" in html
+    assert "by Keith" in html
+    assert "salt difference" in html
+    assert "Queue retain decision" in html
+    assert 'data-curation-action="retain_edge"' in html
+
+
+def test_metabolite_graph_node_highlights_use_neutral_elliptical_underlays():
+    qa_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_qa.html"
+    )[0]
+    stats_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_stage_stats.html"
+    )[0]
+    shared_source = (
+        qa_app.STATIC_DIR / "metabolite_harmonization_visuals.js"
+    ).read_text()
+
+    for source in (qa_source, stats_source, shared_source):
+        assert '"underlay-shape": "ellipse"' in source
+
+
 def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monkeypatch):
     member_id = "CAS:62-31-7"
     stage_key = "stage-cas"
@@ -1844,6 +2055,7 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
                     "name_count": 0,
                     "synonym_count": 0,
                     "chem_prop_count": 0,
+                    "editable_properties": {"is_generic_structure": True},
                     "raw_masses": [],
                     "chem_props": [],
                     "formulas": [],
@@ -1891,6 +2103,8 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
     clique = result["snapshot_graphs"][0]["cliques"][0]
     assert clique["member_ids"] == [member_id]
     assert clique["elements"][0]["data"]["id"] == member_id
+    assert clique["elements"][0]["data"]["generic_structure_state"] == "generic"
+    assert "generic-structure-generic" in clique["elements"][0]["classes"]
 
 
 def test_snapshot_memberships_use_edge_index_and_database_stage_filter(monkeypatch):
@@ -1950,6 +2164,72 @@ def test_default_snapshot_filter_uses_latest_completed_stage(monkeypatch):
     ])
 
     assert qa_app._default_metabolite_snapshot_key_filter() == ["stage-08"]
+
+
+def test_default_denylist_pair_filter_uses_matching_baseline_and_latest_stage(monkeypatch):
+    monkeypatch.setattr(qa_app, "_list_harmonization_stages", lambda: [
+        {
+            "_key": "old-baseline", "stage_index": 0, "rule_ids": [],
+            "engine_version": "v7", "summary": {
+                "database": "metabolite_harmonization",
+                "metabolite_identifier_count": 10, "equivalence_edge_count": 9,
+            },
+        },
+        {
+            "_key": "current-baseline", "stage_index": 0, "rule_ids": [],
+            "engine_version": "v8", "summary": {
+                "database": "metabolite_harmonization",
+                "metabolite_identifier_count": 12, "equivalence_edge_count": 11,
+            },
+        },
+        {
+            "_key": "current-final", "stage_index": 7, "rule_ids": ["apply_curations"],
+            "engine_version": "v8", "summary": {
+                "database": "metabolite_harmonization",
+                "metabolite_identifier_count": 12, "equivalence_edge_count": 11,
+            },
+        },
+    ])
+
+    assert _default_metabolite_denylist_pair_stage_filter() == [
+        "current-baseline", "current-final",
+    ]
+
+
+def test_denylist_pair_route_defaults_to_before_and_after_stages(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        qa_app,
+        "_default_metabolite_denylist_pair_stage_filter",
+        lambda: ["baseline", "final"],
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_identifier_qa_many",
+        lambda query, stages, include_identifier_details=False: (
+            captured.update({"query": query, "stages": stages})
+            or {"snapshot_graphs": []}
+        ),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_edge_removal_curations",
+        lambda: {"pair_states": {}, "pair_decisions": {}},
+    )
+    monkeypatch.setattr(
+        qa_app.templates,
+        "TemplateResponse",
+        lambda request, name, context: context,
+    )
+
+    context = qa_app.ramp_id_qa(
+        request=object(),
+        denylist_pair="CHEBI:1|HMDB:1",
+    )
+
+    assert captured["query"] == "CHEBI:1 HMDB:1"
+    assert captured["stages"] == ["baseline", "final"]
+    assert context["selected_stage_keys"] == ["baseline", "final"]
 
 
 def test_display_member_limit_is_applied_per_stage_clique():

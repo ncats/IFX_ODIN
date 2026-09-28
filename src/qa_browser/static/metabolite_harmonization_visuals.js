@@ -185,7 +185,11 @@
     function renderGenericStructureEvidence(data) {
         const classification = data.generic_structure || {};
         const rows = [
+            detailRow("Current effective status", genericStatusLabel(classification.effective)),
             detailRow("Detected status", genericStatusLabel(classification.detected)),
+            detailRow("Published override", classification.has_published_override
+                ? genericStatusLabel(classification.published_override)
+                : "None"),
             detailRow("Reason", classification.reason || "No structure evidence available"),
         ].filter(Boolean).join("");
         return `<section class="metabolite-id-detail-section metabolite-generic-classification">
@@ -258,6 +262,13 @@
             {selector: ".prefix-pubchem-compound", style: {"background-color": "#9333ea"}},
             {selector: ".prefix-kegg-compound", style: {"background-color": "#d97706"}},
             {selector: ".prefix-refmet", style: {"background-color": "#dc2626"}},
+            {selector: ".generic-structure-generic", style: {"shape": "rectangle"}},
+            {selector: ".generic-structure-specific", style: {
+                "shape": "ellipse", "border-style": "solid",
+            }},
+            {selector: ".generic-structure-unknown", style: {
+                "shape": "ellipse", "border-style": "dotted", "border-width": 3,
+            }},
             {selector: ".has-structure", style: {
                 "background-color": "#ffffff", "background-image": "data(structure_image)",
                 "background-fit": "contain", "background-height": "76%", "background-width": "76%",
@@ -265,7 +276,9 @@
                 "background-image-crossorigin": "null",
             }},
             {selector: ".selected-query", style: {
-                "border-color": "#f59e0b", "border-width": 5, "width": 82, "height": 82,
+                "underlay-color": "#f59e0b", "underlay-opacity": 1, "underlay-padding": 5,
+                "underlay-shape": "ellipse",
+                "width": 82, "height": 82,
             }},
             {selector: "edge", style: {
                 "curve-style": "bezier", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8",
@@ -286,7 +299,10 @@
                 "line-color": "#f59e0b", "target-arrow-color": "#f59e0b", "line-style": "dashed",
                 "width": 6, "opacity": 1, "z-index": 20,
             }},
-            {selector: ".denylist-review-node", style: {"border-color": "#dc2626", "border-width": 6}},
+            {selector: ".denylist-review-node", style: {
+                "underlay-color": "#dc2626", "underlay-opacity": 1, "underlay-padding": 6,
+                "underlay-shape": "ellipse",
+            }},
             {selector: ".denylist-review-edge", style: {
                 "line-color": "#dc2626", "target-arrow-shape": "none", "line-style": "dashed",
                 "width": 5, "opacity": 1, "label": "data(label)", "color": "#991b1b",
@@ -297,7 +313,10 @@
                 "line-color": "#16a34a", "color": "#166534", "width": 7,
                 "label": "pending retention",
             }},
-            {selector: ":selected", style: {"border-width": 5, "border-color": "#f59e0b"}},
+            {selector: ":selected", style: {
+                "underlay-color": "#f59e0b", "underlay-opacity": 1, "underlay-padding": 5,
+                "underlay-shape": "ellipse",
+            }},
         ];
     }
 

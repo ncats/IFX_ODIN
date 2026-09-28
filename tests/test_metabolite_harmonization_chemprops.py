@@ -13,6 +13,10 @@ from src.input_adapters.metabolite_harmonization.chemprops import (
 from src.interfaces.output_adapter import OutputAdapter
 from src.models.metabolite_harmonization import MetaboliteIdentifier
 from src.shared.metabolite_generic_structure import classify_generic_structure
+from src.shared.metabolite_structure_chemistry import (
+    STRUCTURE_CALCULATION_METHOD,
+    calculate_smiles_chemistry,
+)
 from src.shared.record_merger import FieldConflictBehavior
 
 
@@ -95,6 +99,90 @@ def test_hmdb_chemprops_adapter_emits_chemprops(tmp_path: Path):
     assert node.chem_props[0].monoisotopic_mass == "169.085126611"
     assert node.chem_props[0].common_name == "1-Methylhistidine"
     assert node.chem_props[0].molecular_formula == "C7H11N3O2"
+
+
+def test_hmdb_chemprops_adapter_uses_xml_only_for_accessions_absent_from_sdf(
+    tmp_path: Path,
+):
+    structures_zip = tmp_path / "structures.zip"
+    sdf = _sdf_record(
+        "HMDB0000001",
+        {
+            "DATABASE_ID": "HMDB0000001",
+            "SMILES": "C",
+            "INCHI_KEY": "VNWKTOKETHGBQD-UHFFFAOYSA-N",
+            "INCHI_IDENTIFIER": "InChI=1S/CH4/h1H4",
+            "MOLECULAR_WEIGHT": "16.043",
+            "EXACT_MASS": "16.031300128",
+            "GENERIC_NAME": "Methane from SDF",
+            "FORMULA": "CH4",
+        },
+    )
+    with zipfile.ZipFile(structures_zip, "w") as archive:
+        archive.writestr("structures.sdf", sdf)
+
+    metabolites_zip = tmp_path / "hmdb_metabolites.zip"
+    xml = """<hmdb xmlns="http://www.hmdb.ca">
+<metabolite>
+  <accession>HMDB0000001</accession>
+  <name>Conflicting XML value</name>
+  <chemical_formula>C2H6O</chemical_formula>
+  <average_molecular_weight>46.07</average_molecular_weight>
+  <monisotopic_molecular_weight>46.041864812</monisotopic_molecular_weight>
+  <smiles>CCO</smiles>
+  <inchi>InChI=1S/C2H6O</inchi>
+  <inchikey>LFQSCWFLJHTTHZ-UHFFFAOYSA-N</inchikey>
+</metabolite>
+<metabolite>
+  <accession>HMDB0000002</accession>
+  <name>Ethanol from XML fallback</name>
+  <chemical_formula>C2H6O</chemical_formula>
+  <average_molecular_weight>46.07</average_molecular_weight>
+  <monisotopic_molecular_weight>46.041864812</monisotopic_molecular_weight>
+  <smiles>CCO</smiles>
+  <inchi>InChI=1S/C2H6O</inchi>
+  <inchikey>LFQSCWFLJHTTHZ-UHFFFAOYSA-N</inchikey>
+</metabolite>
+<metabolite>
+  <accession>HMDB0000003</accession>
+  <name>No source chemistry</name>
+</metabolite>
+<metabolite>
+  <accession>HMDB0000002</accession>
+  <name>Duplicate XML value that must be ignored</name>
+  <chemical_formula>C3H8O</chemical_formula>
+</metabolite>
+</hmdb>
+"""
+    with zipfile.ZipFile(metabolites_zip, "w") as archive:
+        archive.writestr("hmdb_metabolites.xml", xml)
+
+    records = _records(
+        HmdbMetaboliteChemPropsAdapter(
+            structures_zip_file=str(structures_zip),
+            metabolites_zip_file=str(metabolites_zip),
+        )
+    )
+    nodes = {record.id: record for record in records}
+
+    assert len(records) == 2
+    assert set(nodes) == {"HMDB:HMDB0000001", "HMDB:HMDB0000002"}
+    sdf_props = nodes["HMDB:HMDB0000001"].chem_props[0]
+    assert sdf_props.common_name == "Methane from SDF"
+    assert sdf_props.molecular_formula == "CH4"
+    assert sdf_props.inchi_key == "VNWKTOKETHGBQD-UHFFFAOYSA-N"
+
+    xml_props = nodes["HMDB:HMDB0000002"].chem_props[0]
+    assert xml_props.source == "HMDB"
+    assert xml_props.source_id == "HMDB:HMDB0000002"
+    assert xml_props.common_name == "Ethanol from XML fallback"
+    assert xml_props.molecular_formula == "C2H6O"
+    assert xml_props.mw == "46.07"
+    assert xml_props.monoisotopic_mass == "46.041864812"
+    assert xml_props.iso_smiles == "CCO"
+    assert xml_props.inchi == "InChI=1S/C2H6O"
+    assert xml_props.inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert xml_props.derived_inchi_key == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
 
 
 def test_chebi_chemprops_adapter_reads_gzipped_sdf(tmp_path: Path):
@@ -356,8 +444,34 @@ def test_chemprops_are_json_serializable_after_output_conversion(tmp_path: Path)
             "common_name": None,
             "iupac_name": "name",
             "molecular_formula": "C7H11N3O2",
+            "calculated_mw": None,
+            "calculated_monoisotopic_mass": None,
+            "structure_components": [],
+            "structure_calculation_input_field": "iso_smiles",
+            "structure_calculation_method": STRUCTURE_CALCULATION_METHOD,
+            "structure_calculation_method_version": rdkit.__version__,
+            "structure_calculation_error": "smiles_parse_failed",
         }
     ]
+
+
+def test_structure_chemistry_preserves_repeated_isotope_aware_components():
+    chemistry = calculate_smiles_chemistry("[2H]O[2H].[2H]O[2H].[Cl-]", "iso_smiles")
+
+    assert chemistry.get("structure_calculation_error") is None
+    assert len(chemistry["structure_components"]) == 3
+    water_components = [
+        component
+        for component in chemistry["structure_components"]
+        if "D2O" in component["molecular_formula"]
+    ]
+    assert len(water_components) == 2
+    assert water_components[0]["monoisotopic_mass"] == water_components[1]["monoisotopic_mass"]
+    chloride = next(
+        component for component in chemistry["structure_components"]
+        if component["formal_charge"] == -1
+    )
+    assert chloride["molecular_formula"] == "Cl-"
 
 
 def test_chemprops_adapters_honor_max_records(tmp_path: Path):

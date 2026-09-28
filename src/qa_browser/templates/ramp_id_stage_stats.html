@@ -170,8 +170,8 @@
             <h2>MW Validation</h2>
             {% if stats.mw_validation.computed %}
             <p>
-                {{ "{:,}".format(stats.mw_validation.warning_count) }} group{{ "" if stats.mw_validation.warning_count == 1 else "s" }}
-                over {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}% MW spread.
+                {{ "{:,}".format(stats.mw_validation.error_count|default(stats.mw_validation.warning_count)) }} errors ·
+                {{ "{:,}".format(stats.mw_validation.review_warning_count|default(0)) }} component-match warnings.
             </p>
             {% else %}
             <p>Not computed for this stage.</p>
@@ -179,14 +179,16 @@
         </div>
         {% if stats.mw_validation.computed %}
         <p>
-            Flags harmonized metabolites where the available molecular weight or monoisotopic mass values differ by more
-            than {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}%.
+            Errors have unexplained average- or monoisotopic-mass disagreement above
+            {{ "%.0f"|format(stats.mw_validation.threshold_percent) }}%. Warnings have a matching structure component
+            that may explain a salt, hydrate, repeated component, or similar representation.
         </p>
         <p class="metabolite-id-pending-summary" data-cart-summary="mw" hidden></p>
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
+                    <th>Severity</th>
                     <th>Spread</th>
                     <th>Size</th>
                     <th>Review ID</th>
@@ -199,6 +201,7 @@
                 <tbody>
                 {% for warning in stats.mw_validation.warnings %}
                 <tr data-mw-warning-rank="{{ warning.rank_by_size }}">
+                    <td><span class="metabolite-assertion-status metabolite-assertion-status-{{ 'split' if warning.severity|default('error') == 'error' else 'missing' }}">{{ warning.severity|default('Error')|title }}</span></td>
                     <td>{{ "%.1f"|format(warning.spread_percent) }}%</td>
                     <td>{{ "{:,}".format(warning.size) }}</td>
                     <td class="mono">{{ warning.review_id }}</td>
@@ -206,7 +209,16 @@
                     <td>
                         <div class="metabolite-id-member-list">
                         {% for item in warning.member_mass_examples %}
-                            <span><span class="mono">{{ item.member_id }}</span>: {{ item.masses|join(", ") }}</span>
+                            <span>
+                                <span class="mono">{{ item.member_id }}</span>:
+                                {% if item.average_masses %}average {{ item.average_masses|join(", ") }}{% endif %}
+                                {% if item.average_masses and item.monoisotopic_masses %} · {% endif %}
+                                {% if item.monoisotopic_masses %}monoisotopic {{ item.monoisotopic_masses|join(", ") }}{% endif %}
+                                {% if item.masses and not item.average_masses and not item.monoisotopic_masses %}legacy unlabeled {{ item.masses|join(", ") }}{% endif %}
+                            </span>
+                        {% endfor %}
+                        {% for match in warning.component_matches|default([], true) %}
+                            <span><strong>{{ match.channel|title }} component match:</strong> <span class="mono">{{ match.whole_member_id }}</span> {{ match.whole_mass }} ↔ <span class="mono">{{ match.component_member_id }}</span> component {{ match.component_mass }}{% if match.component_formula %} ({{ match.component_formula }}){% endif %}</span>
                         {% endfor %}
                         </div>
                     </td>
@@ -225,10 +237,18 @@
                     </td>
                 </tr>
                 <tr class="metabolite-id-mw-review-row" data-mw-review-panel-rank="{{ warning.rank_by_size }}" hidden>
-                    <td colspan="7">
+                    <td colspan="8">
                         <div class="metabolite-id-mw-review-loading" data-mw-review-loading>Loading clique graph…</div>
                         <div class="metabolite-id-component-layout" data-mw-review-layout hidden>
-                            <div class="metabolite-id-cy metabolite-id-mw-review-graph" data-mw-review-graph></div>
+                            <div>
+                                <p class="metabolite-id-graph-legend">
+                                    <strong>Current structure classification</strong>
+                                    <span class="is-generic"><i aria-hidden="true"></i>Generic</span>
+                                    <span class="is-specific"><i aria-hidden="true"></i>Specific / non-generic</span>
+                                    <span class="is-unknown"><i aria-hidden="true"></i>Unknown</span>
+                                </p>
+                                <div class="metabolite-id-cy metabolite-id-mw-review-graph" data-mw-review-graph></div>
+                            </div>
                             <aside class="metabolite-id-graph-detail">
                                 <h3 data-mw-review-title>MW warning group</h3>
                                 <p data-mw-review-subtitle>Select an edge to curate</p>
@@ -238,7 +258,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7">No MW spread warnings for this stage.</td></tr>
+                <tr><td colspan="8">No MW validation issues for this stage.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -757,6 +777,9 @@
                 {selector: ".prefix-pubchem-compound", style: {"background-color": "#9333ea"}},
                 {selector: ".prefix-kegg-compound", style: {"background-color": "#d97706"}},
                 {selector: ".prefix-refmet", style: {"background-color": "#dc2626"}},
+                {selector: ".generic-structure-generic", style: {"shape": "rectangle"}},
+                {selector: ".generic-structure-specific", style: {"shape": "ellipse", "border-style": "solid"}},
+                {selector: ".generic-structure-unknown", style: {"shape": "ellipse", "border-style": "dotted", "border-width": 3}},
                 {selector: ".has-structure", style: {
                     "background-color": "#ffffff", "background-image": "data(structure_image)",
                     "background-fit": "contain", "background-height": "76%", "background-width": "76%",
@@ -764,7 +787,9 @@
                     "background-image-crossorigin": "null",
                 }},
                 {selector: ".selected-query", style: {
-                    "border-color": "#f59e0b", "border-width": 5, "width": 82, "height": 82,
+                    "underlay-color": "#f59e0b", "underlay-opacity": 1, "underlay-padding": 5,
+                    "underlay-shape": "ellipse",
+                    "width": 82, "height": 82,
                 }},
                 {selector: "edge", style: {
                     "curve-style": "bezier", "line-color": "#2563eb", "width": 2.5,
@@ -781,7 +806,10 @@
                     "line-color": "#f59e0b", "line-style": "dashed", "width": 6,
                     "opacity": 1, "z-index": 20,
                 }},
-                {selector: ":selected", style: {"border-width": 5, "border-color": "#f59e0b"}},
+                {selector: ":selected", style: {
+                    "underlay-color": "#f59e0b", "underlay-opacity": 1, "underlay-padding": 5,
+                    "underlay-shape": "ellipse",
+                }},
             ],
         });
         activeCy.on("tap", "node", (event) => renderDetails(panel, event.target.data(), false));
