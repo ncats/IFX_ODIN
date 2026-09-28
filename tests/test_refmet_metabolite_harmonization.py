@@ -129,6 +129,13 @@ def test_refmet_records_are_json_serializable_after_output_conversion(tmp_path: 
         "common_name": None,
         "iupac_name": None,
         "molecular_formula": "C18H22ClNO6",
+        "calculated_mw": None,
+        "calculated_monoisotopic_mass": None,
+        "structure_components": [],
+        "structure_calculation_input_field": None,
+        "structure_calculation_method": None,
+        "structure_calculation_method_version": None,
+        "structure_calculation_error": None,
     }]
     assert chebi_edge["details"] == [
         {"source": "RefMet", "source_field": "chebi_id", "source_id": "REFMET:RM0108606"}

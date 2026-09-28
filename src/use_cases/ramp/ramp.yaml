@@ -80,6 +80,7 @@ input_adapters:
     class: HmdbMetaboliteChemPropsAdapter
     kwargs:
       data_source: hmdb:structures_sdf:5.0
+      metabolites_data_source: hmdb:metabolites_xml:5.0
 
   - import: ./src/input_adapters/metabolite_harmonization/chemprops.py
     class: ChebiMetaboliteChemPropsAdapter

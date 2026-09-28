@@ -2664,10 +2664,36 @@ details summary:hover { color: var(--accent); }
     gap: 0.4rem;
 }
 
+.metabolite-id-graph-legend strong {
+    color: var(--text);
+}
+
 .metabolite-id-graph-legend i {
     display: inline-block;
     width: 2rem;
     border-top: 4px dashed currentColor;
+}
+
+.metabolite-id-graph-legend .is-generic i,
+.metabolite-id-graph-legend .is-specific i,
+.metabolite-id-graph-legend .is-unknown i {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid currentColor;
+    background: transparent;
+}
+
+.metabolite-id-graph-legend .is-generic i {
+    border-radius: 0;
+}
+
+.metabolite-id-graph-legend .is-specific i,
+.metabolite-id-graph-legend .is-unknown i {
+    border-radius: 50%;
+}
+
+.metabolite-id-graph-legend .is-unknown i {
+    border-style: dotted;
 }
 
 .metabolite-id-graph-legend .is-denylisted {

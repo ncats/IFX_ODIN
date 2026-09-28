@@ -47,6 +47,10 @@ from src.shared.metabolite_generic_structure import (
     structure_values as _structure_values_for_generic_check,
     value_has_generic_structure_token as _value_has_generic_structure_token,
 )
+from src.shared.metabolite_mass_validation import (
+    MW_VALIDATION_VERSION,
+    assess_mass_profiles,
+)
 from src.qa_browser.build_provenance import extract_build_inputs
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
@@ -283,7 +287,7 @@ _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
-_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v7"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v8"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
 _HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 _HMDB_IGNORED_PREFIX_DEFAULTS = [
@@ -871,12 +875,21 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
     assertion_snapshot = resolve_curation_type(storage, METABOLITE_EXPECTED_CLIQUES, allow_missing=True)
 
     pair_states = {}
+    pair_decisions = {}
     for resolved in edge_snapshot.active_operations:
         operation = resolved.operation
         left = _normalize_ramp_denylist_identifier(operation.get("start_id"))
         right = _normalize_ramp_denylist_identifier(operation.get("end_id"))
         if left and right and left != right:
-            pair_states[tuple(sorted((left, right)))] = operation["action"]
+            pair = tuple(sorted((left, right)))
+            pair_states[pair] = operation["action"]
+            pair_decisions[pair] = {
+                "action": operation["action"],
+                "batch_id": getattr(resolved, "batch_id", None),
+                "published_at": getattr(resolved, "published_at", None),
+                "published_by": getattr(resolved, "published_by", None),
+                "note": operation.get("note"),
+            }
     pairs = {pair for pair, action in pair_states.items() if action == "remove_edge"}
 
     annotation_overrides = {}
@@ -920,6 +933,7 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
     return {
         "pairs": pairs,
         "pair_states": pair_states,
+        "pair_decisions": pair_decisions,
         "batch_ids": edge_snapshot.batch_ids,
         "fingerprint": apply_fingerprint,
         "edge_fingerprint": edge_snapshot.fingerprint,
@@ -3120,6 +3134,10 @@ def _list_harmonization_stage_overview_stats(
             "assertion_fallback_skipped_count": summary.get("expected_clique_assertion_skipped_count", 0),
             "assertion_synthetic_edge_count": summary.get("expected_clique_synthetic_edge_count", 0),
             "mw_warning_count": mw_validation.get("warning_count", 0),
+            "mw_error_count": mw_validation.get(
+                "error_count", mw_validation.get("warning_count", 0)
+            ),
+            "mw_review_warning_count": mw_validation.get("review_warning_count", 0),
             "mw_validation_computed": mw_validation.get("computed", False),
             "denylist_warning_count": denylist_validation.get("warning_count", 0),
             "denylist_validation_computed": denylist_validation.get("computed", False),
@@ -3874,9 +3892,13 @@ def _harmonization_stage_mw_validation_from_doc(
         return _prioritize_kegg_validation_samples(existing)
     return {
         "computed": False,
+        "version": None,
         "threshold": threshold,
         "threshold_percent": threshold * 100,
         "warning_count": 0,
+        "issue_count": 0,
+        "error_count": 0,
+        "review_warning_count": 0,
         "display_limit": limit,
         "warnings": [],
     }
@@ -5270,29 +5292,99 @@ def _metabolite_member_mass_examples(member_rows: List[dict], limit: int = 8) ->
     return examples
 
 
-def _load_metabolite_identifier_mass_values(db) -> Dict[str, List[float]]:
-    mass_values_by_id: Dict[str, List[float]] = {}
+def _metabolite_member_mass_profile_examples(
+    member_ids: List[str],
+    profiles_by_id: Dict[str, dict],
+    limit: int = 8,
+) -> List[dict]:
+    examples = []
+    for member_id in _kegg_first(member_ids):
+        whole = (profiles_by_id.get(member_id) or {}).get("whole") or {}
+        average_masses = sorted(set(whole.get("average") or []))
+        monoisotopic_masses = sorted(set(whole.get("monoisotopic") or []))
+        if not average_masses and not monoisotopic_masses:
+            continue
+        examples.append({
+            "member_id": member_id,
+            "average_masses": average_masses,
+            "monoisotopic_masses": monoisotopic_masses,
+        })
+        if len(examples) >= limit:
+            break
+    return examples
+
+
+def _metabolite_mass_channel_labels(channel_results: dict) -> List[str]:
+    labels = []
+    for channel, label in (
+        ("average", "Average MW"),
+        ("monoisotopic", "Monoisotopic mass"),
+    ):
+        summary = (channel_results.get(channel) or {}).get("summary")
+        if not summary:
+            continue
+        if summary["min"] == summary["max"]:
+            labels.append(f"{label} {summary['min']:.4g} (n={summary['count']})")
+        else:
+            labels.append(
+                f"{label} {summary['min']:.4g}-{summary['max']:.4g}; "
+                f"med {summary['median']:.4g} (n={summary['count']})"
+            )
+    return labels
+
+
+def _load_metabolite_identifier_mass_values(db) -> Dict[str, dict]:
+    mass_values_by_id: Dict[str, dict] = {}
+
+    def profile(identifier: str) -> dict:
+        return mass_values_by_id.setdefault(identifier, {
+            "whole": {"average": [], "monoisotopic": []},
+            "components": [],
+        })
+
+    def add_values(target: list, values: Iterable[Any]) -> None:
+        for value in values:
+            parsed = _parse_metabolite_mass(value)
+            if parsed is not None and parsed > 0:
+                target.append(parsed)
+
     if db.has_collection("MetaboliteIdentifier"):
         for row in db.aql.execute(
             """
             FOR d IN MetaboliteIdentifier
-              LET raw_masses = UNIQUE(FLATTEN(
+              LET chemistry = (
                 FOR prop IN d.chem_props || []
-                  RETURN [prop.mw, prop.monoisotopic_mass],
-                true
-              ))
-              FILTER LENGTH(raw_masses) > 0
-              RETURN {id: d.id, raw_masses: raw_masses}
+                  RETURN {
+                    source: prop.source,
+                    source_id: prop.source_id,
+                    average: [prop.mw, prop.calculated_mw],
+                    monoisotopic: [prop.monoisotopic_mass, prop.calculated_monoisotopic_mass],
+                    components: prop.structure_components || []
+                  }
+              )
+              FILTER LENGTH(chemistry) > 0
+              RETURN {id: d.id, chemistry: chemistry}
             """,
             max_runtime=300,
         ):
-            parsed = [
-                mass
-                for mass in (_parse_metabolite_mass(value) for value in row.get("raw_masses") or [])
-                if mass is not None and mass > 0
-            ]
-            if parsed:
-                mass_values_by_id.setdefault(row["id"], []).extend(parsed)
+            target = profile(row["id"])
+            for chemistry in row.get("chemistry") or []:
+                add_values(target["whole"]["average"], chemistry.get("average") or [])
+                add_values(target["whole"]["monoisotopic"], chemistry.get("monoisotopic") or [])
+                for component_index, component in enumerate(chemistry.get("components") or []):
+                    average = _parse_metabolite_mass(component.get("mw"))
+                    monoisotopic = _parse_metabolite_mass(component.get("monoisotopic_mass"))
+                    if average is None and monoisotopic is None:
+                        continue
+                    target["components"].append({
+                        "source": chemistry.get("source"),
+                        "source_id": chemistry.get("source_id"),
+                        "component_index": component_index,
+                        "average": average,
+                        "monoisotopic": monoisotopic,
+                        "molecular_formula": component.get("molecular_formula"),
+                        "smiles": component.get("smiles"),
+                    })
     if db.has_collection("ChemicalEntity"):
         for row in db.aql.execute(
             """
@@ -5303,18 +5395,14 @@ def _load_metabolite_identifier_mass_values(db) -> Dict[str, List[float]]:
             """,
             max_runtime=300,
         ):
-            parsed = [
-                mass
-                for mass in (_parse_metabolite_mass(value) for value in row.get("raw_masses") or [])
-                if mass is not None and mass > 0
-            ]
-            if parsed:
-                mass_values_by_id.setdefault(row["id"], []).extend(parsed)
-    return {
-        identifier: sorted(set(values))
-        for identifier, values in mass_values_by_id.items()
-        if values
-    }
+            target = profile(row["id"])
+            values = row.get("raw_masses") or []
+            add_values(target["whole"]["average"], values[:1])
+            add_values(target["whole"]["monoisotopic"], values[1:2])
+    for value in mass_values_by_id.values():
+        for channel in value["whole"]:
+            value["whole"][channel] = sorted(set(value["whole"][channel]))
+    return mass_values_by_id
 
 
 def _generic_structure_clique_summary(
@@ -5439,40 +5527,81 @@ def _build_harmonization_stage_generic_structure_validation(
 
 def _build_harmonization_stage_mw_validation(
     groups: List[List[str]],
-    mass_values_by_id: Dict[str, List[float]],
+    mass_values_by_id: Dict[str, Any],
     threshold: float = _METABOLITE_MW_SPREAD_WARNING_THRESHOLD,
     limit: int = _METABOLITE_MW_SPREAD_WARNING_LIMIT,
 ) -> dict:
     warnings = []
     for rank, members in enumerate(groups, start=1):
         display_members = _kegg_first(members)
-        member_rows = [
-            {"member_id": member_id, "raw_masses": mass_values_by_id.get(member_id) or []}
-            for member_id in display_members
-        ]
-        masses = _metabolite_member_mass_values(member_rows)
-        summary = _metabolite_mass_summary(masses)
-        spread = _metabolite_mw_spread_percent(summary)
-        if spread is None or spread <= threshold:
+        profiles_by_id = {
+            member_id: (
+                mass_values_by_id.get(member_id)
+                if isinstance(mass_values_by_id.get(member_id), dict)
+                else {
+                    "whole": {
+                        "average": [],
+                        "monoisotopic": mass_values_by_id.get(member_id) or [],
+                    },
+                    "components": [],
+                }
+            )
+            for member_id in members
+        }
+        assessment = assess_mass_profiles(
+            members,
+            profiles_by_id,
+            spread_threshold=threshold,
+        )
+        if assessment is None:
             continue
+        summary = assessment["mass_summary"]
+        spread = max(
+            result.get("spread") or 0
+            for result in assessment["channel_results"].values()
+        )
         warnings.append({
             "rank_by_size": rank,
             "representative_id": members[0] if members else None,
             "size": len(members),
             "sample_member_ids": display_members[:12],
             "mass_summary": summary,
-            "mass_label": _metabolite_mass_summary_label(summary),
+            "mass_summaries": assessment["mass_summaries"],
+            "mass_label": " · ".join(
+                _metabolite_mass_channel_labels(assessment["channel_results"])
+            ),
+            "mass_channel_labels": _metabolite_mass_channel_labels(
+                assessment["channel_results"]
+            ),
             "spread": spread,
             "spread_percent": spread * 100,
-            "member_mass_examples": _metabolite_member_mass_examples(member_rows),
+            "severity": assessment["severity"],
+            "reason": assessment["reason"],
+            "channel_results": assessment["channel_results"],
+            "component_matches": assessment["component_matches"],
+            "member_mass_examples": _metabolite_member_mass_profile_examples(
+                display_members,
+                profiles_by_id,
+            ),
             "comparison_ids": " ".join(display_members[:_METABOLITE_COMPARE_MAX_IDS]),
         })
-    warnings.sort(key=lambda item: (-(item["spread"] or 0), -(item["size"] or 0), item.get("representative_id") or ""))
+    warnings.sort(key=lambda item: (
+        0 if item["severity"] == "error" else 1,
+        -(item["spread"] or 0),
+        -(item["size"] or 0),
+        item.get("representative_id") or "",
+    ))
+    error_count = sum(item["severity"] == "error" for item in warnings)
+    review_warning_count = sum(item["severity"] == "warning" for item in warnings)
     return {
         "computed": True,
+        "version": MW_VALIDATION_VERSION,
         "threshold": threshold,
         "threshold_percent": threshold * 100,
         "warning_count": len(warnings),
+        "issue_count": len(warnings),
+        "error_count": error_count,
+        "review_warning_count": review_warning_count,
         "display_limit": limit,
         "warnings": warnings[:limit],
     }
@@ -5562,6 +5691,80 @@ def _harmonization_denylist_review_from_stage(stage: dict, rank_by_size: int) ->
     }
 
 
+def _normalize_harmonization_denylist_pair(value: str) -> tuple[str, str]:
+    identifiers = _parse_metabolite_identifier_query(value)
+    if len(identifiers) != 2:
+        raise ValueError("denylist_pair must contain exactly two prefixed metabolite identifiers.")
+    normalized = [_normalize_ramp_denylist_identifier(identifier) for identifier in identifiers]
+    if any(identifier is None for identifier in normalized) or normalized[0] == normalized[1]:
+        raise ValueError("denylist_pair must contain two distinct prefixed metabolite identifiers.")
+    return tuple(sorted(normalized))
+
+
+def _build_harmonization_denylist_pair_review(
+    pair: tuple[str, str],
+    result: dict,
+    curation_state: dict,
+) -> dict:
+    stage_states = []
+    focus = None
+    for section in result.get("snapshot_graphs") or []:
+        memberships = {}
+        for clique in section.get("cliques") or []:
+            for identifier in pair:
+                if identifier in (clique.get("member_ids") or []):
+                    memberships[identifier] = clique
+        together = len(memberships) == 2 and len({
+            clique.get("clique_key") for clique in memberships.values()
+        }) == 1
+        stage_state = {
+            "stage_key": section.get("snapshot_key"),
+            "stage_name": section.get("snapshot_name"),
+            "together": together,
+            "found_count": len(memberships),
+            "memberships": [
+                {
+                    "identifier": identifier,
+                    "clique_key": memberships.get(identifier, {}).get("clique_key"),
+                    "clique_size": memberships.get(identifier, {}).get("clique_size"),
+                    "is_singleton": memberships.get(identifier, {}).get("is_singleton_bucket", False),
+                }
+                for identifier in pair
+            ],
+        }
+        stage_states.append(stage_state)
+        if focus is None and together:
+            shared = memberships[pair[0]]
+            focus = {
+                "stage_key": section.get("snapshot_key"),
+                "clique_key": shared.get("clique_key"),
+            }
+
+    decision = (curation_state.get("pair_decisions") or {}).get(pair)
+    active_action = (curation_state.get("pair_states") or {}).get(pair)
+    if focus is None:
+        for stage_state in stage_states:
+            membership = next(
+                (item for item in stage_state["memberships"] if item.get("clique_key")),
+                None,
+            )
+            if membership:
+                focus = {
+                    "stage_key": stage_state["stage_key"],
+                    "clique_key": membership["clique_key"],
+                }
+                break
+    return {
+        "pair": {"left_id": pair[0], "right_id": pair[1]},
+        "active_action": active_action,
+        "is_active_removal": active_action == "remove_edge",
+        "retain_allowed": active_action == "remove_edge",
+        "decision": decision,
+        "stage_states": stage_states,
+        "focus": focus,
+    }
+
+
 def _metabolite_query_id_labels(query_ids: List[str], max_ids: int = 4) -> List[str]:
     if not query_ids:
         return []
@@ -5623,6 +5826,43 @@ def _default_metabolite_snapshot_key_filter() -> List[str]:
         return []
     latest_stage_key = stages[-1].get("_key")
     return [latest_stage_key] if latest_stage_key else []
+
+
+def _default_metabolite_denylist_pair_stage_filter() -> List[str]:
+    """Show a current graph baseline and final stage for pair-level evidence."""
+    stages = _list_harmonization_stages()
+    if not stages:
+        return []
+    latest = next((
+        stage
+        for stage in reversed(stages)
+        if {"apply_curations", "ignore_ramp_mapping_denylist"}
+        & set(stage.get("rule_ids") or [])
+    ), stages[-1])
+
+    def graph_fingerprint(stage: dict) -> tuple:
+        summary = stage.get("summary") or {}
+        return (
+            stage.get("engine_version"),
+            summary.get("database"),
+            summary.get("metabolite_identifier_count"),
+            summary.get("equivalence_edge_count"),
+        )
+
+    latest_graph_fingerprint = graph_fingerprint(latest)
+    matching_baselines = [
+        stage
+        for stage in stages
+        if int(stage.get("stage_index") or 0) == 0
+        and not (stage.get("rule_ids") or [])
+        and graph_fingerprint(stage) == latest_graph_fingerprint
+    ]
+    selected = [
+        stage.get("_key")
+        for stage in [matching_baselines[-1] if matching_baselines else None, latest]
+        if stage and stage.get("_key")
+    ]
+    return list(dict.fromkeys(selected))
 
 
 def _metabolite_display_member_ids_by_clique(
@@ -5831,7 +6071,12 @@ def _load_metabolite_snapshot_union(
           ))
           LET raw_masses = UNIQUE(FLATTEN(
             APPEND(
-              (FOR prop IN node.chem_props || [] RETURN [prop.mw, prop.monoisotopic_mass]),
+              (FOR prop IN node.chem_props || [] RETURN [
+                prop.mw,
+                prop.monoisotopic_mass,
+                prop.calculated_mw,
+                prop.calculated_monoisotopic_mass
+              ]),
               chemical_entity == null ? [] : [[chemical_entity.mass, chemical_entity.monoisotopic_mass]]
             )
           ))
@@ -5844,6 +6089,13 @@ def _load_metabolite_snapshot_union(
                 formula: prop.molecular_formula,
                 mw: prop.mw,
                 monoisotopic_mass: prop.monoisotopic_mass,
+                calculated_mw: prop.calculated_mw,
+                calculated_monoisotopic_mass: prop.calculated_monoisotopic_mass,
+                structure_components: prop.structure_components || [],
+                structure_calculation_input_field: prop.structure_calculation_input_field,
+                structure_calculation_method: prop.structure_calculation_method,
+                structure_calculation_method_version: prop.structure_calculation_method_version,
+                structure_calculation_error: prop.structure_calculation_error,
                 inchi_key_prefix: prop.inchi_key_prefix,
                 inchi_key: prop.inchi_key,
                 derived_inchi_key_prefix: prop.derived_inchi_key_prefix,
@@ -5918,7 +6170,12 @@ def _load_metabolite_snapshot_union(
             id: node.id,
             raw_masses: UNIQUE(FLATTEN(
               APPEND(
-                (FOR prop IN node.chem_props || [] RETURN [prop.mw, prop.monoisotopic_mass]),
+                (FOR prop IN node.chem_props || [] RETURN [
+                  prop.mw,
+                  prop.monoisotopic_mass,
+                  prop.calculated_mw,
+                  prop.calculated_monoisotopic_mass
+                ]),
                 chemical_entity == null ? [] : [[chemical_entity.mass, chemical_entity.monoisotopic_mass]]
               )
             ))
@@ -6141,6 +6398,16 @@ def _load_metabolite_snapshot_union(
             for member_id in displayed_member_ids:
                 node = node_by_member_id.get(member_id, {"id": member_id, "label": member_id, "node_label": member_id, "prefix": "unknown"})
                 classes = f"metabolite-id-node prefix-{str(node.get('prefix') or 'unknown').lower().replace('.', '-')}"
+                effective_generic = (node.get("generic_structure") or {}).get("effective")
+                if effective_generic is True:
+                    classes += " generic-structure-generic"
+                    node["generic_structure_state"] = "generic"
+                elif effective_generic is False:
+                    classes += " generic-structure-specific"
+                    node["generic_structure_state"] = "specific / non-generic"
+                else:
+                    classes += " generic-structure-unknown"
+                    node["generic_structure_state"] = "unknown"
                 if member_id in highlighted_id_set:
                     classes += " selected-query"
                 elements.append({
@@ -7541,16 +7808,33 @@ def ramp_id_qa(
     ids: str = "",
     stages: str = "",
     denylist_rank: int = 0,
+    denylist_pair: str = "",
 ):
     query_id = (id or ids or "").strip()
+    pair = None
+    pair_error = None
+    if denylist_pair.strip():
+        try:
+            pair = _normalize_harmonization_denylist_pair(denylist_pair)
+            query_ids = _parse_metabolite_identifier_query(query_id)
+            query_id = " ".join(dict.fromkeys([*query_ids, *pair]))
+        except ValueError as exc:
+            pair_error = str(exc)
     selected_stage_keys = _parse_metabolite_snapshot_key_filter(stages)
     if query_id and not selected_stage_keys:
-        selected_stage_keys = _default_metabolite_snapshot_key_filter()
+        selected_stage_keys = (
+            _default_metabolite_denylist_pair_stage_filter()
+            if pair
+            else _default_metabolite_snapshot_key_filter()
+        )
     result = None
     error = None
     overview = None
     denylist_review = None
-    if query_id:
+    denylist_pair_review = None
+    if pair_error:
+        error = pair_error
+    elif query_id:
         try:
             result = _load_metabolite_identifier_qa_many(
                 query_id,
@@ -7560,6 +7844,12 @@ def ramp_id_qa(
             if denylist_rank and len(selected_stage_keys) == 1:
                 stage = _get_harmonization_stage(selected_stage_keys[0])
                 denylist_review = _harmonization_denylist_review_from_stage(stage, denylist_rank)
+            if pair:
+                denylist_pair_review = _build_harmonization_denylist_pair_review(
+                    pair,
+                    result,
+                    _load_metabolite_edge_removal_curations(),
+                )
         except Exception as exc:
             error = str(exc)
     else:
@@ -7571,6 +7861,8 @@ def ramp_id_qa(
         "selected_stage_keys": selected_stage_keys,
         "result": result,
         "denylist_review": denylist_review,
+        "denylist_pair_review": denylist_pair_review,
+        "denylist_pair": denylist_pair,
         "error": error,
         "overview": overview,
     })
@@ -7801,6 +8093,14 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             str(payload.get("end_id") or ""),
             str(payload.get("note") or ""),
         )
+        if operation["action"] == "retain_edge":
+            pair = tuple(sorted((operation["start_id"], operation["end_id"])))
+            published_state = await run_in_threadpool(_load_metabolite_edge_removal_curations)
+            if (published_state.get("pair_states") or {}).get(pair) != "remove_edge":
+                raise HTTPException(
+                    status_code=409,
+                    detail="This pair is no longer an active published removal. Reload the review before retaining it.",
+                )
     try:
         await run_in_threadpool(
             add_cart_operation,

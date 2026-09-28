@@ -21,6 +21,28 @@ class MetaboliteName:
 
 
 @dataclass(frozen=True)
+class MetaboliteStructureComponent:
+    smiles: str
+    molecular_formula: Optional[str] = None
+    mw: Optional[str] = None
+    monoisotopic_mass: Optional[str] = None
+    formal_charge: Optional[int] = None
+    inchi_key_prefix: Optional[str] = None
+    inchi_key: Optional[str] = None
+
+    def to_dict(self):
+        return {
+            "smiles": self.smiles,
+            "molecular_formula": self.molecular_formula,
+            "mw": self.mw,
+            "monoisotopic_mass": self.monoisotopic_mass,
+            "formal_charge": self.formal_charge,
+            "inchi_key_prefix": self.inchi_key_prefix,
+            "inchi_key": self.inchi_key,
+        }
+
+
+@dataclass(frozen=True)
 class MetaboliteChemProps:
     source: str
     source_id: str
@@ -41,6 +63,13 @@ class MetaboliteChemProps:
     common_name: Optional[str] = None
     iupac_name: Optional[str] = None
     molecular_formula: Optional[str] = None
+    calculated_mw: Optional[str] = None
+    calculated_monoisotopic_mass: Optional[str] = None
+    structure_components: List[MetaboliteStructureComponent] = field(default_factory=list)
+    structure_calculation_input_field: Optional[str] = None
+    structure_calculation_method: Optional[str] = None
+    structure_calculation_method_version: Optional[str] = None
+    structure_calculation_error: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -63,6 +92,13 @@ class MetaboliteChemProps:
             "common_name": self.common_name,
             "iupac_name": self.iupac_name,
             "molecular_formula": self.molecular_formula,
+            "calculated_mw": self.calculated_mw,
+            "calculated_monoisotopic_mass": self.calculated_monoisotopic_mass,
+            "structure_components": [component.to_dict() for component in self.structure_components],
+            "structure_calculation_input_field": self.structure_calculation_input_field,
+            "structure_calculation_method": self.structure_calculation_method,
+            "structure_calculation_method_version": self.structure_calculation_method_version,
+            "structure_calculation_error": self.structure_calculation_error,
         }
 
 
