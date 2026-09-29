@@ -132,19 +132,23 @@ changing a property decision can require a clean rebuild to restore the newly
 derived baseline safely.
 
 Metabolite harmonization uses the same snapshots through an orderable
-**Apply curations** rule. It is recommended as the first rule for RaMP pipeline
+**Apply curations** rule. The rule includes general `record_properties`
+corrections as well as the metabolite-specific edge, annotation, and record
+suppression streams. It is recommended as the first rule for RaMP pipeline
 comparisons so later rules share one curated starting state, but the framework
 does not require it to be first. Rule order is literal: curated field values
-affect a generic-structure rule only when **Apply curations** precedes that
-rule. Workbench stages are immutable simulations and do not mutate the source
-evidence graph.
+affect generic-structure pruning, InChIKey merging, and molecular-weight
+validation only after **Apply curations**. Workbench stages are immutable
+simulations and do not mutate the source evidence graph.
 
-During pre-release workbench validation, `ramp.yaml` intentionally persists the
-post-adapter's derived baseline but does not also apply the curation manifests
-physically. Doing both would delete curated edges and replace annotation fields
-before the orderable **Apply curations** stage could show its before/after
-effect. Once that experiment is retired, enabling graph-build curations is a
-separate cutover decision, not an additive duplicate of the stage rule.
+`ramp.yaml` intentionally persists the post-adapter's derived baseline but does
+not apply curation manifests physically. The metabolite harmonization database
+is an evidence graph: source assertions and calculated baselines remain intact,
+while the selected immutable curation snapshots form a stage-local effective
+record view. Doing both would replace evidence fields before the orderable
+**Apply curations** stage could show its before/after effect. A future curated
+RaMP export must consume the final stage's effective record view rather than
+requiring mutation of the evidence graph.
 
 The effective curated value is stored in the ordinary field. Its loaded value
 is retained in the sibling `_curation_original` object at the same nesting

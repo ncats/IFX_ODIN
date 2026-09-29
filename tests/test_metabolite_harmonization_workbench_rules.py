@@ -1,8 +1,10 @@
 import asyncio
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 from fastapi import HTTPException
 
 import src.qa_browser.app as qa_app
@@ -10,6 +12,7 @@ from src.core.curations import (
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
     METABOLITE_RECORD_SUPPRESSIONS,
+    RECORD_PROPERTIES,
     batch_key,
     manifest_key,
     payload_sha256,
@@ -99,6 +102,19 @@ def test_harmonization_rules_have_expected_workbench_groups():
     assert groups_by_rule["merge_free_anomeric_forms"] == "Chemistry-based merging"
     assert groups_by_rule["apply_curations"] == "Curation"
     assert groups_by_rule["force_expected_clique_assertions"] == "Cleanup"
+    apply_rule = next(
+        rule for rule in qa_app._METABOLITE_HARMONIZATION_RULES
+        if rule["id"] == "apply_curations"
+    )
+    assert RECORD_PROPERTIES in apply_rule["parameters"][0]["default"]
+
+
+def test_ramp_evidence_graph_does_not_materialize_curations_during_etl():
+    config = yaml.safe_load(
+        Path("src/use_cases/ramp/ramp.yaml").read_text(encoding="utf-8")
+    )
+
+    assert "curations" not in config
 
 
 def test_metabolite_identifier_summaries_batch_ids_without_legacy_edge_queries(monkeypatch):
@@ -268,6 +284,43 @@ def test_effective_inchikey_fallback_is_evaluated_per_chemistry_record():
     assert used_fallback is True
 
 
+def test_inchikey_iterator_uses_stage_record_overlay():
+    class FakeAql:
+        def execute(self, _query, bind_vars=None, **_kwargs):
+            assert bind_vars == {"overlay_ids": ["REFMET:RM1"]}
+            return [{
+                "id": "REFMET:RM1",
+                "chem_props": [{
+                    "inchi_key": "AAAAAAAAAAAAAA-BBBBBBBBBB-N",
+                }],
+                "masses": ["100"],
+            }]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    rows = list(qa_app._iter_metabolite_identifier_inchi_key_matches(
+        FakeDb(),
+        "duplex",
+        record_overlays={
+            "REFMET:RM1": {
+                "chem_props": [{
+                    "inchi_key": "CCCCCCCCCCCCCC-DDDDDDDDDD-N",
+                    "mw": "200",
+                }],
+            },
+        },
+    ))
+
+    assert rows == [(
+        "REFMET:RM1",
+        ["CCCCCCCCCCCCCC-DDDDDDDDDD"],
+        "duplex",
+        200.0,
+        False,
+    )]
+
+
 def test_three_selectable_inchikey_rules_share_effective_key_policy(monkeypatch):
     calls = []
 
@@ -294,6 +347,100 @@ def test_three_selectable_inchikey_rules_share_effective_key_policy(monkeypatch)
         ("duplex", None, "effective"),
         ("mw_cutoff", 600, "effective"),
     ]
+
+
+def test_record_property_overlay_only_affects_merge_rules_after_apply_curations(monkeypatch):
+    calls = []
+
+    def fake_matches(_db, mode, mw_cutoff=None, key_kind="effective", record_overlays=None):
+        calls.append((mode, record_overlays))
+        return iter(())
+
+    monkeypatch.setattr(
+        qa_app, "_iter_metabolite_identifier_inchi_key_matches", fake_matches
+    )
+    overlays = {"CHEBI:1": {"id": "CHEBI:1", "chem_props": []}}
+
+    qa_app._build_harmonized_groups(
+        object(),
+        {"CHEBI:1"},
+        [],
+        ["merge_shared_inchikey_duplex", "apply_curations"],
+        {},
+        overlays,
+    )
+    qa_app._build_harmonized_groups(
+        object(),
+        {"CHEBI:1"},
+        [],
+        ["apply_curations", "merge_shared_inchikey_duplex"],
+        {},
+        overlays,
+    )
+
+    assert calls == [("duplex", None), ("duplex", overlays)]
+
+
+def test_mw_validation_loader_uses_stage_record_overlay():
+    class FakeAql:
+        def execute(self, query, **_kwargs):
+            assert "FOR d IN MetaboliteIdentifier" in query
+            return [{
+                "id": "REFMET:RM1",
+                "chemistry": [{
+                    "source": "RefMet",
+                    "source_id": "RM1",
+                    "average": ["999", "150.13"],
+                    "monoisotopic": ["999", "150.0528"],
+                    "components": [],
+                }],
+            }]
+
+    class FakeDb:
+        aql = FakeAql()
+
+        @staticmethod
+        def has_collection(name):
+            return name == "MetaboliteIdentifier"
+
+    overlays = {
+        "REFMET:RM1": {
+            "id": "REFMET:RM1",
+            "chem_props": [{
+                "source": "RefMet",
+                "source_id": "RM1",
+                "mw": "150.13",
+                "calculated_mw": "150.13",
+                "monoisotopic_mass": "150.0528",
+                "calculated_monoisotopic_mass": "150.0528",
+                "structure_components": [],
+            }],
+        },
+    }
+
+    masses = _load_metabolite_identifier_mass_values(FakeDb(), overlays)
+
+    assert masses["REFMET:RM1"]["whole"] == {
+        "average": [150.13],
+        "monoisotopic": [150.0528],
+    }
+
+
+def test_overlay_mass_profiles_are_loaded_once_per_pipeline_run(monkeypatch):
+    calls = []
+    expected = {"REFMET:RM1": {"whole": {"average": [150.13]}}}
+
+    def load(_db, overlays):
+        calls.append(overlays)
+        return expected
+
+    monkeypatch.setattr(qa_app, "_load_metabolite_identifier_mass_values", load)
+    provider = qa_app._cached_record_overlay_mass_values_provider(object())
+    overlays = {"REFMET:RM1": {"id": "REFMET:RM1"}}
+
+    assert provider(overlays) is expected
+    assert provider(overlays) is expected
+    assert calls == [overlays]
 
 
 def test_retired_derived_cutoff_rule_remains_executable_for_historical_pipelines(monkeypatch):
@@ -427,6 +574,88 @@ def test_load_metabolite_curations_reads_json_batches_and_fingerprints_content()
     assert loaded["prefix"] == "s3://test-curations/curations/v2/"
 
 
+def test_record_property_curations_project_stage_values_without_writing_graph(monkeypatch):
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "KEGG.COMPOUND:C00626",
+        },
+        "decisions": [{
+            "path": ["is_generic_structure"],
+            "mode": "set",
+            "value": True,
+            "observed_value": False,
+            "observed_exists": True,
+        }],
+        "note": "KEGG represents a generic structure.",
+    }
+    batch = {
+        "format_version": 2,
+        "curation_batch_id": "generic-kegg",
+        "curation_type": RECORD_PROPERTIES,
+        "published_at": "2026-09-29T12:00:00Z",
+        "operations": [operation],
+    }
+    state = qa_app._load_metabolite_curations(_FakeCurationStorage(
+        _typed_curation_objects(RECORD_PROPERTIES, [batch])
+    ))
+    other_operation = {
+        **operation,
+        "target": {
+            **operation["target"],
+            "curation_set": "pharos",
+            "id": "UniProtKB:P12345",
+        },
+    }
+    other_batch = {
+        **batch,
+        "curation_batch_id": "unrelated-pharos-correction",
+        "operations": [other_operation],
+    }
+    state_with_unrelated = qa_app._load_metabolite_curations(
+        _FakeCurationStorage(
+            _typed_curation_objects(RECORD_PROPERTIES, [batch, other_batch])
+        )
+    )
+    evidence = {
+        "id": "KEGG.COMPOUND:C00626",
+        "is_generic_structure": False,
+        "sources": ["KEGG"],
+    }
+
+    class FakeAql:
+        def execute(self, _query, bind_vars=None, **_kwargs):
+            assert bind_vars == {"target_ids": ["KEGG.COMPOUND:C00626"]}
+            return [evidence]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    monkeypatch.setattr(
+        qa_app,
+        "_get_collection_schema_entry",
+        lambda _db, _name: {"fields": {"is_generic_structure": "bool"}},
+    )
+
+    overlays, reports = qa_app._load_metabolite_identifier_record_overlays(
+        FakeDb(), state["record_property_snapshot"]
+    )
+
+    assert evidence["is_generic_structure"] is False
+    assert "_curation_original" not in evidence
+    assert overlays["KEGG.COMPOUND:C00626"]["is_generic_structure"] is True
+    assert reports[0]["status"] == "applied"
+    assert state["snapshots"][RECORD_PROPERTIES]["manifest_revision"] == 1
+    assert (
+        state_with_unrelated["record_property_fingerprint"]
+        == state["record_property_fingerprint"]
+    )
+    assert state_with_unrelated["record_property_batch_ids"] == ["generic-kegg"]
+
+
 def test_assertion_only_batch_does_not_change_edge_curation_fingerprint():
     assertion = _metabolite_expected_clique_assertion_operation(
         ["CHEBI:15903", "CHEBI:17925"],
@@ -498,6 +727,7 @@ def test_pipeline_curation_fingerprint_only_uses_selected_streams():
         "edge_fingerprint": "edges-v1",
         "annotation_fingerprint": "annotations-v2",
         "suppression_fingerprint": "suppressions-v3",
+        "record_property_fingerprint": "properties-v4",
     }
     edge_only = {
         "rule_ids": ["apply_curations"],
@@ -514,10 +744,19 @@ def test_pipeline_curation_fingerprint_only_uses_selected_streams():
             ],
         }},
     }
+    property_only = {
+        "rule_ids": ["apply_curations"],
+        "rule_parameters": {"apply_curations": {
+            "curation_types": [RECORD_PROPERTIES],
+        }},
+    }
 
     edge_fingerprint = qa_app._pipeline_curation_fingerprint(edge_only, curation_state)
     combined_fingerprint = qa_app._pipeline_curation_fingerprint(
         edge_and_suppression, curation_state
+    )
+    property_fingerprint = qa_app._pipeline_curation_fingerprint(
+        property_only, curation_state
     )
 
     assert edge_fingerprint == payload_sha256({
@@ -528,6 +767,9 @@ def test_pipeline_curation_fingerprint_only_uses_selected_streams():
         METABOLITE_RECORD_SUPPRESSIONS: "suppressions-v3",
     })
     assert edge_fingerprint != combined_fingerprint
+    assert property_fingerprint == payload_sha256({
+        RECORD_PROPERTIES: "properties-v4",
+    })
 
 
 def test_record_suppression_removes_identifier_before_stage_rules(monkeypatch):

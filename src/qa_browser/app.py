@@ -46,6 +46,7 @@ from src.core.curations import (
 from src.core.record_property_curations import (
     CURATION_ORIGINAL_FIELD,
     MISSING_ORIGINAL_MARKER,
+    apply_record_property_decision,
     canonical_path as _canonical_record_property_path,
     display_path as _display_record_property_path,
     is_protected_curation_field,
@@ -349,8 +350,9 @@ _METABOLITE_HARMONIZATION_RULES = [
                     METABOLITE_EQUIVALENCE_EDGES,
                     METABOLITE_ANNOTATIONS,
                     METABOLITE_RECORD_SUPPRESSIONS,
+                    RECORD_PROPERTIES,
                 ]),
-                "placeholder": "metabolite_equivalence_edges\nmetabolite_annotations\nmetabolite_record_suppressions",
+                "placeholder": "metabolite_equivalence_edges\nmetabolite_annotations\nmetabolite_record_suppressions\nrecord_properties",
             },
         ],
     },
@@ -886,12 +888,55 @@ def _metabolite_curation_publication_time(batch: dict, key: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] = None) -> dict:
+def _metabolite_record_property_snapshot_state(snapshot) -> dict:
+    decisions = sorted([
+        decision
+        for decision in snapshot.record_property_decisions_for_set(
+            "metabolite_harmonization"
+        )
+        if decision.target.get("model_type") == "MetaboliteIdentifier"
+    ], key=lambda decision: (
+        decision.target.get("id") or "",
+        _canonical_record_property_path(decision.path),
+    ))
+    fingerprint = payload_sha256([
+        {
+            "target": decision.target,
+            "path": decision.path,
+            "mode": decision.mode,
+            "value": decision.value,
+            "observed_value": decision.observed_value,
+            "observed_exists": decision.observed_exists,
+            "batch_id": decision.batch_id,
+        }
+        for decision in decisions
+    ])
+    selected_batch_ids = {decision.batch_id for decision in decisions}
+    metadata = {
+        **snapshot.metadata(),
+        "selected_curation_set": "metabolite_harmonization",
+        "selected_model_type": "MetaboliteIdentifier",
+        "selected_batch_ids": [
+            batch_id for batch_id in snapshot.batch_ids
+            if batch_id in selected_batch_ids
+        ],
+        "selected_active_decision_count": len(decisions),
+        "selected_resolved_operation_fingerprint": fingerprint,
+    }
+    return {
+        "decisions": decisions,
+        "batch_ids": metadata["selected_batch_ids"],
+        "fingerprint": fingerprint,
+        "metadata": metadata,
+    }
+
+
+def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> dict:
     """Resolve the typed metabolite curation streams.
 
-    The historical function name is retained for internal callers while the
-    returned state now includes annotation overrides and typed snapshot metadata.
-    ``prefix`` is rejected so runtime code cannot accidentally dual-read v1.
+    The returned state includes graph-specific decisions, general record-property
+    overlays, and the immutable metadata for every snapshot. ``prefix`` is
+    rejected so runtime code cannot accidentally dual-read v1.
     """
     if prefix is not None:
         raise ValueError("Custom graph-scoped curation prefixes are no longer supported; use v2 manifests")
@@ -904,6 +949,12 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
     assertion_snapshot = resolve_curation_type(storage, METABOLITE_EXPECTED_CLIQUES, allow_missing=True)
     suppression_snapshot = resolve_curation_type(
         storage, METABOLITE_RECORD_SUPPRESSIONS, allow_missing=True
+    )
+    record_property_snapshot = resolve_curation_type(
+        storage, RECORD_PROPERTIES, allow_missing=True
+    )
+    record_property_state = _metabolite_record_property_snapshot_state(
+        record_property_snapshot
     )
 
     pair_states = {}
@@ -984,6 +1035,7 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
         METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.fingerprint,
         METABOLITE_ANNOTATIONS: annotation_snapshot.fingerprint,
         METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.fingerprint,
+        RECORD_PROPERTIES: record_property_state["fingerprint"],
     })
 
     return {
@@ -1006,11 +1058,15 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
         "record_decisions": record_decisions,
         "suppression_batch_ids": suppression_snapshot.batch_ids,
         "suppression_fingerprint": suppression_snapshot.fingerprint,
+        "record_property_snapshot": record_property_snapshot,
+        "record_property_batch_ids": record_property_state["batch_ids"],
+        "record_property_fingerprint": record_property_state["fingerprint"],
         "snapshots": {
             METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.metadata(),
             METABOLITE_ANNOTATIONS: annotation_snapshot.metadata(),
             METABOLITE_EXPECTED_CLIQUES: assertion_snapshot.metadata(),
             METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.metadata(),
+            RECORD_PROPERTIES: record_property_state["metadata"],
         },
         "annotation_state_available": True,
         "annotation_state_error": None,
@@ -1018,6 +1074,11 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
         "suppression_state_error": None,
         "prefix": f"s3://{storage.bucket}/curations/v2/",
     }
+
+
+def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] = None) -> dict:
+    """Compatibility wrapper for callers using the historical private name."""
+    return _load_metabolite_curations(storage=storage, prefix=prefix)
 
 
 def _curation_cart_storage():
@@ -1440,6 +1501,57 @@ def _load_generic_structure_classifications(db) -> dict[str, Optional[bool]]:
     }
 
 
+def _load_metabolite_identifier_record_overlays(db, snapshot) -> tuple[dict[str, dict], list[dict]]:
+    """Project published field corrections without mutating the evidence graph."""
+    decisions = [
+        decision
+        for decision in snapshot.record_property_decisions_for_set(
+            "metabolite_harmonization"
+        )
+        if decision.target.get("model_type") == "MetaboliteIdentifier"
+    ]
+    target_ids = sorted({decision.target.get("id") for decision in decisions})
+    if not target_ids:
+        return {}, []
+    documents = {
+        document["id"]: document
+        for document in db.aql.execute(
+            """
+            FOR d IN MetaboliteIdentifier
+              FILTER d.id IN @target_ids
+              RETURN d
+            """,
+            bind_vars={"target_ids": target_ids},
+            max_runtime=60,
+        )
+    }
+    missing = sorted(set(target_ids) - set(documents))
+    if missing:
+        raise ValueError(
+            "Record-property curation targets are missing from the evidence graph: "
+            + ", ".join(missing[:10])
+        )
+    schema_fields = (_get_collection_schema_entry(
+        db, "MetaboliteIdentifier"
+    ).get("fields") or {})
+    if not schema_fields:
+        raise ValueError(
+            "MetaboliteIdentifier does not publish a schema for record-property curations"
+        )
+    overlays = dict(documents)
+    reports = []
+    for decision in decisions:
+        descriptor = schema_for_path(schema_fields, decision.path)
+        if decision.mode == "set":
+            validate_value_for_schema(decision.value, descriptor, decision.path)
+        target_id = decision.target["id"]
+        overlays[target_id], report = apply_record_property_decision(
+            overlays[target_id], decision
+        )
+        reports.append(report)
+    return overlays, reports
+
+
 def _effective_inchi_key_matches(
     chem_props: Iterable[dict],
     mode: str,
@@ -1496,6 +1608,7 @@ def _iter_metabolite_identifier_inchi_key_matches(
     mode: str,
     mw_cutoff: Optional[float] = None,
     key_kind: str = "effective",
+    record_overlays: Optional[dict[str, dict]] = None,
 ):
     if key_kind not in {"effective", "reported", "derived"}:
         raise ValueError(f"Unsupported InChIKey kind: {key_kind}")
@@ -1522,13 +1635,36 @@ def _iter_metabolite_identifier_inchi_key_matches(
                 RETURN [prop.mw, prop.monoisotopic_mass]
             )
           )
-          FILTER LENGTH(chem_props) > 0
+          FILTER LENGTH(chem_props) > 0 OR d.id IN @overlay_ids
           RETURN {id: d.id, chem_props: chem_props, masses: masses}
         """,
+        bind_vars={"overlay_ids": sorted((record_overlays or {}).keys())},
         batch_size=_HARMONIZATION_AQL_BATCH_SIZE,
         max_runtime=600,
     )
     for row in cursor:
+        overlay = (record_overlays or {}).get(row["id"])
+        if overlay is not None:
+            overlay_chem_props = overlay.get("chem_props") or []
+            key_fields = (
+                "inchi_key",
+                "inchi_key_prefix",
+                "derived_inchi_key",
+                "derived_inchi_key_prefix",
+            )
+            row = {
+                **row,
+                "chem_props": [
+                    {key: prop.get(key) for key in key_fields}
+                    for prop in overlay_chem_props
+                    if any(prop.get(key) is not None for key in key_fields)
+                ],
+                "masses": [
+                    value
+                    for prop in overlay_chem_props
+                    for value in (prop.get("mw"), prop.get("monoisotopic_mass"))
+                ],
+            }
         numeric_masses = [
             parsed
             for parsed in (_parse_optional_float(value) for value in row.get("masses", []))
@@ -2291,6 +2427,7 @@ def _build_harmonized_groups(
     active_edges: List[dict],
     rule_ids: List[str],
     rule_parameters: dict,
+    record_overlays: Optional[dict[str, dict]] = None,
 ) -> tuple[List[List[str]], dict]:
     parent: Dict[str, str] = {}
     size: Dict[str, int] = {}
@@ -2348,6 +2485,7 @@ def _build_harmonized_groups(
         mode: str,
         mw_cutoff: Optional[float] = None,
         key_kind: str = "effective",
+        use_record_overlays: bool = False,
     ) -> dict:
         first_identifier_by_match: Dict[str, str] = {}
         identifier_count = 0
@@ -2355,12 +2493,16 @@ def _build_harmonized_groups(
         prefix_identifier_count = 0
         duplex_identifier_count = 0
         derived_fallback_identifier_count = 0
-        for identifier, matches, effective_mode, _mass, used_derived_fallback in _iter_metabolite_identifier_inchi_key_matches(
-            db,
-            mode,
-            mw_cutoff,
-            key_kind,
-        ):
+        match_rows = (
+            _iter_metabolite_identifier_inchi_key_matches(
+                db, mode, mw_cutoff, key_kind, record_overlays
+            )
+            if use_record_overlays
+            else _iter_metabolite_identifier_inchi_key_matches(
+                db, mode, mw_cutoff, key_kind
+            )
+        )
+        for identifier, matches, effective_mode, _mass, used_derived_fallback in match_rows:
             if identifier not in active_ids:
                 continue
             identifier_count += 1
@@ -2386,8 +2528,18 @@ def _build_harmonized_groups(
             "derived_fallback_identifier_count": derived_fallback_identifier_count,
         }
 
+    def curations_precede(rule_id: str) -> bool:
+        return (
+            "apply_curations" in rule_ids
+            and rule_id in rule_ids
+            and rule_ids.index("apply_curations") < rule_ids.index(rule_id)
+        )
+
     if "merge_shared_inchikey_prefix" in rule_ids:
-        stats = merge_by_inchi_key_matches("prefix")
+        stats = merge_by_inchi_key_matches(
+            "prefix",
+            use_record_overlays=curations_precede("merge_shared_inchikey_prefix"),
+        )
         merge_summary["inchi_key_prefix_count"] = stats["match_count"]
         merge_summary["inchi_key_prefix_identifier_count"] = stats["identifier_count"]
         merge_summary["inchi_key_prefix_merge_count"] = stats["merge_count"]
@@ -2395,7 +2547,10 @@ def _build_harmonized_groups(
             "derived_fallback_identifier_count"
         ]
     if "merge_shared_inchikey_duplex" in rule_ids:
-        stats = merge_by_inchi_key_matches("duplex")
+        stats = merge_by_inchi_key_matches(
+            "duplex",
+            use_record_overlays=curations_precede("merge_shared_inchikey_duplex"),
+        )
         merge_summary["inchi_key_duplex_count"] = stats["match_count"]
         merge_summary["inchi_key_duplex_identifier_count"] = stats["identifier_count"]
         merge_summary["inchi_key_duplex_merge_count"] = stats["merge_count"]
@@ -2404,7 +2559,11 @@ def _build_harmonized_groups(
         ]
     if "merge_inchikey_by_mw_cutoff" in rule_ids:
         mw_cutoff = rule_parameters.get("merge_inchikey_by_mw_cutoff", {}).get("mw_cutoff", 500)
-        stats = merge_by_inchi_key_matches("mw_cutoff", mw_cutoff)
+        stats = merge_by_inchi_key_matches(
+            "mw_cutoff",
+            mw_cutoff,
+            use_record_overlays=curations_precede("merge_inchikey_by_mw_cutoff"),
+        )
         merge_summary["inchi_key_mw_cutoff_identifier_count"] = stats["identifier_count"]
         merge_summary["inchi_key_mw_cutoff_merge_count"] = stats["merge_count"]
         merge_summary["inchi_key_mw_cutoff_prefix_identifier_count"] = stats["prefix_identifier_count"]
@@ -2414,7 +2573,14 @@ def _build_harmonized_groups(
         ]
     if "merge_derived_inchikey_by_mw_cutoff" in rule_ids:
         mw_cutoff = rule_parameters.get("merge_derived_inchikey_by_mw_cutoff", {}).get("mw_cutoff", 500)
-        stats = merge_by_inchi_key_matches("mw_cutoff", mw_cutoff, "derived")
+        stats = merge_by_inchi_key_matches(
+            "mw_cutoff",
+            mw_cutoff,
+            "derived",
+            use_record_overlays=curations_precede(
+                "merge_derived_inchikey_by_mw_cutoff"
+            ),
+        )
         merge_summary["derived_inchi_key_mw_cutoff_identifier_count"] = stats["identifier_count"]
         merge_summary["derived_inchi_key_mw_cutoff_merge_count"] = stats["merge_count"]
         merge_summary["derived_inchi_key_mw_cutoff_prefix_identifier_count"] = stats["prefix_identifier_count"]
@@ -2702,6 +2868,7 @@ def _ensure_harmonization_stage(
     mass_values_provider=None,
     generic_structure_classifications_provider=None,
     curation_state=None,
+    record_overlay_mass_values_provider=None,
 ) -> dict:
     apply_curations_enabled = "apply_curations" in rule_ids
     selected_curation_types = set(
@@ -2711,6 +2878,7 @@ def _ensure_harmonization_stage(
         METABOLITE_EQUIVALENCE_EDGES,
         METABOLITE_ANNOTATIONS,
         METABOLITE_RECORD_SUPPRESSIONS,
+        RECORD_PROPERTIES,
     }
     if unsupported_curation_types:
         raise ValueError(
@@ -2719,6 +2887,7 @@ def _ensure_harmonization_stage(
     apply_edge_curations = METABOLITE_EQUIVALENCE_EDGES in selected_curation_types
     apply_annotation_curations = METABOLITE_ANNOTATIONS in selected_curation_types
     apply_record_suppressions = METABOLITE_RECORD_SUPPRESSIONS in selected_curation_types
+    apply_record_properties = RECORD_PROPERTIES in selected_curation_types
     annotations_apply_to_generic_rule = (
         apply_annotation_curations
         and _curation_annotations_apply_to_generic_rule(rule_ids)
@@ -2743,6 +2912,10 @@ def _ensure_harmonization_stage(
             "record_decisions": {},
             "suppression_batch_ids": [],
             "suppression_fingerprint": None,
+            "record_property_snapshot": None,
+            "record_property_batch_ids": [],
+            "record_property_fingerprint": None,
+            "snapshots": {},
             "prefix": None,
         }
     stage_fingerprint = dict(graph_fingerprint)
@@ -2758,7 +2931,11 @@ def _ensure_harmonization_stage(
                 else (
                     curation_state.get("annotation_fingerprint")
                     if curation_type == METABOLITE_ANNOTATIONS
-                    else curation_state.get("suppression_fingerprint")
+                    else (
+                        curation_state.get("suppression_fingerprint")
+                        if curation_type == METABOLITE_RECORD_SUPPRESSIONS
+                        else curation_state.get("record_property_fingerprint")
+                    )
                 )
             )
             for curation_type in sorted(selected_curation_types)
@@ -2780,6 +2957,34 @@ def _ensure_harmonization_stage(
     existing = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
     if existing and existing.get("status") == "complete":
         return existing
+
+    record_overlays = {}
+    record_property_reports = []
+    if apply_record_properties:
+        record_overlays, record_property_reports = (
+            _load_metabolite_identifier_record_overlays(
+                db, curation_state["record_property_snapshot"]
+            )
+        )
+    record_generic_override_ids = {
+        report["target"]["id"]
+        for report in record_property_reports
+        if report.get("path") == ["is_generic_structure"]
+        and report.get("action") == "set"
+    }
+    record_generic_overrides = {
+        identifier: record_overlays[identifier].get("is_generic_structure")
+        for identifier in record_generic_override_ids
+    }
+    conflicting_generic_ids = sorted(
+        set(record_generic_overrides)
+        & set(curation_state.get("annotation_overrides") or {})
+    ) if apply_annotation_curations and apply_record_properties else []
+    if conflicting_generic_ids:
+        raise ValueError(
+            "is_generic_structure is curated in both metabolite_annotations and "
+            "record_properties for: " + ", ".join(conflicting_generic_ids[:10])
+        )
 
     created_at = datetime.now(timezone.utc).isoformat()
     support_by_id = _load_metabolite_identifier_source_support(db)
@@ -2819,11 +3024,19 @@ def _ensure_harmonization_stage(
         effective_generic_classifications.update(
             curation_state.get("annotation_overrides") or {}
         )
+    if apply_record_properties:
+        effective_generic_classifications.update(record_generic_overrides)
     pruning_generic_classifications = dict(baseline_generic_classifications)
     if annotations_apply_to_generic_rule:
         pruning_generic_classifications.update(
             curation_state.get("annotation_overrides") or {}
         )
+    record_properties_apply_to_generic_rule = (
+        apply_record_properties
+        and _curation_annotations_apply_to_generic_rule(rule_ids)
+    )
+    if record_properties_apply_to_generic_rule:
+        pruning_generic_classifications.update(record_generic_overrides)
     active_edges, edge_summary = _active_metabolite_identifier_mapping_edges_for_rules(
         db,
         active_ids,
@@ -2862,7 +3075,14 @@ def _ensure_harmonization_stage(
             curation_state.get("assertions") or [],
         )
         active_edges.extend(assertion_edges)
-    groups, merge_summary = _build_harmonized_groups(db, active_ids, active_edges, rule_ids, rule_parameters)
+    groups, merge_summary = _build_harmonized_groups(
+        db,
+        active_ids,
+        active_edges,
+        rule_ids,
+        rule_parameters,
+        record_overlays if apply_record_properties else None,
+    )
     enrichment_only_summary = {
         "enrichment_only_removed_metabolite_count": 0,
         "enrichment_only_removed_group_count": 0,
@@ -2900,7 +3120,14 @@ def _ensure_harmonization_stage(
         "clique_count": len(groups) + singleton_count,
         "largest_clique_sizes": [len(members) for members in groups[:10]],
     }
-    mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
+    if apply_record_properties:
+        mass_values_by_id = (
+            record_overlay_mass_values_provider(record_overlays)
+            if record_overlay_mass_values_provider is not None
+            else _load_metabolite_identifier_mass_values(db, record_overlays)
+        )
+    else:
+        mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
     mw_validation = _build_harmonization_stage_mw_validation(groups, mass_values_by_id)
     denylist_validation = _build_harmonization_stage_denylist_validation(
         groups,
@@ -2955,6 +3182,24 @@ def _ensure_harmonization_stage(
         "suppression_curation_fingerprint": (
             curation_state.get("suppression_fingerprint") if apply_record_suppressions else None
         ),
+        "record_property_curation_batch_ids": (
+            curation_state.get("record_property_batch_ids") or []
+            if apply_record_properties else []
+        ),
+        "record_property_curation_fingerprint": (
+            curation_state.get("record_property_fingerprint")
+            if apply_record_properties else None
+        ),
+        "record_property_curation_count": (
+            sum(
+                report.get("action") == "set"
+                for report in record_property_reports
+            ) if apply_record_properties else 0
+        ),
+        "curation_snapshots": {
+            curation_type: curation_state.get("snapshots", {}).get(curation_type)
+            for curation_type in sorted(selected_curation_types)
+        },
         "assertion_fingerprint": curation_state.get("assertion_fingerprint"),
         "assertion_batch_ids": curation_state.get("assertion_batch_ids") or [],
         "curation_prefix": curation_state["prefix"],
@@ -3147,6 +3392,7 @@ def _pipeline_curation_fingerprint(pipeline: dict, curation_state: dict) -> Opti
         METABOLITE_EQUIVALENCE_EDGES: curation_state.get("edge_fingerprint"),
         METABOLITE_ANNOTATIONS: curation_state.get("annotation_fingerprint"),
         METABOLITE_RECORD_SUPPRESSIONS: curation_state.get("suppression_fingerprint"),
+        RECORD_PROPERTIES: curation_state.get("record_property_fingerprint"),
     }
     return payload_sha256({
         curation_type: fingerprints.get(curation_type)
@@ -3943,6 +4189,9 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             )
             else None
         )
+        record_overlay_mass_values_provider = (
+            _cached_record_overlay_mass_values_provider(db)
+        )
         if curation_state is not None:
             selected_curation_fingerprint = _pipeline_curation_fingerprint(
                 pipeline, curation_state
@@ -3967,6 +4216,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             mass_values_provider,
             generic_structure_classifications_provider,
             curation_state,
+            record_overlay_mass_values_provider,
         )
         stage_docs.append(baseline_stage)
         run_collection.update({
@@ -3998,6 +4248,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
                 mass_values_provider,
                 generic_structure_classifications_provider,
                 curation_state,
+                record_overlay_mass_values_provider,
             ))
             run_collection.update({
                 "_key": run_key,
@@ -5625,7 +5876,10 @@ def _metabolite_mass_channel_labels(channel_results: dict) -> List[str]:
     return labels
 
 
-def _load_metabolite_identifier_mass_values(db) -> Dict[str, dict]:
+def _load_metabolite_identifier_mass_values(
+    db,
+    record_overlays: Optional[dict[str, dict]] = None,
+) -> Dict[str, dict]:
     mass_values_by_id: Dict[str, dict] = {}
 
     def profile(identifier: str) -> dict:
@@ -5660,7 +5914,27 @@ def _load_metabolite_identifier_mass_values(db) -> Dict[str, dict]:
             max_runtime=300,
         ):
             target = profile(row["id"])
-            for chemistry in row.get("chemistry") or []:
+            overlay = (record_overlays or {}).get(row["id"])
+            chemistry_records = (
+                overlay.get("chem_props") or []
+                if overlay is not None
+                else row.get("chemistry") or []
+            )
+            for chemistry in chemistry_records:
+                if overlay is not None:
+                    chemistry = {
+                        "source": chemistry.get("source"),
+                        "source_id": chemistry.get("source_id"),
+                        "average": [
+                            chemistry.get("mw"),
+                            chemistry.get("calculated_mw"),
+                        ],
+                        "monoisotopic": [
+                            chemistry.get("monoisotopic_mass"),
+                            chemistry.get("calculated_monoisotopic_mass"),
+                        ],
+                        "components": chemistry.get("structure_components") or [],
+                    }
                 add_values(target["whole"]["average"], chemistry.get("average") or [])
                 add_values(target["whole"]["monoisotopic"], chemistry.get("monoisotopic") or [])
                 for component_index, component in enumerate(chemistry.get("components") or []):
@@ -5720,6 +5994,20 @@ def _load_metabolite_identifier_mass_values(db) -> Dict[str, dict]:
         for channel in value["whole"]:
             value["whole"][channel] = sorted(set(value["whole"][channel]))
     return mass_values_by_id
+
+
+def _cached_record_overlay_mass_values_provider(db):
+    """Cache one immutable pipeline run's overlay-aware mass profile."""
+    cache = {}
+
+    def provider(record_overlays):
+        if "values" not in cache:
+            cache["values"] = _load_metabolite_identifier_mass_values(
+                db, record_overlays
+            )
+        return cache["values"]
+
+    return provider
 
 
 def _generic_structure_clique_summary(
@@ -13226,6 +13514,12 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
             "target_id": doc.get("id"),
             "doc_key": doc_key,
             "fields": [],
+            "application_mode": (
+                "evidence_overlay"
+                if db_name == "metabolite_harmonization"
+                else "materialized"
+            ),
+            "published_fields": [],
         }
         if is_edge:
             record_curation["error"] = "Edge property curation is not supported yet."
@@ -13245,6 +13539,10 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                         curation_document, schema_entry, snapshot
                     )
                     record_curation["fields"] = fields
+                    record_curation["published_fields"] = [
+                        field for field in fields
+                        if field.get("has_published_override")
+                    ]
                     record_curation["available"] = bool(fields)
                     if not fields:
                         record_curation["error"] = "This record has no editable field values."

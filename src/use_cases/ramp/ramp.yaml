@@ -5,12 +5,6 @@ object_storage_credentials: &object_storage_credentials ./src/use_cases/secrets/
 registry:
   credentials: *object_storage_credentials
 
-curations:
-  types:
-    - record_properties
-  credentials: *object_storage_credentials
-  allow_missing: true
-
 input_adapters:
   - import: ./src/input_adapters/metabolite_harmonization/hmdb.py
     class: HmdbMetaboliteEquivalenceAdapter

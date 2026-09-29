@@ -44,6 +44,23 @@
         </dl>
     </section>
 
+    {% if "record_properties" in stats.stage.curation_types|default([]) %}
+    {% set property_snapshot = stats.stage.curation_snapshots.get("record_properties", {}) if stats.stage.curation_snapshots else {} %}
+    <section class="card record-curation-summary">
+        <div class="record-curation-summary-heading">
+            <h2>Record-property overlay</h2>
+            <span class="badge">Effective in this stage</span>
+        </div>
+        <p>
+            {{ stats.stage.record_property_curation_count|default(0, true) }} published field correction{% if stats.stage.record_property_curation_count|default(0, true) != 1 %}s{% endif %}
+            applied without changing the evidence graph.
+            {% if property_snapshot.manifest_revision is defined %}
+            Manifest revision {{ property_snapshot.manifest_revision }}.
+            {% endif %}
+        </p>
+    </section>
+    {% endif %}
+
     {% if "force_expected_clique_assertions" in stats.stage.rule_ids %}
     <div class="inline-error">
         <strong>Fallback merge rule active.</strong>
