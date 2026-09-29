@@ -1,0 +1,84 @@
+<div class="record-curation-entry">
+    <button type="button" class="btn btn-secondary" id="recordCurationEditorToggle"
+            aria-expanded="false" aria-controls="recordPropertyCuration"
+            {% if not record_curation.available %}disabled aria-describedby="recordCurationUnavailable"{% endif %}>
+        {% if record_curation.available %}Curate record{% else %}Curation unavailable{% endif %}
+    </button>
+    {% if not record_curation.available %}
+    <small id="recordCurationUnavailable">{{ record_curation.error }} You can still review changes collected elsewhere.</small>
+    {% endif %}
+    <button type="button" class="btn btn-secondary" id="recordCurationCartToggle">Review changes <span id="recordCurationCartCount">0</span></button>
+</div>
+
+<section class="card record-curation-card" id="recordPropertyCuration" hidden
+         data-root-path="{{ root_path }}" data-record-curation='{{ record_curation|tojson }}'>
+    <div class="record-curation-heading">
+        <div>
+            <h2>Curate record</h2>
+            <p class="record-curation-help">Corrections replace the ordinary graph value after the next build. The loaded value is retained in <code>_curation_original</code>.</p>
+        </div>
+        <button type="button" class="btn btn-secondary" id="recordCurationEditorClose">Close editor</button>
+    </div>
+
+    {% if record_curation.available %}
+    <div class="record-curator-row">
+        <label class="record-curation-rationale">Rationale <input id="recordCurationNote" type="text" placeholder="Why should these source values change?"></label>
+    </div>
+    <div class="record-curation-fields">
+        {% for field in record_curation.fields %}
+        <div class="record-curation-field" data-curation-path='{{ field.path_json }}'
+             data-editor-type="{{ field.editor_type }}"
+             data-effective='{{ field.effective|tojson }}'>
+            <div class="record-curation-field-title">
+                <label for="recordCurationField{{ loop.index }}">{{ field.label }} <code>{{ field.name }}</code></label>
+                {% if field.has_published_override %}<span class="badge">Curated</span>{% endif %}
+            </div>
+            <div class="record-curation-values">
+                <small><strong>Loaded/original:</strong> <code>{{ field.baseline_json }}</code></small>
+                {% if field.has_published_override %}
+                <small><strong>Published:</strong> <code>{{ field.effective_json }}</code></small>
+                {% endif %}
+            </div>
+            {% if field.editor_type == "bool" %}
+            <select id="recordCurationField{{ loop.index }}" data-curation-input>
+                <option value="true" {% if field.effective is sameas true %}selected{% endif %}>true</option>
+                <option value="false" {% if field.effective is sameas false %}selected{% endif %}>false</option>
+                <option value="null" {% if field.effective is none %}selected{% endif %}>null</option>
+            </select>
+            {% elif field.editor_type == "json" %}
+            <textarea id="recordCurationField{{ loop.index }}" data-curation-input rows="5">{{ field.effective_json }}</textarea>
+            {% else %}
+            <input id="recordCurationField{{ loop.index }}" data-curation-input
+                   type="{% if field.editor_type in ['int', 'float'] %}number{% else %}text{% endif %}"
+                   {% if field.editor_type == 'float' %}step="any"{% endif %}
+                   value="{% if field.effective is not none %}{{ field.effective }}{% endif %}">
+            <label class="record-curation-null"><input type="checkbox" data-curation-null {% if field.effective is none %}checked{% endif %}> Set no value</label>
+            {% endif %}
+            {% if field.has_published_override %}
+            <button type="button" class="btn btn-secondary btn-sm" data-record-curation-restore>Restore loaded value</button>
+            {% endif %}
+            {% if field.rationale %}<small>Published rationale: {{ field.rationale }}</small>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="record-curation-actions">
+        <button type="button" class="btn btn-primary" id="recordCurationStage">Add changed fields to review</button>
+    </div>
+    {% endif %}
+</section>
+
+<aside class="record-curation-cart" id="recordCurationCart" aria-hidden="true">
+    <div class="record-curation-cart-header">
+        <h2>Review changes</h2>
+        <button type="button" class="btn btn-secondary btn-sm" id="recordCurationCartClose">Close</button>
+    </div>
+    <label>Curator <input id="recordCurationCurator" type="text" autocomplete="name" placeholder="Your name or email"></label>
+    <div id="recordCurationStatus" role="status" aria-live="polite"></div>
+    <div id="recordCurationCartBody"><p>Enter a curator name to load your review.</p></div>
+    <div class="record-curation-publish">
+        <label>Batch name <input id="recordCurationBatchName" type="text" placeholder="Source corrections"></label>
+        <label>Description <input id="recordCurationDescription" type="text" placeholder="Optional batch description"></label>
+        <button type="button" class="btn btn-primary" id="recordCurationPublish">Publish reviewed changes</button>
+    </div>
+</aside>
+<script src="{{ root_path }}/static/record_property_curation.js?v=2"></script>

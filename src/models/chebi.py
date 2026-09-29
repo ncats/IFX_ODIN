@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.core.decorators import facets, indexed, search
 from src.models.node import Node, Relationship
@@ -76,6 +76,13 @@ class Term(Node):
     inchi: Optional[str] = None
     inchi_key: Optional[str] = None
     wurcs: Optional[str] = None
+    calculated_mw: Optional[str] = None
+    calculated_monoisotopic_mass: Optional[str] = None
+    structure_components: List[Dict[str, Any]] = field(default_factory=list)
+    structure_calculation_input_field: Optional[str] = None
+    structure_calculation_method: Optional[str] = None
+    structure_calculation_method_version: Optional[str] = None
+    structure_calculation_error: Optional[str] = None
 
 
 @dataclass

@@ -315,6 +315,29 @@ def test_chebi_mass_fields_validate_complete_multicomponent_formula():
     assert values["monoisotopic_mass"] == "248.93415"
 
 
+def test_chebi_full_obo_calculates_multicomponent_structure_masses():
+    values = ChebiFullOboAdapter._source_property_values([
+        Property("chemrof:generalized_empirical_formula", "C2H6O.Cl"),
+        Property("chemrof:mass", "81.52"),
+        Property("chemrof:monoisotopic_mass", "81.0112"),
+        Property("chemrof:smiles_string", "CCO.[Cl-]"),
+    ])
+
+    assert values["structure_calculation_input_field"] == "smiles"
+    assert values["calculated_mw"] == "81.522"
+    assert len(values["structure_components"]) == 2
+    assert {
+        component["molecular_formula"]
+        for component in values["structure_components"]
+    } == {"C2H6O", "Cl-"}
+    ethanol = next(
+        component
+        for component in values["structure_components"]
+        if component["molecular_formula"] == "C2H6O"
+    )
+    assert ethanol["mw"] == "46.069"
+
+
 def test_chebi_mass_fields_reject_generic_structure_without_verifiable_formula():
     values = ChebiFullOboAdapter._source_property_values([
         Property("chemrof:mass", "1641.488"),

@@ -1,9 +1,12 @@
 import json
 
+import pytest
+
 from src.core.curations import (
     METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    RECORD_PROPERTIES,
 )
 from src.qa_browser.curation_cart import (
     add_cart_operation,
@@ -132,6 +135,23 @@ def property_changes(values=None, remove_overrides=None):
     }
 
 
+def record_property_changes(path, value, observed="old"):
+    return {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "REFMET:1",
+        },
+        "decisions": [{
+            "path": path, "mode": "set", "value": value,
+            "observed_value": observed,
+        }],
+        "note": "Correct source chemistry",
+    }
+
+
 def test_cart_autosaves_and_reloads_one_draft_per_curator_and_type():
     storage = FakeStorage()
 
@@ -225,6 +245,45 @@ def test_property_changes_merge_per_target_and_keep_one_cart_item():
     assert cart["operation_count"] == 1
     assert cart["operations"][0]["values"] == {}
     assert cart["operations"][0]["remove_overrides"] == ["is_generic_structure"]
+
+
+def test_generic_record_property_changes_merge_by_semantic_path():
+    storage = FakeStorage()
+    add_cart_operation(
+        storage, RECORD_PROPERTIES, "keith", "Keith",
+        record_property_changes(["formula"], "C6H10O5"),
+    )
+
+    cart = add_cart_operation(
+        storage, RECORD_PROPERTIES, "keith", "Keith",
+        record_property_changes(["mw"], "162.14"),
+    )
+
+    assert cart["operation_count"] == 1
+    assert [decision["path"] for decision in cart["operations"][0]["decisions"]] == [
+        ["formula"], ["mw"],
+    ]
+
+
+def test_record_property_publish_rejects_multiple_graphs_in_one_draft():
+    storage = FakeStorage()
+    add_cart_operation(
+        storage, RECORD_PROPERTIES, "keith", "Keith",
+        record_property_changes(["formula"], "C6H10O5"),
+    )
+    other_graph = record_property_changes(["name"], "Corrected")
+    other_graph["target"] = {
+        **other_graph["target"],
+        "curation_set": "pharos",
+        "model_type": "Drug",
+        "id": "CHEMBL:1",
+    }
+    add_cart_operation(storage, RECORD_PROPERTIES, "keith", "Keith", other_graph)
+
+    with pytest.raises(ValueError, match="exactly one graph"):
+        publish_cart(
+            storage, RECORD_PROPERTIES, "keith", "Keith", "Mixed graph batch"
+        )
 
 
 def test_replace_target_replaces_old_style_property_draft():

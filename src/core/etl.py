@@ -109,13 +109,22 @@ class ETL:
                     )
 
         run_adapter_phase(self.input_adapters, "input", allow_resume_skip=True)
+        if self.curation_snapshots:
+            for output_adapter in self.output_adapters:
+                output_adapter.apply_curation_snapshots(
+                    self.curation_snapshots,
+                    phase="pre_post",
+                )
         # Graph-dependent post adapters are intentionally rerun on resume. They are
         # idempotent projections of the fully materialized primary graph.
         run_adapter_phase(self.post_adapters, "post", allow_resume_skip=False)
 
         if self.curation_snapshots:
             for output_adapter in self.output_adapters:
-                output_adapter.apply_curation_snapshots(self.curation_snapshots)
+                output_adapter.apply_curation_snapshots(
+                    self.curation_snapshots,
+                    phase="final",
+                )
 
         if do_post_processing:
             for output_adapter in self.output_adapters:

@@ -79,9 +79,9 @@ def test_etl_runs_input_then_post_adapters_then_curations_then_output_postproces
             yield [Protein(id="IFXProtein:P1", name="derived")]
 
     class LifecycleOutput(_RecordingOutputAdapter):
-        def apply_curation_snapshots(self, snapshots):
+        def apply_curation_snapshots(self, snapshots, phase="final"):
             assert snapshots == {"test": "snapshot"}
-            events.append("curations")
+            events.append(f"curations:{phase}")
 
         def do_post_processing(self, clean_edges=True):
             events.append("output_postprocessing")
@@ -96,7 +96,13 @@ def test_etl_runs_input_then_post_adapters_then_curations_then_output_postproces
 
     etl.do_etl(run_id="lifecycle-test")
 
-    assert events == ["input", "post", "curations", "output_postprocessing"]
+    assert events == [
+        "input",
+        "curations:pre_post",
+        "post",
+        "curations:final",
+        "output_postprocessing",
+    ]
     assert [call["field_conflict_behavior"] for call in output.store_calls] == [
         FieldConflictBehavior.KeepLast,
         FieldConflictBehavior.KeepLast,

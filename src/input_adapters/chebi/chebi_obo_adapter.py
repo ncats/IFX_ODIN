@@ -32,6 +32,7 @@ from src.models.chebi import (
 )
 from src.models.datasource_version_info import DatasourceVersionInfo
 from src.shared.chebi_mass import chebi_formula_masses, validated_chebi_mass_values
+from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
 
 
 CHEBI_PROPERTY_FIELD_MAP = {
@@ -374,7 +375,7 @@ class ChebiFullOboAdapter(InputAdapter):
         return values[0]
 
     @classmethod
-    def _source_property_values(cls, properties: list[Property]) -> dict[str, Optional[str]]:
+    def _source_property_values(cls, properties: list[Property]) -> dict:
         values = {field_name: None for field_name in CHEBI_PROPERTY_FIELD_MAP.values()}
         for prop in properties:
             field_name = CHEBI_PROPERTY_FIELD_MAP.get(prop.predicate)
@@ -386,7 +387,10 @@ class ChebiFullOboAdapter(InputAdapter):
             values["monoisotopic_mass"],
             values["smiles"],
         )
-        return values
+        return {
+            **values,
+            **calculate_smiles_chemistry(values["smiles"], "smiles"),
+        }
 
     @classmethod
     def _validated_mass_values(

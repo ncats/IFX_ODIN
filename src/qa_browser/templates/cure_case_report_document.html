@@ -726,6 +726,10 @@
         {% endif %}
     </section>
 
+    {% if record_curation %}
+    {% include "record_property_curation.html" %}
+    {% endif %}
+
     <section class="card stacked-card">
         <h2>Case Report</h2>
         <div class="case-top-grid">

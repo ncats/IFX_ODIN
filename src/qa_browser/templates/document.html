@@ -99,6 +99,10 @@
     </div>
 </div>
 
+{% if record_curation %}
+{% include "record_property_curation.html" %}
+{% endif %}
+
 {# ── Edge Link ───────────────────────────────────────────── #}
 {% if is_edge and doc.get("_from") and doc.get("_to") %}
 <div class="edge-link-card">

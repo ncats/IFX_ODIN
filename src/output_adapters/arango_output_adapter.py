@@ -13,6 +13,12 @@ from src.core.decorators import collect_facets, collect_indexed_fields, collect_
 from src.core.curations import (
     METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
+    RECORD_PROPERTIES,
+)
+from src.core.record_property_curations import (
+    apply_record_property_decision,
+    schema_for_path,
+    validate_value_for_schema,
 )
 from src.interfaces.metadata import DatabaseMetadata, CollectionMetadata, get_git_metadata
 from src.interfaces.output_adapter import OutputAdapter
@@ -65,18 +71,35 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
     def supports_curations(self) -> bool:
         return True
 
-    def apply_curation_snapshots(self, snapshots: dict) -> dict:
+    def apply_curation_snapshots(self, snapshots: dict, phase: str = "final") -> dict:
+        if phase not in {"pre_post", "final"}:
+            raise ValueError(f"Unsupported curation application phase: {phase}")
         db = self.get_db()
         plans = []
         reports = []
         property_decisions_by_target = {}
+        record_decisions_by_target = {}
         # Resolve every target before performing the first write. A missing or
         # ambiguous target therefore fails without leaving an earlier curation applied.
         for curation_type, snapshot in snapshots.items():
-            if curation_type not in {METABOLITE_ANNOTATIONS, METABOLITE_EQUIVALENCE_EDGES}:
+            if curation_type not in {
+                RECORD_PROPERTIES,
+                METABOLITE_ANNOTATIONS,
+                METABOLITE_EQUIVALENCE_EDGES,
+            }:
                 raise RuntimeError(
                     f"Arango graph builds do not support applying {curation_type!r}"
                 )
+            if curation_type == RECORD_PROPERTIES:
+                for decision in snapshot.active_record_property_decisions:
+                    target = decision.target
+                    if target.get("curation_set") != self.database_name:
+                        continue
+                    target_key = (target["model_type"], target["id"])
+                    record_decisions_by_target.setdefault(target_key, []).append(decision)
+                continue
+            if phase == "pre_post":
+                continue
             for decision in snapshot.active_property_decisions:
                 target = decision.target
                 target_key = (
@@ -124,6 +147,50 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                         "status": "applied" if action == "remove_edge" else "retained",
                     },
                 })
+
+        for (collection_name, target_id), decisions in record_decisions_by_target.items():
+            if not db.has_collection(collection_name):
+                raise RuntimeError(
+                    f"Curation target collection does not exist: {collection_name}"
+                )
+            rows = list(db.aql.execute(
+                f"""
+                FOR d IN `{collection_name}`
+                  FILTER d.id == @target_id
+                  LIMIT 2
+                  RETURN d
+                """,
+                bind_vars={"target_id": target_id},
+                max_runtime=120,
+            ))
+            if len(rows) != 1:
+                raise RuntimeError(
+                    f"Curation target {collection_name}:{target_id} matched {len(rows)} documents"
+                )
+            schema_fields = (
+                (self._collection_schemas.get(collection_name) or {}).get("fields") or {}
+            )
+            projected = rows[0]
+            target_reports = []
+            for decision in decisions:
+                descriptor = schema_for_path(schema_fields, decision.path)
+                if decision.mode == "set":
+                    validate_value_for_schema(decision.value, descriptor, decision.path)
+                projected, report = apply_record_property_decision(projected, decision)
+                report["phase"] = phase
+                target_reports.append(report)
+            patch = {
+                key: value
+                for key, value in projected.items()
+                if not key.startswith("_") or key == "_curation_original"
+            }
+            plans.append({
+                "kind": "record_properties",
+                "collection_name": collection_name,
+                "target_key": rows[0]["_key"],
+                "patch": patch,
+                "reports": target_reports,
+            })
 
         for (curation_type, collection_name, target_id), decisions in property_decisions_by_target.items():
             if not db.has_collection(collection_name):
@@ -188,11 +255,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         write_db = transaction or db
         try:
             for plan in plans:
-                if plan["kind"] == "property":
+                if plan["kind"] in {"property", "record_properties"}:
+                    write_verb = (
+                        "REPLACE" if plan["kind"] == "record_properties" else "UPDATE"
+                    )
+                    write_options = (
+                        "" if plan["kind"] == "record_properties"
+                        else "OPTIONS {keepNull: true}"
+                    )
                     updated = list(write_db.aql.execute(
                         f"""
-                        UPDATE @target_key WITH @patch IN `{plan['collection_name']}`
-                          OPTIONS {{keepNull: true}}
+                        {write_verb} @target_key WITH @patch IN `{plan['collection_name']}`
+                          {write_options}
                           RETURN NEW._key
                         """,
                         bind_vars={
@@ -215,8 +289,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
             if transaction is not None:
                 transaction.abort_transaction()
             raise
-        self._curation_metadata = [snapshot.metadata() for snapshot in snapshots.values()]
-        self._curation_application_reports = reports
+        metadata_by_type = {
+            item.get("curation_type"): item
+            for item in getattr(self, "_curation_metadata", [])
+        }
+        metadata_by_type.update({
+            snapshot.metadata().get("curation_type"): snapshot.metadata()
+            for snapshot in snapshots.values()
+        })
+        self._curation_metadata = list(metadata_by_type.values())
+        application_reports = getattr(self, "_curation_application_reports", [])
+        application_reports.extend(reports)
+        self._curation_application_reports = application_reports
         return {
             "applied": sum(report["status"] == "applied" for report in reports),
             "reports": reports,

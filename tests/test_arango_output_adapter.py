@@ -8,7 +8,9 @@ import pytest
 from src.core.curations import (
     METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
+    RECORD_PROPERTIES,
     property_decisions_from_operation,
+    record_property_decisions_from_operation,
 )
 from src.models.protein import Protein
 from src.models.test_models import TestEdge, TestNode
@@ -553,11 +555,94 @@ def curation_snapshot(curation_type, operation):
         published_at="2026-09-24T12:00:00Z",
         published_by={"id": "keith"},
     )
+    record_property_decisions = record_property_decisions_from_operation(
+        curation_type,
+        operation,
+        batch_id="batch-1",
+        published_at="2026-09-24T12:00:00Z",
+        published_by={"id": "keith"},
+    )
     return SimpleNamespace(
-        active_operations=[] if property_decisions else [resolved],
+        active_operations=[] if property_decisions or record_property_decisions else [resolved],
         active_property_decisions=list(property_decisions),
+        active_record_property_decisions=list(record_property_decisions),
         metadata=lambda: {"curation_type": curation_type, "manifest_revision": 1},
     )
+
+
+def test_apply_generic_record_property_curation_writes_effective_and_original_values():
+    db = CurationDb([{
+        "_key": "REFMET:1",
+        "id": "REFMET:1",
+        "formula": "C6H1005",
+        "sources": ["RefMet"],
+    }])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "metabolite_harmonization"
+    adapter._collection_schemas = {
+        "MetaboliteIdentifier": {"fields": {"formula": "str"}},
+    }
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "REFMET:1",
+        },
+        "decisions": [{
+            "path": ["formula"], "mode": "set",
+            "value": "C6H10O5", "observed_value": "C6H1005",
+        }],
+        "note": "Correct a source typo",
+    }
+
+    result = adapter.apply_curation_snapshots({
+        RECORD_PROPERTIES: curation_snapshot(RECORD_PROPERTIES, operation),
+    })
+
+    patch = db.aql.calls[1]["bind_vars"]["patch"]
+    assert "REPLACE @target_key" in db.aql.calls[1]["query"]
+    assert patch["formula"] == "C6H10O5"
+    assert patch["_curation_original"] == {"formula": "C6H1005"}
+    assert patch["sources"][-1].startswith("Manual Curation\tbatch-1")
+    assert result["applied"] == 1
+
+
+def test_record_property_restore_replaces_persisted_document_without_override_fields():
+    db = CurationDb([{
+        "_key": "node-1",
+        "id": "REFMET:1",
+        "formula": "C6H10O5",
+        "_curation_original": {"formula": "C6H1005"},
+    }])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "metabolite_harmonization"
+    adapter._collection_schemas = {
+        "MetaboliteIdentifier": {"fields": {"formula": "str"}},
+    }
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "REFMET:1",
+        },
+        "decisions": [{"path": ["formula"], "mode": "remove_override"}],
+        "note": "Restore the loaded formula",
+    }
+
+    adapter.apply_curation_snapshots({
+        RECORD_PROPERTIES: curation_snapshot(RECORD_PROPERTIES, operation),
+    })
+
+    mutation = db.aql.calls[1]
+    assert "REPLACE @target_key" in mutation["query"]
+    assert mutation["bind_vars"]["patch"]["formula"] == "C6H1005"
+    assert "_curation_original" not in mutation["bind_vars"]["patch"]
 
 
 def test_apply_property_curation_checks_unique_target_before_updating():
