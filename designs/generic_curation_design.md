@@ -6,9 +6,12 @@ ODIN curations are reusable, typed domain streams stored independently of any
 one graph. Graphs and applications select curation types; they do not require a
 curator or graph author to enumerate historical batches.
 
-The first supported target is `metabolite_annotations / MetaboliteIdentifier`.
-Its first editable property is `is_generic_structure`, but the contract and UI
-handle every supported scalar field on the target together.
+The first supported target is
+`metabolite_record_properties / MetaboliteIdentifier`. Its first common
+classification field is `is_generic_structure`, while the same typed path
+contract and document editor handle the other supported fields on the record.
+Record-property streams are model-family specific so graph builders can select
+metabolite properties independently of future protein or drug properties.
 
 ## Storage and reproducibility
 
@@ -33,17 +36,19 @@ independently auditable batch per type.
 ## Type and operation contracts
 
 Types are registered in code with reviewed target models, actions, and semantic
-handlers. Editable scalar properties are derived from the target dataclass and
-filtered through framework and model-specific denylists. Framework identity,
-provenance, source, endpoint, private, collection, and nested fields are never
-editable. The initial editors support nullable or required booleans, strings,
-integers, and finite numbers; unsupported shapes fail closed.
+handlers. `operation_contract: record_properties` supplies common validation,
+resolution, cart, projection, and UI behavior without creating one global
+property stream. Framework identity, provenance, source-locator, endpoint,
+private, collection, and calculated fields are never editable. Declared scalar
+fields and declared leaves inside stably selectable source records are editable;
+unsupported or ambiguous shapes fail closed.
 
 Initial types are:
 
 - `metabolite_equivalence_edges`: `remove_edge`, `retain_edge`;
-- `metabolite_annotations`: `set_properties` (with legacy read support for
-  `set_property` and `unset_property`);
+- `metabolite_record_properties`: typed `set_properties` decisions for
+  `MetaboliteIdentifier`;
+- `metabolite_record_suppressions`: `suppress_record`, `restore_record`;
 - `metabolite_expected_cliques`: `assert_same_clique`, `retire_assertion`.
 
 A property operation uses a stable business identifier and may carry several
@@ -54,27 +59,28 @@ independent property decisions:
   "action": "set_properties",
   "target": {
     "kind": "node",
+    "curation_set": "metabolite_harmonization",
     "model_type": "MetaboliteIdentifier",
     "id": "KEGG.COMPOUND:C01234"
   },
-  "values": {
-    "is_generic_structure": true,
-    "some_nullable_string": null
-  },
-  "remove_overrides": ["some_number"]
+  "decisions": [
+    {
+      "path": ["is_generic_structure"],
+      "mode": "set",
+      "value": true,
+      "observed_exists": false,
+      "observed_value": null
+    }
+  ],
+  "note": "Reviewed the source structure evidence."
 }
 ```
 
-Omitting a property means no change. A property in `values` with JSON `null`
-explicitly overrides it with no value. A property in `remove_overrides`
-removes the curation overlay and restores the source/graph value on a clean
-build. These sets must be disjoint and nonempty as a whole. Resolution is
-independent per type, target, and property, so a later decision for one field
-does not disturb other fields; history remains immutable.
-
-Existing published `set_property` and `unset_property` batches are normalized
-into the same per-property resolution model. New publications use only
-`set_properties`.
+Each decision is `set` or `remove_override`. A `set` value may be JSON `null`
+when the declared field allows it. Its observed value and presence form a
+stale-data guard. `remove_override` restores the loaded graph value. Resolution
+is independent per curation set, model, target, and canonical path, so a later
+decision for one field does not disturb other fields; history remains immutable.
 
 ## Generic-structure semantics
 
@@ -103,7 +109,7 @@ Normal graph YAML selects types:
 ```yaml
 curations:
   types:
-    - record_properties
+    - metabolite_record_properties
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
   allow_missing: true  # useful before the first batch is published
 ```
@@ -132,9 +138,9 @@ changing a property decision can require a clean rebuild to restore the newly
 derived baseline safely.
 
 Metabolite harmonization uses the same snapshots through an orderable
-**Apply curations** rule. The rule includes general `record_properties`
-corrections as well as the metabolite-specific edge, annotation, and record
-suppression streams. It is recommended as the first rule for RaMP pipeline
+**Apply curations** rule. The rule includes typed
+`metabolite_record_properties` corrections as well as metabolite equivalence
+edge and record-suppression streams. It is recommended as the first rule for RaMP pipeline
 comparisons so later rules share one curated starting state, but the framework
 does not require it to be first. Rule order is literal: curated field values
 affect generic-structure pruning, InChIKey merging, and molecular-weight
@@ -166,7 +172,7 @@ behavior. This feature does not change the current Pharos production configs.
 
 ## QA workflow
 
-The shared selected-node details render an editor from property schema. Each
+The generic document page renders the canonical editor from property schema. Each
 editable property shows these states independently:
 
 - source/graph value;
@@ -177,14 +183,22 @@ editable property shows these states independently:
 The actions are **No change**, **Set value**, **Set no value** when nullable,
 and **Restore graph value** when an override exists. Input controls follow the
 declared scalar type. All changes for one target are added as one review item.
-Generic-structure detection and its evidence remain a separate read-only
-section. Draft changes are grouped by curation type in **Review changes**.
-Publishing makes them active; existing materialized stages still require
-synchronization.
+The metabolite harmonizer reuses the same cart and backend, but provides a
+compact **Change classification** control beside generic-structure evidence.
+Its labels are **Generic**, **Specific / non-generic**, **Unknown /
+unclassified**, and **Use evidence graph value**. It creates exactly the same
+typed record-property operation as the generic document editor. Draft changes
+are grouped by curation type in **Review changes**. Publishing makes them
+active; existing materialized stages still require synchronization.
 
 ## Migration
 
-The v1 graph-scoped metabolite objects are migrated once into the three v2
-types. Legacy batch and operation IDs are retained in provenance, and resolved
-v1 and v2 state must compare equal before cutover. V1 objects remain immutable
-for audit, but production consumers do not indefinitely dual-read both formats.
+On 2026-09-29, the pre-release `metabolite_annotations` and global
+`record_properties` histories were migrated into
+`metabolite_record_properties`. Twelve replacement batches preserve source
+batch/object/hash and operation provenance. The migration converted 90
+operations and verified that the replacement resolves to the same 88 active
+field decisions (86 generic-structure targets plus the existing RefMet record
+corrections). The destination batches were written and read back before its
+manifest was activated. Both legacy streams remain immutable for audit and a
+later explicit cleanup; runtime code has no aliases or dual reads.

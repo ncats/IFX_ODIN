@@ -44,8 +44,8 @@
         </dl>
     </section>
 
-    {% if "record_properties" in stats.stage.curation_types|default([]) %}
-    {% set property_snapshot = stats.stage.curation_snapshots.get("record_properties", {}) if stats.stage.curation_snapshots else {} %}
+    {% if "metabolite_record_properties" in stats.stage.curation_types|default([]) %}
+    {% set property_snapshot = stats.stage.curation_snapshots.get("metabolite_record_properties", {}) if stats.stage.curation_snapshots else {} %}
     <section class="card record-curation-summary">
         <div class="record-curation-summary-heading">
             <h2>Record-property overlay</h2>

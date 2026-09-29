@@ -15,10 +15,9 @@ FORMAT_VERSION = 2
 PUBLISHED_PREFIX = "curations/v2"
 
 METABOLITE_EQUIVALENCE_EDGES = "metabolite_equivalence_edges"
-METABOLITE_ANNOTATIONS = "metabolite_annotations"
 METABOLITE_EXPECTED_CLIQUES = "metabolite_expected_cliques"
+METABOLITE_RECORD_PROPERTIES = "metabolite_record_properties"
 METABOLITE_RECORD_SUPPRESSIONS = "metabolite_record_suppressions"
-RECORD_PROPERTIES = "record_properties"
 
 
 @dataclass(frozen=True)
@@ -53,6 +52,7 @@ class CurationTypeDefinition:
     actions: frozenset[str]
     model_types: tuple[str, ...] = ()
     edge_types: tuple[str, ...] = ()
+    operation_contract: Optional[str] = None
 
 
 _FRAMEWORK_PROPERTY_DENYLIST = frozenset({
@@ -118,19 +118,16 @@ def curatable_property_definition(
 
 
 CURATION_TYPES = {
-    RECORD_PROPERTIES: CurationTypeDefinition(
-        id=RECORD_PROPERTIES,
+    METABOLITE_RECORD_PROPERTIES: CurationTypeDefinition(
+        id=METABOLITE_RECORD_PROPERTIES,
         actions=frozenset({"set_properties"}),
+        model_types=("MetaboliteIdentifier",),
+        operation_contract="record_properties",
     ),
     METABOLITE_EQUIVALENCE_EDGES: CurationTypeDefinition(
         id=METABOLITE_EQUIVALENCE_EDGES,
         actions=frozenset({"remove_edge", "retain_edge"}),
         edge_types=("MetaboliteIdentifierMappingEdge",),
-    ),
-    METABOLITE_ANNOTATIONS: CurationTypeDefinition(
-        id=METABOLITE_ANNOTATIONS,
-        actions=frozenset({"set_properties", "set_property", "unset_property"}),
-        model_types=("MetaboliteIdentifier",),
     ),
     METABOLITE_EXPECTED_CLIQUES: CurationTypeDefinition(
         id=METABOLITE_EXPECTED_CLIQUES,
@@ -142,6 +139,25 @@ CURATION_TYPES = {
         model_types=("MetaboliteIdentifier",),
     ),
 }
+
+
+def is_record_property_type(curation_type: str) -> bool:
+    return validate_curation_type(curation_type).operation_contract == "record_properties"
+
+
+def record_property_type_for_model(model_type: str) -> Optional[str]:
+    matches = [
+        definition.id
+        for definition in CURATION_TYPES.values()
+        if definition.operation_contract == "record_properties"
+        and model_type in definition.model_types
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Multiple record-property curation types own model {model_type!r}: "
+            + ", ".join(sorted(matches))
+        )
+    return matches[0] if matches else None
 
 
 def validate_curation_type(curation_type: str) -> CurationTypeDefinition:
@@ -159,52 +175,8 @@ def validate_operation(curation_type: str, operation: dict) -> dict:
     if action not in definition.actions:
         raise ValueError(f"Action {action!r} is not supported by {curation_type}")
 
-    if curation_type == RECORD_PROPERTIES:
-        _validate_record_property_operation(operation)
-    elif action in {"set_properties", "set_property", "unset_property"}:
-        target = operation.get("target")
-        if not isinstance(target, dict) or target.get("kind") != "node":
-            raise ValueError("Property curations currently require a node target")
-        model_type = str(target.get("model_type") or "").strip()
-        target_id = str(target.get("id") or "").strip()
-        if model_type not in definition.model_types:
-            raise ValueError(f"Model type {model_type!r} is not registered for {curation_type}")
-        if not target_id:
-            raise ValueError("Property curation target id is required")
-        if action == "set_properties":
-            values = operation.get("values", {})
-            remove_overrides = operation.get("remove_overrides", [])
-            if not isinstance(values, dict):
-                raise ValueError("set_properties values must be an object")
-            if not isinstance(remove_overrides, list) or any(
-                not isinstance(item, str) or not item.strip() for item in remove_overrides
-            ):
-                raise ValueError("set_properties remove_overrides must be a list of property names")
-            if len(remove_overrides) != len(set(remove_overrides)):
-                raise ValueError("set_properties remove_overrides must not contain duplicates")
-            overlap = set(values) & set(remove_overrides)
-            if overlap:
-                raise ValueError(
-                    "set_properties values and remove_overrides must be disjoint: "
-                    + ", ".join(sorted(overlap))
-                )
-            if not values and not remove_overrides:
-                raise ValueError("set_properties requires at least one property decision")
-            decisions = [(name, "set", value) for name, value in values.items()]
-            decisions.extend((name, "remove_override", None) for name in remove_overrides)
-        else:
-            property_name = str(operation.get("property") or "").strip()
-            if action == "unset_property" and "value" in operation:
-                raise ValueError("unset_property must not include a value")
-            decisions = [(property_name, "set" if action == "set_property" else "remove_override", operation.get("value"))]
-        for property_name, mode, value in decisions:
-            property_definition = curatable_property_definition(model_type, property_name)
-            if property_definition is None:
-                raise ValueError(
-                    f"Property {model_type}.{property_name} is denied or has no supported scalar editor"
-                )
-            if mode == "set":
-                _validate_property_value(property_definition, value)
+    if is_record_property_type(curation_type):
+        _validate_record_property_operation(operation, definition)
     if action in {"remove_edge", "retain_edge"}:
         edge_type = str(operation.get("edge_type") or "").strip()
         left = str(operation.get("start_id") or "").strip()
@@ -231,7 +203,10 @@ def validate_operation(curation_type: str, operation: dict) -> dict:
     return operation
 
 
-def _validate_record_property_operation(operation: dict) -> None:
+def _validate_record_property_operation(
+    operation: dict,
+    definition: CurationTypeDefinition,
+) -> None:
     target = operation.get("target")
     if not isinstance(target, dict) or target.get("kind") != "node":
         raise ValueError("Record property curations require a node target")
@@ -242,6 +217,10 @@ def _validate_record_property_operation(operation: dict) -> None:
     ):
         if not str(target.get(field_name) or "").strip():
             raise ValueError(f"Record property curation {label} is required")
+    if target["model_type"] not in definition.model_types:
+        raise ValueError(
+            f"Model type {target['model_type']!r} is not registered for {definition.id}"
+        )
     note = str(operation.get("note") or "").strip()
     if not note:
         raise ValueError("Record property curation requires a rationale")
@@ -331,15 +310,6 @@ def operation_subject(curation_type: str, operation: dict) -> tuple[str, ...]:
     """Return the stable subject whose latest operation wins."""
     validate_operation(curation_type, operation)
     action = operation["action"]
-    if action in {"set_property", "unset_property"}:
-        target = operation["target"]
-        return (
-            "property",
-            target["kind"],
-            target["model_type"],
-            target["id"],
-            operation["property"],
-        )
     if action == "set_properties":
         raise ValueError("set_properties has multiple subjects; use operation_subjects")
     if action in {"remove_edge", "retain_edge"}:
@@ -357,7 +327,7 @@ def operation_subject(curation_type: str, operation: dict) -> tuple[str, ...]:
 
 def operation_subjects(curation_type: str, operation: dict) -> tuple[tuple[str, ...], ...]:
     validate_operation(curation_type, operation)
-    if curation_type == RECORD_PROPERTIES:
+    if is_record_property_type(curation_type):
         target = operation["target"]
         return tuple(
             (
@@ -370,34 +340,7 @@ def operation_subjects(curation_type: str, operation: dict) -> tuple[tuple[str, 
             )
             for decision in operation["decisions"]
         )
-    if operation["action"] != "set_properties":
-        return (operation_subject(curation_type, operation),)
-    target = operation["target"]
-    property_names = [*(operation.get("values") or {}).keys(), *(operation.get("remove_overrides") or [])]
-    return tuple(
-        ("property", target["kind"], target["model_type"], target["id"], property_name)
-        for property_name in property_names
-    )
-
-
-@dataclass(frozen=True)
-class ResolvedPropertyDecision:
-    curation_type: str
-    target: dict
-    property_name: str
-    mode: str
-    value: Any
-    batch_id: str
-    published_at: str
-    published_by: Optional[dict]
-    source_operation: dict
-
-    @property
-    def subject(self) -> tuple[str, ...]:
-        return (
-            "property", self.target["kind"], self.target["model_type"],
-            self.target["id"], self.property_name,
-        )
+    return (operation_subject(curation_type, operation),)
 
 
 @dataclass(frozen=True)
@@ -426,51 +369,6 @@ class ResolvedRecordPropertyDecision:
         )
 
 
-def property_decisions_from_operation(
-    curation_type: str,
-    operation: dict,
-    *,
-    batch_id: str,
-    published_at: str,
-    published_by: Optional[dict],
-) -> tuple[ResolvedPropertyDecision, ...]:
-    validate_operation(curation_type, operation)
-    if curation_type == RECORD_PROPERTIES:
-        return ()
-    action = operation["action"]
-    if action not in {"set_properties", "set_property", "unset_property"}:
-        return ()
-    if action == "set_properties":
-        raw_decisions = [
-            (property_name, "set", value)
-            for property_name, value in (operation.get("values") or {}).items()
-        ]
-        raw_decisions.extend(
-            (property_name, "remove_override", None)
-            for property_name in operation.get("remove_overrides") or []
-        )
-    else:
-        raw_decisions = [(
-            operation["property"],
-            "set" if action == "set_property" else "remove_override",
-            operation.get("value"),
-        )]
-    return tuple(
-        ResolvedPropertyDecision(
-            curation_type=curation_type,
-            target=dict(operation["target"]),
-            property_name=property_name,
-            mode=mode,
-            value=value,
-            batch_id=batch_id,
-            published_at=published_at,
-            published_by=published_by,
-            source_operation=dict(operation),
-        )
-        for property_name, mode, value in raw_decisions
-    )
-
-
 def record_property_decisions_from_operation(
     curation_type: str,
     operation: dict,
@@ -480,7 +378,7 @@ def record_property_decisions_from_operation(
     published_by: Optional[dict],
 ) -> tuple[ResolvedRecordPropertyDecision, ...]:
     validate_operation(curation_type, operation)
-    if curation_type != RECORD_PROPERTIES:
+    if not is_record_property_type(curation_type):
         return ()
     return tuple(
         ResolvedRecordPropertyDecision(
@@ -543,10 +441,6 @@ class CurationSnapshot:
         default_factory=dict,
         repr=False,
     )
-    _active_property_decisions: dict[tuple[str, ...], ResolvedPropertyDecision] = field(
-        default_factory=dict,
-        repr=False,
-    )
     _active_record_property_decisions: dict[
         tuple[str, ...], ResolvedRecordPropertyDecision
     ] = field(default_factory=dict, repr=False)
@@ -554,10 +448,6 @@ class CurationSnapshot:
     @property
     def active_operations(self) -> list[ResolvedCurationOperation]:
         return list(self._active_by_subject.values())
-
-    @property
-    def active_property_decisions(self) -> list[ResolvedPropertyDecision]:
-        return list(self._active_property_decisions.values())
 
     @property
     def active_record_property_decisions(self) -> list[ResolvedRecordPropertyDecision]:
@@ -582,7 +472,6 @@ class CurationSnapshot:
             "resolved_operation_fingerprint": self.fingerprint,
             "active_operation_count": (
                 len(self._active_by_subject)
-                + len(self._active_property_decisions)
                 + len(self._active_record_property_decisions)
             ),
             "source_uri": self.source_uri,
@@ -630,7 +519,6 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
     batch_ids: list[str] = []
     batch_hashes: list[str] = []
     active_by_subject: dict[tuple[str, ...], ResolvedCurationOperation] = {}
-    active_property_decisions: dict[tuple[str, ...], ResolvedPropertyDecision] = {}
     active_record_property_decisions: dict[
         tuple[str, ...], ResolvedRecordPropertyDecision
     ] = {}
@@ -658,17 +546,7 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
                 published_by=batch.get("created_by"),
             )
             operations.append(resolved)
-            property_decisions = property_decisions_from_operation(
-                curation_type,
-                operation,
-                batch_id=batch_id,
-                published_at=resolved.published_at,
-                published_by=resolved.published_by,
-            )
-            if property_decisions:
-                for decision in property_decisions:
-                    active_property_decisions[decision.subject] = decision
-            elif curation_type == RECORD_PROPERTIES:
+            if is_record_property_type(curation_type):
                 for decision in record_property_decisions_from_operation(
                     curation_type,
                     operation,
@@ -694,14 +572,6 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
         "decision": {
             "mode": decision.mode,
             "value": decision.value,
-        },
-    } for subject, decision in sorted(active_property_decisions.items()))
-    fingerprint_payload.extend({
-        "subject": list(subject),
-        "batch_id": decision.batch_id,
-        "decision": {
-            "mode": decision.mode,
-            "value": decision.value,
             "observed_value": decision.observed_value,
             "observed_exists": decision.observed_exists,
         },
@@ -717,7 +587,6 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
         fingerprint=payload_sha256(fingerprint_payload),
         source_uri=f"s3://{storage.bucket}/{key}",
         _active_by_subject=active_by_subject,
-        _active_property_decisions=active_property_decisions,
         _active_record_property_decisions=active_record_property_decisions,
     )
 

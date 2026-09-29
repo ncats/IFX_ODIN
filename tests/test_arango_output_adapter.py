@@ -6,10 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.curations import (
-    METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
-    RECORD_PROPERTIES,
-    property_decisions_from_operation,
+    METABOLITE_RECORD_PROPERTIES,
     record_property_decisions_from_operation,
 )
 from src.models.protein import Protein
@@ -503,7 +501,7 @@ class CurationAql:
             return FakeCursor(self.lookup_rows)
         if "RETURN e._key" in query:
             return FakeCursor(self.edge_rows)
-        if "UPDATE @target_key" in query:
+        if "UPDATE @target_key" in query or "REPLACE @target_key" in query:
             self.update_count += 1
             if self.update_count == self.fail_on_update_number:
                 raise RuntimeError("simulated mutation failure")
@@ -548,13 +546,6 @@ class CurationDb:
 
 def curation_snapshot(curation_type, operation):
     resolved = SimpleNamespace(operation=operation, batch_id="batch-1")
-    property_decisions = property_decisions_from_operation(
-        curation_type,
-        operation,
-        batch_id="batch-1",
-        published_at="2026-09-24T12:00:00Z",
-        published_by={"id": "keith"},
-    )
     record_property_decisions = record_property_decisions_from_operation(
         curation_type,
         operation,
@@ -563,8 +554,7 @@ def curation_snapshot(curation_type, operation):
         published_by={"id": "keith"},
     )
     return SimpleNamespace(
-        active_operations=[] if property_decisions or record_property_decisions else [resolved],
-        active_property_decisions=list(property_decisions),
+        active_operations=[] if record_property_decisions else [resolved],
         active_record_property_decisions=list(record_property_decisions),
         metadata=lambda: {"curation_type": curation_type, "manifest_revision": 1},
     )
@@ -599,7 +589,9 @@ def test_apply_generic_record_property_curation_writes_effective_and_original_va
     }
 
     result = adapter.apply_curation_snapshots({
-        RECORD_PROPERTIES: curation_snapshot(RECORD_PROPERTIES, operation),
+        METABOLITE_RECORD_PROPERTIES: curation_snapshot(
+            METABOLITE_RECORD_PROPERTIES, operation
+        ),
     })
 
     patch = db.aql.calls[1]["bind_vars"]["patch"]
@@ -636,118 +628,15 @@ def test_record_property_restore_replaces_persisted_document_without_override_fi
     }
 
     adapter.apply_curation_snapshots({
-        RECORD_PROPERTIES: curation_snapshot(RECORD_PROPERTIES, operation),
+        METABOLITE_RECORD_PROPERTIES: curation_snapshot(
+            METABOLITE_RECORD_PROPERTIES, operation
+        ),
     })
 
     mutation = db.aql.calls[1]
     assert "REPLACE @target_key" in mutation["query"]
     assert mutation["bind_vars"]["patch"]["formula"] == "C6H1005"
     assert "_curation_original" not in mutation["bind_vars"]["patch"]
-
-
-def test_apply_property_curation_checks_unique_target_before_updating():
-    db = CurationDb([{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": {}}])
-    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
-    adapter.get_db = lambda: db
-    operation = {
-        "action": "set_property",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": "KEGG.COMPOUND:C00001",
-        },
-        "property": "is_generic_structure",
-        "value": True,
-    }
-
-    result = adapter.apply_curation_snapshots({
-        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
-    })
-
-    assert result["applied"] == 1
-    assert len(db.aql.calls) == 2
-    assert "FILTER d.id" in db.aql.calls[0]["query"]
-    assert "UPDATE @target_key" in db.aql.calls[1]["query"]
-    assert db.aql.calls[1]["bind_vars"]["patch"] == {"is_generic_structure": True}
-    assert "keepNull: true" in db.aql.calls[1]["query"]
-    assert db.committed is True
-
-
-def test_apply_property_curation_preserves_explicit_null():
-    db = CurationDb([{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": {}}])
-    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
-    adapter.get_db = lambda: db
-    operation = {
-        "action": "set_properties",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": "KEGG.COMPOUND:C00001",
-        },
-        "values": {"is_generic_structure": None},
-        "remove_overrides": [],
-    }
-
-    adapter.apply_curation_snapshots({
-        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
-    })
-
-    update = db.aql.calls[1]
-    assert update["bind_vars"]["patch"] == {"is_generic_structure": None}
-    assert "keepNull: true" in update["query"]
-
-
-def test_restore_property_override_preflights_target_without_mutating_it():
-    db = CurationDb([
-        {"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None},
-        {"key": "node-2", "id": "KEGG.COMPOUND:C00001", "previous": None},
-    ])
-    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
-    adapter.get_db = lambda: db
-    operation = {
-        "action": "unset_property",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": "KEGG.COMPOUND:C00001",
-        },
-        "property": "is_generic_structure",
-    }
-
-    with pytest.raises(RuntimeError, match="matched 2 documents"):
-        adapter.apply_curation_snapshots({
-            METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
-        })
-
-    assert len(db.aql.calls) == 1
-    assert not any("UPDATE @target_key" in call["query"] for call in db.aql.calls)
-
-
-def test_restore_property_override_reports_restored_after_unique_preflight():
-    db = CurationDb([{
-        "key": "node-1",
-        "id": "KEGG.COMPOUND:C00001",
-        "previous": {"is_generic_structure": True},
-    }])
-    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
-    adapter.get_db = lambda: db
-    operation = {
-        "action": "unset_property",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": "KEGG.COMPOUND:C00001",
-        },
-        "property": "is_generic_structure",
-    }
-
-    result = adapter.apply_curation_snapshots({
-        METABOLITE_ANNOTATIONS: curation_snapshot(METABOLITE_ANNOTATIONS, operation),
-    })
-
-    assert len(db.aql.calls) == 1
-    assert result["reports"][0]["status"] == "restored"
-    assert result["reports"][0]["previous"] is True
 
 
 def test_apply_edge_removal_deletes_the_resolved_edge_key():
@@ -774,20 +663,28 @@ def test_apply_edge_removal_deletes_the_resolved_edge_key():
 
 def test_apply_curations_preflights_all_targets_before_any_mutation():
     db = CurationDb(
-        [{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None}],
+        [{"_key": "node-1", "id": "KEGG.COMPOUND:C00001"}],
         edge_rows=[],
     )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "metabolite_harmonization"
+    adapter._collection_schemas = {
+        "MetaboliteIdentifier": {"fields": {"is_generic_structure": "bool"}},
+    }
     adapter.get_db = lambda: db
     property_operation = {
-        "action": "set_property",
+        "action": "set_properties",
         "target": {
             "kind": "node",
+            "curation_set": "metabolite_harmonization",
             "model_type": "MetaboliteIdentifier",
             "id": "KEGG.COMPOUND:C00001",
         },
-        "property": "is_generic_structure",
-        "value": True,
+        "decisions": [{
+            "path": ["is_generic_structure"], "mode": "set", "value": True,
+            "observed_value": None, "observed_exists": False,
+        }],
+        "note": "Classify generic structure",
     }
     edge_operation = {
         "action": "remove_edge",
@@ -799,35 +696,43 @@ def test_apply_curations_preflights_all_targets_before_any_mutation():
 
     with pytest.raises(RuntimeError, match="is missing"):
         adapter.apply_curation_snapshots({
-            METABOLITE_ANNOTATIONS: curation_snapshot(
-                METABOLITE_ANNOTATIONS, property_operation
+            METABOLITE_RECORD_PROPERTIES: curation_snapshot(
+                METABOLITE_RECORD_PROPERTIES, property_operation
             ),
             METABOLITE_EQUIVALENCE_EDGES: curation_snapshot(
                 METABOLITE_EQUIVALENCE_EDGES, edge_operation
             ),
         })
 
-    assert not any("UPDATE @target_key" in call["query"] for call in db.aql.calls)
+    assert not any("REPLACE @target_key" in call["query"] for call in db.aql.calls)
     assert db.edge_collection.deleted == []
 
 
 def test_apply_curations_aborts_transaction_when_a_later_mutation_fails():
     db = CurationDb(
-        [{"key": "node-1", "id": "KEGG.COMPOUND:C00001", "previous": None}],
+        [{"_key": "node-1", "id": "KEGG.COMPOUND:C00001"}],
         fail_on_update_number=2,
     )
     adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "metabolite_harmonization"
+    adapter._collection_schemas = {
+        "MetaboliteIdentifier": {"fields": {"is_generic_structure": "bool"}},
+    }
     adapter.get_db = lambda: db
     operations = [
         {
-                "action": "set_property",
+                "action": "set_properties",
                 "target": {
                     "kind": "node",
+                    "curation_set": "metabolite_harmonization",
                     "model_type": "MetaboliteIdentifier",
                     "id": identifier,
                 },
-                "property": "is_generic_structure",
-                "value": value,
+                "decisions": [{
+                    "path": ["is_generic_structure"], "mode": "set", "value": value,
+                    "observed_value": None, "observed_exists": False,
+                }],
+                "note": "Classify generic structure",
             }
         for identifier, value in [
             ("KEGG.COMPOUND:C00001", True),
@@ -836,9 +741,9 @@ def test_apply_curations_aborts_transaction_when_a_later_mutation_fails():
     ]
     snapshot = SimpleNamespace(
         active_operations=[],
-        active_property_decisions=[
-            property_decisions_from_operation(
-                METABOLITE_ANNOTATIONS,
+        active_record_property_decisions=[
+            record_property_decisions_from_operation(
+                METABOLITE_RECORD_PROPERTIES,
                 operation,
                 batch_id="batch-1",
                 published_at="2026-09-24T12:00:00Z",
@@ -846,11 +751,11 @@ def test_apply_curations_aborts_transaction_when_a_later_mutation_fails():
             )[0]
             for operation in operations
         ],
-        metadata=lambda: {"curation_type": METABOLITE_ANNOTATIONS},
+        metadata=lambda: {"curation_type": METABOLITE_RECORD_PROPERTIES},
     )
 
     with pytest.raises(RuntimeError, match="simulated mutation failure"):
-        adapter.apply_curation_snapshots({METABOLITE_ANNOTATIONS: snapshot})
+        adapter.apply_curation_snapshots({METABOLITE_RECORD_PROPERTIES: snapshot})
 
     assert db.aborted is True
     assert db.committed is False

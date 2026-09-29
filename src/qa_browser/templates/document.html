@@ -43,12 +43,35 @@
 {% endblock %}
 
 {# ── Recursive macro for nested objects ─────────────────── #}
+{% macro render_value(val, key=none) %}
+{% if val is mapping and val.get("_qa_inline_curation") %}
+<span class="inline-curation">
+    <span class="inline-curation-value">{{ val.curated_display }}</span>
+    <span class="inline-curation-original">(original {% if val.original_present %}{{ val.original_display }}{% else %}{{ val.original_missing_display }}{% endif %})</span>
+    <span class="badge badge-success">Curated</span>
+</span>
+{% elif key == "is_generic_structure" %}
+{%- if val is sameas true %}Generic{% elif val is sameas false %}Specific / non-generic{% else %}Unknown / unclassified{% endif -%}
+{% else %}
+{%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+{% endif %}
+{% endmacro %}
+
+{% macro render_field_key(key) %}
+{{- "Generic structure" if key == "is_generic_structure" else key -}}
+{% endmacro %}
+
 {% macro render_fields(obj) %}
 <div class="field-list">
     {% for key, val in obj.items() %}
-    {% if val is mapping %}
+    {% if val is mapping and val.get("_qa_inline_curation") %}
+    <div class="field-row">
+        <span class="field-key">{{ render_field_key(key) }}</span>
+        <span class="field-val">{{ render_value(val, key) }}</span>
+    </div>
+    {% elif val is mapping %}
     <div class="field-row nested-group">
-        <span class="field-key">{{ key }}</span>
+        <span class="field-key">{{ render_field_key(key) }}</span>
         <div class="field-nested">
             {{ render_fields(val) }}
         </div>
@@ -56,7 +79,7 @@
     {% elif val is iterable and val is not string and val is not number %}
         {% if val and val[0] is mapping %}
         <div class="field-row nested-group">
-            <span class="field-key">{{ key }}</span>
+            <span class="field-key">{{ render_field_key(key) }}</span>
             <div class="field-nested">
                 {% for item in val %}
                 {% if not loop.first %}<hr class="obj-sep">{% endif %}
@@ -67,7 +90,7 @@
         </div>
         {% else %}
         <div class="field-row">
-            <span class="field-key">{{ key }}</span>
+            <span class="field-key">{{ render_field_key(key) }}</span>
             <span class="field-val">
                 {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
             </span>
@@ -75,9 +98,9 @@
         {% endif %}
     {% else %}
     <div class="field-row">
-        <span class="field-key">{{ key }}</span>
+        <span class="field-key">{{ render_field_key(key) }}</span>
         <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
-            {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+            {{- render_value(val, key) -}}
         </span>
     </div>
     {% endif %}
@@ -127,15 +150,15 @@
     <div class="field-list">
         {% for key, val in scalar_fields %}
         <div class="field-row">
-            <span class="field-key">{{ key }}</span>
+            <span class="field-key">{{ render_field_key(key) }}</span>
             <span class="field-val {% if val is none %}null{% elif val is sameas true or val is sameas false %}bool{% endif %}">
-                {%- if val is none %}null{% elif val is sameas true %}true{% elif val is sameas false %}false{% else %}{{ val }}{% endif -%}
+                {{- render_value(val, key) -}}
             </span>
         </div>
         {% endfor %}
         {% for key, val in list_fields %}
         <div class="field-row {% if key == 'resolved_ids' %}nerd-only{% endif %}">
-            <span class="field-key">{{ key }}</span>
+            <span class="field-key">{{ render_field_key(key) }}</span>
             <span class="field-val">
                 {% for item in val %}<span class="tag">{{ item }}</span>{% endfor %}
             </span>

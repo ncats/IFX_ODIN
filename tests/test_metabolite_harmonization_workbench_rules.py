@@ -12,7 +12,7 @@ from src.core.curations import (
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
     METABOLITE_RECORD_SUPPRESSIONS,
-    RECORD_PROPERTIES,
+    METABOLITE_RECORD_PROPERTIES,
     batch_key,
     manifest_key,
     payload_sha256,
@@ -106,7 +106,7 @@ def test_harmonization_rules_have_expected_workbench_groups():
         rule for rule in qa_app._METABOLITE_HARMONIZATION_RULES
         if rule["id"] == "apply_curations"
     )
-    assert RECORD_PROPERTIES in apply_rule["parameters"][0]["default"]
+    assert METABOLITE_RECORD_PROPERTIES in apply_rule["parameters"][0]["default"]
 
 
 def test_ramp_evidence_graph_does_not_materialize_curations_during_etl():
@@ -595,12 +595,12 @@ def test_record_property_curations_project_stage_values_without_writing_graph(mo
     batch = {
         "format_version": 2,
         "curation_batch_id": "generic-kegg",
-        "curation_type": RECORD_PROPERTIES,
+        "curation_type": METABOLITE_RECORD_PROPERTIES,
         "published_at": "2026-09-29T12:00:00Z",
         "operations": [operation],
     }
     state = qa_app._load_metabolite_curations(_FakeCurationStorage(
-        _typed_curation_objects(RECORD_PROPERTIES, [batch])
+        _typed_curation_objects(METABOLITE_RECORD_PROPERTIES, [batch])
     ))
     other_operation = {
         **operation,
@@ -617,7 +617,7 @@ def test_record_property_curations_project_stage_values_without_writing_graph(mo
     }
     state_with_unrelated = qa_app._load_metabolite_curations(
         _FakeCurationStorage(
-            _typed_curation_objects(RECORD_PROPERTIES, [batch, other_batch])
+            _typed_curation_objects(METABOLITE_RECORD_PROPERTIES, [batch, other_batch])
         )
     )
     evidence = {
@@ -648,7 +648,7 @@ def test_record_property_curations_project_stage_values_without_writing_graph(mo
     assert "_curation_original" not in evidence
     assert overlays["KEGG.COMPOUND:C00626"]["is_generic_structure"] is True
     assert reports[0]["status"] == "applied"
-    assert state["snapshots"][RECORD_PROPERTIES]["manifest_revision"] == 1
+    assert state["snapshots"][METABOLITE_RECORD_PROPERTIES]["manifest_revision"] == 1
     assert (
         state_with_unrelated["record_property_fingerprint"]
         == state["record_property_fingerprint"]
@@ -747,7 +747,7 @@ def test_pipeline_curation_fingerprint_only_uses_selected_streams():
     property_only = {
         "rule_ids": ["apply_curations"],
         "rule_parameters": {"apply_curations": {
-            "curation_types": [RECORD_PROPERTIES],
+            "curation_types": [METABOLITE_RECORD_PROPERTIES],
         }},
     }
 
@@ -768,7 +768,7 @@ def test_pipeline_curation_fingerprint_only_uses_selected_streams():
     })
     assert edge_fingerprint != combined_fingerprint
     assert property_fingerprint == payload_sha256({
-        RECORD_PROPERTIES: "properties-v4",
+        METABOLITE_RECORD_PROPERTIES: "properties-v4",
     })
 
 
@@ -2176,11 +2176,15 @@ def test_build_harmonization_stage_cart_flags_includes_node_updates_and_edges():
                 "action": "set_properties",
                 "target": {
                     "kind": "node",
+                    "curation_set": "metabolite_harmonization",
                     "model_type": "MetaboliteIdentifier",
                     "id": "KEGG.COMPOUND:C00001",
                 },
-                "values": {"is_generic_structure": True, "name": "Water class"},
-                "remove_overrides": ["description"],
+                "decisions": [
+                    {"path": ["is_generic_structure"], "mode": "set", "value": True},
+                    {"path": ["name"], "mode": "set", "value": "Water class"},
+                    {"path": ["description"], "mode": "remove_override"},
+                ],
             },
             {
                 "action": "remove_edge",
