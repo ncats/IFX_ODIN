@@ -10,12 +10,47 @@
     <button type="button" class="btn btn-secondary" id="recordCurationCartToggle">Review changes <span id="recordCurationCartCount">0</span></button>
 </div>
 
+{% if record_curation.published_fields %}
+<section class="card record-curation-summary" aria-label="Published property curations">
+    <div class="record-curation-summary-heading">
+        <h2>Published curations</h2>
+        <span class="badge">{{ record_curation.published_fields|length }} curated field{% if record_curation.published_fields|length != 1 %}s{% endif %}</span>
+    </div>
+    <p class="record-curation-help">
+        {% if record_curation.application_mode == "evidence_overlay" %}
+        These corrections are stored separately and are applied only by harmonization stages that select the record-property overlay.
+        {% else %}
+        These corrections are materialized when this graph is rebuilt with record-property curations enabled.
+        {% endif %}
+    </p>
+    <div class="record-curation-summary-fields">
+        {% for field in record_curation.published_fields %}
+        <div class="record-curation-summary-field">
+            <div><strong>{{ field.label }}</strong> <code>{{ field.name }}</code> <span class="badge">Curated</span></div>
+            <div class="record-curation-values">
+                <small><strong>Published curation:</strong> <code>{{ field.effective_json }}</code></small>
+                <small><strong>Evidence graph value:</strong> <code>{{ field.baseline_json }}</code></small>
+            </div>
+            {% if field.rationale %}<small>Rationale: {{ field.rationale }}</small>{% endif %}
+            {% if field.published_at or field.batch_id %}<small>{% if field.published_at %}Published {{ field.published_at }}{% endif %}{% if field.batch_id %} · batch {{ field.batch_id }}{% endif %}</small>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
 <section class="card record-curation-card" id="recordPropertyCuration" hidden
          data-root-path="{{ root_path }}" data-record-curation='{{ record_curation|tojson }}'>
     <div class="record-curation-heading">
         <div>
             <h2>Curate record</h2>
-            <p class="record-curation-help">Corrections replace the ordinary graph value after the next build. The loaded value is retained in <code>_curation_original</code>.</p>
+            <p class="record-curation-help">
+                {% if record_curation.application_mode == "evidence_overlay" %}
+                Corrections are stored separately from the evidence graph. Harmonization stages that apply record-property curations use the curated values.
+                {% else %}
+                Corrections replace the ordinary graph value after the next build. The loaded value is retained for explanation and restoration.
+                {% endif %}
+            </p>
         </div>
         <button type="button" class="btn btn-secondary" id="recordCurationEditorClose">Close editor</button>
     </div>

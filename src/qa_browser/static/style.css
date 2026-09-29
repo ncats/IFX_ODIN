@@ -1228,6 +1228,11 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .record-curation-entry small { color: var(--text-muted); }
 .record-curation-card[hidden] { display: none; }
 .record-curation-help { color: var(--text-muted); margin-bottom: 0; }
+.record-curation-summary { border-left: 4px solid #b7791f; }
+.record-curation-summary-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.record-curation-summary-heading h2 { margin: 0; }
+.record-curation-summary-fields { display: grid; gap: 0.75rem; margin-top: 0.85rem; }
+.record-curation-summary-field { padding-top: 0.7rem; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .record-curator-row { align-items: end; margin: 1rem 0; }
 .record-curator-row label { flex: 0 1 18rem; }
 .record-curator-row .record-curation-rationale { flex: 1 1 32rem; }
