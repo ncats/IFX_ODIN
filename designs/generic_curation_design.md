@@ -103,8 +103,9 @@ Normal graph YAML selects types:
 ```yaml
 curations:
   types:
-    - metabolite_annotations
+    - record_properties
   credentials: ./src/use_cases/secrets/aws_ifx_registry.yaml
+  allow_missing: true  # useful before the first batch is published
 ```
 
 ODIN resolves all manifests before graph writes. One YAML may contain both
@@ -118,8 +119,11 @@ post_adapters:
   # adapters that read the materialized graph and emit normal partial records
 ```
 
-The fixed lifecycle is output pre-processing, `input_adapters`,
-`post_adapters`, frozen curations, then output post-processing. Post adapters
+The fixed lifecycle is output pre-processing, `input_adapters`, source-field
+curations, `post_adapters`, the same source-field curations again, then output
+post-processing. Applying twice lets post adapters consume curated source values
+while ensuring a post adapter cannot accidentally replace the published
+effective value. Post adapters
 use the normal adapter/output merge contract; they are not a second build and
 do not bypass provenance or field-conflict policy. Missing curation targets and
 invalid operations fail a normal build; curations never create skeletal
@@ -142,20 +146,11 @@ before the orderable **Apply curations** stage could show its before/after
 effect. Once that experiment is retired, enabling graph-build curations is a
 separate cutover decision, not an additive duplicate of the stage rule.
 
-### Follow-up: effective curated records
-
-The graph build now applies generic property curations to records after post
-adapters. The harmonization workbench still simulates selected, frozen
-curations as an orderable stage rule. Do not assume that adding another
-editable field automatically makes every harmonization rule consume its staged
-value. Supporting fields such as
-SMILES, formula, mass, or nested chemical properties requires a shared
-effective-record layer that applies all active property decisions before any
-downstream rule reads the record. That layer must preserve the source value,
-effective value, curation provenance, explicit null semantics, and restoration
-behavior. Until it exists, each newly curatable field needs an explicit
-consumer audit and should fail closed rather than appear supported while rules
-continue using the uncurated graph value.
+The effective curated value is stored in the ordinary field. Its loaded value
+is retained in the sibling `_curation_original` object at the same nesting
+level, and `updates` plus a `Manual Curation` source identify the published
+batch. This keeps ordinary graph queries simple while retaining enough baseline
+state to explain or restore the correction on a clean build.
 
 ### Follow-up: migrate Pharos post builds
 

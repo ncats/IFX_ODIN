@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from src.core.curations import (
     FORMAT_VERSION,
+    RECORD_PROPERTIES,
     batch_key,
     manifest_key,
     operation_subjects,
@@ -226,7 +227,35 @@ def add_cart_operation(
             )
             operations = cart.setdefault("operations", [])
             operation_payload = incoming_payload
-            if operation_payload.get("action") == "set_properties":
+            if (
+                curation_type == RECORD_PROPERTIES
+                and operation_payload.get("action") == "set_properties"
+            ):
+                target = operation_payload["target"]
+                same_target = [
+                    item for item in operations
+                    if item.get("action") == "set_properties"
+                    and item.get("target") == target
+                ]
+                if same_target and not replace_target:
+                    decisions_by_path = {}
+                    for item in same_target:
+                        for decision in item.get("decisions") or []:
+                            path_key = json.dumps(
+                                decision.get("path"), sort_keys=True, separators=(",", ":")
+                            )
+                            decisions_by_path[path_key] = decision
+                    for decision in operation_payload.get("decisions") or []:
+                        path_key = json.dumps(
+                            decision.get("path"), sort_keys=True, separators=(",", ":")
+                        )
+                        decisions_by_path[path_key] = decision
+                    operation_payload = {
+                        **operation_payload,
+                        "decisions": list(decisions_by_path.values()),
+                    }
+                operations[:] = [item for item in operations if item not in same_target]
+            elif operation_payload.get("action") == "set_properties":
                 target = operation_payload["target"]
                 same_target = [
                     item for item in operations
@@ -363,6 +392,16 @@ def publish_cart(
         operations = cart.get("operations") or []
         if not operations:
             raise ValueError("The curation cart is empty")
+        if curation_type == RECORD_PROPERTIES:
+            curation_sets = {
+                (operation.get("target") or {}).get("curation_set")
+                for operation in operations
+            }
+            curation_sets.discard(None)
+            if len(curation_sets) != 1:
+                raise ValueError(
+                    "Record-property curations must target exactly one graph per batch"
+                )
         clean_batch_name = _clean_required(batch_name, "batch name")
         published_at = _utc_now()
         batch_id = f"qa-browser-{cart['draft_id']}"

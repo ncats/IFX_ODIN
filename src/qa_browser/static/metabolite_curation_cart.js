@@ -16,7 +16,8 @@
     const assertionMemberIds = container.querySelector("[data-assertion-member-ids]");
     const assertionRationale = container.querySelector("[data-assertion-rationale]");
     const assertionAdd = container.querySelector("[data-assertion-add]");
-    const identityStorageKey = "metaboliteHarmonizationCurator";
+    const identityStorageKey = "odinCurationCurator";
+    const legacyIdentityStorageKey = "metaboliteHarmonizationCurator";
     const noticeStorageKey = "metaboliteHarmonizationCurationNotice";
     const startupNotice = sessionStorage.getItem(noticeStorageKey) || "";
     let cart = {operations: [], operation_count: 0};
@@ -63,7 +64,9 @@
         const operations = cart.operations || [];
         const decisionCount = operations.reduce((count, operation) => count + (
             operation.action === "set_properties"
-                ? Object.keys(operation.values || {}).length + (operation.remove_overrides || []).length
+                ? operation.curation_type === "record_properties"
+                    ? (operation.decisions || []).length
+                    : Object.keys(operation.values || {}).length + (operation.remove_overrides || []).length
                 : 1
         ), 0);
         counts.forEach((count) => {
@@ -78,7 +81,17 @@
             <article class="metabolite-curation-cart-item" data-curation-type="${escapeHtml(operation.curation_type || "")}">
                 <div>
                     <small>${escapeHtml((operation.curation_type || "curation").replaceAll("_", " "))}</small>
-                    ${operation.action === "set_properties" ? `
+                    ${operation.curation_type === "record_properties" ? `
+                        <strong>Correct record properties</strong>
+                        <span><code>${escapeHtml(operation.target_label || operation.target?.id || "")}</code></span>
+                        <small>Graph: <code>${escapeHtml(operation.target?.curation_set || "")}</code></small>
+                        <ul class="metabolite-curation-property-list">
+                            ${(operation.decision_rows || []).map((decision) =>
+                                `<li>${escapeHtml(decision.path_label || "property")}: <strong>${decision.mode === "remove_override" ? "restore loaded value" : escapeHtml(decision.value_json)}</strong></li>`
+                            ).join("")}
+                        </ul>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : operation.action === "set_properties" ? `
                         <strong>Update properties</strong>
                         <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
                         <ul class="metabolite-curation-property-list">
@@ -94,6 +107,10 @@
                         <strong>${operation.action === "unset_property"
                             ? "Use detected generic-structure status"
                             : `Mark as ${operation.value ? "generic" : "not generic"}`}</strong>
+                        <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : ["suppress_record", "restore_record"].includes(operation.action) ? `
+                        <strong>${operation.action === "suppress_record" ? "Suppress from harmonization" : "Restore to harmonization"}</strong>
                         <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
                         ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
                     ` : operation.action === "assert_same_clique" ? `
@@ -156,7 +173,7 @@
         }
         try {
             const params = new URLSearchParams(identityPayload());
-            acceptCart(await api(`/ramp-id-qa/api/curation-cart?${params}`));
+            acceptCart(await api(`/api/curation-cart?${params}`));
             status.textContent = startupNotice || (cart.operations?.length
                 ? "Draft autosaved in S3. It will survive a browser refresh."
                 : "Cart loaded. New curations will be autosaved in S3.");
@@ -282,6 +299,40 @@
 
     window.addMetabolitePropertyCurations = addPropertyDecisions;
 
+    async function addRecordParticipationDecision(action, identifier, note, button) {
+        openCart();
+        if (!curatorInput.value.trim()) {
+            status.textContent = "Enter your curator name or email before changing record participation.";
+            curatorInput.focus();
+            return;
+        }
+        if (!identifier) {
+            status.textContent = "This record is missing an identifier.";
+            return;
+        }
+        status.textContent = action === "suppress_record"
+            ? "Adding record suppression to your review changes…"
+            : "Adding record restoration to your review changes…";
+        if (button) button.disabled = true;
+        try {
+            acceptCart(await api("/ramp-id-qa/api/curation-cart/items", {
+                method: "POST",
+                body: JSON.stringify({
+                    ...identityPayload(),
+                    action,
+                    target_id: identifier,
+                    note: note || "",
+                    replace_target: true,
+                }),
+            }));
+            status.textContent = "Added and autosaved. This decision is pending until publication.";
+        } catch (error) {
+            status.textContent = error.message;
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
     async function addAssertionRetirement(assertionId, button) {
         openCart();
         if (!curatorInput.value.trim()) {
@@ -304,7 +355,12 @@
         }
     }
 
-    curatorInput.value = localStorage.getItem(identityStorageKey) || "";
+    const savedIdentity = localStorage.getItem(identityStorageKey)
+        || localStorage.getItem(legacyIdentityStorageKey) || "";
+    curatorInput.value = savedIdentity;
+    if (savedIdentity && !localStorage.getItem(identityStorageKey)) {
+        localStorage.setItem(identityStorageKey, savedIdentity);
+    }
     curatorInput.addEventListener("input", () => {
         const curator = curatorInput.value.trim();
         if (curator) localStorage.setItem(identityStorageKey, curator);
@@ -342,7 +398,7 @@
         const removeButton = event.target.closest("[data-curation-remove-id]");
         if (!removeButton) return;
         status.textContent = "Removing curation from your cart…";
-        api(`/ramp-id-qa/api/curation-cart/items/${encodeURIComponent(removeButton.dataset.curationRemoveId)}`, {
+        api(`/api/curation-cart/items/${encodeURIComponent(removeButton.dataset.curationRemoveId)}`, {
             method: "DELETE",
             body: JSON.stringify({...identityPayload(), curation_type: removeButton.dataset.curationRemoveType}),
         }).then((nextCart) => {
@@ -362,6 +418,24 @@
     });
 
     document.addEventListener("submit", (event) => {
+        const participationForm = event.target.closest("[data-metabolite-record-participation-form]");
+        if (participationForm) {
+            event.preventDefault();
+            const action = participationForm.dataset.curationAction;
+            const note = participationForm.querySelector("[data-record-participation-note]")?.value.trim() || "";
+            if (action === "suppress_record" && !note) {
+                status.textContent = "Enter a rationale before suppressing this record.";
+                participationForm.querySelector("[data-record-participation-note]")?.focus();
+                return;
+            }
+            addRecordParticipationDecision(
+                action,
+                participationForm.dataset.curationTargetId,
+                note,
+                participationForm.querySelector('button[type="submit"]'),
+            );
+            return;
+        }
         const form = event.target.closest("[data-metabolite-property-form]");
         if (!form) return;
         event.preventDefault();
@@ -421,7 +495,7 @@
         status.textContent = "Publishing immutable curation batch…";
         publish.disabled = true;
         try {
-            const result = await api("/ramp-id-qa/api/curation-cart/publish", {
+            const result = await api("/api/curation-cart/publish", {
                 method: "POST",
                 body: JSON.stringify({
                     ...identityPayload(),
@@ -448,7 +522,10 @@
             batchName.value = "";
             batchDescription.value = "";
             defaultBatchName();
-            const hasGraphChanges = publishedOperations.some((operation) => ["remove_edge", "retain_edge", "set_properties", "set_property", "unset_property"].includes(operation.action));
+            const hasGraphChanges = publishedOperations.some((operation) => [
+                "remove_edge", "retain_edge", "set_properties", "set_property", "unset_property",
+                "suppress_record", "restore_record",
+            ].includes(operation.action));
             status.textContent = hasGraphChanges
                 ? `Published ${result.operation_count} item${result.operation_count === 1 ? "" : "s"} in ${result.batch_count} typed batch${result.batch_count === 1 ? "" : "es"}. Sync affected pipelines to apply them.`
                 : `Published ${result.operation_count} assertion item${result.operation_count === 1 ? "" : "s"}. Validation views now use the new assertion set.`;

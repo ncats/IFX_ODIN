@@ -75,9 +75,11 @@ class BuildGraphFromYaml:
         if isinstance(config, list):
             curation_types = config
             credentials_config = self.configuration.config_dict.get("object_storage_credentials")
+            allow_missing = False
         elif isinstance(config, dict):
             curation_types = config.get("types") or []
             credentials_config = config.get("credentials")
+            allow_missing = bool(config.get("allow_missing", False))
         else:
             raise TypeError("curations must be a list of types or a mapping")
         if not curation_types:
@@ -94,7 +96,9 @@ class BuildGraphFromYaml:
             else DBCredentials.from_yaml(credentials_config)
         )
         storage = object_storage_from_credentials(credentials)
-        return resolve_curation_types(storage, curation_types, allow_missing=False)
+        return resolve_curation_types(
+            storage, curation_types, allow_missing=allow_missing
+        )
 
     def prepare_datastore(self, truncate_tables: bool = True):
         self.etl.create_or_truncate_datastores(truncate_tables=truncate_tables)

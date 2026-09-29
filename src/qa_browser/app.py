@@ -36,10 +36,22 @@ from src.core.curations import (
     METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_RECORD_SUPPRESSIONS,
+    RECORD_PROPERTIES,
     curatable_property_definitions,
     payload_sha256,
     resolve_curation_type,
     validate_operation,
+)
+from src.core.record_property_curations import (
+    CURATION_ORIGINAL_FIELD,
+    MISSING_ORIGINAL_MARKER,
+    canonical_path as _canonical_record_property_path,
+    display_path as _display_record_property_path,
+    is_protected_curation_field,
+    resolve_parent_and_field,
+    schema_for_path,
+    validate_value_for_schema,
 )
 from src.shared.metabolite_generic_structure import (
     GENERIC_STRUCTURE_CLASSIFIER_VERSION,
@@ -287,7 +299,7 @@ _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
 _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
-_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v8"
+_HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v9"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
 _HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 _HMDB_IGNORED_PREFIX_DEFAULTS = [
@@ -336,8 +348,9 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "default": "\n".join([
                     METABOLITE_EQUIVALENCE_EDGES,
                     METABOLITE_ANNOTATIONS,
+                    METABOLITE_RECORD_SUPPRESSIONS,
                 ]),
-                "placeholder": "metabolite_equivalence_edges\nmetabolite_annotations",
+                "placeholder": "metabolite_equivalence_edges\nmetabolite_annotations\nmetabolite_record_suppressions",
             },
         ],
     },
@@ -609,6 +622,22 @@ def _metabolite_curatable_properties(
     return properties
 
 
+def _metabolite_harmonization_participation(
+    identifier: str,
+    curation_state: Optional[dict] = None,
+) -> dict:
+    action = ((curation_state or {}).get("record_states") or {}).get(identifier)
+    decision = ((curation_state or {}).get("record_decisions") or {}).get(identifier)
+    return {
+        "status": "suppressed" if action == "suppress_record" else "active",
+        "is_suppressed": action == "suppress_record",
+        "published_action": action,
+        "decision": decision,
+        "state_available": (curation_state or {}).get("suppression_state_available", True),
+        "state_error": (curation_state or {}).get("suppression_state_error"),
+    }
+
+
 _INCHI_KEY_PREFIX_RE = re.compile(r"^[A-Z]{14}$")
 _INCHI_KEY_DUPLEX_RE = re.compile(r"^[A-Z]{14}-[A-Z]{10}$")
 _INCHI_KEY_FULL_RE = re.compile(r"^([A-Z]{14})-([A-Z]{10})-[A-Z]$")
@@ -858,7 +887,7 @@ def _metabolite_curation_publication_time(batch: dict, key: str) -> datetime:
 
 
 def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] = None) -> dict:
-    """Resolve the three typed metabolite curation streams.
+    """Resolve the typed metabolite curation streams.
 
     The historical function name is retained for internal callers while the
     returned state now includes annotation overrides and typed snapshot metadata.
@@ -873,6 +902,9 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
     edge_snapshot = resolve_curation_type(storage, METABOLITE_EQUIVALENCE_EDGES, allow_missing=True)
     annotation_snapshot = resolve_curation_type(storage, METABOLITE_ANNOTATIONS, allow_missing=True)
     assertion_snapshot = resolve_curation_type(storage, METABOLITE_EXPECTED_CLIQUES, allow_missing=True)
+    suppression_snapshot = resolve_curation_type(
+        storage, METABOLITE_RECORD_SUPPRESSIONS, allow_missing=True
+    )
 
     pair_states = {}
     pair_decisions = {}
@@ -925,9 +957,33 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
         })
     assertions.sort(key=lambda item: (item.get("name", "").casefold(), item["assertion_id"]))
 
+    record_states = {}
+    record_decisions = {}
+    for resolved in suppression_snapshot.active_operations:
+        operation = resolved.operation
+        target_id = _normalize_ramp_denylist_identifier(
+            (operation.get("target") or {}).get("id")
+        )
+        if not target_id:
+            continue
+        record_states[target_id] = operation["action"]
+        record_decisions[target_id] = {
+            "action": operation["action"],
+            "batch_id": resolved.batch_id,
+            "published_at": resolved.published_at,
+            "published_by": resolved.published_by,
+            "note": operation.get("note"),
+        }
+    suppressed_identifier_ids = {
+        identifier
+        for identifier, action in record_states.items()
+        if action == "suppress_record"
+    }
+
     apply_fingerprint = payload_sha256({
         METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.fingerprint,
         METABOLITE_ANNOTATIONS: annotation_snapshot.fingerprint,
+        METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.fingerprint,
     })
 
     return {
@@ -945,13 +1001,21 @@ def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] 
         "assertions": assertions,
         "assertion_batch_ids": assertion_snapshot.batch_ids,
         "assertion_fingerprint": assertion_snapshot.fingerprint,
+        "suppressed_identifier_ids": suppressed_identifier_ids,
+        "record_states": record_states,
+        "record_decisions": record_decisions,
+        "suppression_batch_ids": suppression_snapshot.batch_ids,
+        "suppression_fingerprint": suppression_snapshot.fingerprint,
         "snapshots": {
             METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.metadata(),
             METABOLITE_ANNOTATIONS: annotation_snapshot.metadata(),
             METABOLITE_EXPECTED_CLIQUES: assertion_snapshot.metadata(),
+            METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.metadata(),
         },
         "annotation_state_available": True,
         "annotation_state_error": None,
+        "suppression_state_available": True,
+        "suppression_state_error": None,
         "prefix": f"s3://{storage.bucket}/curations/v2/",
     }
 
@@ -963,6 +1027,136 @@ def _curation_cart_storage():
             detail="Object-storage credentials are required to use curation carts.",
         )
     return _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
+
+
+def _load_record_property_snapshot():
+    return resolve_curation_type(
+        _curation_cart_storage(), RECORD_PROPERTIES, allow_missing=True
+    )
+
+
+def _record_property_observation(document: dict, path: list) -> tuple[bool, Any]:
+    parent, field_name = resolve_parent_and_field(document, path)
+    originals = parent.get(CURATION_ORIGINAL_FIELD) or {}
+    if field_name in originals:
+        if originals[field_name] == MISSING_ORIGINAL_MARKER:
+            return False, None
+        return True, originals[field_name]
+    return field_name in parent, parent.get(field_name)
+
+
+def _record_property_baseline(document: dict, path: list) -> Any:
+    return _record_property_observation(document, path)[1]
+
+
+def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> list[dict]:
+    """Build graph-neutral editors from the persisted collection schema."""
+    schema_fields = schema_entry.get("fields") or {}
+    published = {
+        _canonical_record_property_path(decision.path): decision
+        for decision in snapshot.record_property_decisions_for_set(document["_curation_set"])
+        if decision.target.get("model_type") == document["_curation_model_type"]
+        and decision.target.get("id") == document.get("id")
+    }
+    fields = []
+
+    def add_field(path, descriptor):
+        baseline = _record_property_baseline(document, path)
+        decision = published.get(_canonical_record_property_path(path))
+        effective = (
+            decision.value
+            if decision is not None and decision.mode == "set"
+            else baseline
+        )
+        schema_type = descriptor.get("type") if isinstance(descriptor, dict) else descriptor
+        editor_type = schema_type if schema_type in {"bool", "int", "float", "str"} else "json"
+        fields.append({
+            "name": _display_record_property_path(path),
+            "label": str(path[-1]).replace("_", " ").title(),
+            "path": path,
+            "path_json": json.dumps(path, separators=(",", ":")),
+            "editor_type": editor_type,
+            "baseline": baseline,
+            "baseline_json": json.dumps(baseline, indent=2, default=str),
+            "published": decision.value if decision is not None and decision.mode == "set" else None,
+            "has_published_override": decision is not None and decision.mode == "set",
+            "effective": effective,
+            "effective_json": json.dumps(effective, indent=2, default=str),
+            "batch_id": decision.batch_id if decision else None,
+            "published_at": decision.published_at if decision else None,
+            "rationale": (decision.source_operation.get("note") or "") if decision else "",
+        })
+
+    def unique_selector(items: list[dict]) -> Optional[tuple[str, ...]]:
+        candidates = (
+            ("source", "source_id"),
+            ("chem_data_source", "chem_source_id"),
+            ("id",),
+            ("value", "source"),
+        )
+        for keys in candidates:
+            if not all(all(key in item for key in keys) for item in items):
+                continue
+            values = [tuple(item.get(key) for key in keys) for item in items]
+            if len(values) == len(set(values)):
+                return keys
+        return None
+
+    def visit(value, descriptor, path):
+        schema_type = descriptor.get("type") if isinstance(descriptor, dict) else descriptor
+        if schema_type == "object" and isinstance(value, dict):
+            for child_name, child_descriptor in (descriptor.get("fields") or {}).items():
+                if is_protected_curation_field(child_name) or child_name not in value:
+                    continue
+                visit(value[child_name], child_descriptor, [*path, child_name])
+            return
+        if (
+            schema_type == "list"
+            and isinstance(value, list)
+            and value
+            and descriptor.get("item_type") == "object"
+            and all(isinstance(item, dict) for item in value)
+        ):
+            selector_keys = unique_selector(value)
+            if selector_keys:
+                for item in value:
+                    selector = {key: item.get(key) for key in selector_keys}
+                    selected_path = [*path, {"match": selector}]
+                    for child_name, child_descriptor in (descriptor.get("fields") or {}).items():
+                        if is_protected_curation_field(child_name) or child_name not in item:
+                            continue
+                        visit(item[child_name], child_descriptor, [*selected_path, child_name])
+                return
+        try:
+            schema_for_path(schema_fields, path)
+        except ValueError:
+            return
+        add_field(path, descriptor)
+
+    for field_name, descriptor in schema_fields.items():
+        if is_protected_curation_field(field_name):
+            continue
+        visit(document.get(field_name), descriptor, [field_name])
+    return fields
+
+
+def _record_property_cart_view(cart: dict) -> dict:
+    operations = []
+    for operation in cart.get("operations") or []:
+        target = operation.get("target") or {}
+        operations.append({
+            **operation,
+            "target_label": f"{target.get('model_type')}:{target.get('id')}",
+            "decision_rows": [
+                {
+                    **decision,
+                    "path_label": _display_record_property_path(decision.get("path") or []),
+                    "value_json": json.dumps(decision.get("value"), default=str),
+                }
+                for decision in operation.get("decisions") or []
+            ],
+        })
+    return {**cart, "operations": operations}
 
 
 def _curator_identity(request: Request, payload: Optional[dict] = None) -> tuple[str, str]:
@@ -1058,23 +1252,57 @@ def _metabolite_generic_structure_operation(identifier: str, value: Any, note: s
     raise HTTPException(status_code=400, detail="Generic-structure value must be true, false, null, or detected.")
 
 
-_METABOLITE_CURATION_TYPES = (
+def _metabolite_record_suppression_operation(
+    action: str,
+    identifier: str,
+    note: str = "",
+) -> dict:
+    if action not in {"suppress_record", "restore_record"}:
+        raise HTTPException(status_code=400, detail="Record action must suppress or restore harmonization.")
+    normalized_id = _normalize_ramp_denylist_identifier(identifier)
+    if not normalized_id:
+        raise HTTPException(status_code=400, detail="A valid prefixed metabolite identifier is required.")
+    operation = {
+        "action": action,
+        "target": {
+            "kind": "node",
+            "model_type": "MetaboliteIdentifier",
+            "id": normalized_id,
+        },
+    }
+    clean_note = str(note or "").strip()
+    if clean_note:
+        operation["note"] = clean_note
+    try:
+        validate_operation(METABOLITE_RECORD_SUPPRESSIONS, operation)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return operation
+
+
+_QA_CURATION_TYPES = (
     METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_RECORD_SUPPRESSIONS,
+    RECORD_PROPERTIES,
 )
 
 
-def _combined_metabolite_curation_cart(storage, curator_id: str, curator_name: str) -> dict:
+def _combined_curation_cart(storage, curator_id: str, curator_name: str) -> dict:
     carts = {
         curation_type: load_cart(storage, curation_type, curator_id, curator_name)
-        for curation_type in _METABOLITE_CURATION_TYPES
+        for curation_type in _QA_CURATION_TYPES
     }
-    operations = [
-        {**operation, "curation_type": curation_type}
-        for curation_type, cart in carts.items()
-        for operation in cart.get("operations") or []
-    ]
+    operations = []
+    for curation_type, cart in carts.items():
+        for operation in cart.get("operations") or []:
+            presented = {**operation, "curation_type": curation_type}
+            if curation_type == RECORD_PROPERTIES:
+                presented = _record_property_cart_view(
+                    {"operations": [presented]}
+                )["operations"][0]
+            operations.append(presented)
     return {
         "format_version": 2,
         "curator": {"id": curator_id, "name": curator_name},
@@ -2482,6 +2710,7 @@ def _ensure_harmonization_stage(
     unsupported_curation_types = selected_curation_types - {
         METABOLITE_EQUIVALENCE_EDGES,
         METABOLITE_ANNOTATIONS,
+        METABOLITE_RECORD_SUPPRESSIONS,
     }
     if unsupported_curation_types:
         raise ValueError(
@@ -2489,6 +2718,7 @@ def _ensure_harmonization_stage(
         )
     apply_edge_curations = METABOLITE_EQUIVALENCE_EDGES in selected_curation_types
     apply_annotation_curations = METABOLITE_ANNOTATIONS in selected_curation_types
+    apply_record_suppressions = METABOLITE_RECORD_SUPPRESSIONS in selected_curation_types
     annotations_apply_to_generic_rule = (
         apply_annotation_curations
         and _curation_annotations_apply_to_generic_rule(rule_ids)
@@ -2508,6 +2738,11 @@ def _ensure_harmonization_stage(
             "assertions": [],
             "assertion_batch_ids": [],
             "assertion_fingerprint": None,
+            "suppressed_identifier_ids": set(),
+            "record_states": {},
+            "record_decisions": {},
+            "suppression_batch_ids": [],
+            "suppression_fingerprint": None,
             "prefix": None,
         }
     stage_fingerprint = dict(graph_fingerprint)
@@ -2520,7 +2755,11 @@ def _ensure_harmonization_stage(
             curation_type: (
                 curation_state.get("edge_fingerprint")
                 if curation_type == METABOLITE_EQUIVALENCE_EDGES
-                else curation_state.get("annotation_fingerprint")
+                else (
+                    curation_state.get("annotation_fingerprint")
+                    if curation_type == METABOLITE_ANNOTATIONS
+                    else curation_state.get("suppression_fingerprint")
+                )
             )
             for curation_type in sorted(selected_curation_types)
         })
@@ -2568,6 +2807,13 @@ def _ensure_harmonization_stage(
         for identifier, sources in filtered_support_by_id.items()
         if sources
     }
+    suppressed_identifier_ids = (
+        set(curation_state.get("suppressed_identifier_ids") or set())
+        if apply_record_suppressions
+        else set()
+    )
+    applied_suppressed_identifier_ids = active_ids & suppressed_identifier_ids
+    active_ids -= suppressed_identifier_ids
     effective_generic_classifications = dict(baseline_generic_classifications)
     if apply_annotation_curations:
         effective_generic_classifications.update(
@@ -2646,6 +2892,7 @@ def _ensure_harmonization_stage(
             wikipathways_ignored_source_field_ids
         ),
         "active_identifier_count": len(active_ids),
+        "suppressed_identifier_count": len(applied_suppressed_identifier_ids),
         "active_edge_count": len(active_edges),
         "harmonized_metabolite_count": len(groups),
         "non_singleton_clique_count": len(groups),
@@ -2659,6 +2906,7 @@ def _ensure_harmonization_stage(
         groups,
         curation_state["pairs"],
         apply_edge_curations,
+        suppressed_identifier_ids=applied_suppressed_identifier_ids,
     )
     generic_structure_validation = _build_harmonization_stage_generic_structure_validation(
         groups,
@@ -2699,6 +2947,13 @@ def _ensure_harmonization_stage(
         ),
         "annotation_curation_fingerprint": (
             curation_state.get("annotation_fingerprint") if apply_annotation_curations else None
+        ),
+        "suppression_curation_batch_ids": (
+            curation_state.get("suppression_batch_ids") or []
+            if apply_record_suppressions else []
+        ),
+        "suppression_curation_fingerprint": (
+            curation_state.get("suppression_fingerprint") if apply_record_suppressions else None
         ),
         "assertion_fingerprint": curation_state.get("assertion_fingerprint"),
         "assertion_batch_ids": curation_state.get("assertion_batch_ids") or [],
@@ -2870,9 +3125,38 @@ def _build_harmonization_pipeline_tree(
     }
 
 
+def _pipeline_selected_curation_types(pipeline: dict) -> set[str]:
+    rule_ids = pipeline.get("rule_ids") or []
+    if "apply_curations" in rule_ids:
+        configured = (
+            (pipeline.get("rule_parameters") or {})
+            .get("apply_curations", {})
+            .get("curation_types", [])
+        )
+        return set(configured or [])
+    if "ignore_ramp_mapping_denylist" in rule_ids:
+        return {METABOLITE_EQUIVALENCE_EDGES}
+    return set()
+
+
+def _pipeline_curation_fingerprint(pipeline: dict, curation_state: dict) -> Optional[str]:
+    selected_types = _pipeline_selected_curation_types(pipeline)
+    if not selected_types:
+        return None
+    fingerprints = {
+        METABOLITE_EQUIVALENCE_EDGES: curation_state.get("edge_fingerprint"),
+        METABOLITE_ANNOTATIONS: curation_state.get("annotation_fingerprint"),
+        METABOLITE_RECORD_SUPPRESSIONS: curation_state.get("suppression_fingerprint"),
+    }
+    return payload_sha256({
+        curation_type: fingerprints.get(curation_type)
+        for curation_type in sorted(selected_types)
+    })
+
+
 def _annotate_harmonization_pipeline_curation_status(
     pipelines: List[dict],
-    current_curation_fingerprint: Optional[str],
+    current_curation_fingerprint: Any,
     current_assertion_fingerprint: Optional[str] = None,
 ) -> None:
     for pipeline in pipelines:
@@ -2896,10 +3180,15 @@ def _annotate_harmonization_pipeline_curation_status(
             latest_complete_run
             and completed_engine_version != _HARMONIZATION_ENGINE_VERSION
         )
+        pipeline_curation_fingerprint = (
+            _pipeline_curation_fingerprint(pipeline, current_curation_fingerprint)
+            if isinstance(current_curation_fingerprint, dict)
+            else current_curation_fingerprint
+        )
         edge_curations_changed = bool(
             uses_edge_curations
             and latest_complete_run
-            and latest_complete_run.get("curation_fingerprint") != current_curation_fingerprint
+            and latest_complete_run.get("curation_fingerprint") != pipeline_curation_fingerprint
         )
         assertion_curations_changed = bool(
             uses_assertion_curations
@@ -2931,7 +3220,7 @@ def _annotate_harmonization_pipeline_curation_status(
         pipeline["completed_engine_version"] = completed_engine_version
         pipeline["current_engine_version"] = _HARMONIZATION_ENGINE_VERSION
         pipeline["sync_from_stage_index"] = min(changed_rule_indexes) if changed_rule_indexes else None
-        pipeline["current_curation_fingerprint"] = current_curation_fingerprint if uses_edge_curations else None
+        pipeline["current_curation_fingerprint"] = pipeline_curation_fingerprint if uses_edge_curations else None
         pipeline["current_assertion_fingerprint"] = current_assertion_fingerprint if uses_assertion_curations else None
         pipeline["latest_complete_run_key"] = latest_complete_run.get("_key") if latest_complete_run else None
         pipeline["run_action_enabled"] = True
@@ -3655,9 +3944,12 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             else None
         )
         if curation_state is not None:
+            selected_curation_fingerprint = _pipeline_curation_fingerprint(
+                pipeline, curation_state
+            )
             run_collection.update({
                 "_key": run_key,
-                "curation_fingerprint": curation_state["fingerprint"],
+                "curation_fingerprint": selected_curation_fingerprint,
                 "curation_batch_ids": curation_state["batch_ids"],
                 "assertion_fingerprint": curation_state["assertion_fingerprint"],
                 "assertion_batch_ids": curation_state["assertion_batch_ids"],
@@ -3811,7 +4103,7 @@ def _load_harmonization_pipeline_workbench() -> dict:
         curation_state = _load_metabolite_edge_removal_curations()
         _annotate_harmonization_pipeline_curation_status(
             pipelines,
-            curation_state["fingerprint"],
+            curation_state,
             curation_state["assertion_fingerprint"],
         )
         _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
@@ -5389,16 +5681,41 @@ def _load_metabolite_identifier_mass_values(db) -> Dict[str, dict]:
         for row in db.aql.execute(
             """
             FOR d IN ChemicalEntity
-              LET raw_masses = [d.mass, d.monoisotopic_mass]
-              FILTER raw_masses[0] != null OR raw_masses[1] != null
-              RETURN {id: d.id, raw_masses: raw_masses}
+              LET chemistry = {
+                average: [d.mass, d.calculated_mw],
+                monoisotopic: [d.monoisotopic_mass, d.calculated_monoisotopic_mass],
+                components: d.structure_components || []
+              }
+              FILTER chemistry.average[0] != null
+                OR chemistry.average[1] != null
+                OR chemistry.monoisotopic[0] != null
+                OR chemistry.monoisotopic[1] != null
+                OR LENGTH(chemistry.components) > 0
+              RETURN {id: d.id, chemistry: chemistry}
             """,
             max_runtime=300,
         ):
             target = profile(row["id"])
-            values = row.get("raw_masses") or []
-            add_values(target["whole"]["average"], values[:1])
-            add_values(target["whole"]["monoisotopic"], values[1:2])
+            chemistry = row.get("chemistry") or {}
+            add_values(target["whole"]["average"], chemistry.get("average") or [])
+            add_values(
+                target["whole"]["monoisotopic"],
+                chemistry.get("monoisotopic") or [],
+            )
+            for component_index, component in enumerate(chemistry.get("components") or []):
+                average = _parse_metabolite_mass(component.get("mw"))
+                monoisotopic = _parse_metabolite_mass(component.get("monoisotopic_mass"))
+                if average is None and monoisotopic is None:
+                    continue
+                target["components"].append({
+                    "source": "ChEBI",
+                    "source_id": row["id"],
+                    "component_index": component_index,
+                    "average": average,
+                    "monoisotopic": monoisotopic,
+                    "molecular_formula": component.get("molecular_formula"),
+                    "smiles": component.get("smiles"),
+                })
     for value in mass_values_by_id.values():
         for channel in value["whole"]:
             value["whole"][channel] = sorted(set(value["whole"][channel]))
@@ -5612,14 +5929,21 @@ def _build_harmonization_stage_denylist_validation(
     denylist_pairs: set[tuple[str, str]],
     rule_enabled: bool,
     limit: int = _METABOLITE_DENYLIST_STILL_MERGED_LIMIT,
+    suppressed_identifier_ids: Optional[set[str]] = None,
 ) -> dict:
+    suppressed_identifier_ids = suppressed_identifier_ids or set()
     group_index_by_id: Dict[str, int] = {}
     for rank, members in enumerate(groups, start=1):
         for member_id in members:
             group_index_by_id[member_id] = rank
 
     pairs_by_rank: Dict[int, List[tuple[str, str]]] = {}
-    for left, right in sorted(denylist_pairs):
+    suppressed_incident_pairs = {
+        pair
+        for pair in denylist_pairs
+        if pair[0] in suppressed_identifier_ids or pair[1] in suppressed_identifier_ids
+    }
+    for left, right in sorted(denylist_pairs - suppressed_incident_pairs):
         left_rank = group_index_by_id.get(left)
         right_rank = group_index_by_id.get(right)
         if left_rank is None or right_rank is None or left_rank != right_rank:
@@ -5647,6 +5971,8 @@ def _build_harmonization_stage_denylist_validation(
         "computed": True,
         "rule_enabled": rule_enabled,
         "denylist_pair_count": len(denylist_pairs),
+        "evaluated_denylist_pair_count": len(denylist_pairs) - len(suppressed_incident_pairs),
+        "suppressed_incident_pair_count": len(suppressed_incident_pairs),
         "warning_count": total_pair_count,
         "affected_clique_count": len(pairs_by_rank),
         "display_limit": limit,
@@ -5665,6 +5991,8 @@ def _harmonization_stage_denylist_validation_from_doc(
         "computed": False,
         "rule_enabled": False,
         "denylist_pair_count": 0,
+        "evaluated_denylist_pair_count": 0,
+        "suppressed_incident_pair_count": 0,
         "warning_count": 0,
         "affected_clique_count": 0,
         "display_limit": limit,
@@ -5740,6 +6068,9 @@ def _build_harmonization_denylist_pair_review(
                 "clique_key": shared.get("clique_key"),
             }
 
+    suppressed_endpoint_ids = sorted(
+        set(pair) & set(curation_state.get("suppressed_identifier_ids") or set())
+    )
     decision = (curation_state.get("pair_decisions") or {}).get(pair)
     active_action = (curation_state.get("pair_states") or {}).get(pair)
     if focus is None:
@@ -5758,7 +6089,8 @@ def _build_harmonization_denylist_pair_review(
         "pair": {"left_id": pair[0], "right_id": pair[1]},
         "active_action": active_action,
         "is_active_removal": active_action == "remove_edge",
-        "retain_allowed": active_action == "remove_edge",
+        "retain_allowed": active_action == "remove_edge" and not suppressed_endpoint_ids,
+        "suppressed_endpoint_ids": suppressed_endpoint_ids,
         "decision": decision,
         "stage_states": stage_states,
         "focus": focus,
@@ -5930,6 +6262,7 @@ def _load_metabolite_snapshot_union(
         if clique_key and clique_key not in clique_keys:
             clique_keys.append(clique_key)
     clique_member_ids = []
+    clique_vertex_ids = []
     if clique_keys:
         clique_vertex_ids = [
             f"{_HARMONIZED_METABOLITE_COLLECTION}/{clique_key}"
@@ -6030,8 +6363,8 @@ def _load_metabolite_snapshot_union(
         identifier_ids,
         direct_neighbor_rows,
     )
-    detail_member_ids = []
-    detail_member_id_set = set()
+    detail_member_ids = list(existing_query_ids)
+    detail_member_id_set = set(detail_member_ids)
     for displayed_ids in display_member_ids_by_clique.values():
         for member_id in displayed_ids:
             if member_id not in detail_member_id_set:
@@ -6192,6 +6525,27 @@ def _load_metabolite_snapshot_union(
         ]
         for row in mass_rows
     }
+    active_member_ids_by_stage: Dict[str, set[str]] = {}
+    if db.has_collection(_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION):
+        active_member_ids_by_stage = {
+            stage_key: set() for stage_key in detail_stage_keys
+        }
+        active_rows = db.aql.execute(
+            f"""
+            FOR chunk IN {_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION}
+              FILTER chunk.stage_key IN @stage_keys
+              FOR member_id IN chunk.identifier_ids || []
+                FILTER member_id IN @member_ids
+                RETURN DISTINCT {{stage_key: chunk.stage_key, member_id: member_id}}
+            """,
+            bind_vars={
+                "stage_keys": detail_stage_keys,
+                "member_ids": union_member_ids,
+            },
+            max_runtime=120,
+        )
+        for row in active_rows:
+            active_member_ids_by_stage.setdefault(row["stage_key"], set()).add(row["member_id"])
     display_selections = [
         {
             "stage_key": snapshot_key,
@@ -6249,14 +6603,26 @@ def _load_metabolite_snapshot_union(
                 "Published curation state is unavailable. Property editing is disabled "
                 "to avoid replacing an unknown published value."
             ),
+            "suppression_state_available": False,
+            "suppression_state_error": (
+                "Published suppression state is unavailable. Record participation editing is disabled."
+            ),
         }
     for node in node_by_member_id.values():
+        node["record_url"] = (
+            f"{_root_path()}/db/metabolite_harmonization/collection/"
+            f"MetaboliteIdentifier/doc/{url_quote(str(node.get('id') or ''), safe='')}"
+        )
         node["generic_structure"] = _metabolite_generic_structure_classification(
             node,
             display_curation_state,
         )
         node["curatable_properties"] = _metabolite_curatable_properties(
             node,
+            display_curation_state,
+        )
+        node["harmonization_participation"] = _metabolite_harmonization_participation(
+            node.get("id"),
             display_curation_state,
         )
         source_linkout = _metabolite_identifier_source_linkout(node.get("id"))
@@ -6328,8 +6694,15 @@ def _load_metabolite_snapshot_union(
             for clique in section["cliques_by_key"].values()
             for member_id in clique["member_ids"]
         }
-        missing_member_ids = sorted(union_member_id_set - represented_member_ids)
-        if missing_member_ids:
+        missing_member_ids = union_member_id_set - represented_member_ids
+        active_ids_for_stage = active_member_ids_by_stage.get(section["snapshot_key"])
+        inactive_member_ids = sorted(
+            missing_member_ids - active_ids_for_stage
+            if active_ids_for_stage is not None
+            else set()
+        )
+        singleton_member_ids = sorted(missing_member_ids - set(inactive_member_ids))
+        if singleton_member_ids:
             singleton_bucket_key = f"{section['snapshot_key']}__singleton_bucket"
             section["cliques_by_key"][singleton_bucket_key] = {
                 "snapshot_key": section["snapshot_key"],
@@ -6338,10 +6711,24 @@ def _load_metabolite_snapshot_union(
                 "rules": section["rules"],
                 "clique_id": f"MetaboliteHarmonizationClique:{singleton_bucket_key}",
                 "clique_key": singleton_bucket_key,
-                "clique_size": len(missing_member_ids),
+                "clique_size": len(singleton_member_ids),
                 "clique_rank_by_size": None,
-                "member_ids": missing_member_ids,
+                "member_ids": singleton_member_ids,
                 "is_singleton_bucket": True,
+            }
+        if inactive_member_ids:
+            inactive_bucket_key = f"{section['snapshot_key']}__inactive_bucket"
+            section["cliques_by_key"][inactive_bucket_key] = {
+                "snapshot_key": section["snapshot_key"],
+                "snapshot_name": section["snapshot_name"],
+                "snapshot_created_at": section["snapshot_created_at"],
+                "rules": section["rules"],
+                "clique_id": f"MetaboliteHarmonizationInactive:{inactive_bucket_key}",
+                "clique_key": inactive_bucket_key,
+                "clique_size": len(inactive_member_ids),
+                "clique_rank_by_size": None,
+                "member_ids": inactive_member_ids,
+                "is_inactive_bucket": True,
             }
 
     snapshot_sections = []
@@ -6350,6 +6737,7 @@ def _load_metabolite_snapshot_union(
         for clique in sorted(
             section["cliques_by_key"].values(),
             key=lambda item: (
+                item.get("is_inactive_bucket", False),
                 item.get("is_singleton_bucket", False),
                 item["clique_rank_by_size"] if item["clique_rank_by_size"] is not None else 10**12,
                 item["clique_key"],
@@ -6410,8 +6798,15 @@ def _load_metabolite_snapshot_union(
                     node["generic_structure_state"] = "unknown"
                 if member_id in highlighted_id_set:
                     classes += " selected-query"
+                if clique.get("is_inactive_bucket"):
+                    classes += " harmonization-inactive"
                 elements.append({
-                    "data": {**node, "selected": member_id in highlighted_id_set},
+                    "data": {
+                        **node,
+                        "selected": member_id in highlighted_id_set,
+                        "is_active_in_stage": not clique.get("is_inactive_bucket", False),
+                        "stage_key": section["snapshot_key"],
+                    },
                     "classes": classes,
                 })
             displayed_mapping_edges = [
@@ -6484,6 +6879,12 @@ def _load_metabolite_snapshot_union(
                 len(clique.get("member_ids", []))
                 for clique in cliques
                 if clique.get("is_singleton_bucket")
+            ),
+            "inactive_bucket_count": sum(1 for clique in cliques if clique.get("is_inactive_bucket")),
+            "inactive_bucket_member_count": sum(
+                len(clique.get("member_ids", []))
+                for clique in cliques
+                if clique.get("is_inactive_bucket")
             ),
         })
 
@@ -6582,6 +6983,8 @@ def _build_metabolite_snapshot_sankey(
         ordered_sections = sorted(snapshot_sections, key=lambda section: section.get("snapshot_created_at") or "")
     for stage_index, section in enumerate(ordered_sections):
         for clique in section.get("cliques", []):
+            if clique.get("is_inactive_bucket"):
+                continue
             node_id = f"{section['snapshot_key']}::{clique['clique_key']}"
             if node_id not in node_ids:
                 node_ids.add(node_id)
@@ -6616,9 +7019,13 @@ def _build_metabolite_snapshot_sankey(
         left_by_member = {}
         right_by_member = {}
         for clique in left.get("cliques", []):
+            if clique.get("is_inactive_bucket"):
+                continue
             for member_id in clique.get("member_ids", []):
                 left_by_member[member_id] = f"{left['snapshot_key']}::{clique['clique_key']}"
         for clique in right.get("cliques", []):
+            if clique.get("is_inactive_bucket"):
+                continue
             for member_id in clique.get("member_ids", []):
                 right_by_member[member_id] = f"{right['snapshot_key']}::{clique['clique_key']}"
         for member_id in sorted(set(left_by_member) & set(right_by_member)):
@@ -7868,6 +8275,42 @@ def ramp_id_qa(
     })
 
 
+@app.get("/ramp-id-qa/curations", response_class=HTMLResponse)
+def ramp_id_qa_curations(request: Request):
+    index = {
+        "denylist_pairs": [],
+        "suppressed_records": [],
+    }
+    error = None
+    try:
+        state = _load_metabolite_edge_removal_curations()
+        index["denylist_pairs"] = [
+            {
+                "left_id": pair[0],
+                "right_id": pair[1],
+                "decision": (state.get("pair_decisions") or {}).get(pair) or {},
+                "review_query": urlencode({"denylist_pair": "|".join(pair)}),
+            }
+            for pair, action in sorted((state.get("pair_states") or {}).items())
+            if action == "remove_edge"
+        ]
+        index["suppressed_records"] = [
+            {
+                "identifier": identifier,
+                "decision": (state.get("record_decisions") or {}).get(identifier) or {},
+                "review_query": urlencode({"id": identifier}),
+            }
+            for identifier in sorted(state.get("suppressed_identifier_ids") or [])
+        ]
+    except Exception as exc:
+        error = str(exc)
+    return templates.TemplateResponse(request, "ramp_id_curations.html", {
+        "request": request,
+        "index": index,
+        "error": error,
+    })
+
+
 @app.post("/ramp-id-qa/pipelines")
 async def ramp_id_qa_save_pipeline(
     request: Request,
@@ -8027,6 +8470,7 @@ def ramp_id_qa_metabolite(id: str = "", ids: str = "", stages: str = ""):
     return _load_metabolite_identifier_qa_many(query_id, selected_snapshot_keys)
 
 
+@app.get("/api/curation-cart")
 @app.get("/ramp-id-qa/api/curation-cart")
 def ramp_id_qa_curation_cart(request: Request, curator: str = "", curator_name: str = ""):
     curator_id, display_name = _curator_identity(request, {
@@ -8034,7 +8478,7 @@ def ramp_id_qa_curation_cart(request: Request, curator: str = "", curator_name: 
         "curator_name": curator_name,
     })
     try:
-        return _combined_metabolite_curation_cart(
+        return _combined_curation_cart(
             _curation_cart_storage(), curator_id, display_name
         )
     except ValueError as exc:
@@ -8085,6 +8529,22 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             payload.get("value") if action == "set_property" else "detected",
             str(payload.get("note") or ""),
         )
+    elif action in {"suppress_record", "restore_record"}:
+        curation_type = METABOLITE_RECORD_SUPPRESSIONS
+        operation = _metabolite_record_suppression_operation(
+            action,
+            str(payload.get("target_id") or ""),
+            str(payload.get("note") or ""),
+        )
+        published_state = await run_in_threadpool(_load_metabolite_edge_removal_curations)
+        published_action = (published_state.get("record_states") or {}).get(
+            operation["target"]["id"]
+        )
+        if action == "restore_record" and published_action != "suppress_record":
+            raise HTTPException(
+                status_code=409,
+                detail="This identifier is no longer actively suppressed. Reload the record before restoring it.",
+            )
     else:
         curation_type = METABOLITE_EQUIVALENCE_EDGES
         operation = _metabolite_edge_decision_operation(
@@ -8112,7 +8572,7 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             bool(payload.get("replace_target", False)),
         )
         return await run_in_threadpool(
-            _combined_metabolite_curation_cart,
+            _combined_curation_cart,
             _curation_cart_storage(),
             curator_id,
             curator_name,
@@ -8152,7 +8612,7 @@ def ramp_id_qa_stage_curation_cart_flags(
         "curator_name": curator_name,
     })
     try:
-        cart = _combined_metabolite_curation_cart(
+        cart = _combined_curation_cart(
             _curation_cart_storage(), curator_id, display_name
         )
         return _load_harmonization_stage_cart_flags(stage_key, cart.get("operations") or [])
@@ -8160,6 +8620,7 @@ def ramp_id_qa_stage_curation_cart_flags(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.delete("/api/curation-cart/items/{operation_id}")
 @app.delete("/ramp-id-qa/api/curation-cart/items/{operation_id}")
 async def ramp_id_qa_remove_curation_cart_item(operation_id: str, request: Request):
     payload = await request.json()
@@ -8169,7 +8630,7 @@ async def ramp_id_qa_remove_curation_cart_item(operation_id: str, request: Reque
     try:
         storage = _curation_cart_storage()
         requested_type = str(payload.get("curation_type") or "").strip()
-        candidate_types = [requested_type] if requested_type in _METABOLITE_CURATION_TYPES else list(_METABOLITE_CURATION_TYPES)
+        candidate_types = [requested_type] if requested_type in _QA_CURATION_TYPES else list(_QA_CURATION_TYPES)
         for curation_type in candidate_types:
             cart = await run_in_threadpool(load_cart, storage, curation_type, curator_id, curator_name)
             if any(item.get("operation_id") == operation_id for item in cart.get("operations") or []):
@@ -8183,12 +8644,13 @@ async def ramp_id_qa_remove_curation_cart_item(operation_id: str, request: Reque
                 )
                 break
         return await run_in_threadpool(
-            _combined_metabolite_curation_cart, storage, curator_id, curator_name
+            _combined_curation_cart, storage, curator_id, curator_name
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/curation-cart/publish")
 @app.post("/ramp-id-qa/api/curation-cart/publish")
 async def ramp_id_qa_publish_curation_cart(request: Request):
     payload = await request.json()
@@ -8201,13 +8663,23 @@ async def ramp_id_qa_publish_curation_cart(request: Request):
         if not batch_name:
             raise ValueError("batch name is required")
         carts = {}
-        for curation_type in _METABOLITE_CURATION_TYPES:
+        for curation_type in _QA_CURATION_TYPES:
             cart = await run_in_threadpool(
                 load_cart, storage, curation_type, curator_id, curator_name
             )
             if cart.get("operations"):
                 for operation in cart["operations"]:
                     validate_operation(curation_type, operation)
+                if curation_type == RECORD_PROPERTIES:
+                    curation_sets = {
+                        (operation.get("target") or {}).get("curation_set")
+                        for operation in cart["operations"]
+                    }
+                    curation_sets.discard(None)
+                    if len(curation_sets) != 1:
+                        raise ValueError(
+                            "Record-property curations must target exactly one graph per batch"
+                        )
                 carts[curation_type] = cart
         if not carts:
             raise ValueError("The curation review is empty")
@@ -8227,7 +8699,7 @@ async def ramp_id_qa_publish_curation_cart(request: Request):
                 if not published:
                     raise
                 remaining = await run_in_threadpool(
-                    _combined_metabolite_curation_cart,
+                    _combined_curation_cart,
                     storage,
                     curator_id,
                     curator_name,
@@ -12514,6 +12986,112 @@ async def parquet_stats(request: Request, db_name: str, coll_name: str, doc_key:
     })
 
 
+@app.get("/api/record-curation-cart")
+def record_curation_cart(request: Request, curator: str = "", curator_name: str = ""):
+    curator_id, display_name = _curator_identity(request, {
+        "curator": curator,
+        "curator_name": curator_name,
+    })
+    try:
+        return _combined_curation_cart(
+            _curation_cart_storage(), curator_id, display_name
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/record-curation-cart/items")
+async def add_record_curation_cart_item(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    curator_id, curator_name = _curator_identity(request, payload)
+    db_name = str(payload.get("curation_set") or "").strip()
+    coll_name = str(payload.get("model_type") or "").strip()
+    doc_key = str(payload.get("doc_key") or "").strip()
+    try:
+        db = get_db(db_name)
+        if not db.has_collection(coll_name):
+            raise ValueError(f"Collection does not exist: {coll_name}")
+        coll = db.collection(coll_name)
+        if coll.properties().get("type") in ("edge", 3):
+            raise ValueError("Edge property curations are not supported yet")
+        document = coll.get(doc_key)
+        if not document or not document.get("id"):
+            raise ValueError("The curation target record no longer exists")
+        schema_fields = (_get_collection_schema_entry(db, coll_name).get("fields") or {})
+        if not schema_fields:
+            raise ValueError("This collection does not publish a curatable schema")
+        raw_decisions = payload.get("decisions")
+        if not isinstance(raw_decisions, list) or not raw_decisions:
+            raise ValueError("Choose at least one property to curate")
+        decisions = []
+        for raw_decision in raw_decisions:
+            path = raw_decision.get("path") if isinstance(raw_decision, dict) else None
+            mode = str((raw_decision or {}).get("mode") or "set")
+            descriptor = schema_for_path(schema_fields, path)
+            observed_exists, baseline = _record_property_observation(document, path)
+            decision = {"path": path, "mode": mode}
+            if mode == "set":
+                value = raw_decision.get("value")
+                validate_value_for_schema(value, descriptor, path)
+                decision.update({
+                    "value": value,
+                    "observed_value": baseline,
+                    "observed_exists": observed_exists,
+                })
+            decisions.append(decision)
+        operation = {
+            "action": "set_properties",
+            "target": {
+                "kind": "node",
+                "curation_set": db_name,
+                "model_type": coll_name,
+                "id": document["id"],
+            },
+            "decisions": decisions,
+            "note": str(payload.get("note") or "").strip(),
+        }
+        validate_operation(RECORD_PROPERTIES, operation)
+        storage = _curation_cart_storage()
+        existing_cart = await run_in_threadpool(
+            load_cart, storage, RECORD_PROPERTIES, curator_id, curator_name
+        )
+        existing_sets = {
+            (item.get("target") or {}).get("curation_set")
+            for item in existing_cart.get("operations") or []
+        }
+        existing_sets.discard(None)
+        if existing_sets and existing_sets != {db_name}:
+            raise ValueError(
+                "Publish or clear the current review before curating a different graph"
+            )
+        await run_in_threadpool(
+            add_cart_operation,
+            storage,
+            RECORD_PROPERTIES,
+            curator_id,
+            curator_name,
+            operation,
+            bool(payload.get("replace_target", False)),
+        )
+        return await run_in_threadpool(
+            _combined_curation_cart, storage, curator_id, curator_name
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/record-curation-cart/items/{operation_id}")
+async def remove_record_curation_cart_item(operation_id: str, request: Request):
+    return await ramp_id_qa_remove_curation_cart_item(operation_id, request)
+
+
+@app.post("/api/record-curation-cart/publish")
+async def publish_record_curation_cart(request: Request):
+    return await ramp_id_qa_publish_curation_cart(request)
+
+
 @app.get("/db/{db_name}/collection/{coll_name}/doc/{doc_key:path}", response_class=HTMLResponse)
 async def document_detail(request: Request, db_name: str, coll_name: str, doc_key: str):
     db = get_db(db_name)
@@ -12639,6 +13217,39 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
             pass
 
     template_name = _get_document_template(db_name, coll_name)
+    record_curation = None
+    if doc:
+        record_curation = {
+            "available": False,
+            "curation_set": db_name,
+            "model_type": coll_name,
+            "target_id": doc.get("id"),
+            "doc_key": doc_key,
+            "fields": [],
+        }
+        if is_edge:
+            record_curation["error"] = "Edge property curation is not supported yet."
+        elif not doc.get("id"):
+            record_curation["error"] = "This record has no stable ID to curate."
+        else:
+            schema_entry = _get_collection_schema_entry(db, coll_name)
+            if not schema_entry.get("fields"):
+                record_curation["error"] = "No editable schema fields are published for this collection."
+            else:
+                try:
+                    snapshot = await run_in_threadpool(_load_record_property_snapshot)
+                    curation_document = dict(doc)
+                    curation_document["_curation_set"] = db_name
+                    curation_document["_curation_model_type"] = coll_name
+                    fields = _record_property_fields(
+                        curation_document, schema_entry, snapshot
+                    )
+                    record_curation["fields"] = fields
+                    record_curation["available"] = bool(fields)
+                    if not fields:
+                        record_curation["error"] = "This record has no editable field values."
+                except Exception as exc:
+                    record_curation["error"] = f"Curation is temporarily unavailable: {exc}"
 
     context = {
         "request": request,
@@ -12655,6 +13266,7 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
         "incoming_linked_groups": incoming_linked_groups,
         "linked_aql": linked_aql,
         "this_node_label": f"This {coll_name}",
+        "record_curation": record_curation,
     }
     if template_name == "cure_case_report_document.html":
         context.update(_get_adjacent_collection_docs(db, coll_name, doc))

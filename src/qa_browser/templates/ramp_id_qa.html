@@ -70,6 +70,15 @@
             {% if denylist_pair_review.decision.note %} · {{ denylist_pair_review.decision.note }}{% endif %}
         </p>
         {% endif %}
+        {% if denylist_pair_review.suppressed_endpoint_ids %}
+        <div class="inline-warning">
+            Not evaluated while
+            {% for identifier in denylist_pair_review.suppressed_endpoint_ids %}
+            <code>{{ identifier }}</code>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            is suppressed from harmonization.
+        </div>
+        {% endif %}
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Stage</th><th>Effect in this run</th><th>Endpoint groups</th></tr></thead>
@@ -117,6 +126,7 @@
         <form method="get" action="{{ root_path }}/ramp-id-qa" class="ramp-id-form metabolite-id-search">
             <input name="denylist_pair" spellcheck="false" placeholder="CHEBI:123 | HMDB:HMDB0000123" required>
             <button type="submit" class="btn">Review pair</button>
+            <a class="btn" href="{{ root_path }}/ramp-id-qa/curations">Review all published curations</a>
         </form>
     </section>
 
@@ -286,6 +296,11 @@
                 <span class="is-specific"><i aria-hidden="true"></i>Specific / non-generic</span>
                 <span class="is-unknown"><i aria-hidden="true"></i>Unknown</span>
             </p>
+            <p class="metabolite-id-graph-legend" data-pending-record-legend hidden>
+                <strong>Draft participation changes</strong>
+                <span class="is-pending-suppression"><i aria-hidden="true"></i>Pending suppression</span>
+                <span class="is-pending-restoration"><i aria-hidden="true"></i>Pending restoration</span>
+            </p>
             {% if denylist_review %}
             <p class="metabolite-id-graph-legend">
                 <strong>Review overlays</strong>
@@ -315,7 +330,7 @@
     {% endif %}
 </div>
 
-<script src="{{ root_path }}/static/metabolite_curation_cart.js"></script>
+<script src="{{ root_path }}/static/metabolite_curation_cart.js?v=2"></script>
 
 {% if result and result.found %}
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
@@ -330,6 +345,7 @@
     const denylistPairReview = {{ (denylist_pair_review or {})|tojson }};
     let selectedCliqueCy = null;
     let pendingEdgeDecisionActions = new Map();
+    let pendingRecordActions = new Map();
 
     function edgeRemovalKey(startId, endId) {
         return [String(startId || ""), String(endId || "")].sort().join("\u0000");
@@ -367,6 +383,22 @@
         });
     }
 
+    function updatePendingRecordVisuals() {
+        if (selectedCliqueCy) {
+            selectedCliqueCy.nodes().forEach((node) => {
+                const action = pendingRecordActions.get(node.data("id"));
+                node.toggleClass("pending-record-suppression", action === "suppress_record");
+                node.toggleClass("pending-record-restoration", action === "restore_record");
+            });
+        }
+        const hasVisibleDraft = Boolean(selectedCliqueCy && selectedCliqueCy.nodes(
+            ".pending-record-suppression, .pending-record-restoration",
+        ).length);
+        document.querySelectorAll("[data-pending-record-legend]").forEach((legend) => {
+            legend.hidden = !hasVisibleDraft;
+        });
+    }
+
     function setPendingEdgeRemovals(operations) {
         pendingEdgeDecisionActions = new Map(
             (operations || [])
@@ -376,8 +408,19 @@
         updatePendingEdgeRemovalVisuals();
     }
 
+    function setPendingRecordActions(operations) {
+        pendingRecordActions = new Map(
+            (operations || [])
+                .filter((operation) => ["suppress_record", "restore_record"].includes(operation.action))
+                .map((operation) => [operation.target?.id, operation.action]),
+        );
+        updatePendingRecordVisuals();
+    }
+
     document.addEventListener("metabolite-curation-cart:changed", (event) => {
-        setPendingEdgeRemovals(event.detail?.operations || []);
+        const operations = event.detail?.operations || [];
+        setPendingEdgeRemovals(operations);
+        setPendingRecordActions(operations);
         if (selectedCliqueCy) {
             const selectedNode = selectedCliqueCy.nodes(":selected").first();
             if (selectedNode.length) {
@@ -386,6 +429,7 @@
         }
     });
     setPendingEdgeRemovals(window.metaboliteCurationCartOperations || []);
+    setPendingRecordActions(window.metaboliteCurationCartOperations || []);
 
     function setupSankeyPlot(plot, plotIndex) {
         const sankeyPayload = plot.sankey;
@@ -1033,7 +1077,9 @@
         if (subtitle) {
             const parts = [
                 snapshotSection?.snapshot_name || sankeyNode.snapshot || sankeyNode.snapshot_key,
-                snapshotGraph.is_singleton_bucket ? "Single ID" : snapshotGraph.clique_key,
+                snapshotGraph.is_inactive_bucket
+                    ? "Not active in this stage"
+                    : snapshotGraph.is_singleton_bucket ? "Single ID" : snapshotGraph.clique_key,
             ];
             if (snapshotGraph.display_truncated) {
                 const centers = snapshotGraph.display_center_ids || [];
@@ -1178,6 +1224,7 @@
         selectedCliqueCy.on("tap", "edge", (event) => renderDetails(container, event.target.data(), true));
         selectedCliqueCy.ready(() => {
             updatePendingEdgeRemovalVisuals();
+            updatePendingRecordVisuals();
             selectedCliqueCy.fit(undefined, 36);
             const selected = selectedCliqueCy.nodes(".selected-query").first();
             if (selected.length) {

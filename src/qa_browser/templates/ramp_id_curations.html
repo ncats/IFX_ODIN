@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Metabolite Curation Review{% endblock %}
+
+{% block breadcrumb %}
+<span class="sep">/</span>
+<a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Studio</a>
+<span class="sep">/</span>
+<span>Published Curations</span>
+{% endblock %}
+
+{% block content %}
+<div class="ramp-id-page metabolite-id-qa-page">
+    <section class="ramp-id-header">
+        <div>
+            <h1>Published Metabolite Curations</h1>
+            <p>Review active equivalence removals and records quarantined from harmonization.</p>
+        </div>
+        <a class="btn" href="{{ root_path }}/ramp-id-qa">Back to Studio</a>
+    </section>
+
+    {% if error %}
+    <div class="inline-error">{{ error }}</div>
+    {% endif %}
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <div>
+                <h2>Quarantined Records</h2>
+                <p>{{ index.suppressed_records|length }} record{{ "" if index.suppressed_records|length == 1 else "s" }} excluded from every harmonization rule and output.</p>
+            </div>
+        </div>
+        {% if index.suppressed_records %}
+        <div class="table-wrap">
+            <table class="metabolite-curation-index-table">
+                <thead><tr><th>Identifier</th><th>Rationale</th><th>Published</th><th>Review</th></tr></thead>
+                <tbody>
+                {% for record in index.suppressed_records %}
+                <tr>
+                    <td><code>{{ record.identifier }}</code></td>
+                    <td>{{ record.decision.note or "No rationale recorded" }}</td>
+                    <td>
+                        {% if record.decision.batch_id %}<div>Batch <code>{{ record.decision.batch_id }}</code></div>{% endif %}
+                        {% if record.decision.published_at %}<div>{{ record.decision.published_at }}</div>{% endif %}
+                        {% if record.decision.published_by %}
+                        <div>by {{ record.decision.published_by.name|default(record.decision.published_by.id, true) }}</div>
+                        {% endif %}
+                    </td>
+                    <td><a class="btn" href="{{ root_path }}/ramp-id-qa?{{ record.review_query }}">Inspect or restore</a></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No records are currently quarantined.</p>
+        {% endif %}
+    </section>
+
+    <section class="ramp-id-table-section">
+        <div class="ramp-id-section-header">
+            <div>
+                <h2>Equivalence Deny List</h2>
+                <p>{{ index.denylist_pairs|length }} active pair{{ "" if index.denylist_pairs|length == 1 else "s" }}.</p>
+            </div>
+        </div>
+        {% if index.denylist_pairs %}
+        <div class="table-wrap">
+            <table class="metabolite-curation-index-table">
+                <thead><tr><th>Pair</th><th>Rationale</th><th>Published</th><th>Review</th></tr></thead>
+                <tbody>
+                {% for pair in index.denylist_pairs %}
+                <tr>
+                    <td><code>{{ pair.left_id }}</code><br><code>{{ pair.right_id }}</code></td>
+                    <td>{{ pair.decision.note or "No rationale recorded" }}</td>
+                    <td>
+                        {% if pair.decision.batch_id %}<div>Batch <code>{{ pair.decision.batch_id }}</code></div>{% endif %}
+                        {% if pair.decision.published_at %}<div>{{ pair.decision.published_at }}</div>{% endif %}
+                        {% if pair.decision.published_by %}
+                        <div>by {{ pair.decision.published_by.name|default(pair.decision.published_by.id, true) }}</div>
+                        {% endif %}
+                    </td>
+                    <td><a class="btn" href="{{ root_path }}/ramp-id-qa?{{ pair.review_query }}">Review pair</a></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No equivalence pairs are currently denied.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

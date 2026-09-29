@@ -171,6 +171,16 @@ Convenience fields copied from source annotations:
 - `inchi_key`
 - `wurcs`
 
+When a full-ontology term has a parseable SMILES, the adapter also persists
+RDKit-derived whole-structure masses and `structure_components`, including each
+dot-separated fragment's formula, average mass, monoisotopic mass, charge,
+SMILES, and InChIKey. This deliberately covers non-three-star entities that are
+absent from the separate three-star SDF chemistry adapter. The metabolite MW
+validator consumes these `ChemicalEntity` components, so a salt/counterion
+difference can be reported as a component-aware warning instead of an
+unexplained error. For example, unstarred `CHEBI:175111` separates into the
+322.34-Da berberrubine cation and a 35.453-Da chloride component.
+
 ChEBI's mass properties require an additional semantic check for generic
 structures before they are copied into the `mass` and `monoisotopic_mass`
 convenience fields. ChEBI emits partial, "excluding R groups" masses for many

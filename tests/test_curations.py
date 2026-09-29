@@ -6,6 +6,8 @@ import src.qa_browser.app as qa_app
 
 from src.core.curations import (
     METABOLITE_ANNOTATIONS,
+    METABOLITE_RECORD_SUPPRESSIONS,
+    RECORD_PROPERTIES,
     batch_key,
     curatable_property_definitions,
     manifest_key,
@@ -43,6 +45,139 @@ def annotation_operation(identifier, value):
         "property": "is_generic_structure",
         "value": value,
     }
+
+
+def record_property_operation(identifier="REFMET:RM0006550", value="C6H10O5"):
+    return {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": identifier,
+        },
+        "decisions": [{
+            "path": ["formula"],
+            "mode": "set",
+            "value": value,
+            "observed_value": "C6H1005",
+        }],
+        "note": "Correct a source typo.",
+    }
+
+
+def test_record_property_operation_requires_rationale_and_protects_identity():
+    operation = record_property_operation()
+    assert validate_operation(RECORD_PROPERTIES, operation) is operation
+
+    without_note = {**operation, "note": ""}
+    with pytest.raises(ValueError, match="requires a rationale"):
+        validate_operation(RECORD_PROPERTIES, without_note)
+
+    protected = {
+        **operation,
+        "decisions": [{
+            "path": ["id"], "mode": "set", "value": "other", "observed_value": "old",
+        }],
+    }
+    with pytest.raises(ValueError, match="managed by the graph build"):
+        validate_operation(RECORD_PROPERTIES, protected)
+
+
+def test_record_property_resolution_is_latest_wins_per_set_and_path():
+    batches = [
+        ("batch-1", [record_property_operation(value="first")]),
+        ("batch-2", [record_property_operation(value="second")]),
+    ]
+    objects = {}
+    entries = []
+    for index, (batch_id, operations) in enumerate(batches, start=1):
+        batch = {
+            "format_version": 2,
+            "curation_batch_id": batch_id,
+            "curation_type": RECORD_PROPERTIES,
+            "published_at": f"2026-09-{index:02d}T12:00:00Z",
+            "operations": operations,
+        }
+        key = batch_key(RECORD_PROPERTIES, batch_id)
+        objects[key] = json.dumps(batch)
+        entries.append({"batch_id": batch_id, "object_key": key, "sha256": payload_sha256(batch)})
+    manifest = {
+        "format_version": 2,
+        "curation_type": RECORD_PROPERTIES,
+        "revision": 2,
+        "batches": entries,
+    }
+    objects[manifest_key(RECORD_PROPERTIES)] = json.dumps(manifest)
+
+    snapshot = resolve_curation_type(FakeStorage(objects), RECORD_PROPERTIES)
+
+    decisions = snapshot.record_property_decisions_for_set("metabolite_harmonization")
+    assert len(decisions) == 1
+    assert decisions[0].value == "second"
+
+
+def test_record_property_editor_uses_stable_selectors_for_nested_source_records():
+    class EmptySnapshot:
+        @staticmethod
+        def record_property_decisions_for_set(_curation_set):
+            return []
+
+    document = {
+        "_curation_set": "metabolite_harmonization",
+        "_curation_model_type": "MetaboliteIdentifier",
+        "id": "REFMET:1",
+        "chem_props": [{
+            "source": "RefMet", "source_id": "RM1",
+            "molecular_formula": "C6H1005", "calculated_mw": "162.14",
+        }],
+    }
+    schema = {"fields": {"chem_props": {
+        "type": "list", "item_type": "object", "fields": {
+            "source": "str", "source_id": "str", "molecular_formula": "str",
+            "calculated_mw": "str",
+        },
+    }}}
+
+    fields = qa_app._record_property_fields(document, schema, EmptySnapshot())
+
+    assert [field["path"] for field in fields] == [[
+        "chem_props",
+        {"match": {"source": "RefMet", "source_id": "RM1"}},
+        "molecular_formula",
+    ]]
+
+
+def test_record_property_editor_can_add_an_absent_top_level_scalar():
+    class EmptySnapshot:
+        @staticmethod
+        def record_property_decisions_for_set(_curation_set):
+            return []
+
+    sparse_identifier = {
+        "_curation_set": "metabolite_harmonization",
+        "_curation_model_type": "MetaboliteIdentifier",
+        "id": "BiGG:1315507",
+        "prefix": "BiGG",
+        "sources": ["RaMP"],
+    }
+    schema = {"fields": {
+        "id": "str",
+        "prefix": "str",
+        "is_generic_structure": "bool",
+        "chem_props": {
+            "type": "list", "item_type": "object",
+            "fields": {"source": "str", "mw": "str"},
+        },
+    }}
+
+    fields = qa_app._record_property_fields(
+        sparse_identifier, schema, EmptySnapshot()
+    )
+
+    assert [field["path"] for field in fields] == [["is_generic_structure"]]
+    assert fields[0]["baseline"] is None
+    assert fields[0]["effective"] is None
 
 
 def annotation_storage(batches):
@@ -204,6 +339,31 @@ def test_equivalence_registry_rejects_unregistered_or_asymmetric_edge_targets():
         validate_operation("metabolite_equivalence_edges", operation)
 
 
+def test_record_suppression_requires_rationale_and_accepts_restore_inverse():
+    target = {
+        "kind": "node",
+        "model_type": "MetaboliteIdentifier",
+        "id": "REFMET:RM0233954",
+    }
+    suppress = {
+        "action": "suppress_record",
+        "target": target,
+        "note": "Formula and mass conflict with the reported InChIKey and xrefs.",
+    }
+    restore = {
+        "action": "restore_record",
+        "target": target,
+    }
+
+    validate_operation(METABOLITE_RECORD_SUPPRESSIONS, suppress)
+    validate_operation(METABOLITE_RECORD_SUPPRESSIONS, restore)
+
+    missing_rationale = {**suppress}
+    missing_rationale.pop("note")
+    with pytest.raises(ValueError, match="requires a rationale"):
+        validate_operation(METABOLITE_RECORD_SUPPRESSIONS, missing_rationale)
+
+
 def test_generic_structure_classification_keeps_unknown_distinct_from_false():
     unknown = _metabolite_generic_structure_classification({
         "id": "KEGG.COMPOUND:C00001",
@@ -337,7 +497,9 @@ def test_multi_type_publish_reports_partial_success_and_remaining_types(monkeypa
     carts = {
         "metabolite_equivalence_edges": {"operations": [edge_operation]},
         METABOLITE_ANNOTATIONS: {"operations": [annotation]},
+        METABOLITE_RECORD_SUPPRESSIONS: {"operations": []},
         "metabolite_expected_cliques": {"operations": []},
+        RECORD_PROPERTIES: {"operations": []},
     }
 
     monkeypatch.setattr(qa_app, "_curator_identity", lambda request, payload: ("keith", "Keith"))
@@ -356,7 +518,7 @@ def test_multi_type_publish_reports_partial_success_and_remaining_types(monkeypa
     monkeypatch.setattr(qa_app, "publish_cart", publish)
     monkeypatch.setattr(
         qa_app,
-        "_combined_metabolite_curation_cart",
+        "_combined_curation_cart",
         lambda *args: {
             "operations": [{"curation_type": "metabolite_equivalence_edges", **edge_operation}],
             "operation_count": 1,
@@ -374,3 +536,98 @@ def test_multi_type_publish_reports_partial_success_and_remaining_types(monkeypa
     assert payload["partial"] is True
     assert payload["published"][0]["curation_type"] == METABOLITE_ANNOTATIONS
     assert payload["remaining_types"] == ["metabolite_equivalence_edges"]
+
+
+def test_combined_curation_cart_includes_record_and_metabolite_changes(monkeypatch):
+    record_change = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "BiGG:1315507",
+        },
+        "decisions": [{
+            "path": ["formula"],
+            "mode": "set",
+            "value": "C6H12O6",
+            "observed_value": "C6H12O5",
+        }],
+        "operation_id": "record-op",
+    }
+    edge_change = {
+        "action": "remove_edge",
+        "start_id": "CHEBI:1",
+        "end_id": "HMDB:1",
+        "operation_id": "edge-op",
+    }
+    carts = {
+        curation_type: {"operations": []}
+        for curation_type in qa_app._QA_CURATION_TYPES
+    }
+    carts[RECORD_PROPERTIES] = {"operations": [record_change]}
+    carts["metabolite_equivalence_edges"] = {"operations": [edge_change]}
+    monkeypatch.setattr(
+        qa_app,
+        "load_cart",
+        lambda _storage, curation_type, _curator_id, _curator_name: carts[curation_type],
+    )
+
+    combined = qa_app._combined_curation_cart(object(), "keith", "Keith")
+
+    assert {item["curation_type"] for item in combined["operations"]} == {
+        RECORD_PROPERTIES,
+        "metabolite_equivalence_edges",
+    }
+    presented = next(
+        item for item in combined["operations"]
+        if item["curation_type"] == RECORD_PROPERTIES
+    )
+    assert presented["target_label"] == "MetaboliteIdentifier:BiGG:1315507"
+    assert presented["decision_rows"][0]["path_label"] == "formula"
+
+
+def test_record_curation_editor_is_collapsed_by_default_and_explains_unavailable_state():
+    template = qa_app.templates.env.get_template("record_property_curation.html")
+    available = template.render(
+        root_path="",
+        record_curation={
+            "available": True,
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "target_id": "BiGG:1315507",
+            "doc_key": "BiGG:1315507",
+            "fields": [],
+        },
+    )
+    unavailable = template.render(
+        root_path="",
+        record_curation={
+            "available": False,
+            "error": "This record has no editable field values.",
+            "fields": [],
+        },
+    )
+
+    assert "Curate record" in available
+    assert 'id="recordPropertyCuration" hidden' in available
+    assert "Curation unavailable" in unavailable
+    assert "This record has no editable field values." in unavailable
+    assert "Review changes" in unavailable
+
+
+def test_both_curation_drawers_use_the_shared_cart_and_curator_identity():
+    metabolite_source = (
+        qa_app.STATIC_DIR / "metabolite_curation_cart.js"
+    ).read_text()
+    record_source = (
+        qa_app.STATIC_DIR / "record_property_curation.js"
+    ).read_text()
+
+    for source in (metabolite_source, record_source):
+        assert '"odinCurationCurator"' in source
+        assert '"metaboliteHarmonizationCurator"' in source
+        assert "/api/curation-cart?" in source
+        assert "/api/curation-cart/items/" in source
+        assert "/api/curation-cart/publish" in source
+    assert 'operation.curation_type === "record_properties"' in metabolite_source

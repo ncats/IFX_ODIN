@@ -182,6 +182,63 @@
         </section>`;
     }
 
+    function renderHarmonizationParticipation(data) {
+        const participation = data.harmonization_participation || {};
+        const pending = (global.metaboliteCurationCartOperations || []).find((operation) =>
+            operation.curation_type === "metabolite_record_suppressions"
+            && ["suppress_record", "restore_record"].includes(operation.action)
+            && operation.target?.id === data.id
+        );
+        if (participation.state_available === false) {
+            return '<section class="metabolite-id-detail-section metabolite-record-participation">'
+                + '<h4>Harmonization participation</h4>'
+                + '<p class="metabolite-property-state-error" role="alert">'
+                + escapeHtml(participation.state_error || "Published suppression state is unavailable.")
+                + '</p></section>';
+        }
+        const suppressed = participation.is_suppressed === true;
+        const decision = participation.decision || {};
+        const publisher = decision.published_by?.name || decision.published_by?.id || "";
+        const pendingLabel = pending?.action === "suppress_record"
+            ? "Pending suppression"
+            : pending?.action === "restore_record" ? "Pending restoration" : "";
+        const action = suppressed ? "restore_record" : "suppress_record";
+        const actionLabel = suppressed ? "Restore to harmonization" : "Suppress from harmonization";
+        const stageStatus = data.is_active_in_stage === false
+            ? "This identifier is not active in the selected saved stage."
+            : "This identifier is present in the selected saved stage.";
+        const published = publisher || decision.published_at || decision.batch_id
+            ? '<small>'
+                + (decision.batch_id ? 'Batch ' + escapeHtml(decision.batch_id) : "Published decision")
+                + (decision.published_at ? ' · ' + escapeHtml(decision.published_at) : "")
+                + (publisher ? ' · by ' + escapeHtml(publisher) : "")
+                + '</small>'
+            : "";
+        return '<section class="metabolite-id-detail-section metabolite-record-participation">'
+            + '<h4>Harmonization participation</h4>'
+            + '<p><strong class="metabolite-participation-status '
+            + (suppressed ? "is-suppressed" : "is-active") + '">'
+            + (suppressed ? "Suppressed" : "Active") + '</strong>'
+            + (pendingLabel ? ' · <strong>' + escapeHtml(pendingLabel) + '</strong>' : "") + '</p>'
+            + '<p>' + (suppressed
+                ? "Excluded from mappings, structure-based merges, clique membership, validation, and harmonized output. The raw source record remains available here."
+                : "This identifier can participate in mapping and merge rules.") + '</p>'
+            + '<small>' + escapeHtml(stageStatus) + '</small>'
+            + (decision.note ? '<p><strong>Published rationale:</strong> ' + escapeHtml(decision.note) + '</p>' : "")
+            + published
+            + '<form data-metabolite-record-participation-form data-curation-target-id="'
+            + escapeHtml(data.id || "") + '" data-curation-action="' + action + '">'
+            + '<label>Rationale <input type="text" data-record-participation-note '
+            + (action === "suppress_record" ? "required " : "")
+            + 'placeholder="' + (action === "suppress_record"
+                ? "Why this record must not participate"
+                : "Optional reason for restoration") + '"></label>'
+            + '<button type="submit" class="btn" ' + (pending ? "disabled" : "") + '>'
+            + (pending ? escapeHtml(pendingLabel) : escapeHtml(actionLabel)) + '</button></form>'
+            + '<small>Publishing changes reusable curation state. Existing stages must be synced.</small>'
+            + '</section>';
+    }
+
     function renderGenericStructureEvidence(data) {
         const classification = data.generic_structure || {};
         const rows = [
@@ -214,6 +271,9 @@
             : "";
         const identifierRows = [
             detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, true),
+            detailRow("Record", data.record_url
+                ? `<a href="${escapeHtml(data.record_url)}">Open record and curate fields</a>`
+                : "", true),
             detailRow("Source", sourceLink, true),
             detailRow("Prefix", data.prefix),
             detailRow("Names", formatInlineList(data.names || [], 6), true),
@@ -238,6 +298,7 @@
             subtitle: data.kind || data.prefix || "MetaboliteIdentifier",
             html: [
                 `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${identifierRows}</div></section>`,
+                renderHarmonizationParticipation(data),
                 renderCuratableProperties(data),
                 renderGenericStructureEvidence(data),
                 `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${chemistryRows}</div></section>`,
@@ -279,6 +340,18 @@
                 "underlay-color": "#f59e0b", "underlay-opacity": 1, "underlay-padding": 5,
                 "underlay-shape": "ellipse",
                 "width": 82, "height": 82,
+            }},
+            {selector: ".harmonization-inactive", style: {
+                "opacity": 0.72, "border-color": "#991b1b", "border-style": "dashed",
+                "border-width": 4,
+            }},
+            {selector: ".pending-record-suppression", style: {
+                "opacity": 0.5, "border-color": "#f59e0b", "border-style": "dashed",
+                "border-width": 6,
+            }},
+            {selector: ".pending-record-restoration", style: {
+                "opacity": 0.9, "border-color": "#16a34a", "border-style": "dotted",
+                "border-width": 6,
             }},
             {selector: "edge", style: {
                 "curve-style": "bezier", "line-color": "#94a3b8", "target-arrow-color": "#94a3b8",

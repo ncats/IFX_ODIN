@@ -9,6 +9,7 @@ import src.qa_browser.app as qa_app
 from src.core.curations import (
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_RECORD_SUPPRESSIONS,
     batch_key,
     manifest_key,
     payload_sha256,
@@ -449,6 +450,213 @@ def test_assertion_only_batch_does_not_change_edge_curation_fingerprint():
     assert loaded["batch_ids"] == []
     assert loaded["assertion_batch_ids"] == ["assertions"]
     assert loaded["assertions"][0]["assertion_id"] == assertion["assertion_id"]
+
+
+def test_load_metabolite_curations_resolves_record_suppression_and_restore():
+    target = {
+        "kind": "node",
+        "model_type": "MetaboliteIdentifier",
+        "id": "REFMET:RM0233954",
+    }
+    batches = [
+        {
+            "format_version": 2,
+            "curation_batch_id": "suppress",
+            "curation_type": METABOLITE_RECORD_SUPPRESSIONS,
+            "published_at": "2026-09-29T12:00:00Z",
+            "operations": [{
+                "action": "suppress_record",
+                "target": target,
+                "note": "Internally inconsistent identity fields.",
+            }],
+        },
+        {
+            "format_version": 2,
+            "curation_batch_id": "restore",
+            "curation_type": METABOLITE_RECORD_SUPPRESSIONS,
+            "published_at": "2026-09-29T13:00:00Z",
+            "operations": [{
+                "action": "restore_record",
+                "target": target,
+            }],
+        },
+    ]
+    storage = _FakeCurationStorage(_typed_curation_objects(
+        METABOLITE_RECORD_SUPPRESSIONS, batches
+    ))
+
+    loaded = _load_metabolite_edge_removal_curations(storage)
+
+    assert loaded["suppressed_identifier_ids"] == set()
+    assert loaded["record_states"] == {"REFMET:RM0233954": "restore_record"}
+    assert loaded["suppression_batch_ids"] == ["suppress", "restore"]
+    assert loaded["record_decisions"]["REFMET:RM0233954"]["batch_id"] == "restore"
+
+
+def test_pipeline_curation_fingerprint_only_uses_selected_streams():
+    curation_state = {
+        "edge_fingerprint": "edges-v1",
+        "annotation_fingerprint": "annotations-v2",
+        "suppression_fingerprint": "suppressions-v3",
+    }
+    edge_only = {
+        "rule_ids": ["apply_curations"],
+        "rule_parameters": {"apply_curations": {
+            "curation_types": [METABOLITE_EQUIVALENCE_EDGES],
+        }},
+    }
+    edge_and_suppression = {
+        "rule_ids": ["apply_curations"],
+        "rule_parameters": {"apply_curations": {
+            "curation_types": [
+                METABOLITE_EQUIVALENCE_EDGES,
+                METABOLITE_RECORD_SUPPRESSIONS,
+            ],
+        }},
+    }
+
+    edge_fingerprint = qa_app._pipeline_curation_fingerprint(edge_only, curation_state)
+    combined_fingerprint = qa_app._pipeline_curation_fingerprint(
+        edge_and_suppression, curation_state
+    )
+
+    assert edge_fingerprint == payload_sha256({
+        METABOLITE_EQUIVALENCE_EDGES: "edges-v1",
+    })
+    assert combined_fingerprint == payload_sha256({
+        METABOLITE_EQUIVALENCE_EDGES: "edges-v1",
+        METABOLITE_RECORD_SUPPRESSIONS: "suppressions-v3",
+    })
+    assert edge_fingerprint != combined_fingerprint
+
+
+def test_record_suppression_removes_identifier_before_stage_rules(monkeypatch):
+    captured = {}
+
+    class FakeStageCollection:
+        def get(self, _key):
+            return None
+
+    class FakeDb:
+        def collection(self, name):
+            assert name == qa_app._HARMONIZATION_STAGE_COLLECTION
+            return FakeStageCollection()
+
+    support = {
+        "CHEBI:1": {"CHEBI"},
+        "REFMET:RM0233954": {"REFMET"},
+    }
+    monkeypatch.setattr(
+        qa_app, "_load_metabolite_identifier_source_support", lambda _db: support
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_filter_identifier_support_for_rules",
+        lambda support_by_id, *_args: support_by_id,
+    )
+
+    def active_edges(_db, active_ids, *_args):
+        captured["rule_active_ids"] = set(active_ids)
+        return [], {"mapping_edge_count": 0}
+
+    monkeypatch.setattr(
+        qa_app, "_active_metabolite_identifier_mapping_edges_for_rules", active_edges
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_build_harmonized_groups",
+        lambda _db, active_ids, *_args: (
+            captured.update({"group_active_ids": set(active_ids)}) or [],
+            {},
+        ),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_materialize_harmonization_stage",
+        lambda _db, _key, _doc, active_ids, *_args, **_kwargs: captured.update(
+            {"materialized_active_ids": set(active_ids)}
+        ),
+    )
+    curation_state = {
+        "pairs": set(),
+        "batch_ids": [],
+        "edge_fingerprint": "edges",
+        "annotation_overrides": {},
+        "annotation_batch_ids": [],
+        "annotation_fingerprint": "annotations",
+        "assertions": [],
+        "assertion_batch_ids": [],
+        "assertion_fingerprint": "assertions",
+        "suppressed_identifier_ids": {"REFMET:RM0233954"},
+        "record_states": {"REFMET:RM0233954": "suppress_record"},
+        "record_decisions": {},
+        "suppression_batch_ids": ["quarantine-1"],
+        "suppression_fingerprint": "suppressions",
+        "prefix": "s3://test-curations/curations/v2/",
+    }
+
+    stage = qa_app._ensure_harmonization_stage(
+        FakeDb(),
+        ["apply_curations"],
+        {"apply_curations": {
+            "curation_types": [METABOLITE_RECORD_SUPPRESSIONS],
+        }},
+        {"database": "metabolite_harmonization"},
+        "After quarantine",
+        1,
+        mass_values_provider=lambda: {},
+        generic_structure_classifications_provider=lambda: {},
+        curation_state=curation_state,
+    )
+
+    assert captured == {
+        "rule_active_ids": {"CHEBI:1"},
+        "group_active_ids": {"CHEBI:1"},
+        "materialized_active_ids": {"CHEBI:1"},
+    }
+    assert stage["summary"]["suppressed_identifier_count"] == 1
+    assert stage["summary"]["active_identifier_count"] == 1
+    assert stage["suppression_curation_batch_ids"] == ["quarantine-1"]
+
+
+def test_published_curation_index_lists_denied_pairs_and_quarantined_records(monkeypatch):
+    pair = ("CHEBI:1", "HMDB:1")
+    captured = {}
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_edge_removal_curations",
+        lambda: {
+            "pair_states": {pair: "remove_edge"},
+            "pair_decisions": {pair: {"note": "Different structures"}},
+            "suppressed_identifier_ids": {"REFMET:RM0233954"},
+            "record_decisions": {
+                "REFMET:RM0233954": {"note": "Internally inconsistent fields"},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        qa_app.templates,
+        "TemplateResponse",
+        lambda request, name, context: captured.update({
+            "template": name,
+            "context": context,
+        }) or context,
+    )
+
+    context = qa_app.ramp_id_qa_curations(request=object())
+
+    assert captured["template"] == "ramp_id_curations.html"
+    assert context["index"]["denylist_pairs"] == [{
+        "left_id": "CHEBI:1",
+        "right_id": "HMDB:1",
+        "decision": {"note": "Different structures"},
+        "review_query": "denylist_pair=CHEBI%3A1%7CHMDB%3A1",
+    }]
+    assert context["index"]["suppressed_records"] == [{
+        "identifier": "REFMET:RM0233954",
+        "decision": {"note": "Internally inconsistent fields"},
+        "review_query": "id=REFMET%3ARM0233954",
+    }]
 
 
 def test_published_assertion_can_be_retired_chronologically():
@@ -1521,7 +1729,19 @@ def test_mass_profile_loader_keeps_channels_and_component_metadata_separate():
                     }],
                 }]
             if "FOR d IN ChemicalEntity" in query:
-                return [{"id": "CHEBI:1", "raw_masses": [100.0, 99.9]}]
+                return [{
+                    "id": "CHEBI:1",
+                    "chemistry": {
+                        "average": [135.45, 135.46],
+                        "monoisotopic": [134.94, 134.95],
+                        "components": [{
+                            "mw": "100.0",
+                            "monoisotopic_mass": "99.9",
+                            "molecular_formula": "C5H8O2",
+                            "smiles": "CCCCC(=O)O",
+                        }],
+                    },
+                }]
             raise AssertionError(query)
 
     class FakeDb:
@@ -1546,9 +1766,18 @@ def test_mass_profile_loader_keeps_channels_and_component_metadata_separate():
         "smiles": "CCCCC(=O)O",
     }]
     assert profiles["CHEBI:1"]["whole"] == {
-        "average": [100.0],
-        "monoisotopic": [99.9],
+        "average": [135.45, 135.46],
+        "monoisotopic": [134.94, 134.95],
     }
+    assert profiles["CHEBI:1"]["components"] == [{
+        "source": "ChEBI",
+        "source_id": "CHEBI:1",
+        "component_index": 0,
+        "average": 100.0,
+        "monoisotopic": 99.9,
+        "molecular_formula": "C5H8O2",
+        "smiles": "CCCCC(=O)O",
+    }]
 
 
 def test_validation_samples_put_kegg_identifiers_first_without_reordering_others():
@@ -1848,6 +2077,20 @@ def test_denylist_review_selects_all_pairs_for_the_affected_clique():
     assert _harmonization_denylist_review_from_stage(stage, 3) is None
 
 
+def test_denylist_validation_excludes_pairs_incident_to_suppressed_records():
+    validation = _build_harmonization_stage_denylist_validation(
+        [["CHEBI:1", "HMDB:1"], ["HMDB:2", "REFMET:1"]],
+        {("CHEBI:1", "HMDB:1"), ("HMDB:2", "REFMET:1")},
+        True,
+        suppressed_identifier_ids={"REFMET:1"},
+    )
+
+    assert validation["denylist_pair_count"] == 2
+    assert validation["evaluated_denylist_pair_count"] == 1
+    assert validation["suppressed_incident_pair_count"] == 1
+    assert validation["warning_count"] == 1
+
+
 def test_denylist_pair_review_is_stable_and_focuses_first_shared_clique():
     pair = _normalize_harmonization_denylist_pair(
         "HMDB:HMDB0000001 | KEGG.COMPOUND:C00001"
@@ -2001,6 +2244,26 @@ def test_metabolite_graph_node_highlights_use_neutral_elliptical_underlays():
         assert '"underlay-shape": "ellipse"' in source
 
 
+def test_pending_record_participation_updates_visible_graph_nodes():
+    qa_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_qa.html"
+    )[0]
+    stats_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_stage_stats.html"
+    )[0]
+    shared_source = (
+        qa_app.STATIC_DIR / "metabolite_harmonization_visuals.js"
+    ).read_text()
+
+    for source in (qa_source, stats_source):
+        assert 'node.toggleClass("pending-record-suppression"' in source
+        assert 'node.toggleClass("pending-record-restoration"' in source
+        assert "Draft participation changes" in source
+        assert "metabolite-curation-cart:changed" in source
+    assert '{selector: ".pending-record-suppression"' in shared_source
+    assert '{selector: ".pending-record-restoration"' in shared_source
+
+
 def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monkeypatch):
     member_id = "CAS:62-31-7"
     stage_key = "stage-cas"
@@ -2009,6 +2272,8 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
     class FakeAql:
         def execute(self, query, bind_vars=None, **_kwargs):
             bind_vars = bind_vars or {}
+            if "FOR chunk IN HarmonizationStageActiveIdentifierChunk" in query:
+                return [{"stage_key": stage_key, "member_id": member_id}]
             if "FILTER node.id IN @ids" in query:
                 return [member_id]
             if (
@@ -2105,6 +2370,78 @@ def test_snapshot_union_resolves_members_by_public_id_instead_of_arango_key(monk
     assert clique["elements"][0]["data"]["id"] == member_id
     assert clique["elements"][0]["data"]["generic_structure_state"] == "generic"
     assert "generic-structure-generic" in clique["elements"][0]["classes"]
+
+
+def test_snapshot_union_keeps_raw_identifier_available_without_clique_membership(monkeypatch):
+    member_id = "REFMET:RM0233954"
+    stage_key = "stage-suppressed"
+
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            if "COLLECT existing_id = node.id" in query:
+                return [member_id]
+            if "FOR e IN HarmonizedMetaboliteMemberEdge" in query:
+                return []
+            if "LET query_nodes" in query:
+                return []
+            if "RETURN {\n            id: node.id,\n            raw_masses:" in query:
+                return [{"id": member_id, "raw_masses": []}]
+            if "LET chemical_entity" in query:
+                return [{
+                    "id": member_id,
+                    "label": "PS 18:2",
+                    "names": ["PS 18:2"],
+                    "prefix": "REFMET",
+                    "name_count": 1,
+                    "synonym_count": 0,
+                    "chem_prop_count": 1,
+                    "editable_properties": {},
+                    "raw_masses": [],
+                    "chem_props": [],
+                    "formulas": ["C24H42NO10P"],
+                    "smiles": [],
+                    "inchi_keys": [],
+                    "chemical_entity": None,
+                }]
+            if "FOR chunk IN HarmonizationStageActiveIdentifierChunk" in query:
+                return []
+            if "FOR selection IN @display_selections" in query:
+                return []
+            raise AssertionError(query)
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, _name):
+            return True
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+    monkeypatch.setattr(qa_app, "_load_metabolite_snapshot_memberships", lambda *_args: [])
+    monkeypatch.setattr(qa_app, "_load_metabolite_edge_removal_curations", lambda: {
+        "record_states": {member_id: "suppress_record"},
+        "record_decisions": {member_id: {"note": "Inconsistent source record"}},
+        "suppression_state_available": True,
+        "annotation_state_available": True,
+        "annotation_decisions": {},
+        "annotation_overrides": {},
+    })
+    monkeypatch.setattr(qa_app, "_list_harmonization_stages", lambda: [{
+        "_key": stage_key,
+        "name": "After suppression",
+        "created_at": "2026-09-29T00:00:00+00:00",
+        "rules": [],
+    }])
+    monkeypatch.setattr(qa_app, "_list_harmonization_pipelines", lambda limit=100: [])
+
+    result = qa_app._load_metabolite_snapshot_union([member_id], [stage_key])
+
+    clique = result["snapshot_graphs"][0]["cliques"][0]
+    node = clique["elements"][0]
+    assert clique["is_inactive_bucket"] is True
+    assert clique["member_ids"] == [member_id]
+    assert node["data"]["id"] == member_id
+    assert node["data"]["is_active_in_stage"] is False
+    assert node["data"]["harmonization_participation"]["is_suppressed"] is True
 
 
 def test_snapshot_memberships_use_edge_index_and_database_stage_filter(monkeypatch):
