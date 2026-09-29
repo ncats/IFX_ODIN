@@ -62,11 +62,9 @@
     function renderCart(payload) {
         const operations = payload.operations || [];
         const decisionCount = operations.reduce((total, operation) => total + (
-            operation.curation_type === "record_properties"
+            Array.isArray(operation.decision_rows)
                 ? (operation.decision_rows || operation.decisions || []).length
-                : operation.action === "set_properties"
-                    ? Object.keys(operation.values || {}).length + (operation.remove_overrides || []).length
-                    : 1
+                : 1
         ), 0);
         count.textContent = String(decisionCount);
         if (!operations.length) {
@@ -76,26 +74,13 @@
         cartBody.innerHTML = operations.map(operation => `
             <article class="record-curation-cart-item">
                 <small>${escapeHtml((operation.curation_type || "curation").replaceAll("_", " "))}</small>
-                ${operation.curation_type === "record_properties" ? `
+                ${Array.isArray(operation.decision_rows) ? `
                     <strong>${escapeHtml(operation.target_label || operation.target?.id || "")}</strong>
                     <small>Graph: <code>${escapeHtml(operation.target?.curation_set || "")}</code></small>
                     <ul>${(operation.decision_rows || []).map(decision => `
-                        <li><code>${escapeHtml(decision.path_label)}</code>: ${decision.mode === "remove_override"
-                            ? "restore loaded value"
-                            : `<code>${escapeHtml(decision.value_json)}</code>`}</li>`).join("")}</ul>
-                ` : operation.action === "set_properties" ? `
-                    <strong>Update properties</strong>
-                    <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
-                    <ul>${Object.entries(operation.values || {}).map(([name, value]) =>
-                        `<li>${escapeHtml(name)}: <code>${escapeHtml(JSON.stringify(value))}</code></li>`
-                    ).join("")}${(operation.remove_overrides || []).map(name =>
-                        `<li>${escapeHtml(name)}: restore graph value</li>`
-                    ).join("")}</ul>
-                ` : ["set_property", "unset_property"].includes(operation.action) ? `
-                    <strong>${operation.action === "unset_property"
-                        ? "Use detected generic-structure status"
-                        : `Mark as ${operation.value ? "generic" : "not generic"}`}</strong>
-                    <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
+                        <li><strong>${escapeHtml(decision.path_label)}</strong>: ${decision.mode === "remove_override"
+                            ? escapeHtml(decision.restore_label)
+                            : escapeHtml(decision.value_label)}</li>`).join("")}</ul>
                 ` : ["suppress_record", "restore_record"].includes(operation.action) ? `
                     <strong>${operation.action === "suppress_record" ? "Suppress record" : "Restore record"}</strong>
                     <span><code>${escapeHtml(operation.target?.id || "")}</code></span>

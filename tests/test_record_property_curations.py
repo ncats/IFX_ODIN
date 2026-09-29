@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.core.curations import RECORD_PROPERTIES
+from src.core.curations import METABOLITE_RECORD_PROPERTIES
 from src.core.record_property_curations import (
     CURATION_ORIGINAL_FIELD,
     apply_record_property_decision,
@@ -14,7 +14,7 @@ from src.core.record_property_curations import (
 
 def decision(path, value=None, observed=None, mode="set", observed_exists=True):
     return SimpleNamespace(
-        curation_type=RECORD_PROPERTIES,
+        curation_type=METABOLITE_RECORD_PROPERTIES,
         target={"model_type": "MetaboliteIdentifier", "id": "REFMET:1"},
         path=path,
         mode=mode,

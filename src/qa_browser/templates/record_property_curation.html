@@ -1,3 +1,11 @@
+{% if record_curation.published_summary %}
+<div class="record-curation-provenance" aria-label="Published curation summary">
+    <strong>{{ record_curation.published_summary.field_count }} curated field{% if record_curation.published_summary.field_count != 1 %}s{% endif %}</strong>
+    <span>· {{ record_curation.published_summary.curator_text }}</span>
+    <span>· {{ record_curation.published_summary.date_text }}</span>
+    {% if record_curation.application_mode == "evidence_overlay" %}<span>· Evidence graph unchanged</span>{% endif %}
+</div>
+{% endif %}
 <div class="record-curation-entry">
     <button type="button" class="btn btn-secondary" id="recordCurationEditorToggle"
             aria-expanded="false" aria-controls="recordPropertyCuration"
@@ -9,35 +17,6 @@
     {% endif %}
     <button type="button" class="btn btn-secondary" id="recordCurationCartToggle">Review changes <span id="recordCurationCartCount">0</span></button>
 </div>
-
-{% if record_curation.published_fields %}
-<section class="card record-curation-summary" aria-label="Published property curations">
-    <div class="record-curation-summary-heading">
-        <h2>Published curations</h2>
-        <span class="badge">{{ record_curation.published_fields|length }} curated field{% if record_curation.published_fields|length != 1 %}s{% endif %}</span>
-    </div>
-    <p class="record-curation-help">
-        {% if record_curation.application_mode == "evidence_overlay" %}
-        These corrections are stored separately and are applied only by harmonization stages that select the record-property overlay.
-        {% else %}
-        These corrections are materialized when this graph is rebuilt with record-property curations enabled.
-        {% endif %}
-    </p>
-    <div class="record-curation-summary-fields">
-        {% for field in record_curation.published_fields %}
-        <div class="record-curation-summary-field">
-            <div><strong>{{ field.label }}</strong> <code>{{ field.name }}</code> <span class="badge">Curated</span></div>
-            <div class="record-curation-values">
-                <small><strong>Published curation:</strong> <code>{{ field.effective_json }}</code></small>
-                <small><strong>Evidence graph value:</strong> <code>{{ field.baseline_json }}</code></small>
-            </div>
-            {% if field.rationale %}<small>Rationale: {{ field.rationale }}</small>{% endif %}
-            {% if field.published_at or field.batch_id %}<small>{% if field.published_at %}Published {{ field.published_at }}{% endif %}{% if field.batch_id %} · batch {{ field.batch_id }}{% endif %}</small>{% endif %}
-        </div>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
 
 <section class="card record-curation-card" id="recordPropertyCuration" hidden
          data-root-path="{{ root_path }}" data-record-curation='{{ record_curation|tojson }}'>
@@ -76,9 +55,9 @@
             </div>
             {% if field.editor_type == "bool" %}
             <select id="recordCurationField{{ loop.index }}" data-curation-input>
-                <option value="true" {% if field.effective is sameas true %}selected{% endif %}>true</option>
-                <option value="false" {% if field.effective is sameas false %}selected{% endif %}>false</option>
-                <option value="null" {% if field.effective is none %}selected{% endif %}>null</option>
+                <option value="true" {% if field.effective is sameas true %}selected{% endif %}>{% if field.name == "is_generic_structure" %}Generic{% else %}true{% endif %}</option>
+                <option value="false" {% if field.effective is sameas false %}selected{% endif %}>{% if field.name == "is_generic_structure" %}Specific / non-generic{% else %}false{% endif %}</option>
+                <option value="null" {% if field.effective is none %}selected{% endif %}>{% if field.name == "is_generic_structure" %}Unknown / unclassified{% else %}null{% endif %}</option>
             </select>
             {% elif field.editor_type == "json" %}
             <textarea id="recordCurationField{{ loop.index }}" data-curation-input rows="5">{{ field.effective_json }}</textarea>
@@ -90,7 +69,7 @@
             <label class="record-curation-null"><input type="checkbox" data-curation-null {% if field.effective is none %}checked{% endif %}> Set no value</label>
             {% endif %}
             {% if field.has_published_override %}
-            <button type="button" class="btn btn-secondary btn-sm" data-record-curation-restore>Restore loaded value</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-record-curation-restore>{% if field.name == "is_generic_structure" %}Use evidence graph value{% else %}Restore loaded value{% endif %}</button>
             {% endif %}
             {% if field.rationale %}<small>Published rationale: {{ field.rationale }}</small>{% endif %}
         </div>

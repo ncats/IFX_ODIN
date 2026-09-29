@@ -113,7 +113,7 @@ def test_etl_rejects_resume_when_curations_need_a_clean_baseline():
     etl = ETL(
         input_adapters=[],
         output_adapters=[_RecordingOutputAdapter()],
-        curation_snapshots={"metabolite_annotations": object()},
+        curation_snapshots={"metabolite_record_properties": object()},
     )
 
     try:

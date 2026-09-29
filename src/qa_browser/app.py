@@ -1,4 +1,5 @@
 import argparse
+import copy
 import csv
 import gzip
 import hashlib
@@ -33,13 +34,13 @@ from starlette.concurrency import run_in_threadpool
 import uvicorn
 
 from src.core.curations import (
-    METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_RECORD_PROPERTIES,
     METABOLITE_RECORD_SUPPRESSIONS,
-    RECORD_PROPERTIES,
     curatable_property_definitions,
     payload_sha256,
+    record_property_type_for_model,
     resolve_curation_type,
     validate_operation,
 )
@@ -348,11 +349,10 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "type": "textarea",
                 "default": "\n".join([
                     METABOLITE_EQUIVALENCE_EDGES,
-                    METABOLITE_ANNOTATIONS,
                     METABOLITE_RECORD_SUPPRESSIONS,
-                    RECORD_PROPERTIES,
+                    METABOLITE_RECORD_PROPERTIES,
                 ]),
-                "placeholder": "metabolite_equivalence_edges\nmetabolite_annotations\nmetabolite_record_suppressions\nrecord_properties",
+                "placeholder": "metabolite_equivalence_edges\nmetabolite_record_suppressions\nmetabolite_record_properties",
             },
         ],
     },
@@ -562,11 +562,20 @@ def _metabolite_generic_structure_classification(node: dict, curation_state: Opt
         if "is_generic_structure" in graph_values
         else node.get("is_generic_structure")
     )
-    overrides = (curation_state or {}).get("annotation_overrides") or {}
-    has_override = node.get("id") in overrides
-    published_override = overrides.get(node.get("id")) if has_override else None
+    state_available = (curation_state or {}).get(
+        "record_property_state_available", True
+    )
+    state_error = (curation_state or {}).get("record_property_state_error")
+    decision = (
+        ((curation_state or {}).get("record_property_decisions") or {})
+        .get(node.get("id"), {})
+        .get(_canonical_record_property_path(["is_generic_structure"]))
+        or {}
+    )
+    has_override = decision.get("mode") == "set"
+    published_override = decision.get("value") if has_override else None
     effective = published_override if has_override else detected
-    provenance = ((curation_state or {}).get("annotation_provenance") or {}).get(node.get("id"))
+    provenance = decision or None
     return {
         "detected": detected,
         "published_override": published_override,
@@ -583,45 +592,9 @@ def _metabolite_generic_structure_classification(node: dict, curation_state: Opt
             )
         ),
         "provenance": provenance,
+        "state_available": state_available,
+        "state_error": state_error,
     }
-
-
-def _metabolite_curatable_properties(
-    node: dict,
-    curation_state: Optional[dict] = None,
-) -> List[dict]:
-    decisions = ((curation_state or {}).get("annotation_decisions") or {}).get(
-        node.get("id"), {}
-    )
-    raw_values = node.get("editable_properties") or {}
-    classification = node.get("generic_structure") or {}
-    editing_available = (curation_state or {}).get("annotation_state_available", True)
-    state_error = (curation_state or {}).get("annotation_state_error")
-    properties = []
-    for definition in curatable_property_definitions("MetaboliteIdentifier"):
-        property_name = definition.property_name
-        if property_name == "is_generic_structure":
-            graph_value = classification.get("detected")
-            graph_has_value = graph_value is not None
-        else:
-            graph_has_value = property_name in raw_values
-            graph_value = raw_values.get(property_name)
-        decision = decisions.get(property_name) or {}
-        has_published_override = decision.get("mode") == "set"
-        published_override = decision.get("value") if has_published_override else None
-        properties.append({
-            **definition.metadata(),
-            "graph_value": graph_value,
-            "graph_has_value": graph_has_value,
-            "has_published_override": has_published_override,
-            "published_override": published_override,
-            "effective_value": published_override if has_published_override else graph_value,
-            "effective_has_value": has_published_override or graph_has_value,
-            "editing_available": editing_available,
-            "state_error": state_error,
-            "last_published_decision": decision or None,
-        })
-    return properties
 
 
 def _metabolite_harmonization_participation(
@@ -945,17 +918,27 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
             raise RuntimeError("Object-storage credentials are required to load metabolite curations")
         storage = _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
     edge_snapshot = resolve_curation_type(storage, METABOLITE_EQUIVALENCE_EDGES, allow_missing=True)
-    annotation_snapshot = resolve_curation_type(storage, METABOLITE_ANNOTATIONS, allow_missing=True)
     assertion_snapshot = resolve_curation_type(storage, METABOLITE_EXPECTED_CLIQUES, allow_missing=True)
     suppression_snapshot = resolve_curation_type(
         storage, METABOLITE_RECORD_SUPPRESSIONS, allow_missing=True
     )
     record_property_snapshot = resolve_curation_type(
-        storage, RECORD_PROPERTIES, allow_missing=True
+        storage, METABOLITE_RECORD_PROPERTIES, allow_missing=True
     )
     record_property_state = _metabolite_record_property_snapshot_state(
         record_property_snapshot
     )
+    record_property_decisions = {}
+    for decision in record_property_state["decisions"]:
+        record_property_decisions.setdefault(decision.target["id"], {})[
+            _canonical_record_property_path(decision.path)
+        ] = {
+            "mode": decision.mode,
+            "value": decision.value,
+            "curation_batch_id": decision.batch_id,
+            "published_at": decision.published_at,
+            "published_by": decision.published_by,
+        }
 
     pair_states = {}
     pair_decisions = {}
@@ -974,26 +957,6 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
                 "note": operation.get("note"),
             }
     pairs = {pair for pair, action in pair_states.items() if action == "remove_edge"}
-
-    annotation_overrides = {}
-    annotation_provenance = {}
-    annotation_decisions = {}
-    for decision in annotation_snapshot.active_property_decisions:
-        target_id = decision.target["id"]
-        provenance = {
-            "curation_batch_id": decision.batch_id,
-            "published_at": decision.published_at,
-            "published_by": decision.published_by,
-        }
-        annotation_decisions.setdefault(target_id, {})[decision.property_name] = {
-            "mode": decision.mode,
-            "value": decision.value,
-            **provenance,
-        }
-        if decision.property_name != "is_generic_structure" or decision.mode != "set":
-            continue
-        annotation_overrides[target_id] = decision.value
-        annotation_provenance[target_id] = provenance
 
     assertions = []
     for resolved in assertion_snapshot.active_operations:
@@ -1033,9 +996,8 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
 
     apply_fingerprint = payload_sha256({
         METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.fingerprint,
-        METABOLITE_ANNOTATIONS: annotation_snapshot.fingerprint,
         METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.fingerprint,
-        RECORD_PROPERTIES: record_property_state["fingerprint"],
+        METABOLITE_RECORD_PROPERTIES: record_property_state["fingerprint"],
     })
 
     return {
@@ -1045,11 +1007,6 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         "batch_ids": edge_snapshot.batch_ids,
         "fingerprint": apply_fingerprint,
         "edge_fingerprint": edge_snapshot.fingerprint,
-        "annotation_overrides": annotation_overrides,
-        "annotation_provenance": annotation_provenance,
-        "annotation_decisions": annotation_decisions,
-        "annotation_batch_ids": annotation_snapshot.batch_ids,
-        "annotation_fingerprint": annotation_snapshot.fingerprint,
         "assertions": assertions,
         "assertion_batch_ids": assertion_snapshot.batch_ids,
         "assertion_fingerprint": assertion_snapshot.fingerprint,
@@ -1059,17 +1016,17 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         "suppression_batch_ids": suppression_snapshot.batch_ids,
         "suppression_fingerprint": suppression_snapshot.fingerprint,
         "record_property_snapshot": record_property_snapshot,
+        "record_property_decisions": record_property_decisions,
         "record_property_batch_ids": record_property_state["batch_ids"],
         "record_property_fingerprint": record_property_state["fingerprint"],
+        "record_property_state_available": True,
+        "record_property_state_error": None,
         "snapshots": {
             METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.metadata(),
-            METABOLITE_ANNOTATIONS: annotation_snapshot.metadata(),
             METABOLITE_EXPECTED_CLIQUES: assertion_snapshot.metadata(),
             METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.metadata(),
-            RECORD_PROPERTIES: record_property_state["metadata"],
+            METABOLITE_RECORD_PROPERTIES: record_property_state["metadata"],
         },
-        "annotation_state_available": True,
-        "annotation_state_error": None,
         "suppression_state_available": True,
         "suppression_state_error": None,
         "prefix": f"s3://{storage.bucket}/curations/v2/",
@@ -1090,9 +1047,14 @@ def _curation_cart_storage():
     return _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
 
 
-def _load_record_property_snapshot():
+def _load_record_property_snapshot(model_type: str):
+    curation_type = record_property_type_for_model(model_type)
+    if not curation_type:
+        raise ValueError(
+            f"No record-property curation stream is registered for {model_type}"
+        )
     return resolve_curation_type(
-        _curation_cart_storage(), RECORD_PROPERTIES, allow_missing=True
+        _curation_cart_storage(), curation_type, allow_missing=True
     )
 
 
@@ -1122,7 +1084,7 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
     fields = []
 
     def add_field(path, descriptor):
-        baseline = _record_property_baseline(document, path)
+        baseline_present, baseline = _record_property_observation(document, path)
         decision = published.get(_canonical_record_property_path(path))
         effective = (
             decision.value
@@ -1133,11 +1095,16 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
         editor_type = schema_type if schema_type in {"bool", "int", "float", "str"} else "json"
         fields.append({
             "name": _display_record_property_path(path),
-            "label": str(path[-1]).replace("_", " ").title(),
+            "label": (
+                "Generic structure"
+                if path == ["is_generic_structure"]
+                else str(path[-1]).replace("_", " ").title()
+            ),
             "path": path,
             "path_json": json.dumps(path, separators=(",", ":")),
             "editor_type": editor_type,
             "baseline": baseline,
+            "baseline_present": baseline_present,
             "baseline_json": json.dumps(baseline, indent=2, default=str),
             "published": decision.value if decision is not None and decision.mode == "set" else None,
             "has_published_override": decision is not None and decision.mode == "set",
@@ -1145,6 +1112,7 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
             "effective_json": json.dumps(effective, indent=2, default=str),
             "batch_id": decision.batch_id if decision else None,
             "published_at": decision.published_at if decision else None,
+            "published_by": decision.published_by if decision else None,
             "rationale": (decision.source_operation.get("note") or "") if decision else "",
         })
 
@@ -1201,19 +1169,207 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
     return fields
 
 
+def _build_record_property_operation(
+    document: dict,
+    *,
+    curation_set: str,
+    model_type: str,
+    schema_fields: dict,
+    raw_decisions: list[dict],
+    note: str,
+) -> tuple[str, dict]:
+    curation_type = record_property_type_for_model(model_type)
+    if not curation_type:
+        raise ValueError(
+            f"No record-property curation stream is registered for {model_type}"
+        )
+    decisions = []
+    for raw_decision in raw_decisions:
+        path = raw_decision.get("path") if isinstance(raw_decision, dict) else None
+        mode = str((raw_decision or {}).get("mode") or "set")
+        descriptor = schema_for_path(schema_fields, path)
+        observed_exists, baseline = _record_property_observation(document, path)
+        decision = {"path": path, "mode": mode}
+        if mode == "set":
+            value = raw_decision.get("value")
+            validate_value_for_schema(value, descriptor, path)
+            decision.update({
+                "value": value,
+                "observed_value": baseline,
+                "observed_exists": observed_exists,
+            })
+        decisions.append(decision)
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": curation_set,
+            "model_type": model_type,
+            "id": document["id"],
+        },
+        "decisions": decisions,
+        "note": str(note or "").strip(),
+    }
+    validate_operation(curation_type, operation)
+    return curation_type, operation
+
+
+_INLINE_CURATION_MARKER = "_qa_inline_curation"
+
+
+def _inline_curation_display_value(value: Any, path: Optional[list] = None) -> str:
+    if path == ["is_generic_structure"]:
+        if value is True:
+            return "Generic"
+        if value is False:
+            return "Specific / non-generic"
+        return "Unknown / unclassified"
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, indent=2, default=str)
+
+
+def _document_with_inline_curations(document: dict, published_fields: list[dict]) -> dict:
+    """Annotate a display-only copy with published values at their exact paths."""
+    display_document = copy.deepcopy(document)
+    for field in published_fields:
+        try:
+            parent, field_name = resolve_parent_and_field(
+                display_document, field.get("path") or []
+            )
+        except (TypeError, ValueError):
+            continue
+        parent[field_name] = {
+            _INLINE_CURATION_MARKER: True,
+            "curated_display": _inline_curation_display_value(
+                field.get("effective"), field.get("path")
+            ),
+            "original_display": _inline_curation_display_value(
+                field.get("baseline"), field.get("path")
+            ),
+            "original_missing_display": (
+                "not classified"
+                if field.get("path") == ["is_generic_structure"]
+                else "not present"
+            ),
+            "original_present": field.get("baseline_present", True),
+        }
+    return display_document
+
+
+def _template_supports_inline_curations(template_name: str) -> bool:
+    return template_name == "document.html"
+
+
+def _record_curation_summary(published_fields: list[dict]) -> dict:
+    """Summarize active field curations without repeating per-field metadata."""
+    curator_names = []
+    missing_curator_count = 0
+    publication_dates = []
+    missing_date_count = 0
+    for field in published_fields:
+        published_by = field.get("published_by") or {}
+        curator_name = str(
+            published_by.get("name") or published_by.get("id") or ""
+        ).strip()
+        if curator_name:
+            if curator_name not in curator_names:
+                curator_names.append(curator_name)
+        else:
+            missing_curator_count += 1
+
+        published_at = str(field.get("published_at") or "").strip()
+        try:
+            published_date = datetime.fromisoformat(
+                published_at.replace("Z", "+00:00")
+            ).date()
+        except ValueError:
+            missing_date_count += 1
+        else:
+            publication_dates.append(published_date)
+
+    visible_curators = curator_names[:2]
+    additional_curator_count = max(0, len(curator_names) - len(visible_curators))
+    if visible_curators:
+        curator_text = "Curated by " + ", ".join(visible_curators)
+        if additional_curator_count:
+            curator_text += f" + {additional_curator_count} other"
+        if missing_curator_count:
+            curator_text += (
+                f" · {missing_curator_count} curation"
+                f"{'s' if missing_curator_count != 1 else ''} with no curator recorded"
+            )
+    else:
+        curator_text = "Curator not recorded"
+
+    if publication_dates:
+        first_date = min(publication_dates)
+        last_date = max(publication_dates)
+        first_label = f"{first_date.strftime('%b')} {first_date.day}, {first_date.year}"
+        last_label = f"{last_date.strftime('%b')} {last_date.day}, {last_date.year}"
+        date_text = (
+            f"Published {first_label}"
+            if first_date == last_date
+            else f"Published {first_label}–{last_label}"
+        )
+        if missing_date_count:
+            date_text += (
+                f" · {missing_date_count} curation"
+                f"{'s' if missing_date_count != 1 else ''} with no publication date recorded"
+            )
+    else:
+        date_text = "Publication date not recorded"
+
+    return {
+        "field_count": len(published_fields),
+        "curator_text": curator_text,
+        "date_text": date_text,
+    }
+
+
 def _record_property_cart_view(cart: dict) -> dict:
+    def decision_row(decision: dict) -> dict:
+        path = decision.get("path") or []
+        generic_structure = path == ["is_generic_structure"]
+        value = decision.get("value")
+        if generic_structure:
+            value_label = (
+                "Generic"
+                if value is True
+                else "Specific / non-generic"
+                if value is False
+                else "Unknown / unclassified"
+            )
+        else:
+            value_label = json.dumps(value, default=str)
+        return {
+            **decision,
+            "path_label": (
+                "Generic structure" if generic_structure
+                else _display_record_property_path(path)
+            ),
+            "value_json": json.dumps(value, default=str),
+            "value_label": value_label,
+            "restore_label": (
+                "use evidence graph value"
+                if generic_structure else "restore loaded value"
+            ),
+        }
+
     operations = []
     for operation in cart.get("operations") or []:
         target = operation.get("target") or {}
         operations.append({
             **operation,
-            "target_label": f"{target.get('model_type')}:{target.get('id')}",
+            "target_label": str(target.get("id") or ""),
             "decision_rows": [
-                {
-                    **decision,
-                    "path_label": _display_record_property_path(decision.get("path") or []),
-                    "value_json": json.dumps(decision.get("value"), default=str),
-                }
+                decision_row(decision)
                 for decision in operation.get("decisions") or []
             ],
         })
@@ -1282,28 +1438,48 @@ def _metabolite_property_operation(
     normalized_id = _normalize_ramp_denylist_identifier(identifier)
     if not normalized_id:
         raise HTTPException(status_code=400, detail="A valid prefixed metabolite identifier is required.")
-    operation = {
-        "action": "set_properties",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": normalized_id,
-        },
-        "values": values,
-        "remove_overrides": remove_overrides,
-    }
-    clean_note = str(note or "").strip()
-    if clean_note:
-        operation["note"] = clean_note
     try:
-        validate_operation(METABOLITE_ANNOTATIONS, operation)
+        db = get_db("metabolite_harmonization")
+        documents = list(db.aql.execute(
+            """
+            FOR d IN MetaboliteIdentifier
+              FILTER d.id == @target_id
+              LIMIT 2
+              RETURN d
+            """,
+            bind_vars={"target_id": normalized_id},
+            max_runtime=30,
+        ))
+        if len(documents) != 1:
+            raise ValueError(
+                f"MetaboliteIdentifier:{normalized_id} matched {len(documents)} records"
+            )
+        schema_fields = (
+            _get_collection_schema_entry(db, "MetaboliteIdentifier").get("fields")
+            or {}
+        )
+        raw_decisions = [
+            {"path": [property_name], "mode": "set", "value": value}
+            for property_name, value in values.items()
+        ]
+        raw_decisions.extend(
+            {"path": [property_name], "mode": "remove_override"}
+            for property_name in remove_overrides
+        )
+        _curation_type, operation = _build_record_property_operation(
+            documents[0],
+            curation_set="metabolite_harmonization",
+            model_type="MetaboliteIdentifier",
+            schema_fields=schema_fields,
+            raw_decisions=raw_decisions,
+            note=note,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return operation
 
 
 def _metabolite_generic_structure_operation(identifier: str, value: Any, note: str = "") -> dict:
-    """Compatibility wrapper for older callers; new drafts use set_properties."""
     if value == "detected":
         return _metabolite_property_operation(identifier, {}, ["is_generic_structure"], note)
     if value is None or type(value) is bool:
@@ -1342,11 +1518,10 @@ def _metabolite_record_suppression_operation(
 
 
 _QA_CURATION_TYPES = (
-    METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_RECORD_PROPERTIES,
     METABOLITE_RECORD_SUPPRESSIONS,
-    RECORD_PROPERTIES,
 )
 
 
@@ -1359,7 +1534,7 @@ def _combined_curation_cart(storage, curator_id: str, curator_name: str) -> dict
     for curation_type, cart in carts.items():
         for operation in cart.get("operations") or []:
             presented = {**operation, "curation_type": curation_type}
-            if curation_type == RECORD_PROPERTIES:
+            if curation_type == METABOLITE_RECORD_PROPERTIES:
                 presented = _record_property_cart_view(
                     {"operations": [presented]}
                 )["operations"][0]
@@ -2839,8 +3014,8 @@ def _materialize_harmonization_stage(
     stage_doc.update(completed_update)
 
 
-def _curation_annotations_apply_to_generic_rule(rule_ids: List[str]) -> bool:
-    """Curated annotations affect the generic rule only when applied earlier."""
+def _record_properties_apply_to_generic_rule(rule_ids: List[str]) -> bool:
+    """Curated record properties affect the generic rule only when applied earlier."""
     if "apply_curations" not in rule_ids or "ignore_generic_structure_mismatch" not in rule_ids:
         return False
     return rule_ids.index("apply_curations") < rule_ids.index("ignore_generic_structure_mismatch")
@@ -2876,22 +3051,16 @@ def _ensure_harmonization_stage(
     ) if apply_curations_enabled else set()
     unsupported_curation_types = selected_curation_types - {
         METABOLITE_EQUIVALENCE_EDGES,
-        METABOLITE_ANNOTATIONS,
+        METABOLITE_RECORD_PROPERTIES,
         METABOLITE_RECORD_SUPPRESSIONS,
-        RECORD_PROPERTIES,
     }
     if unsupported_curation_types:
         raise ValueError(
             "Apply curations does not support: " + ", ".join(sorted(unsupported_curation_types))
         )
     apply_edge_curations = METABOLITE_EQUIVALENCE_EDGES in selected_curation_types
-    apply_annotation_curations = METABOLITE_ANNOTATIONS in selected_curation_types
     apply_record_suppressions = METABOLITE_RECORD_SUPPRESSIONS in selected_curation_types
-    apply_record_properties = RECORD_PROPERTIES in selected_curation_types
-    annotations_apply_to_generic_rule = (
-        apply_annotation_curations
-        and _curation_annotations_apply_to_generic_rule(rule_ids)
-    )
+    apply_record_properties = METABOLITE_RECORD_PROPERTIES in selected_curation_types
     assertion_fallback_enabled = "force_expected_clique_assertions" in rule_ids
     if apply_curations_enabled or assertion_fallback_enabled:
         if curation_state is None:
@@ -2901,9 +3070,6 @@ def _ensure_harmonization_stage(
             "pairs": set(),
             "batch_ids": [],
             "fingerprint": None,
-            "annotation_overrides": {},
-            "annotation_batch_ids": [],
-            "annotation_fingerprint": None,
             "assertions": [],
             "assertion_batch_ids": [],
             "assertion_fingerprint": None,
@@ -2929,13 +3095,9 @@ def _ensure_harmonization_stage(
                 curation_state.get("edge_fingerprint")
                 if curation_type == METABOLITE_EQUIVALENCE_EDGES
                 else (
-                    curation_state.get("annotation_fingerprint")
-                    if curation_type == METABOLITE_ANNOTATIONS
-                    else (
-                        curation_state.get("suppression_fingerprint")
-                        if curation_type == METABOLITE_RECORD_SUPPRESSIONS
-                        else curation_state.get("record_property_fingerprint")
-                    )
+                    curation_state.get("suppression_fingerprint")
+                    if curation_type == METABOLITE_RECORD_SUPPRESSIONS
+                    else curation_state.get("record_property_fingerprint")
                 )
             )
             for curation_type in sorted(selected_curation_types)
@@ -2976,16 +3138,6 @@ def _ensure_harmonization_stage(
         identifier: record_overlays[identifier].get("is_generic_structure")
         for identifier in record_generic_override_ids
     }
-    conflicting_generic_ids = sorted(
-        set(record_generic_overrides)
-        & set(curation_state.get("annotation_overrides") or {})
-    ) if apply_annotation_curations and apply_record_properties else []
-    if conflicting_generic_ids:
-        raise ValueError(
-            "is_generic_structure is curated in both metabolite_annotations and "
-            "record_properties for: " + ", ".join(conflicting_generic_ids[:10])
-        )
-
     created_at = datetime.now(timezone.utc).isoformat()
     support_by_id = _load_metabolite_identifier_source_support(db)
     wikipathways_ignored_source_fields = (
@@ -3020,20 +3172,12 @@ def _ensure_harmonization_stage(
     applied_suppressed_identifier_ids = active_ids & suppressed_identifier_ids
     active_ids -= suppressed_identifier_ids
     effective_generic_classifications = dict(baseline_generic_classifications)
-    if apply_annotation_curations:
-        effective_generic_classifications.update(
-            curation_state.get("annotation_overrides") or {}
-        )
     if apply_record_properties:
         effective_generic_classifications.update(record_generic_overrides)
     pruning_generic_classifications = dict(baseline_generic_classifications)
-    if annotations_apply_to_generic_rule:
-        pruning_generic_classifications.update(
-            curation_state.get("annotation_overrides") or {}
-        )
     record_properties_apply_to_generic_rule = (
         apply_record_properties
-        and _curation_annotations_apply_to_generic_rule(rule_ids)
+        and _record_properties_apply_to_generic_rule(rule_ids)
     )
     if record_properties_apply_to_generic_rule:
         pruning_generic_classifications.update(record_generic_overrides)
@@ -3168,13 +3312,6 @@ def _ensure_harmonization_stage(
         "curation_types": sorted(selected_curation_types),
         "curation_fingerprint": stage_fingerprint.get("curation_fingerprint"),
         "curation_batch_ids": curation_state["batch_ids"] if apply_edge_curations else [],
-        "annotation_curation_batch_ids": (
-            curation_state.get("annotation_batch_ids") or []
-            if apply_annotation_curations else []
-        ),
-        "annotation_curation_fingerprint": (
-            curation_state.get("annotation_fingerprint") if apply_annotation_curations else None
-        ),
         "suppression_curation_batch_ids": (
             curation_state.get("suppression_batch_ids") or []
             if apply_record_suppressions else []
@@ -3390,9 +3527,8 @@ def _pipeline_curation_fingerprint(pipeline: dict, curation_state: dict) -> Opti
         return None
     fingerprints = {
         METABOLITE_EQUIVALENCE_EDGES: curation_state.get("edge_fingerprint"),
-        METABOLITE_ANNOTATIONS: curation_state.get("annotation_fingerprint"),
+        METABOLITE_RECORD_PROPERTIES: curation_state.get("record_property_fingerprint"),
         METABOLITE_RECORD_SUPPRESSIONS: curation_state.get("suppression_fingerprint"),
-        RECORD_PROPERTIES: curation_state.get("record_property_fingerprint"),
     }
     return payload_sha256({
         curation_type: fingerprints.get(curation_type)
@@ -4602,32 +4738,16 @@ def _build_harmonization_stage_cart_flags(
     decisions_by_rank: Dict[int, set[tuple[str, str, str]]] = {}
     updates_by_rank: Dict[int, Dict[str, List[dict]]] = {}
     for operation in operations or []:
-        if operation.get("action") in {"set_properties", "set_property", "unset_property"}:
+        if operation.get("action") == "set_properties" and operation.get("decisions"):
             target = operation.get("target") or {}
             target_id = _normalize_ramp_denylist_identifier(target.get("id"))
             rank = member_rank_by_id.get(target_id)
             if target_id and rank in warning_ranks:
-                changes = []
-                if operation.get("action") == "set_properties":
-                    changes.extend({
-                        "property": property_name,
-                        "mode": "set",
-                        "value": value,
-                    } for property_name, value in sorted((operation.get("values") or {}).items()))
-                    changes.extend({
-                        "property": property_name,
-                        "mode": "remove_override",
-                        "value": None,
-                    } for property_name in sorted(operation.get("remove_overrides") or []))
-                else:
-                    changes.append({
-                        "property": operation.get("property"),
-                        "mode": (
-                            "set" if operation.get("action") == "set_property"
-                            else "remove_override"
-                        ),
-                        "value": operation.get("value"),
-                    })
+                changes = [{
+                    "property": _display_record_property_path(decision.get("path") or []),
+                    "mode": decision.get("mode"),
+                    "value": decision.get("value"),
+                } for decision in operation.get("decisions") or []]
                 updates_by_rank.setdefault(rank, {})[target_id] = changes
             continue
         if (
@@ -4708,16 +4828,16 @@ def _load_harmonization_stage_cart_flags(stage_key: str, operations: List[dict])
         )
         if normalized
     })
-    annotation_target_ids = sorted({
+    property_target_ids = sorted({
         normalized
         for operation in operations or []
-        if operation.get("action") in {"set_properties", "set_property", "unset_property"}
+        if operation.get("action") == "set_properties"
         for normalized in [
             _normalize_ramp_denylist_identifier((operation.get("target") or {}).get("id"))
         ]
         if normalized
     })
-    subject_ids = sorted(set(edge_endpoint_ids) | set(annotation_target_ids))
+    subject_ids = sorted(set(edge_endpoint_ids) | set(property_target_ids))
     if not subject_ids or not warning_ranks:
         return {"stage_key": stage_key, "flags": [], "flagged_warning_count": 0}
 
@@ -6886,10 +7006,11 @@ def _load_metabolite_snapshot_union(
         display_curation_state = _load_metabolite_edge_removal_curations()
     except Exception:
         display_curation_state = {
-            "annotation_state_available": False,
-            "annotation_state_error": (
-                "Published curation state is unavailable. Property editing is disabled "
-                "to avoid replacing an unknown published value."
+            "record_property_decisions": {},
+            "record_property_state_available": False,
+            "record_property_state_error": (
+                "Published record-property curation state is unavailable. "
+                "Classification editing is disabled."
             ),
             "suppression_state_available": False,
             "suppression_state_error": (
@@ -6902,10 +7023,6 @@ def _load_metabolite_snapshot_union(
             f"MetaboliteIdentifier/doc/{url_quote(str(node.get('id') or ''), safe='')}"
         )
         node["generic_structure"] = _metabolite_generic_structure_classification(
-            node,
-            display_curation_state,
-        )
-        node["curatable_properties"] = _metabolite_curatable_properties(
             node,
             display_curation_state,
         )
@@ -8796,7 +8913,7 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             str(payload.get("note") or ""),
         )
     elif action == "set_properties":
-        curation_type = METABOLITE_ANNOTATIONS
+        curation_type = METABOLITE_RECORD_PROPERTIES
         values = payload.get("values", {})
         remove_overrides = payload.get("remove_overrides", [])
         if not isinstance(values, dict) or not isinstance(remove_overrides, list):
@@ -8808,13 +8925,6 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             str(payload.get("target_id") or ""),
             values,
             remove_overrides,
-            str(payload.get("note") or ""),
-        )
-    elif action in {"set_property", "unset_property"}:
-        curation_type = METABOLITE_ANNOTATIONS
-        operation = _metabolite_generic_structure_operation(
-            str(payload.get("target_id") or ""),
-            payload.get("value") if action == "set_property" else "detected",
             str(payload.get("note") or ""),
         )
     elif action in {"suppress_record", "restore_record"}:
@@ -8958,7 +9068,7 @@ async def ramp_id_qa_publish_curation_cart(request: Request):
             if cart.get("operations"):
                 for operation in cart["operations"]:
                     validate_operation(curation_type, operation)
-                if curation_type == RECORD_PROPERTIES:
+                if curation_type == METABOLITE_RECORD_PROPERTIES:
                     curation_sets = {
                         (operation.get("target") or {}).get("curation_set")
                         for operation in cart["operations"]
@@ -13313,37 +13423,17 @@ async def add_record_curation_cart_item(request: Request):
         raw_decisions = payload.get("decisions")
         if not isinstance(raw_decisions, list) or not raw_decisions:
             raise ValueError("Choose at least one property to curate")
-        decisions = []
-        for raw_decision in raw_decisions:
-            path = raw_decision.get("path") if isinstance(raw_decision, dict) else None
-            mode = str((raw_decision or {}).get("mode") or "set")
-            descriptor = schema_for_path(schema_fields, path)
-            observed_exists, baseline = _record_property_observation(document, path)
-            decision = {"path": path, "mode": mode}
-            if mode == "set":
-                value = raw_decision.get("value")
-                validate_value_for_schema(value, descriptor, path)
-                decision.update({
-                    "value": value,
-                    "observed_value": baseline,
-                    "observed_exists": observed_exists,
-                })
-            decisions.append(decision)
-        operation = {
-            "action": "set_properties",
-            "target": {
-                "kind": "node",
-                "curation_set": db_name,
-                "model_type": coll_name,
-                "id": document["id"],
-            },
-            "decisions": decisions,
-            "note": str(payload.get("note") or "").strip(),
-        }
-        validate_operation(RECORD_PROPERTIES, operation)
+        curation_type, operation = _build_record_property_operation(
+            document,
+            curation_set=db_name,
+            model_type=coll_name,
+            schema_fields=schema_fields,
+            raw_decisions=raw_decisions,
+            note=str(payload.get("note") or ""),
+        )
         storage = _curation_cart_storage()
         existing_cart = await run_in_threadpool(
-            load_cart, storage, RECORD_PROPERTIES, curator_id, curator_name
+            load_cart, storage, curation_type, curator_id, curator_name
         )
         existing_sets = {
             (item.get("target") or {}).get("curation_set")
@@ -13357,7 +13447,7 @@ async def add_record_curation_cart_item(request: Request):
         await run_in_threadpool(
             add_cart_operation,
             storage,
-            RECORD_PROPERTIES,
+            curation_type,
             curator_id,
             curator_name,
             operation,
@@ -13520,18 +13610,26 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                 else "materialized"
             ),
             "published_fields": [],
+            "published_summary": None,
+            "curation_type": record_property_type_for_model(coll_name),
         }
         if is_edge:
             record_curation["error"] = "Edge property curation is not supported yet."
         elif not doc.get("id"):
             record_curation["error"] = "This record has no stable ID to curate."
+        elif not record_curation["curation_type"]:
+            record_curation["error"] = (
+                f"No record-property curation stream is registered for {coll_name}."
+            )
         else:
             schema_entry = _get_collection_schema_entry(db, coll_name)
             if not schema_entry.get("fields"):
                 record_curation["error"] = "No editable schema fields are published for this collection."
             else:
                 try:
-                    snapshot = await run_in_threadpool(_load_record_property_snapshot)
+                    snapshot = await run_in_threadpool(
+                        _load_record_property_snapshot, coll_name
+                    )
                     curation_document = dict(doc)
                     curation_document["_curation_set"] = db_name
                     curation_document["_curation_model_type"] = coll_name
@@ -13543,11 +13641,29 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                         field for field in fields
                         if field.get("has_published_override")
                     ]
+                    if record_curation["published_fields"]:
+                        record_curation["published_summary"] = (
+                            _record_curation_summary(
+                                record_curation["published_fields"]
+                            )
+                        )
                     record_curation["available"] = bool(fields)
                     if not fields:
                         record_curation["error"] = "This record has no editable field values."
                 except Exception as exc:
                     record_curation["error"] = f"Curation is temporarily unavailable: {exc}"
+
+    if (
+        _template_supports_inline_curations(template_name)
+        and record_curation
+        and record_curation["published_fields"]
+    ):
+        display_doc = _document_with_inline_curations(
+            doc, record_curation["published_fields"]
+        )
+        scalar_fields, list_fields, nested_fields = _categorize_document_fields(
+            display_doc
+        )
 
     context = {
         "request": request,
@@ -14009,7 +14125,11 @@ def _categorize_document_fields(doc: dict | None):
         for key, val in doc.items():
             if key in skip_keys or key.startswith("_"):
                 continue
-            if val is None or isinstance(val, (str, int, float, bool)):
+            if (
+                val is None
+                or isinstance(val, (str, int, float, bool))
+                or (isinstance(val, dict) and val.get(_INLINE_CURATION_MARKER))
+            ):
                 scalar_fields.append((key, val))
             elif isinstance(val, dict):
                 nested_fields.append((key, val))

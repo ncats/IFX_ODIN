@@ -835,6 +835,24 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 
 .field-val.null { color: var(--text-muted); font-style: italic; }
 .field-val.bool { color: var(--accent); }
+.inline-curation {
+    align-items: baseline;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.55rem;
+    max-width: 100%;
+}
+.inline-curation-value {
+    color: var(--success);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+.inline-curation-original {
+    color: var(--danger);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
 
 /* Nested objects */
 .nested-group { flex-direction: column; align-items: stretch; }
@@ -1228,11 +1246,15 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .record-curation-entry small { color: var(--text-muted); }
 .record-curation-card[hidden] { display: none; }
 .record-curation-help { color: var(--text-muted); margin-bottom: 0; }
-.record-curation-summary { border-left: 4px solid #b7791f; }
-.record-curation-summary-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-.record-curation-summary-heading h2 { margin: 0; }
-.record-curation-summary-fields { display: grid; gap: 0.75rem; margin-top: 0.85rem; }
-.record-curation-summary-field { padding-top: 0.7rem; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.record-curation-provenance {
+    align-items: baseline;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.4rem;
+    margin: 0.75rem 0 0.25rem;
+}
+.record-curation-provenance strong { color: var(--success); }
 .record-curator-row { align-items: end; margin: 1rem 0; }
 .record-curator-row label { flex: 0 1 18rem; }
 .record-curator-row .record-curation-rationale { flex: 1 1 32rem; }
@@ -1281,6 +1303,14 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     .record-curator-row { align-items: stretch; flex-direction: column; }
     .record-curator-row label,
     .record-curator-row .record-curation-rationale { flex: auto; width: 100%; }
+}
+
+@media (max-width: 600px) {
+    .field-row:not(.nested-group) { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
+    .field-row:not(.nested-group) > .field-key { text-align: left; width: auto; }
+    .field-nested { margin-left: 0.35rem; padding-left: 0.5rem; }
+    .field-nested .field-key,
+    .field-nested .field-nested .field-key { width: auto; }
 }
 
 /* Loading indicator */

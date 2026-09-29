@@ -64,9 +64,7 @@
         const operations = cart.operations || [];
         const decisionCount = operations.reduce((count, operation) => count + (
             operation.action === "set_properties"
-                ? operation.curation_type === "record_properties"
-                    ? (operation.decisions || []).length
-                    : Object.keys(operation.values || {}).length + (operation.remove_overrides || []).length
+                ? (operation.decisions || []).length
                 : 1
         ), 0);
         counts.forEach((count) => {
@@ -81,33 +79,15 @@
             <article class="metabolite-curation-cart-item" data-curation-type="${escapeHtml(operation.curation_type || "")}">
                 <div>
                     <small>${escapeHtml((operation.curation_type || "curation").replaceAll("_", " "))}</small>
-                    ${operation.curation_type === "record_properties" ? `
+                    ${Array.isArray(operation.decision_rows) ? `
                         <strong>Correct record properties</strong>
                         <span><code>${escapeHtml(operation.target_label || operation.target?.id || "")}</code></span>
                         <small>Graph: <code>${escapeHtml(operation.target?.curation_set || "")}</code></small>
                         <ul class="metabolite-curation-property-list">
                             ${(operation.decision_rows || []).map((decision) =>
-                                `<li>${escapeHtml(decision.path_label || "property")}: <strong>${decision.mode === "remove_override" ? "restore loaded value" : escapeHtml(decision.value_json)}</strong></li>`
+                                `<li>${escapeHtml(decision.path_label || "property")}: <strong>${decision.mode === "remove_override" ? escapeHtml(decision.restore_label) : escapeHtml(decision.value_label)}</strong></li>`
                             ).join("")}
                         </ul>
-                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
-                    ` : operation.action === "set_properties" ? `
-                        <strong>Update properties</strong>
-                        <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
-                        <ul class="metabolite-curation-property-list">
-                            ${Object.entries(operation.values || {}).map(([name, value]) =>
-                                `<li>${escapeHtml(name.replaceAll("_", " "))}: <strong>${value === null ? "set no value" : escapeHtml(String(value))}</strong></li>`
-                            ).join("")}
-                            ${(operation.remove_overrides || []).map((name) =>
-                                `<li>${escapeHtml(name.replaceAll("_", " "))}: <strong>restore graph value</strong></li>`
-                            ).join("")}
-                        </ul>
-                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
-                    ` : ["set_property", "unset_property"].includes(operation.action) ? `
-                        <strong>${operation.action === "unset_property"
-                            ? "Use detected generic-structure status"
-                            : `Mark as ${operation.value ? "generic" : "not generic"}`}</strong>
-                        <span><code>${escapeHtml(operation.target?.id || "")}</code></span>
                         ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
                     ` : ["suppress_record", "restore_record"].includes(operation.action) ? `
                         <strong>${operation.action === "suppress_record" ? "Suppress from harmonization" : "Restore to harmonization"}</strong>
@@ -243,8 +223,8 @@
 
     async function addPropertyDecisions(identifier, values, removeOverrides, note, button) {
         const pending = (cart.operations || []).find((operation) =>
-            operation.curation_type === "metabolite_annotations"
-            && ["set_properties", "set_property", "unset_property"].includes(operation.action)
+            operation.curation_type === "metabolite_record_properties"
+            && operation.action === "set_properties"
             && operation.target?.id === identifier
         );
         if (!Object.keys(values || {}).length && !(removeOverrides || []).length) {
@@ -286,7 +266,7 @@
                 body: JSON.stringify({
                     ...identityPayload(), action: "set_properties", target_id: identifier,
                     values: values || {}, remove_overrides: removeOverrides || [],
-                    replace_target: true, note: note || "",
+                    note: note || "",
                 }),
             }));
             status.textContent = "Added and autosaved. This decision is pending until publication.";
@@ -409,14 +389,6 @@
         });
     });
 
-    document.addEventListener("change", (event) => {
-        const actionSelect = event.target.closest("[data-property-action]");
-        if (!actionSelect) return;
-        const row = actionSelect.closest("[data-curatable-property]");
-        const valueWrap = row?.querySelector("[data-property-value-wrap]");
-        if (valueWrap) valueWrap.classList.toggle("is-hidden", actionSelect.value !== "set");
-    });
-
     document.addEventListener("submit", (event) => {
         const participationForm = event.target.closest("[data-metabolite-record-participation-form]");
         if (participationForm) {
@@ -436,52 +408,28 @@
             );
             return;
         }
-        const form = event.target.closest("[data-metabolite-property-form]");
+        const form = event.target.closest("[data-generic-classification-form]");
         if (!form) return;
         event.preventDefault();
-        const values = {};
-        const removeOverrides = [];
-        let validationError = "";
-        form.querySelectorAll("[data-curatable-property]").forEach((row) => {
-            const name = row.dataset.propertyName;
-            const type = row.dataset.propertyType;
-            const action = row.querySelector("[data-property-action]")?.value || "no_change";
-            if (action === "no_change" && row.dataset.pendingAction === "set") {
-                values[name] = JSON.parse(row.dataset.pendingValue);
-            } else if (action === "no_change" && row.dataset.pendingAction === "remove_override") {
-                removeOverrides.push(name);
-            } else if (action === "set_null") {
-                values[name] = null;
-            } else if (action === "remove_override") {
-                removeOverrides.push(name);
-            } else if (action === "set") {
-                const rawValue = row.querySelector("[data-property-value]")?.value ?? "";
-                if (["integer", "number"].includes(type) && rawValue.trim() === "") {
-                    validationError = `${name.replaceAll("_", " ")} requires a number.`;
-                    return;
-                }
-                const parsedValue = type === "boolean" ? rawValue === "true"
-                    : type === "integer" ? Number(rawValue)
-                    : type === "number" ? Number(rawValue)
-                    : rawValue;
-                if ((type === "integer" && !Number.isInteger(parsedValue))
-                    || (type === "number" && !Number.isFinite(parsedValue))) {
-                    validationError = `${name.replaceAll("_", " ")} has an invalid value.`;
-                    return;
-                }
-                values[name] = parsedValue;
-            }
-        });
-        if (validationError) {
-            status.textContent = validationError;
+        const choice = form.querySelector("[data-generic-classification-value]")?.value || "";
+        const note = form.querySelector("[data-generic-classification-note]")?.value.trim() || "";
+        if (!choice) {
+            status.textContent = "Choose a generic-structure classification.";
+            return;
+        }
+        if (!note) {
+            status.textContent = "Enter a rationale for the classification change.";
+            form.querySelector("[data-generic-classification-note]")?.focus();
             return;
         }
         const submitButton = form.querySelector('button[type="submit"]');
         addPropertyDecisions(
             form.dataset.curationTargetId,
-            values,
-            removeOverrides,
-            form.querySelector("[data-property-note]")?.value || "",
+            choice === "detected" ? {} : {
+                is_generic_structure: choice === "null" ? null : choice === "true",
+            },
+            choice === "detected" ? ["is_generic_structure"] : [],
+            note,
             submitButton,
         );
     });
@@ -523,7 +471,7 @@
             batchDescription.value = "";
             defaultBatchName();
             const hasGraphChanges = publishedOperations.some((operation) => [
-                "remove_edge", "retain_edge", "set_properties", "set_property", "unset_property",
+                "remove_edge", "retain_edge", "set_properties",
                 "suppress_record", "restore_record",
             ].includes(operation.action));
             status.textContent = hasGraphChanges

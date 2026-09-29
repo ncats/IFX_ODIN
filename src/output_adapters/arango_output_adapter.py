@@ -11,9 +11,8 @@ from typing import Type, List, get_origin, get_args, Union
 from arango.exceptions import DocumentInsertError, DocumentUpdateError
 from src.core.decorators import collect_facets, collect_indexed_fields, collect_search_fields
 from src.core.curations import (
-    METABOLITE_ANNOTATIONS,
     METABOLITE_EQUIVALENCE_EDGES,
-    RECORD_PROPERTIES,
+    is_record_property_type,
 )
 from src.core.record_property_curations import (
     apply_record_property_decision,
@@ -77,20 +76,18 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
         db = self.get_db()
         plans = []
         reports = []
-        property_decisions_by_target = {}
         record_decisions_by_target = {}
         # Resolve every target before performing the first write. A missing or
         # ambiguous target therefore fails without leaving an earlier curation applied.
         for curation_type, snapshot in snapshots.items():
-            if curation_type not in {
-                RECORD_PROPERTIES,
-                METABOLITE_ANNOTATIONS,
-                METABOLITE_EQUIVALENCE_EDGES,
-            }:
+            if (
+                curation_type != METABOLITE_EQUIVALENCE_EDGES
+                and not is_record_property_type(curation_type)
+            ):
                 raise RuntimeError(
                     f"Arango graph builds do not support applying {curation_type!r}"
                 )
-            if curation_type == RECORD_PROPERTIES:
+            if is_record_property_type(curation_type):
                 for decision in snapshot.active_record_property_decisions:
                     target = decision.target
                     if target.get("curation_set") != self.database_name:
@@ -100,15 +97,6 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 continue
             if phase == "pre_post":
                 continue
-            for decision in snapshot.active_property_decisions:
-                target = decision.target
-                target_key = (
-                    curation_type,
-                    target["model_type"],
-                    target["id"],
-                )
-                property_decisions_by_target.setdefault(target_key, []).append(decision)
-
             for resolved in snapshot.active_operations:
                 operation = resolved.operation
                 action = operation["action"]
@@ -192,73 +180,14 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 "reports": target_reports,
             })
 
-        for (curation_type, collection_name, target_id), decisions in property_decisions_by_target.items():
-            if not db.has_collection(collection_name):
-                raise RuntimeError(
-                    f"Curation target collection does not exist: {collection_name}"
-                )
-            property_names = [decision.property_name for decision in decisions]
-            rows = list(db.aql.execute(
-                f"""
-                FOR d IN `{collection_name}`
-                  FILTER d.id == @target_id
-                  LIMIT 2
-                  RETURN {{key: d._key, id: d.id, previous: KEEP(d, @property_names)}}
-                """,
-                bind_vars={
-                    "target_id": target_id,
-                    "property_names": property_names,
-                },
-                max_runtime=120,
-            ))
-            if len(rows) != 1:
-                raise RuntimeError(
-                    f"Curation target {collection_name}:{target_id} matched {len(rows)} documents"
-                )
-            previous = rows[0].get("previous") or {}
-            set_decisions = [decision for decision in decisions if decision.mode == "set"]
-            reports.extend({
-                "curation_type": curation_type,
-                "batch_id": decision.batch_id,
-                "operation_id": decision.source_operation.get("operation_id"),
-                "action": "remove_override",
-                "target": decision.target,
-                "property": decision.property_name,
-                "previous": previous.get(decision.property_name),
-                "result": None,
-                "status": "restored",
-            } for decision in decisions if decision.mode == "remove_override")
-            if set_decisions:
-                plans.append({
-                    "kind": "property",
-                    "collection_name": collection_name,
-                    "target_key": rows[0]["key"],
-                    "patch": {
-                        decision.property_name: decision.value
-                        for decision in set_decisions
-                    },
-                    "reports": [{
-                    "curation_type": curation_type,
-                    "batch_id": decision.batch_id,
-                    "operation_id": decision.source_operation.get("operation_id"),
-                    "action": "set_property",
-                    "target": decision.target,
-                    "property": decision.property_name,
-                    "previous": previous.get(decision.property_name),
-                    "result": decision.value,
-                    "status": "applied",
-                    } for decision in set_decisions],
-                })
         transaction = db.begin_transaction(
             write=sorted({plan["collection_name"] for plan in plans})
         ) if plans else None
         write_db = transaction or db
         try:
             for plan in plans:
-                if plan["kind"] in {"property", "record_properties"}:
-                    write_verb = (
-                        "REPLACE" if plan["kind"] == "record_properties" else "UPDATE"
-                    )
+                if plan["kind"] == "record_properties":
+                    write_verb = "REPLACE"
                     write_options = (
                         "" if plan["kind"] == "record_properties"
                         else "OPTIONS {keepNull: true}"

@@ -11,8 +11,8 @@ from typing import Any, Optional
 
 from src.core.curations import (
     FORMAT_VERSION,
-    RECORD_PROPERTIES,
     batch_key,
+    is_record_property_type,
     manifest_key,
     operation_subjects,
     payload_sha256,
@@ -228,7 +228,7 @@ def add_cart_operation(
             operations = cart.setdefault("operations", [])
             operation_payload = incoming_payload
             if (
-                curation_type == RECORD_PROPERTIES
+                is_record_property_type(curation_type)
                 and operation_payload.get("action") == "set_properties"
             ):
                 target = operation_payload["target"]
@@ -253,39 +253,6 @@ def add_cart_operation(
                     operation_payload = {
                         **operation_payload,
                         "decisions": list(decisions_by_path.values()),
-                    }
-                operations[:] = [item for item in operations if item not in same_target]
-            elif operation_payload.get("action") == "set_properties":
-                target = operation_payload["target"]
-                same_target = [
-                    item for item in operations
-                    if item.get("action") in {"set_properties", "set_property", "unset_property"}
-                    and item.get("target") == target
-                ]
-                if same_target and not replace_target:
-                    merged_values = {}
-                    merged_remove_overrides = []
-                    for item in same_target:
-                        if item.get("action") == "set_properties":
-                            merged_values.update(item.get("values") or {})
-                            merged_remove_overrides.extend(item.get("remove_overrides") or [])
-                        elif item.get("action") == "set_property":
-                            merged_values[item["property"]] = item.get("value")
-                        else:
-                            merged_remove_overrides.append(item["property"])
-                    for property_name, value in (operation_payload.get("values") or {}).items():
-                        merged_values[property_name] = value
-                        merged_remove_overrides = [
-                            item for item in merged_remove_overrides if item != property_name
-                        ]
-                    for property_name in operation_payload.get("remove_overrides") or []:
-                        merged_values.pop(property_name, None)
-                        if property_name not in merged_remove_overrides:
-                            merged_remove_overrides.append(property_name)
-                    operation_payload = {
-                        **operation_payload,
-                        "values": merged_values,
-                        "remove_overrides": merged_remove_overrides,
                     }
                 operations[:] = [item for item in operations if item not in same_target]
             validate_operation(curation_type, operation_payload)
@@ -392,7 +359,7 @@ def publish_cart(
         operations = cart.get("operations") or []
         if not operations:
             raise ValueError("The curation cart is empty")
-        if curation_type == RECORD_PROPERTIES:
+        if is_record_property_type(curation_type):
             curation_sets = {
                 (operation.get("target") or {}).get("curation_set")
                 for operation in operations

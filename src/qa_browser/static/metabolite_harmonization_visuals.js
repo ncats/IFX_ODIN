@@ -74,112 +74,21 @@
     }
 
     function genericStatusLabel(value) {
-        return value === true ? "Generic" : value === false ? "Not generic" : "Unknown";
+        return value === true
+            ? "Generic"
+            : value === false ? "Specific / non-generic" : "Unknown / unclassified";
     }
 
-    function propertyValueLabel(property, value, hasValue = true) {
-        if (!hasValue) return "Not present";
-        if (value === null) return "No value";
-        if (property.value_type === "boolean") return value ? "True" : "False";
-        return String(value);
-    }
-
-    function pendingPropertyChoice(operation, propertyName) {
-        if (!operation) return {action: "no_change"};
-        if (operation.action === "set_properties") {
-            if (Object.prototype.hasOwnProperty.call(operation.values || {}, propertyName)) {
-                return {action: "set", value: operation.values[propertyName]};
-            }
-            if ((operation.remove_overrides || []).includes(propertyName)) {
-                return {action: "remove_override"};
-            }
-        }
-        if (operation.property === propertyName && operation.action === "set_property") {
-            return {action: "set", value: operation.value};
-        }
-        if (operation.property === propertyName && operation.action === "unset_property") {
-            return {action: "remove_override"};
-        }
-        return {action: "no_change"};
-    }
-
-    function propertyValueEditor(property, pending) {
-        const value = pending.action === "set" ? pending.value : property.effective_value;
-        if (property.value_type === "boolean") {
-            return `<select data-property-value>
-                <option value="true" ${value === true ? "selected" : ""}>True</option>
-                <option value="false" ${value === false ? "selected" : ""}>False</option>
-            </select>`;
-        }
-        const inputType = ["integer", "number"].includes(property.value_type) ? "number" : "text";
-        const step = property.value_type === "integer" ? "1" : property.value_type === "number" ? "any" : "";
-        return `<input data-property-value type="${inputType}" ${step ? `step="${step}"` : ""}
-            value="${value === null || value === undefined ? "" : escapeHtml(value)}">`;
-    }
-
-    function renderCuratableProperties(data) {
-        const properties = data.curatable_properties || [];
-        if (!properties.length) return "";
-        if (properties.some((property) => property.editing_available === false)) {
-            return `<section class="metabolite-id-detail-section metabolite-property-curation">
-                <h4>Curate properties</h4>
-                <p class="metabolite-property-state-error" role="alert">${escapeHtml(
-                    properties.find((property) => property.state_error)?.state_error
-                    || "Published curation state is unavailable. Property editing is disabled."
-                )}</p>
-            </section>`;
-        }
-        const pendingOperation = (global.metaboliteCurationCartOperations || []).find((operation) =>
-            operation.curation_type === "metabolite_annotations"
-            && ["set_properties", "set_property", "unset_property"].includes(operation.action)
-            && operation.target?.model_type === "MetaboliteIdentifier"
-            && operation.target?.id === data.id
+    function pendingGenericStructureDecision(targetId) {
+        const operation = (global.metaboliteCurationCartOperations || []).find((item) =>
+            item.curation_type === "metabolite_record_properties"
+            && item.action === "set_properties"
+            && item.target?.model_type === "MetaboliteIdentifier"
+            && item.target?.id === targetId
         );
-        const rows = properties.map((property) => {
-            const pending = pendingPropertyChoice(pendingOperation, property.name);
-            const pendingLabel = pending.action === "set"
-                ? `Set to ${propertyValueLabel(property, pending.value)}`
-                : pending.action === "remove_override" ? "Restore graph value" : "None";
-            const selectedAction = pending.action === "set" && pending.value === null ? "set_null" : pending.action;
-            const provenance = property.last_published_decision || {};
-            const publisher = provenance.published_by?.name || provenance.published_by?.id || "";
-            return `<fieldset class="metabolite-property-editor" data-curatable-property
-                    data-property-name="${escapeHtml(property.name)}" data-property-type="${escapeHtml(property.value_type)}"
-                    data-pending-action="${escapeHtml(pending.action)}"
-                    data-pending-value="${escapeHtml(JSON.stringify(pending.value))}">
-                <legend>${escapeHtml(property.label)}</legend>
-                <div class="metabolite-property-state">
-                    <span><strong>Graph value</strong>${escapeHtml(propertyValueLabel(property, property.graph_value, property.graph_has_value))}</span>
-                    <span><strong>Published override</strong>${escapeHtml(propertyValueLabel(property, property.published_override, property.has_published_override))}</span>
-                    <span><strong>Effective value</strong>${escapeHtml(propertyValueLabel(property, property.effective_value, property.effective_has_value))}</span>
-                    <span><strong>Pending</strong>${escapeHtml(pendingLabel)}</span>
-                </div>
-                ${publisher ? `<small>Published by ${escapeHtml(publisher)}${provenance.published_at ? ` · ${escapeHtml(provenance.published_at)}` : ""}</small>` : ""}
-                <div class="metabolite-property-controls">
-                    <label>Change
-                        <select data-property-action>
-                            <option value="no_change" ${selectedAction === "no_change" ? "selected" : ""}>No change</option>
-                            <option value="set" ${selectedAction === "set" ? "selected" : ""}>Set value</option>
-                            ${property.nullable ? `<option value="set_null" ${selectedAction === "set_null" ? "selected" : ""}>Set no value</option>` : ""}
-                            ${property.has_published_override ? `<option value="remove_override" ${selectedAction === "remove_override" ? "selected" : ""}>Restore graph value</option>` : ""}
-                            ${pending.action !== "no_change" ? '<option value="discard_pending">Discard pending change</option>' : ""}
-                        </select>
-                    </label>
-                    <label data-property-value-wrap class="${selectedAction === "set" ? "" : "is-hidden"}">Value
-                        ${propertyValueEditor(property, pending)}
-                    </label>
-                </div>
-            </fieldset>`;
-        }).join("");
-        return `<section class="metabolite-id-detail-section metabolite-property-curation">
-            <h4>Curate properties</h4>
-            <form data-metabolite-property-form data-curation-target-id="${escapeHtml(data.id || "")}">
-                ${rows}
-                <label>Review note <input type="text" data-property-note placeholder="Optional reason for these changes"></label>
-                <button type="submit" class="btn">Add changes to review</button>
-            </form>
-            <small>Publishing updates the reusable metabolite annotation stream. Existing stages must be synced.</small>
-        </section>`;
+        return (operation?.decisions || []).find((item) =>
+            JSON.stringify(item.path) === JSON.stringify(["is_generic_structure"])
+        ) || null;
     }
 
     function renderHarmonizationParticipation(data) {
@@ -241,17 +150,47 @@
 
     function renderGenericStructureEvidence(data) {
         const classification = data.generic_structure || {};
+        const pending = pendingGenericStructureDecision(data.id);
+        const stateAvailable = classification.state_available !== false;
         const rows = [
-            detailRow("Current effective status", genericStatusLabel(classification.effective)),
-            detailRow("Detected status", genericStatusLabel(classification.detected)),
-            detailRow("Published override", classification.has_published_override
-                ? genericStatusLabel(classification.published_override)
-                : "None"),
+            detailRow("Published effective status", genericStatusLabel(classification.effective)),
+            detailRow("Evidence graph status", genericStatusLabel(classification.detected)),
+            detailRow("Published record curation", !stateAvailable
+                ? "Unavailable"
+                : classification.has_published_override
+                    ? genericStatusLabel(classification.published_override)
+                    : "None"),
             detailRow("Reason", classification.reason || "No structure evidence available"),
+            detailRow("Pending change", pending
+                ? (pending.mode === "remove_override"
+                    ? "Use evidence graph value"
+                    : genericStatusLabel(pending.value))
+                : "None"),
         ].filter(Boolean).join("");
+        const editor = stateAvailable ? `<form data-generic-classification-form data-curation-target-id="${escapeHtml(data.id || "")}">
+                <label>Change classification
+                    <select data-generic-classification-value>
+                        <option value="">Choose…</option>
+                        <option value="true">Generic</option>
+                        <option value="false">Specific / non-generic</option>
+                        <option value="null">Unknown / unclassified</option>
+                        ${classification.has_published_override
+                            ? '<option value="detected">Use evidence graph value</option>'
+                            : ''}
+                    </select>
+                </label>
+                <label>Rationale <input type="text" data-generic-classification-note required
+                    placeholder="Why should this classification change?"></label>
+                <button type="submit" class="btn">Add change to review</button>
+            </form>` : `<p class="metabolite-property-state-error" role="alert">${escapeHtml(
+                classification.state_error
+                || "Published record-property curation state is unavailable. Classification editing is disabled."
+            )}</p>`;
         return `<section class="metabolite-id-detail-section metabolite-generic-classification">
             <h4>Generic-structure evidence</h4>
             <div class="ramp-id-details">${rows}</div>
+            ${editor}
+            ${data.record_url ? `<a href="${escapeHtml(data.record_url)}">Open record and curate fields</a>` : ""}
         </section>`;
     }
 
@@ -298,9 +237,8 @@
             subtitle: data.kind || data.prefix || "MetaboliteIdentifier",
             html: [
                 `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${identifierRows}</div></section>`,
-                renderHarmonizationParticipation(data),
-                renderCuratableProperties(data),
                 renderGenericStructureEvidence(data),
+                renderHarmonizationParticipation(data),
                 `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${chemistryRows}</div></section>`,
                 renderStructureData(data),
                 renderChemPropTable(data.chem_props || []),

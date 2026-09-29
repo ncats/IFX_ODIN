@@ -3,10 +3,9 @@ import json
 import pytest
 
 from src.core.curations import (
-    METABOLITE_ANNOTATIONS,
+    METABOLITE_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
-    RECORD_PROPERTIES,
 )
 from src.qa_browser.curation_cart import (
     add_cart_operation,
@@ -122,19 +121,6 @@ def expected_clique(name="Glucose anomers", rationale="Expected together"):
     }
 
 
-def property_changes(values=None, remove_overrides=None):
-    return {
-        "action": "set_properties",
-        "target": {
-            "kind": "node",
-            "model_type": "MetaboliteIdentifier",
-            "id": "KEGG.COMPOUND:C00001",
-        },
-        "values": values or {},
-        "remove_overrides": remove_overrides or [],
-    }
-
-
 def record_property_changes(path, value, observed="old"):
     return {
         "action": "set_properties",
@@ -224,38 +210,15 @@ def test_new_assertion_decision_replaces_same_assertion_in_draft_cart():
     assert cart["operations"][0]["name"] == "Glucose forms"
 
 
-def test_property_changes_merge_per_target_and_keep_one_cart_item():
-    storage = FakeStorage()
-    add_cart_operation(
-        storage,
-        METABOLITE_ANNOTATIONS,
-        "keith",
-        "Keith",
-        property_changes({"is_generic_structure": True}),
-    )
-
-    cart = add_cart_operation(
-        storage,
-        METABOLITE_ANNOTATIONS,
-        "keith",
-        "Keith",
-        property_changes({}, ["is_generic_structure"]),
-    )
-
-    assert cart["operation_count"] == 1
-    assert cart["operations"][0]["values"] == {}
-    assert cart["operations"][0]["remove_overrides"] == ["is_generic_structure"]
-
-
 def test_generic_record_property_changes_merge_by_semantic_path():
     storage = FakeStorage()
     add_cart_operation(
-        storage, RECORD_PROPERTIES, "keith", "Keith",
+        storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith",
         record_property_changes(["formula"], "C6H10O5"),
     )
 
     cart = add_cart_operation(
-        storage, RECORD_PROPERTIES, "keith", "Keith",
+        storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith",
         record_property_changes(["mw"], "162.14"),
     )
 
@@ -265,10 +228,29 @@ def test_generic_record_property_changes_merge_by_semantic_path():
     ]
 
 
+def test_generic_classification_change_preserves_pending_sibling_fields():
+    storage = FakeStorage()
+    add_cart_operation(
+        storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith",
+        record_property_changes(["formula"], "C6H10O5"),
+    )
+    classification = record_property_changes(
+        ["is_generic_structure"], True, observed=None
+    )
+
+    cart = add_cart_operation(
+        storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith", classification
+    )
+
+    assert [decision["path"] for decision in cart["operations"][0]["decisions"]] == [
+        ["formula"], ["is_generic_structure"],
+    ]
+
+
 def test_record_property_publish_rejects_multiple_graphs_in_one_draft():
     storage = FakeStorage()
     add_cart_operation(
-        storage, RECORD_PROPERTIES, "keith", "Keith",
+        storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith",
         record_property_changes(["formula"], "C6H10O5"),
     )
     other_graph = record_property_changes(["name"], "Corrected")
@@ -278,36 +260,11 @@ def test_record_property_publish_rejects_multiple_graphs_in_one_draft():
         "model_type": "Drug",
         "id": "CHEMBL:1",
     }
-    add_cart_operation(storage, RECORD_PROPERTIES, "keith", "Keith", other_graph)
-
-    with pytest.raises(ValueError, match="exactly one graph"):
-        publish_cart(
-            storage, RECORD_PROPERTIES, "keith", "Keith", "Mixed graph batch"
+    with pytest.raises(ValueError, match="not registered"):
+        add_cart_operation(
+            storage, METABOLITE_RECORD_PROPERTIES, "keith", "Keith", other_graph
         )
 
-
-def test_replace_target_replaces_old_style_property_draft():
-    storage = FakeStorage()
-    old_operation = {
-        "action": "set_property",
-        "target": property_changes()["target"],
-        "property": "is_generic_structure",
-        "value": True,
-    }
-    add_cart_operation(storage, METABOLITE_ANNOTATIONS, "keith", "Keith", old_operation)
-
-    cart = add_cart_operation(
-        storage,
-        METABOLITE_ANNOTATIONS,
-        "keith",
-        "Keith",
-        property_changes({"is_generic_structure": None}),
-        replace_target=True,
-    )
-
-    assert cart["operation_count"] == 1
-    assert cart["operations"][0]["action"] == "set_properties"
-    assert cart["operations"][0]["values"] == {"is_generic_structure": None}
 
 
 def test_removing_last_item_deletes_persisted_draft():
