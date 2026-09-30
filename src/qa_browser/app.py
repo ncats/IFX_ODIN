@@ -34,16 +34,20 @@ from starlette.concurrency import run_in_threadpool
 import uvicorn
 
 from src.core.curations import (
+    CHEBI_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_MW_ADJUDICATIONS,
     METABOLITE_RECORD_PROPERTIES,
     METABOLITE_RECORD_SUPPRESSIONS,
     curatable_property_definitions,
     payload_sha256,
+    record_property_curation_set_for_model,
     record_property_type_for_model,
     resolve_curation_type,
     validate_operation,
 )
+from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
 from src.core.record_property_curations import (
     CURATION_ORIGINAL_FIELD,
     MISSING_ORIGINAL_MARKER,
@@ -64,6 +68,8 @@ from src.shared.metabolite_generic_structure import (
 from src.shared.metabolite_mass_validation import (
     MW_VALIDATION_VERSION,
     assess_mass_profiles,
+    cluster_mass_observations,
+    mass_validation_finding_metadata,
 )
 from src.qa_browser.build_provenance import extract_build_inputs
 from src.qa_browser.disease_id_graph import (
@@ -348,11 +354,12 @@ _METABOLITE_HARMONIZATION_RULES = [
                 "label": "Curation types",
                 "type": "textarea",
                 "default": "\n".join([
+                    CHEBI_RECORD_PROPERTIES,
                     METABOLITE_EQUIVALENCE_EDGES,
                     METABOLITE_RECORD_SUPPRESSIONS,
                     METABOLITE_RECORD_PROPERTIES,
                 ]),
-                "placeholder": "metabolite_equivalence_edges\nmetabolite_record_suppressions\nmetabolite_record_properties",
+                "placeholder": "chebi_record_properties\nmetabolite_equivalence_edges\nmetabolite_record_suppressions\nmetabolite_record_properties",
             },
         ],
     },
@@ -807,6 +814,82 @@ def _metabolite_retire_assertion_operation(assertion_id: str, note: str = "") ->
     return operation
 
 
+_MW_ADJUDICATION_REASONS = (
+    ("protonation_or_charge_state", "Protonation or charge state"),
+    ("salt_or_counterion", "Salt or counterion"),
+    ("hydrate_or_solvate", "Hydrate or solvate"),
+    ("multicomponent_form", "Multicomponent form"),
+    ("source_mass_convention", "Source mass convention"),
+    ("polymer_or_repeat_unit", "Polymer or repeat unit"),
+    ("other_reviewed_explanation", "Other reviewed explanation"),
+)
+
+
+def _metabolite_mw_adjudication_operation(
+    action: str,
+    stage_key: str,
+    finding_id: str,
+    reason: str,
+    supporting_ids: Any,
+    note: str,
+) -> dict:
+    if action not in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}:
+        raise HTTPException(status_code=400, detail="Unsupported MW adjudication action.")
+    stage = _get_harmonization_stage(str(stage_key or "").strip())
+    validation = _with_mw_finding_metadata(
+        _prioritize_kegg_validation_samples(
+            (stage.get("validation") or {}).get("mw_spread") or {}
+        )
+    )
+    finding = next((
+        item for item in validation.get("warnings") or []
+        if item.get("finding_id") == str(finding_id or "").strip()
+    ), None)
+    if finding is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This MW finding is not present in the requested saved stage. Reload it before curating.",
+        )
+    member_ids = finding.get("member_ids") or []
+    anchor_id = finding["anchor_id"]
+    parsed_supporting_ids = _parse_metabolite_identifier_query(
+        " ".join(str(item) for item in supporting_ids)
+        if isinstance(supporting_ids, list)
+        else str(supporting_ids or "")
+    )
+    unknown_supporting = sorted(set(parsed_supporting_ids) - set(member_ids))
+    if unknown_supporting:
+        raise HTTPException(
+            status_code=400,
+            detail="Supporting IDs are not members of this finding: " + ", ".join(unknown_supporting),
+        )
+    operation = {
+        "action": action,
+        "target": {
+            "kind": "validation_finding",
+            "curation_set": "metabolite_harmonization",
+            "check": "mw_spread",
+            "finding_id": finding["finding_id"],
+            "anchor_id": anchor_id,
+        },
+        "observed_evidence_fingerprint": finding["evidence_fingerprint"],
+        "observed_member_ids": member_ids,
+        "note": str(note or "").strip(),
+    }
+    if action == "accept_mw_discrepancy":
+        valid_reasons = {value for value, _label in _MW_ADJUDICATION_REASONS}
+        clean_reason = str(reason or "").strip()
+        if clean_reason not in valid_reasons:
+            raise HTTPException(status_code=400, detail="Choose a valid MW acceptance reason.")
+        operation["reason"] = clean_reason
+        operation["supporting_ids"] = sorted(set(parsed_supporting_ids))
+    try:
+        validate_operation(METABOLITE_MW_ADJUDICATIONS, operation)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return operation
+
+
 def _missing_metabolite_identifier_ids(member_ids: List[str]) -> List[str]:
     db = get_db("metabolite_harmonization")
     found_ids = set(db.aql.execute(
@@ -861,13 +944,18 @@ def _metabolite_curation_publication_time(batch: dict, key: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _metabolite_record_property_snapshot_state(snapshot) -> dict:
+def _record_property_snapshot_state(
+    snapshot,
+    *,
+    curation_set: str,
+    model_type: str,
+) -> dict:
     decisions = sorted([
         decision
         for decision in snapshot.record_property_decisions_for_set(
-            "metabolite_harmonization"
+            curation_set
         )
-        if decision.target.get("model_type") == "MetaboliteIdentifier"
+        if decision.target.get("model_type") == model_type
     ], key=lambda decision: (
         decision.target.get("id") or "",
         _canonical_record_property_path(decision.path),
@@ -887,8 +975,8 @@ def _metabolite_record_property_snapshot_state(snapshot) -> dict:
     selected_batch_ids = {decision.batch_id for decision in decisions}
     metadata = {
         **snapshot.metadata(),
-        "selected_curation_set": "metabolite_harmonization",
-        "selected_model_type": "MetaboliteIdentifier",
+        "selected_curation_set": curation_set,
+        "selected_model_type": model_type,
         "selected_batch_ids": [
             batch_id for batch_id in snapshot.batch_ids
             if batch_id in selected_batch_ids
@@ -902,6 +990,14 @@ def _metabolite_record_property_snapshot_state(snapshot) -> dict:
         "fingerprint": fingerprint,
         "metadata": metadata,
     }
+
+
+def _metabolite_record_property_snapshot_state(snapshot) -> dict:
+    return _record_property_snapshot_state(
+        snapshot,
+        curation_set="metabolite_harmonization",
+        model_type="MetaboliteIdentifier",
+    )
 
 
 def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> dict:
@@ -925,8 +1021,16 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
     record_property_snapshot = resolve_curation_type(
         storage, METABOLITE_RECORD_PROPERTIES, allow_missing=True
     )
+    chebi_record_property_snapshot = resolve_curation_type(
+        storage, CHEBI_RECORD_PROPERTIES, allow_missing=True
+    )
     record_property_state = _metabolite_record_property_snapshot_state(
         record_property_snapshot
+    )
+    chebi_record_property_state = _record_property_snapshot_state(
+        chebi_record_property_snapshot,
+        curation_set="chebi",
+        model_type="ChemicalEntity",
     )
     record_property_decisions = {}
     for decision in record_property_state["decisions"]:
@@ -998,6 +1102,7 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.fingerprint,
         METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.fingerprint,
         METABOLITE_RECORD_PROPERTIES: record_property_state["fingerprint"],
+        CHEBI_RECORD_PROPERTIES: chebi_record_property_state["fingerprint"],
     })
 
     return {
@@ -1021,11 +1126,15 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         "record_property_fingerprint": record_property_state["fingerprint"],
         "record_property_state_available": True,
         "record_property_state_error": None,
+        "chebi_record_property_snapshot": chebi_record_property_snapshot,
+        "chebi_record_property_batch_ids": chebi_record_property_state["batch_ids"],
+        "chebi_record_property_fingerprint": chebi_record_property_state["fingerprint"],
         "snapshots": {
             METABOLITE_EQUIVALENCE_EDGES: edge_snapshot.metadata(),
             METABOLITE_EXPECTED_CLIQUES: assertion_snapshot.metadata(),
             METABOLITE_RECORD_SUPPRESSIONS: suppression_snapshot.metadata(),
             METABOLITE_RECORD_PROPERTIES: record_property_state["metadata"],
+            CHEBI_RECORD_PROPERTIES: chebi_record_property_state["metadata"],
         },
         "suppression_state_available": True,
         "suppression_state_error": None,
@@ -1082,6 +1191,14 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
         and decision.target.get("id") == document.get("id")
     }
     fields = []
+    model_type = document["_curation_model_type"]
+    top_level_allowlist = (
+        {
+            definition.property_name
+            for definition in curatable_property_definitions(model_type)
+        }
+        if model_type == "ChemicalEntity" else None
+    )
 
     def add_field(path, descriptor):
         baseline_present, baseline = _record_property_observation(document, path)
@@ -1164,6 +1281,8 @@ def _record_property_fields(document: dict, schema_entry: dict, snapshot) -> lis
 
     for field_name, descriptor in schema_fields.items():
         if is_protected_curation_field(field_name):
+            continue
+        if top_level_allowlist is not None and field_name not in top_level_allowlist:
             continue
         visit(document.get(field_name), descriptor, [field_name])
     return fields
@@ -1518,8 +1637,10 @@ def _metabolite_record_suppression_operation(
 
 
 _QA_CURATION_TYPES = (
+    CHEBI_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_MW_ADJUDICATIONS,
     METABOLITE_RECORD_PROPERTIES,
     METABOLITE_RECORD_SUPPRESSIONS,
 )
@@ -1534,7 +1655,7 @@ def _combined_curation_cart(storage, curator_id: str, curator_name: str) -> dict
     for curation_type, cart in carts.items():
         for operation in cart.get("operations") or []:
             presented = {**operation, "curation_type": curation_type}
-            if curation_type == METABOLITE_RECORD_PROPERTIES:
+            if curation_type in {CHEBI_RECORD_PROPERTIES, METABOLITE_RECORD_PROPERTIES}:
                 presented = _record_property_cart_view(
                     {"operations": [presented]}
                 )["operations"][0]
@@ -1676,14 +1797,20 @@ def _load_generic_structure_classifications(db) -> dict[str, Optional[bool]]:
     }
 
 
-def _load_metabolite_identifier_record_overlays(db, snapshot) -> tuple[dict[str, dict], list[dict]]:
+def _load_record_overlays(
+    db,
+    snapshot,
+    *,
+    curation_set: str,
+    model_type: str,
+) -> tuple[dict[str, dict], list[dict]]:
     """Project published field corrections without mutating the evidence graph."""
     decisions = [
         decision
         for decision in snapshot.record_property_decisions_for_set(
-            "metabolite_harmonization"
+            curation_set
         )
-        if decision.target.get("model_type") == "MetaboliteIdentifier"
+        if decision.target.get("model_type") == model_type
     ]
     target_ids = sorted({decision.target.get("id") for decision in decisions})
     if not target_ids:
@@ -1692,11 +1819,11 @@ def _load_metabolite_identifier_record_overlays(db, snapshot) -> tuple[dict[str,
         document["id"]: document
         for document in db.aql.execute(
             """
-            FOR d IN MetaboliteIdentifier
+            FOR d IN @@collection
               FILTER d.id IN @target_ids
               RETURN d
             """,
-            bind_vars={"target_ids": target_ids},
+            bind_vars={"@collection": model_type, "target_ids": target_ids},
             max_runtime=60,
         )
     }
@@ -1707,11 +1834,11 @@ def _load_metabolite_identifier_record_overlays(db, snapshot) -> tuple[dict[str,
             + ", ".join(missing[:10])
         )
     schema_fields = (_get_collection_schema_entry(
-        db, "MetaboliteIdentifier"
+        db, model_type
     ).get("fields") or {})
     if not schema_fields:
         raise ValueError(
-            "MetaboliteIdentifier does not publish a schema for record-property curations"
+            f"{model_type} does not publish a schema for record-property curations"
         )
     overlays = dict(documents)
     reports = []
@@ -1724,7 +1851,34 @@ def _load_metabolite_identifier_record_overlays(db, snapshot) -> tuple[dict[str,
             overlays[target_id], decision
         )
         reports.append(report)
+    if model_type == "ChemicalEntity":
+        derived_fields = (
+            "calculated_mw",
+            "calculated_monoisotopic_mass",
+            "structure_calculation_input_field",
+            "structure_calculation_method",
+            "structure_calculation_method_version",
+            "structure_calculation_error",
+        )
+        for target_id, document in overlays.items():
+            recalculated = calculate_smiles_chemistry(
+                document.get("smiles"), "smiles"
+            )
+            for field_name in derived_fields:
+                document[field_name] = recalculated.get(field_name)
+            document["structure_components"] = recalculated.get(
+                "structure_components", []
+            )
     return overlays, reports
+
+
+def _load_metabolite_identifier_record_overlays(db, snapshot):
+    return _load_record_overlays(
+        db,
+        snapshot,
+        curation_set="metabolite_harmonization",
+        model_type="MetaboliteIdentifier",
+    )
 
 
 def _effective_inchi_key_matches(
@@ -3050,6 +3204,7 @@ def _ensure_harmonization_stage(
         rule_parameters.get("apply_curations", {}).get("curation_types", [])
     ) if apply_curations_enabled else set()
     unsupported_curation_types = selected_curation_types - {
+        CHEBI_RECORD_PROPERTIES,
         METABOLITE_EQUIVALENCE_EDGES,
         METABOLITE_RECORD_PROPERTIES,
         METABOLITE_RECORD_SUPPRESSIONS,
@@ -3061,6 +3216,7 @@ def _ensure_harmonization_stage(
     apply_edge_curations = METABOLITE_EQUIVALENCE_EDGES in selected_curation_types
     apply_record_suppressions = METABOLITE_RECORD_SUPPRESSIONS in selected_curation_types
     apply_record_properties = METABOLITE_RECORD_PROPERTIES in selected_curation_types
+    apply_chebi_record_properties = CHEBI_RECORD_PROPERTIES in selected_curation_types
     assertion_fallback_enabled = "force_expected_clique_assertions" in rule_ids
     if apply_curations_enabled or assertion_fallback_enabled:
         if curation_state is None:
@@ -3081,6 +3237,9 @@ def _ensure_harmonization_stage(
             "record_property_snapshot": None,
             "record_property_batch_ids": [],
             "record_property_fingerprint": None,
+            "chebi_record_property_snapshot": None,
+            "chebi_record_property_batch_ids": [],
+            "chebi_record_property_fingerprint": None,
             "snapshots": {},
             "prefix": None,
         }
@@ -3097,7 +3256,11 @@ def _ensure_harmonization_stage(
                 else (
                     curation_state.get("suppression_fingerprint")
                     if curation_type == METABOLITE_RECORD_SUPPRESSIONS
-                    else curation_state.get("record_property_fingerprint")
+                    else (
+                        curation_state.get("record_property_fingerprint")
+                        if curation_type == METABOLITE_RECORD_PROPERTIES
+                        else curation_state.get("chebi_record_property_fingerprint")
+                    )
                 )
             )
             for curation_type in sorted(selected_curation_types)
@@ -3122,11 +3285,20 @@ def _ensure_harmonization_stage(
 
     record_overlays = {}
     record_property_reports = []
+    chebi_record_overlays = {}
+    chebi_record_property_reports = []
     if apply_record_properties:
         record_overlays, record_property_reports = (
             _load_metabolite_identifier_record_overlays(
                 db, curation_state["record_property_snapshot"]
             )
+        )
+    if apply_chebi_record_properties:
+        chebi_record_overlays, chebi_record_property_reports = _load_record_overlays(
+            db,
+            curation_state["chebi_record_property_snapshot"],
+            curation_set="chebi",
+            model_type="ChemicalEntity",
         )
     record_generic_override_ids = {
         report["target"]["id"]
@@ -3264,11 +3436,18 @@ def _ensure_harmonization_stage(
         "clique_count": len(groups) + singleton_count,
         "largest_clique_sizes": [len(members) for members in groups[:10]],
     }
-    if apply_record_properties:
+    if apply_record_properties or apply_chebi_record_properties:
         mass_values_by_id = (
-            record_overlay_mass_values_provider(record_overlays)
+            record_overlay_mass_values_provider(
+                record_overlays,
+                chebi_record_overlays,
+            )
             if record_overlay_mass_values_provider is not None
-            else _load_metabolite_identifier_mass_values(db, record_overlays)
+            else _load_metabolite_identifier_mass_values(
+                db,
+                record_overlays,
+                chebi_record_overlays,
+            )
         )
     else:
         mass_values_by_id = mass_values_provider() if mass_values_provider is not None else _load_metabolite_identifier_mass_values(db)
@@ -3332,6 +3511,20 @@ def _ensure_harmonization_stage(
                 report.get("action") == "set"
                 for report in record_property_reports
             ) if apply_record_properties else 0
+        ),
+        "chebi_record_property_curation_batch_ids": (
+            curation_state.get("chebi_record_property_batch_ids") or []
+            if apply_chebi_record_properties else []
+        ),
+        "chebi_record_property_curation_fingerprint": (
+            curation_state.get("chebi_record_property_fingerprint")
+            if apply_chebi_record_properties else None
+        ),
+        "chebi_record_property_curation_count": (
+            sum(
+                report.get("action") == "set"
+                for report in chebi_record_property_reports
+            ) if apply_chebi_record_properties else 0
         ),
         "curation_snapshots": {
             curation_type: curation_state.get("snapshots", {}).get(curation_type)
@@ -3526,6 +3719,7 @@ def _pipeline_curation_fingerprint(pipeline: dict, curation_state: dict) -> Opti
     if not selected_types:
         return None
     fingerprints = {
+        CHEBI_RECORD_PROPERTIES: curation_state.get("chebi_record_property_fingerprint"),
         METABOLITE_EQUIVALENCE_EDGES: curation_state.get("edge_fingerprint"),
         METABOLITE_RECORD_PROPERTIES: curation_state.get("record_property_fingerprint"),
         METABOLITE_RECORD_SUPPRESSIONS: curation_state.get("suppression_fingerprint"),
@@ -3784,10 +3978,16 @@ def _list_harmonization_stage_overview_stats(
             row["stage_key"]: row
             for row in distribution_rows
         }
+    try:
+        mw_adjudication_state = _load_metabolite_mw_adjudications()
+    except Exception:
+        mw_adjudication_state = None
     for stage in stages:
         summary = stage.get("summary") or {}
         distribution = distribution_by_stage.get(stage["_key"], {})
-        mw_validation = _harmonization_stage_mw_validation_from_doc(stage)
+        mw_validation = _harmonization_stage_mw_validation_from_doc(
+            stage, mw_adjudication_state
+        )
         denylist_validation = _harmonization_stage_denylist_validation_from_doc(stage)
         generic_structure_validation = _harmonization_stage_generic_structure_validation_from_doc(stage)
         stage["overview_stats"] = {
@@ -3809,6 +4009,8 @@ def _list_harmonization_stage_overview_stats(
                 "error_count", mw_validation.get("warning_count", 0)
             ),
             "mw_review_warning_count": mw_validation.get("review_warning_count", 0),
+            "mw_accepted_count": mw_validation.get("accepted_count", 0),
+            "mw_stale_acceptance_count": mw_validation.get("stale_acceptance_count", 0),
             "mw_validation_computed": mw_validation.get("computed", False),
             "denylist_warning_count": denylist_validation.get("warning_count", 0),
             "denylist_validation_computed": denylist_validation.get("computed", False),
@@ -4561,14 +4763,376 @@ def _get_harmonization_stage(stage_key: str) -> dict:
     return stage
 
 
+def _legacy_mw_finding_metadata(validation: dict, warning: dict) -> dict:
+    """Give pre-fingerprint stages a deterministic, reviewable finding identity."""
+    member_ids = sorted(set(
+        warning.get("member_ids")
+        or str(warning.get("comparison_ids") or "").split()
+        or warning.get("sample_member_ids")
+        or []
+    ))
+    anchor_candidates = _kegg_first(member_ids)
+    identity = {
+        "check": "mw_spread",
+        "validator_version": validation.get("version"),
+        "member_ids": member_ids,
+    }
+    evidence = {
+        **identity,
+        "fingerprint_version": "legacy-saved-finding-v1",
+        "threshold": validation.get("threshold"),
+        "mass_summaries": warning.get("mass_summaries"),
+        "channel_results": warning.get("channel_results"),
+        "component_matches": warning.get("component_matches") or [],
+        "member_mass_examples": warning.get("member_mass_examples") or [],
+    }
+    return {
+        "finding_id": "mw-" + hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:24],
+        "anchor_id": anchor_candidates[0] if anchor_candidates else None,
+        "member_ids": member_ids,
+        "evidence_fingerprint": hashlib.sha256(
+            json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "evidence_fingerprint_version": "legacy-saved-finding-v1",
+    }
+
+
+def _compact_mw_finding_examples(warning: dict, limit: int = 3) -> List[dict]:
+    examples = warning.get("member_mass_examples") or []
+    if len(examples) <= limit:
+        return examples
+
+    def values(item: dict) -> List[float]:
+        return [
+            float(value)
+            for value in [
+                *(item.get("average_masses") or []),
+                *(item.get("monoisotopic_masses") or []),
+                *(item.get("masses") or []),
+            ]
+            if value is not None
+        ]
+
+    with_values = [item for item in examples if values(item)]
+    selected = []
+    if with_values:
+        selected.extend([
+            min(with_values, key=lambda item: min(values(item))),
+            max(with_values, key=lambda item: max(values(item))),
+        ])
+    explanatory_ids = [
+        identifier
+        for match in warning.get("component_matches") or []
+        for identifier in (match.get("component_member_id"), match.get("whole_member_id"))
+        if identifier
+    ]
+    selected.extend(
+        item for identifier in explanatory_ids
+        for item in examples
+        if item.get("member_id") == identifier
+    )
+    selected.extend(examples)
+    return list({item.get("member_id"): item for item in selected}.values())[:limit]
+
+
+def _mw_finding_mass_value_rows(finding: dict) -> List[dict]:
+    """Group exact validator masses by channel and contributing identifier."""
+    rows = []
+    for channel, label in (
+        ("average", "Average"),
+        ("monoisotopic", "Monoisotopic"),
+        ("unspecified", "Unspecified (legacy)"),
+    ):
+        identifiers_by_mass: dict[float, set[str]] = {}
+        for example in finding.get("member_mass_examples") or []:
+            identifier = str(example.get("member_id") or "").strip()
+            if not identifier:
+                continue
+            values = (
+                example.get("masses")
+                if channel == "unspecified"
+                else example.get(f"{channel}_masses")
+            ) or []
+            for raw_value in values:
+                parsed = _parse_metabolite_mass(raw_value)
+                if parsed is None:
+                    continue
+                identifiers_by_mass.setdefault(parsed, set()).add(identifier)
+        rows.extend({
+            "channel": channel,
+            "channel_label": label,
+            "mass": mass,
+            "mass_label": format(mass, ".12g"),
+            "identifiers": _kegg_first(sorted(identifiers)),
+        } for mass, identifiers in sorted(
+            identifiers_by_mass.items(), key=lambda item: item[0], reverse=True
+        ))
+    return rows
+
+
+def _mw_finding_mass_cluster_rows(
+    finding: dict,
+    mass_value_rows: Optional[List[dict]] = None,
+) -> List[dict]:
+    """Summarize exact saved evidence with the validator's clustering semantics."""
+    exact_rows = mass_value_rows or _mw_finding_mass_value_rows(finding)
+    channel_results = finding.get("channel_results") or {}
+    legacy_sampled_evidence = (
+        finding.get("evidence_fingerprint_version") == "legacy-saved-finding-v1"
+    )
+    cluster_rows = []
+    for channel, label in (
+        ("average", "Average"),
+        ("monoisotopic", "Monoisotopic"),
+        ("unspecified", "Unspecified (legacy)"),
+    ):
+        channel_exact_rows = [row for row in exact_rows if row["channel"] == channel]
+        result = channel_results.get(channel) or {}
+        summary = result.get("summary") or {}
+        if not channel_exact_rows and not summary:
+            continue
+        observations = [
+            {"member_id": identifier, "value": row["mass"]}
+            for row in channel_exact_rows
+            for identifier in row["identifiers"]
+        ]
+        clusters = cluster_mass_observations(observations) if observations else []
+        reported_cluster_count = result.get("mass_cluster_count")
+        evidence_complete = not legacy_sampled_evidence and (
+            reported_cluster_count is None
+            or reported_cluster_count == len(clusters)
+        )
+        display_clusters = []
+        if evidence_complete:
+            for cluster in sorted(
+                clusters,
+                key=lambda items: max(item["value"] for item in items),
+                reverse=True,
+            ):
+                values = [item["value"] for item in cluster]
+                identifiers = _kegg_first(sorted({
+                    item["member_id"] for item in cluster
+                }))
+                minimum = min(values)
+                maximum = max(values)
+                minimum_label = format(minimum, ".6g")
+                maximum_label = format(maximum, ".6g")
+                display_clusters.append({
+                    "mass_label": (
+                        f"≈{minimum_label} Da"
+                        if minimum_label == maximum_label
+                        else f"{minimum_label}–{maximum_label} Da"
+                    ),
+                    "identifier_count": len(identifiers),
+                })
+        fallback_range_label = None
+        if not evidence_complete and summary.get("min") is not None:
+            minimum_label = format(float(summary["min"]), ".6g")
+            maximum_label = format(float(summary.get("max", summary["min"])), ".6g")
+            fallback_range_label = (
+                f"≈{minimum_label} Da"
+                if minimum_label == maximum_label
+                else f"{minimum_label}–{maximum_label} Da"
+            )
+        cluster_rows.append({
+            "channel": channel,
+            "channel_label": label,
+            "cluster_count": (
+                reported_cluster_count
+                if reported_cluster_count is not None
+                else len(clusters)
+            ),
+            "explained_cluster_count": result.get("explained_mass_cluster_count"),
+            "clusters": display_clusters,
+            "fallback_range_label": fallback_range_label,
+            "evidence_complete": evidence_complete,
+        })
+    return cluster_rows
+
+
+def _with_mw_finding_metadata(validation: dict) -> dict:
+    normalized = dict(validation)
+    normalized["warnings"] = []
+    for warning in validation.get("warnings") or []:
+        normalized_warning = {
+            **warning,
+            **(
+                {
+                    key: warning.get(key)
+                    for key in (
+                        "finding_id", "anchor_id", "member_ids",
+                        "evidence_fingerprint", "evidence_fingerprint_version",
+                    )
+                }
+                if all(warning.get(key) for key in (
+                    "finding_id", "anchor_id", "member_ids", "evidence_fingerprint"
+                ))
+                else _legacy_mw_finding_metadata(validation, warning)
+            ),
+        }
+        normalized_warning["compact_member_mass_examples"] = (
+            _compact_mw_finding_examples(normalized_warning)
+        )
+        normalized["warnings"].append(normalized_warning)
+    if isinstance(validation.get("finding_index"), list):
+        normalized["finding_index"] = [dict(finding) for finding in validation["finding_index"]]
+    return normalized
+
+
+def _load_metabolite_mw_adjudications(storage=None) -> dict:
+    if storage is None:
+        storage = _curation_cart_storage()
+    snapshot = resolve_curation_type(
+        storage, METABOLITE_MW_ADJUDICATIONS, allow_missing=True
+    )
+    decisions = []
+    # MW review can branch when a clique splits. Read immutable history newest-first
+    # rather than collapsing decisions by anchor, so each descendant keeps context.
+    for resolved in reversed(snapshot.operations):
+        operation = resolved.operation
+        decisions.append({
+            **operation,
+            "curation_batch_id": resolved.batch_id,
+            "published_at": resolved.published_at,
+            "published_by": resolved.published_by,
+        })
+    return {"snapshot": snapshot.metadata(), "decisions": decisions}
+
+
+def _mw_adjudication_matches_members(decision: dict, member_ids: Iterable[str]) -> bool:
+    """Match a review lineage even when its original anchor left the clique."""
+    members = set(member_ids)
+    target = decision.get("target") or {}
+    if target.get("anchor_id") in members:
+        return True
+    return bool(members.intersection(decision.get("observed_member_ids") or []))
+
+
+def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict]) -> dict:
+    normalized = _with_mw_finding_metadata(validation)
+    decisions = (adjudication_state or {}).get("decisions") or []
+
+    def with_adjudication(finding: dict) -> dict:
+        members = set(finding.get("member_ids") or [])
+        matching = [
+            decision for decision in decisions
+            if _mw_adjudication_matches_members(decision, members)
+        ]
+        decision = matching[0] if matching else None
+        review_status = "unresolved"
+        if decision and decision.get("action") == "accept_mw_discrepancy":
+            review_status = (
+                "accepted"
+                if decision.get("observed_evidence_fingerprint")
+                    == finding.get("evidence_fingerprint")
+                else "stale"
+            )
+        return {
+            **finding,
+            "detected_severity": finding.get("severity", "error"),
+            "effective_severity": (
+                "warning" if review_status == "accepted" else finding.get("severity", "error")
+            ),
+            "review_status": review_status,
+            "adjudication": decision,
+        }
+
+    warnings = [
+        with_adjudication(warning)
+        for warning in normalized.get("warnings") or []
+    ]
+    normalized["warnings"] = warnings
+    has_full_finding_index = isinstance(normalized.get("finding_index"), list)
+    counted_findings = (
+        [with_adjudication(finding) for finding in normalized["finding_index"]]
+        if has_full_finding_index else warnings
+    )
+    if has_full_finding_index:
+        normalized["finding_index"] = counted_findings
+
+    # New stages carry a lightweight index for every finding. Older stages retain
+    # only a display sample, so preserve their full scalar totals as a fallback.
+    detected_error_count = normalized.get("error_count")
+    if has_full_finding_index or detected_error_count is None:
+        detected_error_count = sum(
+            finding.get("detected_severity") == "error" for finding in counted_findings
+        )
+    detected_review_warning_count = normalized.get("review_warning_count")
+    if has_full_finding_index or detected_review_warning_count is None:
+        detected_review_warning_count = sum(
+            finding.get("detected_severity") == "warning" for finding in counted_findings
+        )
+    accepted_errors = sum(
+        finding.get("detected_severity") == "error"
+        and finding.get("review_status") == "accepted"
+        for finding in counted_findings
+    )
+    normalized["detected_error_count"] = detected_error_count
+    normalized["error_count"] = max(0, detected_error_count - accepted_errors)
+    normalized["review_warning_count"] = detected_review_warning_count
+    normalized["accepted_count"] = sum(
+        finding.get("review_status") == "accepted" for finding in counted_findings
+    )
+    normalized["stale_acceptance_count"] = sum(
+        finding.get("review_status") == "stale" for finding in counted_findings
+    )
+    return normalized
+
+
+def _build_mw_validation_review(stage_key: str, finding_id: str) -> dict:
+    stage = _get_harmonization_stage(stage_key)
+    try:
+        adjudications = _load_metabolite_mw_adjudications()
+    except Exception:
+        adjudications = None
+    validation = _harmonization_stage_mw_validation_from_doc(stage, adjudications)
+    finding = next((
+        item for item in validation.get("warnings") or []
+        if item.get("finding_id") == finding_id
+    ), None)
+    if finding is None:
+        raise ValueError(
+            f"MW finding {finding_id} is not present in stage {stage_key}."
+        )
+    mass_value_rows = _mw_finding_mass_value_rows(finding)
+    finding = {
+        **finding,
+        "mass_value_rows": mass_value_rows,
+        "mass_cluster_rows": _mw_finding_mass_cluster_rows(
+            finding, mass_value_rows
+        ),
+        "mass_evidence_id_count": len({
+            identifier
+            for row in mass_value_rows
+            for identifier in row["identifiers"]
+        }),
+    }
+    return {
+        "stage_key": stage_key,
+        "stage_name": stage.get("name"),
+        "validator_version": validation.get("version"),
+        "threshold_percent": validation.get("threshold_percent"),
+        "finding": finding,
+        "reason_options": [
+            {"value": value, "label": label}
+            for value, label in _MW_ADJUDICATION_REASONS
+        ],
+    }
+
+
 def _harmonization_stage_mw_validation_from_doc(
     stage: dict,
+    adjudication_state: Optional[dict] = None,
     threshold: float = _METABOLITE_MW_SPREAD_WARNING_THRESHOLD,
     limit: int = _METABOLITE_MW_SPREAD_WARNING_LIMIT,
 ) -> dict:
     existing = (stage.get("validation") or {}).get("mw_spread")
     if isinstance(existing, dict):
-        return _prioritize_kegg_validation_samples(existing)
+        return _with_mw_adjudications(
+            _prioritize_kegg_validation_samples(existing), adjudication_state
+        )
     return {
         "computed": False,
         "version": None,
@@ -4699,17 +5263,30 @@ def _load_harmonization_stage_stats(stage_key: str) -> dict:
         "results": [],
     })
     expected_clique_assertions["fingerprint"] = curation_state.get("assertion_fingerprint")
-    mw_validation = _harmonization_stage_mw_validation_from_doc(stage)
+    try:
+        mw_adjudication_state = _load_metabolite_mw_adjudications()
+    except Exception:
+        mw_adjudication_state = None
+    mw_validation = _harmonization_stage_mw_validation_from_doc(
+        stage, mw_adjudication_state
+    )
     denylist_validation = _harmonization_stage_denylist_validation_from_doc(stage)
     generic_structure_validation = _harmonization_stage_generic_structure_validation_from_doc(stage)
+    generic_structure_validation = {
+        **generic_structure_validation,
+        "warning_count": generic_structure_validation.get("inconsistent_clique_count", 0),
+        "warnings": [
+            warning
+            for warning in generic_structure_validation.get("warnings") or []
+            if warning.get("status") == "inconsistent"
+        ],
+    }
     review_ranks = {
         int(warning["rank_by_size"])
-        for validation in (mw_validation, generic_structure_validation)
-        for warning in validation.get("warnings") or []
+        for warning in generic_structure_validation.get("warnings") or []
         if warning.get("rank_by_size") is not None
     }
     review_id_by_rank = _load_stage_validation_review_ids(db, stage_key, review_ranks)
-    mw_validation = _with_validation_review_ids(mw_validation, review_id_by_rank)
     generic_structure_validation = _with_validation_review_ids(
         generic_structure_validation,
         review_id_by_rank,
@@ -4737,7 +5314,19 @@ def _build_harmonization_stage_cart_flags(
     denylist_warning_pairs = denylist_warning_pairs or set()
     decisions_by_rank: Dict[int, set[tuple[str, str, str]]] = {}
     updates_by_rank: Dict[int, Dict[str, List[dict]]] = {}
+    validation_decisions_by_rank: Dict[int, List[dict]] = {}
     for operation in operations or []:
+        if operation.get("action") in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}:
+            target = operation.get("target") or {}
+            anchor_id = target.get("anchor_id")
+            rank = member_rank_by_id.get(anchor_id)
+            if rank in warning_ranks:
+                validation_decisions_by_rank.setdefault(rank, []).append({
+                    "action": operation["action"],
+                    "finding_id": target.get("finding_id"),
+                    "note": operation.get("note"),
+                })
+            continue
         if operation.get("action") == "set_properties" and operation.get("decisions"):
             target = operation.get("target") or {}
             target_id = _normalize_ramp_denylist_identifier(target.get("id"))
@@ -4787,8 +5376,14 @@ def _build_harmonization_stage_cart_flags(
                 {"target_id": target_id, "changes": changes}
                 for target_id, changes in sorted(updates_by_rank.get(rank, {}).items())
             ],
+            **({
+                "validation_decision_count": len(validation_decisions_by_rank[rank]),
+                "validation_decisions": validation_decisions_by_rank[rank],
+            } if rank in validation_decisions_by_rank else {}),
         }
-        for rank in sorted(set(decisions_by_rank) | set(updates_by_rank))
+        for rank in sorted(
+            set(decisions_by_rank) | set(updates_by_rank) | set(validation_decisions_by_rank)
+        )
         for decisions in [decisions_by_rank.get(rank, set())]
     ]
 
@@ -4837,7 +5432,18 @@ def _load_harmonization_stage_cart_flags(stage_key: str, operations: List[dict])
         ]
         if normalized
     })
-    subject_ids = sorted(set(edge_endpoint_ids) | set(property_target_ids))
+    validation_anchor_ids = sorted({
+        normalized
+        for operation in operations or []
+        if operation.get("action") in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}
+        for normalized in [
+            _normalize_ramp_denylist_identifier((operation.get("target") or {}).get("anchor_id"))
+        ]
+        if normalized
+    })
+    subject_ids = sorted(
+        set(edge_endpoint_ids) | set(property_target_ids) | set(validation_anchor_ids)
+    )
     if not subject_ids or not warning_ranks:
         return {"stage_key": stage_key, "flags": [], "flagged_warning_count": 0}
 
@@ -5999,12 +6605,14 @@ def _metabolite_mass_channel_labels(channel_results: dict) -> List[str]:
 def _load_metabolite_identifier_mass_values(
     db,
     record_overlays: Optional[dict[str, dict]] = None,
+    chemical_entity_overlays: Optional[dict[str, dict]] = None,
 ) -> Dict[str, dict]:
     mass_values_by_id: Dict[str, dict] = {}
 
     def profile(identifier: str) -> dict:
         return mass_values_by_id.setdefault(identifier, {
             "whole": {"average": [], "monoisotopic": []},
+            "whole_observations": [],
             "components": [],
         })
 
@@ -6023,6 +6631,7 @@ def _load_metabolite_identifier_mass_values(
                   RETURN {
                     source: prop.source,
                     source_id: prop.source_id,
+                    molecular_formula: prop.molecular_formula,
                     average: [prop.mw, prop.calculated_mw],
                     monoisotopic: [prop.monoisotopic_mass, prop.calculated_monoisotopic_mass],
                     components: prop.structure_components || []
@@ -6045,6 +6654,7 @@ def _load_metabolite_identifier_mass_values(
                     chemistry = {
                         "source": chemistry.get("source"),
                         "source_id": chemistry.get("source_id"),
+                        "molecular_formula": chemistry.get("molecular_formula"),
                         "average": [
                             chemistry.get("mw"),
                             chemistry.get("calculated_mw"),
@@ -6057,6 +6667,18 @@ def _load_metabolite_identifier_mass_values(
                     }
                 add_values(target["whole"]["average"], chemistry.get("average") or [])
                 add_values(target["whole"]["monoisotopic"], chemistry.get("monoisotopic") or [])
+                for channel in ("average", "monoisotopic"):
+                    for raw_value in chemistry.get(channel) or []:
+                        parsed = _parse_metabolite_mass(raw_value)
+                        if parsed is not None and parsed > 0:
+                            target["whole_observations"].append({
+                                "model_type": "MetaboliteIdentifier",
+                                "source": chemistry.get("source"),
+                                "source_id": chemistry.get("source_id"),
+                                "channel": channel,
+                                "value": parsed,
+                                "molecular_formula": chemistry.get("molecular_formula"),
+                            })
                 for component_index, component in enumerate(chemistry.get("components") or []):
                     average = _parse_metabolite_mass(component.get("mw"))
                     monoisotopic = _parse_metabolite_mass(component.get("monoisotopic_mass"))
@@ -6076,6 +6698,9 @@ def _load_metabolite_identifier_mass_values(
             """
             FOR d IN ChemicalEntity
               LET chemistry = {
+                source: "ChEBI",
+                source_id: d.id,
+                molecular_formula: d.formula,
                 average: [d.mass, d.calculated_mw],
                 monoisotopic: [d.monoisotopic_mass, d.calculated_monoisotopic_mass],
                 components: d.structure_components || []
@@ -6085,17 +6710,51 @@ def _load_metabolite_identifier_mass_values(
                 OR chemistry.monoisotopic[0] != null
                 OR chemistry.monoisotopic[1] != null
                 OR LENGTH(chemistry.components) > 0
+                OR d.id IN @overlay_ids
               RETURN {id: d.id, chemistry: chemistry}
             """,
+            bind_vars={
+                "overlay_ids": sorted((chemical_entity_overlays or {}).keys()),
+            },
             max_runtime=300,
         ):
             target = profile(row["id"])
-            chemistry = row.get("chemistry") or {}
+            chemical_overlay = (chemical_entity_overlays or {}).get(row["id"])
+            chemistry = (
+                {
+                    "source": "ChEBI",
+                    "source_id": chemical_overlay.get("id"),
+                    "molecular_formula": chemical_overlay.get("formula"),
+                    "average": [
+                        chemical_overlay.get("mass"),
+                        chemical_overlay.get("calculated_mw"),
+                    ],
+                    "monoisotopic": [
+                        chemical_overlay.get("monoisotopic_mass"),
+                        chemical_overlay.get("calculated_monoisotopic_mass"),
+                    ],
+                    "components": chemical_overlay.get("structure_components") or [],
+                }
+                if chemical_overlay is not None
+                else row.get("chemistry") or {}
+            )
             add_values(target["whole"]["average"], chemistry.get("average") or [])
             add_values(
                 target["whole"]["monoisotopic"],
                 chemistry.get("monoisotopic") or [],
             )
+            for channel in ("average", "monoisotopic"):
+                for raw_value in chemistry.get(channel) or []:
+                    parsed = _parse_metabolite_mass(raw_value)
+                    if parsed is not None and parsed > 0:
+                        target["whole_observations"].append({
+                            "model_type": "ChemicalEntity",
+                            "source": chemistry.get("source"),
+                            "source_id": chemistry.get("source_id"),
+                            "channel": channel,
+                            "value": parsed,
+                            "molecular_formula": chemistry.get("molecular_formula"),
+                        })
             for component_index, component in enumerate(chemistry.get("components") or []):
                 average = _parse_metabolite_mass(component.get("mw"))
                 monoisotopic = _parse_metabolite_mass(component.get("monoisotopic_mass"))
@@ -6113,6 +6772,16 @@ def _load_metabolite_identifier_mass_values(
     for value in mass_values_by_id.values():
         for channel in value["whole"]:
             value["whole"][channel] = sorted(set(value["whole"][channel]))
+        value["whole_observations"] = sorted(
+            {
+                json.dumps(item, sort_keys=True, separators=(",", ":")): item
+                for item in value["whole_observations"]
+            }.values(),
+            key=lambda item: (
+                item.get("source") or "", item.get("source_id") or "",
+                item.get("channel") or "", item.get("value") or 0,
+            ),
+        )
     return mass_values_by_id
 
 
@@ -6120,10 +6789,12 @@ def _cached_record_overlay_mass_values_provider(db):
     """Cache one immutable pipeline run's overlay-aware mass profile."""
     cache = {}
 
-    def provider(record_overlays):
+    def provider(record_overlays, chemical_entity_overlays=None):
         if "values" not in cache:
             cache["values"] = _load_metabolite_identifier_mass_values(
-                db, record_overlays
+                db,
+                record_overlays,
+                chemical_entity_overlays,
             )
         return cache["values"]
 
@@ -6285,7 +6956,14 @@ def _build_harmonization_stage_mw_validation(
             result.get("spread") or 0
             for result in assessment["channel_results"].values()
         )
+        finding_metadata = mass_validation_finding_metadata(
+            members,
+            profiles_by_id,
+            assessment,
+            spread_threshold=threshold,
+        )
         warnings.append({
+            **finding_metadata,
             "rank_by_size": rank,
             "representative_id": members[0] if members else None,
             "size": len(members),
@@ -6305,9 +6983,15 @@ def _build_harmonization_stage_mw_validation(
             "channel_results": assessment["channel_results"],
             "component_matches": assessment["component_matches"],
             "member_mass_examples": _metabolite_member_mass_profile_examples(
-                display_members,
-                profiles_by_id,
+                display_members, profiles_by_id, limit=len(display_members),
             ),
+            "source_mass_observations": [
+                {"member_id": member_id, **observation}
+                for member_id in display_members
+                for observation in (
+                    profiles_by_id.get(member_id, {}).get("whole_observations") or []
+                )
+            ],
             "comparison_ids": " ".join(display_members[:_METABOLITE_COMPARE_MAX_IDS]),
         })
     warnings.sort(key=lambda item: (
@@ -6318,6 +7002,20 @@ def _build_harmonization_stage_mw_validation(
     ))
     error_count = sum(item["severity"] == "error" for item in warnings)
     review_warning_count = sum(item["severity"] == "warning" for item in warnings)
+    finding_index = [
+        {
+            key: item.get(key)
+            for key in (
+                "finding_id",
+                "anchor_id",
+                "member_ids",
+                "evidence_fingerprint",
+                "evidence_fingerprint_version",
+                "severity",
+            )
+        }
+        for item in warnings
+    ]
     return {
         "computed": True,
         "version": MW_VALIDATION_VERSION,
@@ -6328,6 +7026,7 @@ def _build_harmonization_stage_mw_validation(
         "error_count": error_count,
         "review_warning_count": review_warning_count,
         "display_limit": limit,
+        "finding_index": finding_index,
         "warnings": warnings[:limit],
     }
 
@@ -7022,6 +7721,13 @@ def _load_metabolite_snapshot_union(
             f"{_root_path()}/db/metabolite_harmonization/collection/"
             f"MetaboliteIdentifier/doc/{url_quote(str(node.get('id') or ''), safe='')}"
         )
+        chemical_entity = node.get("chemical_entity") or {}
+        if chemical_entity.get("id"):
+            chemical_entity["record_url"] = (
+                f"{_root_path()}/db/metabolite_harmonization/collection/"
+                f"ChemicalEntity/doc/"
+                f"{url_quote(str(chemical_entity['id']), safe='')}"
+            )
         node["generic_structure"] = _metabolite_generic_structure_classification(
             node,
             display_curation_state,
@@ -8621,6 +9327,7 @@ def ramp_id_qa(
     stages: str = "",
     denylist_rank: int = 0,
     denylist_pair: str = "",
+    mw_finding: str = "",
 ):
     query_id = (id or ids or "").strip()
     pair = None
@@ -8644,9 +9351,19 @@ def ramp_id_qa(
     overview = None
     denylist_review = None
     denylist_pair_review = None
+    mw_validation_review = None
     if pair_error:
         error = pair_error
     elif query_id:
+        if mw_finding:
+            try:
+                if len(selected_stage_keys) != 1:
+                    raise ValueError("An MW finding link requires exactly one saved stage.")
+                mw_validation_review = _build_mw_validation_review(
+                    selected_stage_keys[0], mw_finding
+                )
+            except Exception as exc:
+                error = str(exc)
         try:
             result = _load_metabolite_identifier_qa_many(
                 query_id,
@@ -8663,7 +9380,11 @@ def ramp_id_qa(
                     _load_metabolite_edge_removal_curations(),
                 )
         except Exception as exc:
-            error = str(exc)
+            graph_error = str(exc)
+            error = (
+                f"{error} Graph review also failed: {graph_error}"
+                if error else graph_error
+            )
     else:
         overview = _load_harmonization_pipeline_workbench()
     return templates.TemplateResponse(request, "ramp_id_qa.html", {
@@ -8675,6 +9396,8 @@ def ramp_id_qa(
         "denylist_review": denylist_review,
         "denylist_pair_review": denylist_pair_review,
         "denylist_pair": denylist_pair,
+        "mw_finding": mw_finding,
+        "mw_validation_review": mw_validation_review,
         "error": error,
         "overview": overview,
     })
@@ -8912,6 +9635,16 @@ async def ramp_id_qa_add_curation_cart_item(request: Request):
             str(payload.get("assertion_id") or ""),
             str(payload.get("note") or ""),
         )
+    elif action in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}:
+        curation_type = METABOLITE_MW_ADJUDICATIONS
+        operation = _metabolite_mw_adjudication_operation(
+            action,
+            str(payload.get("stage_key") or ""),
+            str(payload.get("finding_id") or ""),
+            str(payload.get("reason") or ""),
+            payload.get("supporting_ids") or "",
+            str(payload.get("note") or ""),
+        )
     elif action == "set_properties":
         curation_type = METABOLITE_RECORD_PROPERTIES
         values = payload.get("values", {})
@@ -9068,7 +9801,7 @@ async def ramp_id_qa_publish_curation_cart(request: Request):
             if cart.get("operations"):
                 for operation in cart["operations"]:
                     validate_operation(curation_type, operation)
-                if curation_type == METABOLITE_RECORD_PROPERTIES:
+                if curation_type in {CHEBI_RECORD_PROPERTIES, METABOLITE_RECORD_PROPERTIES}:
                     curation_sets = {
                         (operation.get("target") or {}).get("curation_set")
                         for operation in cart["operations"]
@@ -13404,7 +14137,9 @@ async def add_record_curation_cart_item(request: Request):
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
     curator_id, curator_name = _curator_identity(request, payload)
-    db_name = str(payload.get("curation_set") or "").strip()
+    db_name = str(
+        payload.get("database_name") or payload.get("curation_set") or ""
+    ).strip()
     coll_name = str(payload.get("model_type") or "").strip()
     doc_key = str(payload.get("doc_key") or "").strip()
     try:
@@ -13417,6 +14152,9 @@ async def add_record_curation_cart_item(request: Request):
         document = coll.get(doc_key)
         if not document or not document.get("id"):
             raise ValueError("The curation target record no longer exists")
+        target_curation_set = record_property_curation_set_for_model(
+            coll_name, db_name
+        )
         schema_fields = (_get_collection_schema_entry(db, coll_name).get("fields") or {})
         if not schema_fields:
             raise ValueError("This collection does not publish a curatable schema")
@@ -13425,7 +14163,7 @@ async def add_record_curation_cart_item(request: Request):
             raise ValueError("Choose at least one property to curate")
         curation_type, operation = _build_record_property_operation(
             document,
-            curation_set=db_name,
+            curation_set=target_curation_set,
             model_type=coll_name,
             schema_fields=schema_fields,
             raw_decisions=raw_decisions,
@@ -13440,7 +14178,7 @@ async def add_record_curation_cart_item(request: Request):
             for item in existing_cart.get("operations") or []
         }
         existing_sets.discard(None)
-        if existing_sets and existing_sets != {db_name}:
+        if existing_sets and existing_sets != {target_curation_set}:
             raise ValueError(
                 "Publish or clear the current review before curating a different graph"
             )
@@ -13597,9 +14335,13 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
     template_name = _get_document_template(db_name, coll_name)
     record_curation = None
     if doc:
+        target_curation_set = record_property_curation_set_for_model(
+            coll_name, db_name
+        )
         record_curation = {
             "available": False,
-            "curation_set": db_name,
+            "curation_set": target_curation_set,
+            "database_name": db_name,
             "model_type": coll_name,
             "target_id": doc.get("id"),
             "doc_key": doc_key,
@@ -13631,7 +14373,7 @@ async def document_detail(request: Request, db_name: str, coll_name: str, doc_ke
                         _load_record_property_snapshot, coll_name
                     )
                     curation_document = dict(doc)
-                    curation_document["_curation_set"] = db_name
+                    curation_document["_curation_set"] = target_curation_set
                     curation_document["_curation_model_type"] = coll_name
                     fields = _record_property_fields(
                         curation_document, schema_entry, snapshot

@@ -5,12 +5,16 @@ import pytest
 import src.qa_browser.app as qa_app
 
 from src.core.curations import (
+    CHEBI_RECORD_PROPERTIES,
+    METABOLITE_MW_ADJUDICATIONS,
     METABOLITE_RECORD_PROPERTIES,
     METABOLITE_RECORD_SUPPRESSIONS,
     batch_key,
     curatable_property_definitions,
     manifest_key,
     payload_sha256,
+    record_property_curation_set_for_model,
+    record_property_type_for_model,
     resolve_curation_type,
     validate_operation,
 )
@@ -68,6 +72,60 @@ def record_property_operation(identifier="REFMET:RM0006550", value="C6H10O5"):
         }],
         "note": "Correct a source typo.",
     }
+
+
+def chebi_property_operation():
+    return {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "chebi",
+            "model_type": "ChemicalEntity",
+            "id": "CHEBI:137735",
+        },
+        "decisions": [{
+            "path": ["formula"],
+            "mode": "set",
+            "value": "C18H28D4O2",
+            "observed_value": "C22H40O2",
+            "observed_exists": True,
+        }],
+        "note": "Correct deuterium atoms misread as methyl groups.",
+    }
+
+
+def test_chebi_record_properties_use_portable_source_scope():
+    operation = chebi_property_operation()
+
+    assert record_property_type_for_model("ChemicalEntity") == CHEBI_RECORD_PROPERTIES
+    assert record_property_curation_set_for_model(
+        "ChemicalEntity", "metabolite_harmonization"
+    ) == "chebi"
+    validate_operation(CHEBI_RECORD_PROPERTIES, operation)
+
+    wrong_scope = {
+        **operation,
+        "target": {**operation["target"], "curation_set": "metabolite_harmonization"},
+    }
+    with pytest.raises(ValueError, match="curation set must be 'chebi'"):
+        validate_operation(CHEBI_RECORD_PROPERTIES, wrong_scope)
+
+    wrong_id = {
+        **operation,
+        "target": {**operation["target"], "id": "HMDB:1"},
+    }
+    with pytest.raises(ValueError, match="CHEBI identifier"):
+        validate_operation(CHEBI_RECORD_PROPERTIES, wrong_id)
+
+    derived_field = {
+        **operation,
+        "decisions": [{
+            **operation["decisions"][0],
+            "path": ["calculated_mw"],
+        }],
+    }
+    with pytest.raises(ValueError, match="managed by the graph build"):
+        validate_operation(CHEBI_RECORD_PROPERTIES, derived_field)
 
 
 def test_record_property_operation_requires_rationale_and_protects_identity():
@@ -415,6 +473,8 @@ def test_multi_type_publish_reports_partial_success_and_remaining_types(monkeypa
         METABOLITE_RECORD_PROPERTIES: {"operations": [annotation]},
         METABOLITE_RECORD_SUPPRESSIONS: {"operations": []},
         "metabolite_expected_cliques": {"operations": []},
+        METABOLITE_MW_ADJUDICATIONS: {"operations": []},
+        CHEBI_RECORD_PROPERTIES: {"operations": []},
     }
 
     monkeypatch.setattr(qa_app, "_curator_identity", lambda request, payload: ("keith", "Keith"))

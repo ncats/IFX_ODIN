@@ -146,6 +146,7 @@
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
                     curator: name, curator_name: name,
+                    database_name: config.database_name,
                     curation_set: config.curation_set,
                     model_type: config.model_type,
                     doc_key: config.doc_key,
@@ -170,6 +171,7 @@
                     method: "POST", headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({
                         curator: name, curator_name: name,
+                        database_name: config.database_name,
                         curation_set: config.curation_set, model_type: config.model_type,
                         doc_key: config.doc_key,
                         decisions: [{path: JSON.parse(row.dataset.curationPath), mode: "remove_override"}],

@@ -9,13 +9,16 @@ from fastapi import HTTPException
 
 import src.qa_browser.app as qa_app
 from src.core.curations import (
+    CHEBI_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_MW_ADJUDICATIONS,
     METABOLITE_RECORD_SUPPRESSIONS,
     METABOLITE_RECORD_PROPERTIES,
     batch_key,
     manifest_key,
     payload_sha256,
+    validate_operation,
 )
 from src.qa_browser.app import (
     _build_harmonization_pipeline_tree,
@@ -48,12 +51,181 @@ from src.qa_browser.app import (
     _metabolite_mw_spread_percent,
     _prioritize_kegg_validation_samples,
     _with_validation_review_ids,
+    _with_mw_adjudications,
     _annotate_harmonization_pipeline_run_progress,
     _normalize_metabolite_rule_parameters,
     _normalize_harmonization_denylist_pair,
     _default_metabolite_denylist_pair_stage_filter,
     _wikipathways_xref_only_ids_from_rows,
 )
+
+
+def test_mw_acceptance_becomes_warning_and_membership_change_makes_it_stale():
+    warning = {
+        "finding_id": "mw-1234567890abcdef12345678",
+        "anchor_id": "CHEBI:1",
+        "member_ids": ["CHEBI:1", "HMDB:1"],
+        "evidence_fingerprint": "a" * 64,
+        "evidence_fingerprint_version": "mw-finding-v1",
+        "severity": "error",
+    }
+    validation = {"computed": True, "warnings": [warning]}
+    decision = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:1"},
+        "observed_evidence_fingerprint": "a" * 64,
+        "observed_member_ids": ["CHEBI:1", "HMDB:1"],
+    }
+
+    accepted = _with_mw_adjudications(validation, {"decisions": [decision]})
+    assert accepted["warnings"][0]["review_status"] == "accepted"
+    assert accepted["warnings"][0]["effective_severity"] == "warning"
+    assert accepted["error_count"] == 0
+    assert accepted["accepted_count"] == 1
+
+    changed = {
+        **warning,
+        "member_ids": ["CAS:1", "CHEBI:1", "HMDB:1"],
+        "finding_id": "mw-abcdef1234567890abcdef12",
+        "evidence_fingerprint": "b" * 64,
+    }
+    stale = _with_mw_adjudications(
+        {"computed": True, "warnings": [changed]}, {"decisions": [decision]}
+    )
+    assert stale["warnings"][0]["review_status"] == "stale"
+    assert stale["error_count"] == 1
+    assert stale["stale_acceptance_count"] == 1
+
+    anchor_removed = {
+        **changed,
+        "member_ids": ["CAS:1", "HMDB:1"],
+    }
+    stale_without_anchor = _with_mw_adjudications(
+        {"computed": True, "warnings": [anchor_removed]},
+        {"decisions": [decision]},
+    )
+    assert stale_without_anchor["warnings"][0]["review_status"] == "stale"
+
+
+def test_mw_adjudication_preserves_totals_beyond_display_sample():
+    validation = {
+        "computed": True,
+        "error_count": 75,
+        "review_warning_count": 12,
+        "warnings": [{
+            "finding_id": "mw-1234567890abcdef12345678",
+            "anchor_id": "CHEBI:1",
+            "member_ids": ["CHEBI:1", "HMDB:1"],
+            "evidence_fingerprint": "a" * 64,
+            "evidence_fingerprint_version": "mw-finding-v1",
+            "severity": "error",
+        }],
+    }
+
+    result = _with_mw_adjudications(validation, {"decisions": []})
+
+    assert result["detected_error_count"] == 75
+    assert result["error_count"] == 75
+    assert result["review_warning_count"] == 12
+
+
+def test_mw_adjudication_counts_accepted_finding_outside_display_sample():
+    finding = {
+        "finding_id": "mw-1234567890abcdef12345678",
+        "anchor_id": "CHEBI:1",
+        "member_ids": ["CHEBI:1", "HMDB:1"],
+        "evidence_fingerprint": "a" * 64,
+        "evidence_fingerprint_version": "mw-finding-v1",
+        "severity": "error",
+    }
+    decision = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:1"},
+        "observed_evidence_fingerprint": "a" * 64,
+        "observed_member_ids": ["CHEBI:1", "HMDB:1"],
+    }
+
+    result = _with_mw_adjudications(
+        {
+            "computed": True,
+            "error_count": 1,
+            "review_warning_count": 0,
+            "finding_index": [finding],
+            "warnings": [],
+        },
+        {"decisions": [decision]},
+    )
+
+    assert result["error_count"] == 0
+    assert result["accepted_count"] == 1
+    assert result["warnings"] == []
+
+
+def test_reaccepting_after_anchor_removal_uses_current_anchor(monkeypatch):
+    finding = {
+        "finding_id": "mw-abcdef1234567890abcdef12",
+        "anchor_id": "HMDB:1",
+        "member_ids": ["CAS:1", "HMDB:1"],
+        "evidence_fingerprint": "b" * 64,
+        "evidence_fingerprint_version": "mw-finding-v1",
+        "severity": "error",
+    }
+    monkeypatch.setattr(
+        qa_app,
+        "_get_harmonization_stage",
+        lambda _stage_key: {"validation": {"mw_spread": {"warnings": [finding]}}},
+    )
+    operation = qa_app._metabolite_mw_adjudication_operation(
+        "accept_mw_discrepancy",
+        "stage-1",
+        finding["finding_id"],
+        "salt_or_counterion",
+        [],
+        "Reviewed again after membership changed.",
+    )
+
+    assert operation["target"]["anchor_id"] == "HMDB:1"
+    assert "superseded_anchor_ids" not in operation
+    validate_operation(METABOLITE_MW_ADJUDICATIONS, operation)
+
+
+def test_mw_history_preserves_stale_sibling_after_split_branch_is_accepted():
+    original = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:A"},
+        "observed_member_ids": ["CHEBI:A", "HMDB:B"],
+        "observed_evidence_fingerprint": "a" * 64,
+    }
+    accepted_branch = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:A"},
+        "observed_member_ids": ["CHEBI:A", "HMDB:X"],
+        "observed_evidence_fingerprint": "b" * 64,
+    }
+    validation = {
+        "computed": True,
+        "finding_index": [
+            {
+                "member_ids": ["CHEBI:A", "HMDB:X"],
+                "evidence_fingerprint": "b" * 64,
+                "severity": "error",
+            },
+            {
+                "member_ids": ["HMDB:B", "CAS:Y"],
+                "evidence_fingerprint": "c" * 64,
+                "severity": "error",
+            },
+        ],
+        "warnings": [],
+    }
+
+    result = _with_mw_adjudications(
+        validation,
+        {"decisions": [accepted_branch, original]},
+    )
+
+    assert result["finding_index"][0]["review_status"] == "accepted"
+    assert result["finding_index"][1]["review_status"] == "stale"
 
 
 class _FakeCurationStorage:
@@ -430,8 +602,8 @@ def test_overlay_mass_profiles_are_loaded_once_per_pipeline_run(monkeypatch):
     calls = []
     expected = {"REFMET:RM1": {"whole": {"average": [150.13]}}}
 
-    def load(_db, overlays):
-        calls.append(overlays)
+    def load(_db, overlays, chemical_entity_overlays=None):
+        calls.append((overlays, chemical_entity_overlays))
         return expected
 
     monkeypatch.setattr(qa_app, "_load_metabolite_identifier_mass_values", load)
@@ -440,7 +612,175 @@ def test_overlay_mass_profiles_are_loaded_once_per_pipeline_run(monkeypatch):
 
     assert provider(overlays) is expected
     assert provider(overlays) is expected
-    assert calls == [overlays]
+    assert calls == [(overlays, None)]
+
+
+def test_chebi_record_overlay_recalculates_and_replaces_mass_evidence(monkeypatch):
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "chebi",
+            "model_type": "ChemicalEntity",
+            "id": "CHEBI:137735",
+        },
+        "decisions": [
+            {
+                "path": ["smiles"],
+                "mode": "set",
+                "value": "corrected-isotopic-smiles",
+                "observed_value": "bad-smiles",
+                "observed_exists": True,
+            },
+            {
+                "path": ["mass"],
+                "mode": "set",
+                "value": "284.31",
+                "observed_value": "336.40",
+                "observed_exists": True,
+            },
+            {
+                "path": ["monoisotopic_mass"],
+                "mode": "set",
+                "value": "284.265337",
+                "observed_value": "336.30283",
+                "observed_exists": True,
+            },
+        ],
+        "note": "Correct deuterium atoms misread as methyl groups.",
+    }
+    batch = {
+        "format_version": 2,
+        "curation_batch_id": "chebi-deuterium-fix",
+        "curation_type": CHEBI_RECORD_PROPERTIES,
+        "published_at": "2026-09-30T12:00:00Z",
+        "operations": [operation],
+    }
+    state = qa_app._load_metabolite_curations(_FakeCurationStorage(
+        _typed_curation_objects(CHEBI_RECORD_PROPERTIES, [batch])
+    ))
+    source_document = {
+        "id": "CHEBI:137735",
+        "smiles": "bad-smiles",
+        "mass": "336.40",
+        "monoisotopic_mass": "336.30283",
+        "calculated_mw": "336.40",
+        "calculated_monoisotopic_mass": "336.30283",
+        "structure_components": [],
+    }
+
+    class OverlayAql:
+        def execute(self, _query, bind_vars=None, **_kwargs):
+            assert bind_vars == {
+                "@collection": "ChemicalEntity",
+                "target_ids": ["CHEBI:137735"],
+            }
+            return [source_document]
+
+    class OverlayDb:
+        aql = OverlayAql()
+
+    monkeypatch.setattr(
+        qa_app,
+        "_get_collection_schema_entry",
+        lambda _db, _name: {"fields": {
+            "smiles": "str",
+            "mass": "str",
+            "monoisotopic_mass": "str",
+        }},
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "calculate_smiles_chemistry",
+        lambda smiles, input_field: {
+            "calculated_mw": "284.31",
+            "calculated_monoisotopic_mass": "284.265337",
+            "structure_components": [],
+            "structure_calculation_input_field": input_field,
+        },
+    )
+
+    overlays, reports = qa_app._load_record_overlays(
+        OverlayDb(),
+        state["chebi_record_property_snapshot"],
+        curation_set="chebi",
+        model_type="ChemicalEntity",
+    )
+
+    assert len(reports) == 3
+    assert overlays["CHEBI:137735"]["calculated_monoisotopic_mass"] == "284.265337"
+
+    class MassAql:
+        def execute(self, _query, **_kwargs):
+            return [{
+                "id": "CHEBI:137735",
+                "chemistry": {
+                    "source": "ChEBI",
+                    "source_id": "CHEBI:137735",
+                    "molecular_formula": "C22H40O2",
+                    "average": ["336.40", "336.40"],
+                    "monoisotopic": ["336.30283", "336.30283"],
+                    "components": [],
+                },
+            }]
+
+    class MassDb:
+        aql = MassAql()
+
+        def has_collection(self, name):
+            return name == "ChemicalEntity"
+
+    masses = _load_metabolite_identifier_mass_values(
+        MassDb(), chemical_entity_overlays=overlays
+    )
+
+    assert masses["CHEBI:137735"]["whole"] == {
+        "average": [284.31],
+        "monoisotopic": [284.265337],
+    }
+
+
+def test_chebi_overlay_can_add_first_mass_evidence_to_empty_source_record():
+    overlay = {
+        "id": "CHEBI:1",
+        "formula": "H2O",
+        "mass": None,
+        "monoisotopic_mass": None,
+        "calculated_mw": "18.015",
+        "calculated_monoisotopic_mass": "18.010565",
+        "structure_components": [],
+    }
+
+    class EmptyMassAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert "OR d.id IN @overlay_ids" in query
+            assert bind_vars == {"overlay_ids": ["CHEBI:1"]}
+            return [{
+                "id": "CHEBI:1",
+                "chemistry": {
+                    "source": "ChEBI",
+                    "source_id": "CHEBI:1",
+                    "molecular_formula": None,
+                    "average": [None, None],
+                    "monoisotopic": [None, None],
+                    "components": [],
+                },
+            }]
+
+    class EmptyMassDb:
+        aql = EmptyMassAql()
+
+        def has_collection(self, name):
+            return name == "ChemicalEntity"
+
+    masses = _load_metabolite_identifier_mass_values(
+        EmptyMassDb(), chemical_entity_overlays={"CHEBI:1": overlay}
+    )
+
+    assert masses["CHEBI:1"]["whole"] == {
+        "average": [18.015],
+        "monoisotopic": [18.010565],
+    }
 
 
 def test_retired_derived_cutoff_rule_remains_executable_for_historical_pipelines(monkeypatch):
@@ -628,7 +968,10 @@ def test_record_property_curations_project_stage_values_without_writing_graph(mo
 
     class FakeAql:
         def execute(self, _query, bind_vars=None, **_kwargs):
-            assert bind_vars == {"target_ids": ["KEGG.COMPOUND:C00626"]}
+            assert bind_vars == {
+                "@collection": "MetaboliteIdentifier",
+                "target_ids": ["KEGG.COMPOUND:C00626"],
+            }
             return [evidence]
 
     class FakeDb:
@@ -2475,33 +2818,324 @@ def test_denylist_pair_review_template_shows_provenance_and_retain_action():
     assert 'data-curation-action="retain_edge"' in html
 
 
+def test_full_page_mw_finding_panel_supports_acceptance_workflow():
+    html = qa_app.templates.env.get_template("ramp_id_qa.html").render(
+        request={"scope": {"path": "/ramp-id-qa"}},
+        root_path="",
+        query_id="CHEBI:1 HMDB:1",
+        selected_snapshot_keys=["stage-1"],
+        denylist_pair_review=None,
+        denylist_review=None,
+        result=None,
+        overview=None,
+        error=None,
+        mw_validation_review={
+            "stage_key": "stage-1",
+            "stage_name": "Final",
+            "validator_version": "component-aware-v1",
+            "threshold_percent": 10,
+            "reason_options": [{"value": "salt_or_counterion", "label": "Salt or counterion"}],
+            "finding": {
+                "finding_id": "mw-1234567890abcdef12345678",
+                "review_status": "unresolved",
+                "detected_severity": "error",
+                "spread_percent": 50,
+                "size": 2,
+                "channel_results": {"average": {
+                    "summary": {"min": 100, "max": 150, "median": 125, "count": 2},
+                    "mass_cluster_count": 2,
+                    "explained_mass_cluster_count": 0,
+                }},
+                "member_mass_examples": [],
+                "mass_value_rows": [
+                    {
+                        "channel": "average",
+                        "channel_label": "Average",
+                        "mass": 150.0,
+                        "mass_label": "150",
+                        "identifiers": ["HMDB:1"],
+                    },
+                    {
+                        "channel": "average",
+                        "channel_label": "Average",
+                        "mass": 100.0,
+                        "mass_label": "100",
+                        "identifiers": ["CHEBI:1"],
+                    },
+                ],
+                "mass_cluster_rows": [{
+                    "channel": "average",
+                    "channel_label": "Average",
+                    "cluster_count": 2,
+                    "explained_cluster_count": 0,
+                    "clusters": [
+                        {"mass_label": "≈150 Da", "identifier_count": 1},
+                        {"mass_label": "≈100 Da", "identifier_count": 1},
+                    ],
+                    "fallback_range_label": None,
+                    "evidence_complete": True,
+                }],
+                "mass_evidence_id_count": 2,
+                "component_matches": [],
+                "source_mass_observations": [
+                    {
+                        "member_id": "CHEBI:1",
+                        "model_type": "ChemicalEntity",
+                        "source": "ChEBI",
+                        "source_id": "CHEBI:1",
+                        "channel": "monoisotopic",
+                        "value": 100,
+                    },
+                    {
+                        "member_id": "CHEBI:1",
+                        "model_type": "MetaboliteIdentifier",
+                        "source": "ChEBI",
+                        "source_id": "CHEBI:1",
+                        "channel": "monoisotopic",
+                        "value": 150,
+                    },
+                ],
+                "adjudication": None,
+            },
+        },
+    )
+
+    assert "MW Validation Finding" in html
+    assert "Unresolved error" in html
+    assert "Queue accepted discrepancy" in html
+    assert 'data-action="accept_mw_discrepancy"' in html
+    assert "does not change clique membership or source chemistry" in html
+    assert "Component and source evidence" in html
+    assert "Mass clusters" in html
+    assert "2 clusters" in html
+    assert "0 component-explained" in html
+    assert "≈150 Da" in html
+    assert "Exact values and identifiers (2 IDs)" in html
+    assert "Mass (Da)" in html
+    mass_table = html.split("metabolite-mw-value-table", 1)[1].split("</table>", 1)[0]
+    assert mass_table.index("HMDB:1") < mass_table.index("CHEBI:1")
+    assert "Reason &amp; curation" in html
+    assert "Review ChEBI ontology record" in html
+    assert "Review ChEBI SDF record" in html
+    assert "/collection/ChemicalEntity/doc/CHEBI%3A1" in html
+    assert "/collection/MetaboliteIdentifier/doc/CHEBI%3A1" in html
+    assert "<details open>" not in html
+
+
+def test_mw_finding_mass_rows_group_exact_values_and_sort_descending_by_channel():
+    rows = qa_app._mw_finding_mass_value_rows({
+        "member_mass_examples": [
+            {
+                "member_id": "CHEBI:1",
+                "average_masses": [100.0, 150.0],
+                "monoisotopic_masses": [99.9],
+            },
+            {
+                "member_id": "HMDB:1",
+                "average_masses": [150.0],
+                "monoisotopic_masses": [149.8, 99.9],
+            },
+        ],
+    })
+
+    assert [(row["channel"], row["mass"]) for row in rows] == [
+        ("average", 150.0),
+        ("average", 100.0),
+        ("monoisotopic", 149.8),
+        ("monoisotopic", 99.9),
+    ]
+    assert rows[0]["identifiers"] == ["CHEBI:1", "HMDB:1"]
+
+
+def test_mw_finding_mass_rows_preserve_legacy_untyped_mass_evidence():
+    rows = qa_app._mw_finding_mass_value_rows({
+        "member_mass_examples": [
+            {"member_id": "CHEBI:1", "masses": [100.0, 150.0]},
+            {"member_id": "HMDB:1", "masses": [150.0]},
+        ],
+    })
+
+    assert [(row["channel"], row["mass"]) for row in rows] == [
+        ("unspecified", 150.0),
+        ("unspecified", 100.0),
+    ]
+    assert rows[0]["channel_label"] == "Unspecified (legacy)"
+    assert rows[0]["identifiers"] == ["CHEBI:1", "HMDB:1"]
+
+
+def test_mw_finding_cluster_rows_use_validator_tolerance_and_descending_order():
+    finding = {
+        "channel_results": {"average": {
+            "summary": {"min": 100.0, "max": 150.0, "median": 149.95, "count": 3},
+            "mass_cluster_count": 2,
+            "explained_mass_cluster_count": 0,
+        }},
+        "member_mass_examples": [
+            {"member_id": "CHEBI:1", "average_masses": [100.0, 150.0]},
+            {"member_id": "HMDB:1", "average_masses": [149.95]},
+        ],
+    }
+
+    rows = qa_app._mw_finding_mass_cluster_rows(finding)
+
+    assert len(rows) == 1
+    assert rows[0]["channel"] == "average"
+    assert rows[0]["cluster_count"] == 2
+    assert rows[0]["clusters"] == [
+        {"mass_label": "149.95–150 Da", "identifier_count": 2},
+        {"mass_label": "≈100 Da", "identifier_count": 1},
+    ]
+
+
+def test_mw_finding_cluster_rows_do_not_claim_incomplete_legacy_membership():
+    finding = {
+        "evidence_fingerprint_version": "legacy-saved-finding-v1",
+        "channel_results": {"average": {
+            "summary": {"min": 100.0, "max": 200.0, "median": 150.0, "count": 3},
+            "mass_cluster_count": 2,
+            "explained_mass_cluster_count": 0,
+        }},
+        "member_ids": [
+            "CHEBI:1", "HMDB:1", "REFMET:1", "REFMET:2", "REFMET:3",
+            "REFMET:4", "REFMET:5", "REFMET:6", "REFMET:7", "REFMET:8",
+        ],
+        "member_mass_examples": [
+            {"member_id": "CHEBI:1", "average_masses": [100.0]},
+            {"member_id": "HMDB:1", "average_masses": [200.0]},
+            {"member_id": "REFMET:1", "average_masses": [100.0]},
+            {"member_id": "REFMET:2", "average_masses": [200.0]},
+            {"member_id": "REFMET:3", "average_masses": [100.0]},
+            {"member_id": "REFMET:4", "average_masses": [200.0]},
+            {"member_id": "REFMET:5", "average_masses": [100.0]},
+            {"member_id": "REFMET:6", "average_masses": [200.0]},
+        ],
+    }
+
+    row = qa_app._mw_finding_mass_cluster_rows(finding)[0]
+
+    assert row["cluster_count"] == 2
+    assert row["clusters"] == []
+    assert row["fallback_range_label"] == "100–200 Da"
+    assert row["evidence_complete"] is False
+
+
+def test_full_clique_page_uses_compact_node_curation_layout_without_rule_pills():
+    template_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_qa.html"
+    )[0]
+    visuals_source = (
+        qa_app.STATIC_DIR / "metabolite_harmonization_visuals.js"
+    ).read_text()
+    cart_source = (
+        qa_app.STATIC_DIR / "metabolite_curation_cart.js"
+    ).read_text()
+
+    assert "data-selected-clique-rules" not in template_source
+    assert "renderRuleBadges" not in template_source
+    assert "Open MetaboliteIdentifier record" in visuals_source
+    assert "Open ChemicalEntity record" in visuals_source
+    assert 'detailRow("Raw"' in visuals_source
+    assert 'detailRow("Curated"' in visuals_source
+    assert 'detailRow("Effective"' in visuals_source
+    assert 'data-generic-classification-choice="detected"' in visuals_source
+    assert '[data-generic-classification-value]:checked' in cart_source
+    assert "event.submitter?.dataset.genericClassificationChoice" in cart_source
+    identifier_block = visuals_source.split("const identifierRows = [", 1)[1].split(
+        "].filter(Boolean).join", 1
+    )[0]
+    assert 'detailRow("ID"' in identifier_block
+    assert 'detailRow("Source"' in identifier_block
+    assert 'detailRow("Names"' in identifier_block
+    assert 'detailRow("Prefix"' not in identifier_block
+    assert 'detailRow("Name count"' not in identifier_block
+
+
+def test_full_page_keeps_saved_mw_finding_when_graph_query_fails(monkeypatch):
+    review = {"finding": {"finding_id": "mw-1"}}
+    monkeypatch.setattr(qa_app, "_build_mw_validation_review", lambda *_args: review)
+
+    def fail_graph(*_args, **_kwargs):
+        raise RuntimeError("graph memory limit exceeded")
+
+    monkeypatch.setattr(qa_app, "_load_metabolite_identifier_qa_many", fail_graph)
+    monkeypatch.setattr(
+        qa_app.templates,
+        "TemplateResponse",
+        lambda _request, _name, context: context,
+    )
+
+    context = qa_app.ramp_id_qa(
+        {},
+        id="CHEBI:1 HMDB:1",
+        stages="stage-1",
+        mw_finding="mw-1",
+    )
+
+    assert context["mw_validation_review"] is review
+    assert "graph memory limit exceeded" in context["error"]
+
+
+def test_full_page_mw_history_displays_supporting_ids():
+    source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_qa.html"
+    )[0]
+
+    assert "finding.adjudication.supporting_ids" in source
+
+
+def test_free_anomer_panel_is_bounded_to_the_stage_that_applied_the_rule():
+    source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_stage_stats.html"
+    )[0]
+
+    assert 'stats.stage.rule_ids[-1] == "merge_free_anomeric_forms"' in source
+
+
+def test_stage_cards_color_mw_status_counts_independently():
+    pipeline_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_pipeline_table.html"
+    )[0]
+    stats_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_stage_stats_table.html"
+    )[0]
+
+    for class_name in (
+        "metabolite-mw-count-error",
+        "metabolite-mw-count-warning",
+        "metabolite-mw-count-accepted",
+    ):
+        assert class_name in pipeline_source
+        assert class_name in stats_source
+
+
 def test_metabolite_graph_node_highlights_use_neutral_elliptical_underlays():
     qa_source = qa_app.templates.env.loader.get_source(
         qa_app.templates.env, "ramp_id_qa.html"
-    )[0]
-    stats_source = qa_app.templates.env.loader.get_source(
-        qa_app.templates.env, "ramp_id_stage_stats.html"
     )[0]
     shared_source = (
         qa_app.STATIC_DIR / "metabolite_harmonization_visuals.js"
     ).read_text()
 
-    for source in (qa_source, stats_source, shared_source):
+    for source in (qa_source, shared_source):
         assert '"underlay-shape": "ellipse"' in source
+
+    stats_source = qa_app.templates.env.loader.get_source(
+        qa_app.templates.env, "ramp_id_stage_stats.html"
+    )[0]
+    assert "cytoscape.min.js" not in stats_source
+    assert "/ramp-id-qa/api/metabolite" not in stats_source
+    assert "Review here" not in stats_source
 
 
 def test_pending_record_participation_updates_visible_graph_nodes():
     qa_source = qa_app.templates.env.loader.get_source(
         qa_app.templates.env, "ramp_id_qa.html"
     )[0]
-    stats_source = qa_app.templates.env.loader.get_source(
-        qa_app.templates.env, "ramp_id_stage_stats.html"
-    )[0]
     shared_source = (
         qa_app.STATIC_DIR / "metabolite_harmonization_visuals.js"
     ).read_text()
 
-    for source in (qa_source, stats_source):
+    for source in (qa_source,):
         assert 'node.toggleClass("pending-record-suppression"' in source
         assert 'node.toggleClass("pending-record-restoration"' in source
         assert "Draft participation changes" in source
@@ -2973,7 +3607,7 @@ def test_generic_structure_stage_stats_lists_affected_cliques():
                 "rule_enabled": True,
                 "inconsistent_clique_count": 1,
                 "generic_unknown_clique_count": 1,
-                "warning_count": 2,
+                    "warning_count": 1,
                 "warnings": [{
                     "status": "inconsistent",
                     "rank_by_size": 4,
@@ -2999,7 +3633,7 @@ def test_generic_structure_stage_stats_lists_affected_cliques():
 
     assert "Generic-Structure Consistency" in html
     assert "1 failure" in html
-    assert "1 classification gap" in html
+    assert "classification gap" not in html.lower()
     assert "KEGG:C00626" in html
     assert "Review ID:" in html
     assert "Pending changes" in html
@@ -3007,7 +3641,7 @@ def test_generic_structure_stage_stats_lists_affected_cliques():
     assert "data-generic-cart-flag" in html
     assert "Review clique" in html
     assert "stages=stage-structure" in html
-    assert "Showing the top 1 of 2 affected cliques" in html
+    assert "Showing the top" not in html
 
 
 def test_generic_structure_status_renders_in_pipeline_cards_and_stage_listing():
@@ -3093,9 +3727,8 @@ def test_generic_structure_status_renders_in_pipeline_cards_and_stage_listing():
 
     for html in (pipeline_html, stage_listing_html):
         assert "2 mixed" in html
-        assert "5 gaps" in html
         assert "3 fail" in html
-        assert "7 gaps" in html
+        assert " gaps" not in html
         assert "Not computed" in html
         assert "/ramp-id-qa/stages/pre-rule#genericStructureValidation" in html
         assert "/ramp-id-qa/stages/post-rule#genericStructureValidation" in html

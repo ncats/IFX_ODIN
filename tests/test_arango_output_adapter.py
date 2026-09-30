@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.curations import (
+    CHEBI_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_RECORD_PROPERTIES,
     record_property_decisions_from_operation,
@@ -600,6 +601,68 @@ def test_apply_generic_record_property_curation_writes_effective_and_original_va
     assert patch["_curation_original"] == {"formula": "C6H1005"}
     assert patch["sources"][-1].startswith("Manual Curation\tbatch-1")
     assert result["applied"] == 1
+
+
+def test_apply_chebi_record_curation_is_portable_and_recalculates_structure(monkeypatch):
+    db = CurationDb([{
+        "_key": "CHEBI:137735",
+        "id": "CHEBI:137735",
+        "smiles": "bad-smiles",
+        "mass": "336.40",
+        "calculated_mw": "336.40",
+        "structure_components": [{"mw": "336.40"}],
+    }])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "standalone_chebi_graph"
+    adapter._collection_schemas = {
+        "ChemicalEntity": {"fields": {"smiles": "str", "mass": "str"}},
+    }
+    adapter.get_db = lambda: db
+    monkeypatch.setattr(
+        "src.output_adapters.arango_output_adapter.calculate_smiles_chemistry",
+        lambda smiles, input_field: {
+            "calculated_mw": "284.31",
+            "calculated_monoisotopic_mass": "284.265337",
+            "structure_components": [],
+            "structure_calculation_input_field": input_field,
+        },
+    )
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "chebi",
+            "model_type": "ChemicalEntity",
+            "id": "CHEBI:137735",
+        },
+        "decisions": [
+            {
+                "path": ["smiles"],
+                "mode": "set",
+                "value": "corrected-smiles",
+                "observed_value": "bad-smiles",
+            },
+            {
+                "path": ["mass"],
+                "mode": "set",
+                "value": "284.31",
+                "observed_value": "336.40",
+            },
+        ],
+        "note": "Correct deuterium atoms misread as methyl groups",
+    }
+
+    adapter.apply_curation_snapshots({
+        CHEBI_RECORD_PROPERTIES: curation_snapshot(
+            CHEBI_RECORD_PROPERTIES, operation
+        ),
+    })
+
+    patch = db.aql.calls[1]["bind_vars"]["patch"]
+    assert patch["smiles"] == "corrected-smiles"
+    assert patch["calculated_mw"] == "284.31"
+    assert patch["calculated_monoisotopic_mass"] == "284.265337"
+    assert patch["structure_components"] == []
 
 
 def test_record_property_restore_replaces_persisted_document_without_override_fields():

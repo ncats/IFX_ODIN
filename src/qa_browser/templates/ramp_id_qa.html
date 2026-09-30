@@ -44,6 +44,130 @@
 
     {% include "metabolite_curation_cart.html" %}
 
+    {% if mw_validation_review %}
+    {% set finding = mw_validation_review.finding %}
+    <section class="ramp-id-table-section metabolite-mw-finding-review" aria-label="Molecular-weight validation finding">
+        <div class="ramp-id-section-header">
+            <div>
+                <h2>MW Validation Finding</h2>
+                <p>
+                    <a href="{{ root_path }}/ramp-id-qa/stages/{{ mw_validation_review.stage_key }}" target="_blank" rel="noopener noreferrer">{{ mw_validation_review.stage_name }}</a>
+                    · <code>{{ finding.finding_id }}</code>
+                </p>
+            </div>
+            {% if finding.review_status == "accepted" %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-pass">Accepted warning</span>
+            {% elif finding.review_status == "stale" %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-missing">Stale acceptance</span>
+            {% elif finding.detected_severity == "warning" %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-missing">Component-match warning</span>
+            {% else %}
+            <span class="metabolite-assertion-status metabolite-assertion-status-split">Unresolved error</span>
+            {% endif %}
+        </div>
+        <p class="metabolite-mw-finding-summary">
+            Validator <code>{{ mw_validation_review.validator_version }}</code> found
+            {{ "%.1f"|format(finding.spread_percent) }}% spread across {{ finding.size }} identifiers.
+            The configured threshold was {{ "%.0f"|format(mw_validation_review.threshold_percent) }}%.
+        </p>
+        {% if finding.review_status == "stale" %}
+        <div class="inline-warning">
+            The reviewed clique membership or MW evidence has changed. Review the current finding and accept it again if the explanation still holds.
+        </div>
+        {% endif %}
+        <div class="metabolite-mw-review-layout">
+            <div class="metabolite-mw-mass-panel">
+                <h3>Mass clusters</h3>
+                <div class="metabolite-mw-cluster-list">
+                    {% for row in finding.mass_cluster_rows %}
+                    <section class="metabolite-mw-cluster-row">
+                        <div class="metabolite-mw-cluster-heading">
+                            <strong>{{ row.channel_label }}</strong>
+                            <small>
+                                {{ row.cluster_count }} cluster{% if row.cluster_count != 1 %}s{% endif %}
+                                {% if row.explained_cluster_count is not none %} · {{ row.explained_cluster_count }} component-explained{% endif %}
+                            </small>
+                        </div>
+                        <div class="metabolite-mw-cluster-chips">
+                            {% for cluster in row.clusters %}
+                            <span class="metabolite-mw-cluster-chip"><span class="mono">{{ cluster.mass_label }}</span> · {{ cluster.identifier_count }} ID{% if cluster.identifier_count != 1 %}s{% endif %}</span>
+                            {% else %}
+                            <span class="metabolite-mw-cluster-fallback">
+                                {% if row.fallback_range_label %}{{ row.fallback_range_label }} · {% endif %}Exact cluster membership was not saved for this older finding.
+                            </span>
+                            {% endfor %}
+                        </div>
+                    </section>
+                    {% else %}
+                    <p class="metabolite-mw-cluster-fallback">No mass-bearing identifier evidence was saved for this finding.</p>
+                    {% endfor %}
+                </div>
+                <details class="metabolite-mw-evidence-details">
+                    <summary>Exact values and identifiers ({{ finding.mass_evidence_id_count }} ID{% if finding.mass_evidence_id_count != 1 %}s{% endif %})</summary>
+                    <div class="table-wrap">
+                        <table class="metabolite-mw-value-table">
+                            <thead><tr><th>Mass type</th><th>Mass (Da)</th><th>Identifiers</th></tr></thead>
+                            <tbody>
+                            {% for row in finding.mass_value_rows %}
+                            <tr>
+                                <td>{{ row.channel_label }}</td>
+                                <td class="mono metabolite-mw-value">{{ row.mass_label }}</td>
+                                <td><div class="metabolite-mw-value-identifiers">{% for identifier in row.identifiers %}<code>{{ identifier }}</code>{% endfor %}</div></td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="3">No exact mass evidence was saved for this finding.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                <details class="metabolite-mw-evidence-details">
+                    <summary>Component and source evidence</summary>
+                    <div class="metabolite-id-member-list metabolite-mw-finding-evidence">
+                        {% for match in finding.component_matches|default([], true) %}
+                        <span><strong>{{ match.channel|title }} component:</strong> <code>{{ match.whole_member_id }}</code> {{ match.whole_mass }} ↔ <code>{{ match.component_member_id }}</code> component {{ match.component_mass }}{% if match.component_formula %} ({{ match.component_formula }}){% endif %}</span>
+                        {% endfor %}
+                        {% for observation in finding.source_mass_observations|default([], true) if observation.source == "ChEBI" %}
+                        <span><strong>ChEBI {{ "ontology record" if observation.model_type == "ChemicalEntity" else "SDF record" }}:</strong> <code>{{ observation.source_id }}</code> · {{ observation.channel }} {{ observation.value }}{% if observation.molecular_formula %} · {{ observation.molecular_formula }}{% endif %} · {% if observation.model_type == "ChemicalEntity" %}<a href="{{ root_path }}/db/metabolite_harmonization/collection/ChemicalEntity/doc/{{ observation.source_id|urlencode }}" target="_blank" rel="noopener noreferrer">Review ChEBI ontology record</a>{% else %}<a href="{{ root_path }}/db/metabolite_harmonization/collection/MetaboliteIdentifier/doc/{{ observation.member_id|urlencode }}" target="_blank" rel="noopener noreferrer">Review ChEBI SDF record</a>{% endif %}</span>
+                        {% endfor %}
+                    </div>
+                </details>
+            </div>
+            <aside class="metabolite-mw-adjudication-card">
+                <h3>Reason &amp; curation</h3>
+                {% if finding.adjudication %}
+                <section class="metabolite-mw-adjudication-history">
+                    <strong>{{ "Accepted explanation" if finding.review_status == "accepted" else "Previous acceptance" }}</strong>
+                    <p>{% if finding.adjudication.reason %}<strong>{{ finding.adjudication.reason|replace("_", " ")|title }}</strong> · {% endif %}{{ finding.adjudication.note }}</p>
+                    {% if finding.adjudication.supporting_ids %}<p><strong>Supporting IDs:</strong> {% for identifier in finding.adjudication.supporting_ids %}<code>{{ identifier }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+                    <small>{% if finding.adjudication.published_by %}{{ finding.adjudication.published_by.name|default(finding.adjudication.published_by.id, true) }} · {% endif %}{{ finding.adjudication.published_at }} · batch <code>{{ finding.adjudication.curation_batch_id }}</code></small>
+                </section>
+                {% endif %}
+                {% if finding.review_status == "accepted" %}
+                <details class="metabolite-mw-reopen-control">
+                    <summary>Reopen finding</summary>
+                    <form class="metabolite-mw-adjudication-form" data-mw-adjudication-form data-action="reopen_mw_discrepancy"
+                          data-stage-key="{{ mw_validation_review.stage_key }}" data-finding-id="{{ finding.finding_id }}">
+                        <label><span>Why reopen this finding?</span><textarea rows="2" data-mw-adjudication-note required></textarea></label>
+                        <button type="submit" class="btn">Queue reopened discrepancy</button>
+                        <small>The accepted warning remains active until this draft is published.</small>
+                    </form>
+                </details>
+                {% else %}
+                <form class="metabolite-mw-adjudication-form" data-mw-adjudication-form data-action="accept_mw_discrepancy"
+                      data-stage-key="{{ mw_validation_review.stage_key }}" data-finding-id="{{ finding.finding_id }}">
+                    <label><span>Reason</span><select data-mw-adjudication-reason required><option value="">Choose an explanation…</option>{% for option in mw_validation_review.reason_options %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}</select></label>
+                    <label><span>Supporting IDs (optional)</span><input data-mw-adjudication-supporting-ids placeholder="CHEBI:15377 PUBCHEM.COMPOUND:962"></label>
+                    <label><span>Why is this acceptable?</span><textarea rows="2" data-mw-adjudication-note required></textarea></label>
+                    <button type="submit" class="btn btn-primary">Queue accepted discrepancy</button>
+                    <small>This changes validation status only. It does not change clique membership or source chemistry.</small>
+                </form>
+                {% endif %}
+            </aside>
+        </div>
+    </section>
+    {% endif %}
+
     {% if denylist_pair_review %}
     <section class="ramp-id-table-section metabolite-denylist-pair-review" aria-label="Published deny-list pair review">
         <div class="ramp-id-section-header">
@@ -315,7 +439,6 @@
                 <strong data-selected-clique-title>Stage group</strong>
                 <span data-selected-clique-subtitle></span>
             </div>
-            <div class="metabolite-id-snapshot-rules" data-selected-clique-rules></div>
             <div class="metabolite-id-component-layout">
                 <div id="metaboliteIdSelectedCliqueGraph" class="metabolite-id-cy metabolite-id-snapshot-graph"></div>
                 <aside class="metabolite-id-graph-detail">
@@ -330,7 +453,7 @@
     {% endif %}
 </div>
 
-<script src="{{ root_path }}/static/metabolite_curation_cart.js?v=2"></script>
+<script src="{{ root_path }}/static/metabolite_curation_cart.js?v=4"></script>
 
 {% if result and result.found %}
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
@@ -994,12 +1117,15 @@
                 [
                     detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, {html: true}),
                     detailRow("Source", sourceLink, {html: true}),
-                    detailRow("Prefix", data.prefix),
                     detailRow("Names", formatInlineList(data.names || [], 6), {html: true}),
-                    detailRow("Name count", data.name_count),
-                    detailRow("Synonym count", data.synonym_count),
                 ].filter(Boolean).join("")
             }</div></section>`,
+            `<section class="metabolite-id-detail-section metabolite-node-curation"><h4>Curation</h4><nav class="metabolite-record-links" aria-label="Exact source records">${
+                [
+                    data.record_url ? `<a href="${escapeHtml(data.record_url)}">Open MetaboliteIdentifier record</a>` : "",
+                    entity.record_url ? `<a href="${escapeHtml(entity.record_url)}">Open ChemicalEntity record</a>` : "",
+                ].filter(Boolean).join("")
+            }</nav></section>`,
             `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${
                 [
                     detailRow("MW", data.mass_summary ? `min ${data.mass_summary.min} · median ${data.mass_summary.median} · max ${data.mass_summary.max} (${data.mass_summary.count})` : ""),
@@ -1022,24 +1148,6 @@
         return {snapshotSection, snapshotGraph};
     }
 
-    function renderRuleBadges(container, rules) {
-        container.innerHTML = "";
-        if (!rules || !rules.length) {
-            const item = document.createElement("span");
-            item.textContent = "Baseline only";
-            container.appendChild(item);
-            return;
-        }
-        rules.forEach((rule) => {
-            const item = document.createElement("span");
-            const parameters = Object.entries(rule.parameters || {})
-                .map(([key, value]) => `${key}=${value}`)
-                .join(" · ");
-            item.textContent = parameters ? `${rule.label} · ${parameters}` : rule.label;
-            container.appendChild(item);
-        });
-    }
-
     function renderSelectedSnapshotClique(sankeyNode) {
         if (!window.cytoscape) {
             return;
@@ -1049,7 +1157,6 @@
         const container = document.getElementById("metaboliteIdSelectedCliqueGraph");
         const title = panel?.querySelector("[data-selected-clique-title]");
         const subtitle = panel?.querySelector("[data-selected-clique-subtitle]");
-        const rules = panel?.querySelector("[data-selected-clique-rules]");
         const {snapshotSection, snapshotGraph} = findSnapshotClique(sankeyNode);
         if (!snapshotGraph) {
             if (selectedCliqueCy) {
@@ -1091,9 +1198,6 @@
                 parts.push(`showing ${Number(snapshotGraph.display_edge_count || 0).toLocaleString()} evidence edges`);
             }
             subtitle.textContent = parts.filter(Boolean).join(" · ");
-        }
-        if (rules) {
-            renderRuleBadges(rules, snapshotSection?.rules || []);
         }
         if (selectedCliqueCy) {
             selectedCliqueCy.destroy();
